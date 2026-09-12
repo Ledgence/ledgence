@@ -1,5 +1,7 @@
 //! Composition root and local execution fixture for the first worker milestone.
 
+mod signals;
+
 use ledgence_adapter_artifact::{
     ArtifactLimits, FileArtifactCache, FileProgramStore, HttpProgramStore, publish_directory,
 };
@@ -8,6 +10,7 @@ use ledgence_worker_api::*;
 use ledgence_worker_core::{ExecutionRequest, Worker, WorkerConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use signals::{ShutdownSignals, forced_exit};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     io::Read,
@@ -22,8 +25,7 @@ use tokio::{sync::Mutex, task::JoinSet};
 
 const HELP: &str = "Ledgence worker foundation\n\nCommands:\n  example --directory DIR --python EXE\n  publish --source DIR --store DIR\n  run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n\nThe run command consumes a local JSON task fixture. A production orchestration\ntransport, distributed leases, and durable settlement are not implemented yet.\n";
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
+fn main() -> std::process::ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -31,7 +33,25 @@ async fn main() -> std::process::ExitCode {
         .with_writer(std::io::stderr)
         .json()
         .init();
-    match dispatch().await {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("cannot start worker runtime: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let result = runtime.block_on(dispatch());
+    if signals::FORCE_EXIT.load(Ordering::Acquire) {
+        // Only a second explicit shutdown signal permits abandoning unresolved
+        // blocking work. Normal exits retain the runtime until ownership clears.
+        runtime.shutdown_timeout(Duration::ZERO);
+    } else {
+        drop(runtime);
+    }
+    match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
@@ -102,6 +122,7 @@ async fn dispatch() -> Result<()> {
     }
 }
 
+#[derive(Clone)]
 struct RunOptions {
     tasks: PathBuf,
     store: String,
@@ -118,22 +139,32 @@ struct SubmittedTask {
     event: CloudEvent,
 }
 
-async fn run(config: RunOptions) -> Result<()> {
-    let limits = ArtifactLimits::default();
-    let store: Arc<dyn ProgramStore> =
-        if config.store.starts_with("http://") || config.store.starts_with("https://") {
-            Arc::new(HttpProgramStore::new(&config.store, limits.clone())?)
-        } else {
-            Arc::new(FileProgramStore::new(&config.store, limits.clone())?)
-        };
-    let cache = Arc::new(FileArtifactCache::new(config.cache, limits)?);
-    let runtime = Arc::new(SubprocessRuntime::new(config.python, config.runner));
-    let tasks: Vec<SubmittedTask> =
-        serde_json::from_slice(&read_bounded(&config.tasks, 8 * 1024 * 1024)?)
+async fn prepare(
+    config: RunOptions,
+    stop: Arc<AtomicBool>,
+) -> Result<(Worker, VecDeque<ExecutionRequest>)> {
+    let concurrency = config.concurrency;
+    // Disk inspection may block; keep the signal-driving task responsive and
+    // retain this operation until it completes, including after cancellation.
+    let (store, cache, runtime, tasks) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let limits = ArtifactLimits::default();
+        let store: Arc<dyn ProgramStore> =
+            if config.store.starts_with("http://") || config.store.starts_with("https://") {
+                Arc::new(HttpProgramStore::new(&config.store, limits.clone())?)
+            } else {
+                Arc::new(FileProgramStore::new(&config.store, limits.clone())?)
+            };
+        let cache = Arc::new(FileArtifactCache::new(&config.cache, limits)?);
+        let runtime = Arc::new(SubprocessRuntime::new(&config.python, &config.runner));
+        let tasks: Vec<SubmittedTask> = decode_json(&read_bounded(&config.tasks, 8 * 1024 * 1024)?)
             .map_err(|e| input(format!("invalid task fixture: {e}")))?;
-    if tasks.len() > 1000 {
-        return Err(input("task fixture is limited to 1000 invocations"));
-    }
+        if tasks.len() > 1000 {
+            return Err(input("task fixture is limited to 1000 invocations"));
+        }
+        Ok((store, cache, runtime, tasks))
+    })
+    .await
+    .map_err(|error| Error::new(ErrorKind::Io, format!("preparation failed: {error}")))??;
     let mut attempts = HashSet::new();
     let mut releases = HashMap::<ProgramRef, ProgramDescriptor>::new();
     let mut bindings = HashMap::new();
@@ -141,6 +172,12 @@ async fn run(config: RunOptions) -> Result<()> {
     // This controlled adapter resolves and binds descriptors before dispatch.
     // Real orchestration must persist this binding at logical-task scope.
     for task in tasks {
+        if stop.load(Ordering::Acquire) {
+            return Err(Error::new(
+                ErrorKind::Cancelled,
+                "execution interrupted during preparation",
+            ));
+        }
         task.program.validate()?;
         let attempt_key = (
             task.event.tenant_id().to_owned(),
@@ -174,15 +211,47 @@ async fn run(config: RunOptions) -> Result<()> {
     }
     let worker = Worker::new(
         WorkerConfig {
-            concurrency: config.concurrency,
+            concurrency,
             ..WorkerConfig::default()
         },
         store,
         cache,
         runtime,
     )?;
-    let queue = Arc::new(Mutex::new(assignments));
+    Ok((worker, assignments))
+}
+
+async fn run(config: RunOptions) -> Result<()> {
+    // Install both subscriptions before preparation or any child can start.
+    let mut signals = ShutdownSignals::new()?;
     let stop = Arc::new(AtomicBool::new(false));
+    let mut interrupted = false;
+    let mut preparation = tokio::spawn(prepare(config.clone(), stop.clone()));
+    let prepared = loop {
+        tokio::select! {
+            biased;
+            signal = signals.recv() => {
+                signal?;
+                if interrupted { return Err(forced_exit()); }
+                interrupted = true;
+                stop.store(true, Ordering::Release);
+            }
+            result = &mut preparation => {
+                break result.map_err(|error| Error::new(ErrorKind::Runtime, format!("preparation supervisor failed: {error}")))?;
+            }
+        }
+    };
+    if interrupted {
+        if let Ok((worker, _)) = prepared {
+            finish_shutdown(&worker, &mut signals, &mut interrupted).await?;
+        }
+        return Err(Error::new(
+            ErrorKind::Cancelled,
+            "execution interrupted during preparation",
+        ));
+    }
+    let (worker, assignments) = prepared?;
+    let queue = Arc::new(Mutex::new(assignments));
     let failures = Arc::new(AtomicUsize::new(0));
     let mut consumers = JoinSet::new();
     for _ in 0..config.concurrency {
@@ -195,8 +264,6 @@ async fn run(config: RunOptions) -> Result<()> {
                 let Some(request) = queue.lock().await.pop_front() else {
                     break;
                 };
-                let event_id = request.event.id().to_owned();
-                let attempt_id = request.event.attempt_id().to_owned();
                 let result = worker
                     .execute(
                         request,
@@ -212,14 +279,13 @@ async fn run(config: RunOptions) -> Result<()> {
                     }
                     Err(failure) => {
                         failures.fetch_add(1, Ordering::Relaxed);
-                        json!({"event_id":event_id,"attempt_id":attempt_id,"failure":failure})
+                        json!({"failure":failure})
                     }
                 };
                 println!("{output}");
             }
         });
     }
-    let mut interrupted = false;
     loop {
         tokio::select! {
             joined = consumers.join_next() => {
@@ -233,8 +299,8 @@ async fn run(config: RunOptions) -> Result<()> {
                     }
                 }
             }
-            signal = tokio::signal::ctrl_c() => {
-                if let Err(error) = signal { tracing::error!(%error, "cannot receive interrupt signal"); }
+            signal = signals.recv() => {
+                signal?;
                 if interrupted { return Err(forced_exit()); }
                 interrupted = true;
                 stop.store(true, Ordering::Release);
@@ -244,15 +310,15 @@ async fn run(config: RunOptions) -> Result<()> {
                             tracing::error!(%error, "initial shutdown incomplete; retaining worker for final cleanup");
                         }
                     }
-                    signal = tokio::signal::ctrl_c() => {
-                        signal.map_err(Error::from)?;
+                    signal = signals.recv() => {
+                        signal?;
                         return Err(forced_exit());
                     }
                 }
             }
         }
     }
-    finish_shutdown(&worker, interrupted).await?;
+    finish_shutdown(&worker, &mut signals, &mut interrupted).await?;
     let failed = failures.load(Ordering::Relaxed);
     if interrupted {
         return Err(Error::new(ErrorKind::Cancelled, "execution interrupted"));
@@ -268,14 +334,20 @@ async fn run(config: RunOptions) -> Result<()> {
 
 /// Keep the async runtime and retained process handles alive while cleanup is
 /// unresolved. A further interrupt is an explicit forced exit, reported as such.
-async fn finish_shutdown(worker: &Worker, interrupted: bool) -> Result<()> {
+async fn finish_shutdown(
+    worker: &Worker,
+    signals: &mut ShutdownSignals,
+    interrupted: &mut bool,
+) -> Result<()> {
     let mut last_error = None;
     loop {
         let cleanup = tokio::select! {
             result = worker.shutdown(Duration::ZERO, Duration::from_secs(5)) => result,
-            signal = tokio::signal::ctrl_c(), if interrupted || last_error.is_some() => {
-                signal.map_err(Error::from)?;
-                return Err(forced_exit());
+            signal = signals.recv() => {
+                signal?;
+                if *interrupted { return Err(forced_exit()); }
+                *interrupted = true;
+                continue;
             }
         };
         match cleanup {
@@ -283,26 +355,20 @@ async fn finish_shutdown(worker: &Worker, interrupted: bool) -> Result<()> {
             Err(error) => {
                 let message = error.to_string();
                 if last_error.as_ref() != Some(&message) {
-                    tracing::error!(%error, "shutdown incomplete; retaining process ownership and retrying; Ctrl-C forces an exit with cleanup unresolved");
+                    tracing::error!(%error, "shutdown incomplete; retaining process ownership and retrying; a further shutdown signal forces exit");
                     last_error = Some(message);
                 }
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {},
-                    signal = tokio::signal::ctrl_c() => {
-                        signal.map_err(Error::from)?;
-                        return Err(forced_exit());
+                    signal = signals.recv() => {
+                        signal?;
+                        if *interrupted { return Err(forced_exit()); }
+                        *interrupted = true;
                     }
                 }
             }
         }
     }
-}
-
-fn forced_exit() -> Error {
-    Error::new(
-        ErrorKind::Runtime,
-        "forced exit requested with process cleanup unresolved",
-    )
 }
 
 async fn make_example(directory: &Path, python: &str) -> Result<()> {
@@ -375,9 +441,22 @@ async fn make_example(directory: &Path, python: &str) -> Result<()> {
 
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    std::fs::File::open(path)?
-        .take(limit + 1)
-        .read_to_end(&mut bytes)?;
+    if !std::fs::symlink_metadata(path)?.is_file() {
+        return Err(input("task fixture must be a regular file"));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use nix::fcntl::OFlag;
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags((OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW).bits());
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(input("task fixture must be a regular file"));
+    }
+    file.take(limit + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > limit {
         return Err(input("task fixture exceeds size limit"));
     }

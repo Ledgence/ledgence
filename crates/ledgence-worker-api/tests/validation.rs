@@ -307,3 +307,55 @@ fn timeout_overflow_fails_closed_and_clones_share_cancellation() {
     control.clone().cancel();
     assert_eq!(control.check().unwrap_err().kind, ErrorKind::Cancelled);
 }
+
+#[test]
+fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
+    use ledgence_worker_api::InvocationIdentity;
+    let mut value = event();
+    value["traceparent"] = trace().into();
+    value["tracestate"] = "vendor=state".into();
+    value["data"] = json!({"source": "do not read this", "ldgrunid": "wrong"});
+    let identity = InvocationIdentity::from(&CloudEvent::new(value).unwrap());
+    let serialized = serde_json::to_value(&identity).unwrap();
+    assert_eq!(serialized["source"], "urn:ledgence:worker:test");
+    assert_eq!(serialized["tenant_id"], "tenant-1");
+    assert_eq!(serialized["namespace"], "default");
+    assert_eq!(serialized["run_id"], "run-1");
+    assert_eq!(serialized["event_id"], "invocation-1");
+    assert_eq!(serialized["task_id"], "task-1");
+    assert_eq!(serialized["attempt_id"], "attempt-1");
+    assert_eq!(serialized["attempt_no"], 1);
+    assert_eq!(serialized["traceparent"], trace());
+    assert_eq!(serialized["tracestate"], "vendor=state");
+    assert!(serialized.get("data").is_none());
+    let untraced =
+        serde_json::to_value(InvocationIdentity::from(&CloudEvent::new(event()).unwrap())).unwrap();
+    assert!(untraced.get("traceparent").is_none());
+    assert!(untraced.get("tracestate").is_none());
+}
+
+#[test]
+fn wire_result_depth_accepts_the_boundary_and_rejects_the_next_container() {
+    use ledgence_worker_api::{MAX_WIRE_VALUE_DEPTH, validate_wire_value};
+    let mut nested = Value::Null;
+    for depth in 1..=MAX_WIRE_VALUE_DEPTH {
+        nested = if depth % 2 == 0 {
+            json!({"child":nested})
+        } else {
+            json!([nested])
+        };
+        validate_wire_value(&nested).unwrap();
+    }
+    assert_eq!(
+        validate_wire_value(&json!([nested])).unwrap_err().kind,
+        ErrorKind::Protocol
+    );
+    for value in [
+        json!(i64::MIN),
+        json!(u64::MAX),
+        json!(f64::MAX),
+        json!("\u{0}😀"),
+    ] {
+        validate_wire_value(&value).unwrap();
+    }
+}

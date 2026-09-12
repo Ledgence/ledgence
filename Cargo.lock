@@ -659,6 +659,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "ledgence-worker-api",
+ "nix",
  "reqwest",
  "serde",
  "serde_json",
@@ -689,6 +690,7 @@ dependencies = [
  "ledgence-adapter-subprocess",
  "ledgence-worker-api",
  "ledgence-worker-core",
+ "nix",
  "serde",
  "serde_json",
  "sha2",
@@ -717,6 +719,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

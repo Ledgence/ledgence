@@ -3,10 +3,14 @@
 //! Archives use ordinary single-disk ZIP (stored/deflate, no ZIP64), portable
 //! ASCII paths, and exactly one root `ledgence-program.json`. The cache owns a
 //! dedicated directory exclusively; share a cloned cache, not multiple owners.
+//! Publication preserves empty directories and regular-file executable bits on
+//! Unix. Materialization strips write and special permission bits, retaining
+//! only read permissions and the archive's executable bits for regular files.
 
 mod archive;
 mod cache;
 mod error;
+mod filesystem;
 mod publish;
 mod store;
 

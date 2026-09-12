@@ -47,7 +47,7 @@ A clean advisory result means no matching published advisory was found in the da
 
 ## Python and release contents
 
-The Python runner uses the standard library and executes against a host-provided CPython interpreter (3.11 or newer, with 3.12 used in CI). Ledgence does not bundle or embed that interpreter in this foundation. Python's own license and incorporated components remain separate from Ledgence's MIT license. Bundling Python in a future distribution requires reviewing and carrying the notices for the particular interpreter build. See [Python 3.12 licensing](https://docs.python.org/3.12/license.html).
+The Python runner uses the standard library and executes against a host-provided CPython interpreter (3.11 or newer, with 3.11–3.14 configured in CI). Ledgence does not bundle or embed that interpreter in this foundation. Python's own license and incorporated components remain separate from Ledgence's MIT license. Bundling Python in a future distribution requires reviewing and carrying the notices for the particular interpreter build. See [Python 3.12 licensing](https://docs.python.org/3.12/license.html).
 
 Uploaded application packages have their own dependency and licensing responsibilities. Executing a program does not relicense it under MIT, and a successful Rust dependency check does not audit the program's dependencies.
 
@@ -55,4 +55,6 @@ Before publishing a binary, SDK, source bundle, or container image, inventory th
 
 ## Continuous integration
 
-CI runs formatting, Clippy with warnings denied, Rust tests, documentation checks, and the Python runner tests on Linux and macOS with CPython 3.12. Dependency policy runs separately against the committed graph. CI performs no deployment or publishing. GitHub Actions are pinned to reviewed full commit IDs and run with read-only repository permissions. These checks can also run locally; GitHub is a CI implementation, not a runtime requirement.
+CI runs formatting, Clippy with warnings denied, Rust tests, documentation checks, and the Python runner tests on Linux and macOS with CPython 3.11–3.14. A configured matrix is not evidence of a completed hosted run. Dependency policy runs separately against the committed graph. CI performs no deployment or publishing. GitHub Actions are pinned to reviewed full commit IDs and run with read-only repository permissions. These checks can also run locally; GitHub is a CI implementation, not a runtime requirement.
+
+The hardening changes reuse the already reviewed MIT-licensed `nix 0.31.3` for Unix nonblocking/no-follow file opens and signal tests; no new package or license exception is added. The `serde_json` round-trip float parser is enabled within the existing dependency.

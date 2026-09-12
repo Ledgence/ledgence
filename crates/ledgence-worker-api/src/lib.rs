@@ -3,6 +3,13 @@
 //! This first milestone models preparation and reusable execution. It does not
 //! implement distributed attempt leases or durable orchestration settlement.
 
+mod invocation;
+mod json;
+pub use json::decode_json;
+mod wire;
+pub use invocation::InvocationIdentity;
+pub use wire::{MAX_WIRE_VALUE_DEPTH, validate_wire_value};
+
 use iri_string::types::{UriAbsoluteStr, UriReferenceStr};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -619,6 +626,10 @@ pub enum ProgramOutcome {
     Failure { kind: String, message: String },
 }
 
+/// Store futures must retain their underlying I/O until completion. Dropping a
+/// future is not proof that blocking or remote work stopped. The worker retains
+/// an admitted fetch after its response deadline until that future completes.
+/// Adapters must report completion only after their owned work has finished.
 pub trait ProgramStore: Send + Sync {
     fn resolve<'a>(&'a self, program: &'a ProgramRef) -> PortFuture<'a, ProgramDescriptor>;
     fn fetch<'a>(&'a self, descriptor: &'a ProgramDescriptor) -> PortFuture<'a, Vec<u8>>;
@@ -655,12 +666,16 @@ pub trait ExecutionRuntime: Send + Sync {
 pub trait ExecutionSession: Send {
     fn pid(&self) -> u32;
     /// Runtime/protocol errors require retiring the session; business Failure may be reused.
+    /// The session must retain process ownership if this future is dropped or panics,
+    /// so `close` can still confirm cleanup. Adapter panics close worker admission.
     fn execute<'a>(
         &'a mut self,
         event: CloudEvent,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome>;
-    /// Resolves only once the child has been reaped and the artifact pin can be released.
+    /// Resolves successfully only once the process group is stopped and child reaped.
+    /// Calls must be retryable after cancellation or failure, retaining confirmed
+    /// cleanup progress and the artifact pin until cleanup is complete.
     fn close(&mut self) -> PortFuture<'_, ()>;
 }
 

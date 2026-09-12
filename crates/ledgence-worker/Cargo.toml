@@ -22,5 +22,11 @@ tracing-subscriber.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["fs"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "=0.31.3", features = ["signal", "process"] }
+
 [lints]
 workspace = true

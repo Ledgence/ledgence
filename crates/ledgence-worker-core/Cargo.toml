@@ -16,3 +16,6 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true

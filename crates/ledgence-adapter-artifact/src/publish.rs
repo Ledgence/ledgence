@@ -2,6 +2,7 @@ use crate::{
     ArtifactLimits,
     archive::{digest_hex, inspect_for_publication, make_readonly, read_bounded},
     error::{AdapterError, Result},
+    filesystem::{executable_bits, open_regular},
 };
 use ledgence_worker_api::{Digest, ProgramDescriptor, ProgramManifest};
 use std::{
@@ -26,7 +27,7 @@ pub fn publish_directory(
 fn publish(source: &Path, store: &Path, limits: &ArtifactLimits) -> Result<ProgramDescriptor> {
     limits.validate()?;
     let manifest_bytes = read_bounded(
-        &mut File::open(source.join("ledgence-program.json"))?,
+        &mut open_regular(&source.join("ledgence-program.json"))?,
         limits.max_manifest_bytes,
     )?;
     let manifest: ProgramManifest = serde_json::from_slice(&manifest_bytes)?;
@@ -34,27 +35,30 @@ fn publish(source: &Path, store: &Path, limits: &ArtifactLimits) -> Result<Progr
     let mut files = Vec::new();
     let mut entries = 0;
     collect_files(source, source, &mut files, &mut entries, limits.max_entries)?;
-    files.sort();
+    files.sort_by(|left, right| left.0.cmp(&right.0));
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
-    let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .unix_permissions(0o644);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let mut expanded = 0u64;
-    for path in files {
+    for (path, directory) in files {
         let name = path
             .to_str()
             .ok_or_else(|| AdapterError::Invalid("program path must be ASCII".into()))?
             .replace(std::path::MAIN_SEPARATOR, "/");
-        let mut file = File::open(source.join(&path))?;
-        let bytes = read_bounded(&mut file, limits.max_file_bytes)?;
-        expanded = expanded
-            .checked_add(bytes.len() as u64)
-            .ok_or_else(|| AdapterError::Limit("program size overflow".into()))?;
-        if expanded > limits.max_expanded_bytes {
-            return Err(AdapterError::Limit("program expanded bytes".into()));
+        if directory {
+            writer.add_directory(format!("{name}/"), options.unix_permissions(0o755))?;
+        } else {
+            let mut file = open_regular(&source.join(&path))?;
+            let mode = 0o644 | executable_bits(&file.metadata()?);
+            let bytes = read_bounded(&mut file, limits.max_file_bytes)?;
+            expanded = expanded
+                .checked_add(bytes.len() as u64)
+                .ok_or_else(|| AdapterError::Limit("program size overflow".into()))?;
+            if expanded > limits.max_expanded_bytes {
+                return Err(AdapterError::Limit("program expanded bytes".into()));
+            }
+            writer.start_file(name, options.unix_permissions(mode))?;
+            writer.write_all(&bytes)?;
         }
-        writer.start_file(name, options)?;
-        writer.write_all(&bytes)?;
         // Bound the in-memory archive during construction, including large input
         // that does not compress. Final headers are checked after finishing.
         if writer
@@ -92,7 +96,7 @@ fn publish(source: &Path, store: &Path, limits: &ArtifactLimits) -> Result<Progr
 fn collect_files(
     root: &Path,
     directory: &Path,
-    output: &mut Vec<std::path::PathBuf>,
+    output: &mut Vec<(std::path::PathBuf, bool)>,
     entries: &mut usize,
     max_entries: usize,
 ) -> Result<()> {
@@ -119,19 +123,9 @@ fn collect_files(
                 "program source cannot contain links or special files".into(),
             ));
         }
+        output.push((relative, metadata.is_dir()));
         if metadata.is_dir() {
             collect_files(root, &entry.path(), output, entries, max_entries)?;
-        } else {
-            if output.len() >= max_entries {
-                return Err(AdapterError::Limit("program file count".into()));
-            }
-            output.push(
-                entry
-                    .path()
-                    .strip_prefix(root)
-                    .map_err(|e| AdapterError::Invalid(e.to_string()))?
-                    .to_owned(),
-            );
         }
     }
     Ok(())
@@ -150,13 +144,7 @@ fn publish_immutable(target: &Path, bytes: &[u8]) -> Result<()> {
             Ok(())
         }
         Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let metadata = fs::symlink_metadata(target)?;
-            if !metadata.is_file() || metadata.file_type().is_symlink() {
-                return Err(AdapterError::Invalid(
-                    "immutable store entry is not a regular file".into(),
-                ));
-            }
-            let existing = read_bounded(&mut File::open(target)?, bytes.len() as u64)?;
+            let existing = read_bounded(&mut open_regular(target)?, bytes.len() as u64)?;
             if existing == bytes {
                 Ok(())
             } else {
