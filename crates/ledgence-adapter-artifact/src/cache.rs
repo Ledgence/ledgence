@@ -1,6 +1,6 @@
 use crate::{
     ArtifactLimits,
-    archive::{inspect, make_readonly, read_bounded, remove_tree},
+    archive::{ArchivePlan, inspect, make_readonly, read_bounded, remove_tree},
     error::{AdapterError, Result},
     filesystem::open_regular,
     store::blocking,
@@ -11,7 +11,7 @@ use ledgence_worker_api::{
 };
 use std::{
     collections::BTreeMap,
-    fs::{self, File, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io::Write,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, Weak},
@@ -25,6 +25,9 @@ use std::{
 /// rename before deleting files. Incomplete deletion retains its remaining-byte
 /// charge (or its prior reservation when unreadable), is retried before further
 /// publication, and is cleaned on reopen before entries become available.
+/// Staging reserves its planned content bytes before writing. Failed rollback
+/// retains a pending stage and its remaining-byte charge, reconciled before a
+/// later publication; verified cache hits and their pins remain available.
 #[derive(Clone)]
 pub struct FileArtifactCache {
     inner: Arc<Inner>,
@@ -38,6 +41,19 @@ struct Owner {
     root: PathBuf,
     _lock: File,
 }
+impl Drop for Owner {
+    fn drop(&mut self) {
+        // Cache clones and artifact pins retain this Arc. Once its final owner
+        // drops, explicitly release the logical cache lock: a descriptor
+        // inherited during process creation can outlive our File handle.
+        loop {
+            match self._lock.unlock() {
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                _ => break,
+            }
+        }
+    }
+}
 struct Pin {
     _owner: Arc<Owner>,
 }
@@ -46,6 +62,7 @@ struct State {
     entries: BTreeMap<String, Entry>,
     // Tombstones retain their byte charge until their remaining files are gone.
     evicting: BTreeMap<String, u64>,
+    staging: BTreeMap<String, u64>,
     clock: u64,
     bytes: u64,
 }
@@ -86,12 +103,23 @@ impl FileArtifactCache {
             .create(true)
             .truncate(false)
             .open(&lock_path)?;
-        lock.try_lock().map_err(|_| {
-            AdapterError::Public(Error::new(
-                ErrorKind::Unavailable,
-                "cache directory already has an owner",
-            ))
-        })?;
+        loop {
+            match lock.try_lock() {
+                Ok(()) => break,
+                Err(TryLockError::WouldBlock) => {
+                    return Err(AdapterError::Public(Error::new(
+                        ErrorKind::Unavailable,
+                        "cache directory already has an owner",
+                    )));
+                }
+                Err(TryLockError::Error(error))
+                    if error.kind() == std::io::ErrorKind::Interrupted =>
+                {
+                    continue;
+                }
+                Err(TryLockError::Error(error)) => return Err(error.into()),
+            }
+        }
         let owner = Arc::new(Owner { root, _lock: lock });
         let mut state = State::default();
         for item in fs::read_dir(&owner.root)? {
@@ -197,6 +225,16 @@ impl FileArtifactCache {
         archive: Vec<u8>,
         sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
     ) -> Result<PreparedArtifact> {
+        self.publish_with_stage(descriptor, archive, finish_stage, remove_tree, sync_parent)
+    }
+    fn publish_with_stage(
+        &self,
+        descriptor: ProgramDescriptor,
+        archive: Vec<u8>,
+        finish: impl FnOnce(&mut ArchivePlan, &Path, &Path) -> Result<()>,
+        remove: impl Fn(&Path) -> Result<()>,
+        sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<PreparedArtifact> {
         let mut plan = inspect(archive.clone(), &descriptor, &self.inner.limits)?;
         let encoded = serde_json::to_vec(&descriptor)?;
         if encoded.len() as u64 > self.inner.limits.max_descriptor_bytes {
@@ -208,6 +246,7 @@ impl FileArtifactCache {
             .state
             .lock()
             .map_err(|_| AdapterError::Invalid("cache state poisoned".into()))?;
+        clean_staging(&self.inner.owner, &mut state, &remove)?;
         if let Some(prepared) = self.hit(&mut state, &descriptor)? {
             return Ok(prepared);
         }
@@ -220,14 +259,45 @@ impl FileArtifactCache {
         let temporary = tempfile::Builder::new()
             .prefix(".staging-")
             .tempdir_in(&self.inner.owner.root)?;
-        let stage = Stage(temporary);
-        write_immutable(&stage.0.path().join("artifact.zip"), &archive)?;
-        write_immutable(&stage.0.path().join("descriptor.json"), &encoded)?;
-        plan.extract(&stage.0.path().join("content"))?;
-        make_readonly(stage.0.path(), true)?;
-        File::open(stage.0.path())?.sync_all()?;
+        let mut stage = Stage {
+            path: temporary.keep(),
+            fallback: true,
+        };
+        let name = stage
+            .path
+            .file_name()
+            .expect("generated staging name")
+            .to_str()
+            .expect("generated ASCII staging name")
+            .to_owned();
+        // Reserve before any file write: partial writes/extraction must remain
+        // charged even if rollback or its accounting traversal also fails.
+        state.bytes += bytes;
+        state.staging.insert(name.clone(), bytes);
         let final_path = self.inner.owner.root.join(descriptor.digest.hex());
-        fs::rename(stage.0.path(), &final_path)?;
+        let result = (|| {
+            write_immutable(&stage.path.join("artifact.zip"), &archive)?;
+            write_immutable(&stage.path.join("descriptor.json"), &encoded)?;
+            finish(&mut plan, &stage.path, &final_path)
+        })();
+        // Normal recovery is explicit. The state keeps ownership on failure;
+        // Drop is only a best-effort fallback for unexpected unwinding.
+        stage.fallback = false;
+        if let Err(original) = result {
+            return match clean_staging(&self.inner.owner, &mut state, &remove) {
+                Ok(()) => Err(original),
+                Err(cleanup) => {
+                    let mut error = Error::from(original);
+                    error.message = format!(
+                        "{}; staging cleanup pending for {}: {cleanup}",
+                        error.message,
+                        stage.path.display()
+                    );
+                    Err(AdapterError::Public(error))
+                }
+            };
+        }
+        state.staging.remove(&name);
         state.clock = state.clock.saturating_add(1);
         let mut entry = Entry {
             descriptor,
@@ -237,7 +307,6 @@ impl FileArtifactCache {
             pin: Weak::new(),
         };
         let prepared = pin_entry(&self.inner.owner, &mut entry);
-        state.bytes += bytes;
         state
             .entries
             .insert(entry.descriptor.digest.hex().to_owned(), entry);
@@ -338,11 +407,40 @@ fn clean_evictions(
     state: &mut State,
     remove: &impl Fn(&Path) -> Result<()>,
 ) -> Result<()> {
-    while let Some((name, charged)) = state.evicting.first_key_value() {
+    clean_pending(
+        owner,
+        &mut state.bytes,
+        &mut state.evicting,
+        remove,
+        &remaining_bytes,
+    )
+}
+fn clean_staging(
+    owner: &Owner,
+    state: &mut State,
+    remove: &impl Fn(&Path) -> Result<()>,
+) -> Result<()> {
+    clean_pending(
+        owner,
+        &mut state.bytes,
+        &mut state.staging,
+        remove,
+        &remaining_bytes,
+    )
+}
+fn clean_pending(
+    owner: &Owner,
+    bytes: &mut u64,
+    pending: &mut BTreeMap<String, u64>,
+    remove: &impl Fn(&Path) -> Result<()>,
+    measure: &impl Fn(&Path) -> std::io::Result<u64>,
+) -> Result<()> {
+    while let Some((name, charged)) = pending.first_key_value() {
         let (name, charged) = (name.clone(), *charged);
         let path = owner.root.join(&name);
-        // The rename must be durable before recursive deletion starts, so a
-        // crash cannot expose the partially deleted tree under its live name.
+        // Persist the private cleanup name before recursive deletion. For an
+        // eviction this commits the rename, preventing a crash from exposing
+        // partially deleted content under the former live digest name.
         File::open(&owner.root)?.sync_all()?;
         let result = match remove(&path) {
             Err(AdapterError::Io(error))
@@ -358,17 +456,16 @@ fn clean_evictions(
         // the previous reservation rather than falsely freeing cache capacity.
         let remaining = match &result {
             Ok(()) => 0,
-            Err(_) => remaining_bytes(&path).unwrap_or(charged),
+            Err(_) => measure(&path).unwrap_or(charged),
         };
-        state.bytes = state
-            .bytes
+        *bytes = bytes
             .checked_sub(charged)
             .and_then(|bytes| bytes.checked_add(remaining))
             .ok_or_else(|| AdapterError::Limit("cache size overflow".into()))?;
-        state.evicting.insert(name.clone(), remaining);
+        pending.insert(name.clone(), remaining);
         result?;
         File::open(&owner.root)?.sync_all()?;
-        state.evicting.remove(&name);
+        pending.remove(&name);
     }
     Ok(())
 }
@@ -442,19 +539,65 @@ fn entry_size(descriptor: &ProgramDescriptor, expanded: u64, metadata: u64) -> R
         .and_then(|v| v.checked_add(metadata))
         .ok_or_else(|| AdapterError::Limit("cache size overflow".into()))
 }
-struct Stage(tempfile::TempDir);
+fn finish_stage(plan: &mut ArchivePlan, stage: &Path, final_path: &Path) -> Result<()> {
+    plan.extract(&stage.join("content"))?;
+    make_readonly(stage, true)?;
+    File::open(stage)?.sync_all()?;
+    fs::rename(stage, final_path)?;
+    Ok(())
+}
+struct Stage {
+    path: PathBuf,
+    fallback: bool,
+}
 impl Drop for Stage {
     fn drop(&mut self) {
-        if self.0.path().exists() {
-            let _ = remove_tree(self.0.path());
+        if self.fallback {
+            let _ = remove_tree(&self.path);
         }
     }
 }
 
 #[cfg(test)]
+mod staging_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use ledgence_worker_api::{Platform, ProgramRef, PythonRuntime};
+
+    #[test]
+    fn final_pin_drop_releases_cache_lock_even_with_an_inherited_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = FileArtifactCache::new(root.path(), ArtifactLimits::default()).unwrap();
+        let (descriptor, archive, _) = test_artifact("inherited-descriptor");
+        let prepared = cache.publish_sync(descriptor, archive).unwrap();
+        // A duplicate models the same open-file description retained across
+        // process creation, without a timing-dependent fork/exec race.
+        let inherited = cache.inner.owner._lock.try_clone().unwrap();
+        drop(cache);
+        assert_eq!(
+            FileArtifactCache::new(root.path(), ArtifactLimits::default())
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Unavailable
+        );
+        drop(prepared);
+        let reopened = FileArtifactCache::new(root.path(), ArtifactLimits::default()).unwrap();
+        // Releasing the old descriptor must not release the replacement owner's
+        // independently acquired lock.
+        drop(inherited);
+        assert_eq!(
+            FileArtifactCache::new(root.path(), ArtifactLimits::default())
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Unavailable
+        );
+        drop(reopened);
+        assert!(FileArtifactCache::new(root.path(), ArtifactLimits::default()).is_ok());
+    }
 
     #[test]
     fn failed_parent_sync_preserves_a_recoverable_registered_entry() {
@@ -511,7 +654,7 @@ mod tests {
         assert_eq!(fs::read_dir(cache_root).unwrap().count(), 2);
     }
 
-    fn test_artifact(version: &str) -> (ProgramDescriptor, Vec<u8>, u64) {
+    pub(super) fn test_artifact(version: &str) -> (ProgramDescriptor, Vec<u8>, u64) {
         use std::io::Cursor;
         use zip::{ZipWriter, write::SimpleFileOptions};
         let manifest = ProgramManifest {

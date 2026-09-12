@@ -152,3 +152,121 @@ async fn initial_preparation_panic_cancels_peers_and_retains_unresolved_ownershi
             .contains(&key)
     );
 }
+
+struct GatedMiss {
+    entered: Semaphore,
+    release: Semaphore,
+}
+impl ArtifactCache for GatedMiss {
+    fn lookup<'a>(&'a self, _: &'a ProgramDescriptor) -> PortFuture<'a, Option<PreparedArtifact>> {
+        Box::pin(async {
+            self.entered.add_permits(1);
+            self.release.acquire().await.unwrap().forget();
+            Ok(None)
+        })
+    }
+    fn publish<'a>(
+        &'a self,
+        _: &'a ProgramDescriptor,
+        _: Vec<u8>,
+    ) -> PortFuture<'a, PreparedArtifact> {
+        unreachable!("stopped lookup owners must not publish")
+    }
+}
+
+#[derive(Default)]
+struct CountNewFetches(std::sync::atomic::AtomicUsize);
+impl ProgramStore for CountNewFetches {
+    fn resolve<'a>(&'a self, _: &'a ProgramRef) -> PortFuture<'a, ProgramDescriptor> {
+        unreachable!("assignments are already bound")
+    }
+    fn fetch<'a>(&'a self, _: &'a ProgramDescriptor) -> PortFuture<'a, Vec<u8>> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async { Err(Error::new(ErrorKind::Io, "unexpected new download")) })
+    }
+}
+
+async fn stopped_cache_miss_does_not_start_a_download(expire: bool) {
+    let cache = Arc::new(GatedMiss {
+        entered: Semaphore::new(0),
+        release: Semaphore::new(0),
+    });
+    let store = Arc::new(CountNewFetches::default());
+    let worker = Worker::new(
+        WorkerConfig {
+            concurrency: 1,
+            ..WorkerConfig::default()
+        },
+        store.clone(),
+        cache.clone(),
+        Arc::new(NoExecution),
+    )
+    .unwrap();
+    let control = RunControl::new(Duration::from_secs(2));
+    let invocation = {
+        let worker = worker.clone();
+        let control = control.clone();
+        tokio::spawn(async move {
+            worker
+                .execute(invocation("stopped-miss", 'c'), control)
+                .await
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(1), cache.entered.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    let expected = if expire {
+        // The lookup has acknowledged ownership before the real monotonic
+        // deadline is allowed to expire. The gate controls when its miss returns.
+        tokio::time::sleep_until(tokio::time::Instant::from_std(control.deadline())).await;
+        ErrorKind::TimedOut
+    } else {
+        control.cancel();
+        ErrorKind::Cancelled
+    };
+    assert_eq!(control.check().unwrap_err().kind, expected);
+    assert!(
+        !invocation.is_finished(),
+        "the existing lookup remains owned"
+    );
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(store.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+    cache.release.add_permits(1);
+    let failure = tokio::time::timeout(Duration::from_secs(1), invocation)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        store.0.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a cache miss must not start a new download after its request stopped"
+    );
+    assert_eq!(failure.error.kind, expected);
+    assert_eq!(failure.phase, Phase::Preparation);
+    assert!(!failure.execution_may_have_started);
+    assert!(failure.cleanup_error.is_none());
+    let stats = worker.stats().await;
+    assert_eq!(stats.active_consumers, 0);
+    assert_eq!(stats.process_slots, 0);
+    assert!(stats.accepting);
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        worker.shutdown(Duration::ZERO, Duration::from_millis(100)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_cache_miss_does_not_start_a_new_fetch() {
+    stopped_cache_miss_does_not_start_a_download(false).await;
+}
+
+#[tokio::test]
+async fn expired_cache_miss_does_not_start_a_new_fetch() {
+    stopped_cache_miss_does_not_start_a_download(true).await;
+}
