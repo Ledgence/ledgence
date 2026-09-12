@@ -25,7 +25,7 @@ Ledgence accepts CloudEvents 1.0 structured JSON. The worker receives a complete
 }
 ```
 
-`data` is entirely application-owned. It may be any JSON value. Ledgence does not inject execution metadata or prescribe a business-ID hierarchy inside it. Preservation means logical JSON values within the current parser's numeric precision, not byte-for-byte whitespace or key ordering. Rust uses signed/unsigned 64-bit integers and binary64 floating point; Python uses binary floating point for JSON fractions. Larger integers may be rounded during parsing, and out-of-range numbers are rejected. Encode exact decimal amounts or identifiers exceeding that range as strings. Arbitrary-precision number support is not implemented.
+`data` is entirely application-owned. It may be any JSON value. Ledgence does not inject execution metadata or prescribe a business-ID hierarchy inside it. Preservation means logical JSON values within the current parser's numeric precision, not byte-for-byte whitespace or key ordering. Integer tokens must fit from `-2^63` through `2^64 - 1`. The CLI rejects larger integer tokens before parsing or execution. Fractions and exponent-form numbers use finite binary64 floating point; decimal text is not an arbitrary-precision decimal representation. Binary64 round-trip parsing is enabled so supported Python floats retain their value across the protocol. Encode exact decimal amounts or identifiers exceeding that range as strings. Arbitrary-precision number support is not implemented.
 
 | Field | Meaning and stability |
 | --- | --- |
@@ -42,3 +42,9 @@ The profile requires `specversion`, `id`, `source`, `type`, `datacontenttype: ap
 Trace IDs do not replace task IDs, idempotency keys, or business IDs. The worker passes tracing attributes through and includes trace context in invocation logs; it does not yet create OpenTelemetry spans or automatically instrument the user's application. No additional request/parent-ID convention is standardized in this milestone.
 
 The worker rejects simultaneous ownership of one tenant/namespace/attempt identity locally. This is not durable deduplication. A future delivery adapter must define redelivery, leases, and settlement, and preserve the logical task's immutable program descriptor across retries. Programs remain responsible for idempotent business effects.
+
+Transport adapters should use `ledgence_worker_api::decode_json` before constructing a `CloudEvent`; constructing one from an already-rounded `serde_json::Value` cannot recover the original token. The helper rejects out-of-range integer tokens without inspecting strings or reserving application keys.
+
+Success and failure reports include `source`, `event_id`, `tenant_id`, `namespace`, `run_id`, `task_id`, `attempt_id`, `attempt_no`, bound `program` and `digest`, and optional `traceparent`/`tracestate`. These are copies of the envelope and binding, not fields injected into `data`. A failure retains its primary error and a separate `cleanup_error` if cleanup also failed.
+
+Program results follow the same numeric range, require string object keys and Unicode scalar strings, and allow at most 64 nested arrays/objects. Unsupported Python results become typed `invalid_output` failures without terminating an otherwise healthy process. See the [Python helper contract](../sdk/python/README.md).

@@ -29,7 +29,7 @@ cargo run --locked -p ledgence-worker -- run \
   --concurrency 1
 ```
 
-The two JSON reports have the same `process_id`; the second sets `reused_process` to `true`. Application output is under `report.outcome.output`. Worker and program logs go to stderr. `--store` also accepts an HTTPS base URL serving the published directory layout.
+The two JSON reports have the same `process_id`; the second sets `reused_process` to `true`. Application output is under `report.outcome.output`. Both success and failure records retain the full event source, tenant, namespace, run, task, attempt, program, and available trace context. Worker and program logs go to stderr. `--store` also accepts an HTTPS base URL serving the published directory layout.
 
 Write a synchronous Python handler:
 
@@ -43,7 +43,7 @@ The handler receives the complete event. Ledgence validates the envelope and pre
 
 ## Design
 
-There is one concurrency setting: `N` consumers and at most `N` managed process slots across all programs. Starting, warm, running, and retiring processes all count. Healthy processes are reused only for the same artifact digest, tenant, and namespace. Switching programs retires an idle process before starting its replacement.
+There is one concurrency setting: `N` consumers and at most `N` managed process slots across all programs. Starting, warm, running, and retiring processes all count. Healthy processes are reused only for the same artifact digest, tenant, and namespace. A matching warm process is preferred, then an unused slot; an incompatible idle process is retired only when replacement is needed at full capacity.
 
 The workspace separates portable contracts, worker behavior, adapters, and executable composition. Other Rust applications can implement the ports and supply their own adapters. See [architecture](docs/architecture.md), [program packages](docs/program-packages.md), [event contract](docs/events.md), and the [Python helper](sdk/python/README.md).
 

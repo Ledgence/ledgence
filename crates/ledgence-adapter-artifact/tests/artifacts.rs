@@ -521,3 +521,229 @@ async fn artifact_larger_than_entire_cache_is_a_hard_limit() {
     );
     assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn publication_preserves_executable_dependencies_and_detects_mode_changes() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    fs::create_dir(&source).unwrap();
+    fs::write(
+        source.join("ledgence-program.json"),
+        serde_json::to_vec(&manifest("v1")).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        source.join("helper.sh"),
+        b"#!/bin/sh\nprintf 'dependency works'\n",
+    )
+    .unwrap();
+    // Neither setuid/setgid nor source write permissions belong in the cache.
+    fs::set_permissions(source.join("helper.sh"), fs::Permissions::from_mode(0o6751)).unwrap();
+    let store_root = root.path().join("store");
+    let descriptor = publish_directory(&source, &store_root, &ArtifactLimits::default()).unwrap();
+    assert_eq!(
+        descriptor,
+        publish_directory(&source, &store_root, &ArtifactLimits::default()).unwrap()
+    );
+    let store = FileProgramStore::new(&store_root, ArtifactLimits::default()).unwrap();
+    let bytes = store.fetch(&descriptor).await.unwrap();
+    let mut zip = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+    assert_eq!(
+        zip.by_name("helper.sh").unwrap().unix_mode().unwrap() & 0o7777,
+        0o755
+    );
+    let cache = cache(&root.path().join("cache"));
+    let prepared = cache.publish(&descriptor, bytes).await.unwrap();
+    let helper = prepared.root().join("helper.sh");
+    assert_eq!(
+        fs::metadata(&helper).unwrap().permissions().mode() & 0o7777,
+        0o555
+    );
+    let output = std::process::Command::new(&helper).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"dependency works");
+    assert!(cache.lookup(&descriptor).await.unwrap().is_some());
+    fs::set_permissions(helper, fs::Permissions::from_mode(0o444)).unwrap();
+    assert_eq!(
+        cache.lookup(&descriptor).await.unwrap_err().kind,
+        ErrorKind::Integrity
+    );
+}
+
+#[tokio::test]
+async fn publication_preserves_empty_directories_and_counts_them_towards_limits() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    fs::create_dir_all(source.join("namespace/nested")).unwrap();
+    fs::create_dir(source.join("other_empty")).unwrap();
+    fs::write(
+        source.join("ledgence-program.json"),
+        serde_json::to_vec(&manifest("v1")).unwrap(),
+    )
+    .unwrap();
+    let store_root = root.path().join("store");
+    let descriptor = publish_directory(&source, &store_root, &ArtifactLimits::default()).unwrap();
+    assert_eq!(
+        descriptor,
+        publish_directory(&source, &store_root, &ArtifactLimits::default()).unwrap()
+    );
+    let store = FileProgramStore::new(&store_root, ArtifactLimits::default()).unwrap();
+    let bytes = store.fetch(&descriptor).await.unwrap();
+    let mut zip = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+    assert_eq!(zip.len(), 4);
+    for name in ["namespace/", "namespace/nested/", "other_empty/"] {
+        assert!(zip.by_name(name).unwrap().is_dir());
+    }
+    let cache_root = root.path().join("cache");
+    let cache = cache(&cache_root);
+    let prepared = cache.publish(&descriptor, bytes).await.unwrap();
+    for name in ["namespace/nested", "other_empty"] {
+        assert!(prepared.root().join(name).is_dir());
+        assert_eq!(fs::read_dir(prepared.root().join(name)).unwrap().count(), 0);
+    }
+    drop(prepared);
+    drop(cache);
+    let reopened = FileArtifactCache::new(cache_root, ArtifactLimits::default()).unwrap();
+    assert!(reopened.lookup(&descriptor).await.unwrap().is_some());
+    let limited = ArtifactLimits {
+        max_entries: 3,
+        ..Default::default()
+    };
+    assert_eq!(
+        publish_directory(&source, root.path().join("limited"), &limited)
+            .unwrap_err()
+            .kind,
+        ErrorKind::InvalidInput
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn fifo_descriptors_blobs_and_source_manifest_are_rejected_before_blocking_open() {
+    use nix::{fcntl::OFlag, sys::stat::Mode, unistd::mkfifo};
+    use std::{os::unix::fs::OpenOptionsExt, sync::mpsc, time::Duration};
+    let root = tempfile::tempdir().unwrap();
+    let (descriptor, _) = archive("v1", &[("app.py", b"pass")]);
+    let store_root = root.path().join("store");
+    let release = store_root.join("programs/example/v1");
+    fs::create_dir_all(&release).unwrap();
+    fs::create_dir(store_root.join("blobs")).unwrap();
+    let source = root.path().join("source");
+    fs::create_dir(&source).unwrap();
+    let paths = [
+        release.join("descriptor.json"),
+        store_root.join(format!("blobs/{}.zip", descriptor.digest.hex())),
+        source.join("ledgence-program.json"),
+    ];
+    for path in &paths {
+        mkfifo(path, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+    }
+    let (sender, receiver) = mpsc::channel();
+    let source_for_worker = source.clone();
+    let output_store = root.path().join("output-store");
+    let worker = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let store = FileProgramStore::new(&store_root, ArtifactLimits::default()).unwrap();
+        let outcomes = runtime.block_on(async {
+            [
+                store.resolve(&descriptor.program).await.unwrap_err().kind,
+                store.fetch(&descriptor).await.unwrap_err().kind,
+                publish_directory(&source_for_worker, output_store, &ArtifactLimits::default())
+                    .unwrap_err()
+                    .kind,
+            ]
+        });
+        sender.send(outcomes).unwrap();
+    });
+    let result = receiver.recv_timeout(Duration::from_secs(1));
+    if result.is_err() {
+        // Unblock a regressed implementation before failing the test, avoiding
+        // stranded blocking tasks. Correct code never needs a FIFO writer.
+        for path in paths {
+            let mut keeper = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(OFlag::O_NONBLOCK.bits())
+                .open(path)
+                .unwrap();
+            keeper.write_all(b"{}\n").unwrap();
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    }
+    worker.join().unwrap();
+    assert_eq!(
+        result.expect("special files blocked a local read"),
+        [ErrorKind::Integrity; 3]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn publication_rejects_special_files_and_links_in_prepared_dependencies() {
+    use nix::{sys::stat::Mode, unistd::mkfifo};
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    fs::create_dir(&source).unwrap();
+    fs::write(
+        source.join("ledgence-program.json"),
+        serde_json::to_vec(&manifest("v1")).unwrap(),
+    )
+    .unwrap();
+    let dependency = source.join("dependency");
+    mkfifo(&dependency, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+    assert_eq!(
+        publish_directory(
+            &source,
+            root.path().join("store"),
+            &ArtifactLimits::default()
+        )
+        .unwrap_err()
+        .kind,
+        ErrorKind::Integrity
+    );
+    fs::remove_file(&dependency).unwrap();
+    std::os::unix::fs::symlink(source.join("ledgence-program.json"), &dependency).unwrap();
+    assert_eq!(
+        publish_directory(
+            &source,
+            root.path().join("store"),
+            &ArtifactLimits::default()
+        )
+        .unwrap_err()
+        .kind,
+        ErrorKind::Integrity
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unwritable_cache_parent_cannot_partially_delete_a_live_entry() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let (first, first_bytes) = archive("v1", &[("app.py", b"pass")]);
+    let (second, second_bytes) = archive("v2", &[("app.py", b"pass")]);
+    let expanded = serde_json::to_vec(&manifest("v1")).unwrap().len() as u64 + 4;
+    let limits = ArtifactLimits {
+        max_cache_bytes: footprint(&first, expanded),
+        ..Default::default()
+    };
+    let cache = FileArtifactCache::new(root.path(), limits.clone()).unwrap();
+    drop(cache.publish(&first, first_bytes).await.unwrap());
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o500)).unwrap();
+    let result = cache.publish(&second, second_bytes).await;
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    // A privileged test user may bypass directory permissions entirely. The
+    // injected partial-removal unit tests still exercise recovery in that case.
+    if result.is_ok() {
+        return;
+    }
+    assert_eq!(result.unwrap_err().kind, ErrorKind::Io);
+    let hit = cache.lookup(&first).await.unwrap().unwrap();
+    assert_eq!(fs::read(hit.root().join("app.py")).unwrap(), b"pass");
+    drop(hit);
+    drop(cache);
+    let reopened = FileArtifactCache::new(root.path(), limits).unwrap();
+    assert!(reopened.lookup(&first).await.unwrap().is_some());
+}

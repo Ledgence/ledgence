@@ -1,0 +1,154 @@
+use super::*;
+use serde_json::json;
+
+struct GatedLookup {
+    entered: Semaphore,
+    release: Semaphore,
+}
+impl ArtifactCache for GatedLookup {
+    fn lookup<'a>(
+        &'a self,
+        descriptor: &'a ProgramDescriptor,
+    ) -> PortFuture<'a, Option<PreparedArtifact>> {
+        if descriptor.program.version == "panic" {
+            // Exercise a panic before the adapter even returns a future or a
+            // recoverable artifact/session handle.
+            panic!("injected initial cache lookup construction panic");
+        }
+        Box::pin(async {
+            self.entered.add_permits(1);
+            self.release.acquire().await.unwrap().forget();
+            Err(Error::new(ErrorKind::Io, "blocked lookup released"))
+        })
+    }
+    fn publish<'a>(
+        &'a self,
+        _: &'a ProgramDescriptor,
+        _: Vec<u8>,
+    ) -> PortFuture<'a, PreparedArtifact> {
+        unreachable!("both invocations stop during initial lookup")
+    }
+}
+struct NoExecution;
+impl ProgramStore for NoExecution {
+    fn resolve<'a>(&'a self, _: &'a ProgramRef) -> PortFuture<'a, ProgramDescriptor> {
+        unreachable!("assignments are already bound")
+    }
+    fn fetch<'a>(&'a self, _: &'a ProgramDescriptor) -> PortFuture<'a, Vec<u8>> {
+        unreachable!("both invocations stop during initial lookup")
+    }
+}
+impl ExecutionRuntime for NoExecution {
+    fn start(&self, _: PreparedArtifact, _: RunControl) -> PortFuture<'_, StartOutcome> {
+        unreachable!("preparation must not dispatch either invocation")
+    }
+}
+fn invocation(id: &str, digest: char) -> ExecutionRequest {
+    ExecutionRequest {
+        descriptor: ProgramDescriptor {
+            program: ProgramRef { id: "test".into(), version: id.into() },
+            digest: Digest(format!("sha256:{}", digest.to_string().repeat(64))),
+            size: 1,
+        },
+        event: CloudEvent::new(json!({
+            "specversion": "1.0", "source": "urn:test:preparation", "id": id,
+            "type": "com.ledgence.task.invocation.requested.v1", "datacontenttype": "application/json",
+            "ldgtenantid": "tenant_a", "ldgnamespace": "test", "ldgrunid": "run_1",
+            "ldgtaskid": id, "ldgattemptid": id, "ldgattemptno": 1, "data": {}
+        })).unwrap(),
+    }
+}
+
+#[tokio::test]
+async fn initial_preparation_panic_cancels_peers_and_retains_unresolved_ownership() {
+    let cache = Arc::new(GatedLookup {
+        entered: Semaphore::new(0),
+        release: Semaphore::new(0),
+    });
+    let worker = Worker::new(
+        WorkerConfig {
+            concurrency: 2,
+            ..WorkerConfig::default()
+        },
+        Arc::new(NoExecution),
+        cache.clone(),
+        Arc::new(NoExecution),
+    )
+    .unwrap();
+    let peer_control = RunControl::new(Duration::from_secs(5));
+    let peer = {
+        let worker = worker.clone();
+        let control = peer_control.clone();
+        tokio::spawn(async move { worker.execute(invocation("blocked", 'a'), control).await })
+    };
+    tokio::time::timeout(Duration::from_secs(1), cache.entered.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    let panicking = invocation("panic", 'b');
+    let failure = worker
+        .execute(panicking.clone(), RunControl::new(Duration::from_secs(5)))
+        .await
+        .unwrap_err();
+    assert_eq!(failure.phase, Phase::Preparation);
+    assert_eq!(failure.error.kind, ErrorKind::Runtime);
+    assert!(
+        failure
+            .error
+            .message
+            .contains("initial cache lookup construction panic")
+    );
+    assert!(!failure.execution_may_have_started);
+    assert_eq!(peer_control.check().unwrap_err().kind, ErrorKind::Cancelled);
+    assert!(!worker.stats().await.accepting);
+    let key = attempt_key(&InvocationIdentity::from(&panicking.event));
+    {
+        let registry = worker.inner.registry.lock().unwrap();
+        assert!(registry.unresolved.contains(&key));
+        assert_eq!(registry.unresolved_operations, 1);
+        assert_eq!(
+            registry.active.len(),
+            1,
+            "the blocked peer still owns its operation"
+        );
+    }
+
+    // Resolve the other operation completely. Shutdown must still refuse to
+    // certify cleanup of the adapter that never returned a recoverable handle.
+    cache.release.add_permits(1);
+    tokio::time::timeout(Duration::from_secs(1), peer)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(worker.stats().await.process_slots, 0);
+    for _ in 0..2 {
+        let error = worker
+            .shutdown(Duration::ZERO, Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Runtime);
+        assert!(
+            error
+                .message
+                .contains("unresolved process or adapter operations")
+        );
+    }
+    let rejected = worker
+        .execute(panicking, RunControl::new(Duration::from_secs(5)))
+        .await
+        .unwrap_err();
+    assert_eq!(rejected.phase, Phase::Admission);
+    assert_eq!(rejected.error.kind, ErrorKind::Unavailable);
+    assert!(
+        worker
+            .inner
+            .registry
+            .lock()
+            .unwrap()
+            .unresolved
+            .contains(&key)
+    );
+}

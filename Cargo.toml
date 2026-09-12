@@ -21,7 +21,7 @@ ledgence-worker-core = { version = "0.1.0", path = "crates/ledgence-worker-core"
 ledgence-adapter-artifact = { version = "0.1.0", path = "crates/ledgence-adapter-artifact" }
 ledgence-adapter-subprocess = { version = "0.1.0", path = "crates/ledgence-adapter-subprocess" }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "fs", "net", "signal"] }
 sha2 = "0.10.9"
 tempfile = "3.27.0"

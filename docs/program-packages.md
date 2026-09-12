@@ -29,7 +29,7 @@ Build dependencies for the declared target. Native extensions require compatible
 python3.12 -m pip install --target ./program -r requirements.lock
 ```
 
-This is a build-time operation; Ledgence's runtime does not invoke pip. Requirements files, hashes, and reproducible application builds remain the program publisher's responsibility. The initial archive profile supports ZIP32 with stored or deflated regular files and directories, portable ASCII paths, and no symlinks, special files, encrypted entries, or ZIP64.
+This is a build-time operation; Ledgence's runtime does not invoke pip. Requirements files, hashes, and reproducible application builds remain the program publisher's responsibility. Publication preserves empty directories and regular-file executable bits. The prepared cache strips write and special permission bits, retaining read permissions plus those executable bits. The initial archive profile supports ZIP32 with stored or deflated regular files and directories, portable ASCII paths, and no symlinks, special files, encrypted entries, or ZIP64.
 
 ## Publication and identity
 
@@ -46,10 +46,12 @@ The HTTPS adapter validates response status, declared identity, and bounded size
 
 ## Cache and process lifetime
 
-The cache has one exclusive owner, a retained lock, and pins that prevent eviction while a prepared artifact or process still uses it. Separate worker processes need separate cache directories. Materialization verifies archive bytes before extraction, validates paths and the manifest, and publishes a completed read-only directory atomically. Directories and files are synced during publication. Reopening the cache verifies persisted entries; it does not trust mere directory presence.
+The cache has one exclusive owner, a retained lock, and pins that prevent eviction while a prepared artifact or process still uses it. Separate worker processes need separate cache directories. Materialization verifies archive bytes before extraction, validates paths and the manifest, and publishes a completed read-only directory atomically. Directories and files are synced during publication. Reopening the cache verifies persisted bytes, topology, and executable bits; it does not trust mere directory presence. Eviction first renames a victim into a private deletion directory and syncs that rename before deleting content. Failed deletion retains its remaining quota charge and is retried before new publication or on reopen, so partial deletion never appears as a live digest entry.
 
 The default limits are 64 MiB compressed, 256 MiB expanded, 64 MiB per file, 4,096 entries, a 64 KiB manifest, and a 1 GiB cache content quota. Quota accounting includes compressed archives, extracted regular-file bytes, and descriptors. Publication reserves quota for staged artifact content before writing it. Filesystem allocation overhead, downloaded memory buffers, and process scratch space are outside that content quota. Archive bytes are buffered in memory with bounded size; streaming cache publication is future work.
 
 Warm and active sessions retain cache pins. Unpinned entries can be evicted; the core can retire idle processes when their pins prevent an otherwise valid package fitting. Oversized or invalid packages fail directly. Each session receives a separate temporary working directory, preserved between its invocations and removed after confirmed cleanup. Access package resources relative to the module's `__file__`.
 
 The package model follows the deployment/runtime separation described in [AWS's Python package documentation](https://docs.aws.amazon.com/lambda/latest/dg/python-package.html), without requiring AWS services or SDKs.
+
+Handler modules and their package parents must originate inside the artifact. Names already loaded by the bootstrap (for example `json`, `os`, or `ledgence_worker`) are rejected as handler module names before readiness. Use an application-specific module name. Ordinary imports do not write Python bytecode into the artifact, even if its filesystem permissions allow writes.

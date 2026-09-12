@@ -5,7 +5,7 @@
 
 use ledgence_worker_api::{
     CloudEvent, Error, ErrorKind, ExecutionRuntime, ExecutionSession, PortFuture, PreparedArtifact,
-    ProgramOutcome, Result, RunControl, StartOutcome,
+    ProgramOutcome, Result, RunControl, StartOutcome, validate_wire_value,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -66,7 +66,14 @@ struct Resources {
     workspace: Option<PathBuf>,
     logs: Option<JoinHandle<()>>,
     reaped: bool,
+    /// The signal outcome is committed before wait() can suspend. Reaping may
+    /// be interrupted, but an already observed signal must never be forgotten.
+    group_signal_attempted: bool,
     group_error: Option<Error>,
+    #[cfg(test)]
+    before_reap: Option<Arc<tokio::sync::Semaphore>>,
+    #[cfg(test)]
+    group_signal_attempts: usize,
 }
 
 impl SubprocessRuntime {
@@ -122,7 +129,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                 .tempdir()?;
             let mut command = Command::new(python);
             command
-                .args(["-I", "-S"])
+                .args(["-I", "-S", "-B"])
                 .current_dir(workspace.path())
                 .arg(runner)
                 .arg("--package-root")
@@ -154,7 +161,12 @@ impl ExecutionRuntime for SubprocessRuntime {
                 workspace: Some(workspace.keep()),
                 logs: None,
                 reaped: false,
+                group_signal_attempted: false,
                 group_error: None,
+                #[cfg(test)]
+                before_reap: None,
+                #[cfg(test)]
+                group_signal_attempts: 0,
             }));
             self.owners
                 .lock()
@@ -503,6 +515,8 @@ async fn invoke(
                 .get("output")
                 .cloned()
                 .ok_or_else(|| protocol("success result lacks output"))?;
+            validate_wire_value(&output)
+                .map_err(|error| protocol(format!("invalid program output: {error}")))?;
             Ok(ProgramOutcome::Success { output })
         }
         Some("error") => {
@@ -577,7 +591,7 @@ impl FrameReader {
             self.pending.extend_from_slice(&buffer[..used]);
             self.reader.consume(used);
             if newline.is_some() {
-                let parsed = serde_json::from_slice(&self.pending)
+                let parsed = ledgence_worker_api::decode_json(&self.pending)
                     .map_err(|e| protocol(format!("invalid subprocess JSON frame: {e}")));
                 self.pending.clear();
                 return parsed;
@@ -611,7 +625,11 @@ async fn drain_logs(mut stderr: ChildStderr, budget: Arc<AtomicUsize>, pid: u32,
 async fn terminate(resources: &mut Resources) -> Result<()> {
     // Signal the owned group BEFORE waiting/reaping. Never retain a numeric PGID
     // for signaling after wait() releases the child's PID to the operating system.
-    if !resources.reaped {
+    if !resources.reaped && !resources.group_signal_attempted {
+        #[cfg(test)]
+        {
+            resources.group_signal_attempts += 1;
+        }
         #[cfg(unix)]
         let group_error = resources.child.id().and_then(|pid| {
             use nix::{
@@ -631,7 +649,18 @@ async fn terminate(resources: &mut Resources) -> Result<()> {
         #[cfg(not(unix))]
         let group_error: Option<Error> = None;
         resources.group_error = group_error;
+        resources.group_signal_attempted = true;
         let _ = resources.child.start_kill();
+    }
+    if !resources.reaped {
+        #[cfg(test)]
+        if let Some(gate) = resources.before_reap.as_ref() {
+            gate.acquire()
+                .await
+                .expect("test reap gate remains open")
+                .forget();
+            resources.before_reap = None;
+        }
         resources.child.wait().await.map_err(Error::from)?;
         resources.reaped = true;
     }
@@ -738,7 +767,10 @@ mod tests {
             workspace: Some(workspace.clone()),
             logs: None,
             reaped: false,
+            group_signal_attempted: false,
             group_error: None,
+            before_reap: None,
+            group_signal_attempts: 0,
         }));
         let owners = Arc::new(StdMutex::new(vec![owner.clone()]));
         let (sender, receiver) = mpsc::channel(1);
@@ -764,6 +796,100 @@ mod tests {
         assert!(workspace.exists());
         assert!(nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_ok());
         session.close().await.unwrap();
+        assert!(owners.lock().unwrap().is_empty());
+        assert!(weak.upgrade().is_none());
+        assert!(!workspace.exists());
+        assert!(nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_err());
+    }
+
+    #[tokio::test]
+    async fn cancelled_fallback_close_preserves_signal_progress_until_reaping_finishes() {
+        let artifact_root = tempfile::tempdir().unwrap();
+        let pin = Arc::new(());
+        let weak = Arc::downgrade(&pin);
+        let artifact = PreparedArtifact::new(
+            artifact_root.path().to_owned(),
+            ProgramManifest {
+                schema_version: 1,
+                program: ProgramRef {
+                    id: "cleanup".into(),
+                    version: "v1".into(),
+                },
+                runtime: PythonRuntime {
+                    kind: "python".into(),
+                    python: "3.12".into(),
+                    protocol: 1,
+                },
+                handler: "program:handle".into(),
+                platform: Platform {
+                    os: std::env::consts::OS.into(),
+                    arch: std::env::consts::ARCH.into(),
+                },
+            },
+            Digest(format!("sha256:{}", "0".repeat(64))),
+            pin,
+        );
+        let workspace = tempfile::tempdir().unwrap().keep();
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        let before_reap = Arc::new(tokio::sync::Semaphore::new(0));
+        let owner = Arc::new(Mutex::new(Resources {
+            child,
+            artifact: Some(artifact),
+            workspace: Some(workspace.clone()),
+            logs: None,
+            reaped: false,
+            group_signal_attempted: false,
+            group_error: None,
+            before_reap: Some(before_reap.clone()),
+            group_signal_attempts: 0,
+        }));
+        let owners = Arc::new(StdMutex::new(vec![owner.clone()]));
+        let (_terminated, termination) = watch::channel(Some(Err(retired())));
+        let mut session = Session {
+            pid,
+            commands: None,
+            termination,
+            owner: owner.clone(),
+            owners: owners.clone(),
+            cleanup: None,
+        };
+        // Poll the actual fallback close through group signaling, then cancel at
+        // an exact pre-reap suspension instead of relying on scheduler timing.
+        let first_poll = {
+            let mut close = session.close();
+            std::future::poll_fn(|cx| std::task::Poll::Ready(close.as_mut().poll(cx))).await
+        };
+        assert!(first_poll.is_pending());
+        {
+            let resources = owner.lock().await;
+            assert!(resources.group_signal_attempted);
+            assert!(resources.group_error.is_none());
+            assert!(!resources.reaped);
+            assert_eq!(resources.group_signal_attempts, 1);
+        }
+        assert!(weak.upgrade().is_some());
+        assert!(workspace.exists());
+        // The killed child may now be a zombie. Darwin can reject a second
+        // killpg with EPERM; the retry must preserve the first successful result.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        before_reap.add_permits(1);
+        session.close().await.unwrap();
+        session.close().await.unwrap();
+        {
+            let resources = owner.lock().await;
+            assert!(resources.reaped);
+            assert!(resources.group_error.is_none());
+            assert_eq!(resources.group_signal_attempts, 1);
+        }
         assert!(owners.lock().unwrap().is_empty());
         assert!(weak.upgrade().is_none());
         assert!(!workspace.exists());

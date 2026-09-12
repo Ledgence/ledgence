@@ -1,6 +1,7 @@
 use crate::{
     ArtifactLimits,
     error::{AdapterError, Result},
+    filesystem::{executable_bits, open_regular},
 };
 use ledgence_worker_api::{ProgramDescriptor, ProgramManifest};
 use sha2::{Digest as _, Sha256};
@@ -22,6 +23,7 @@ struct Member {
     name: String,
     size: u64,
     directory: bool,
+    executable: u32,
 }
 
 pub(crate) fn digest_hex(bytes: &[u8]) -> String {
@@ -74,7 +76,8 @@ pub(crate) fn inspect_for_publication(
         }
         let directory = entry.is_dir();
         let name = safe_name(entry.name(), directory)?;
-        let mode = entry.unix_mode().unwrap_or(0) & 0o170000;
+        let unix_mode = entry.unix_mode().unwrap_or(0);
+        let mode = unix_mode & 0o170000;
         if entry.is_symlink()
             || !matches!(mode, 0 | 0o040000 | 0o100000)
             || (mode == 0o040000 && !directory)
@@ -119,6 +122,7 @@ pub(crate) fn inspect_for_publication(
             name,
             size,
             directory,
+            executable: unix_mode & 0o111,
         });
     }
     let mut all_paths: BTreeMap<String, (String, bool)> = BTreeMap::new();
@@ -179,8 +183,8 @@ impl ArchivePlan {
                 ));
             }
             output.flush()?;
+            make_readonly_file(&target, member.executable)?;
             output.sync_all()?;
-            make_readonly(&target, false)?;
         }
         readonly_directories(root)?;
         Ok(())
@@ -210,7 +214,13 @@ impl ArchivePlan {
                 let mut entry = self.archive.by_index(index)?;
                 let expected_hash =
                     hash_reader(&mut (&mut entry).take(member.size + 1), member.size)?;
-                let actual_hash = hash_reader(&mut File::open(target)?, member.size)?;
+                let mut actual = open_regular(&target)?;
+                if executable_bits(&actual.metadata()?) != member.executable {
+                    return Err(AdapterError::Invalid(
+                        "cached executable permissions changed".into(),
+                    ));
+                }
+                let actual_hash = hash_reader(&mut actual, member.size)?;
                 if expected_hash != actual_hash {
                     return Err(AdapterError::Invalid("cached file digest changed".into()));
                 }
@@ -407,6 +417,23 @@ fn check_directory(bytes: &[u8], max_entries: usize) -> Result<Vec<String>> {
         return Err(invalid());
     }
     Ok(names)
+}
+
+fn make_readonly_file(path: &Path, executable: u32) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            path,
+            fs::Permissions::from_mode(0o444 | (executable & 0o111)),
+        )?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = executable;
+        make_readonly(path, false)
+    }
 }
 
 pub(crate) fn make_readonly(path: &Path, directory: bool) -> Result<()> {

@@ -6,11 +6,14 @@ port using Tokio. `python` selects the separately installed host interpreter;
 its sibling `__init__.py` together. `LEDGENCE_PYTHON` selects the interpreter for
 integration tests. The worker CLI selects its interpreter with `--python`.
 
-Each session starts CPython with `-I -S`, imports the manifest's synchronous
+Each session starts CPython with `-I -S -B`, imports the manifest's synchronous
 `module:function` handler from the prepared artifact, and waits for a bounded
 readiness message. The declared Python major/minor must match exactly. Packages
 contain application code and vendored dependencies; the Rust worker does not
-embed Python or install packages at execution time.
+embed Python or install packages at execution time. Handler module origins are
+checked against the prepared artifact. Preloaded-module collisions are rejected
+before readiness rather than selecting an unrelated function from Python's
+module cache. Bytecode writes are disabled before application imports.
 
 Each process receives a private temporary working directory outside the
 immutable artifact cache. Relative writes persist between that session's
@@ -25,7 +28,12 @@ CloudEvent, with event and attempt IDs repeated in the protocol envelope. Both
 IDs must match the response before a result is accepted. JSON lines are bounded
 in both directions. Business exceptions and invalid handler outputs produce
 typed failures and leave the process reusable. Runtime or protocol failures
-retire it. The adapter never resends an invocation.
+retire it. The adapter never resends an invocation. The result value profile
+requires string object keys, Unicode scalar strings, i64/u64 integers, finite
+binary64 floats, and no more than 64 nested containers. Python validates these
+constraints before encoding; Rust uses the API's shared structural validator.
+Protocol frames use UTF-8 JSON. Failure messages are shortened to fit the complete
+encoded frame, preserving mandatory invocation identity.
 
 A shared runtime record owns the child, artifact lease, and working directory;
 the Tokio supervisor borrows that record independently of the caller's future.
@@ -33,7 +41,10 @@ The record survives supervisor failure. Startup
 timeout, invocation deadline, cancellation, dropped operation, and dropped
 session all lead to cleanup. On Linux/macOS the worker requests termination of
 the owned process group before reaping the direct child. The artifact lease
-remains held through that cleanup. Explicit `close()` waits for confirmation.
+remains held through that cleanup. Explicit `close()` waits for confirmation. The group-signal outcome is recorded
+before waiting for the child. If fallback cleanup is interrupted while reaping,
+a later close resumes from that recorded outcome without sending another group
+signal or overwriting a successful signal with a zombie-only permission error.
 The SDK acknowledges shutdown with `closing` while staying alive until its
 parent signals the group or closes stdin. This keeps normal shutdown from racing
 Darwin's refusal to signal a group that contains only a zombie. Successful

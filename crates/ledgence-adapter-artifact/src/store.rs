@@ -2,12 +2,13 @@ use crate::{
     ArtifactLimits,
     archive::read_bounded,
     error::{AdapterError, Result},
+    filesystem::open_regular,
 };
 use ledgence_worker_api::{
     Error, ErrorKind, PortFuture, ProgramDescriptor, ProgramRef, ProgramStore,
 };
 use std::{
-    fs::{self, File},
+    fs,
     net::IpAddr,
     path::{Path, PathBuf},
 };
@@ -208,7 +209,7 @@ fn local_bytes(root: &Path, relative: &str, limit: u64) -> Result<Vec<u8>> {
             "program store path escapes root".into(),
         ));
     }
-    let mut file = File::open(path)?;
+    let mut file = open_regular(&path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(AdapterError::Invalid(

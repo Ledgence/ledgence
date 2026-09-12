@@ -23,6 +23,10 @@ struct Counts {
     close_completions: AtomicUsize,
     implicit_drops: AtomicUsize,
     close_failures: AtomicUsize,
+    execute_panics: AtomicUsize,
+    close_panics: AtomicUsize,
+    start_panics: AtomicUsize,
+    execute_gate: std::sync::Mutex<Option<Arc<CloseGate>>>,
     startup_cleanup_required: AtomicUsize,
     close_gate: std::sync::Mutex<Option<Arc<CloseGate>>>,
 }
@@ -104,6 +108,14 @@ impl ExecutionRuntime for Runtime {
         control: RunControl,
     ) -> PortFuture<'a, StartOutcome> {
         Box::pin(async move {
+            if self
+                .0
+                .start_panics
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                panic!("injected startup panic before returning a cleanup handle");
+            }
             control.check()?;
             let pid = self.0.starts.fetch_add(1, Ordering::SeqCst) + 1;
             let live = self.0.live.fetch_add(1, Ordering::SeqCst) + 1;
@@ -162,6 +174,19 @@ impl ExecutionSession for Session {
     ) -> PortFuture<'a, ProgramOutcome> {
         Box::pin(async move {
             self.counts.executions.fetch_add(1, Ordering::SeqCst);
+            if self
+                .counts
+                .execute_panics
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                let gate = self.counts.execute_gate.lock().unwrap().clone();
+                if let Some(gate) = gate {
+                    gate.entered.add_permits(1);
+                    gate.release.acquire().await.unwrap().forget();
+                }
+                panic!("injected execution adapter panic after dispatch");
+            }
             let delay = event.value()["data"]["delay_ms"].as_u64().unwrap_or(0);
             let until = std::time::Instant::now() + Duration::from_millis(delay);
             loop {
@@ -182,6 +207,14 @@ impl ExecutionSession for Session {
     fn close(&mut self) -> PortFuture<'_, ()> {
         Box::pin(async {
             self.counts.close_calls.fetch_add(1, Ordering::SeqCst);
+            if self
+                .counts
+                .close_panics
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                panic!("injected cleanup panic while session remains owned");
+            }
             let gate = self.counts.close_gate.lock().unwrap().clone();
             if let Some(gate) = gate {
                 gate.entered.add_permits(1);
@@ -596,4 +629,262 @@ async fn unconfirmed_startup_cleanup_retains_capacity_and_is_reconciled_by_shutd
     assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
     assert_eq!(counts.live.load(Ordering::SeqCst), 0);
     assert_eq!(worker.stats().await.process_slots, 0);
+}
+
+struct BlockingFetch {
+    live: Arc<AtomicUsize>,
+    peak: Arc<AtomicUsize>,
+    gate: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
+}
+impl ProgramStore for BlockingFetch {
+    fn resolve<'a>(&'a self, _: &'a ProgramRef) -> PortFuture<'a, ProgramDescriptor> {
+        Box::pin(async { unreachable!() })
+    }
+    fn fetch<'a>(&'a self, _: &'a ProgramDescriptor) -> PortFuture<'a, Vec<u8>> {
+        let live = self.live.clone();
+        let peak = self.peak.clone();
+        let gate = self.gate.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let count = live.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(count, Ordering::SeqCst);
+                let (lock, condition) = &*gate;
+                let released = lock.lock().unwrap();
+                let _guard = condition
+                    .wait_timeout_while(released, Duration::from_secs(3), |released| !*released)
+                    .unwrap();
+                live.fetch_sub(1, Ordering::SeqCst);
+                Ok(vec![1])
+            })
+            .await
+            .unwrap()
+        })
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn timed_out_blocking_fetch_retains_admission_and_shutdown_ownership_until_finished() {
+    let counts = Arc::new(Counts::default());
+    let live = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+    let worker = Worker::new(
+        WorkerConfig {
+            concurrency: 1,
+            fetch_timeout: Duration::from_millis(40),
+        },
+        Arc::new(BlockingFetch {
+            live: live.clone(),
+            peak: peak.clone(),
+            gate: gate.clone(),
+        }),
+        Arc::new(Cache::default()),
+        Arc::new(Runtime(counts.clone())),
+    )
+    .unwrap();
+    let invocation = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.execute(request(1, 1, 0), control()).await })
+    };
+    wait_for(|| live.load(Ordering::SeqCst) == 1).await;
+    let timed_out = tokio::time::timeout(Duration::from_millis(500), invocation)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(timed_out.error.kind, ErrorKind::TimedOut);
+    assert_eq!(timed_out.phase, Phase::Preparation);
+    assert_eq!(live.load(Ordering::SeqCst), 1);
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(
+        worker
+            .execute(request(1, 1, 0), control())
+            .await
+            .unwrap_err()
+            .error
+            .kind,
+        ErrorKind::InvalidInput
+    );
+    let waiting = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.execute(request(2, 1, 0), control()).await })
+    };
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert_eq!(peak.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        worker
+            .shutdown(Duration::ZERO, Duration::from_millis(30))
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::TimedOut
+    );
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(
+        waiting.await.unwrap().unwrap_err().error.kind,
+        ErrorKind::Cancelled
+    );
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(live.load(Ordering::SeqCst), 0);
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(
+        counts.starts.load(Ordering::SeqCst),
+        0,
+        "a reported fetch timeout must never dispatch later"
+    );
+}
+
+#[tokio::test]
+async fn detached_execution_panic_closes_admission_and_retires_the_owned_session() {
+    let (worker, counts) = setup(2);
+    let gate = Arc::new(CloseGate {
+        entered: Semaphore::new(0),
+        release: Semaphore::new(0),
+    });
+    *counts.execute_gate.lock().unwrap() = Some(gate.clone());
+    counts.execute_panics.store(1, Ordering::SeqCst);
+    let caller = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.execute(request(1, 1, 0), control()).await })
+    };
+    gate.wait_until_entered().await;
+    caller.abort();
+    let _ = caller.await;
+    gate.release.add_permits(1);
+    wait_for(|| counts.close_completions.load(Ordering::SeqCst) == 1).await;
+    assert!(!worker.stats().await.accepting);
+    assert!(worker.execute(request(1, 1, 0), control()).await.is_err());
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.process_slots, 0);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn panicking_cleanup_keeps_original_failure_and_recoverable_session() {
+    let (worker, counts) = setup(1);
+    counts.close_panics.store(1, Ordering::SeqCst);
+    let mut invocation = request(1, 1, 0);
+    let mut event = invocation.event.into_value();
+    event["data"]["crash"] = true.into();
+    invocation.event = CloudEvent::new(event).unwrap();
+    let failure = worker.execute(invocation, control()).await.unwrap_err();
+    assert_eq!(failure.phase, Phase::Execution);
+    assert_eq!(failure.error.message, "lost response");
+    assert!(
+        failure
+            .cleanup_error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("cleanup panic")
+    );
+    assert!(!worker.stats().await.accepting);
+    assert_eq!(worker.stats().await.process_slots, 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn panic_before_start_returns_a_handle_keeps_an_explicit_unresolved_reservation() {
+    let (worker, counts) = setup(1);
+    counts.start_panics.store(1, Ordering::SeqCst);
+    let failure = worker
+        .execute(request(1, 1, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(failure.phase, Phase::Startup);
+    assert_eq!(failure.error.kind, ErrorKind::Runtime);
+    assert!(!worker.stats().await.accepting);
+    assert_eq!(worker.stats().await.process_slots, 1);
+    assert!(
+        worker
+            .shutdown(Duration::ZERO, Duration::from_secs(1))
+            .await
+            .is_err()
+    );
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn free_slots_keep_mixed_programs_warm_for_later_reuse() {
+    let (worker, counts) = setup(2);
+    let first = worker.execute(request(1, 1, 0), control()).await.unwrap();
+    worker.execute(request(2, 2, 0), control()).await.unwrap();
+    let third = worker.execute(request(3, 1, 0), control()).await.unwrap();
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 2);
+    assert_eq!(counts.peak.load(Ordering::SeqCst), 2);
+    assert_eq!(worker.stats().await.warm_processes, 2);
+    assert_eq!(first.process_id, third.process_id);
+    assert!(third.reused_process);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
+
+fn assert_flat_context(value: &serde_json::Value, request: &ExecutionRequest) {
+    let identity = serde_json::to_value(InvocationIdentity::from(&request.event)).unwrap();
+    for (key, expected) in identity.as_object().unwrap() {
+        assert_eq!(
+            &value[key], expected,
+            "missing or changed identity field {key}"
+        );
+    }
+    assert_eq!(
+        value["program"],
+        serde_json::to_value(&request.descriptor.program).unwrap()
+    );
+    assert_eq!(
+        value["digest"],
+        serde_json::to_value(&request.descriptor.digest).unwrap()
+    );
+    assert!(value.get("context").is_none());
+}
+#[tokio::test]
+async fn reports_and_failures_keep_complete_scoped_identity() {
+    let (worker, counts) = setup(1);
+    let invocation = request(1, 1, 0);
+    let report = worker.execute(invocation.clone(), control()).await.unwrap();
+    assert_flat_context(&serde_json::to_value(report).unwrap(), &invocation);
+    let rejected = control();
+    rejected.cancel();
+    let admission = worker
+        .execute(invocation.clone(), rejected)
+        .await
+        .unwrap_err();
+    assert_flat_context(&serde_json::to_value(admission).unwrap(), &invocation);
+    counts.close_failures.store(1, Ordering::SeqCst);
+    let mut crashing = request(2, 1, 0);
+    let mut value = crashing.event.into_value();
+    value["source"] = "urn:other-source".into();
+    value["ldgrunid"] = "different-run".into();
+    value["data"]["crash"] = true.into();
+    crashing.event = CloudEvent::new(value).unwrap();
+    let failure = worker
+        .execute(crashing.clone(), control())
+        .await
+        .unwrap_err();
+    assert_eq!(failure.error.message, "lost response");
+    assert_eq!(
+        failure.cleanup_error.as_ref().unwrap().message,
+        "retirement unconfirmed"
+    );
+    assert_flat_context(&serde_json::to_value(failure).unwrap(), &crashing);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
 }

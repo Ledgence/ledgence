@@ -1,7 +1,8 @@
 use ledgence_adapter_subprocess::{SubprocessConfig, SubprocessRuntime};
 use ledgence_worker_api::{
-    CloudEvent, Digest, ErrorKind, ExecutionRuntime, ExecutionSession, Platform, PreparedArtifact,
-    ProgramManifest, ProgramOutcome, ProgramRef, PythonRuntime, RunControl, StartOutcome,
+    CloudEvent, Digest, ErrorKind, ExecutionRuntime, ExecutionSession, MAX_WIRE_VALUE_DEPTH,
+    Platform, PreparedArtifact, ProgramManifest, ProgramOutcome, ProgramRef, PythonRuntime,
+    RunControl, StartOutcome,
 };
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -152,6 +153,115 @@ async fn business_failures_and_invalid_outputs_allow_reuse() {
         output(session.execute(event("success"), control()).await.unwrap()),
         42
     );
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn shared_wire_profile_rejects_lossy_outputs_and_preserves_session_reuse() {
+    let (_dir, artifact, runtime) = fixture(
+        r#"def handle(event):
+    kind = event['id']
+    if kind == 'keys': return {1: 'first', '1': 'second'}
+    if kind == 'floatkeys': return {1.5: 'first', '1.5': 'second'}
+    if kind == 'surrogate': return '\ud800'
+    if kind == 'surrogatekey': return {'\udfff': 1}
+    if kind == 'largeint': return 1 << 64
+    if kind == 'smallint': return -(1 << 63) - 1
+    if kind == 'hugeint': return 10**400
+    if kind == 'depth':
+        value = 0
+        for _ in range(event['data']['depth']): value = [value]
+        return value
+    return [-(1 << 63), (1 << 64) - 1, 1.7976931348623157e308, '😀\x00\ufffe']
+"#,
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    for id in [
+        "keys",
+        "floatkeys",
+        "surrogate",
+        "surrogatekey",
+        "largeint",
+        "smallint",
+        "hugeint",
+    ] {
+        let result = session.execute(event(id), control()).await.unwrap();
+        assert!(matches!(result, ProgramOutcome::Failure { kind, .. } if kind == "invalid_output"));
+        assert_eq!(session.pid(), pid);
+    }
+    for (depth, valid) in [
+        (MAX_WIRE_VALUE_DEPTH, true),
+        (MAX_WIRE_VALUE_DEPTH + 1, false),
+    ] {
+        let mut envelope = event("depth").into_value();
+        envelope["data"] = json!({"depth": depth});
+        let result = session
+            .execute(CloudEvent::new(envelope).unwrap(), control())
+            .await
+            .unwrap();
+        if valid {
+            let mut value = output(result);
+            for _ in 0..depth {
+                value = value.as_array_mut().unwrap().remove(0);
+            }
+            assert_eq!(value, 0);
+        } else {
+            assert!(
+                matches!(result, ProgramOutcome::Failure { kind, .. } if kind == "invalid_output")
+            );
+        }
+    }
+    let result = output(session.execute(event("valid"), control()).await.unwrap());
+    assert_eq!(
+        result,
+        json!([i64::MIN, u64::MAX, f64::MAX, "😀\u{0}\u{fffe}"])
+    );
+    assert_eq!(session.pid(), pid);
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn encoded_failure_budget_includes_unicode_identities_and_preserves_reuse() {
+    let (_dir, artifact, runtime) = fixture(
+        "def handle(event):\n    if event['data']['fail']: raise ValueError('\"\\\\😀'*500)\n    return 42\n",
+    );
+    let runtime = runtime.with_config(SubprocessConfig {
+        max_frame_bytes: 1024,
+        ..SubprocessConfig::default()
+    });
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    for fail in [true, false] {
+        let mut envelope = event(&"😀".repeat(20)).into_value();
+        envelope["data"] = json!({"fail": fail});
+        let result = session
+            .execute(CloudEvent::new(envelope).unwrap(), control())
+            .await
+            .unwrap();
+        if fail {
+            assert!(
+                matches!(result, ProgramOutcome::Failure { kind, .. } if kind == "business_error")
+            );
+        } else {
+            assert_eq!(output(result), 42);
+        }
+    }
+    assert_eq!(session.pid(), pid);
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn normal_imports_do_not_write_bytecode_into_a_writable_artifact() {
+    let (directory, artifact, runtime) =
+        fixture("import helper\ndef handle(event): return helper.VALUE\n");
+    std::fs::write(directory.path().join("helper.py"), "VALUE = 42\n").unwrap();
+    let mut session = ready(runtime.start(artifact, control()).await);
+    assert_eq!(
+        output(session.execute(event("first"), control()).await.unwrap()),
+        42
+    );
+    assert!(!directory.path().join("__pycache__").exists());
     session.close().await.unwrap();
 }
 
@@ -401,7 +511,6 @@ async fn startup_timeout_and_dropped_start_future_release_process_and_pin() {
 #[cfg(unix)]
 #[tokio::test]
 async fn failed_startup_retains_cleanup_handle_artifact_and_scratch_until_recovered() {
-    use std::os::unix::fs::PermissionsExt;
     let (dir, artifact, _runtime) = fixture("def handle(event): return None\n");
     let pin = Arc::new(());
     let weak = Arc::downgrade(&pin);
@@ -411,8 +520,25 @@ async fn failed_startup_retains_cleanup_handle_artifact_and_scratch_until_recove
         artifact.digest().clone(),
         pin,
     );
-    let runner = dir.path().join("locked_workspace_runner.py");
-    std::fs::write(&runner, "import json,os,sys,time\nfrom pathlib import Path\nroot=Path(sys.argv[sys.argv.index('--package-root')+1])\nworkspace=Path.cwd()\nlocked=workspace/'locked'\nlocked.mkdir()\n(locked/'state.txt').write_text('preserved')\n(root/'scratch.json').write_text(json.dumps({'cwd':str(workspace),'pid':os.getpid()}))\nos.chmod(locked,0)\nprint(json.dumps({'v':1,'type':'invalid-ready'}),flush=True)\nwhile True: time.sleep(1)\n").unwrap();
+    let runner = dir.path().join("obstructed_workspace_runner.py");
+    // A regular file at the recorded directory path makes remove_dir_all fail
+    // even for root. Keep the real working state in a sibling until recovery.
+    std::fs::write(
+        &runner,
+        r#"import json,os,sys,time
+from pathlib import Path
+root=Path(sys.argv[sys.argv.index('--package-root')+1])
+workspace=Path.cwd()
+retained=workspace.with_name(workspace.name+'.retained')
+(workspace/'state.txt').write_text('preserved')
+workspace.rename(retained)
+workspace.write_text('cleanup obstruction')
+(root/'scratch.json').write_text(json.dumps({'cwd':str(workspace),'retained':str(retained),'pid':os.getpid()}))
+print(json.dumps({'v':1,'type':'invalid-ready'}),flush=True)
+while True: time.sleep(1)
+"#,
+    )
+    .unwrap();
     let runtime = SubprocessRuntime::new(interpreter().0, runner);
     let mut session = match runtime.start(artifact, control()).await {
         Ok(StartOutcome::CleanupRequired { error, session }) => {
@@ -425,6 +551,8 @@ async fn failed_startup_retains_cleanup_handle_artifact_and_scratch_until_recove
     let recorded: Value =
         serde_json::from_slice(&std::fs::read(dir.path().join("scratch.json")).unwrap()).unwrap();
     let workspace = PathBuf::from(recorded["cwd"].as_str().unwrap());
+    let retained = PathBuf::from(recorded["retained"].as_str().unwrap());
+    assert_eq!(session.pid(), recorded["pid"].as_u64().unwrap() as u32);
     assert!(
         !running(session.pid()),
         "direct child is reaped before uncertainty is reported"
@@ -433,25 +561,25 @@ async fn failed_startup_retains_cleanup_handle_artifact_and_scratch_until_recove
         weak.upgrade().is_some(),
         "uncertain startup must retain the artifact lease"
     );
+    assert!(workspace.is_file(), "cleanup obstruction must remain");
     assert!(
-        workspace.exists(),
+        retained.is_dir(),
         "uncertain startup must retain working state"
     );
     assert_eq!(session.close().await.unwrap_err().kind, ErrorKind::Io);
     assert!(weak.upgrade().is_some());
-
-    std::fs::set_permissions(
-        workspace.join("locked"),
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
+    assert!(workspace.is_file());
     assert_eq!(
-        std::fs::read_to_string(workspace.join("locked/state.txt")).unwrap(),
+        std::fs::read_to_string(retained.join("state.txt")).unwrap(),
         "preserved"
     );
+
+    std::fs::remove_file(&workspace).unwrap();
+    std::fs::rename(&retained, &workspace).unwrap();
     session.close().await.unwrap();
     session.close().await.unwrap();
     assert!(!workspace.exists());
+    assert!(!retained.exists());
     assert!(
         weak.upgrade().is_none(),
         "confirmed cleanup releases the artifact lease"
@@ -489,4 +617,23 @@ async fn cancellation_terminates_same_group_grandchildren() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     panic!("same-group descendant remains running after cancellation");
+}
+
+#[tokio::test]
+async fn binary64_results_preserve_exact_python_float_bits() {
+    let (_directory, artifact, runtime) = fixture(
+        "def handle(event):\n    return [2.291712365432881e-09, -1.527077339613215e-236]\n",
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let result = output(session.execute(event("binary64"), control()).await.unwrap());
+    for (actual, expected) in result
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip([2.291712365432881e-09_f64, -1.527077339613215e-236_f64])
+    {
+        assert_eq!(actual.as_f64().unwrap().to_bits(), expected.to_bits());
+    }
+    assert_eq!(result.as_array().unwrap().len(), 2);
+    session.close().await.unwrap();
 }

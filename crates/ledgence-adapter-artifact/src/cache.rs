@@ -2,6 +2,7 @@ use crate::{
     ArtifactLimits,
     archive::{inspect, make_readonly, read_bounded, remove_tree},
     error::{AdapterError, Result},
+    filesystem::open_regular,
     store::blocking,
 };
 use ledgence_worker_api::{
@@ -20,6 +21,10 @@ use std::{
 /// that ownership. PreparedArtifact handles pin entries, including after this
 /// cache is dropped. Eviction chooses the least recently accessed unpinned entry.
 /// Hits revalidate persisted bytes, detecting accidental cache corruption.
+/// Eviction renames an unpinned entry into `.evicting-<digest>` and persists that
+/// rename before deleting files. Incomplete deletion retains its remaining-byte
+/// charge (or its prior reservation when unreadable), is retried before further
+/// publication, and is cleaned on reopen before entries become available.
 #[derive(Clone)]
 pub struct FileArtifactCache {
     inner: Arc<Inner>,
@@ -39,6 +44,8 @@ struct Pin {
 #[derive(Default)]
 struct State {
     entries: BTreeMap<String, Entry>,
+    // Tombstones retain their byte charge until their remaining files are gone.
+    evicting: BTreeMap<String, u64>,
     clock: u64,
     bytes: u64,
 }
@@ -96,15 +103,17 @@ impl FileArtifactCache {
             if name == ".lock" {
                 continue;
             }
-            if name.starts_with(".staging-") {
+            if name.starts_with(".staging-")
+                || name.strip_prefix(".evicting-").is_some_and(is_digest_name)
+            {
+                // Persist any previously interrupted rename before deleting its
+                // target. A cleanup failure aborts opening, admitting no work.
+                File::open(&owner.root)?.sync_all()?;
                 remove_tree(&item.path())?;
+                File::open(&owner.root)?.sync_all()?;
                 continue;
             }
-            if name.len() != 64
-                || !name
-                    .bytes()
-                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-            {
+            if !is_digest_name(&name) {
                 return Err(AdapterError::Invalid(
                     "cache must use a dedicated directory".into(),
                 ));
@@ -258,6 +267,12 @@ impl ArtifactCache for FileArtifactCache {
         Box::pin(async move { blocking(move || cache.publish_sync(descriptor, archive)).await })
     }
 }
+fn is_digest_name(name: &str) -> bool {
+    name.len() == 64
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
 fn pin_entry(owner: &Arc<Owner>, entry: &mut Entry) -> PreparedArtifact {
     let pin = entry.pin.upgrade().unwrap_or_else(|| {
         Arc::new(Pin {
@@ -276,11 +291,23 @@ fn pin_entry(owner: &Arc<Owner>, entry: &mut Entry) -> PreparedArtifact {
     )
 }
 fn evict(owner: &Owner, state: &mut State, required: u64, budget: u64) -> Result<()> {
+    evict_with_remove(owner, state, required, budget, remove_tree)
+}
+fn evict_with_remove(
+    owner: &Owner,
+    state: &mut State,
+    required: u64,
+    budget: u64,
+    remove: impl Fn(&Path) -> Result<()>,
+) -> Result<()> {
     if required > budget {
         return Err(AdapterError::Limit(
             "artifact exceeds entire cache budget".into(),
         ));
     }
+    // Retry incomplete deletion even if this request otherwise fits. No new
+    // publication can ignore space still held by a failed cleanup.
+    clean_evictions(owner, state, &remove)?;
     while state.bytes > budget - required {
         let victim = state
             .entries
@@ -289,13 +316,83 @@ fn evict(owner: &Owner, state: &mut State, required: u64, budget: u64) -> Result
             .min_by_key(|(_, entry)| entry.touched)
             .map(|(key, _)| key.clone())
             .ok_or(AdapterError::Pressure)?;
-        remove_tree(&owner.root.join(&victim))?;
-        if let Some(entry) = state.entries.remove(&victim) {
-            state.bytes -= entry.bytes;
+        let tombstone = format!(".evicting-{victim}");
+        let destination = owner.root.join(&tombstone);
+        match fs::symlink_metadata(&destination) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+            Ok(_) => return Err(AdapterError::Invalid("unexpected eviction target".into())),
         }
+        // A failed rename leaves the complete live entry and its accounting
+        // untouched. Once renamed it is never offered as a cache hit again.
+        fs::rename(owner.root.join(&victim), destination)?;
+        if let Some(entry) = state.entries.remove(&victim) {
+            state.evicting.insert(tombstone, entry.bytes);
+        }
+        clean_evictions(owner, state, &remove)?;
     }
     Ok(())
 }
+fn clean_evictions(
+    owner: &Owner,
+    state: &mut State,
+    remove: &impl Fn(&Path) -> Result<()>,
+) -> Result<()> {
+    while let Some((name, charged)) = state.evicting.first_key_value() {
+        let (name, charged) = (name.clone(), *charged);
+        let path = owner.root.join(&name);
+        // The rename must be durable before recursive deletion starts, so a
+        // crash cannot expose the partially deleted tree under its live name.
+        File::open(&owner.root)?.sync_all()?;
+        let result = match remove(&path) {
+            Err(AdapterError::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound
+                    && matches!(fs::symlink_metadata(&path), Err(missing) if missing.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                Ok(())
+            }
+            result => result,
+        };
+        // Failed removal may already have deleted some files. Count remaining
+        // regular-file bytes; if traversal itself fails, conservatively retain
+        // the previous reservation rather than falsely freeing cache capacity.
+        let remaining = match &result {
+            Ok(()) => 0,
+            Err(_) => remaining_bytes(&path).unwrap_or(charged),
+        };
+        state.bytes = state
+            .bytes
+            .checked_sub(charged)
+            .and_then(|bytes| bytes.checked_add(remaining))
+            .ok_or_else(|| AdapterError::Limit("cache size overflow".into()))?;
+        state.evicting.insert(name.clone(), remaining);
+        result?;
+        File::open(&owner.root)?.sync_all()?;
+        state.evicting.remove(&name);
+    }
+    Ok(())
+}
+fn remaining_bytes(path: &Path) -> std::io::Result<u64> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    if metadata.is_file() {
+        return Ok(metadata.len());
+    }
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        let mut bytes = 0u64;
+        for entry in fs::read_dir(path)? {
+            bytes = bytes
+                .checked_add(remaining_bytes(&entry?.path())?)
+                .ok_or_else(|| std::io::Error::other("cache size overflow"))?;
+        }
+        return Ok(bytes);
+    }
+    Ok(0)
+}
+
 fn read_entry(
     directory: &Path,
     limits: &ArtifactLimits,
@@ -326,14 +423,11 @@ fn read_entry(
     Ok((descriptor, plan, encoded.len() as u64))
 }
 fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>> {
-    let metadata = fs::symlink_metadata(path)?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err(AdapterError::Invalid("cached file must be regular".into()));
-    }
-    if metadata.len() > limit {
+    let mut file = open_regular(path)?;
+    if file.metadata()?.len() > limit {
         return Err(AdapterError::Limit("cached bytes".into()));
     }
-    read_bounded(&mut File::open(path)?, limit)
+    read_bounded(&mut file, limit)
 }
 fn write_immutable(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = File::create_new(path)?;
@@ -415,5 +509,164 @@ mod tests {
         let retry = cache.publish_sync(descriptor, archive).unwrap();
         assert_eq!(hit.root(), retry.root());
         assert_eq!(fs::read_dir(cache_root).unwrap().count(), 2);
+    }
+
+    fn test_artifact(version: &str) -> (ProgramDescriptor, Vec<u8>, u64) {
+        use std::io::Cursor;
+        use zip::{ZipWriter, write::SimpleFileOptions};
+        let manifest = ProgramManifest {
+            schema_version: 1,
+            program: ProgramRef {
+                id: "eviction-test".into(),
+                version: version.into(),
+            },
+            runtime: PythonRuntime {
+                kind: "python".into(),
+                python: "3.12".into(),
+                protocol: 1,
+            },
+            handler: "app:handle".into(),
+            platform: Platform {
+                os: std::env::consts::OS.into(),
+                arch: std::env::consts::ARCH.into(),
+            },
+        };
+        let json = serde_json::to_vec(&manifest).unwrap();
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, bytes) in [
+            ("ledgence-program.json", json.as_slice()),
+            ("app.py", b"pass".as_slice()),
+        ] {
+            writer
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        let archive = writer.finish().unwrap().into_inner();
+        let descriptor = ProgramDescriptor {
+            program: manifest.program,
+            digest: ledgence_worker_api::Digest(format!(
+                "sha256:{}",
+                crate::archive::digest_hex(&archive)
+            )),
+            size: archive.len() as u64,
+        };
+        (descriptor, archive, json.len() as u64 + 4)
+    }
+
+    #[cfg(unix)]
+    fn interrupted_eviction(restart: bool) {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let (descriptor, archive, expanded) = test_artifact("v1");
+        let charge = entry_size(
+            &descriptor,
+            expanded,
+            serde_json::to_vec(&descriptor).unwrap().len() as u64,
+        )
+        .unwrap();
+        let limits = ArtifactLimits {
+            max_cache_bytes: charge,
+            ..Default::default()
+        };
+        let cache = FileArtifactCache::new(root.path(), limits.clone()).unwrap();
+        drop(
+            cache
+                .publish_sync(descriptor.clone(), archive.clone())
+                .unwrap(),
+        );
+        {
+            let mut state = cache.inner.state.lock().unwrap();
+            let error = evict_with_remove(&cache.inner.owner, &mut state, charge, charge, |path| {
+                assert!(
+                    path.file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .starts_with(".evicting-")
+                );
+                assert!(!root.path().join(descriptor.digest.hex()).exists());
+                fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+                remove_tree(&path.join("content"))?;
+                Err(AdapterError::Io(std::io::Error::other(
+                    "injected partial deletion failure",
+                )))
+            })
+            .unwrap_err();
+            assert!(matches!(error, AdapterError::Io(_)));
+            assert!(state.entries.is_empty());
+            assert_eq!(state.evicting.len(), 1);
+            assert_eq!(state.bytes, charge - expanded);
+            assert_eq!(state.evicting.values().copied().sum::<u64>(), state.bytes);
+        }
+        assert!(cache.lookup_sync(&descriptor).unwrap().is_none());
+        let tombstone = root
+            .path()
+            .join(format!(".evicting-{}", descriptor.digest.hex()));
+        assert!(tombstone.join("artifact.zip").is_file());
+        let cache = if restart {
+            drop(cache);
+            let reopened = FileArtifactCache::new(root.path(), limits).unwrap();
+            assert_eq!(reopened.inner.state.lock().unwrap().bytes, 0);
+            assert!(!tombstone.exists());
+            reopened
+        } else {
+            cache
+        };
+        let prepared = cache.publish_sync(descriptor.clone(), archive).unwrap();
+        assert_eq!(fs::read(prepared.root().join("app.py")).unwrap(), b"pass");
+        assert!(!tombstone.exists());
+        assert!(cache.inner.state.lock().unwrap().evicting.is_empty());
+        assert_eq!(cache.inner.state.lock().unwrap().bytes, charge);
+        assert!(cache.lookup_sync(&descriptor).unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_partial_eviction_keeps_remaining_bytes_charged_and_retries() {
+        interrupted_eviction(false);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_restart_finishes_interrupted_eviction_before_loading_live_entries() {
+        interrupted_eviction(true);
+    }
+
+    #[test]
+    fn failed_eviction_rename_preserves_complete_live_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let (descriptor, archive, expanded) = test_artifact("v1");
+        let charge = entry_size(
+            &descriptor,
+            expanded,
+            serde_json::to_vec(&descriptor).unwrap().len() as u64,
+        )
+        .unwrap();
+        let cache = FileArtifactCache::new(
+            root.path(),
+            ArtifactLimits {
+                max_cache_bytes: charge,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        drop(cache.publish_sync(descriptor.clone(), archive).unwrap());
+        // A filesystem collision must not overwrite a pending cleanup tree.
+        let collision = root
+            .path()
+            .join(format!(".evicting-{}", descriptor.digest.hex()));
+        fs::create_dir(&collision).unwrap();
+        fs::write(collision.join("sentinel"), b"preserve").unwrap();
+        {
+            let mut state = cache.inner.state.lock().unwrap();
+            assert!(evict(&cache.inner.owner, &mut state, charge, charge).is_err());
+            assert_eq!(state.bytes, charge);
+            assert_eq!(state.entries.len(), 1);
+            assert!(state.evicting.is_empty());
+        }
+        assert_eq!(fs::read(collision.join("sentinel")).unwrap(), b"preserve");
+        let prepared = cache.lookup_sync(&descriptor).unwrap().unwrap();
+        assert_eq!(fs::read(prepared.root().join("app.py")).unwrap(), b"pass");
     }
 }
