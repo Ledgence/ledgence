@@ -31,6 +31,9 @@ pub(super) struct Registration {
     pub inner: Arc<Inner>,
     pub id: u64,
     pub key: AttemptKey,
+    // Keep a final strong owner through Drop: the invocation's local ownership
+    // may already have unwound before its registration is reconciled.
+    pub _consumer: Option<Arc<ConsumerOwnership>>,
     pub completed: bool,
 }
 impl Drop for Registration {
@@ -42,11 +45,10 @@ impl Drop for Registration {
             .unwrap_or_else(|p| p.into_inner());
         if !self.completed {
             registry.accepting = false;
-            for control in registry.active.values() {
-                control.cancel();
-            }
+            registry.cancel_all();
             registry.unresolved.insert(self.key.clone());
             registry.unresolved_operations += 1;
+            registry.retain_unresolved_consumer(&self.key);
         }
         registry.active.remove(&self.id);
         registry.keys.remove(&self.key);

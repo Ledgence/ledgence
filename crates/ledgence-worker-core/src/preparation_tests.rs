@@ -153,6 +153,58 @@ async fn initial_preparation_panic_cancels_peers_and_retains_unresolved_ownershi
     );
 }
 
+#[tokio::test]
+async fn reserved_preparation_panic_retains_its_consumer_after_external_owners_release() {
+    let worker = Worker::new(
+        WorkerConfig {
+            concurrency: 2,
+            ..WorkerConfig::default()
+        },
+        Arc::new(NoExecution),
+        Arc::new(GatedLookup {
+            entered: Semaphore::new(0),
+            release: Semaphore::new(0),
+        }),
+        Arc::new(NoExecution),
+    )
+    .unwrap();
+    let mut panicking = worker
+        .reserve_consumer(RunControl::new(Duration::from_secs(1)))
+        .await
+        .unwrap();
+    let peer = worker
+        .reserve_consumer(RunControl::new(Duration::from_secs(1)))
+        .await
+        .unwrap();
+    let failure = panicking
+        .execute(
+            invocation("panic", 'a'),
+            RunControl::new(Duration::from_secs(1)),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(failure.phase, Phase::Preparation);
+    assert_eq!(failure.error.kind, ErrorKind::Runtime);
+    assert!(panicking.is_cancellation_requested());
+    assert!(peer.is_cancellation_requested());
+    assert!(!panicking.is_quiescent());
+    assert!(peer.is_quiescent());
+    panicking.release();
+    peer.release();
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(worker.stats().await.process_slots, 0);
+    assert_eq!(
+        worker
+            .shutdown(Duration::ZERO, Duration::from_secs(1))
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::Runtime,
+        "an adapter without a recoverable operation cannot certify cleanup"
+    );
+    assert_eq!(worker.stats().await.active_consumers, 1);
+}
+
 struct GatedMiss {
     entered: Semaphore,
     release: Semaphore,

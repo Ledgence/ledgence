@@ -3,6 +3,10 @@
 //! This first milestone models preparation and reusable execution. It does not
 //! implement distributed attempt leases or durable orchestration settlement.
 
+mod execution;
+pub use execution::{
+    ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult, Phase,
+};
 mod invocation;
 mod json;
 pub use json::decode_json;

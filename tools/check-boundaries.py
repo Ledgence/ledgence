@@ -1,4 +1,4 @@
-"""Check production crate dependencies preserve the worker's hexagonal boundaries."""
+"""Check production crate dependencies preserve Ledgence's hexagonal boundaries."""
 
 import json
 import pathlib
@@ -15,6 +15,8 @@ def main():
     ))
     allowed = {
         "ledgence-worker-api": set(),
+        "ledgence-orchestration-api": {"ledgence-worker-api"},
+        "ledgence-orchestration-core": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-worker-core": {"ledgence-worker-api"},
         "ledgence-adapter-artifact": {"ledgence-worker-api"},
         "ledgence-adapter-subprocess": {"ledgence-worker-api"},
