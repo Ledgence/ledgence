@@ -888,3 +888,339 @@ async fn reports_and_failures_keep_complete_scoped_identity() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn delivery_reservation_spans_acquisition_execution_and_pending_settlement() {
+    let (worker, counts) = setup(1);
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    assert!(reservation.is_quiescent());
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(counts.fetches.load(Ordering::SeqCst), 0);
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(30),
+            worker.reserve_consumer(control())
+        )
+        .await
+        .is_err(),
+        "acquisition owns the only consumer before any local execution"
+    );
+    let invocation = request(1, 1, 0);
+    let first = reservation
+        .execute(invocation.clone(), control())
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(worker.stats().await.warm_processes, 1);
+    wait_for(|| reservation.is_quiescent()).await;
+    assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+    let reused_reservation = reservation
+        .execute(request(2, 1, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(reused_reservation.phase, Phase::Admission);
+    assert_eq!(reused_reservation.error.kind, ErrorKind::InvalidInput);
+    let duplicate = worker.execute(invocation, control()).await.unwrap_err();
+    assert_eq!(duplicate.error.kind, ErrorKind::InvalidInput);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+
+    let waiting = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.execute(request(3, 1, 0), control()).await })
+    };
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert!(
+        !waiting.is_finished(),
+        "a delivered result is not settlement"
+    );
+    reservation.release();
+    let next = tokio::time::timeout(Duration::from_secs(1), waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(next.process_id, first.process_id);
+    assert!(next.reused_process);
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn reservation_shutdown_waits_for_external_owner_to_resolve_and_release() {
+    let (worker, counts) = setup(1);
+    let reservation = worker.reserve_consumer(control()).await.unwrap();
+    assert_eq!(
+        worker
+            .shutdown(Duration::ZERO, Duration::from_millis(30))
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::TimedOut
+    );
+    assert!(reservation.is_cancellation_requested());
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert!(matches!(
+        worker.reserve_consumer(control()).await,
+        Err(Error {
+            kind: ErrorKind::Unavailable,
+            ..
+        })
+    ));
+    reservation.release();
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn dropped_reservation_caller_retains_the_consumer_until_process_cleanup_finishes() {
+    let (worker, counts) = setup(1);
+    let gate = CloseGate::install(&counts);
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let caller =
+        tokio::spawn(async move { reservation.execute(request(1, 1, 5000), control()).await });
+    wait_for(|| counts.executions.load(Ordering::SeqCst) == 1).await;
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    gate.wait_until_entered().await;
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(30),
+            worker.reserve_consumer(control())
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        worker
+            .shutdown(Duration::ZERO, Duration::from_millis(30))
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::TimedOut
+    );
+    gate.finish(&counts);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(worker.stats().await.process_slots, 0);
+    assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn dropped_execution_future_does_not_make_its_delivery_reservation_reusable() {
+    let (worker, counts) = setup(1);
+    let gate = CloseGate::install(&counts);
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    {
+        let execution = reservation.execute(request(1, 1, 5000), control());
+        tokio::pin!(execution);
+        tokio::select! {
+            result = &mut execution => panic!("invocation finished before cancellation: {result:?}"),
+            _ = wait_for(|| counts.executions.load(Ordering::SeqCst) == 1) => {},
+        }
+    }
+    gate.wait_until_entered().await;
+    assert!(!reservation.is_quiescent());
+    let reused = reservation
+        .execute(request(2, 1, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(reused.phase, Phase::Admission);
+    assert_eq!(reused.error.kind, ErrorKind::InvalidInput);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    gate.finish(&counts);
+    wait_for(|| counts.close_completions.load(Ordering::SeqCst) == 1).await;
+    wait_for(|| reservation.is_quiescent()).await;
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    reservation.release();
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn released_delivery_reservation_still_owns_a_timed_out_blocking_preparation() {
+    let counts = Arc::new(Counts::default());
+    let live = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+    let worker = Worker::new(
+        WorkerConfig {
+            concurrency: 1,
+            fetch_timeout: Duration::from_millis(40),
+        },
+        Arc::new(BlockingFetch {
+            live: live.clone(),
+            peak: peak.clone(),
+            gate: gate.clone(),
+        }),
+        Arc::new(Cache::default()),
+        Arc::new(Runtime(counts.clone())),
+    )
+    .unwrap();
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let caller = tokio::spawn(async move {
+        let result = reservation.execute(request(1, 1, 0), control()).await;
+        (result, reservation)
+    });
+    wait_for(|| live.load(Ordering::SeqCst) == 1).await;
+    let (result, reservation) = tokio::time::timeout(Duration::from_millis(500), caller)
+        .await
+        .unwrap()
+        .unwrap();
+    let failed = result.unwrap_err();
+    assert_eq!(failed.phase, Phase::Preparation);
+    assert_eq!(failed.error.kind, ErrorKind::TimedOut);
+    assert_eq!(live.load(Ordering::SeqCst), 1);
+    assert!(!reservation.is_quiescent());
+    reservation.release();
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(30),
+            worker.reserve_consumer(control())
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        worker
+            .shutdown(Duration::ZERO, Duration::from_millis(30))
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::TimedOut
+    );
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(live.load(Ordering::SeqCst), 0);
+    assert_eq!(peak.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn unconfirmed_delivery_cleanup_retains_consumer_and_shutdown_can_reconcile_it() {
+    let (worker, counts) = setup(1);
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    counts.close_failures.store(1, Ordering::SeqCst);
+    let mut invocation = request(1, 1, 0);
+    let mut value = invocation.event.into_value();
+    value["data"]["crash"] = true.into();
+    invocation.event = CloudEvent::new(value).unwrap();
+    let failure = reservation
+        .execute(invocation, control())
+        .await
+        .unwrap_err();
+    assert_eq!(failure.phase, Phase::Execution);
+    assert!(failure.cleanup_error.is_some());
+    assert!(!reservation.is_quiescent());
+    reservation.release();
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(worker.stats().await.process_slots, 1);
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(30),
+            worker.reserve_consumer(control())
+        )
+        .await
+        .is_err(),
+        "unconfirmed retirement keeps the same consumer permit"
+    );
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(worker.stats().await.process_slots, 0);
+    assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn failed_reserved_start_retains_capacity_until_its_returned_handle_is_closed() {
+    let (worker, counts) = setup(1);
+    counts.startup_cleanup_required.store(1, Ordering::SeqCst);
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let failure = reservation
+        .execute(request(1, 1, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(failure.phase, Phase::Startup);
+    assert!(!failure.execution_may_have_started);
+    assert!(!reservation.is_quiescent());
+    reservation.release();
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn cancelling_or_dropping_admission_waiters_does_not_lose_a_consumer_permit() {
+    let (worker, counts) = setup(1);
+    let reserved = worker.reserve_consumer(control()).await.unwrap();
+    let cancellation = control();
+    let waiting = worker.reserve_consumer(cancellation.clone());
+    tokio::pin!(waiting);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut waiting)
+            .await
+            .is_err()
+    );
+    cancellation.cancel();
+    assert!(matches!(
+        waiting.await,
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
+    ));
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(20),
+            worker.reserve_consumer(control())
+        )
+        .await
+        .is_err()
+    );
+    reserved.release();
+    let recovered =
+        tokio::time::timeout(Duration::from_secs(1), worker.reserve_consumer(control()))
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    recovered.release();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(counts.fetches.load(Ordering::SeqCst), 0);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}

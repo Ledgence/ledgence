@@ -4,14 +4,25 @@
 //! Distributed leases/settlement belong to a later orchestration adapter.
 
 use ledgence_worker_api::*;
-use serde::{Deserialize, Serialize};
+// Keep existing worker-core imports source-compatible while adapters can depend
+// on portable contracts without importing the execution implementation.
+pub use ledgence_worker_api::{
+    ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult, Phase,
+};
+use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex as StdMutex, Weak},
+    sync::{
+        Arc, Mutex as StdMutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, oneshot};
 use tracing::{Instrument, instrument::WithSubscriber};
+mod reservation;
+pub use reservation::ConsumerReservation;
+use reservation::{ConsumerOwnership, ConsumerPermit};
 mod supervision;
 use supervision::{Completion, Registration, catch_call, catch_panic};
 
@@ -34,68 +45,6 @@ impl Default for WorkerConfig {
         }
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionRequest {
-    pub descriptor: ProgramDescriptor,
-    pub event: CloudEvent,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionContext {
-    #[serde(flatten)]
-    pub identity: InvocationIdentity,
-    pub program: ProgramRef,
-    pub digest: Digest,
-}
-impl From<&ExecutionRequest> for ExecutionContext {
-    fn from(request: &ExecutionRequest) -> Self {
-        Self {
-            identity: InvocationIdentity::from(&request.event),
-            program: request.descriptor.program.clone(),
-            digest: request.descriptor.digest.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionReport {
-    #[serde(flatten)]
-    pub context: Box<ExecutionContext>,
-    pub process_id: u32,
-    pub reused_process: bool,
-    pub outcome: ProgramOutcome,
-    pub elapsed_ms: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Phase {
-    Admission,
-    Preparation,
-    Startup,
-    Execution,
-    Cleanup,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionFailure {
-    #[serde(flatten)]
-    pub context: Box<ExecutionContext>,
-    pub error: Error,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cleanup_error: Option<Error>,
-    pub phase: Phase,
-    /// Conservative: a lost response must not be retried inside the runtime.
-    pub execution_may_have_started: bool,
-}
-impl std::fmt::Display for ExecutionFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {}", self.phase, self.error)
-    }
-}
-impl std::error::Error for ExecutionFailure {}
-pub type ExecutionResult = std::result::Result<ExecutionReport, ExecutionFailure>;
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct WorkerStats {
@@ -127,6 +76,9 @@ struct Registry {
     keys: HashSet<AttemptKey>,
     unresolved: HashSet<AttemptKey>,
     unresolved_operations: usize,
+    reservations: Vec<Weak<ConsumerOwnership>>,
+    unresolved_consumers: Vec<Arc<ConsumerOwnership>>,
+    pending_settlement: HashMap<AttemptKey, Weak<ConsumerOwnership>>,
 }
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct AttemptKey {
@@ -141,17 +93,18 @@ struct Pool {
     quarantined: Vec<Idle>,
     /// Start panicked before returning a cleanup handle. Capacity and the
     /// artifact remain reserved; shutdown cannot certify these starts stopped.
-    unresolved_starts: Vec<PreparedArtifact>,
+    unresolved_starts: Vec<(PreparedArtifact, Option<Arc<ConsumerOwnership>>)>,
 }
 struct Idle {
     key: SessionKey,
     session: Box<dyn ExecutionSession>,
     _artifact: PreparedArtifact,
+    _consumer: Option<Arc<ConsumerOwnership>>,
 }
 /// Owned by the supervisor outside the invocation future being polled. Unwinding
 /// keeps the admission permit and an acquired session available for cleanup.
 struct InvocationOwnership {
-    permit: Option<OwnedSemaphorePermit>,
+    permit: Option<ConsumerPermit>,
     session: Option<Idle>,
     stage: InvocationStage,
 }
@@ -216,6 +169,9 @@ impl Worker {
                     keys: HashSet::new(),
                     unresolved: HashSet::new(),
                     unresolved_operations: 0,
+                    reservations: Vec::new(),
+                    unresolved_consumers: Vec::new(),
+                    pending_settlement: HashMap::new(),
                 }),
                 shutdown_lock: Mutex::new(()),
             }),
@@ -225,6 +181,15 @@ impl Worker {
     /// Dropping the caller future requests cancellation. Results may precede
     /// operation completion; the supervisor retains its reservation until then.
     pub async fn execute(&self, request: ExecutionRequest, control: RunControl) -> ExecutionResult {
+        self.execute_with_reservation(request, control, None).await
+    }
+
+    async fn execute_with_reservation(
+        &self,
+        request: ExecutionRequest,
+        control: RunControl,
+        reservation: Option<Arc<ConsumerOwnership>>,
+    ) -> ExecutionResult {
         let context = Box::new(ExecutionContext::from(&request));
         request
             .descriptor
@@ -248,7 +213,13 @@ impl Worker {
                     &context,
                 ));
             }
-            if registry.keys.contains(&attempt_key) || registry.unresolved.contains(&attempt_key) {
+            registry
+                .pending_settlement
+                .retain(|_, owner| owner.strong_count() != 0);
+            if registry.keys.contains(&attempt_key)
+                || registry.unresolved.contains(&attempt_key)
+                || registry.pending_settlement.contains_key(&attempt_key)
+            {
                 return Err(logged_failure(
                     Error::new(
                         ErrorKind::InvalidInput,
@@ -258,6 +229,23 @@ impl Worker {
                     false,
                     &context,
                 ));
+            }
+            if let Some(owner) = &reservation {
+                if owner.cancelled.load(Ordering::Acquire) {
+                    return Err(logged_failure(
+                        Error::new(ErrorKind::Cancelled, "consumer reservation cancelled"),
+                        Phase::Admission,
+                        false,
+                        &context,
+                    ));
+                }
+                *owner
+                    .execution_control
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = Some(control.clone());
+                registry
+                    .pending_settlement
+                    .insert(attempt_key.clone(), Arc::downgrade(owner));
             }
             registry.keys.insert(attempt_key.clone());
             registry.next_id += 1;
@@ -276,11 +264,12 @@ impl Worker {
                     inner: worker.inner.clone(),
                     id,
                     key: attempt_key,
+                    _consumer: reservation.clone(),
                     completed: false,
                 };
                 let mut completion = Completion::new(sender);
                 let mut ownership = InvocationOwnership {
-                    permit: None,
+                    permit: reservation.map(ConsumerPermit::Reserved),
                     session: None,
                     stage: InvocationStage::Admission,
                 };
@@ -358,22 +347,33 @@ impl Worker {
         ownership: &mut InvocationOwnership,
     ) -> ExecutionResult {
         let started = Instant::now();
-        let acquire = self.inner.consumers.clone().acquire_owned();
-        tokio::pin!(acquire);
-        let permit = loop {
-            control
-                .check()
-                .map_err(|error| failure(error, Phase::Admission, false, context))?;
-            tokio::select! {
-                permit = &mut acquire => break permit.map_err(|error| failure(Error::new(ErrorKind::Unavailable, error.to_string()), Phase::Admission, false, context))?,
-                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
-            }
-        };
-        ownership.permit = Some(permit);
+        if ownership.permit.is_none() {
+            let acquire = self.inner.consumers.clone().acquire_owned();
+            tokio::pin!(acquire);
+            let permit = loop {
+                control
+                    .check()
+                    .map_err(|error| failure(error, Phase::Admission, false, context))?;
+                tokio::select! {
+                    permit = &mut acquire => break permit.map_err(|error| failure(Error::new(ErrorKind::Unavailable, error.to_string()), Phase::Admission, false, context))?,
+                    _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+                }
+            };
+            ownership.permit = Some(ConsumerPermit::Direct { _permit: permit });
+        }
         ownership.stage = InvocationStage::Preparation;
         tracing::info!(phase = "preparation", "preparing invocation");
         let artifact = self
-            .prepare(&request.descriptor, &control, context, completion)
+            .prepare(
+                &request.descriptor,
+                &control,
+                context,
+                completion,
+                ownership
+                    .permit
+                    .as_ref()
+                    .and_then(ConsumerPermit::reservation),
+            )
             .await
             .map_err(|error| failure(error, Phase::Preparation, false, context))?;
         control
@@ -390,7 +390,16 @@ impl Worker {
         };
         ownership.stage = InvocationStage::Startup;
         let (session, reused) = self
-            .session(&key, artifact.clone(), control.clone(), &context.identity)
+            .session(
+                &key,
+                artifact.clone(),
+                control.clone(),
+                &context.identity,
+                ownership
+                    .permit
+                    .as_ref()
+                    .and_then(ConsumerPermit::reservation),
+            )
             .await
             .map_err(|error| failure(error, Phase::Startup, false, context))?;
         // Keep this owner outside every adapter future. A panicking poll only
@@ -399,6 +408,10 @@ impl Worker {
             key,
             session,
             _artifact: artifact,
+            _consumer: ownership
+                .permit
+                .as_ref()
+                .and_then(ConsumerPermit::reservation),
         });
         if let Err(error) = control.check() {
             let cleanup = self.retire_owned(ownership, &context.identity).await.err();
@@ -446,12 +459,11 @@ impl Worker {
         };
         match outcome {
             Ok(outcome) => {
-                self.inner
-                    .pool
-                    .lock()
-                    .await
-                    .idle
-                    .push(ownership.session.take().expect("session acquired"));
+                let mut idle = ownership.session.take().expect("session acquired");
+                // A healthy reusable process is owned by the global process
+                // pool, not by the previous delivery's settlement reservation.
+                idle._consumer = None;
+                self.inner.pool.lock().await.idle.push(idle);
                 ownership.stage = InvocationStage::Settled;
                 tracing::info!(pid, phase = "completed", "program returned");
                 Ok(ExecutionReport {
@@ -478,6 +490,7 @@ impl Worker {
         control: &RunControl,
         context: &ExecutionContext,
         completion: &mut Completion,
+        reservation: Option<Arc<ConsumerOwnership>>,
     ) -> Result<PreparedArtifact> {
         let lock = {
             let mut entries = self.inner.preparations.lock().await;
@@ -546,7 +559,10 @@ impl Worker {
                     return Ok(artifact);
                 }
                 Err(error) if error.kind == ErrorKind::Capacity => {
-                    if !self.retire_idle(&context.identity).await? {
+                    if !self
+                        .retire_idle(&context.identity, reservation.clone())
+                        .await?
+                    {
                         return Err(error);
                     }
                 }
@@ -575,6 +591,7 @@ impl Worker {
         artifact: PreparedArtifact,
         control: RunControl,
         identity: &InvocationIdentity,
+        reservation: Option<Arc<ConsumerOwnership>>,
     ) -> Result<(Box<dyn ExecutionSession>, bool)> {
         let retired = {
             let mut pool = self.inner.pool.lock().await;
@@ -593,11 +610,12 @@ impl Worker {
                 ));
             }
         };
-        if let Some(mut idle) = retired
-            && let Err(error) = self.close_session(&mut idle, Some(identity)).await
-        {
-            self.inner.pool.lock().await.quarantined.push(idle);
-            return Err(error);
+        if let Some(mut idle) = retired {
+            idle._consumer = reservation.clone();
+            if let Err(error) = self.close_session(&mut idle, Some(identity)).await {
+                self.inner.pool.lock().await.quarantined.push(idle);
+                return Err(error);
+            }
         }
         // Keep this reservation until the replacement is started or fails.
         if let Err(error) = control.check() {
@@ -612,6 +630,7 @@ impl Worker {
                     key: key.clone(),
                     session,
                     _artifact: artifact,
+                    _consumer: reservation.clone(),
                 });
                 Err(error)
             }
@@ -626,7 +645,7 @@ impl Worker {
                     .lock()
                     .await
                     .unresolved_starts
-                    .push(artifact);
+                    .push((artifact, reservation));
                 Err(error)
             }
         }
@@ -646,9 +665,7 @@ impl Worker {
                     .lock()
                     .unwrap_or_else(|p| p.into_inner());
                 registry.accepting = false;
-                for control in registry.active.values() {
-                    control.cancel();
-                }
+                registry.cancel_all();
                 if let Some(identity) = identity {
                     registry.unresolved.insert(attempt_key(identity));
                 }
@@ -694,9 +711,14 @@ impl Worker {
         }
     }
 
-    async fn retire_idle(&self, identity: &InvocationIdentity) -> Result<bool> {
+    async fn retire_idle(
+        &self,
+        identity: &InvocationIdentity,
+        reservation: Option<Arc<ConsumerOwnership>>,
+    ) -> Result<bool> {
         let idle = self.inner.pool.lock().await.idle.pop();
-        if let Some(idle) = idle {
+        if let Some(mut idle) = idle {
+            idle._consumer = reservation;
             self.retire(idle, Some(identity)).await?;
             Ok(true)
         } else {
@@ -755,9 +777,7 @@ impl Worker {
                 .registry
                 .lock()
                 .unwrap_or_else(|p| p.into_inner());
-            for control in registry.active.values() {
-                control.cancel();
-            }
+            registry.cancel_all();
         }
         let cleanup_until = Instant::now()
             .checked_add(cleanup)
@@ -825,9 +845,7 @@ impl Worker {
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         registry.accepting = false;
-        for control in registry.active.values() {
-            control.cancel();
-        }
+        registry.cancel_all();
         registry.unresolved.insert(attempt_key(identity));
     }
     fn unresolved_preparation(&self, identity: &InvocationIdentity) {
@@ -837,19 +855,24 @@ impl Worker {
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         registry.accepting = false;
-        for control in registry.active.values() {
-            control.cancel();
-        }
+        registry.cancel_all();
         registry.unresolved.insert(attempt_key(identity));
         registry.unresolved_operations += 1;
+        registry.retain_unresolved_consumer(&attempt_key(identity));
     }
     fn active_count(&self) -> usize {
-        self.inner
+        let registry = self
+            .inner
             .registry
             .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .active
-            .len()
+            .unwrap_or_else(|p| p.into_inner());
+        registry.active.len()
+            + registry
+                .reservations
+                .iter()
+                .filter_map(Weak::upgrade)
+                .filter(|owner| owner.external.load(Ordering::Acquire))
+                .count()
     }
 }
 

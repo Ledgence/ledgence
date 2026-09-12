@@ -5,6 +5,8 @@ members = [
   "crates/ledgence-adapter-artifact",
   "crates/ledgence-adapter-subprocess",
   "crates/ledgence-worker",
+  "crates/ledgence-orchestration-api",
+  "crates/ledgence-orchestration-core",
 ]
 resolver = "3"
 
@@ -18,6 +20,8 @@ repository = "https://github.com/Ledgence/ledgence"
 [workspace.dependencies]
 ledgence-worker-api = { version = "0.1.0", path = "crates/ledgence-worker-api" }
 ledgence-worker-core = { version = "0.1.0", path = "crates/ledgence-worker-core" }
+ledgence-orchestration-api = { version = "0.1.0", path = "crates/ledgence-orchestration-api" }
+ledgence-orchestration-core = { version = "0.1.0", path = "crates/ledgence-orchestration-core" }
 ledgence-adapter-artifact = { version = "0.1.0", path = "crates/ledgence-adapter-artifact" }
 ledgence-adapter-subprocess = { version = "0.1.0", path = "crates/ledgence-adapter-subprocess" }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -27,6 +31,7 @@ sha2 = "0.10.9"
 tempfile = "3.27.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+time = { version = "0.3.55", default-features = false, features = ["formatting"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

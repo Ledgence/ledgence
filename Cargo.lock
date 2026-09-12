@@ -683,6 +683,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ledgence-orchestration-api"
+version = "0.1.0"
+dependencies = [
+ "ledgence-worker-api",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ledgence-orchestration-core"
+version = "0.1.0"
+dependencies = [
+ "ledgence-orchestration-api",
+ "ledgence-worker-api",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "ledgence-worker"
 version = "0.1.0"
 dependencies = [
@@ -1417,6 +1436,7 @@ dependencies = [
  "deranged",
  "num-conv",
  "powerfmt",
+ "serde_core",
  "time-core",
  "time-macros",
 ]
