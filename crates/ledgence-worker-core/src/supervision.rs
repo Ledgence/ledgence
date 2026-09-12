@@ -52,6 +52,12 @@ impl Drop for Registration {
         }
         registry.active.remove(&self.id);
         registry.keys.remove(&self.key);
+        if let Some(owner) = &self._consumer {
+            // Early results do not end this registration. Only actual supervisor
+            // completion can detach its control, and retained cleanup/unknown
+            // operations keep their cancellation linkage until resolved.
+            owner.finish_supervisor();
+        }
     }
 }
 

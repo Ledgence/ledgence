@@ -12,7 +12,10 @@ mod json;
 pub use json::decode_json;
 mod wire;
 pub use invocation::InvocationIdentity;
-pub use wire::{MAX_WIRE_VALUE_DEPTH, validate_wire_value};
+pub use wire::{
+    APPLICATION_INPUT_MAX_BYTES, DEFAULT_RUNTIME_FRAME_MAX_BYTES, MAX_WIRE_VALUE_DEPTH,
+    validate_wire_value,
+};
 
 use iri_string::types::{UriAbsoluteStr, UriReferenceStr};
 use serde::{Deserialize, Serialize};

@@ -239,10 +239,7 @@ impl Worker {
                         &context,
                     ));
                 }
-                *owner
-                    .execution_control
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner()) = Some(control.clone());
+                owner.begin_execution(control.clone());
                 registry
                     .pending_settlement
                     .insert(attempt_key.clone(), Arc::downgrade(owner));
@@ -613,6 +610,9 @@ impl Worker {
         if let Some(mut idle) = retired {
             idle._consumer = reservation.clone();
             if let Err(error) = self.close_session(&mut idle, Some(identity)).await {
+                if let Some(owner) = &idle._consumer {
+                    owner.retain_cleanup();
+                }
                 self.inner.pool.lock().await.quarantined.push(idle);
                 return Err(error);
             }
@@ -626,6 +626,9 @@ impl Worker {
         {
             Ok(Ok(StartOutcome::Ready(session))) => Ok((session, false)),
             Ok(Ok(StartOutcome::CleanupRequired { error, session })) => {
+                if let Some(owner) = &reservation {
+                    owner.retain_cleanup();
+                }
                 self.inner.pool.lock().await.quarantined.push(Idle {
                     key: key.clone(),
                     session,
@@ -640,6 +643,9 @@ impl Worker {
             }
             Err(error) => {
                 self.fail_closed(identity);
+                if let Some(owner) = &reservation {
+                    owner.retain_unresolved_operation();
+                }
                 self.inner
                     .pool
                     .lock()
@@ -657,7 +663,13 @@ impl Worker {
         identity: Option<&InvocationIdentity>,
     ) -> Result<()> {
         match catch_panic(async { idle.session.close().await }).await {
-            Ok(result) => result,
+            Ok(Ok(())) => {
+                if let Some(owner) = &idle._consumer {
+                    owner.confirm_cleanup();
+                }
+                Ok(())
+            }
+            Ok(Err(error)) => Err(error),
             Err(error) => {
                 let mut registry = self
                     .inner
@@ -692,6 +704,9 @@ impl Worker {
                 Ok(())
             }
             Err(error) => {
+                if let Some(owner) = &owned._consumer {
+                    owner.retain_cleanup();
+                }
                 self.inner.pool.lock().await.quarantined.push(owned);
                 Err(error)
             }
@@ -705,6 +720,9 @@ impl Worker {
                 Ok(())
             }
             Err(error) => {
+                if let Some(owner) = &idle._consumer {
+                    owner.retain_cleanup();
+                }
                 self.inner.pool.lock().await.quarantined.push(idle);
                 Err(error)
             }
@@ -782,27 +800,36 @@ impl Worker {
         let cleanup_until = Instant::now()
             .checked_add(cleanup)
             .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "cleanup period is too large"))?;
-        while self.active_count() != 0 {
-            if Instant::now() >= cleanup_until {
-                return Err(Error::new(
-                    ErrorKind::TimedOut,
-                    "shutdown incomplete: active consumers still own work",
-                ));
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
         loop {
+            // External delivery owners may need to observe this cleanup before
+            // releasing their reservation. Retire available sessions while they
+            // wait. Sample owners before the pool: a finishing supervisor must
+            // publish its session before removing its active registration.
+            let active = self.active_count() != 0;
             let session = {
                 let mut pool = self.inner.pool.lock().await;
-                pool.idle.pop().or_else(|| pool.quarantined.pop())
+                pool.quarantined.pop().or_else(|| pool.idle.pop())
             };
             let Some(mut idle) = session else {
-                break;
+                if !active {
+                    break;
+                }
+                if Instant::now() >= cleanup_until {
+                    return Err(Error::new(
+                        ErrorKind::TimedOut,
+                        "shutdown incomplete: active consumers still own work",
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
             };
             let remaining = cleanup_until.saturating_duration_since(Instant::now());
             match tokio::time::timeout(remaining, self.close_session(&mut idle, None)).await {
                 Ok(Ok(())) => self.inner.pool.lock().await.occupied -= 1,
                 result => {
+                    if let Some(owner) = &idle._consumer {
+                        owner.retain_cleanup();
+                    }
                     self.inner.pool.lock().await.quarantined.push(idle);
                     return Err(match result {
                         Ok(Err(error)) => error,

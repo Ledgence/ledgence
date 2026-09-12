@@ -174,6 +174,20 @@ impl ExecutionSession for Session {
     ) -> PortFuture<'a, ProgramOutcome> {
         Box::pin(async move {
             self.counts.executions.fetch_add(1, Ordering::SeqCst);
+            if event.value()["data"]["hold_execution"] == true {
+                let gate = self.counts.execute_gate.lock().unwrap().clone().unwrap();
+                gate.entered.add_permits(1);
+                loop {
+                    control.check()?;
+                    tokio::select! {
+                        permit = gate.release.acquire() => {
+                            permit.unwrap().forget();
+                            break;
+                        }
+                        _ = tokio::time::sleep(Duration::from_millis(5)) => {}
+                    }
+                }
+            }
             if self
                 .counts
                 .execute_panics
@@ -1075,8 +1089,10 @@ async fn released_delivery_reservation_still_owns_a_timed_out_blocking_preparati
     )
     .unwrap();
     let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let execution_control = control();
+    let caller_control = execution_control.clone();
     let caller = tokio::spawn(async move {
-        let result = reservation.execute(request(1, 1, 0), control()).await;
+        let result = reservation.execute(request(1, 1, 0), caller_control).await;
         (result, reservation)
     });
     wait_for(|| live.load(Ordering::SeqCst) == 1).await;
@@ -1089,7 +1105,12 @@ async fn released_delivery_reservation_still_owns_a_timed_out_blocking_preparati
     assert_eq!(failed.error.kind, ErrorKind::TimedOut);
     assert_eq!(live.load(Ordering::SeqCst), 1);
     assert!(!reservation.is_quiescent());
+    assert!(!execution_control.is_cancelled());
     reservation.release();
+    assert!(
+        execution_control.is_cancelled(),
+        "an early report does not detach unfinished work"
+    );
     assert_eq!(worker.stats().await.active_consumers, 1);
     assert!(
         tokio::time::timeout(
@@ -1128,14 +1149,20 @@ async fn unconfirmed_delivery_cleanup_retains_consumer_and_shutdown_can_reconcil
     let mut value = invocation.event.into_value();
     value["data"]["crash"] = true.into();
     invocation.event = CloudEvent::new(value).unwrap();
+    let execution_control = control();
     let failure = reservation
-        .execute(invocation, control())
+        .execute(invocation, execution_control.clone())
         .await
         .unwrap_err();
     assert_eq!(failure.phase, Phase::Execution);
     assert!(failure.cleanup_error.is_some());
     assert!(!reservation.is_quiescent());
+    assert!(!execution_control.is_cancelled());
     reservation.release();
+    assert!(
+        execution_control.is_cancelled(),
+        "quarantined cleanup keeps its cancellation control"
+    );
     assert_eq!(worker.stats().await.active_consumers, 1);
     assert_eq!(worker.stats().await.process_slots, 1);
     assert!(
@@ -1223,4 +1250,199 @@ async fn cancelling_or_dropping_admission_waiters_does_not_lose_a_consumer_permi
         .shutdown(Duration::ZERO, Duration::from_secs(1))
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn shutdown_reconciles_quarantine_before_delivery_owner_releases() {
+    for failed_start in [false, true] {
+        let (worker, counts) = setup(1);
+        let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+        let mut invocation = request(1, 1, 0);
+        if failed_start {
+            counts.startup_cleanup_required.store(1, Ordering::SeqCst);
+        } else {
+            counts.close_failures.store(1, Ordering::SeqCst);
+            let mut event = invocation.event.into_value();
+            event["data"]["crash"] = true.into();
+            invocation.event = CloudEvent::new(event).unwrap();
+        }
+        let failure = reservation
+            .execute(invocation, control())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            failure.phase,
+            if failed_start {
+                Phase::Startup
+            } else {
+                Phase::Execution
+            }
+        );
+        assert!(!reservation.is_quiescent());
+        let mut shutdown = {
+            let worker = worker.clone();
+            tokio::spawn(async move {
+                worker
+                    .shutdown(Duration::ZERO, Duration::from_secs(5))
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !reservation.is_quiescent() {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .expect("cleanup must progress while its delivery owner observes it");
+        assert!(reservation.is_cancellation_requested());
+        assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            counts.close_calls.load(Ordering::SeqCst),
+            if failed_start { 1 } else { 2 }
+        );
+        assert_eq!(worker.stats().await.process_slots, 0);
+        assert_eq!(worker.stats().await.active_consumers, 1);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), &mut shutdown)
+                .await
+                .is_err(),
+            "local cleanup does not resolve the delivery owner's external settlement"
+        );
+        reservation.release();
+        tokio::time::timeout(Duration::from_secs(1), shutdown)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(worker.stats().await.active_consumers, 0);
+        assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+        assert!(counts.peak.load(Ordering::SeqCst) <= 1);
+    }
+}
+
+#[tokio::test]
+async fn shutdown_reconciles_quarantine_published_after_its_first_pool_scan() {
+    let (worker, counts) = setup(1);
+    let gate = CloseGate::install(&counts);
+    counts.close_failures.store(1, Ordering::SeqCst);
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let caller = tokio::spawn(async move {
+        let result = reservation.execute(request(1, 1, 5_000), control()).await;
+        (result, reservation)
+    });
+    wait_for(|| counts.executions.load(Ordering::SeqCst) == 1).await;
+    let mut shutdown = {
+        let worker = worker.clone();
+        tokio::spawn(async move {
+            worker
+                .shutdown(Duration::ZERO, Duration::from_secs(5))
+                .await
+        })
+    };
+    gate.wait_until_entered().await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), &mut shutdown)
+            .await
+            .is_err()
+    );
+    assert_eq!(worker.stats().await.warm_processes, 0);
+    assert_eq!(counts.close_calls.load(Ordering::SeqCst), 1);
+    // Shutdown is already waiting while the still-supervised close is held.
+    // Its first failure publishes quarantine only after this barrier opens.
+    gate.finish(&counts);
+    let (result, reservation) = caller.await.unwrap();
+    let failure = result.unwrap_err();
+    assert_eq!(failure.error.kind, ErrorKind::Cancelled);
+    assert!(failure.cleanup_error.is_some());
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !reservation.is_quiescent() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("the same shutdown must drain newly published quarantine");
+    assert_eq!(counts.close_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(worker.stats().await.process_slots, 0);
+    assert_eq!(worker.stats().await.active_consumers, 1);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), &mut shutdown)
+            .await
+            .is_err()
+    );
+    reservation.release();
+    tokio::time::timeout(Duration::from_secs(1), shutdown)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn completed_delivery_release_preserves_shared_control_for_running_peer() {
+    for failed_execution in [false, true] {
+        let (worker, counts) = setup(2);
+        let shared = control();
+        let mut completed = worker.reserve_consumer(control()).await.unwrap();
+        let mut pending = worker.reserve_consumer(control()).await.unwrap();
+        let gate = Arc::new(CloseGate {
+            entered: Semaphore::new(0),
+            release: Semaphore::new(0),
+        });
+        *counts.execute_gate.lock().unwrap() = Some(gate.clone());
+        let mut invocation = request(2, 1, 0);
+        let mut event = invocation.event.into_value();
+        event["data"]["hold_execution"] = true.into();
+        invocation.event = CloudEvent::new(event).unwrap();
+        let peer = {
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                let result = pending.execute(invocation, shared).await;
+                (result, pending)
+            })
+        };
+        gate.wait_until_entered().await;
+        let mut invocation = request(1, 1, 0);
+        if failed_execution {
+            let mut event = invocation.event.into_value();
+            event["data"]["crash"] = true.into();
+            invocation.event = CloudEvent::new(event).unwrap();
+        }
+        let result = completed.execute(invocation, shared.clone()).await;
+        if failed_execution {
+            let failure = result.unwrap_err();
+            assert_eq!(failure.phase, Phase::Execution);
+            assert!(failure.cleanup_error.is_none());
+            assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+        } else {
+            result.unwrap();
+        }
+        wait_for(|| completed.is_quiescent()).await;
+        assert!(!shared.is_cancelled());
+        completed.release();
+        assert!(
+            !shared.is_cancelled(),
+            "releasing finished work must not cancel its shared control"
+        );
+        assert!(
+            !peer.is_finished(),
+            "the peer is still held at its execution barrier"
+        );
+        *counts.execute_gate.lock().unwrap() = None;
+        gate.release.add_permits(1);
+        let (result, pending) = peer.await.unwrap();
+        result.unwrap();
+        wait_for(|| pending.is_quiescent()).await;
+        pending.release();
+        assert!(!shared.is_cancelled());
+        worker
+            .shutdown(Duration::ZERO, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(worker.stats().await.active_consumers, 0);
+        assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+        assert!(counts.peak.load(Ordering::SeqCst) <= 2);
+    }
 }

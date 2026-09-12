@@ -4,8 +4,9 @@
 //! cancels that exchange; it never transfers the live child back to the pool.
 
 use ledgence_worker_api::{
-    CloudEvent, Error, ErrorKind, ExecutionRuntime, ExecutionSession, PortFuture, PreparedArtifact,
-    ProgramOutcome, Result, RunControl, StartOutcome, validate_wire_value,
+    CloudEvent, DEFAULT_RUNTIME_FRAME_MAX_BYTES, Error, ErrorKind, ExecutionRuntime,
+    ExecutionSession, PortFuture, PreparedArtifact, ProgramOutcome, Result, RunControl,
+    StartOutcome, validate_wire_value,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -29,6 +30,8 @@ use tokio::{
 #[derive(Debug, Clone)]
 pub struct SubprocessConfig {
     /// Maximum encoded bytes including the newline, in either protocol direction.
+    /// The default supports the submission/delivery profile. Explicit local
+    /// overrides can be smaller or larger and may be incompatible with delivery.
     pub max_frame_bytes: usize,
     /// Maximum stderr bytes emitted to tracing between invocation starts.
     /// The pipe continues draining after this allowance is exhausted.
@@ -40,7 +43,7 @@ pub struct SubprocessConfig {
 impl Default for SubprocessConfig {
     fn default() -> Self {
         Self {
-            max_frame_bytes: 1024 * 1024,
+            max_frame_bytes: DEFAULT_RUNTIME_FRAME_MAX_BYTES,
             max_log_bytes: 64 * 1024,
             startup_timeout: Duration::from_secs(10),
             shutdown_timeout: Duration::from_secs(2),
