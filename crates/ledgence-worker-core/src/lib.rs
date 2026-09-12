@@ -507,6 +507,9 @@ impl Worker {
             tracing::debug!(phase = "preparation", cache_hit = true, "artifact ready");
             return Ok(hit);
         }
+        // The lookup may outlive cancellation or the invocation deadline. Keep
+        // that existing operation owned, but do not begin a new download afterward.
+        control.check()?;
         // Pin once: timing out a borrowed future leaves the real operation alive.
         // In particular, a started spawn_blocking read must keep its admission
         // permit and registration until that exact operation completes.

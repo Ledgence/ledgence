@@ -1,5 +1,6 @@
 //! Composition root and local execution fixture for the first worker milestone.
 
+mod output;
 mod signals;
 
 use ledgence_adapter_artifact::{
@@ -8,6 +9,7 @@ use ledgence_adapter_artifact::{
 use ledgence_adapter_subprocess::SubprocessRuntime;
 use ledgence_worker_api::*;
 use ledgence_worker_core::{ExecutionRequest, Worker, WorkerConfig};
+use output::{Outputs, Sink};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use signals::{ShutdownSignals, forced_exit};
@@ -26,11 +28,17 @@ use tokio::{sync::Mutex, task::JoinSet};
 const HELP: &str = "Ledgence worker foundation\n\nCommands:\n  example --directory DIR --python EXE\n  publish --source DIR --store DIR\n  run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n\nThe run command consumes a local JSON task fixture. A production orchestration\ntransport, distributed leases, and durable settlement are not implemented yet.\n";
 
 fn main() -> std::process::ExitCode {
+    let mut outputs = match Outputs::new() {
+        Ok(outputs) => outputs,
+        // No output service exists if descriptor setup failed. Exit without a
+        // fallback blocking write to the same unavailable destination.
+        Err(_) => return std::process::ExitCode::FAILURE,
+    };
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
-        .with_writer(std::io::stderr)
+        .with_writer(outputs.stderr.clone())
         .json()
         .init();
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -38,12 +46,60 @@ fn main() -> std::process::ExitCode {
         .build()
     {
         Ok(runtime) => runtime,
-        Err(error) => {
-            eprintln!("cannot start worker runtime: {error}");
+        Err(_) => {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let result = runtime.block_on(dispatch());
+    let result = runtime.block_on(async {
+        let mut signals = ShutdownSignals::new()?;
+        let mut interrupted = false;
+        let result = dispatch(&outputs.stdout, &mut signals, &mut interrupted).await;
+        if signals::FORCE_EXIT.load(Ordering::Acquire) {
+            return result;
+        }
+        let stderr = outputs.stderr.clone();
+        let diagnostic = result.as_ref().err().map(ToString::to_string);
+        let finalization = async {
+            if let Some(message) = diagnostic {
+                let _ = stderr.line(message).await;
+            }
+            outputs.finish().await
+        };
+        tokio::pin!(finalization);
+        // Signal subscriptions outlive dispatch, including its final report
+        // and log drain. An output stall must never disable forced shutdown.
+        let output_result = loop {
+            tokio::select! {
+                biased;
+                signal = signals.recv() => {
+                    signal?;
+                    if interrupted { return Err(forced_exit()); }
+                    interrupted = true;
+                }
+                finished = &mut finalization => break finished,
+            }
+        };
+        result?;
+        output_result?;
+        if interrupted {
+            return Err(Error::new(ErrorKind::Cancelled, "execution interrupted"));
+        }
+        Ok(())
+    });
+    if signals::FORCE_EXIT.load(Ordering::Acquire) {
+        runtime.block_on(async {
+            if let Err(error) = &result {
+                let _ = tokio::time::timeout(
+                    Duration::from_millis(100),
+                    outputs.stderr.line(error.to_string()),
+                )
+                .await;
+            }
+            outputs.abort();
+            let _ = tokio::time::timeout(Duration::from_millis(100), outputs.finish()).await;
+        });
+    }
+    drop(outputs);
     if signals::FORCE_EXIT.load(Ordering::Acquire) {
         // Only a second explicit shutdown signal permits abandoning unresolved
         // blocking work. Normal exits retain the runtime until ownership clears.
@@ -53,22 +109,21 @@ fn main() -> std::process::ExitCode {
     }
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("{error}");
-            std::process::ExitCode::FAILURE
-        }
+        Err(_) => std::process::ExitCode::FAILURE,
     }
 }
 
-async fn dispatch() -> Result<()> {
+async fn dispatch(
+    output: &Sink,
+    signals: &mut ShutdownSignals,
+    interrupted: &mut bool,
+) -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
-        print!("{HELP}");
-        return Ok(());
+        return output.write(HELP.as_bytes().to_vec()).await;
     };
     if ["--help", "-h", "help"].contains(&command.as_str()) {
-        print!("{HELP}");
-        return Ok(());
+        return output.write(HELP.as_bytes().to_vec()).await;
     }
     let mut options = HashMap::new();
     while let Some(key) = args.next() {
@@ -87,18 +142,16 @@ async fn dispatch() -> Result<()> {
             let directory = required(&mut options, "--directory")?;
             let python = required(&mut options, "--python")?;
             check_empty(options)?;
-            make_example(Path::new(&directory), &python).await
+            make_example(Path::new(&directory), &python, output).await
         }
         "publish" => {
             let source = required(&mut options, "--source")?;
             let store = required(&mut options, "--store")?;
             check_empty(options)?;
             let descriptor = publish_directory(source, store, &ArtifactLimits::default())?;
-            println!(
-                "{}",
-                serde_json::to_string(&descriptor).map_err(|e| input(e.to_string()))?
-            );
-            Ok(())
+            output
+                .line(serde_json::to_string(&descriptor).map_err(|e| input(e.to_string()))?)
+                .await
         }
         "run" => {
             let config = RunOptions {
@@ -116,7 +169,7 @@ async fn dispatch() -> Result<()> {
                     "concurrency must be at most 1024 and timeout at most one day",
                 ));
             }
-            run(config).await
+            run(config, output, signals, interrupted).await
         }
         _ => Err(input(format!("unknown command {command}; use --help"))),
     }
@@ -221,19 +274,22 @@ async fn prepare(
     Ok((worker, assignments))
 }
 
-async fn run(config: RunOptions) -> Result<()> {
-    // Install both subscriptions before preparation or any child can start.
-    let mut signals = ShutdownSignals::new()?;
+async fn run(
+    config: RunOptions,
+    output: &Sink,
+    signals: &mut ShutdownSignals,
+    interrupted: &mut bool,
+) -> Result<()> {
+    // Both subscriptions are already installed before any child can start.
     let stop = Arc::new(AtomicBool::new(false));
-    let mut interrupted = false;
     let mut preparation = tokio::spawn(prepare(config.clone(), stop.clone()));
     let prepared = loop {
         tokio::select! {
             biased;
             signal = signals.recv() => {
                 signal?;
-                if interrupted { return Err(forced_exit()); }
-                interrupted = true;
+                if *interrupted { return Err(forced_exit()); }
+                *interrupted = true;
                 stop.store(true, Ordering::Release);
             }
             result = &mut preparation => {
@@ -241,9 +297,9 @@ async fn run(config: RunOptions) -> Result<()> {
             }
         }
     };
-    if interrupted {
+    if *interrupted {
         if let Ok((worker, _)) = prepared {
-            finish_shutdown(&worker, &mut signals, &mut interrupted).await?;
+            finish_shutdown(&worker, signals, interrupted).await?;
         }
         return Err(Error::new(
             ErrorKind::Cancelled,
@@ -259,6 +315,7 @@ async fn run(config: RunOptions) -> Result<()> {
         let queue = queue.clone();
         let stop = stop.clone();
         let failures = failures.clone();
+        let output = output.clone();
         consumers.spawn(async move {
             while !stop.load(Ordering::Acquire) {
                 let Some(request) = queue.lock().await.pop_front() else {
@@ -270,7 +327,7 @@ async fn run(config: RunOptions) -> Result<()> {
                         RunControl::new(Duration::from_millis(config.timeout_ms)),
                     )
                     .await;
-                let output = match result {
+                let report = match result {
                     Ok(report) => {
                         if matches!(report.outcome, ProgramOutcome::Failure { .. }) {
                             failures.fetch_add(1, Ordering::Relaxed);
@@ -282,8 +339,12 @@ async fn run(config: RunOptions) -> Result<()> {
                         json!({"failure":failure})
                     }
                 };
-                println!("{output}");
+                if let Err(error) = output.line(report.to_string()).await {
+                    stop.store(true, Ordering::Release);
+                    return Err(error);
+                }
             }
+            Ok::<(), Error>(())
         });
     }
     loop {
@@ -291,18 +352,26 @@ async fn run(config: RunOptions) -> Result<()> {
             joined = consumers.join_next() => {
                 match joined {
                     None => break,
-                    Some(Ok(())) => {},
-                    Some(Err(error)) => {
+                    Some(Ok(Ok(()))) => {},
+                    Some(failed) => {
+                        let error = match failed {
+                            Ok(Err(error)) => error.to_string(),
+                            Err(error) => error.to_string(),
+                            Ok(Ok(())) => unreachable!(),
+                        };
                         tracing::error!(%error, "consumer failed");
                         failures.fetch_add(1, Ordering::Relaxed);
                         stop.store(true, Ordering::Release);
+                        // Delivery failed after execution. Do not retry effects,
+                        // and cancel siblings before waiting for their consumers.
+                        finish_shutdown(&worker, signals, interrupted).await?;
                     }
                 }
             }
             signal = signals.recv() => {
                 signal?;
-                if interrupted { return Err(forced_exit()); }
-                interrupted = true;
+                if *interrupted { return Err(forced_exit()); }
+                *interrupted = true;
                 stop.store(true, Ordering::Release);
                 tokio::select! {
                     result = worker.shutdown(Duration::ZERO, Duration::from_secs(35)) => {
@@ -318,9 +387,9 @@ async fn run(config: RunOptions) -> Result<()> {
             }
         }
     }
-    finish_shutdown(&worker, &mut signals, &mut interrupted).await?;
+    finish_shutdown(&worker, signals, interrupted).await?;
     let failed = failures.load(Ordering::Relaxed);
-    if interrupted {
+    if *interrupted {
         return Err(Error::new(ErrorKind::Cancelled, "execution interrupted"));
     }
     if failed != 0 {
@@ -371,7 +440,7 @@ async fn finish_shutdown(
     }
 }
 
-async fn make_example(directory: &Path, python: &str) -> Result<()> {
+async fn make_example(directory: &Path, python: &str, sink: &Sink) -> Result<()> {
     if directory.exists() {
         return Err(input("example directory already exists"));
     }
@@ -432,11 +501,7 @@ async fn make_example(directory: &Path, python: &str) -> Result<()> {
         directory.join("tasks.json"),
         serde_json::to_vec_pretty(&tasks).map_err(|e| input(e.to_string()))?,
     )?;
-    println!(
-        "{}",
-        json!({"program":program,"tasks":directory.join("tasks.json"),"python":manifest.runtime.python})
-    );
-    Ok(())
+    sink.line(json!({"program":program,"tasks":directory.join("tasks.json"),"python":manifest.runtime.python}).to_string()).await
 }
 
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {

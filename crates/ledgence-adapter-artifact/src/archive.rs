@@ -164,6 +164,13 @@ pub(crate) fn inspect_for_publication(
 
 impl ArchivePlan {
     pub fn extract(&mut self, root: &Path) -> Result<()> {
+        self.extract_with_create(root, |path| File::create_new(path))
+    }
+    pub(crate) fn extract_with_create(
+        &mut self,
+        root: &Path,
+        mut create: impl FnMut(&Path) -> io::Result<File>,
+    ) -> Result<()> {
         fs::create_dir(root)?;
         for (index, member) in self.members.iter().enumerate() {
             let target = root.join(&member.name);
@@ -174,7 +181,7 @@ impl ArchivePlan {
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
-            let mut output = File::create_new(&target)?;
+            let mut output = create(&target)?;
             let mut entry = self.archive.by_index(index)?;
             let copied = io::copy(&mut (&mut entry).take(member.size + 1), &mut output)?;
             if copied != member.size {
