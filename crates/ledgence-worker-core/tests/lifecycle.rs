@@ -1,0 +1,599 @@
+use ledgence_worker_api::*;
+use ledgence_worker_core::*;
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+use tokio::sync::{Mutex, Semaphore};
+
+#[derive(Default)]
+struct Counts {
+    fetches: AtomicUsize,
+    starts: AtomicUsize,
+    live: AtomicUsize,
+    peak: AtomicUsize,
+    executions: AtomicUsize,
+    close_calls: AtomicUsize,
+    close_completions: AtomicUsize,
+    implicit_drops: AtomicUsize,
+    close_failures: AtomicUsize,
+    startup_cleanup_required: AtomicUsize,
+    close_gate: std::sync::Mutex<Option<Arc<CloseGate>>>,
+}
+struct CloseGate {
+    entered: Semaphore,
+    release: Semaphore,
+}
+impl CloseGate {
+    fn install(counts: &Counts) -> Arc<Self> {
+        let gate = Arc::new(Self {
+            entered: Semaphore::new(0),
+            release: Semaphore::new(0),
+        });
+        *counts.close_gate.lock().unwrap() = Some(gate.clone());
+        gate
+    }
+    async fn wait_until_entered(&self) {
+        tokio::time::timeout(Duration::from_secs(3), self.entered.acquire())
+            .await
+            .unwrap()
+            .unwrap()
+            .forget();
+    }
+    fn finish(&self, counts: &Counts) {
+        *counts.close_gate.lock().unwrap() = None;
+        self.release.add_permits(1);
+    }
+}
+struct Store(Arc<Counts>);
+impl ProgramStore for Store {
+    fn resolve<'a>(&'a self, _: &'a ProgramRef) -> PortFuture<'a, ProgramDescriptor> {
+        Box::pin(async { unreachable!("assignments are already bound") })
+    }
+    fn fetch<'a>(&'a self, _: &'a ProgramDescriptor) -> PortFuture<'a, Vec<u8>> {
+        Box::pin(async {
+            self.0.fetches.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            Ok(vec![1])
+        })
+    }
+}
+#[derive(Default)]
+struct Cache {
+    entries: Mutex<HashMap<Digest, PreparedArtifact>>,
+    publish_failure: std::sync::Mutex<Option<Error>>,
+}
+impl ArtifactCache for Cache {
+    fn lookup<'a>(&'a self, d: &'a ProgramDescriptor) -> PortFuture<'a, Option<PreparedArtifact>> {
+        Box::pin(async { Ok(self.entries.lock().await.get(&d.digest).cloned()) })
+    }
+    fn publish<'a>(
+        &'a self,
+        d: &'a ProgramDescriptor,
+        _: Vec<u8>,
+    ) -> PortFuture<'a, PreparedArtifact> {
+        Box::pin(async {
+            if let Some(error) = self.publish_failure.lock().unwrap().clone() {
+                return Err(error);
+            }
+            let artifact = PreparedArtifact::new(
+                PathBuf::from("/unused-test-artifact"),
+                manifest(d.program.clone()),
+                d.digest.clone(),
+                Arc::new(()),
+            );
+            self.entries
+                .lock()
+                .await
+                .insert(d.digest.clone(), artifact.clone());
+            Ok(artifact)
+        })
+    }
+}
+struct Runtime(Arc<Counts>);
+impl ExecutionRuntime for Runtime {
+    fn start<'a>(
+        &'a self,
+        artifact: PreparedArtifact,
+        control: RunControl,
+    ) -> PortFuture<'a, StartOutcome> {
+        Box::pin(async move {
+            control.check()?;
+            let pid = self.0.starts.fetch_add(1, Ordering::SeqCst) + 1;
+            let live = self.0.live.fetch_add(1, Ordering::SeqCst) + 1;
+            self.0.peak.fetch_max(live, Ordering::SeqCst);
+            let session: Box<dyn ExecutionSession> = Box::new(Session {
+                counts: self.0.clone(),
+                pid: pid as u32,
+                alive: true,
+                _artifact: artifact,
+            });
+            if self
+                .0
+                .startup_cleanup_required
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                return Ok(StartOutcome::CleanupRequired {
+                    error: Error::new(ErrorKind::Runtime, "startup failed; retirement unconfirmed"),
+                    session,
+                });
+            }
+            Ok(StartOutcome::Ready(session))
+        })
+    }
+}
+struct Session {
+    counts: Arc<Counts>,
+    pid: u32,
+    alive: bool,
+    _artifact: PreparedArtifact,
+}
+impl Session {
+    fn stop(&mut self) {
+        if self.alive {
+            self.alive = false;
+            self.counts.live.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+impl Drop for Session {
+    fn drop(&mut self) {
+        if self.alive {
+            self.counts.implicit_drops.fetch_add(1, Ordering::SeqCst);
+        }
+        self.stop();
+    }
+}
+impl ExecutionSession for Session {
+    fn pid(&self) -> u32 {
+        self.pid
+    }
+    fn execute<'a>(
+        &'a mut self,
+        event: CloudEvent,
+        control: RunControl,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async move {
+            self.counts.executions.fetch_add(1, Ordering::SeqCst);
+            let delay = event.value()["data"]["delay_ms"].as_u64().unwrap_or(0);
+            let until = std::time::Instant::now() + Duration::from_millis(delay);
+            loop {
+                control.check()?;
+                if std::time::Instant::now() >= until {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            if event.value()["data"]["crash"] == true {
+                return Err(Error::new(ErrorKind::Runtime, "lost response"));
+            }
+            Ok(ProgramOutcome::Success {
+                output: event.into_value(),
+            })
+        })
+    }
+    fn close(&mut self) -> PortFuture<'_, ()> {
+        Box::pin(async {
+            self.counts.close_calls.fetch_add(1, Ordering::SeqCst);
+            let gate = self.counts.close_gate.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate.entered.add_permits(1);
+                gate.release.acquire().await.unwrap().forget();
+            }
+            if self
+                .counts
+                .close_failures
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                return Err(Error::new(ErrorKind::Io, "retirement unconfirmed"));
+            }
+            self.stop();
+            self.counts.close_completions.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    }
+}
+fn manifest(program: ProgramRef) -> ProgramManifest {
+    ProgramManifest {
+        schema_version: 1,
+        program,
+        runtime: PythonRuntime {
+            kind: "python".into(),
+            python: "3.12".into(),
+            protocol: 1,
+        },
+        handler: "app:handle".into(),
+        platform: Platform {
+            os: std::env::consts::OS.into(),
+            arch: std::env::consts::ARCH.into(),
+        },
+    }
+}
+fn request(id: usize, version: usize, delay: u64) -> ExecutionRequest {
+    let event = CloudEvent::new(json!({
+        "specversion":"1.0", "id":format!("evt_{id}"), "source":"urn:test", "type":"com.ledgence.task.invocation.requested.v1", "datacontenttype":"application/json",
+        "ldgtenantid":"tenant_a", "ldgnamespace":"demo", "ldgrunid":"run_1", "ldgtaskid":format!("task_{id}"), "ldgattemptid":format!("att_{id}"), "ldgattemptno":1,
+        "traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "data":{"delay_ms":delay, "business_id":"INV-7", "nested":[1,{"opaque":true}]}
+    })).unwrap();
+    ExecutionRequest {
+        descriptor: ProgramDescriptor {
+            program: ProgramRef {
+                id: "test".into(),
+                version: version.to_string(),
+            },
+            digest: Digest(format!("sha256:{version:064x}")),
+            size: 1,
+        },
+        event,
+    }
+}
+fn setup(n: usize) -> (Worker, Arc<Counts>) {
+    setup_with_cache(n, Arc::new(Cache::default()))
+}
+fn setup_with_cache(n: usize, cache: Arc<Cache>) -> (Worker, Arc<Counts>) {
+    let counts = Arc::new(Counts::default());
+    let worker = Worker::new(
+        WorkerConfig {
+            concurrency: n,
+            fetch_timeout: Duration::from_secs(2),
+        },
+        Arc::new(Store(counts.clone())),
+        cache,
+        Arc::new(Runtime(counts.clone())),
+    )
+    .unwrap();
+    (worker, counts)
+}
+fn control() -> RunControl {
+    RunControl::new(Duration::from_secs(5))
+}
+async fn wait_for(predicate: impl Fn() -> bool) {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !predicate() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn cached_artifact_and_healthy_process_are_reused_without_touching_user_data() {
+    let (worker, counts) = setup(1);
+    let first = worker.execute(request(1, 1, 0), control()).await.unwrap();
+    let next = request(2, 1, 0);
+    let original = next.event.value().clone();
+    let second = worker.execute(next, control()).await.unwrap();
+    assert_eq!(first.process_id, second.process_id);
+    assert!(second.reused_process);
+    assert_eq!(second.outcome, ProgramOutcome::Success { output: original });
+    assert_eq!(counts.fetches.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mixed_programs_share_one_global_process_limit_and_coalesce_downloads() {
+    let (worker, counts) = setup(3);
+    let mut tasks = Vec::new();
+    for id in 0..18 {
+        let worker = worker.clone();
+        tasks.push(tokio::spawn(async move {
+            worker.execute(request(id, 1 + id % 2, 15), control()).await
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap().unwrap();
+    }
+    assert_eq!(counts.fetches.load(Ordering::SeqCst), 2);
+    assert!(counts.peak.load(Ordering::SeqCst) <= 3);
+    assert_eq!(worker.stats().await.active_consumers, 0);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn cancelling_fetch_owner_does_not_cancel_other_waiter_or_dispatch_owner_later() {
+    let (worker, counts) = setup(2);
+    let cancelled = control();
+    let first = {
+        let worker = worker.clone();
+        let c = cancelled.clone();
+        tokio::spawn(async move { worker.execute(request(1, 1, 0), c).await })
+    };
+    wait_for(|| counts.fetches.load(Ordering::SeqCst) == 1).await;
+    let second = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.execute(request(2, 1, 0), control()).await })
+    };
+    cancelled.cancel();
+    let failure = first.await.unwrap().unwrap_err();
+    assert_eq!(failure.error.kind, ErrorKind::Cancelled);
+    assert!(!failure.execution_may_have_started);
+    second.await.unwrap().unwrap();
+    assert_eq!(counts.fetches.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn dropping_caller_keeps_supervision_until_cancelled_process_is_retired() {
+    let (worker, counts) = setup(1);
+    let task = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.execute(request(1, 1, 5000), control()).await })
+    };
+    wait_for(|| counts.starts.load(Ordering::SeqCst) == 1).await;
+    task.abort();
+    let _ = task.await;
+    wait_for(|| counts.live.load(Ordering::SeqCst) == 0).await;
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(worker.stats().await.process_slots, 0);
+}
+
+#[tokio::test]
+async fn cancelled_start_reservation_is_released_and_process_can_be_replaced() {
+    let (worker, counts) = setup(1);
+    worker.execute(request(1, 1, 0), control()).await.unwrap();
+    let cancelled = control();
+    cancelled.cancel();
+    assert!(worker.execute(request(2, 2, 0), cancelled).await.is_err());
+    worker.execute(request(3, 2, 0), control()).await.unwrap();
+    assert_eq!(counts.peak.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn retirement_failure_keeps_slot_occupied_until_shutdown_reconciles_it() {
+    let (worker, counts) = setup(1);
+    worker.execute(request(1, 1, 0), control()).await.unwrap();
+    counts.close_failures.store(1, Ordering::SeqCst);
+    let error = worker
+        .execute(request(2, 2, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(error.phase, Phase::Startup);
+    assert!(!error.execution_may_have_started);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(worker.stats().await.process_slots, 1);
+    assert_eq!(
+        worker
+            .execute(request(3, 2, 0), control())
+            .await
+            .unwrap_err()
+            .error
+            .kind,
+        ErrorKind::Capacity
+    );
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn unknown_execution_is_reported_once_and_never_silently_retried() {
+    let (worker, counts) = setup(1);
+    let mut r = request(1, 1, 0);
+    let mut event = r.event.into_value();
+    event["data"]["crash"] = true.into();
+    r.event = CloudEvent::new(event).unwrap();
+    let error = worker.execute(r, control()).await.unwrap_err();
+    assert!(error.execution_may_have_started);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn shutdown_stops_admission_cancels_work_and_reaps_processes() {
+    let (worker, counts) = setup(1);
+    let task = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.execute(request(1, 1, 5000), control()).await })
+    };
+    wait_for(|| counts.starts.load(Ordering::SeqCst) == 1).await;
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert_eq!(
+        task.await.unwrap().unwrap_err().error.kind,
+        ErrorKind::Cancelled
+    );
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    assert!(!worker.stats().await.accepting);
+    assert_eq!(
+        worker
+            .execute(request(2, 1, 0), control())
+            .await
+            .unwrap_err()
+            .phase,
+        Phase::Admission
+    );
+}
+
+#[tokio::test]
+async fn cancellation_during_replacement_retirement_releases_the_reserved_slot() {
+    let (worker, counts) = setup(1);
+    worker.execute(request(1, 1, 0), control()).await.unwrap();
+    let gate = CloseGate::install(&counts);
+    let cancelled = control();
+    let replacement = {
+        let worker = worker.clone();
+        let control = cancelled.clone();
+        tokio::spawn(async move { worker.execute(request(2, 2, 0), control).await })
+    };
+    gate.wait_until_entered().await;
+    assert_eq!(worker.stats().await.process_slots, 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+    cancelled.cancel();
+    gate.finish(&counts);
+    let failure = replacement.await.unwrap().unwrap_err();
+    assert_eq!(failure.phase, Phase::Startup);
+    assert_eq!(failure.error.kind, ErrorKind::Cancelled);
+    assert!(!failure.execution_may_have_started);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(worker.stats().await.process_slots, 0);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    worker.execute(request(3, 2, 0), control()).await.unwrap();
+    assert_eq!(counts.peak.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn duplicate_active_attempt_is_rejected_before_any_second_dispatch() {
+    let (worker, counts) = setup(2);
+    let first_control = control();
+    let original = request(1, 1, 5000);
+    let first = {
+        let worker = worker.clone();
+        let control = first_control.clone();
+        let request = original.clone();
+        tokio::spawn(async move { worker.execute(request, control).await })
+    };
+    wait_for(|| counts.executions.load(Ordering::SeqCst) == 1).await;
+    let mut replay = original;
+    let mut envelope = replay.event.into_value();
+    envelope["id"] = "another-delivery-for-the-same-attempt".into();
+    replay.event = CloudEvent::new(envelope).unwrap();
+    let rejected = worker.execute(replay, control()).await.unwrap_err();
+    assert_eq!(rejected.phase, Phase::Admission);
+    assert_eq!(rejected.error.kind, ErrorKind::InvalidInput);
+    assert!(!rejected.execution_may_have_started);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    first_control.cancel();
+    assert_eq!(
+        first.await.unwrap().unwrap_err().error.kind,
+        ErrorKind::Cancelled
+    );
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn dropping_shutdown_caller_preserves_the_in_progress_retirement() {
+    let (worker, counts) = setup(1);
+    worker.execute(request(1, 1, 0), control()).await.unwrap();
+    let gate = CloseGate::install(&counts);
+    let shutdown = {
+        let worker = worker.clone();
+        tokio::spawn(async move {
+            worker
+                .shutdown(Duration::ZERO, Duration::from_secs(2))
+                .await
+        })
+    };
+    gate.wait_until_entered().await;
+    shutdown.abort();
+    assert!(shutdown.await.unwrap_err().is_cancelled());
+    assert_eq!(worker.stats().await.process_slots, 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    gate.finish(&counts);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert_eq!(counts.close_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    assert_eq!(worker.stats().await.process_slots, 0);
+}
+
+#[tokio::test]
+async fn invalid_artifact_is_not_treated_as_cache_pressure_and_keeps_warm_session() {
+    let cache = Arc::new(Cache::default());
+    let (worker, counts) = setup_with_cache(1, cache.clone());
+    let first = worker.execute(request(1, 1, 0), control()).await.unwrap();
+    *cache.publish_failure.lock().unwrap() = Some(Error::new(
+        ErrorKind::InvalidInput,
+        "archive digest mismatch",
+    ));
+    let failure = worker
+        .execute(request(2, 2, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(failure.phase, Phase::Preparation);
+    assert_eq!(failure.error.kind, ErrorKind::InvalidInput);
+    assert!(!failure.execution_may_have_started);
+    assert_eq!(counts.close_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(worker.stats().await.warm_processes, 1);
+    let reused = worker.execute(request(3, 1, 0), control()).await.unwrap();
+    assert_eq!(reused.process_id, first.process_id);
+    assert!(reused.reused_process);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn unconfirmed_startup_cleanup_retains_capacity_and_is_reconciled_by_shutdown() {
+    let (worker, counts) = setup(1);
+    counts.startup_cleanup_required.store(1, Ordering::SeqCst);
+    let failed = worker
+        .execute(request(1, 1, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(failed.phase, Phase::Startup);
+    assert!(!failed.execution_may_have_started);
+    assert_eq!(worker.stats().await.process_slots, 1);
+    assert_eq!(worker.stats().await.warm_processes, 0);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    let blocked = worker
+        .execute(request(2, 1, 0), control())
+        .await
+        .unwrap_err();
+    assert_eq!(blocked.error.kind, ErrorKind::Capacity);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.peak.load(Ordering::SeqCst), 1);
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    assert_eq!(worker.stats().await.process_slots, 0);
+}

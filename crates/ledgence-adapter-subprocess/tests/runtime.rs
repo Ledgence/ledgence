@@ -1,0 +1,492 @@
+use ledgence_adapter_subprocess::{SubprocessConfig, SubprocessRuntime};
+use ledgence_worker_api::{
+    CloudEvent, Digest, ErrorKind, ExecutionRuntime, ExecutionSession, Platform, PreparedArtifact,
+    ProgramManifest, ProgramOutcome, ProgramRef, PythonRuntime, RunControl, StartOutcome,
+};
+use serde_json::{Value, json};
+use std::{path::PathBuf, sync::Arc, time::Duration};
+use tempfile::TempDir;
+
+fn interpreter() -> (PathBuf, String) {
+    let python = std::env::var_os("LEDGENCE_PYTHON")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("python3"));
+    let output = std::process::Command::new(&python).args(["-I", "-S", "-c", "import sys; assert sys.implementation.name == 'cpython' and sys.version_info >= (3,11); print(f'{sys.version_info.major}.{sys.version_info.minor}')"]).output().expect("set LEDGENCE_PYTHON to CPython >= 3.11");
+    assert!(
+        output.status.success(),
+        "set LEDGENCE_PYTHON to CPython >= 3.11: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (
+        python,
+        String::from_utf8(output.stdout).unwrap().trim().to_owned(),
+    )
+}
+
+fn runner() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sdk/python/ledgence_worker/bootstrap.py")
+}
+
+fn fixture(source: &str) -> (TempDir, PreparedArtifact, SubprocessRuntime) {
+    let (python, version) = interpreter();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("program.py"), source).unwrap();
+    let manifest = ProgramManifest {
+        schema_version: 1,
+        program: ProgramRef {
+            id: "test".into(),
+            version: "v1".into(),
+        },
+        runtime: PythonRuntime {
+            kind: "python".into(),
+            python: version,
+            protocol: 1,
+        },
+        handler: "program:handle".into(),
+        platform: Platform {
+            os: std::env::consts::OS.into(),
+            arch: std::env::consts::ARCH.into(),
+        },
+    };
+    let artifact = PreparedArtifact::new(
+        dir.path().to_owned(),
+        manifest,
+        Digest(format!("sha256:{}", "0".repeat(64))),
+        Arc::new(()),
+    );
+    (dir, artifact, SubprocessRuntime::new(python, runner()))
+}
+
+fn event(id: &str) -> CloudEvent {
+    CloudEvent::new(json!({
+        "specversion": "1.0", "id": id, "source": "urn:ledgence:test", "type": "example.execute.v1",
+        "datacontenttype": "application/json", "subject": "invoice/42", "time": "2026-09-12T12:00:00Z",
+        "ldgtenantid": "tenant-a", "ldgnamespace": "default", "ldgrunid": "run-a", "ldgtaskid": "task-a",
+        "ldgattemptid": format!("attempt-{id}"), "ldgattemptno": 1,
+        "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        "customextension": "preserved", "data": {"invoice_id": 42, "nested": [null, true, {"value": "✓"}]}
+    })).unwrap()
+}
+
+fn control() -> RunControl {
+    RunControl::new(Duration::from_secs(5))
+}
+fn ready(result: ledgence_worker_api::Result<StartOutcome>) -> Box<dyn ExecutionSession> {
+    match result.expect("runtime should start") {
+        StartOutcome::Ready(session) => session,
+        StartOutcome::CleanupRequired { error, .. } => {
+            panic!("unexpected startup cleanup uncertainty: {error}")
+        }
+    }
+}
+fn assert_cleanup(result: ledgence_worker_api::Result<()>) {
+    // Darwin's killpg can reject a group consisting solely of an unreaped
+    // zombie. Keep that uncertainty visible rather than ignoring EPERM in the
+    // adapter. Every relevant test separately verifies direct-child reaping.
+    if cfg!(target_os = "macos")
+        && result.as_ref().is_err_and(|error| {
+            error.kind == ErrorKind::Runtime
+                && error.message
+                    == "cannot terminate subprocess group: EPERM: Operation not permitted"
+        })
+    {
+        return;
+    }
+    result.unwrap();
+}
+fn output(value: ProgramOutcome) -> Value {
+    match value {
+        ProgramOutcome::Success { output } => output,
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[cfg(unix)]
+fn running(pid: u32) -> bool {
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid.try_into().unwrap()), None).is_ok()
+}
+
+#[cfg(unix)]
+async fn eventually_gone(pid: u32) {
+    for _ in 0..100 {
+        if !running(pid) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("process {pid} was not reaped");
+}
+
+#[tokio::test]
+async fn reuses_process_preserves_full_event_and_isolates_invocation_context() {
+    let (_dir, artifact, runtime) = fixture(
+        "import os, contextvars\nfrom ledgence_worker import current_invocation\nstate = contextvars.ContextVar('state', default='clean')\ndef handle(event):\n    previous = state.get()\n    state.set('dirty')\n    return {'pid': os.getpid(), 'event': event, 'attempt': current_invocation().attempt_id, 'previous': previous}\n",
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    for id in ["first", "second"] {
+        let event = event(id);
+        let result = output(session.execute(event.clone(), control()).await.unwrap());
+        assert_eq!(result["pid"], pid);
+        assert_eq!(result["event"], *event.value());
+        assert_eq!(result["attempt"], event.attempt_id());
+        assert_eq!(result["previous"], "clean");
+    }
+    session.close().await.unwrap();
+    session.close().await.unwrap();
+    #[cfg(unix)]
+    assert!(!running(pid));
+}
+
+#[tokio::test]
+async fn business_failures_and_invalid_outputs_allow_reuse() {
+    let (_dir, artifact, runtime) = fixture(
+        "def handle(event):\n    if event['id'] == 'business': raise ValueError('bad invoice')\n    if event['id'] == 'nan': return float('nan')\n    return 42\n",
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    for (id, expected) in [("business", "business_error"), ("nan", "invalid_output")] {
+        let result = session.execute(event(id), control()).await.unwrap();
+        assert!(matches!(result, ProgramOutcome::Failure { kind, .. } if kind == expected));
+    }
+    assert_eq!(
+        output(session.execute(event("success"), control()).await.unwrap()),
+        42
+    );
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn large_stderr_and_native_stdout_are_drained_without_protocol_corruption() {
+    let (_dir, artifact, runtime) = fixture(
+        "import os\ndef handle(event):\n    print('normal print')\n    for _ in range(128): os.write(1, b'x' * 8192)\n    os.write(2, b'z' * 8192)\n    return event['id']\n",
+    );
+    let runtime = runtime.with_config(SubprocessConfig {
+        max_log_bytes: 128,
+        ..SubprocessConfig::default()
+    });
+    let mut session = ready(runtime.start(artifact, control()).await);
+    assert_eq!(
+        output(session.execute(event("first"), control()).await.unwrap()),
+        "first"
+    );
+    assert_eq!(
+        output(session.execute(event("second"), control()).await.unwrap()),
+        "second"
+    );
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn timeout_retires_and_reaps_before_returning() {
+    let (_dir, artifact, runtime) =
+        fixture("import time\ndef handle(event):\n    time.sleep(30)\n");
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    let error = session
+        .execute(event("slow"), RunControl::new(Duration::from_millis(50)))
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::TimedOut);
+    #[cfg(unix)]
+    assert!(!running(pid));
+    assert!(session.execute(event("again"), control()).await.is_err());
+    assert_cleanup(session.close().await);
+}
+
+#[tokio::test]
+async fn cancellation_retires_and_reaps_before_returning() {
+    let (_dir, artifact, runtime) =
+        fixture("import time\ndef handle(event):\n    time.sleep(30)\n");
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    let run = control();
+    let cancel = run.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel.cancel();
+    });
+    let error = session.execute(event("cancel"), run).await.unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Cancelled);
+    #[cfg(unix)]
+    assert!(!running(pid));
+    assert_cleanup(session.close().await);
+}
+
+#[tokio::test]
+async fn dropping_execute_future_cleans_up_even_with_session_still_owned() {
+    let (_dir, artifact, runtime) =
+        fixture("import time\ndef handle(event):\n    time.sleep(30)\n");
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(50),
+            session.execute(event("drop"), control())
+        )
+        .await
+        .is_err()
+    );
+    #[cfg(unix)]
+    eventually_gone(pid).await;
+    assert_cleanup(session.close().await);
+}
+
+#[tokio::test]
+async fn dropping_idle_session_reaps_child_and_releases_artifact_pin() {
+    let (_dir, artifact, runtime) = fixture("def handle(event): return None\n");
+    let pin = Arc::new(());
+    let weak = Arc::downgrade(&pin);
+    let artifact = PreparedArtifact::new(
+        artifact.root().to_owned(),
+        artifact.manifest().clone(),
+        artifact.digest().clone(),
+        pin,
+    );
+    let session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    assert!(weak.upgrade().is_some());
+    drop(session);
+    #[cfg(unix)]
+    eventually_gone(pid).await;
+    for _ in 0..100 {
+        if weak.upgrade().is_none() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("artifact pin leaked after child cleanup");
+}
+
+#[tokio::test]
+async fn crash_returns_uncertain_runtime_error_and_session_is_retired() {
+    let (_dir, artifact, runtime) = fixture("import os\ndef handle(event): os._exit(23)\n");
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    let error = session
+        .execute(event("crash"), control())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Runtime);
+    assert!(error.message.contains("result is unavailable"));
+    #[cfg(unix)]
+    assert!(!running(pid));
+    let first_close = session.close().await;
+    let second_close = session.close().await;
+    assert_eq!(
+        first_close, second_close,
+        "cleanup uncertainty must not disappear on retry"
+    );
+    assert_cleanup(first_close);
+}
+
+#[tokio::test]
+async fn normal_close_ack_avoids_the_darwin_zombie_race_and_is_idempotent() {
+    let (_dir, artifact, runtime) = fixture("def handle(event): return event['id']\n");
+    // Repeated short sessions specifically exercise the former acknowledgement /
+    // child-exit race. Every close must succeed without the Darwin EPERM allowance.
+    for index in 0..30 {
+        let mut session = ready(runtime.start(artifact.clone(), control()).await);
+        let pid = session.pid();
+        session
+            .execute(event(&format!("close-{index}")), control())
+            .await
+            .unwrap();
+        session.close().await.unwrap();
+        session.close().await.unwrap();
+        #[cfg(unix)]
+        assert!(!running(pid));
+    }
+}
+
+#[tokio::test]
+async fn relative_writes_use_a_separate_session_workspace_removed_after_close() {
+    let (dir, artifact, runtime) = fixture(
+        "import os\nfrom pathlib import Path\ndef handle(event):\n    state=Path('state.txt')\n    previous=state.read_text() if state.exists() else None\n    state.write_text(event['id'])\n    return {'cwd': os.getcwd(), 'previous': previous}\n",
+    );
+    let mut first = ready(runtime.start(artifact.clone(), control()).await);
+    let initial = output(first.execute(event("first"), control()).await.unwrap());
+    let working = PathBuf::from(initial["cwd"].as_str().unwrap());
+    assert_ne!(working, std::fs::canonicalize(dir.path()).unwrap());
+    assert!(!working.starts_with(std::fs::canonicalize(dir.path()).unwrap()));
+    assert!(!dir.path().join("state.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(working.join("state.txt")).unwrap(),
+        "first"
+    );
+
+    let next = output(first.execute(event("second"), control()).await.unwrap());
+    assert_eq!(next["previous"], "first");
+    assert_eq!(next["cwd"], initial["cwd"]);
+    let mut second = ready(runtime.start(artifact, control()).await);
+    let independent = output(second.execute(event("other"), control()).await.unwrap());
+    let other_working = PathBuf::from(independent["cwd"].as_str().unwrap());
+    assert_ne!(other_working, working);
+    assert!(independent["previous"].is_null());
+
+    first.close().await.unwrap();
+    assert!(
+        !working.exists(),
+        "confirmed close must remove session working state"
+    );
+    assert!(
+        other_working.exists(),
+        "another session owns its working state"
+    );
+    second.close().await.unwrap();
+    assert!(!other_working.exists());
+    assert!(!dir.path().join("state.txt").exists());
+}
+
+#[tokio::test]
+async fn protocol_identity_mismatch_and_oversized_frames_are_retired() {
+    for oversized in [false, true] {
+        let (dir, artifact, _runtime) = fixture("def handle(event): return None\n");
+        let runner = dir.path().join("bad_runner.py");
+        let source = if oversized {
+            "import os,sys,json\nprint(json.dumps({'v':1,'type':'ready','pid':os.getpid(),'python_version':f'{sys.version_info.major}.{sys.version_info.minor}'}),flush=True)\nsys.stdin.readline()\nprint('x'*4096,flush=True)\n"
+        } else {
+            "import os,sys,json\nprint(json.dumps({'v':1,'type':'ready','pid':os.getpid(),'python_version':f'{sys.version_info.major}.{sys.version_info.minor}'}),flush=True)\nrequest=json.loads(sys.stdin.readline())\nprint(json.dumps({'v':1,'type':'result','event_id':request['event_id'],'attempt_id':'WRONG','status':'success','output':42}),flush=True)\n"
+        };
+        std::fs::write(&runner, source).unwrap();
+        let runtime =
+            SubprocessRuntime::new(interpreter().0, runner).with_config(SubprocessConfig {
+                max_frame_bytes: 2048,
+                ..SubprocessConfig::default()
+            });
+        let mut session = ready(runtime.start(artifact, control()).await);
+        let pid = session.pid();
+        let error = session.execute(event("bad"), control()).await.unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Protocol);
+        #[cfg(unix)]
+        assert!(!running(pid));
+        assert_cleanup(session.close().await);
+    }
+}
+
+#[tokio::test]
+async fn startup_timeout_and_dropped_start_future_release_process_and_pin() {
+    for drop_future in [false, true] {
+        let (dir, artifact, runtime) = fixture(
+            "import os,time\nopen(__file__ + '.started.pid','w').write(str(os.getpid()))\ntime.sleep(30)\ndef handle(event): return None\n",
+        );
+        let runtime = runtime.with_config(SubprocessConfig {
+            startup_timeout: Duration::from_millis(200),
+            ..SubprocessConfig::default()
+        });
+        if drop_future {
+            assert!(
+                tokio::time::timeout(
+                    Duration::from_millis(100),
+                    runtime.start(artifact, control())
+                )
+                .await
+                .is_err()
+            );
+        } else {
+            let error = match runtime.start(artifact, control()).await {
+                Ok(_) => panic!("startup should time out"),
+                Err(error) => error,
+            };
+            assert_eq!(error.kind, ErrorKind::TimedOut);
+        }
+        let pid: u32 = std::fs::read_to_string(dir.path().join("program.py.started.pid"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        #[cfg(unix)]
+        eventually_gone(pid).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_startup_retains_cleanup_handle_artifact_and_scratch_until_recovered() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, artifact, _runtime) = fixture("def handle(event): return None\n");
+    let pin = Arc::new(());
+    let weak = Arc::downgrade(&pin);
+    let artifact = PreparedArtifact::new(
+        artifact.root().to_owned(),
+        artifact.manifest().clone(),
+        artifact.digest().clone(),
+        pin,
+    );
+    let runner = dir.path().join("locked_workspace_runner.py");
+    std::fs::write(&runner, "import json,os,sys,time\nfrom pathlib import Path\nroot=Path(sys.argv[sys.argv.index('--package-root')+1])\nworkspace=Path.cwd()\nlocked=workspace/'locked'\nlocked.mkdir()\n(locked/'state.txt').write_text('preserved')\n(root/'scratch.json').write_text(json.dumps({'cwd':str(workspace),'pid':os.getpid()}))\nos.chmod(locked,0)\nprint(json.dumps({'v':1,'type':'invalid-ready'}),flush=True)\nwhile True: time.sleep(1)\n").unwrap();
+    let runtime = SubprocessRuntime::new(interpreter().0, runner);
+    let mut session = match runtime.start(artifact, control()).await {
+        Ok(StartOutcome::CleanupRequired { error, session }) => {
+            assert_eq!(error.kind, ErrorKind::Protocol);
+            session
+        }
+        Err(error) => panic!("startup discarded unresolved cleanup ownership: {error}"),
+        Ok(StartOutcome::Ready(_)) => panic!("invalid startup cannot produce a ready session"),
+    };
+    let recorded: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("scratch.json")).unwrap()).unwrap();
+    let workspace = PathBuf::from(recorded["cwd"].as_str().unwrap());
+    assert!(
+        !running(session.pid()),
+        "direct child is reaped before uncertainty is reported"
+    );
+    assert!(
+        weak.upgrade().is_some(),
+        "uncertain startup must retain the artifact lease"
+    );
+    assert!(
+        workspace.exists(),
+        "uncertain startup must retain working state"
+    );
+    assert_eq!(session.close().await.unwrap_err().kind, ErrorKind::Io);
+    assert!(weak.upgrade().is_some());
+
+    std::fs::set_permissions(
+        workspace.join("locked"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("locked/state.txt")).unwrap(),
+        "preserved"
+    );
+    session.close().await.unwrap();
+    session.close().await.unwrap();
+    assert!(!workspace.exists());
+    assert!(
+        weak.upgrade().is_none(),
+        "confirmed cleanup releases the artifact lease"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cancellation_terminates_same_group_grandchildren() {
+    let (dir, artifact, runtime) = fixture(
+        "import subprocess,sys,time\ndef handle(event):\n    child=subprocess.Popen([sys.executable,'-I','-S','-c','import time; time.sleep(30)'])\n    open(__file__ + '.grandchild.pid','w').write(str(child.pid))\n    time.sleep(30)\n",
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let error = session
+        .execute(event("tree"), RunControl::new(Duration::from_millis(200)))
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::TimedOut);
+    let pid: u32 = std::fs::read_to_string(dir.path().join("program.py.grandchild.pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    // Grandchildren are reaped by the system, not by this worker. An exited zombie
+    // is acceptable briefly; it cannot execute or retain the subprocess capacity.
+    for _ in 0..100 {
+        let status = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let status = String::from_utf8_lossy(&status.stdout);
+        if status.trim().is_empty() || status.trim().starts_with('Z') {
+            assert_cleanup(session.close().await);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("same-group descendant remains running after cancellation");
+}
