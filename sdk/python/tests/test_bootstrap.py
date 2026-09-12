@@ -19,12 +19,15 @@ class BootstrapTests(unittest.TestCase):
                 path = Path(package, name)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(contents)
+            limits = []
+            if input_limit is not None:
+                limits.extend(["--max-input-bytes", str(input_limit)])
+            if output_limit is not None:
+                limits.extend(["--max-output-bytes", str(output_limit)])
             result = subprocess.run(
                 [sys.executable, "-I", "-S", str(BOOTSTRAP),
                  "--package-root", package, "--handler", handler,
-                 "--python-version", "%d.%d" % sys.version_info[:2],
-                 "--max-input-bytes", str(input_limit),
-                 "--max-output-bytes", str(output_limit)],
+                 "--python-version", "%d.%d" % sys.version_info[:2], *limits],
                 input=b"".join(json.dumps(m).encode() + b"\n" for m in messages),
                 cwd=package,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
@@ -81,6 +84,16 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(frames[1]["error"]["kind"], "business_error")
         self.assertEqual(frames[2]["output"], 42)
+
+    def test_standalone_defaults_leave_room_for_application_input_and_envelopes(self):
+        data = "x" * (1024 * 1024 - 2)
+        result, frames = self.launch(
+            "def handle(event): return event['data']\n",
+            [self.invocation(data=data)], input_limit=None, output_limit=None,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(frames[1]["status"], "success")
+        self.assertEqual(frames[1]["output"], data)
 
     def test_invalid_outputs_are_typed_failures(self):
         for expression in ["float('nan')", "object()", "'x' * 5000"]:

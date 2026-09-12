@@ -21,6 +21,9 @@ import traceback
 PROTOCOL_VERSION = 1
 # Keep the portable wire profile in step with ledgence_worker_api's validator.
 MAX_WIRE_VALUE_DEPTH = 64
+# Match ledgence_worker_api.DEFAULT_RUNTIME_FRAME_MAX_BYTES. The Rust adapter
+# supplies both flags explicitly; direct helper launches use the same default.
+DEFAULT_RUNTIME_FRAME_MAX_BYTES = 2 * 1024 * 1024
 
 
 class ProtocolError(Exception):
@@ -206,8 +209,8 @@ def main():
     parser.add_argument("--package-root", required=True)
     parser.add_argument("--handler", required=True)
     parser.add_argument("--python-version", required=True)
-    parser.add_argument("--max-input-bytes", type=int, default=1048576)
-    parser.add_argument("--max-output-bytes", type=int, default=1048576)
+    parser.add_argument("--max-input-bytes", type=int, default=DEFAULT_RUNTIME_FRAME_MAX_BYTES)
+    parser.add_argument("--max-output-bytes", type=int, default=DEFAULT_RUNTIME_FRAME_MAX_BYTES)
     args = parser.parse_args()
     if args.max_input_bytes < 256 or args.max_output_bytes < 256:
         raise ProtocolError("protocol byte limits must be at least 256")

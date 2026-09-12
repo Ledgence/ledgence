@@ -87,16 +87,68 @@ pub(super) struct ConsumerOwnership {
     _permit: OwnedSemaphorePermit,
     pub external: AtomicBool,
     pub cancelled: AtomicBool,
-    pub execution_control: StdMutex<Option<RunControl>>,
+    execution: StdMutex<ReservationExecution>,
+}
+
+#[derive(Default)]
+struct ReservationExecution {
+    control: Option<RunControl>,
+    supervisor_finished: bool,
+    // A single-use invocation can leave at most one quarantined session: each
+    // retirement path stops on its first failed close. Neither an early report
+    // nor a transient Arc observer is evidence that this work has finished.
+    cleanup_pending: bool,
+    operation_unresolved: bool,
+}
+impl ReservationExecution {
+    fn detach_finished_control(&mut self) {
+        if self.supervisor_finished && !self.cleanup_pending && !self.operation_unresolved {
+            self.control = None;
+        }
+    }
 }
 
 impl ConsumerOwnership {
+    pub(super) fn begin_execution(&self, control: RunControl) {
+        self.execution
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .control = Some(control);
+    }
+
+    pub(super) fn finish_supervisor(&self) {
+        let mut execution = self.execution.lock().unwrap_or_else(|p| p.into_inner());
+        execution.supervisor_finished = true;
+        execution.detach_finished_control();
+    }
+
+    pub(super) fn retain_cleanup(&self) {
+        self.execution
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .cleanup_pending = true;
+    }
+
+    pub(super) fn confirm_cleanup(&self) {
+        let mut execution = self.execution.lock().unwrap_or_else(|p| p.into_inner());
+        execution.cleanup_pending = false;
+        execution.detach_finished_control();
+    }
+
+    pub(super) fn retain_unresolved_operation(&self) {
+        self.execution
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .operation_unresolved = true;
+    }
+
     fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
         if let Some(control) = self
-            .execution_control
+            .execution
             .lock()
             .unwrap_or_else(|p| p.into_inner())
+            .control
             .as_ref()
         {
             control.cancel();
@@ -161,7 +213,7 @@ impl Worker {
             _permit: permit,
             external: AtomicBool::new(true),
             cancelled: AtomicBool::new(false),
-            execution_control: StdMutex::new(None),
+            execution: StdMutex::new(ReservationExecution::default()),
         });
         registry
             .reservations
@@ -194,6 +246,7 @@ impl Registry {
         {
             // A panicking adapter never supplied a recoverable operation handle.
             // Match its permanent unresolved marker with retained admission.
+            owner.retain_unresolved_operation();
             self.unresolved_consumers.push(owner);
         }
     }

@@ -673,6 +673,8 @@ dependencies = [
 name = "ledgence-adapter-subprocess"
 version = "0.1.0"
 dependencies = [
+ "ledgence-orchestration-api",
+ "ledgence-orchestration-core",
  "ledgence-worker-api",
  "nix",
  "serde",

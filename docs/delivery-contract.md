@@ -83,9 +83,11 @@ An already terminal task stays terminal. Cancellation of initial queued work or 
 
 Retained invocation supervisors share that same permit. Caller cancellation, an early fetch timeout, or release after a report cannot free capacity while the underlying local operation is still owned. Quarantined cleanup and unrecoverable starts retain their process slots and relevant consumer ownership. Healthy warm processes keep their globally counted process slot without retaining a completed consumer's reservation.
 
-N is per worker instance, across all its programs and versions. `is_cancellation_requested()` lets a future delivery driver observe shutdown while it owns an acquisition or report. Shutdown remains incomplete while an external owner has not resolved and released its reservation. This feature supplies that ownership primitive, not a production delivery driver.
+N is per worker instance, across all its programs and versions. `is_cancellation_requested()` lets a future delivery driver observe shutdown while it owns an acquisition or report. Shutdown retries available quarantined cleanup while external reservations remain held, so those owners can observe local completion and reconcile their reports. Shutdown remains incomplete until external owners resolve and release their reservations. This feature supplies that ownership primitive, not a production delivery driver.
 
 `is_quiescent()` observes whether the reservation still has supervised local work or cleanup outstanding. A successful returned report can coexist with a healthy warm process and a quiescent reservation; an early fetch-timeout report can coexist with a non-quiescent reservation until its retained fetch finishes. The observation does not confirm remote acceptance or absence of arbitrary application side effects.
+
+The reservation keeps its execution cancellation control attached while supervised work or required cleanup remains. Once that local lifetime is complete, releasing the reservation does not cancel the finished execution's control, including when other invocations share it. Early reports and unconfirmed cleanup do not end that lifetime.
 
 ## Initial limits and retention contract
 
@@ -93,6 +95,7 @@ N is per worker instance, across all its programs and versions. `is_cancellation
 | --- | --- |
 | Application submission data | 1 MiB compact encoded JSON; 64 nested containers |
 | Full submission/control request | 2 MiB incoming/normalized submission; settlement has its own limit |
+| Default subprocess protocol frame | 2 MiB in either direction, including the complete envelope and newline |
 | Settlement command including output/context | 8 MiB; output retains the 64-container value limit |
 | Program attempts | 3 total by default; configurable 1–1,000 |
 | Fixed retry delay | 5 seconds by default; configurable 0–24 hours |
@@ -102,6 +105,8 @@ N is per worker instance, across all its programs and versions. `is_cancellation
 | Long-poll wait / request deadline | 20 seconds / 30 seconds; future proxy configuration must accommodate them |
 | Session validity from creation/extension | 24 hours; expired sessions cannot be extended |
 | Task history, accepted reports/receipts, submission deduplication | Entire active life plus 90 days after terminal task state |
+
+The subprocess frame budget includes generated CloudEvent metadata and the protocol wrapper in addition to application data. The default accommodates the full submission data limit with the largest supported generated identifiers and trace context. Local applications may override frame limits; smaller frames can reject otherwise valid submissions, and larger output frames require checking the settlement/report budget. A future delivery adapter must check its configured runtime limits against these contracts.
 
 The minimum execution budget exceeds the initial control request deadline and safety margin. Long-poll request latency is charged conservatively, so a fresh authority exchange may still be needed before starting work. These initial values establish bounded behavior, not throughput promises. Execution duration, leases, cleanup, and byte limits are distinct from the sole concurrency parameter. Existing local-worker timeouts retain their previous behavior.
 

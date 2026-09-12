@@ -41,6 +41,11 @@ integers, non-finite numbers, coroutines, and oversized results produce typed
 `invalid_output` failures and leave the process reusable. Rust checks the shared
 wire profile when accepting the response.
 
+The default protocol frame limit is 2 MiB, including result/input envelopes and
+the newline. The worker supplies the configured limits explicitly when starting
+the helper. The delivery submission limit remains 1 MiB of application data;
+the additional frame capacity carries CloudEvent metadata and protocol fields.
+
 Business exceptions produce typed failure results. Error text is shortened by the
 complete frame's encoded UTF-8 byte budget, including event and attempt IDs, JSON
 escaping, and the newline. The handler is not called if those IDs cannot fit even

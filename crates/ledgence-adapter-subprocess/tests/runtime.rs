@@ -8,6 +8,9 @@ use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
 
+#[path = "runtime/delivery.rs"]
+mod delivery;
+
 fn interpreter() -> (PathBuf, String) {
     let python = std::env::var_os("LEDGENCE_PYTHON")
         .map(PathBuf::from)

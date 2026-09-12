@@ -18,7 +18,7 @@ use std::{fmt, io};
 /// This includes JSON quotes and escapes; insignificant incoming whitespace
 /// does not count toward this limit. The complete incoming request is bounded
 /// separately by [`SUBMISSION_MAX_BYTES`].
-pub const SUBMISSION_DATA_MAX_BYTES: usize = 1024 * 1024;
+pub const SUBMISSION_DATA_MAX_BYTES: usize = ledgence_worker_api::APPLICATION_INPUT_MAX_BYTES;
 
 /// Maximum incoming request bytes and normalized submission bytes (2 MiB).
 pub const SUBMISSION_MAX_BYTES: usize = 2 * 1024 * 1024;

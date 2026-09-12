@@ -35,6 +35,14 @@ constraints before encoding; Rust uses the API's shared structural validator.
 Protocol frames use UTF-8 JSON. Failure messages are shortened to fit the complete
 encoded frame, preserving mandatory invocation identity.
 
+The default frame limit is 2 MiB in each direction, including the complete JSON
+envelope and newline. It leaves room for the delivery contract's 1 MiB of
+application input plus generated CloudEvent metadata and protocol fields.
+`SubprocessConfig::max_frame_bytes` remains an explicit local override: a smaller
+limit may reject valid delivery submissions, and a larger limit must be checked
+against the receiving report or settlement limit. Oversized handler results
+produce an `invalid_output` failure within the configured frame limit.
+
 A shared runtime record owns the child, artifact lease, and working directory;
 the Tokio supervisor borrows that record independently of the caller's future.
 The record survives supervisor failure. Startup
