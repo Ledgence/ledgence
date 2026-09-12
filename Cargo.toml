@@ -1,0 +1,36 @@
+[workspace]
+members = [
+  "crates/ledgence-worker-api",
+  "crates/ledgence-worker-core",
+  "crates/ledgence-adapter-artifact",
+  "crates/ledgence-adapter-subprocess",
+  "crates/ledgence-worker",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+repository = "https://github.com/Ledgence/ledgence"
+
+[workspace.dependencies]
+ledgence-worker-api = { version = "0.1.0", path = "crates/ledgence-worker-api" }
+ledgence-worker-core = { version = "0.1.0", path = "crates/ledgence-worker-core" }
+ledgence-adapter-artifact = { version = "0.1.0", path = "crates/ledgence-adapter-artifact" }
+ledgence-adapter-subprocess = { version = "0.1.0", path = "crates/ledgence-adapter-subprocess" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "fs", "net", "signal"] }
+sha2 = "0.10.9"
+tempfile = "3.27.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"

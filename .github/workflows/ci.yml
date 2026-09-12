@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+  RUSTDOCFLAGS: -D warnings
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  test:
+    name: Rust and Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.12
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install the repository Rust toolchain
+        run: rustup show active-toolchain
+      - name: Check crate boundaries
+        run: python tools/check-boundaries.py
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Check Rust warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test Rust and real subprocess execution
+        env:
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: cargo test --workspace --all-targets --all-features --locked
+      - name: Test Rust documentation
+        run: cargo test --workspace --doc --all-features --locked
+      - name: Build Rust documentation
+        run: cargo doc --workspace --all-features --no-deps --locked
+      - name: Test the Python runner
+        run: python -m unittest discover -s sdk/python/tests -v
+
+  dependencies:
+    name: Dependency policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the repository Rust toolchain
+        run: rustup show active-toolchain
+      - name: Install the reviewed dependency checker
+        run: cargo install cargo-deny --version 0.20.2 --locked
+      - name: Check licenses, advisories, and sources
+        run: cargo deny --locked check
