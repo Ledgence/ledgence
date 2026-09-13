@@ -1,6 +1,6 @@
-# Worker foundation
+# Architecture
 
-This milestone proves local program preparation and process lifecycle behavior. It deliberately leaves the orchestration transport behind a future adapter: the worker does not yet poll a production queue, renew distributed leases, persist results, or reconcile uncertain settlement.
+Ledgence provides a local worker foundation and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the service and storage adapter persist tasks, leases, results, and history. Orchestration transport remains a future adapter: the worker does not yet poll a production queue or connect its execution, lease renewal, and settlement to the service.
 
 ## Crate boundaries
 
@@ -16,9 +16,9 @@ This milestone proves local program preparation and process lifecycle behavior. 
 | `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 
-`tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The core currently uses Tokio for scheduling.
+`tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
 
-The public ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
+The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
 
 The [delivery contract](delivery-contract.md) adds the portable `TaskService` boundary and executable orchestration decisions. The [PostgreSQL persistence adapter](postgres.md) implements the durable service/store operations. Execution reports now live in worker-api and remain reexported by worker-core. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before future acquisition and through settlement; its local execution method is single-use. The PostgreSQL adapter commits all transition records atomically before returning a durable acknowledgement. Library transition tests do not establish distributed delivery guarantees.
 
@@ -51,7 +51,7 @@ Adapter panics close worker admission from inside the retained supervisor. Sessi
 
 ## Current boundaries of reliability
 
-The CLI resolves all fixture program references before execution, rejects duplicate attempt identities, and pins one descriptor per logical task for that batch. A future orchestration service must persist this binding so retries across workers and restarts cannot change program bytes. The local registry is not durable deduplication.
+The CLI resolves all fixture program references before execution, rejects duplicate attempt identities, and pins one descriptor per logical task for that batch. Separately, the orchestration service and PostgreSQL adapter persist that binding so later acquisitions and retries retain the same program bytes across restarts. The worker still needs transport integration to execute those assignments. The local registry is not durable deduplication.
 
 Reports and failures share `InvocationIdentity`: source/event ID, tenant/namespace, run/task/attempt ID, attempt number, and optional `traceparent`/`tracestate`. Bound program identity and digest accompany that context, including preparation failures before a PID exists. Warning and error logs carry the same context even when informational spans are filtered. A secondary cleanup error is retained separately from the original execution error. Raw program stderr is tagged with process ID and artifact digest because arbitrary byte streams cannot be assigned reliably to an invocation. There is no OpenTelemetry span activation/exporter or metrics backend yet.
 

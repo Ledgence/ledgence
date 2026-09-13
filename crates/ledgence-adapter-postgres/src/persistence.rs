@@ -147,10 +147,3 @@ pub(crate) async fn history(
     }
     Ok(())
 }
-
-pub(crate) async fn read_snapshot(connection: &mut PgConnection) -> StoreResult<()> {
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        .execute(connection)
-        .await?;
-    Ok(())
-}

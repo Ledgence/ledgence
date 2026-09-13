@@ -2,9 +2,9 @@
 
 Open-source task orchestration with portable programs, reusable workers, and traceable execution.
 
-Ledgence is being built in Rust. This first milestone implements the worker's local execution foundation: publish a Python program with its application dependencies, fetch and verify it on demand, cache it, and run complete CloudEvents through a bounded pool of reusable subprocesses.
+Ledgence is being built in Rust. Its worker can publish a Python program with its application dependencies, fetch and verify it on demand, cache it, and run complete CloudEvents through a bounded pool of reusable subprocesses.
 
-The `run` command currently reads a local task fixture. Portable delivery contracts and deterministic task/lease transitions are available as libraries, together with worker capacity reservations spanning future acquisition and settlement. Production orchestration, queue polling, durable storage, and automatic remote retries are future work. See the [delivery contract](docs/delivery-contract.md). This is an early development version, with no stable public API commitment yet.
+The `run` command currently reads a local task fixture. Rust libraries provide delivery contracts, deterministic task/lease transitions, and an application service backed by durable PostgreSQL storage. Worker capacity reservations support future remote acquisition and settlement, but the worker is not yet connected to an orchestration HTTP API or production poller. Automatic remote retries and OpenTelemetry export remain future work. See the [delivery contract](docs/delivery-contract.md). This is an early development version, with no stable public API commitment yet.
 
 ## Try it
 

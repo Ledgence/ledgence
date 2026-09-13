@@ -6,7 +6,8 @@ impl PostgresStore {
         command.scope.validate()?;
         validate_text(&command.worker_session_id, 128)?;
         validate_text(&command.queue, 128)?;
-        let mut tx = self.begin().await?;
+        let mut connection = self.transaction_connection().await?;
+        let mut tx = connection.begin_write().await?;
         let session = self
             .lock_session(&mut tx, &command.worker_session_id)
             .await?;
@@ -108,7 +109,8 @@ impl PostgresStore {
         let owner = &command.owner;
         owner.scope.validate()?;
         validate_text(&owner.worker_session_id, 128)?;
-        let mut tx = self.begin().await?;
+        let mut connection = self.transaction_connection().await?;
+        let mut tx = connection.begin_write().await?;
         let session = self.lock_session(&mut tx, &owner.worker_session_id).await?;
         let row = sqlx::query("SELECT *,trunc(sequence)::text AS sequence_text FROM consumer_cursors WHERE session_id=$1 AND consumer_id=$2 FOR UPDATE")
             .bind(&session.id).bind(i64::from(owner.consumer_id)).fetch_optional(&mut *tx).await?.ok_or(ContractError::OwnershipLost)?;
@@ -138,7 +140,8 @@ impl PostgresStore {
     pub(crate) async fn settle_once(&self, command: &SettleCommand) -> StoreResult<SettleReply> {
         let owner = &command.owner;
         owner.scope.validate()?;
-        let mut tx = self.begin().await?;
+        let mut connection = self.transaction_connection().await?;
+        let mut tx = connection.begin_write().await?;
         let task = db::load_task(&mut tx, &owner.scope, &owner.task_id, true).await?;
         let attempt = db::load_attempt(&mut tx, &task, &owner.attempt_id).await?;
         let transition = core::settle(&task, &attempt, command, db::now(&mut tx).await?)?;
@@ -165,7 +168,8 @@ impl PostgresStore {
     }
 
     async fn expire_one(&self, id: &str) -> StoreResult<bool> {
-        let mut tx = self.begin().await?;
+        let mut connection = self.transaction_connection().await?;
+        let mut tx = connection.begin_write().await?;
         let row = sqlx::query(
             "SELECT * FROM tasks WHERE task_id=$1 AND state='active' FOR NO KEY UPDATE SKIP LOCKED",
         )
@@ -201,11 +205,17 @@ impl RecoveryStore for PostgresStore {
                 }
                 // Each operation is bounded independently. Already committed tasks
                 // remain recovered if a later candidate encounters an unavailable DB.
-                let ids=self.run(|| async {
-                let limit=i64::from(limit);
-                Ok(sqlx::query!("SELECT task_id FROM tasks WHERE state='active' AND next_expiry_ms <= floor(extract(epoch FROM clock_timestamp())*1000)::bigint ORDER BY next_expiry_ms,task_id LIMIT $1",limit)
-                    .fetch_all(&self.pool).await?.into_iter().map(|r|r.task_id).collect::<Vec<_>>())
-            }).await?;
+                let ids = self
+                    .run(|| async {
+                        let limit = i64::from(limit);
+                        Ok(sqlx::query_file!("queries/expiry_candidates.sql", limit)
+                            .fetch_all(&self.pool)
+                            .await?
+                            .into_iter()
+                            .map(|row| row.task_id)
+                            .collect::<Vec<_>>())
+                    })
+                    .await?;
                 let mut progress = RecoveryProgress {
                     examined: 0,
                     expired: 0,
