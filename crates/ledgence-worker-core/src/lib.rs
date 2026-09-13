@@ -1,7 +1,7 @@
 //! Bounded local preparation and reusable execution.
 //!
 //! The caller supplies an immutable descriptor already bound to its logical task.
-//! Distributed leases/settlement belong to a later orchestration adapter.
+//! Distributed leases and settlement belong to the separate delivery driver.
 
 use ledgence_worker_api::*;
 // Keep existing worker-core imports source-compatible while adapters can depend
@@ -138,6 +138,11 @@ struct SessionKey {
 }
 
 impl Worker {
+    /// The single capacity setting shared by admission and managed subprocesses.
+    pub fn concurrency(&self) -> usize {
+        self.inner.config.concurrency
+    }
+
     pub fn new(
         config: WorkerConfig,
         store: Arc<dyn ProgramStore>,

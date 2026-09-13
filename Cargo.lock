@@ -926,13 +926,18 @@ dependencies = [
 name = "ledgence-adapter-postgres"
 version = "0.1.0"
 dependencies = [
+ "ledgence-adapter-artifact",
+ "ledgence-adapter-subprocess",
  "ledgence-orchestration-api",
  "ledgence-orchestration-core",
  "ledgence-orchestration-service",
  "ledgence-worker-api",
+ "ledgence-worker-core",
+ "ledgence-worker-delivery",
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
  "tokio",
  "tracing",
 ]
@@ -1020,6 +1025,19 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ledgence-worker-delivery"
+version = "0.1.0"
+dependencies = [
+ "ledgence-orchestration-api",
+ "ledgence-orchestration-core",
+ "ledgence-worker-api",
+ "ledgence-worker-core",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
