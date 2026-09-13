@@ -21,8 +21,7 @@ fn signal_child() {
         .with_writer(logs.sink.clone())
         .json()
         .init();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
@@ -36,7 +35,11 @@ fn signal_child() {
             }
             std::fs::write(marker, b"logging remains responsive").unwrap();
         });
-        with_signals(Command::Migrate, &mut logs).await
+        with_signals(
+            |stopped| crate::dispatch(Command::Migrate, stopped),
+            &mut logs,
+        )
+        .await
     });
     assert!(
         forced,
