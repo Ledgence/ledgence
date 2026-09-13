@@ -1,6 +1,6 @@
 # Worker delivery
 
-`ledgence-worker-delivery` connects an existing `Worker` to `Arc<dyn TaskService>`. It manages service registration, bounded acquisition, dispatch permission, lease monitoring, local execution, and durable report reconciliation. It is a Rust library, composed with the HTTP client by `ledgence-worker connect`. See the [HTTP quickstart](http-orchestration.md#run-a-task). The `ledgence-worker run` command also supports local fixtures. Acquisition is immediate; long polling remains later work.
+`ledgence-worker-delivery` connects an existing `Worker` to `Arc<dyn TaskService>`. It manages service registration, bounded acquisition, dispatch permission, lease monitoring, local execution, and durable report reconciliation. It is a Rust library, composed with the HTTP client by `ledgence-worker connect`. See the [HTTP quickstart](http-orchestration.md#run-a-task). The `ledgence-worker run` command also supports local fixtures. Acquisition uses bounded long polling by default, with an explicit immediate mode.
 
 ## Composition
 
@@ -37,21 +37,22 @@ The service binds a program descriptor at submission. The driver passes the acqu
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `idle_delay` | 1 second | Delay after a committed Empty before the next acquisition sequence |
+| `acquire_wait` | 20 seconds | Maximum acquisition wait; zero requests immediate completion |
+| `idle_delay` | 1 second | Minimum Empty acquisition cycle, including time already spent waiting |
 | `retry_delay` | 250 milliseconds | Delay before retrying an uncertain or busy service operation |
 | `request_timeout` | 30 seconds | Maximum time waiting for one control exchange; timeout leaves its outcome uncertain |
 | `renew_interval` | 15 seconds | Delay after an acknowledged renewal before the next one |
 | `session_extend_interval` | 1 hour | Delay between successful session extensions |
 
-Durations must be positive and representable. Request timeout cannot exceed 30 seconds, renewal interval cannot exceed 15 seconds, and session extension interval cannot exceed half the 24-hour session validity. These are local exchange and scheduling controls; they do not change the service's lease, execution, or session policy.
+`acquire_wait` permits zero through 20 seconds. Other durations must be positive and representable. Request timeout cannot exceed 30 seconds, renewal interval cannot exceed 15 seconds, and session extension interval cannot exceed half the 24-hour session validity. These are local exchange and scheduling controls; they do not change the service's lease, execution, or session policy.
 
-The current acquisition operation returns immediately. Replaying a completed Empty remains Empty, so the driver waits `idle_delay` and advances the sequence. A future long-poll implementation needs a way to wait without committing Empty or retaining a database transaction during the wait.
+A full acquisition wait can be followed immediately by the next sequence after a committed Empty. If Empty arrives early, the driver waits only the remaining `idle_delay` cycle. Replaying that completed sequence still returns Empty. A service failure retains its original sequence and retry backoff. `acquire_wait` is a timing option and does not change N.
 
 ## Attempt ownership
 
-Each consumer keeps its capacity reservation while an acquisition outcome is uncertain. It repeats the same command rather than advancing its cursor. An assigned task must receive dispatch authorization before preparation and local execution. The single-use reservation prevents the driver from dispatching that local attempt again after an uncertain reply.
+Each consumer keeps its capacity reservation while an acquisition outcome is uncertain. During shutdown it can cancel its local long-wait future and reconcile the same sequence with zero wait; that cancellation never proves the server rolled back. It repeats the same command rather than advancing its cursor. An assigned task must receive dispatch authorization before preparation and local execution. The single-use reservation prevents the driver from dispatching that local attempt again after an uncertain reply.
 
-The lease monitor runs during preparation, startup, execution, and settlement. `LeaseTracker` charges exchange latency from request start, applies the safety margin, and preserves the fixed execution deadline. Expiry, cancellation, or loss of authority stops user work permanently for that attempt. Delayed replies cannot revive it. Stopping user work does not abandon cleanup or a pending result.
+A newly acquired assignment starts in `AwaitingAuthority`. Its first valid Dispatch renewal creates the execution control using that renewal's request-start time and fresh remaining budget. The acquisition hold does not consume a newly claimed attempt's local budget. Initial confirmation is bounded to 30 seconds, and cancellation/expiry is monotone. The lease monitor then runs during preparation, startup, execution, and settlement. `LeaseTracker` charges exchange latency from request start, applies the safety margin, and preserves the fixed execution deadline. Expiry, cancellation, or loss of authority stops user work permanently for that attempt. Delayed replies cannot revive it. Stopping user work does not abandon cleanup or a pending result.
 
 Renewal retries reuse their sequence and intent. Settlement retries preserve the entire command, including operation ID, report, quiescence, and processing trace. Once accepted, an unconfirmed report is finalized with a separate cleanup confirmation; its original bytes are never replaced. With an enabled trace bridge, the driver captures its processing span once and freezes that context in the report. Disabled tracing leaves it absent.
 
@@ -95,4 +96,4 @@ The driver has no local durable journal. An operating-system process crash loses
 
 An expired or unknown session stops the current driver and drains owned work. It does not automatically create a replacement session or transplant old cursors. Lease expiry cannot establish that arbitrary external effects did not happen, and a recovered task may run another attempt.
 
-Ordinary driver tests use controlled service/runtime adapters for capacity, retries, lease deadlines, and retained shutdown. The [PostgreSQL gate](postgres.md#verification) also runs real Python programs through publication, submission, dynamic download, warm reuse, and durable inspection. It injects lost replies after committed acquisition, dispatch, and settlement and verifies restart with persisted bindings/cache. Those tests validate an in-process service composition. The [HTTP acceptance gate](http-orchestration.md#verification) separately exercises actual server/worker/CLI processes and a fault proxy. Long-poll wakeups remain outside the implemented contract.
+Ordinary driver tests use controlled service/runtime adapters for capacity, retries, lease deadlines, and retained shutdown. The [PostgreSQL gate](postgres.md#verification) also runs real Python programs through publication, submission, dynamic download, warm reuse, and durable inspection. It injects lost replies after committed acquisition, dispatch, and settlement and verifies restart with persisted bindings/cache. Those tests validate an in-process service composition. The [HTTP acceptance gate](http-orchestration.md#verification) separately exercises actual server/worker/CLI processes and a fault proxy. The gate also exercises pending rollback, cross-replica completion hints, lost Empty replies, notification failure fallback, and accepted-wait shutdown.

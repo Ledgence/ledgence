@@ -28,7 +28,9 @@ const TICK: Duration = Duration::from_millis(10);
 pub struct DeliveryConfig {
     pub scope: Scope,
     pub queue: String,
-    /// Delay after a committed Empty. This is immediate polling, not long polling.
+    /// Maximum time an acquisition may wait for work; zero requests an immediate poll.
+    pub acquire_wait: Duration,
+    /// Minimum interval between new acquisition sequences after a confirmed Empty.
     pub idle_delay: Duration,
     pub retry_delay: Duration,
     pub request_timeout: Duration,
@@ -40,6 +42,7 @@ impl DeliveryConfig {
         Self {
             scope,
             queue: queue.into(),
+            acquire_wait: Duration::from_millis(LONG_POLL_WAIT_MS),
             idle_delay: Duration::from_secs(1),
             retry_delay: Duration::from_millis(250),
             request_timeout: Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS),
@@ -63,7 +66,8 @@ impl DeliveryConfig {
                 ));
             }
         }
-        if self.request_timeout > Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS)
+        if self.acquire_wait > Duration::from_millis(LONG_POLL_WAIT_MS)
+            || self.request_timeout > Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS)
             || self.renew_interval > Duration::from_millis(RENEW_INTERVAL_MS)
             || self.session_extend_interval > Duration::from_millis(SESSION_VALIDITY_MS / 2)
         {
@@ -89,6 +93,7 @@ pub struct DeliveryStatus {
 
 struct Shared {
     stop: AtomicBool,
+    stop_changed: tokio::sync::Notify,
     status: Mutex<DeliveryStatus>,
 }
 impl Shared {
@@ -97,6 +102,17 @@ impl Shared {
     }
     fn stop(&self) {
         self.stop.store(true, Ordering::Release);
+        self.stop_changed.notify_waiters();
+    }
+    async fn stopped(&self) {
+        let changed = self.stop_changed.notified();
+        tokio::pin!(changed);
+        // Register before checking the monotone flag, closing the check/sleep
+        // race without waking every idle consumer on a periodic timer.
+        changed.as_mut().enable();
+        if !self.stopping() {
+            changed.await;
+        }
     }
     fn status(&self) -> DeliveryStatus {
         let mut status = self
@@ -147,6 +163,7 @@ impl DeliveryDriver {
     pub fn start(self) -> DeliveryHandle {
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
+            stop_changed: tokio::sync::Notify::new(),
             status: Mutex::new(DeliveryStatus::default()),
         });
         let (done, receiver) = watch::channel(false);
@@ -442,13 +459,32 @@ impl Context {
             }
             // Once sent, shutdown cannot abandon this sequence: even a timed-out
             // exchange may already have committed a claim.
-            let (reply, started) = loop {
+            let cycle_started = Instant::now();
+            let reply = loop {
                 let started = Instant::now();
-                match exchange(self.config.request_timeout, || {
-                    self.service.acquire(&command)
-                })
-                .await
-                {
+                let max_wait = if self.shared.stopping() {
+                    Duration::ZERO
+                } else {
+                    self.config.acquire_wait
+                };
+                let options = AcquireOptions::new(max_wait, started + self.config.request_timeout)
+                    .expect("validated acquisition timing");
+                let result = {
+                    let request = exchange(self.config.request_timeout, || {
+                        self.service.acquire(&command, options)
+                    });
+                    tokio::pin!(request);
+                    tokio::select! {
+                        result = &mut request => Some(result),
+                        _ = self.shared.stopped(), if !max_wait.is_zero() => {
+                            // Reconcile immediately with the same sequence. Dropping
+                            // this future cannot prove that no claim committed.
+                            None
+                        }
+                    }
+                };
+                let Some(result) = result else { continue };
+                match result {
                     Ok(reply) => {
                         let sequence = match &reply {
                             AcquireReply::Empty { sequence }
@@ -463,7 +499,7 @@ impl Context {
                             Ok(())
                         };
                         match valid {
-                            Ok(()) => break (reply, started),
+                            Ok(()) => break reply,
                             Err(error) => self.shared.fatal(error),
                         }
                     }
@@ -480,11 +516,17 @@ impl Context {
             };
             match reply {
                 AcquireReply::Assigned { assignment, .. } => {
-                    self.attempt(reservation, *assignment, started).await
+                    self.attempt(reservation, *assignment).await
                 }
                 AcquireReply::Empty { .. } => {
                     drop(reservation);
-                    pause(self.config.idle_delay, &self.shared).await;
+                    pause(
+                        self.config
+                            .idle_delay
+                            .saturating_sub(cycle_started.elapsed()),
+                        &self.shared,
+                    )
+                    .await;
                 }
                 AcquireReply::OwnershipLost { .. } => {
                     self.shared
@@ -509,9 +551,20 @@ async fn exchange<T, F: Future<Output = Result<T>>>(
     call: impl FnOnce() -> F,
 ) -> Result<T> {
     use std::panic::{AssertUnwindSafe, catch_unwind};
+    let timed_out =
+        || ContractError::Unavailable("control request timed out; outcome is unknown".into());
+    let deadline = Instant::now().checked_add(timeout).ok_or_else(timed_out)?;
+    if Instant::now() >= deadline {
+        return Err(timed_out());
+    }
     let future = catch_unwind(AssertUnwindSafe(call)).map_err(|_| {
         ContractError::Unavailable("control adapter panicked; outcome is unknown".into())
     })?;
+    // Adapter construction can perform synchronous work before returning its
+    // future. That time belongs to the same exchange budget.
+    if Instant::now() >= deadline {
+        return Err(timed_out());
+    }
     tokio::pin!(future);
     let future = std::future::poll_fn(|cx| {
         catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx))).unwrap_or_else(|_| {
@@ -520,13 +573,16 @@ async fn exchange<T, F: Future<Output = Result<T>>>(
             )))
         })
     });
-    tokio::time::timeout(timeout, future)
+    let result = tokio::time::timeout_at(deadline.into(), future)
         .await
-        .unwrap_or_else(|_| {
-            Err(ContractError::Unavailable(
-                "control request timed out; outcome is unknown".into(),
-            ))
-        })
+        .unwrap_or_else(|_| Err(timed_out()));
+    // A synchronous poll cannot be interrupted. Reject its late Ready reply
+    // while retaining ordinary uncertain-outcome reconciliation semantics.
+    if Instant::now() >= deadline {
+        Err(timed_out())
+    } else {
+        result
+    }
 }
 fn retryable(error: &ContractError) -> bool {
     matches!(error, ContractError::Unavailable(_) | ContractError::Busy)
@@ -538,5 +594,46 @@ async fn pause(duration: Duration, shared: &Shared) {
     let end = Instant::now() + duration;
     while !shared.stopping() && Instant::now() < end {
         tokio::time::sleep(TICK.min(end.saturating_duration_since(Instant::now()))).await;
+    }
+}
+
+#[cfg(test)]
+mod exchange_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn synchronous_adapter_construction_consumes_the_exchange_budget() {
+        let polled = AtomicBool::new(false);
+        let result = exchange(Duration::from_millis(20), || {
+            std::thread::sleep(Duration::from_millis(50));
+            async {
+                polled.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        })
+        .await;
+        assert!(matches!(result, Err(ContractError::Unavailable(_))));
+        assert!(
+            !polled.load(Ordering::SeqCst),
+            "do not poll a returned future after construction exhausted the deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn synchronous_ready_after_deadline_is_an_uncertain_outcome() {
+        let completed = AtomicBool::new(false);
+        let result = exchange(Duration::from_millis(20), || {
+            std::future::poll_fn(|_| {
+                std::thread::sleep(Duration::from_millis(50));
+                completed.store(true, Ordering::SeqCst);
+                std::task::Poll::Ready(Ok(()))
+            })
+        })
+        .await;
+        assert!(completed.load(Ordering::SeqCst));
+        assert!(
+            matches!(result, Err(ContractError::Unavailable(_))),
+            "Tokio timeout alone can accept a synchronous late Ready reply"
+        );
     }
 }

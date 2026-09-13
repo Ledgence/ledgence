@@ -10,8 +10,8 @@ impl Context {
         self: &Arc<Self>,
         reservation: ConsumerReservation,
         assignment: Assignment,
-        started: Instant,
     ) {
+        let started = Instant::now();
         let event = &assignment.event;
         let owner = &assignment.lease.owner;
         let span = tracing::info_span!("ledgence.attempt.process", otel.kind = "consumer",
@@ -34,7 +34,7 @@ impl Context {
         // Capture exactly once before dispatch. Settlement normalization and every
         // subsequent transport retry retain this value, including unsampled IDs.
         let processing_trace = bridge.context(&span);
-        self.process(reservation, assignment, started, processing_trace)
+        self.process(reservation, assignment, processing_trace)
             .instrument(span.clone())
             .await;
         span.record(
@@ -47,14 +47,13 @@ impl Context {
         self: &Arc<Self>,
         mut reservation: ConsumerReservation,
         assignment: Assignment,
-        started: Instant,
         processing_trace: Option<TraceContext>,
     ) {
         let request = ExecutionRequest {
             descriptor: assignment.descriptor.clone(),
             event: assignment.event.clone(),
         };
-        let monitor = Arc::new(Monitor::new(&assignment, started));
+        let monitor = Arc::new(Monitor::new(&assignment));
         let _monitor_guard = MonitorGuard(monitor.clone());
         let ongoing = monitor.clone();
         let context = self.clone();
@@ -63,11 +62,8 @@ impl Context {
                 .in_current_span()
                 .with_current_subscriber(),
         );
-        let report = if monitor.dispatch(&self.shared).await {
-            match reservation
-                .execute(request.clone(), monitor.control.clone())
-                .await
-            {
+        let report = if let Some(control) = monitor.dispatch(&self.shared).await {
+            match reservation.execute(request.clone(), control).await {
                 Ok(report) => AttemptReport::Completed(report),
                 Err(failure) => AttemptReport::Failed(failure),
             }
@@ -236,7 +232,7 @@ pub(super) fn validate_assignment(command: &AcquireCommand, assignment: &Assignm
 struct MonitorGuard(Arc<Monitor>);
 impl Drop for MonitorGuard {
     fn drop(&mut self) {
-        self.0.control.cancel();
+        self.0.stop();
         self.0.done.store(true, Ordering::Release);
     }
 }

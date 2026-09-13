@@ -1,15 +1,82 @@
 use super::*;
 use ledgence_orchestration_core::{LeaseState, LeaseTracker};
 
-pub(super) struct Permission {
+/// Acquiring an identity does not establish a local execution deadline: the
+/// acquisition may have spent most of its exchange waiting before the claim.
+enum Phase {
+    AwaitingAuthority { deadline: Instant },
+    Confirmed(RunControl),
+    Stopped,
+}
+
+struct Permission {
     tracker: LeaseTracker,
+    phase: Phase,
     ready: bool,
     consumed: bool,
-    stopped: bool,
 }
+impl Permission {
+    fn stop(&mut self) {
+        if let Phase::Confirmed(control) = &self.phase {
+            control.cancel();
+        }
+        self.phase = Phase::Stopped;
+        self.ready = false;
+    }
+
+    fn check(&mut self, stopping: bool, now: Instant) {
+        let expired = match &self.phase {
+            Phase::AwaitingAuthority { deadline } => now >= *deadline,
+            Phase::Confirmed(control) => {
+                self.tracker.state(now) != LeaseState::Active || control.check().is_err()
+            }
+            Phase::Stopped => true,
+        };
+        if stopping || expired {
+            self.stop();
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        matches!(self.phase, Phase::Stopped)
+    }
+
+    fn accept(
+        &mut self,
+        authority: &Authority,
+        command: &RenewCommand,
+        started: Instant,
+        now: Instant,
+    ) {
+        // Initial confirmation has one fixed deadline across retries. A late
+        // positive response cannot restore permission after that deadline.
+        self.check(false, now);
+        if self.stopped() {
+            return;
+        }
+        if self.tracker.apply(authority, started, now).is_err() {
+            self.stop();
+            return;
+        }
+        if command.intent == RenewIntent::Dispatch {
+            self.ready = self.tracker.check_dispatch(now).is_ok();
+            if !self.ready {
+                self.stop();
+                return;
+            }
+            if matches!(self.phase, Phase::AwaitingAuthority { .. }) {
+                self.phase = Phase::Confirmed(RunControl::with_deadline(
+                    self.tracker
+                        .execution_deadline()
+                        .expect("confirmed authority has a deadline"),
+                ));
+            }
+        }
+    }
+}
+
 pub(super) struct Monitor {
     permission: Mutex<Permission>,
-    pub control: RunControl,
     pub done: AtomicBool,
 }
 impl Monitor {
@@ -21,63 +88,69 @@ impl Monitor {
             .owner()
             .clone()
     }
-    pub fn new(assignment: &Assignment, started: Instant) -> Self {
-        let mut tracker = LeaseTracker::new(assignment.lease.owner.clone());
-        let now = Instant::now();
-        let stopped = tracker.apply(&assignment.authority, started, now).is_err();
-        let control = RunControl::with_deadline(tracker.execution_deadline().unwrap_or(now));
+    pub fn new(assignment: &Assignment) -> Self {
+        let phase = if assignment.authority.cancel_requested
+            || assignment.authority.remaining_ms == 0
+            || assignment.authority.execution_remaining_ms == 0
+        {
+            Phase::Stopped
+        } else {
+            Phase::AwaitingAuthority {
+                deadline: Instant::now() + Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS),
+            }
+        };
         Self {
             permission: Mutex::new(Permission {
-                tracker,
+                tracker: LeaseTracker::new(assignment.lease.owner.clone()),
+                phase,
                 ready: false,
                 consumed: false,
-                stopped,
             }),
-            control,
             done: AtomicBool::new(false),
         }
     }
     fn check(&self, shared: &Shared) {
-        let mut state = self.permission.lock().unwrap_or_else(|p| p.into_inner());
-        if shared.stopping() {
-            state.tracker.cancel();
-        }
-        if state.tracker.state(Instant::now()) != LeaseState::Active || self.control.is_cancelled()
-        {
-            state.stopped = true;
-        }
-        if state.stopped {
-            self.control.cancel();
-        }
+        self.permission
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .check(shared.stopping(), Instant::now());
     }
-    pub async fn dispatch(&self, shared: &Shared) -> bool {
+    pub async fn dispatch(&self, shared: &Shared) -> Option<RunControl> {
         loop {
             self.check(shared);
             {
                 let mut state = self.permission.lock().unwrap_or_else(|p| p.into_inner());
-                if state.stopped {
-                    return false;
+                if state.stopped() {
+                    return None;
                 }
                 if state.ready {
-                    let allowed = state.tracker.check_dispatch(Instant::now()).is_ok()
-                        && self.control.check().is_ok();
-                    state.consumed = allowed;
-                    return allowed;
+                    let Phase::Confirmed(control) = &state.phase else {
+                        unreachable!("dispatch permission requires confirmed authority");
+                    };
+                    let control = control.clone();
+                    if state.tracker.check_dispatch(Instant::now()).is_ok()
+                        && control.check().is_ok()
+                    {
+                        state.consumed = true;
+                        return Some(control);
+                    }
+                    state.stop();
+                    return None;
                 }
             }
             tokio::time::sleep(TICK).await;
         }
     }
-    fn stop(&self) {
+    pub(super) fn stop(&self) {
         self.permission
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .stopped = true;
-        self.control.cancel();
+            .stop();
     }
     pub async fn run(self: Arc<Self>, context: Arc<Context>, assignment: Assignment) {
-        // Unexpected termination of renewal must revoke local work immediately.
-        let _cancel_on_exit = CancelOnExit(self.control.clone());
+        // Unexpected termination of renewal must revoke local work immediately,
+        // including when no execution control has been created yet.
+        let _stop_on_exit = StopOnExit(self.clone());
         let Some(sequence) = assignment.authority.renew_sequence.checked_add(1) else {
             context.shared.fatal(protocol("renewal sequence exhausted"));
             self.stop();
@@ -88,12 +161,7 @@ impl Monitor {
             sequence,
             intent: RenewIntent::Dispatch,
         };
-        // Stopped work can still retain authority for cleanup/reporting. Do not
-        // send a new dispatch intent if no request for it has gone out yet.
-        self.check(&context.shared);
-        if self.control.is_cancelled() {
-            command.intent = RenewIntent::KeepAlive;
-        }
+        let mut sent = false;
         let mut next = Instant::now();
         loop {
             self.check(&context.shared);
@@ -104,6 +172,18 @@ impl Monitor {
                 tokio::time::sleep(TICK).await;
                 continue;
             }
+            // Before first send, stopping changes the intent to KeepAlive.
+            // Once sent, every uncertain retry retains the exact command.
+            if !sent
+                && self
+                    .permission
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .stopped()
+            {
+                command.intent = RenewIntent::KeepAlive;
+            }
+            sent = true;
             let started = Instant::now();
             let result = {
                 let request = exchange(context.config.request_timeout, || {
@@ -136,22 +216,7 @@ impl Monitor {
                     }
                     {
                         let mut state = self.permission.lock().unwrap_or_else(|p| p.into_inner());
-                        if !state.stopped {
-                            if state
-                                .tracker
-                                .apply(&authority, started, Instant::now())
-                                .is_err()
-                            {
-                                state.stopped = true;
-                                self.control.cancel();
-                            } else if command.intent == RenewIntent::Dispatch {
-                                state.ready = state.tracker.check_dispatch(Instant::now()).is_ok();
-                                if !state.ready {
-                                    state.stopped = true;
-                                    self.control.cancel();
-                                }
-                            }
-                        }
+                        state.accept(&authority, &command, started, Instant::now());
                     }
                     let Some(sequence) = command.sequence.checked_add(1) else {
                         context.shared.fatal(protocol("renewal sequence exhausted"));
@@ -159,8 +224,9 @@ impl Monitor {
                         return;
                     };
                     command.sequence = sequence;
+                    sent = false;
                     let state = self.permission.lock().unwrap_or_else(|p| p.into_inner());
-                    command.intent = if state.consumed || state.stopped {
+                    command.intent = if state.consumed || state.stopped() {
                         RenewIntent::KeepAlive
                     } else {
                         // Preserve dispatch permission until the consumer has
@@ -201,10 +267,10 @@ impl Monitor {
     }
 }
 
-struct CancelOnExit(RunControl);
-impl Drop for CancelOnExit {
+struct StopOnExit(Arc<Monitor>);
+impl Drop for StopOnExit {
     fn drop(&mut self) {
-        self.0.cancel();
+        self.0.stop();
     }
 }
 
@@ -287,7 +353,11 @@ mod tests {
         ) -> ContractFuture<'a, Vec<RecordedHistoryEvent>> {
             unsupported()
         }
-        fn acquire<'a>(&'a self, _: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
+        fn acquire<'a>(
+            &'a self,
+            _: &'a AcquireCommand,
+            _: AcquireOptions,
+        ) -> ContractFuture<'a, AcquireReply> {
             unsupported()
         }
         fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority> {
@@ -388,6 +458,7 @@ mod tests {
         let service = Arc::new(Renewals::default());
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
+            stop_changed: tokio::sync::Notify::new(),
             status: Mutex::new(DeliveryStatus::default()),
         });
         let mut config = DeliveryConfig::new(scope, "queue");
@@ -398,7 +469,7 @@ mod tests {
             config,
             shared: shared.clone(),
         });
-        let monitor = Arc::new(Monitor::new(&assignment, Instant::now()));
+        let monitor = Arc::new(Monitor::new(&assignment));
         let running = monitor.clone();
         let actor = tokio::spawn(async move { running.run(context, assignment).await });
 
@@ -413,7 +484,10 @@ mod tests {
                 .iter()
                 .all(|command| command.intent == RenewIntent::Dispatch)
         );
-        assert!(monitor.dispatch(&shared).await);
+        let control = monitor
+            .dispatch(&shared)
+            .await
+            .expect("fresh dispatch permission");
         observe(|| {
             service
                 .0
@@ -423,11 +497,130 @@ mod tests {
                 .any(|command| command.intent == RenewIntent::KeepAlive)
         })
         .await;
-        assert!(monitor.control.check().is_ok());
+        assert!(control.check().is_ok());
         monitor.done.store(true, Ordering::Release);
         tokio::time::timeout(Duration::from_secs(2), actor)
             .await
             .unwrap()
             .unwrap();
+    }
+
+    fn pending_permission(now: Instant) -> Permission {
+        let owner = LeaseOwner {
+            scope: Scope {
+                tenant_id: "tenant".into(),
+                namespace: "namespace".into(),
+            },
+            task_id: "task".into(),
+            attempt_id: "attempt".into(),
+            lease_id: "lease".into(),
+            generation: 1,
+            worker_session_id: "session".into(),
+            consumer_id: 0,
+        };
+        Permission {
+            tracker: LeaseTracker::new(owner),
+            phase: Phase::AwaitingAuthority {
+                deadline: now + Duration::from_secs(30),
+            },
+            ready: false,
+            consumed: false,
+        }
+    }
+
+    #[test]
+    fn fresh_confirmation_establishes_the_first_execution_control() {
+        let now = Instant::now();
+        let mut state = pending_permission(now);
+        let command = RenewCommand {
+            owner: state.tracker.owner().clone(),
+            sequence: 1,
+            intent: RenewIntent::Dispatch,
+        };
+        let mut response = authority(&command.owner, 1, true);
+        response.execution_remaining_ms = 10_000;
+        let sent = now + Duration::from_secs(15);
+        state.accept(&response, &command, sent, sent + Duration::from_millis(10));
+        let Phase::Confirmed(control) = &state.phase else {
+            panic!("fresh authority was not established")
+        };
+        assert_eq!(control.deadline(), sent + Duration::from_secs(5));
+        assert!(state.ready);
+    }
+
+    #[test]
+    fn the_initial_confirmation_deadline_is_fixed_and_late_permission_cannot_revive_it() {
+        let now = Instant::now();
+        let mut state = pending_permission(now);
+        let command = RenewCommand {
+            owner: state.tracker.owner().clone(),
+            sequence: 1,
+            intent: RenewIntent::Dispatch,
+        };
+        let response = authority(&command.owner, 1, true);
+        state.accept(
+            &response,
+            &command,
+            now + Duration::from_secs(29),
+            now + Duration::from_secs(30),
+        );
+        assert!(state.stopped());
+        assert!(state.tracker.execution_deadline().is_none());
+        state.accept(
+            &response,
+            &command,
+            now + Duration::from_secs(30),
+            now + Duration::from_secs(31),
+        );
+        assert!(state.stopped());
+        assert!(state.tracker.execution_deadline().is_none());
+    }
+
+    #[test]
+    fn confirmed_expiry_cancels_the_existing_control_and_late_renewal_cannot_revive_it() {
+        let now = Instant::now();
+        let mut state = pending_permission(now);
+        let mut command = RenewCommand {
+            owner: state.tracker.owner().clone(),
+            sequence: 1,
+            intent: RenewIntent::Dispatch,
+        };
+        let mut response = authority(&command.owner, 1, true);
+        response.remaining_ms = 6_000;
+        state.accept(&response, &command, now, now);
+        let Phase::Confirmed(control) = &state.phase else {
+            panic!("fresh authority was not established")
+        };
+        let control = control.clone();
+        state.check(false, now + Duration::from_secs(2));
+        assert!(control.is_cancelled());
+        command.sequence = 2;
+        response = authority(&command.owner, 2, true);
+        state.accept(
+            &response,
+            &command,
+            now + Duration::from_secs(2),
+            now + Duration::from_secs(2),
+        );
+        assert!(state.stopped());
+        assert!(control.is_cancelled());
+    }
+
+    #[test]
+    fn cancellation_or_denied_dispatch_never_creates_execution_control() {
+        for cancelled in [false, true] {
+            let now = Instant::now();
+            let mut state = pending_permission(now);
+            let command = RenewCommand {
+                owner: state.tracker.owner().clone(),
+                sequence: 1,
+                intent: RenewIntent::Dispatch,
+            };
+            let mut response = authority(&command.owner, 1, false);
+            response.cancel_requested = cancelled;
+            state.accept(&response, &command, now, now);
+            assert!(state.stopped());
+            assert!(!state.ready);
+        }
     }
 }

@@ -2,7 +2,7 @@
 
 Ledgence provides a Rust application service and an initial PostgreSQL 18 storage adapter. Together they implement durable single-task submission, acquisition, lease renewal, settlement, cancellation, history, and expiry recovery. They call the existing lifecycle core inside database transactions and return mutation success only after commit.
 
-The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. Long polling and retention deletion remain later work; [optional OpenTelemetry traces](observability.md) are available. These tests do not establish exactly-once external business effects or database failover guarantees.
+The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; retention deletion remains later work. These tests do not establish exactly-once external business effects or database failover guarantees.
 
 ## Using the adapter
 
@@ -35,7 +35,7 @@ Acquisition and every renewal lock the session for sharing, then the existing co
 
 The previous assignment is read together with its task in one statement while holding the cursor. That snapshot is only used for reconciliation and is never written back. Renewals cannot extend its ownership while the cursor is held. If the same task becomes a claim candidate, the adapter uses its freshly locked state. Dependent attempt records are loaded after the target task lock, avoiding mixed snapshots after a lock wait.
 
-Due-task acquisition skips locked rows and does not promise strict FIFO. A completed Empty disposition remains Empty when replayed, even if new work arrived. The next sequence performs a fresh acquisition. No transaction remains open while waiting for work; long-poll transport will be a later adapter.
+Due-task acquisition skips locked rows and does not promise strict FIFO. A completed Empty disposition remains Empty when replayed, even if new work arrived. The next sequence performs a fresh acquisition. Pending probes explicitly roll back, including a provisional first-cursor insert. No transaction remains open while waiting. Committed cursor identity is unchanged; see [acquisition waits](acquisition-waits.md).
 
 The store samples database wall time after relevant locks. Database clock discipline remains an operational assumption. Assignment replay returns remaining authority rather than resetting a lease duration. The delivery driver uses the conservative local deadline rules and renews dispatch permission before execution; all transport adapters must preserve these authority fields. Dispatch permission records possible execution before acknowledging it.
 

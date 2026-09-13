@@ -218,7 +218,7 @@ async fn dispatch(
             Command::Serve {
                 bind,
                 store: programs,
-            } => prepare_and_serve(store.clone(), bind, programs, stopped, trace).await,
+            } => prepare_and_serve(store.clone(), bind, programs, stopped, trace, &url).await,
             Command::Help => unreachable!("help is handled before runtime startup"),
         }
     };
@@ -234,6 +234,7 @@ async fn prepare_and_serve(
     location: String,
     stopped: watch::Receiver<bool>,
     trace: Arc<dyn TraceBridge>,
+    database_url: &str,
 ) -> Result<(), String> {
     store
         .verify_schema()
@@ -269,8 +270,20 @@ async fn prepare_and_serve(
     health.prerequisites_ready();
     let store = Arc::new(store);
     let service = Arc::new(ApplicationService::new(store.clone(), programs));
+    store.set_acquisition_wake(service.acquisition_wake());
+    let notifications = if notifications_enabled()? {
+        let url = std::env::var("LEDGENCE_POSTGRES_NOTIFICATION_URL")
+            .unwrap_or_else(|_| database_url.to_owned());
+        Some(
+            store
+                .start_acquisition_notifications(&url)
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
     let router = ledgence_adapter_http::server::router_with_observability(
-        service,
+        service.clone(),
         health.stopping.clone(),
         trace,
     )
@@ -287,7 +300,34 @@ async fn prepare_and_serve(
         recovery::run(store, health.clone(), recovery_stopped, config).with_current_subscriber(),
     );
     tracing::info!(%address, "orchestration HTTP listener started");
-    supervise(http, scanner, health, stopped, http_stop, recovery_stop).await
+    let acquisition_service = service.clone();
+    let result = supervise(
+        http,
+        scanner,
+        health,
+        stopped,
+        http_stop,
+        recovery_stop,
+        move || acquisition_service.stop_acquisitions(),
+    )
+    .await;
+    tracing::info!(statistics = ?service.acquisition_statistics(), "acquisition coordinator drained");
+    // Accepted requests and recovery retain their local wake sink until drained.
+    // Auxiliary connection cleanup runs before the lifecycle pool is closed.
+    if let Some(notifications) = notifications {
+        let statistics = notifications.shutdown().await;
+        tracing::info!(?statistics, "acquisition notifications stopped");
+    }
+    result
+}
+
+fn notifications_enabled() -> Result<bool, String> {
+    match std::env::var("LEDGENCE_POSTGRES_NOTIFICATIONS") {
+        Err(std::env::VarError::NotPresent) => Ok(true),
+        Ok(value) if value == "on" => Ok(true),
+        Ok(value) if value == "off" => Ok(false),
+        _ => Err("LEDGENCE_POSTGRES_NOTIFICATIONS must be on or off".into()),
+    }
 }
 
 async fn stop_requested(mut stopped: watch::Receiver<bool>) {
@@ -305,6 +345,7 @@ async fn supervise(
     stopped: watch::Receiver<bool>,
     http_stop: watch::Sender<bool>,
     recovery_stop: watch::Sender<bool>,
+    stop_acquisitions: impl FnOnce(),
 ) -> Result<(), String> {
     let mut http_finished = false;
     let mut scanner_finished = false;
@@ -320,6 +361,7 @@ async fn supervise(
         }
     };
     health.stop();
+    stop_acquisitions();
     let _ = http_stop.send(true);
     if !http_finished {
         match observe_drain(&mut http, "HTTP requests").await {
@@ -418,6 +460,7 @@ mod tests {
             stopped,
             http_stop,
             recovery_stop,
+            || {},
         ));
         stop.send(true).unwrap();
         http_stopped.changed().await.unwrap();
@@ -458,7 +501,16 @@ mod tests {
             #[allow(unreachable_code)]
             Ok(())
         });
-        let result = supervise(http, scanner, health, stopped, http_stop, recovery_stop).await;
+        let result = supervise(
+            http,
+            scanner,
+            health,
+            stopped,
+            http_stop,
+            recovery_stop,
+            || {},
+        )
+        .await;
         assert!(
             result
                 .unwrap_err()

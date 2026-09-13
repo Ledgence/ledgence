@@ -1,4 +1,4 @@
-use ledgence_orchestration_api::{ContractError, Scope};
+use ledgence_orchestration_api::{AcquireCommand, ContractError, Scope};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -18,6 +18,49 @@ pub(crate) struct ExtendSession {
 pub(crate) struct Cancel {
     pub scope: Scope,
     pub task_id: String,
+}
+
+/// Transport preferences are explicit fields, separate from durable identity.
+/// `u64` plus `default` accepts omission while rejecting null and non-integers.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcquisitionRequest {
+    pub scope: Scope,
+    pub queue: String,
+    pub worker_session_id: String,
+    pub consumer_id: u32,
+    pub sequence: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub wait_ms: u64,
+}
+
+impl AcquisitionRequest {
+    #[cfg(feature = "client")]
+    pub fn new(command: &AcquireCommand, wait_ms: u64) -> Self {
+        Self {
+            scope: command.scope.clone(),
+            queue: command.queue.clone(),
+            worker_session_id: command.worker_session_id.clone(),
+            consumer_id: command.consumer_id,
+            sequence: command.sequence,
+            wait_ms,
+        }
+    }
+
+    #[cfg(feature = "server")]
+    pub fn into_command(self) -> AcquireCommand {
+        AcquireCommand {
+            scope: self.scope,
+            queue: self.queue,
+            worker_session_id: self.worker_session_id,
+            consumer_id: self.consumer_id,
+            sequence: self.sequence,
+        }
+    }
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 pub(crate) fn error_status(error: &ContractError) -> u16 {

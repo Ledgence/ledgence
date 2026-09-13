@@ -25,6 +25,18 @@ use tokio::{
 struct Mock {
     calls: Mutex<Vec<(&'static str, Value)>>,
     replies: Mutex<HashMap<&'static str, Result<Value>>>,
+    acquisition_options: Mutex<Vec<AcquireOptions>>,
+    acquisition_gate: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    acquisition_entered: tokio::sync::Notify,
+    active_acquisitions: AtomicUsize,
+    acquisition_left: tokio::sync::Notify,
+}
+struct ActiveAcquisition<'a>(&'a Mock);
+impl Drop for ActiveAcquisition<'_> {
+    fn drop(&mut self) {
+        self.0.active_acquisitions.fetch_sub(1, Ordering::SeqCst);
+        self.0.acquisition_left.notify_one();
+    }
 }
 impl Mock {
     fn set<T: Serialize>(&self, operation: &'static str, result: Result<T>) {
@@ -91,8 +103,22 @@ impl TaskService for Mock {
     ) -> ContractFuture<'a, Vec<RecordedHistoryEvent>> {
         Box::pin(async move { self.reply("history", json!([scope, task, after])) })
     }
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
-        Box::pin(async move { self.reply("acquire", command) })
+    fn acquire<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, AcquireReply> {
+        Box::pin(async move {
+            self.active_acquisitions.fetch_add(1, Ordering::SeqCst);
+            let _active = ActiveAcquisition(self);
+            self.acquisition_options.lock().unwrap().push(options);
+            self.acquisition_entered.notify_one();
+            let gate = self.acquisition_gate.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            self.reply("acquire", command)
+        })
     }
     fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority> {
         Box::pin(async move { self.reply("renew", command) })
@@ -131,6 +157,10 @@ fn scope() -> Scope {
         namespace: "..".into(),
     }
 }
+fn immediate() -> AcquireOptions {
+    AcquireOptions::for_wait(Duration::ZERO).unwrap()
+}
+
 fn descriptor() -> ProgramDescriptor {
     ProgramDescriptor {
         program: ProgramRef {
@@ -368,7 +398,7 @@ async fn all_methods_roundtrip_scoped_opaque_ids_and_lossless_application_values
         exact(history)
     );
     assert_eq!(
-        exact(client.acquire(&acquisition()).await.unwrap()),
+        exact(client.acquire(&acquisition(), immediate()).await.unwrap()),
         exact(AcquireReply::Assigned {
             sequence: 1,
             assignment: Box::new(assignment)
@@ -437,7 +467,13 @@ async fn every_domain_error_and_successful_empty_or_lost_disposition_is_preserve
         ContractError::Unavailable("unavailable".into()),
     ] {
         mock.set::<Value>("acquire", Err(error.clone()));
-        assert_eq!(client.acquire(&acquisition()).await.unwrap_err(), error);
+        assert_eq!(
+            client
+                .acquire(&acquisition(), immediate())
+                .await
+                .unwrap_err(),
+            error
+        );
     }
     for reply in [
         AcquireReply::Empty { sequence: 1 },
@@ -451,7 +487,7 @@ async fn every_domain_error_and_successful_empty_or_lost_disposition_is_preserve
     ] {
         mock.set("acquire", Ok(&reply));
         assert_eq!(
-            exact(client.acquire(&acquisition()).await.unwrap()),
+            exact(client.acquire(&acquisition(), immediate()).await.unwrap()),
             exact(reply)
         );
     }
@@ -720,7 +756,7 @@ async fn shutdown_admission_rejection_keeps_transport_metadata_and_skips_service
     mock.set("acquire", Ok(AcquireReply::Empty { sequence: 1 }));
     HttpTaskService::new(&running.url)
         .unwrap()
-        .acquire(&acquisition())
+        .acquire(&acquisition(), immediate())
         .await
         .unwrap();
 }
@@ -801,7 +837,7 @@ async fn malformed_or_mismatched_replies_are_uncertain_and_never_domain_absence(
         assert!(matches!(
             HttpTaskService::new(&running.url)
                 .unwrap()
-                .acquire(&acquisition())
+                .acquire(&acquisition(), immediate())
                 .await,
             Err(ContractError::Unavailable(_))
         ));
@@ -823,7 +859,7 @@ async fn redirects_and_retryable_responses_do_not_trigger_an_extra_exchange() {
         (busy, Some(ContractError::Unavailable("busy".into()))),
     ] {
         let (running, count) = raw_response(bytes, None).await;
-        let error = HttpTaskService::new(&running.url).unwrap().acquire(&acquisition()).await.unwrap_err();
+        let error = HttpTaskService::new(&running.url).unwrap().acquire(&acquisition(), immediate()).await.unwrap_err();
         assert!(matches!(error, ContractError::Unavailable(_)));
         if let Some(expected) = expected { assert_eq!(error, expected); }
         assert_eq!(count.load(Ordering::SeqCst), 1);
@@ -855,7 +891,7 @@ async fn oversized_success_responses_are_bounded_even_without_content_length() {
         [b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n".as_slice(), &vec![b' '; RESPONSE_MAX_BYTES + 1]].concat(),
     ] {
         let (running, _) = raw_response(bytes, None).await;
-        assert!(matches!(HttpTaskService::new(&running.url).unwrap().acquire(&acquisition()).await, Err(ContractError::Unavailable(_))));
+        assert!(matches!(HttpTaskService::new(&running.url).unwrap().acquire(&acquisition(), immediate()).await, Err(ContractError::Unavailable(_))));
     }
 }
 
@@ -958,7 +994,7 @@ async fn one_stalled_consumer_does_not_serialize_an_independent_renewal() {
     });
     let client = HttpTaskService::with_timeout(&url, Duration::from_millis(300)).unwrap();
     let other = client.clone();
-    let acquisition = tokio::spawn(async move { other.acquire(&acquisition()).await });
+    let acquisition = tokio::spawn(async move { other.acquire(&acquisition(), immediate()).await });
     first_received.notified().await;
     let renewal = client
         .renew(&RenewCommand {
@@ -1156,7 +1192,7 @@ async fn exact_response_budget_includes_whitespace_with_or_without_content_lengt
         assert!(matches!(
             HttpTaskService::new(&running.url)
                 .unwrap()
-                .acquire(&acquisition())
+                .acquire(&acquisition(), immediate())
                 .await
                 .unwrap(),
             AcquireReply::Empty { sequence: 1 }
@@ -1226,5 +1262,351 @@ async fn tracing_bridge_propagates_a_new_exchange_without_rewriting_command_orig
         calls
             .iter()
             .all(|(_, value)| *value == serde_json::to_value(&command).unwrap())
+    );
+}
+
+#[tokio::test]
+async fn acquisition_wait_is_strict_and_separate_from_durable_identity() {
+    let mock = Arc::new(Mock::default());
+    mock.set("acquire", Ok(AcquireReply::Empty { sequence: 1 }));
+    let running = start(server::router(mock.clone())).await;
+    let client = reqwest::Client::new();
+    let command = serde_json::to_value(acquisition()).unwrap();
+    for wait in [None, Some(0), Some(1), Some(LONG_POLL_WAIT_MS)] {
+        let mut body = command.clone();
+        if let Some(wait) = wait {
+            body["wait_ms"] = json!(wait);
+        }
+        let response = client
+            .post(format!("{}/v1/acquisitions", running.url))
+            .header("content-type", "application/json")
+            .body(exact(body))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&response.bytes().await.unwrap()).unwrap(),
+            json!({"disposition":"empty","sequence":1})
+        );
+        let options = *mock.acquisition_options.lock().unwrap().last().unwrap();
+        assert_eq!(options.max_wait, Duration::from_millis(wait.unwrap_or(0)));
+        assert_eq!(mock.calls.lock().unwrap().last().unwrap().1, command);
+    }
+    let base = String::from_utf8(exact(&command)).unwrap();
+    let prefix = base.strip_suffix('}').unwrap();
+    for fields in [
+        "\"wait_ms\":null",
+        "\"wait_ms\":-1",
+        "\"wait_ms\":-0",
+        "\"wait_ms\":1.0",
+        "\"wait_ms\":1e0",
+        "\"wait_ms\":\"1\"",
+        "\"wait_ms\":true",
+        "\"wait_ms\":[]",
+        "\"wait_ms\":{}",
+        "\"wait_ms\":20001",
+        "\"wait_ms\":18446744073709551615",
+        "\"wait_ms\":18446744073709551616",
+        "\"wait_ms\":0,\"wait_ms\":0",
+        "\"wait_ms\":0,\"unknown\":1",
+    ] {
+        let response = client
+            .post(format!("{}/v1/acquisitions", running.url))
+            .header("content-type", "application/json")
+            .body(format!("{prefix},{fields}}}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400, "accepted {fields}");
+        assert!(response.headers().contains_key("request-id"));
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(matches!(
+            serde_json::from_slice::<ContractError>(&response.bytes().await.unwrap()).unwrap(),
+            ContractError::InvalidInput(_)
+        ));
+    }
+    assert_eq!(mock.calls.lock().unwrap().len(), 4);
+    assert_eq!(mock.acquisition_options.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn immediate_client_omits_wait_and_remains_compatible_with_strict_legacy_server() {
+    async fn legacy(body: axum::body::Bytes) -> axum::response::Response {
+        use axum::{http::StatusCode, response::IntoResponse};
+        match decode_unique_json::<AcquireCommand>(&body, SUBMISSION_MAX_BYTES) {
+            Ok(command) => (
+                StatusCode::OK,
+                [("content-type", "application/json")],
+                exact(AcquireReply::Empty {
+                    sequence: command.sequence,
+                }),
+            )
+                .into_response(),
+            Err(_) => (
+                StatusCode::BAD_REQUEST,
+                [("content-type", "application/json")],
+                exact(ContractError::InvalidInput(
+                    "legacy strict acquisition".into(),
+                )),
+            )
+                .into_response(),
+        }
+    }
+    let running =
+        start(axum::Router::new().route("/v1/acquisitions", axum::routing::post(legacy))).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    assert!(matches!(
+        client.acquire(&acquisition(), immediate()).await.unwrap(),
+        AcquireReply::Empty { sequence: 1 }
+    ));
+    // Do not silently downgrade a rejected wait preference or retry the command.
+    assert!(matches!(
+        client
+            .acquire(
+                &acquisition(),
+                AcquireOptions::for_wait(Duration::from_millis(1)).unwrap(),
+            )
+            .await,
+        Err(ContractError::InvalidInput(_))
+    ));
+}
+
+#[tokio::test]
+async fn acquisition_client_sends_wait_without_rewriting_command_or_reply() {
+    let mock = Arc::new(Mock::default());
+    mock.set("acquire", Ok(AcquireReply::Empty { sequence: 1 }));
+    let running = start(server::router(mock.clone())).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    for wait in [
+        Duration::ZERO,
+        Duration::from_millis(1),
+        Duration::from_secs(20),
+    ] {
+        let options = AcquireOptions::for_wait(wait).unwrap();
+        assert!(matches!(
+            client.acquire(&acquisition(), options).await.unwrap(),
+            AcquireReply::Empty { sequence: 1 }
+        ));
+        assert_eq!(
+            mock.acquisition_options
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .max_wait,
+            wait
+        );
+    }
+    assert!(
+        mock.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(kind, command)| *kind == "acquire"
+                && *command == serde_json::to_value(acquisition()).unwrap())
+    );
+}
+
+#[tokio::test]
+async fn acquisition_deadline_covers_the_whole_response_transfer() {
+    let (running, count) = raw_response(
+        response(
+            200,
+            "application/json",
+            &exact(AcquireReply::Empty { sequence: 1 }),
+        ),
+        Some(Duration::from_secs(1)),
+    )
+    .await;
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let capture = observed.clone();
+    let client = HttpTaskService::new(&running.url)
+        .unwrap()
+        .with_observer(move |metadata| capture.lock().unwrap().push(metadata.clone()));
+    let options = AcquireOptions::new(
+        Duration::from_secs(20),
+        std::time::Instant::now() + Duration::from_millis(100),
+    )
+    .unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_millis(750),
+        client.acquire(&acquisition(), options),
+    )
+    .await
+    .expect("caller deadline must cap the configured thirty-second client timeout");
+    assert!(matches!(result, Err(ContractError::Unavailable(_))));
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    let observed = observed.lock().unwrap();
+    assert_eq!(observed.len(), 1);
+    assert_eq!(observed[0].status, Some(200));
+}
+
+#[tokio::test]
+async fn expired_or_invalid_acquisition_options_do_not_send_a_request() {
+    let (running, count) = raw_response(
+        response(
+            200,
+            "application/json",
+            &exact(AcquireReply::Empty { sequence: 1 }),
+        ),
+        None,
+    )
+    .await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    let expired = AcquireOptions::immediate(std::time::Instant::now());
+    assert!(matches!(
+        client.acquire(&acquisition(), expired).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    let invalid = AcquireOptions {
+        max_wait: Duration::from_millis(LONG_POLL_WAIT_MS + 1),
+        deadline: std::time::Instant::now() + Duration::from_secs(30),
+    };
+    assert!(matches!(
+        client.acquire(&acquisition(), invalid).await,
+        Err(ContractError::InvalidInput(_))
+    ));
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn waiting_acquisitions_release_json_capacity_for_control_calls() {
+    let mock = Arc::new(Mock::default());
+    mock.set("acquire", Ok(AcquireReply::Empty { sequence: 1 }));
+    mock.set("renew", Ok(authority()));
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *mock.acquisition_gate.lock().unwrap() = Some(gate.clone());
+    let running = start(server::router(mock.clone())).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    let mut acquisitions = Vec::new();
+    for consumer in 0..8 {
+        let client = client.clone();
+        acquisitions.push(tokio::spawn(async move {
+            let mut command = acquisition();
+            command.consumer_id = consumer;
+            client
+                .acquire(
+                    &command,
+                    AcquireOptions::for_wait(Duration::from_secs(20)).unwrap(),
+                )
+                .await
+        }));
+    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if mock.acquisition_options.lock().unwrap().len() == 8 {
+                break;
+            }
+            mock.acquisition_entered.notified().await;
+        }
+    })
+    .await
+    .expect("all waiters must enter without retaining the four JSON permits");
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        client.renew(&RenewCommand {
+            owner: owner(),
+            sequence: 1,
+            intent: RenewIntent::KeepAlive,
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, authority());
+    gate.notify_waiters();
+    for acquisition in acquisitions {
+        assert!(matches!(
+            acquisition.await.unwrap().unwrap(),
+            AcquireReply::Empty { sequence: 1 }
+        ));
+    }
+}
+
+#[derive(Default)]
+struct EntryCapture {
+    entered: tokio::sync::Notify,
+    observed: Mutex<Option<std::time::Instant>>,
+}
+impl ledgence_worker_api::TraceBridge for EntryCapture {
+    fn set_parent(&self, _: &tracing::Span, _: Option<&TraceContext>) {
+        *self.observed.lock().unwrap() = Some(std::time::Instant::now());
+        self.entered.notify_one();
+    }
+    fn add_link(&self, _: &tracing::Span, _: &TraceContext) {}
+    fn context(&self, _: &tracing::Span) -> Option<TraceContext> {
+        None
+    }
+}
+
+#[tokio::test]
+async fn server_acquisition_deadline_starts_before_request_body_transfer() {
+    let mock = Arc::new(Mock::default());
+    mock.set("acquire", Ok(AcquireReply::Empty { sequence: 1 }));
+    let entry = Arc::new(EntryCapture::default());
+    let running = start(server::router_with_observability(
+        mock.clone(),
+        Arc::new(AtomicBool::new(false)),
+        entry.clone(),
+    ))
+    .await;
+    let mut stream = tokio::net::TcpStream::connect(running.url.strip_prefix("http://").unwrap())
+        .await
+        .unwrap();
+    let mut body = serde_json::to_value(acquisition()).unwrap();
+    body["wait_ms"] = json!(LONG_POLL_WAIT_MS);
+    let bytes = exact(body);
+    let before = std::time::Instant::now();
+    stream.write_all(format!(
+        "POST /v1/acquisitions HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    ).as_bytes()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), entry.entered.notified())
+        .await
+        .unwrap();
+    let entered = entry.observed.lock().unwrap().unwrap();
+    assert!(mock.acquisition_options.lock().unwrap().is_empty());
+    stream.write_all(&bytes).await.unwrap();
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).await.unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 200"));
+    let options = mock.acquisition_options.lock().unwrap()[0];
+    assert_eq!(options.max_wait, Duration::from_secs(20));
+    assert!(options.deadline >= before + Duration::from_secs(30));
+    assert!(
+        options.deadline <= entered + Duration::from_secs(30),
+        "body transfer or decoding restarted the server deadline"
+    );
+}
+
+#[tokio::test]
+async fn disconnected_waiting_http_request_drops_its_service_future() {
+    let mock = Arc::new(Mock::default());
+    *mock.acquisition_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Notify::new()));
+    let running = start(server::router(mock.clone())).await;
+    let mut stream = tokio::net::TcpStream::connect(running.url.strip_prefix("http://").unwrap())
+        .await
+        .unwrap();
+    let mut body = serde_json::to_value(acquisition()).unwrap();
+    body["wait_ms"] = json!(LONG_POLL_WAIT_MS);
+    let bytes = exact(body);
+    stream.write_all(format!(
+        "POST /v1/acquisitions HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+        bytes.len()
+    ).as_bytes()).await.unwrap();
+    stream.write_all(&bytes).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), mock.acquisition_entered.notified())
+        .await
+        .unwrap();
+    assert_eq!(mock.active_acquisitions.load(Ordering::SeqCst), 1);
+    drop(stream);
+    tokio::time::timeout(Duration::from_secs(1), mock.acquisition_left.notified())
+        .await
+        .expect("disconnected request must release its owned service future");
+    assert_eq!(mock.active_acquisitions.load(Ordering::SeqCst), 0);
+    assert!(
+        mock.calls.lock().unwrap().is_empty(),
+        "cancellation must not fabricate a completed reply"
     );
 }

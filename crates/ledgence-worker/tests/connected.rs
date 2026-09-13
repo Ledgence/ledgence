@@ -77,7 +77,7 @@ fn spawn_worker(directory: &Path, server: &str, concurrency: &str) -> Child {
             "--cache",
             directory.join("cache").to_str().unwrap(),
             "--python",
-            "python3",
+            &std::env::var("LEDGENCE_PYTHON").unwrap_or_else(|_| "python3".into()),
             "--runner",
             runner.to_str().unwrap(),
             "--concurrency",
@@ -246,4 +246,146 @@ async fn connect_rejects_a_second_concurrency_setting_and_out_of_range_capacity(
         assert!(!output.status.success());
         assert!(String::from_utf8_lossy(&output.stderr).contains("concurrency"));
     }
+}
+
+#[tokio::test]
+async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait() {
+    use ledgence_orchestration_api::{AttemptReport, SettleCommand};
+    use ledgence_worker_api::ProgramOutcome;
+
+    let directory = tempfile::tempdir().unwrap();
+    let example = directory.path().join("example");
+    let python = std::env::var("LEDGENCE_PYTHON").unwrap_or_else(|_| "python3".into());
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+        .args([
+            "example",
+            "--directory",
+            example.to_str().unwrap(),
+            "--python",
+            &python,
+        ])
+        .kill_on_drop(true)
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(
+        example.join("program/program.py"),
+        "def handle(event):\n    return {'received': event['data'], 'executed': True}\n",
+    )
+    .unwrap();
+    let store = directory.path().join("store");
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+        .args([
+            "publish",
+            "--source",
+            example.join("program").to_str().unwrap(),
+            "--store",
+            store.to_str().unwrap(),
+        ])
+        .kill_on_drop(true)
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let descriptor: Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let (settled, report) = oneshot::channel();
+    let transport = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        register(&mut socket, 1).await;
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let (route, body) = read_request(&mut socket).await;
+        assert_eq!(route, "POST /v1/acquisitions HTTP/1.1");
+        assert_eq!(body["wait_ms"], 20_000);
+        // The clock for the new attempt starts only after this actual HTTP wait.
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        let claimed = std::time::Instant::now();
+        let owner = json!({
+            "scope": body["scope"], "task_id": "task_short", "attempt_id": "att_short",
+            "lease_id": "lease_short", "generation": 1,
+            "worker_session_id": body["worker_session_id"], "consumer_id": body["consumer_id"]
+        });
+        let authority = |sequence: u64, dispatch: bool| {
+            let elapsed = u64::try_from(claimed.elapsed().as_millis()).unwrap();
+            json!({"owner": owner, "expires_at": 100_000,
+                "remaining_ms": 40_000_u64.saturating_sub(elapsed),
+                "execution_remaining_ms": 10_000_u64.saturating_sub(elapsed),
+                "renew_sequence": sequence, "cancel_requested": false, "dispatch_allowed": dispatch})
+        };
+        reply(&mut socket, json!({"disposition": "assigned", "sequence": body["sequence"], "assignment": {
+            "descriptor": descriptor,
+            "event": {"specversion":"1.0", "id":"evt_short", "source":"urn:ledgence:orchestrator",
+                "type":"com.ledgence.task.invocation.requested.v1", "datacontenttype":"application/json",
+                "ldgtenantid":"tenant", "ldgnamespace":"billing", "ldgrunid":"run_short",
+                "ldgtaskid":"task_short", "ldgattemptid":"att_short", "ldgattemptno":1,
+                "data":{"business_id":"short-after-wait"}},
+            "lease":{"owner":owner,"expires_at":100_000}, "authority":authority(0,false),
+            "attempt_deadline":70_000
+        }})).await;
+        let mut settled = Some(settled);
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (route, body) = read_request(&mut socket).await;
+            match route.as_str() {
+                "POST /v1/renewals HTTP/1.1" => {
+                    assert_eq!(body["owner"], owner);
+                    reply(
+                        &mut socket,
+                        authority(
+                            body["sequence"].as_u64().unwrap(),
+                            body["intent"] == "dispatch",
+                        ),
+                    )
+                    .await;
+                }
+                "POST /v1/settlements HTTP/1.1" => {
+                    let command =
+                        SettleCommand::decode(&serde_json::to_vec(&body).unwrap()).unwrap();
+                    reply(&mut socket, json!({"receipt":{"operation_id":body["operation_id"], "task_id":"task_short", "attempt_id":"att_short", "accepted_at":70_000}, "already_accepted":false, "task_state":"succeeded"})).await;
+                    settled.take().unwrap().send(command).unwrap();
+                }
+                "POST /v1/acquisitions HTTP/1.1" => {
+                    reply(
+                        &mut socket,
+                        json!({"disposition":"empty", "sequence":body["sequence"]}),
+                    )
+                    .await;
+                }
+                _ => panic!("unexpected worker exchange: {route}"),
+            }
+        }
+    });
+    let worker = spawn_worker(directory.path(), &server, "1");
+    let command = tokio::time::timeout(Duration::from_secs(25), report)
+        .await
+        .expect("worker must report after the long wait and short execution")
+        .unwrap();
+    let AttemptReport::Completed(report) = command.report else {
+        panic!("fresh short Python attempt failed: {:?}", command.report);
+    };
+    assert!(report.process_id > 0);
+    assert!(
+        matches!(report.outcome, ProgramOutcome::Success { output } if output == json!({"received":{"business_id":"short-after-wait"}, "executed":true}))
+    );
+    signal(&worker, Signal::SIGTERM);
+    let output = tokio::time::timeout(Duration::from_secs(5), worker.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(status["delivery"]["settled_attempts"], 1);
+    assert_eq!(status["delivery"]["finished"], true);
+    transport.abort();
+    let _ = transport.await;
 }

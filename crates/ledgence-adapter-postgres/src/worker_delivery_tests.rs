@@ -355,9 +355,13 @@ impl TaskService for LoseReplies {
     ) -> ContractFuture<'a, Vec<RecordedHistoryEvent>> {
         self.inner.history(scope, task_id, after)
     }
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
+    fn acquire<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, AcquireReply> {
         Box::pin(async move {
-            let reply = self.inner.acquire(command).await?;
+            let reply = self.inner.acquire(command, options).await?;
             let mut lost = self.lost.lock().unwrap();
             if let Some((original, assignment)) = &lost.acquire {
                 if !lost.acquire_replayed {
