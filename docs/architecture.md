@@ -25,7 +25,7 @@ The [delivery contract](delivery-contract.md) defines the portable `TaskService`
 
 The driver opens a session and starts N consumers. Each reserves worker capacity before its ordered acquisition. A committed Empty is followed by an idle delay; it is not a server-side wait. Assigned work requires a dispatch renewal before preparation/execution. A separate lease monitor cancels user work at its conservative local deadline while settlement and cleanup reconciliation continue. Uncertain acquisition, renewal, and settlement replies reuse the same operation identity. The driver retains its reservation until remote ownership is resolved and local work is quiescent.
 
-Stopping the driver closes worker admission and runs worker cleanup concurrently with those consumers. If an execution returns while its local work or cleanup is still outstanding, the driver reports unconfirmed quiescence and drains the whole worker. Repeated worker shutdown advances retained cleanup; a separate confirmation finishes accepted reports without changing them. The embedding Tokio runtime must remain alive while this process is pending.
+Stopping the driver closes worker admission and runs worker cleanup concurrently with those consumers. If an execution returns while its local work or cleanup is still outstanding, the driver reports unconfirmed quiescence and drains the whole worker. The driver retains one cleanup operation across status checks and retries only after an adapter returns an error; a separate confirmation finishes accepted reports without changing them. The embedding Tokio runtime must remain alive while this process is pending.
 
 ## Invocation ownership
 

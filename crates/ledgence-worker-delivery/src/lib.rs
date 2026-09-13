@@ -208,6 +208,11 @@ impl DeliveryDriver {
         }
         // Cleanup must run concurrently with reconciliation: both hold parts of
         // the same reservation. Waiting for consumers first would deadlock it.
+        // Keep this future across observation ticks so a slow close is never
+        // cancelled merely to inspect consumer progress or update status.
+        let cleanup = cleanup_worker(&self.worker, &shared);
+        tokio::pin!(cleanup);
+        let mut cleanup_finished = false;
         while !consumers.is_empty() {
             if !self.worker.stats().await.accepting {
                 shared.stop();
@@ -224,33 +229,18 @@ impl DeliveryDriver {
                     index += 1;
                 }
             }
-            if shared.stopping() {
-                let _ = self
-                    .worker
-                    .shutdown(Duration::ZERO, Duration::from_millis(100))
-                    .await;
+            tokio::select! {
+                _ = &mut cleanup, if !cleanup_finished => cleanup_finished = true,
+                _ = tokio::time::sleep(TICK) => {},
             }
-            tokio::time::sleep(TICK).await;
         }
         maintenance_done.store(true, Ordering::Release);
         if let Some(maintenance) = maintenance {
             let _ = maintenance.await;
         }
         shared.stop();
-        // Repeated calls advance retryable quarantined cleanup. Unrecoverable
-        // local operations keep the driver visibly pending, never 'finished'.
-        loop {
-            match self
-                .worker
-                .shutdown(Duration::ZERO, Duration::from_millis(100))
-                .await
-            {
-                Ok(()) => break,
-                Err(error) => {
-                    shared.error(ContractError::Unavailable(error.to_string()));
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
+        if !cleanup_finished {
+            cleanup.await;
         }
     }
     async fn open(&self, shared: &Shared) -> Option<WorkerSession> {
@@ -297,6 +287,23 @@ impl DeliveryDriver {
             }
         }
         None
+    }
+}
+
+async fn cleanup_worker(worker: &Worker, shared: &Shared) {
+    while !shared.stopping() {
+        tokio::time::sleep(TICK).await;
+    }
+    loop {
+        match worker.shutdown_until_quiescent().await {
+            Ok(()) => return,
+            Err(error) => {
+                shared.error(ContractError::Unavailable(error.to_string()));
+                // Retry only a completed error, preserving the owned cleanup
+                // future for as long as the adapter still reports Pending.
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
     }
 }
 
