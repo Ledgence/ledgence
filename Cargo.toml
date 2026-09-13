@@ -7,6 +7,8 @@ members = [
   "crates/ledgence-worker",
   "crates/ledgence-orchestration-api",
   "crates/ledgence-orchestration-core",
+  "crates/ledgence-orchestration-service",
+  "crates/ledgence-adapter-postgres",
 ]
 resolver = "3"
 
@@ -32,6 +34,10 @@ tempfile = "3.27.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 time = { version = "0.3.55", default-features = false, features = ["formatting"] }
+
+sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "migrate", "macros"] }
+ledgence-orchestration-service = { version = "0.1.0", path = "crates/ledgence-orchestration-service" }
+ledgence-adapter-postgres = { version = "0.1.0", path = "crates/ledgence-adapter-postgres" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

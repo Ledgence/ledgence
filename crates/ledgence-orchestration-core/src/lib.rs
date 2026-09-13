@@ -35,6 +35,13 @@ pub struct AttemptIds {
     pub trace: Option<TraceContext>,
 }
 
+/// Validate a submission before lookup or external program resolution.
+pub fn validate_submission(command: &SubmitCommand) -> Result<()> {
+    command.input.validate()?;
+    validate_text(&command.idempotency_key, 255)?;
+    validate_trace(command.origin_trace.as_ref())
+}
+
 /// Bind a validated submission to immutable bytes before making it claimable.
 pub fn submit(
     command: &SubmitCommand,
@@ -43,12 +50,10 @@ pub fn submit(
     run_id: &str,
     now: Timestamp,
 ) -> Result<Transition<()>> {
-    command.input.validate()?;
-    validate_text(&command.idempotency_key, 255)?;
+    validate_submission(command)?;
     validate_text(task_id, 128)?;
     validate_text(run_id, 128)?;
     descriptor.validate()?;
-    validate_trace(command.origin_trace.as_ref())?;
     timestamp(now)?;
     if descriptor.program != command.input.program {
         return Err(ContractError::Conflict);
@@ -79,9 +84,7 @@ pub fn submit(
 /// Call before external program resolution. The originally bound digest wins;
 /// transport tracing on a retry does not replace the accepted origin context.
 pub fn replay_submission(task: &TaskSnapshot, command: &SubmitCommand) -> Result<()> {
-    command.input.validate()?;
-    validate_text(&command.idempotency_key, 255)?;
-    validate_trace(command.origin_trace.as_ref())?;
+    validate_submission(command)?;
     if task.idempotency_key != command.idempotency_key
         || !task.input.semantically_matches(&command.input)?
     {

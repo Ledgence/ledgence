@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$11,0) ON CONFLICT(tenant_id,namespace,idempotency_key) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9f7ed1b114595a0bc7033d0e888897cff02026ed88fb7ed9a05ceebf2a6639ba"
+}

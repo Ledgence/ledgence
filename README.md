@@ -69,3 +69,7 @@ Install the reviewed dependency checker with `cargo install cargo-deny --version
 ## License
 
 Ledgence-owned code is [MIT licensed](LICENSE). Your applications and programs can remain proprietary. Third-party components retain their own licenses and required legal notices; see [dependency policy and release obligations](docs/dependencies.md).
+
+## Durable orchestration storage
+
+The Rust application service and PostgreSQL 18 adapter implement transactional task submission, attempts, leases, result acceptance, cancellation, inspection, and expiry recovery. See [PostgreSQL setup and guarantees](docs/postgres.md). The worker is not yet connected to a production HTTP poller; local execution remains the runnable worker path.

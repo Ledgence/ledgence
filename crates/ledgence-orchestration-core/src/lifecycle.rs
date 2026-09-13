@@ -278,7 +278,9 @@ pub fn expire(
     })
 }
 
-fn validate_report(attempt: &AttemptSnapshot, command: &SettleCommand) -> Result<()> {
+/// Validate report payload and tracing against an immutable attempt.
+/// This does not establish current ownership or durable acceptance.
+pub fn validate_report(attempt: &AttemptSnapshot, command: &SettleCommand) -> Result<()> {
     validate_text(&command.operation_id, 128)?;
     validate_trace(command.processing_trace.as_ref())?;
     let context = match &command.report {

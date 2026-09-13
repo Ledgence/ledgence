@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO consumer_cursors(session_id,consumer_id) VALUES($1,$2) ON CONFLICT(session_id,consumer_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f660946d470b4388161162e21cd4e3f6af4d8931dce5e27cab40ba50fd48774"
+}

@@ -20,6 +20,8 @@ confidence-threshold = 0.95
 unused-allowed-license = "warn"
 unused-license-exception = "deny"
 exceptions = [
+    # Reviewed permissive hash implementation used by SQLx. Preserve its notice.
+    { crate = "foldhash@0.2.0", allow = ["Zlib"] },
     # Certificate data used by rustls-platform-verifier on its WASM target path.
     # Sharing the data requires carrying the agreement text; see docs/dependencies.md.
     { crate = "webpki-root-certs@1.0.9", allow = ["CDLA-Permissive-2.0"] },

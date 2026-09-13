@@ -5,8 +5,10 @@
 //! acknowledging it. See `docs/delivery-contract.md` for replay and retention.
 
 mod delivery;
+mod storage;
 mod submission;
 pub use delivery::*;
+pub use storage::*;
 pub use submission::*;
 
 use ledgence_worker_api::{Error, ErrorKind};

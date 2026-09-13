@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE attempts SET expires_at_ms=$2, authority_deadline_ms=$3, state=$4, execution_may_have_started=$5, last_renew_sequence=($6::text)::ldg_u64, last_renew_intent=$7, quiescence=$8, finished_at_ms=$9 WHERE attempt_id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Bool",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b5bfd92277c6b0e124acee01aff7601e0f91e291550a6339f6df484633e3028"
+}

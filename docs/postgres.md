@@ -1,0 +1,68 @@
+# PostgreSQL persistence
+
+Ledgence provides a Rust application service and an initial PostgreSQL 18 storage adapter. Together they implement durable single-task submission, acquisition, lease renewal, settlement, cancellation, history, and expiry recovery. They call the existing lifecycle core inside database transactions and return mutation success only after commit.
+
+This feature does not connect the worker to an HTTP endpoint or start a production poller. The existing worker still executes local fixtures. OpenTelemetry export and retention deletion remain later work. PostgreSQL persistence tests establish database behavior, not exactly-once external business effects or database failover guarantees.
+
+## Using the adapter
+
+Create `PostgresStore` with a connection URL and `PostgresOptions`, then explicitly apply its migrations. The normal constructor never changes the schema. A migration example is available:
+
+```sh
+export LEDGENCE_POSTGRES_URL='postgres://user:password@localhost/ledgence'
+cargo run -p ledgence-adapter-postgres --example migrate --locked
+```
+
+Use the installed library's `PostgresStore::migrate` in a deployment command when composing another executable. Apply migrations once as an explicit deployment step; never edit an already-applied SQL migration. SQLx checks checksums and serializes migration runners. Ordinary builds use committed `.sqlx` query metadata without connecting to a database.
+
+Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
+
+The platform does not require a database vendor account or PostgreSQL extension. This adapter supports PostgreSQL 18; compatibility with another major must be tested before changing that support boundary. PostgreSQL is isolated behind portable API ports. Custom adapters must uphold the same atomic and recovery behavior.
+
+`PostgresOptions` configures database pool size, connection acquisition time, SQL statement/lock timeouts, and the total operation deadline. These control database resources; a worker still has its single N for consumers and process slots. The default pool has eight connections, five-second acquisition and statement budgets, and a thirty-second operation budget. Expiry has a thirty-second total default budget even though each shortlisted task commits independently.
+
+Configure the connection URL's SSL mode and certificate settings for the deployment. The adapter uses Rustls with native trust roots. The durable-storage assumption is logged tables, synchronous commit, and PostgreSQL's normal durable WAL configuration, including `fsync` and `full_page_writes`. The adapter enables synchronous commit for mutation transactions. Replication and failover policies require separate deployment validation.
+
+## Atomic records and locking
+
+The six application tables are `tasks`, `attempts`, `worker_sessions`, `consumer_cursors`, `accepted_settlements`, and `task_history`. SQLx also maintains its migration bookkeeping. Tasks hold immutable submissions and descriptors alongside relational scheduling fields; attempt events and accepted reports use validated JSON bytes. They are not converted to JSONB, preserving supported numeric distinctions and escaped U+0000. User `data` stays user-owned.
+
+Acquisition and every renewal lock the session for sharing, then the existing consumer cursor for update, then at most one task for non-key update. Acquisition can create a missing cursor race-safely; renewal cannot. Renewal verifies the cursor still names the requested assignment. Settlement, cleanup confirmation, cancellation, and expiry lock the task and never subsequently lock a cursor/session.
+
+The previous assignment is read together with its task in one statement while holding the cursor. That snapshot is only used for reconciliation and is never written back. Renewals cannot extend its ownership while the cursor is held. If the same task becomes a claim candidate, the adapter uses its freshly locked state. Dependent attempt records are loaded after the target task lock, avoiding mixed snapshots after a lock wait.
+
+Due-task acquisition skips locked rows and does not promise strict FIFO. A completed Empty disposition remains Empty when replayed, even if new work arrived. The next sequence performs a fresh acquisition. No transaction remains open while waiting for work; long-poll transport will be a later adapter.
+
+The store samples database wall time after relevant locks. Database clock discipline remains an operational assumption. Assignment replay returns remaining authority rather than resetting a lease duration; worker transport integration must continue to use the existing conservative local deadline rules. Dispatch permission records possible execution before acknowledging it.
+
+## Results, interruption, and inspection
+
+An accepted result, its receipt, task/attempt changes, and lifecycle history commit together. Cleanup confirmation is separate and never rewrites the accepted command. A matching old receipt remains replayable after expiry or a newer attempt; changed commands conflict. Rejected reports produce bounded structured diagnostic fields without replacing accepted results.
+
+An accepted success with unconfirmed cleanup is retained through restart and finalized by confirmation or expiry under the existing cancellation rules. An interruption without an accepted result can schedule a retry with the same task/run/program binding and new attempt/event/lease identities. Applications remain responsible for idempotency of external effects.
+
+Database errors never become Empty or successful acknowledgement. Known deadlock/serialization aborts receive bounded retries. Connection loss during commit, or a timeout while committing, can leave an unknown outcome: repeat the same submission key, acquisition sequence, renewal sequence, or settlement command to reconcile it. Session creation has no request idempotency key; an uncertain registration can leave an unused session that expires.
+
+`inspect` returns the task; `inspect_attempt` returns a coherent task/attempt view including its accepted outcome; `history` returns at most 100 ordered lifecycle records after a sequence. Polls and ordinary renewals do not append history. Origin, invocation, and processing trace contexts stay separate; assignment replay preserves the event. Without creation-span instrumentation, new events carry the accepted origin context if supplied. Storing that context does not activate or export spans.
+
+Invoke `RecoveryStore::expire_batch` periodically from the service composition. Its limit is 1–100 shortlisted task IDs; each candidate is locked and rechecked in a separate transaction. Progress distinguishes examined candidates from expired tasks. Locked or renewed candidates may be skipped. A later error or overall timeout does not undo earlier committed recovery. Repeat scans safely; a batch does not establish that all expired work has been exhausted.
+
+Retention deletion is not implemented: records and submission deduplication can remain beyond the proposed ninety-day terminal period. Current cursor reconciliation requires complete referenced snapshots, so deleting payloads or resetting cursors early is incorrect. The next retention implementation must preserve that behavior explicitly.
+
+## Verification
+
+Run ordinary workspace checks without a database using the committed offline metadata. Real database tests are explicitly ignored by default so their absence cannot be confused with a successful database validation. The dedicated gate lists and executes them against PostgreSQL 18.
+
+For the full PostgreSQL gate, provision an empty disposable database and its Docker container, then set `LEDGENCE_POSTGRES_URL` and `LEDGENCE_POSTGRES_CONTAINER` and run:
+
+```sh
+python3 tools/check-postgres.py
+```
+
+This requires `psql`, Docker, and Cargo. The gate applies the schema to the empty query-checking database, checks SQL macro metadata against the actual schema, and runs the real database tests serially. Individual tests use isolated databases and clean them up. The crash-recovery test deliberately kills and restarts the explicitly named disposable PostgreSQL container after proving it contains that test's unique database. Do not point this gate at a shared deployment. The scratch-schema setup is not a production migration tool.
+
+The tests cover concurrent submissions and initial cursors, competing consumers, live ownership, lock waits crossing expiry, dispatch and cancellation, rollback after intermediate writes, replay after reconnect, immutable historical receipts, expiry recovery, JSON fidelity, schema constraints, migration checksums, and actual PostgreSQL crash recovery. Mutation/clock/ID queries have compile-time SQLx descriptions; complex snapshot hydration uses explicit PostgreSQL row codecs exercised by database tests.
+
+For changed query macros, create the migrated scratch schema, set `DATABASE_URL` to it, and generate metadata with `SQLX_OFFLINE=false SQLX_OFFLINE_DIR=<absolute .sqlx path>` while checking the adapter. Force recompilation of the adapter with `cargo clean -p ledgence-adapter-postgres` first so all macros expand. Review additions/removals rather than keeping obsolete descriptions. `tools/check-postgres.py` independently regenerates into a temporary directory and compares exact descriptions.
+
+The standalone SQLx CLI is not required. Its reviewed 0.9.0 distribution did not pass the existing dependency gate; the verification tool uses SQLx's supported macro output and the PostgreSQL client instead. See [dependency policy](dependencies.md).

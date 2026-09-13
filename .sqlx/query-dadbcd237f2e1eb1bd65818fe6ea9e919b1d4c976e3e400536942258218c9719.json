@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO attempts(attempt_id,task_id,generation,lease_id,worker_session_id,consumer_id,event_source,event_id,event_bytes,expires_at_ms,deadline_ms,authority_deadline_ms,state,execution_may_have_started,quiescence) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active',false,'unconfirmed')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Bytea",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dadbcd237f2e1eb1bd65818fe6ea9e919b1d4c976e3e400536942258218c9719"
+}
