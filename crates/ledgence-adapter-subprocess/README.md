@@ -3,7 +3,7 @@
 `SubprocessRuntime::new(python, runner)` implements the portable worker runtime
 port using Tokio. `python` selects the separately installed host interpreter;
 `runner` locates `sdk/python/ledgence_worker/bootstrap.py`. Keep the bootstrap and
-its sibling `__init__.py` together. `LEDGENCE_PYTHON` selects the interpreter for
+the complete sibling `ledgence_worker` helper module directory together. `LEDGENCE_PYTHON` selects the interpreter for
 integration tests. The worker CLI selects its interpreter with `--python`.
 
 Each session starts CPython with `-I -S -B`, imports the manifest's synchronous
@@ -102,3 +102,26 @@ python3 -m unittest discover -s sdk/python/tests -v
 
 The interpreter must be CPython 3.11 or newer. Lifecycle integration tests need
 permission to inspect their child processes and signal their process groups.
+
+
+Protocol 1 remains compatible with existing immutable packages. Protocol 2 adds
+`RuntimeInvocation.processing_context`, a W3C execution carrier outside the
+unchanged event, and multiplexes bounded structured log frames with results.
+The manifest selects the protocol before startup; mismatches fail readiness.
+Rust drains optional log frames both during execution and while warm/idle,
+yielding after at most 16 consecutive frames and prioritizing idle control
+commands. Logs never wait on a collector or terminal pipe: the worker's tracing
+subscriber uses its bounded nonblocking JSON output writer. The configured
+`max_log_bytes` allowance covers raw and structured output together, resetting at
+invocation start. Invalid optional log records are dropped with logarithmically
+rate-limited diagnostics; malformed framing or mismatched results still retire
+the session. Validated log records carry their own creation-time execution IDs
+and active trace/span IDs, even when received late, and never inherit the current
+actor span. User attributes remain a separate JSON object in the protocol and are
+JSON-encoded in the tracing `attributes` field. Raw stderr remains PID/digest only.
+
+The v2 Python writer has one reserved control/result slot and a bounded optional
+queue; see the [helper contract](../../sdk/python/README.md) for exact limits.
+Optional application provider shutdown callbacks run before the closing ACK and
+remain bounded by `SubprocessConfig::shutdown_timeout`. Cleanup and process-group
+ownership rules are unchanged.

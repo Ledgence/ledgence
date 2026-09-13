@@ -4,6 +4,7 @@ mod composition;
 mod connect;
 mod output;
 mod signals;
+mod telemetry;
 
 use ledgence_adapter_artifact::{ArtifactLimits, publish_directory};
 use ledgence_worker_api::*;
@@ -33,13 +34,29 @@ fn main() -> std::process::ExitCode {
         // fallback blocking write to the same unavailable destination.
         Err(_) => return std::process::ExitCode::FAILURE,
     };
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_writer(outputs.stderr.clone())
-        .json()
-        .init();
+    let telemetry = match telemetry::Telemetry::start("ledgence-worker", outputs.stderr.clone()) {
+        Ok(telemetry) => telemetry,
+        Err(error) => {
+            // Existing nonblocking log sink; bounded startup diagnostic.
+            use std::io::Write;
+            use tracing_subscriber::fmt::MakeWriter;
+            let _ = writeln!(
+                outputs.stderr.make_writer(),
+                "{}",
+                json!({"level":"ERROR", "message":error})
+            );
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                runtime.block_on(async {
+                    let _ = tokio::time::timeout(Duration::from_secs(1), outputs.finish()).await;
+                });
+            }
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let trace = telemetry.bridge();
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -52,15 +69,18 @@ fn main() -> std::process::ExitCode {
     let result = runtime.block_on(async {
         let mut signals = ShutdownSignals::new()?;
         let mut interrupted = false;
-        let result = dispatch(&outputs.stdout, &mut signals, &mut interrupted).await;
+        let result = dispatch(&outputs.stdout, &mut signals, &mut interrupted, trace).await;
         if signals::FORCE_EXIT.load(Ordering::Acquire) {
             return result;
         }
         let stderr = outputs.stderr.clone();
         let diagnostic = result.as_ref().err().map(ToString::to_string);
         let finalization = async {
+            telemetry.finish().await;
             if let Some(message) = diagnostic {
-                let _ = stderr.line(message).await;
+                let _ = stderr
+                    .line(json!({"level":"ERROR", "message":message}).to_string())
+                    .await;
             }
             outputs.finish().await
         };
@@ -90,7 +110,9 @@ fn main() -> std::process::ExitCode {
             if let Err(error) = &result {
                 let _ = tokio::time::timeout(
                     Duration::from_millis(100),
-                    outputs.stderr.line(error.to_string()),
+                    outputs
+                        .stderr
+                        .line(json!({"level":"ERROR", "message":error.to_string()}).to_string()),
                 )
                 .await;
             }
@@ -116,6 +138,7 @@ async fn dispatch(
     output: &Sink,
     signals: &mut ShutdownSignals,
     interrupted: &mut bool,
+    trace: Arc<dyn TraceBridge>,
 ) -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
@@ -139,7 +162,7 @@ async fn dispatch(
     match command.as_str() {
         "connect" => {
             let config = connect::ConnectOptions::parse(options)?;
-            connect::run(config, output, signals, interrupted).await
+            connect::run(config, output, signals, interrupted, trace).await
         }
         "example" => {
             let directory = required(&mut options, "--directory")?;
@@ -172,7 +195,7 @@ async fn dispatch(
                     "concurrency must be at most 1024 and timeout at most one day",
                 ));
             }
-            run(config, output, signals, interrupted).await
+            run(config, output, signals, interrupted, trace).await
         }
         _ => Err(input(format!("unknown command {command}; use --help"))),
     }
@@ -198,6 +221,7 @@ struct SubmittedTask {
 async fn prepare(
     config: RunOptions,
     stop: Arc<AtomicBool>,
+    trace: Arc<dyn TraceBridge>,
 ) -> Result<(Worker, VecDeque<ExecutionRequest>)> {
     let concurrency = config.concurrency;
     // Disk inspection may block; keep the signal-driving task responsive and
@@ -263,7 +287,7 @@ async fn prepare(
             event: task.event,
         });
     }
-    let worker = parts.worker(concurrency)?;
+    let worker = parts.worker(concurrency)?.with_trace_bridge(trace);
     Ok((worker, assignments))
 }
 
@@ -272,10 +296,11 @@ async fn run(
     output: &Sink,
     signals: &mut ShutdownSignals,
     interrupted: &mut bool,
+    trace: Arc<dyn TraceBridge>,
 ) -> Result<()> {
     // Both subscriptions are already installed before any child can start.
     let stop = Arc::new(AtomicBool::new(false));
-    let mut preparation = tokio::spawn(prepare(config.clone(), stop.clone()));
+    let mut preparation = tokio::spawn(prepare(config.clone(), stop.clone(), trace));
     let prepared = loop {
         tokio::select! {
             biased;
@@ -462,7 +487,7 @@ async fn make_example(directory: &Path, python: &str, sink: &Sink) -> Result<()>
                 .as_str()
                 .ok_or_else(|| input("invalid Python version"))?
                 .into(),
-            protocol: 1,
+            protocol: 2,
         },
         handler: "program:handle".into(),
         platform: Platform {

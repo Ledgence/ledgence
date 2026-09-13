@@ -4,7 +4,7 @@ Open-source task orchestration with portable programs, reusable workers, and tra
 
 Ledgence is being built in Rust. Its worker can publish a Python program with its application dependencies, fetch and verify it on demand, cache it, and run complete CloudEvents through a bounded pool of reusable subprocesses.
 
-Run `ledgence-orchestrator` for the PostgreSQL-backed HTTP task service, `ledgence-worker connect` for reusable workers, and `ledgence task` to submit and inspect tasks. The delivery driver acquires assignments, renews leases, executes programs, and reconciles durable results. The local `run` command also supports task fixtures. See the [HTTP quickstart and contract](docs/http-orchestration.md), [worker delivery](docs/worker-delivery.md), and [delivery contract](docs/delivery-contract.md). This is an early development version with immediate polling; long polling and OpenTelemetry export remain later work. There is no stable public API commitment yet.
+Run `ledgence-orchestrator` for the PostgreSQL-backed HTTP task service, `ledgence-worker connect` for reusable workers, and `ledgence task` to submit and inspect tasks. The delivery driver acquires assignments, renews leases, executes programs, and reconciles durable results. The local `run` command also supports task fixtures. See the [HTTP quickstart and contract](docs/http-orchestration.md), [worker delivery](docs/worker-delivery.md), and [delivery contract](docs/delivery-contract.md). This is an early development version with immediate polling; long polling remains later work. Optional [OpenTelemetry traces and correlated Python logs](docs/observability.md) are available. There is no stable public API commitment yet.
 
 ## Try it
 
@@ -29,7 +29,7 @@ cargo run --locked -p ledgence-worker -- run \
   --concurrency 1
 ```
 
-The two JSON reports have the same `process_id`; the second sets `reused_process` to `true`. Application output is under `report.outcome.output`. Both success and failure records retain the full event source, tenant, namespace, run, task, attempt, program, and available trace context. Worker and program logs go to stderr. The CLI keeps execution and shutdown responsive when an output reader pauses; output failures and lost log records produce a nonzero exit status. See [output delivery and shutdown](docs/architecture.md) for the bounded delivery policy. `--store` also accepts an HTTPS base URL serving the published directory layout.
+The two JSON reports have the same `process_id`; the second sets `reused_process` to `true`. Application output is under `report.outcome.output`. Both success and failure records retain the full event source, tenant, namespace, run, task, attempt, program, and available trace context. Worker and program logs go to stderr. The CLI keeps execution and shutdown responsive when an output reader pauses; result-output failures produce a nonzero exit status; optional log drops are reported without changing execution results. See [output delivery and shutdown](docs/architecture.md) for the bounded delivery policy. `--store` also accepts an HTTPS base URL serving the published directory layout.
 
 Write a synchronous Python handler:
 
@@ -57,6 +57,7 @@ Set `LEDGENCE_PYTHON` to a supported interpreter before running tests. The same 
 cargo fmt --all -- --check
 python3 tools/check-boundaries.py
 python3 tools/check-http-features.py
+python3 tools/check-otel-features.py
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-targets --all-features --locked
 cargo test --workspace --doc --all-features --locked

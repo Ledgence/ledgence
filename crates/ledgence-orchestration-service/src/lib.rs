@@ -8,6 +8,7 @@ use ledgence_orchestration_api::*;
 use ledgence_orchestration_core::{replay_submission, validate_submission};
 use ledgence_worker_api::{Error, ErrorKind, ProgramStore};
 use std::sync::Arc;
+use tracing::Instrument;
 
 /// Implements client/worker operations using independently supplied adapters.
 #[derive(Clone)]
@@ -57,43 +58,71 @@ impl TaskService for ApplicationService {
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
-            if let Some(accepted) = self.accepted_submission(command).await? {
-                return Ok(accepted);
-            }
-
-            let resolved = self
-                .programs
-                .resolve(&command.input.program)
-                .await
-                .and_then(|descriptor| {
-                    descriptor.validate().map_err(|error| {
-                        Error::new(
-                            ErrorKind::Integrity,
-                            format!("invalid resolved program descriptor: {error}"),
-                        )
-                    })?;
-                    if descriptor.program != command.input.program {
-                        return Err(Error::new(
-                            ErrorKind::Protocol,
-                            "program store resolved a different program",
-                        ));
-                    }
-                    Ok(descriptor)
-                });
-            let descriptor = match resolved {
-                Ok(descriptor) => descriptor,
-                Err(error) => {
-                    // A concurrent submitter may have committed while this
-                    // resolver was waiting or failing. Its binding wins.
-                    return match self.accepted_submission(command).await? {
-                        Some(accepted) => Ok(accepted),
-                        None => Err(resolution_error(error)),
-                    };
+            let span = tracing::info_span!(
+                "ledgence.task.submit",
+                otel.kind = "internal",
+                ledgence.tenant.id = command.input.tenant_id,
+                ledgence.namespace = command.input.namespace,
+                ledgence.program.id = command.input.program.id,
+                ledgence.program.version = command.input.program.version,
+                ledgence.business.correlation_key = command.input.correlation_key.as_deref(),
+                ledgence.run.id = tracing::field::Empty,
+                ledgence.task.id = tracing::field::Empty,
+                ledgence.program.digest = tracing::field::Empty,
+                otel.status_code = tracing::field::Empty,
+            );
+            let result = async {
+                if let Some(accepted) = self.accepted_submission(command).await? {
+                    return Ok(accepted);
                 }
-            };
-            self.store
-                .accept_resolved_submission(command, &descriptor)
-                .await
+
+                let resolved = self
+                    .programs
+                    .resolve(&command.input.program)
+                    .await
+                    .and_then(|descriptor| {
+                        descriptor.validate().map_err(|error| {
+                            Error::new(
+                                ErrorKind::Integrity,
+                                format!("invalid resolved program descriptor: {error}"),
+                            )
+                        })?;
+                        if descriptor.program != command.input.program {
+                            return Err(Error::new(
+                                ErrorKind::Protocol,
+                                "program store resolved a different program",
+                            ));
+                        }
+                        Ok(descriptor)
+                    });
+                let descriptor = match resolved {
+                    Ok(descriptor) => descriptor,
+                    Err(error) => {
+                        // A concurrent submitter may have committed while this
+                        // resolver was waiting or failing. Its binding wins.
+                        return match self.accepted_submission(command).await? {
+                            Some(accepted) => Ok(accepted),
+                            None => Err(resolution_error(error)),
+                        };
+                    }
+                };
+                self.store
+                    .accept_resolved_submission(command, &descriptor)
+                    .await
+            }
+            .instrument(span.clone())
+            .await;
+            match &result {
+                Ok(task) => {
+                    span.record("ledgence.run.id", &task.run_id);
+                    span.record("ledgence.task.id", &task.task_id);
+                    span.record("ledgence.program.digest", &task.descriptor.digest.0);
+                }
+                Err(_) => {
+                    span.record("otel.status_code", "ERROR");
+                }
+            }
+            result
         })
     }
 

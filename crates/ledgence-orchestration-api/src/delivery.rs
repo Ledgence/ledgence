@@ -17,15 +17,6 @@ impl Scope {
     }
 }
 
-/// Origin and processing contexts are separate values, not interchangeable IDs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TraceContext {
-    pub traceparent: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tracestate: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SubmitCommand {

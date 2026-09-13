@@ -224,8 +224,12 @@ fn local_bytes(root: &Path, relative: &str, limit: u64) -> Result<Vec<u8>> {
 pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> ledgence_worker_api::Result<T> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| Error::new(ErrorKind::Io, format!("artifact operation failed: {error}")))?
-        .map_err(Error::from)
+    let span = tracing::Span::current();
+    let subscriber = tracing::dispatcher::get_default(Clone::clone);
+    tokio::task::spawn_blocking(move || {
+        tracing::dispatcher::with_default(&subscriber, || span.in_scope(work))
+    })
+    .await
+    .map_err(|error| Error::new(ErrorKind::Io, format!("artifact operation failed: {error}")))?
+    .map_err(Error::from)
 }

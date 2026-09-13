@@ -157,7 +157,7 @@ impl Logs {
             self.sink.state.failed.store(true, Ordering::Release);
         }
         let lost = self.sink.state.lost.load(Ordering::Acquire);
-        if lost != 0 || self.sink.state.failed.load(Ordering::Acquire) {
+        if self.sink.state.failed.load(Ordering::Acquire) {
             Err(io::Error::other(format!(
                 "stderr delivery failed; {lost} log record(s) were not delivered"
             )))

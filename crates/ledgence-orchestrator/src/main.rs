@@ -5,13 +5,14 @@ mod command;
 mod health;
 mod logging;
 mod recovery;
+mod telemetry;
 
 use command::Command;
 use health::Health;
 use ledgence_adapter_artifact::{ArtifactLimits, FileProgramStore, HttpProgramStore};
 use ledgence_adapter_postgres::{PostgresOptions, PostgresStore};
 use ledgence_orchestration_service::ApplicationService;
-use ledgence_worker_api::ProgramStore;
+use ledgence_worker_api::{ProgramStore, TraceBridge};
 use std::{
     future::{Future, IntoFuture},
     process::ExitCode,
@@ -19,6 +20,7 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::watch, task::JoinHandle};
+use tracing::instrument::WithSubscriber;
 
 const DRAIN_OBSERVATION: Duration = Duration::from_secs(35);
 
@@ -34,12 +36,14 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    run(move |stopped| dispatch(command, stopped))
+    run_with_bridge(move |stopped, trace| dispatch(command, stopped, trace))
 }
 
 /// Only signal handling and log observation run on this runtime. Application
 /// work owns a separate runtime so its destruction cannot block force signals.
-fn run<F>(work: impl FnOnce(watch::Receiver<bool>) -> F + Send + 'static) -> ExitCode
+fn run_with_bridge<F>(
+    work: impl FnOnce(watch::Receiver<bool>, Arc<dyn TraceBridge>) -> F + Send + 'static,
+) -> ExitCode
 where
     F: Future<Output = Result<(), String>>,
 {
@@ -48,13 +52,22 @@ where
         // Do not try a blocking fallback write to the same unavailable output.
         Err(_) => return ExitCode::FAILURE,
     };
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_writer(logs.sink.clone())
-        .json()
-        .init();
+    let telemetry = match telemetry::Telemetry::start("ledgence-orchestrator", logs.sink.clone()) {
+        Ok(telemetry) => telemetry,
+        Err(error) => {
+            logs.sink.diagnostic(&error);
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                runtime.block_on(async {
+                    let _ = tokio::time::timeout(Duration::from_secs(1), logs.finish()).await;
+                });
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+    let trace = telemetry.bridge();
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -66,7 +79,11 @@ where
             return ExitCode::FAILURE;
         }
     };
-    let (result, forced) = runtime.block_on(with_signals(work, &mut logs));
+    let (result, forced) = runtime.block_on(with_signals(
+        move |stopped| work(stopped, trace),
+        &mut logs,
+        telemetry,
+    ));
     if forced {
         runtime.block_on(async {
             if let Err(error) = &result {
@@ -91,6 +108,7 @@ where
 async fn with_signals<F>(
     work: impl FnOnce(watch::Receiver<bool>) -> F + Send + 'static,
     logs: &mut logging::Logs,
+    telemetry: telemetry::Telemetry,
 ) -> (Result<(), String>, bool)
 where
     F: Future<Output = Result<(), String>>,
@@ -147,7 +165,10 @@ where
     }
     // Signal subscriptions remain active after HTTP/recovery stop, including
     // a genuinely blocked filesystem writer that cannot meet its deadline.
-    let drain = logs.finish();
+    let drain = async {
+        telemetry.finish().await;
+        logs.finish().await
+    };
     tokio::pin!(drain);
     let output = loop {
         tokio::select! {
@@ -167,7 +188,11 @@ where
     (result.and(output), false)
 }
 
-async fn dispatch(command: Command, stopped: watch::Receiver<bool>) -> Result<(), String> {
+async fn dispatch(
+    command: Command,
+    stopped: watch::Receiver<bool>,
+    trace: Arc<dyn TraceBridge>,
+) -> Result<(), String> {
     let url = std::env::var("DATABASE_URL")
         .map_err(|_| "DATABASE_URL must contain a PostgreSQL 18 connection URL".to_owned())?;
     let options = PostgresOptions::default();
@@ -178,6 +203,7 @@ async fn dispatch(command: Command, stopped: watch::Receiver<bool>) -> Result<()
     .await
     .map_err(|_| "database connection timed out".to_owned())?
     .map_err(|error| error.to_string())?;
+    let store = store.with_trace_bridge(trace.clone());
     let result = if *stopped.borrow() {
         Ok(())
     } else {
@@ -192,7 +218,7 @@ async fn dispatch(command: Command, stopped: watch::Receiver<bool>) -> Result<()
             Command::Serve {
                 bind,
                 store: programs,
-            } => prepare_and_serve(store.clone(), bind, programs, stopped).await,
+            } => prepare_and_serve(store.clone(), bind, programs, stopped, trace).await,
             Command::Help => unreachable!("help is handled before runtime startup"),
         }
     };
@@ -207,6 +233,7 @@ async fn prepare_and_serve(
     bind: std::net::SocketAddr,
     location: String,
     stopped: watch::Receiver<bool>,
+    trace: Arc<dyn TraceBridge>,
 ) -> Result<(), String> {
     store
         .verify_schema()
@@ -242,22 +269,23 @@ async fn prepare_and_serve(
     health.prerequisites_ready();
     let store = Arc::new(store);
     let service = Arc::new(ApplicationService::new(store.clone(), programs));
-    let router =
-        ledgence_adapter_http::server::router_with_admission(service, health.stopping.clone())
-            .merge(health.router());
+    let router = ledgence_adapter_http::server::router_with_observability(
+        service,
+        health.stopping.clone(),
+        trace,
+    )
+    .merge(health.router());
     let (http_stop, http_stopped) = watch::channel(false);
     let (recovery_stop, recovery_stopped) = watch::channel(false);
     let http = tokio::spawn(
         axum::serve(listener, router)
             .with_graceful_shutdown(stop_requested(http_stopped))
-            .into_future(),
+            .into_future()
+            .with_current_subscriber(),
     );
-    let scanner = tokio::spawn(recovery::run(
-        store,
-        health.clone(),
-        recovery_stopped,
-        config,
-    ));
+    let scanner = tokio::spawn(
+        recovery::run(store, health.clone(), recovery_stopped, config).with_current_subscriber(),
+    );
     tracing::info!(%address, "orchestration HTTP listener started");
     supervise(http, scanner, health, stopped, http_stop, recovery_stop).await
 }
@@ -446,3 +474,11 @@ mod tests {
 
 #[cfg(all(test, unix))]
 mod shutdown_tests;
+
+#[cfg(test)]
+fn run<F>(work: impl FnOnce(watch::Receiver<bool>) -> F + Send + 'static) -> ExitCode
+where
+    F: Future<Output = Result<(), String>>,
+{
+    run_with_bridge(move |stopped, _| work(stopped))
+}

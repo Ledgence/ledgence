@@ -130,7 +130,7 @@ fn log_queue_drops_whole_records_at_capacity_and_recovers_when_drained() {
 }
 
 #[tokio::test]
-async fn finish_reports_lost_logs_to_working_stderr_and_returns_failure() {
+async fn finish_reports_optional_log_loss_without_failing_delivered_results() {
     let mut stdout = tempfile::tempfile().unwrap();
     let mut stderr = tempfile::tempfile().unwrap();
     let mut outputs = local_outputs(stdout.as_fd(), stderr.as_fd());
@@ -138,15 +138,10 @@ async fn finish_reports_lost_logs_to_working_stderr_and_returns_failure() {
     outputs.stderr.log(b"{\"log\":\"retained\"}\n".to_vec());
     outputs.stderr.state.lost_logs.store(2, Ordering::Release);
 
-    let error = tokio::time::timeout(Duration::from_secs(2), outputs.finish())
+    tokio::time::timeout(Duration::from_secs(2), outputs.finish())
         .await
         .expect("a working output destination must finish promptly")
-        .expect_err("log loss must make final output delivery fail");
-    assert!(
-        error
-            .to_string()
-            .contains("2 log record(s) were not delivered")
-    );
+        .expect("optional log loss must not fail successfully delivered results");
     assert!(outputs.writers.iter().all(|writer| writer.thread.is_none()));
     drop(outputs);
 
@@ -157,8 +152,19 @@ async fn finish_reports_lost_logs_to_working_stderr_and_returns_failure() {
     stdout.read_to_string(&mut reports).unwrap();
     stderr.read_to_string(&mut logs).unwrap();
     assert_eq!(reports, "{\"report\":true}\n");
+    let records: Vec<serde_json::Value> = logs
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("every diagnostic must be a JSON record"))
+        .collect();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0], serde_json::json!({"log": "retained"}));
     assert_eq!(
-        logs, "{\"log\":\"retained\"}\n2 log record(s) were not delivered\n",
+        records[1],
+        serde_json::json!({
+            "level": "WARN",
+            "message": "optional log records were not delivered",
+            "dropped_log_records": 2,
+        }),
         "retained logs and the final loss count must reach the working destination"
     );
 }

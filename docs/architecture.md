@@ -6,25 +6,26 @@ Ledgence provides a worker, a transport-independent delivery driver, and a Rust 
 
 | Crate | Responsibility | Production workspace dependencies |
 | --- | --- | --- |
-| `ledgence-worker-api` | Events, manifests, descriptors, cancellation, and adapter ports | None |
+| `ledgence-worker-api` | Events, manifests, descriptors, runtime input, portable trace carriers, cancellation, and adapter ports | None |
+| `ledgence-adapter-otel` | Optional trace provider/exporter, context bridge, correlated JSON logging | Worker API |
 | `ledgence-worker-core` | Admission, preparation coordination, process capacity and reuse, shutdown | API |
 | `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
-| `ledgence-worker` | Local fixture and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters |
+| `ledgence-worker` | Local fixture and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel adapter |
 | `ledgence-orchestration-api` | Submission, delivery, lease, receipt, and service contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
 | `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 | `ledgence-adapter-http` | Optional HTTP client/server implementations of `TaskService` | Orchestration API, worker API |
-| `ledgence-orchestrator` | HTTP serving, explicit migrations, readiness and supervised recovery | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters |
-| `ledgence-cli` | `ledgence task` submission, inspection, history and cancellation | Orchestration API, worker API, HTTP adapter |
+| `ledgence-orchestrator` | HTTP serving, explicit migrations, readiness and supervised recovery | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel adapter |
+| `ledgence-cli` | `ledgence task` submission, inspection, history and cancellation | Orchestration API, worker API, HTTP adapter, optional OTel adapter |
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
 
 The HTTP adapter has empty default features and separate `client` and `server` features. The worker and task CLI select the client; the orchestrator selects the server and supplies its own `ApplicationService`. Neither HTTP side depends on SQLx. `tools/check-http-features.py` separately checks each selection so a workspace build's feature unification cannot conceal coupling between the two sides.
 
-The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
+The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Runtime execution receives `RuntimeInvocation`: the unchanged event plus an optional ephemeral execution carrier. `TraceBridge` connects existing tracing spans to portable W3C values; SDK and exporter types remain in the OTel adapter. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
 
 The [delivery contract](delivery-contract.md) defines the portable `TaskService` boundary and executable orchestration decisions. The [delivery driver](worker-delivery.md) accepts `Worker` and `Arc<dyn TaskService>` and derives N from `Worker::concurrency()`. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before acquisition and through settlement; its local execution method is single-use. Execution reports live in worker-api and remain reexported by worker-core. The [PostgreSQL persistence adapter](postgres.md) commits all transition records atomically before returning a durable acknowledgement. The driver has no PostgreSQL dependency; integration tests compose the real service, database, artifact, and subprocess adapters.
 
@@ -51,7 +52,7 @@ Detached supervisors retain work when a caller drops its future. Shutdown stops 
 
 The CLI owns a separate writer thread for each output stream. Result submission waits asynchronously for a complete write, with a five-second deadline that includes queueing; eight records can wait in the result queue, and a CLI record is limited to eight MiB. This is confirmation of a local write, not durable settlement. A result write failure stops further dispatch, cancels running siblings, preserves normal process cleanup, and exits nonzero without rerunning program effects. A failed write may leave an incomplete final line at its destination.
 
-Logs never wait for output capacity. The log queue holds 64 records of at most 256 KiB each; excess records are counted and discarded. Lost logs or a log destination failure make the final CLI status nonzero. When stderr is still usable, shutdown writes the lost-record count there. Writers preserve record ordering within each separate stream; merging stdout and stderr can interleave the streams. Keep them separate when parsing result JSON.
+Logs never wait for output capacity. The log queue holds 64 records of at most 256 KiB each; excess records are counted and discarded. Optional dropped records do not change successful execution outcomes. Actual result/output-destination failures remain separately reported. When stderr is still usable, shutdown writes the lost-record count there. Writers preserve record ordering within each separate stream; merging stdout and stderr can interleave the streams. Keep them separate when parsing result JSON.
 
 Pipe and terminal output uses nonblocking writes, so a paused reader cannot stop task timers or signal handling. The CLI retains writer ownership and signal subscriptions through final output draining and restores shared descriptor flags after normal completion. A filesystem write that the operating system cannot interrupt remains owned; the existing explicit second-signal force policy applies to unfinished output as well as process cleanup.
 
@@ -63,7 +64,7 @@ Adapter panics close worker admission from inside the retained supervisor. Sessi
 
 The CLI resolves all fixture program references before execution, rejects duplicate attempt identities, and pins one descriptor per logical task for that batch. The orchestration service and PostgreSQL adapter persist that binding so later acquisitions and retries retain the same program bytes across restarts. The delivery driver executes the descriptor in the assignment without resolving the release label again. Worker/service restart and persisted cache reuse are covered by PostgreSQL/Python acceptance tests. The local registry is not durable deduplication.
 
-Reports and failures share `InvocationIdentity`: source/event ID, tenant/namespace, run/task/attempt ID, attempt number, and optional `traceparent`/`tracestate`. Bound program identity and digest accompany that context, including preparation failures before a PID exists. Warning and error logs carry the same context even when informational spans are filtered. A secondary cleanup error is retained separately from the original execution error. Raw program stderr is tagged with process ID and artifact digest because arbitrary byte streams cannot be assigned reliably to an invocation. There is no OpenTelemetry span activation/exporter or metrics backend yet.
+Reports and failures share `InvocationIdentity`: source/event ID, tenant/namespace, run/task/attempt ID, attempt number, and optional `traceparent`/`tracestate`. Bound program identity and digest accompany that context, including preparation failures before a PID exists. Warning and error logs carry the same context even when informational spans are filtered. A secondary cleanup error is retained separately from the original execution error. Raw program stderr is tagged with process ID and artifact digest because arbitrary byte streams cannot be assigned reliably to an invocation. The optional [OpenTelemetry adapter](observability.md) adds actual active span contexts and OTLP/HTTP export; metrics export remains deferred.
 
 The driver retains uncertain operations only in memory. A worker process crash loses that local state; a replacement starts a new worker session, and service-side lease expiry and the task's retry policy recover unfinished attempts. The orchestrator schedules expiry recovery and supervises readiness; custom service compositions must do the same. An expired or unknown session drains the current driver instead of recreating it and transplanting old cursors. The HTTP acceptance gate exercises separate processes and socket faults with PostgreSQL. Applications need idempotency for external effects; neither process supervision nor an event ID guarantees exactly-once business outcomes.
 

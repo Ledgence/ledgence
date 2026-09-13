@@ -161,13 +161,17 @@ class FaultProxy:
                 connection = http.client.HTTPConnection(url.hostname, url.port, timeout=35)
                 try:
                     headers = {"Accept": "application/json", "Content-Type": "application/json"}
+                    for key in ("traceparent", "tracestate"):
+                        if self.headers.get(key):
+                            headers[key] = self.headers[key]
                     connection.request(self.command, self.path, body=body, headers=headers)
                     response = connection.getresponse()
                     payload = response.read(16 * 1024 * 1024 + 1)
                     response_headers = dict(response.getheaders())
                     record = {"path": self.path, "body": body, "json": parsed,
                               "status": response.status, "response": payload,
-                              "request_id": response_headers.get("request-id")}
+                              "request_id": response_headers.get("request-id"),
+                              "traceparent": self.headers.get("traceparent")}
                     with owner.lock:
                         owner.records.append(record)
                         rule = next((rule for rule in owner.rules if not rule[2].is_set()
@@ -223,8 +227,13 @@ PROGRAM = '''import json, os, time
 from pathlib import Path
 from prepared_dependency import VALUE
 
+from ledgence_worker import get_logger
+log = get_logger('acceptance')
+
 def handle(event):
     data = event['data']
+    for _ in range(data.get('log_count', 1)):
+        log.info('accepted invocation')
     record = {'task': event['ldgtaskid'], 'attempt': event['ldgattemptid'],
               'number': event['ldgattemptno'], 'pid': os.getpid()}
     with open(data['marker'], 'a', encoding='utf-8') as output:

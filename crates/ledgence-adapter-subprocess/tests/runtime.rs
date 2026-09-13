@@ -10,6 +10,8 @@ use tempfile::TempDir;
 
 #[path = "runtime/delivery.rs"]
 mod delivery;
+#[path = "runtime/observability.rs"]
+mod observability;
 
 fn interpreter() -> (PathBuf, String) {
     let python = std::env::var_os("LEDGENCE_PYTHON")
@@ -115,7 +117,12 @@ async fn reuses_process_preserves_full_event_and_isolates_invocation_context() {
     let pid = session.pid();
     for id in ["first", "second"] {
         let event = event(id);
-        let result = output(session.execute(event.clone(), control()).await.unwrap());
+        let result = output(
+            session
+                .execute(event.clone().into(), control())
+                .await
+                .unwrap(),
+        );
         assert_eq!(result["pid"], pid);
         assert_eq!(result["event"], *event.value());
         assert_eq!(result["attempt"], event.attempt_id());
@@ -134,11 +141,16 @@ async fn business_failures_and_invalid_outputs_allow_reuse() {
     );
     let mut session = ready(runtime.start(artifact, control()).await);
     for (id, expected) in [("business", "business_error"), ("nan", "invalid_output")] {
-        let result = session.execute(event(id), control()).await.unwrap();
+        let result = session.execute(event(id).into(), control()).await.unwrap();
         assert!(matches!(result, ProgramOutcome::Failure { kind, .. } if kind == expected));
     }
     assert_eq!(
-        output(session.execute(event("success"), control()).await.unwrap()),
+        output(
+            session
+                .execute(event("success").into(), control())
+                .await
+                .unwrap()
+        ),
         42
     );
     session.close().await.unwrap();
@@ -174,7 +186,7 @@ async fn shared_wire_profile_rejects_lossy_outputs_and_preserves_session_reuse()
         "smallint",
         "hugeint",
     ] {
-        let result = session.execute(event(id), control()).await.unwrap();
+        let result = session.execute(event(id).into(), control()).await.unwrap();
         assert!(matches!(result, ProgramOutcome::Failure { kind, .. } if kind == "invalid_output"));
         assert_eq!(session.pid(), pid);
     }
@@ -185,7 +197,7 @@ async fn shared_wire_profile_rejects_lossy_outputs_and_preserves_session_reuse()
         let mut envelope = event("depth").into_value();
         envelope["data"] = json!({"depth": depth});
         let result = session
-            .execute(CloudEvent::new(envelope).unwrap(), control())
+            .execute(CloudEvent::new(envelope).unwrap().into(), control())
             .await
             .unwrap();
         if valid {
@@ -200,7 +212,12 @@ async fn shared_wire_profile_rejects_lossy_outputs_and_preserves_session_reuse()
             );
         }
     }
-    let result = output(session.execute(event("valid"), control()).await.unwrap());
+    let result = output(
+        session
+            .execute(event("valid").into(), control())
+            .await
+            .unwrap(),
+    );
     assert_eq!(
         result,
         json!([i64::MIN, u64::MAX, f64::MAX, "😀\u{0}\u{fffe}"])
@@ -224,7 +241,7 @@ async fn encoded_failure_budget_includes_unicode_identities_and_preserves_reuse(
         let mut envelope = event(&"😀".repeat(20)).into_value();
         envelope["data"] = json!({"fail": fail});
         let result = session
-            .execute(CloudEvent::new(envelope).unwrap(), control())
+            .execute(CloudEvent::new(envelope).unwrap().into(), control())
             .await
             .unwrap();
         if fail {
@@ -246,7 +263,12 @@ async fn normal_imports_do_not_write_bytecode_into_a_writable_artifact() {
     std::fs::write(directory.path().join("helper.py"), "VALUE = 42\n").unwrap();
     let mut session = ready(runtime.start(artifact, control()).await);
     assert_eq!(
-        output(session.execute(event("first"), control()).await.unwrap()),
+        output(
+            session
+                .execute(event("first").into(), control())
+                .await
+                .unwrap()
+        ),
         42
     );
     assert!(!directory.path().join("__pycache__").exists());
@@ -264,11 +286,21 @@ async fn large_stderr_and_native_stdout_are_drained_without_protocol_corruption(
     });
     let mut session = ready(runtime.start(artifact, control()).await);
     assert_eq!(
-        output(session.execute(event("first"), control()).await.unwrap()),
+        output(
+            session
+                .execute(event("first").into(), control())
+                .await
+                .unwrap()
+        ),
         "first"
     );
     assert_eq!(
-        output(session.execute(event("second"), control()).await.unwrap()),
+        output(
+            session
+                .execute(event("second").into(), control())
+                .await
+                .unwrap()
+        ),
         "second"
     );
     session.close().await.unwrap();
@@ -281,13 +313,21 @@ async fn timeout_retires_and_reaps_before_returning() {
     let mut session = ready(runtime.start(artifact, control()).await);
     let pid = session.pid();
     let error = session
-        .execute(event("slow"), RunControl::new(Duration::from_millis(50)))
+        .execute(
+            event("slow").into(),
+            RunControl::new(Duration::from_millis(50)),
+        )
         .await
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::TimedOut);
     #[cfg(unix)]
     assert!(!running(pid));
-    assert!(session.execute(event("again"), control()).await.is_err());
+    assert!(
+        session
+            .execute(event("again").into(), control())
+            .await
+            .is_err()
+    );
     session.close().await.unwrap();
 }
 
@@ -303,7 +343,10 @@ async fn cancellation_retires_and_reaps_before_returning() {
         tokio::time::sleep(Duration::from_millis(50)).await;
         cancel.cancel();
     });
-    let error = session.execute(event("cancel"), run).await.unwrap_err();
+    let error = session
+        .execute(event("cancel").into(), run)
+        .await
+        .unwrap_err();
     assert_eq!(error.kind, ErrorKind::Cancelled);
     #[cfg(unix)]
     assert!(!running(pid));
@@ -319,7 +362,7 @@ async fn dropping_execute_future_cleans_up_even_with_session_still_owned() {
     assert!(
         tokio::time::timeout(
             Duration::from_millis(50),
-            session.execute(event("drop"), control())
+            session.execute(event("drop").into(), control())
         )
         .await
         .is_err()
@@ -370,12 +413,17 @@ async fn crash_returns_uncertain_runtime_error_and_session_is_retired() {
     );
     let mut session = ready(runtime.start(artifact, control()).await);
     let pid = session.pid();
-    let working = output(session.execute(event("warm"), control()).await.unwrap());
+    let working = output(
+        session
+            .execute(event("warm").into(), control())
+            .await
+            .unwrap(),
+    );
     let workspace = PathBuf::from(working.as_str().unwrap());
     assert!(workspace.exists());
     assert!(weak.upgrade().is_some());
     let error = session
-        .execute(event("crash"), control())
+        .execute(event("crash").into(), control())
         .await
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::Runtime);
@@ -397,7 +445,7 @@ async fn normal_close_ack_avoids_the_darwin_zombie_race_and_is_idempotent() {
         let mut session = ready(runtime.start(artifact.clone(), control()).await);
         let pid = session.pid();
         session
-            .execute(event(&format!("close-{index}")), control())
+            .execute(event(&format!("close-{index}")).into(), control())
             .await
             .unwrap();
         session.close().await.unwrap();
@@ -413,7 +461,12 @@ async fn relative_writes_use_a_separate_session_workspace_removed_after_close() 
         "import os\nfrom pathlib import Path\ndef handle(event):\n    state=Path('state.txt')\n    previous=state.read_text() if state.exists() else None\n    state.write_text(event['id'])\n    return {'cwd': os.getcwd(), 'previous': previous}\n",
     );
     let mut first = ready(runtime.start(artifact.clone(), control()).await);
-    let initial = output(first.execute(event("first"), control()).await.unwrap());
+    let initial = output(
+        first
+            .execute(event("first").into(), control())
+            .await
+            .unwrap(),
+    );
     let working = PathBuf::from(initial["cwd"].as_str().unwrap());
     assert_ne!(working, std::fs::canonicalize(dir.path()).unwrap());
     assert!(!working.starts_with(std::fs::canonicalize(dir.path()).unwrap()));
@@ -423,11 +476,21 @@ async fn relative_writes_use_a_separate_session_workspace_removed_after_close() 
         "first"
     );
 
-    let next = output(first.execute(event("second"), control()).await.unwrap());
+    let next = output(
+        first
+            .execute(event("second").into(), control())
+            .await
+            .unwrap(),
+    );
     assert_eq!(next["previous"], "first");
     assert_eq!(next["cwd"], initial["cwd"]);
     let mut second = ready(runtime.start(artifact, control()).await);
-    let independent = output(second.execute(event("other"), control()).await.unwrap());
+    let independent = output(
+        second
+            .execute(event("other").into(), control())
+            .await
+            .unwrap(),
+    );
     let other_working = PathBuf::from(independent["cwd"].as_str().unwrap());
     assert_ne!(other_working, working);
     assert!(independent["previous"].is_null());
@@ -464,7 +527,10 @@ async fn protocol_identity_mismatch_and_oversized_frames_are_retired() {
             });
         let mut session = ready(runtime.start(artifact, control()).await);
         let pid = session.pid();
-        let error = session.execute(event("bad"), control()).await.unwrap_err();
+        let error = session
+            .execute(event("bad").into(), control())
+            .await
+            .unwrap_err();
         assert_eq!(error.kind, ErrorKind::Protocol);
         #[cfg(unix)]
         assert!(!running(pid));
@@ -593,7 +659,10 @@ async fn cancellation_terminates_same_group_grandchildren() {
     );
     let mut session = ready(runtime.start(artifact, control()).await);
     let error = session
-        .execute(event("tree"), RunControl::new(Duration::from_millis(200)))
+        .execute(
+            event("tree").into(),
+            RunControl::new(Duration::from_millis(200)),
+        )
         .await
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::TimedOut);
@@ -624,7 +693,12 @@ async fn binary64_results_preserve_exact_python_float_bits() {
         "def handle(event):\n    return [2.291712365432881e-09, -1.527077339613215e-236]\n",
     );
     let mut session = ready(runtime.start(artifact, control()).await);
-    let result = output(session.execute(event("binary64"), control()).await.unwrap());
+    let result = output(
+        session
+            .execute(event("binary64").into(), control())
+            .await
+            .unwrap(),
+    );
     for (actual, expected) in result
         .as_array()
         .unwrap()

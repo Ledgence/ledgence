@@ -48,6 +48,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Check isolated HTTP adapter features
         run: python tools/check-http-features.py
+      - name: Check builds without OpenTelemetry
+        run: python tools/check-otel-features.py
       - name: Test Rust and real subprocess execution
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
@@ -58,6 +60,12 @@ jobs:
         run: cargo doc --workspace --all-features --no-deps --locked
       - name: Test the Python runner
         run: python -m unittest discover -s sdk/python/tests -v
+      - name: Test optional Python trace context
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-compile \
+            --target "$RUNNER_TEMP/ledgence-python-otel" -r sdk/python/tests/otel-requirements.txt
+          LEDGENCE_PYTHON_OTEL_TEST_PACKAGES="$RUNNER_TEMP/ledgence-python-otel" \
+            python -m unittest discover -s sdk/python/tests -v
 
   postgres:
     name: PostgreSQL 18 and HTTP delivery
@@ -110,6 +118,16 @@ jobs:
         run: |
           python tools/check-http.py --psql "$RUNNER_TEMP/ledgence-psql" \
             --evidence "$RUNNER_TEMP/ledgence-http-evidence"
+
+      - name: Check separate-process observability
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          cargo build -p ledgence-adapter-otel --example otlp-capture --locked
+          python tools/check-observability.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries target/debug --capture target/debug/examples/otlp-capture \
+            --evidence "$RUNNER_TEMP/ledgence-observability-evidence"
 
   dependencies:
     name: Dependency policy

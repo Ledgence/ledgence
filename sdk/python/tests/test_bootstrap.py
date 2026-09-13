@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -13,8 +14,10 @@ BOOTSTRAP = Path(__file__).resolve().parents[1] / "ledgence_worker" / "bootstrap
 
 class BootstrapTests(unittest.TestCase):
     def launch(self, source, messages, input_limit=4096, output_limit=4096,
-               handler="program:handle", module="program.py", files=None):
+               handler="program:handle", module="program.py", files=None, protocol=1, vendor=None):
         with tempfile.TemporaryDirectory() as package:
+            if vendor is not None:
+                shutil.copytree(vendor, package, dirs_exist_ok=True)
             for name, contents in {module: source, **(files or {})}.items():
                 path = Path(package, name)
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -27,7 +30,8 @@ class BootstrapTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, "-I", "-S", str(BOOTSTRAP),
                  "--package-root", package, "--handler", handler,
-                 "--python-version", "%d.%d" % sys.version_info[:2], *limits],
+                 "--python-version", "%d.%d" % sys.version_info[:2],
+                 "--protocol-version", str(protocol), *limits],
                 input=b"".join(json.dumps(m).encode() + b"\n" for m in messages),
                 cwd=package,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,

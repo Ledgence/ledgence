@@ -28,6 +28,19 @@ fn shutdown_child() {
     let directory = PathBuf::from(directory);
     let mode = std::env::var(FIXTURE_MODE).unwrap();
     let status = crate::run(move |mut stopped| async move {
+        #[cfg(feature = "otel")]
+        if mode == "telemetry-wait-for-stop" {
+            std::fs::write(directory.join("work-ready"), b"ready for stop").unwrap();
+            while !*stopped.borrow() {
+                stopped.changed().await.unwrap();
+            }
+            // Finish one real SDK span only after the first signal. With no
+            // application work left, its stalled export tests the final drain.
+            tracing::info_span!("ledgence.shutdown.fixture").in_scope(|| {
+                tracing::info!("completed traced shutdown fixture work");
+            });
+            return Ok(());
+        }
         if mode == "application-error" {
             return Err("controlled application failure".into());
         }
@@ -68,9 +81,14 @@ struct Fixture {
 
 impl Fixture {
     fn start(mode: &str) -> Self {
+        Self::start_with_endpoint(mode, None)
+    }
+
+    fn start_with_endpoint(mode: &str, endpoint: Option<&str>) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let stderr = std::fs::File::create(directory.path().join("stderr.log")).unwrap();
-        let child = tokio::process::Command::new(std::env::current_exe().unwrap())
+        let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+        command
             .args([
                 "--exact",
                 "shutdown_tests::shutdown_child",
@@ -80,11 +98,17 @@ impl Fixture {
             .env(FIXTURE_DIRECTORY, directory.path())
             .env(FIXTURE_MODE, mode)
             .env("RUST_LOG", "debug")
+            .env_remove("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
             .stdout(Stdio::null())
             .stderr(stderr)
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
+            .kill_on_drop(true);
+        if let Some(endpoint) = endpoint {
+            command
+                .env("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint)
+                .env("OTEL_TRACES_SAMPLER", "parentbased_traceidratio")
+                .env("OTEL_TRACES_SAMPLER_ARG", "1");
+        }
+        let child = command.spawn().unwrap();
         Self { child, directory }
     }
 
@@ -209,3 +233,7 @@ async fn application_panics_return_failure_after_the_runtime_thread_exits() {
     assert!(stderr.contains("application thread panicked"), "{stderr}");
     assert!(!stderr.contains("forced exit requested"), "{stderr}");
 }
+
+#[cfg(feature = "otel")]
+#[path = "shutdown_tests/telemetry.rs"]
+mod telemetry;

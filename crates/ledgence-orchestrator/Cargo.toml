@@ -7,7 +7,12 @@ license.workspace = true
 repository.workspace = true
 description = "Ledgence HTTP orchestration service and recovery supervisor"
 
+[features]
+default = ["otel"]
+otel = ["dep:ledgence-adapter-otel"]
+
 [dependencies]
+ledgence-adapter-otel = { workspace = true, optional = true }
 ledgence-adapter-http = { workspace = true, features = ["server"] }
 ledgence-adapter-artifact.workspace = true
 ledgence-adapter-postgres.workspace = true

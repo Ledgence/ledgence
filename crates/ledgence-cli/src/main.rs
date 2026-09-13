@@ -1,7 +1,9 @@
 //! Single-exchange task administration over the portable HTTP client adapter.
 
 mod args;
+mod logging;
 mod submission;
+mod telemetry;
 
 use args::{Command, HELP, Operation};
 use ledgence_adapter_http::HttpTaskService;
@@ -34,14 +36,62 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         };
     };
+    let mut logs = match logging::Logs::stderr() {
+        Ok(logs) => logs,
+        Err(error) => return diagnose(ContractError::Unavailable(error.to_string()), None),
+    };
+    let telemetry = match telemetry::Telemetry::start("ledgence-cli", logs.sink.clone()) {
+        Ok(telemetry) => telemetry,
+        Err(error) => {
+            let result = diagnose_into(args::invalid(error), None, Some(&logs.sink));
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                runtime.block_on(async {
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), logs.finish())
+                        .await;
+                });
+            } else {
+                logs.abort();
+            }
+            return result;
+        }
+    };
+    let result = run_task(&server, operation, telemetry.bridge(), &logs.sink);
+    // Application runtime is already destroyed. Only optional telemetry and
+    // bounded stderr delivery remain; neither changes the operation outcome.
+    if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        runtime.block_on(async {
+            telemetry.finish().await;
+            let _ = logs.finish().await;
+        });
+    } else {
+        logs.abort();
+    }
+    result
+}
+
+fn run_task(
+    server: &str,
+    operation: Operation,
+    trace: Arc<dyn ledgence_worker_api::TraceBridge>,
+    sink: &logging::Sink,
+) -> ExitCode {
+    let diagnose = |error, request_id| diagnose_into(error, request_id, Some(sink));
     let request_id = Arc::new(Mutex::new(None));
     let observed = request_id.clone();
-    let client = match HttpTaskService::new(&server) {
-        Ok(client) => client.with_observer(move |metadata| {
-            *observed
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = metadata.request_id.clone();
-        }),
+    let client = match HttpTaskService::new(server) {
+        Ok(client) => client
+            .with_trace_bridge(trace)
+            .with_observer(move |metadata| {
+                *observed
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = metadata.request_id.clone();
+            }),
         Err(error) => return diagnose(error, None),
     };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -72,7 +122,7 @@ fn main() -> ExitCode {
                     request_id,
                 );
             }
-            if write_diagnostic(&json!({"request_id": request_id})).is_err() {
+            if sink.json(&json!({"request_id": request_id})).is_err() {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
@@ -117,6 +167,14 @@ fn encode(value: impl Serialize) -> Result<Vec<u8>> {
 }
 
 fn diagnose(error: ContractError, request_id: Option<String>) -> ExitCode {
+    diagnose_into(error, request_id, None)
+}
+
+fn diagnose_into(
+    error: ContractError,
+    request_id: Option<String>,
+    sink: Option<&logging::Sink>,
+) -> ExitCode {
     let code = if matches!(error, ContractError::InvalidInput(_)) {
         2
     } else {
@@ -128,9 +186,12 @@ fn diagnose(error: ContractError, request_id: Option<String>) -> ExitCode {
         ContractError::Unavailable(message) => ContractError::Unavailable(bounded(message)),
         error => error,
     };
-    let _ = write_diagnostic(
-        &json!({"error": error, "request_id": request_id, "outcome_may_be_unknown": uncertain}),
-    );
+    let value =
+        json!({"error": error, "request_id": request_id, "outcome_may_be_unknown": uncertain});
+    let _ = match sink {
+        Some(sink) => sink.json(&value),
+        None => write_diagnostic(&value),
+    };
     ExitCode::from(code)
 }
 

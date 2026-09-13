@@ -11,6 +11,7 @@ use axum::{
     routing::any,
 };
 use ledgence_orchestration_api::*;
+use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
     collections::BTreeMap,
@@ -30,6 +31,8 @@ struct Server {
     blocking: Arc<Semaphore>,
     request_prefix: Arc<str>,
     next_request: Arc<AtomicU64>,
+    trace_bridge: Arc<dyn TraceBridge>,
+    invalid_trace_headers: Arc<AtomicU64>,
 }
 
 /// Bind the portable service to the `/v1` routes. Acquisition is immediate.
@@ -42,6 +45,17 @@ pub fn router(service: Arc<dyn TaskService>) -> Router {
 /// A true `stopping` flag rejects new operations before reading their body.
 /// In-flight calls retain their ordinary thirty-second request deadline.
 pub fn router_with_admission(service: Arc<dyn TaskService>, stopping: Arc<AtomicBool>) -> Router {
+    router_with_observability(service, stopping, Arc::new(NoopTraceBridge))
+}
+
+/// Bind HTTP tracing without exposing exporter types to the application service.
+/// Invalid or duplicate traceparent fields are ignored. Tracestate fields are
+/// combined in order; invalid state is dropped without losing a valid parent.
+pub fn router_with_observability(
+    service: Arc<dyn TaskService>,
+    stopping: Arc<AtomicBool>,
+    trace_bridge: Arc<dyn TraceBridge>,
+) -> Router {
     let state = Server {
         service,
         stopping,
@@ -56,6 +70,8 @@ pub fn router_with_admission(service: Arc<dyn TaskService>, stopping: Arc<Atomic
         )
         .into(),
         next_request: Arc::new(AtomicU64::new(1)),
+        trace_bridge,
+        invalid_trace_headers: Arc::new(AtomicU64::new(0)),
     };
     let mut router = Router::new();
     for (path, _) in ROUTES {
@@ -111,71 +127,204 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         .iter()
         .find(|(path, _)| *path == request.uri().path());
     let route_label = route.map_or("unmatched", |(path, _)| *path);
-    let (status, body, code) = match route {
-        None => (
-            404,
-            br#"{"code":"route_not_found"}"#.to_vec(),
-            Some("route_not_found"),
-        ),
-        Some((_, expected)) if method != *expected => (
-            405,
-            br#"{"code":"method_not_allowed"}"#.to_vec(),
-            Some("method_not_allowed"),
-        ),
-        Some(_) => {
-            let result = if server.stopping.load(Ordering::Acquire) {
-                Err(unavailable("orchestrator is shutting down").into())
-            } else {
-                tokio::time::timeout(Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS), dispatch(&server, request).instrument(tracing::info_span!("http_operation", request_id = %request_id, route = route_label))).await
-                    .unwrap_or_else(|_| Err(unavailable("server request deadline exceeded; operation outcome is uncertain").into()))
-            };
-            match result {
-                Ok(bytes) => (200, bytes, None),
-                Err(Failure { status, mut error }) => {
-                    let code = error_code(&error);
-                    if let ContractError::InvalidInput(message)
-                    | ContractError::Unavailable(message) = &mut error
-                    {
-                        *message = message.chars().take(4096).collect();
-                    }
-                    (
-                        status,
-                        serde_json::to_vec(&error).expect("error has JSON representation"),
-                        Some(code),
+    let span = tracing::info_span!(
+        parent: None,
+        "ledgence.http.server",
+        otel.name = %format!("{} {}", method, route_label),
+        otel.kind = "server",
+        http.request.method = method.as_str(),
+        http.route = route_label,
+        ledgence.request.id = request_id.as_str(),
+        ledgence.tenant.id = tracing::field::Empty,
+        ledgence.namespace = tracing::field::Empty,
+        ledgence.run.id = tracing::field::Empty,
+        ledgence.task.id = tracing::field::Empty,
+        ledgence.attempt.id = tracing::field::Empty,
+        ledgence.attempt.number = tracing::field::Empty,
+        ledgence.worker.session.id = tracing::field::Empty,
+        ledgence.consumer.id = tracing::field::Empty,
+        ledgence.program.id = tracing::field::Empty,
+        ledgence.program.version = tracing::field::Empty,
+        ledgence.program.digest = tracing::field::Empty,
+        ledgence.business.correlation_key = tracing::field::Empty,
+        http.response.status_code = tracing::field::Empty,
+        ledgence.duration_ms = tracing::field::Empty,
+        error.type = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty,
+    );
+    let transport_context = extract_trace(request.headers(), &server.invalid_trace_headers);
+    server
+        .trace_bridge
+        .set_parent(&span, transport_context.as_ref());
+    async {
+        let (status, body, code) = match route {
+            None => (
+                404,
+                br#"{"code":"route_not_found"}"#.to_vec(),
+                Some("route_not_found"),
+            ),
+            Some((_, expected)) if method != *expected => (
+                405,
+                br#"{"code":"method_not_allowed"}"#.to_vec(),
+                Some("method_not_allowed"),
+            ),
+            Some(_) => {
+                let result = if server.stopping.load(Ordering::Acquire) {
+                    Err(unavailable("orchestrator is shutting down").into())
+                } else {
+                    tokio::time::timeout(
+                        Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS),
+                        dispatch(&server, request),
                     )
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(unavailable(
+                            "server request deadline exceeded; operation outcome is uncertain",
+                        )
+                        .into())
+                    })
+                };
+                match result {
+                    Ok(bytes) => (200, bytes, None),
+                    Err(Failure { status, mut error }) => {
+                        let code = error_code(&error);
+                        if let ContractError::InvalidInput(message)
+                        | ContractError::Unavailable(message) = &mut error
+                        {
+                            *message = message.chars().take(4096).collect();
+                        }
+                        (
+                            status,
+                            serde_json::to_vec(&error).expect("error has JSON representation"),
+                            Some(code),
+                        )
+                    }
                 }
             }
-        }
-    };
-    tracing::info!(
-        request_id,
-        route = route_label,
-        method,
-        status,
-        elapsed_ms = start.elapsed().as_millis() as u64,
-        error_code = code,
-        "orchestration HTTP request"
-    );
-    let mut response = Response::new(Body::from(body));
-    *response.status_mut() = StatusCode::from_u16(status).expect("known HTTP status");
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    );
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response.headers_mut().insert(
-        "request-id",
-        HeaderValue::from_str(&request_id).expect("generated ASCII request ID"),
-    );
-    if status == 405 {
-        response.headers_mut().insert(
-            header::ALLOW,
-            HeaderValue::from_static(route.expect("known route").1),
+        };
+        let span = tracing::Span::current();
+        span.record("http.response.status_code", i64::from(status));
+        span.record(
+            "ledgence.duration_ms",
+            i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX),
         );
+        if status >= 500 {
+            span.record("otel.status_code", "ERROR");
+            span.record("error.type", code.unwrap_or("server_error"));
+        }
+        tracing::info!(
+            request_id,
+            route = route_label,
+            method,
+            status,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            error_code = code,
+            "orchestration HTTP request"
+        );
+        let mut response = Response::new(Body::from(body));
+        *response.status_mut() = StatusCode::from_u16(status).expect("known HTTP status");
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response.headers_mut().insert(
+            "request-id",
+            HeaderValue::from_str(&request_id).expect("generated ASCII request ID"),
+        );
+        if status == 405 {
+            response.headers_mut().insert(
+                header::ALLOW,
+                HeaderValue::from_static(route.expect("known route").1),
+            );
+        }
+        response
     }
-    response
+    .instrument(span)
+    .await
+}
+
+/// One fixed W3C carrier. The HTTP context never changes the JSON command.
+fn extract_trace(
+    headers: &axum::http::HeaderMap,
+    invalid_count: &AtomicU64,
+) -> Option<TraceContext> {
+    let parents = headers.get_all("traceparent");
+    let states = headers.get_all("tracestate");
+    if parents.iter().count() == 0 && states.iter().count() == 0 {
+        return None;
+    }
+    let parent = (|| {
+        if parents.iter().count() != 1 {
+            return None;
+        }
+        let traceparent = parents.iter().next()?.to_str().ok()?;
+        // Version 00 is the supported carrier shape. Bound before allocating.
+        if traceparent.len() != 55 {
+            return None;
+        }
+        let context = TraceContext {
+            traceparent: traceparent.to_owned(),
+            tracestate: None,
+        };
+        context.validate().ok()?;
+        Some(context)
+    })();
+    let Some(mut context) = parent else {
+        invalid_trace_diagnostic(invalid_count);
+        return None;
+    };
+    if states.iter().count() != 0 {
+        let state = (|| {
+            // W3C permits multiple tracestate fields and requires ordered joining.
+            let mut joined = String::new();
+            for (index, value) in states.iter().enumerate() {
+                let value = value.to_str().ok()?;
+                let separator = usize::from(index != 0);
+                if value.len().saturating_add(separator) > 512_usize.saturating_sub(joined.len()) {
+                    return None;
+                }
+                if separator != 0 {
+                    joined.push(',');
+                }
+                joined.push_str(value);
+            }
+            // HTTP allows horizontal tabs as optional list-member whitespace;
+            // the portable event carrier uses the equivalent normalized form.
+            Some(
+                joined
+                    .split(',')
+                    .map(|member| member.trim_matches([' ', '\t']))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )
+        })();
+        context.tracestate = state;
+        if context.tracestate.is_none() || context.validate().is_err() {
+            // W3C §3.3: invalid state must not invalidate the valid parent.
+            context.tracestate = None;
+            invalid_trace_diagnostic(invalid_count);
+        }
+    }
+    Some(context)
+}
+
+fn invalid_trace_diagnostic(invalid_count: &AtomicU64) {
+    let previous = invalid_count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+        count.checked_add(1)
+    });
+    if let Ok(previous) = previous {
+        let count = previous + 1;
+        // At most 64 diagnostics per server instance, without reflecting values.
+        if count.is_power_of_two() {
+            tracing::warn!(
+                invalid_trace_headers = count,
+                "ignored invalid HTTP trace context"
+            );
+        }
+    }
 }
 
 impl Server {
@@ -189,9 +338,15 @@ impl Server {
             .acquire_owned()
             .await
             .map_err(|_| unavailable("JSON executor closed"))?;
+        let span = tracing::Span::current();
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            job()
+            tracing::dispatcher::with_default(&dispatch, || {
+                span.in_scope(|| {
+                    let _permit = permit;
+                    job()
+                })
+            })
         })
         .await
         .map_err(|_| unavailable("JSON executor failed"))?
@@ -238,6 +393,8 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
         scope.validate()?;
         let task = &fields["task_id"];
         validate_text(task, 128)?;
+        record_scope(&scope);
+        tracing::Span::current().record("ledgence.task.id", task);
         tracing::info!(
             tenant_id = scope.tenant_id,
             namespace = scope.namespace,
@@ -253,6 +410,7 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
             "/v1/attempts/inspect" => {
                 let attempt = &fields["attempt_id"];
                 validate_text(attempt, 128)?;
+                tracing::Span::current().record("ledgence.attempt.id", attempt);
                 tracing::info!(attempt_id = attempt, "HTTP attempt lookup");
                 let reply = server
                     .service
@@ -337,6 +495,14 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
                         .map_err(|_| invalid("malformed submission command").into())
                 })
                 .await?;
+            let span = tracing::Span::current();
+            span.record("ledgence.tenant.id", &command.input.tenant_id);
+            span.record("ledgence.namespace", &command.input.namespace);
+            span.record("ledgence.program.id", &command.input.program.id);
+            span.record("ledgence.program.version", &command.input.program.version);
+            if let Some(key) = &command.input.correlation_key {
+                span.record("ledgence.business.correlation_key", key);
+            }
             tracing::info!(
                 tenant_id = command.input.tenant_id,
                 namespace = command.input.namespace,
@@ -356,6 +522,7 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
             if command.concurrency == 0 {
                 return Err(invalid("concurrency must be positive").into());
             }
+            record_scope(&command.scope);
             tracing::info!(
                 tenant_id = command.scope.tenant_id,
                 namespace = command.scope.namespace,
@@ -373,6 +540,8 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
         "/v1/worker-sessions/extend" => {
             let command: ExtendSession = server.decode(bytes, maximum).await?;
             validate_text(&command.worker_session_id, 128)?;
+            tracing::Span::current()
+                .record("ledgence.worker.session.id", &command.worker_session_id);
             tracing::info!(
                 worker_session_id = command.worker_session_id,
                 "HTTP session extension"
@@ -388,6 +557,8 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
             let command: Cancel = server.decode(bytes, maximum).await?;
             command.scope.validate()?;
             validate_text(&command.task_id, 128)?;
+            tracing::Span::current().record("ledgence.task.id", &command.task_id);
+            record_scope(&command.scope);
             tracing::info!(
                 tenant_id = command.scope.tenant_id,
                 namespace = command.scope.namespace,
@@ -408,6 +579,10 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
             command.scope.validate()?;
             validate_text(&command.queue, 128)?;
             validate_text(&command.worker_session_id, 128)?;
+            tracing::Span::current()
+                .record("ledgence.worker.session.id", &command.worker_session_id);
+            tracing::Span::current().record("ledgence.consumer.id", i64::from(command.consumer_id));
+            record_scope(&command.scope);
             tracing::info!(
                 tenant_id = command.scope.tenant_id,
                 namespace = command.scope.namespace,
@@ -469,6 +644,12 @@ fn log_owner(owner: &LeaseOwner) -> Result<()> {
     ] {
         validate_text(text, 128)?;
     }
+    record_scope(&owner.scope);
+    let span = tracing::Span::current();
+    span.record("ledgence.task.id", &owner.task_id);
+    span.record("ledgence.attempt.id", &owner.attempt_id);
+    span.record("ledgence.worker.session.id", &owner.worker_session_id);
+    span.record("ledgence.consumer.id", i64::from(owner.consumer_id));
     tracing::info!(
         tenant_id = owner.scope.tenant_id,
         namespace = owner.scope.namespace,
@@ -533,7 +714,14 @@ fn decode_component(raw: &str) -> Result<String> {
 fn bounded(value: &str) -> String {
     value.chars().take(512).collect()
 }
+fn record_scope(scope: &Scope) {
+    let span = tracing::Span::current();
+    span.record("ledgence.tenant.id", bounded(&scope.tenant_id));
+    span.record("ledgence.namespace", bounded(&scope.namespace));
+}
 fn log_session(session: &WorkerSession) {
+    record_scope(&session.scope);
+    tracing::Span::current().record("ledgence.worker.session.id", bounded(&session.id));
     tracing::info!(
         worker_session_id = bounded(&session.id),
         tenant_id = bounded(&session.scope.tenant_id),
@@ -544,6 +732,21 @@ fn log_session(session: &WorkerSession) {
     );
 }
 fn log_task(task: &TaskSnapshot) {
+    let span = tracing::Span::current();
+    span.record("ledgence.task.id", bounded(&task.task_id));
+    span.record("ledgence.run.id", bounded(&task.run_id));
+    span.record(
+        "ledgence.program.digest",
+        bounded(&task.descriptor.digest.0),
+    );
+    span.record("ledgence.program.id", bounded(&task.descriptor.program.id));
+    span.record(
+        "ledgence.program.version",
+        bounded(&task.descriptor.program.version),
+    );
+    if let Some(attempt) = &task.current_attempt_id {
+        span.record("ledgence.attempt.id", bounded(attempt));
+    }
     tracing::info!(
         task_id = bounded(&task.task_id),
         run_id = bounded(&task.run_id),
@@ -556,6 +759,30 @@ fn log_binding(
     event: &ledgence_worker_api::CloudEvent,
     descriptor: &ledgence_worker_api::ProgramDescriptor,
 ) {
+    let span = tracing::Span::current();
+    span.record("ledgence.task.id", bounded(event.task_id()));
+    span.record("ledgence.attempt.id", bounded(event.attempt_id()));
+    for (field, key) in [
+        ("ledgence.run.id", "ldgrunid"),
+        ("ledgence.tenant.id", "ldgtenantid"),
+        ("ledgence.namespace", "ldgnamespace"),
+    ] {
+        if let Some(value) = event.value()[key].as_str() {
+            span.record(field, bounded(value));
+        }
+    }
+    if let Some(number) = event.value()["ldgattemptno"].as_u64() {
+        span.record(
+            "ledgence.attempt.number",
+            i64::try_from(number).unwrap_or(i64::MAX),
+        );
+    }
+    span.record("ledgence.program.digest", bounded(&descriptor.digest.0));
+    span.record("ledgence.program.id", bounded(&descriptor.program.id));
+    span.record(
+        "ledgence.program.version",
+        bounded(&descriptor.program.version),
+    );
     tracing::info!(
         task_id = bounded(event.task_id()),
         attempt_id = bounded(event.attempt_id()),
@@ -565,4 +792,69 @@ fn log_binding(
         program_version = bounded(&descriptor.program.version),
         "HTTP invocation binding"
     );
+}
+
+#[cfg(test)]
+mod trace_tests {
+    use super::*;
+
+    #[test]
+    fn transport_carrier_accepts_unsampled_context_and_ignores_bad_or_duplicate_headers() {
+        let invalid = AtomicU64::new(0);
+        let mut headers = axum::http::HeaderMap::new();
+        assert_eq!(extract_trace(&headers, &invalid), None);
+        headers.insert(
+            "traceparent",
+            HeaderValue::from_static("00-0af7651916cd43dd8448eb211c80319c-1111111111111111-00"),
+        );
+        headers.insert("tracestate", HeaderValue::from_static("vendor=sampled0"));
+        let accepted = extract_trace(&headers, &invalid).unwrap();
+        assert!(accepted.traceparent.ends_with("-00"));
+        assert_eq!(accepted.tracestate.as_deref(), Some("vendor=sampled0"));
+        assert_eq!(invalid.load(Ordering::Relaxed), 0);
+
+        headers.append(
+            "traceparent",
+            HeaderValue::from_static("00-0af7651916cd43dd8448eb211c80319c-2222222222222222-01"),
+        );
+        assert_eq!(extract_trace(&headers, &invalid), None);
+        headers.insert("traceparent", HeaderValue::from_static("not-a-context"));
+        assert_eq!(extract_trace(&headers, &invalid), None);
+        headers.insert(
+            "traceparent",
+            HeaderValue::from_static("00-0af7651916cd43dd8448eb211c80319c-1111111111111111-00"),
+        );
+        headers.append("tracestate", HeaderValue::from_static("another=value"));
+        let combined = extract_trace(&headers, &invalid).unwrap();
+        assert_eq!(
+            combined.tracestate.as_deref(),
+            Some("vendor=sampled0,another=value")
+        );
+        headers.insert(
+            "tracestate",
+            HeaderValue::from_static("vendor=one,vendor=two"),
+        );
+        let parent_only = extract_trace(&headers, &invalid).unwrap();
+        assert_eq!(parent_only.traceparent, accepted.traceparent);
+        assert_eq!(parent_only.tracestate, None);
+        headers.remove("traceparent");
+        assert_eq!(extract_trace(&headers, &invalid), None);
+        assert_eq!(invalid.load(Ordering::Relaxed), 4);
+        headers.insert(
+            "traceparent",
+            HeaderValue::from_static("00-0af7651916cd43dd8448eb211c80319c-1111111111111111-00"),
+        );
+        headers.insert(
+            "tracestate",
+            HeaderValue::from_static("\t vendor=one \t, another=two\t"),
+        );
+        assert_eq!(
+            extract_trace(&headers, &invalid)
+                .unwrap()
+                .tracestate
+                .as_deref(),
+            Some("vendor=one,another=two")
+        );
+        assert_eq!(invalid.load(Ordering::Relaxed), 4);
+    }
 }

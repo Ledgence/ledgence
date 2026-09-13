@@ -1,9 +1,11 @@
 use crate::{ERROR_MAX_BYTES, RESPONSE_MAX_BYTES, response::ResponseValue, wire::*};
 use ledgence_orchestration_api::*;
+use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
 use reqwest::{Client, Method, Url, header};
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, time::Instant};
+use tracing::Instrument;
 
 /// Diagnostics for one completed exchange. Durable operation identities belong
 /// to its command; this request ID changes on retries and may be absent.
@@ -25,6 +27,7 @@ pub struct HttpTaskService {
     timeout: Duration,
     blocking: Arc<Semaphore>,
     observer: Option<Arc<Observer>>,
+    trace_bridge: Arc<dyn TraceBridge>,
 }
 
 impl HttpTaskService {
@@ -74,6 +77,7 @@ impl HttpTaskService {
             timeout,
             blocking: Arc::new(Semaphore::new(4)),
             observer: None,
+            trace_bridge: Arc::new(NoopTraceBridge),
         })
     }
 
@@ -87,6 +91,13 @@ impl HttpTaskService {
         self
     }
 
+    /// Supply the optional trace-context bridge. Each call propagates a fresh
+    /// exchange span; serialized command origins remain unchanged.
+    pub fn with_trace_bridge(mut self, bridge: Arc<dyn TraceBridge>) -> Self {
+        self.trace_bridge = bridge;
+        self
+    }
+
     async fn blocking<T: Send + 'static>(
         &self,
         job: impl FnOnce() -> Result<T> + Send + 'static,
@@ -97,9 +108,15 @@ impl HttpTaskService {
             .acquire_owned()
             .await
             .map_err(|_| unavailable("JSON executor closed"))?;
+        let span = tracing::Span::current();
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            job()
+            tracing::dispatcher::with_default(&dispatch, || {
+                span.in_scope(|| {
+                    let _permit = permit;
+                    job()
+                })
+            })
         })
         .await
         .map_err(|_| unavailable("JSON executor failed"))?
@@ -145,143 +162,183 @@ impl HttpTaskService {
         start: Instant,
         body: impl std::future::Future<Output = Result<Option<Vec<u8>>>>,
     ) -> Result<R> {
-        let mut metadata = ExchangeMetadata {
-            request_id: None,
-            status: None,
-            elapsed: Duration::ZERO,
-        };
-        let result = tokio::time::timeout_at(start + self.timeout, async {
-            let mut url = self
-                .base
-                .join(route)
-                .map_err(|_| unavailable("HTTP route could not be constructed"))?;
-            if !query.is_empty() {
-                url.query_pairs_mut()
-                    .extend_pairs(query.iter().map(|(key, value)| (*key, value.as_str())));
-            }
-            let body = body.await?;
-            let mut request = self
-                .client
-                .request(method, url)
-                .header(header::ACCEPT, "application/json");
-            if let Some(body) = body {
-                request = request
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(body);
-            }
-            let mut response = request.send().await.map_err(|_| {
-                unavailable("HTTP exchange failed; the operation may have committed")
-            })?;
-            let status = response.status().as_u16();
-            metadata.status = Some(status);
-            metadata.request_id = response
-                .headers()
-                .get("request-id")
-                .and_then(|value| value.to_str().ok())
-                .filter(|value| {
-                    value.len() <= 256 && value.bytes().all(|byte| byte.is_ascii_graphic())
-                })
-                .map(str::to_owned);
-            if response
-                .headers()
-                .get_all(header::CONTENT_TYPE)
-                .iter()
-                .count()
-                != 1
-                || !response
-                    .headers()
-                    .get(header::CONTENT_TYPE)
-                    .and_then(|value| value.to_str().ok())
-                    .is_some_and(is_json)
-                || response
-                    .headers()
-                    .get_all(header::CONTENT_ENCODING)
-                    .iter()
-                    .count()
-                    > 1
-                || response
-                    .headers()
-                    .get(header::CONTENT_ENCODING)
-                    .is_some_and(|value| value != "identity")
-            {
-                return Err(unavailable(
-                    "HTTP response has unsupported content type or encoding",
-                ));
-            }
-            let limit = if status == 200 {
-                RESPONSE_MAX_BYTES
-            } else {
-                ERROR_MAX_BYTES
+        let span = tracing::info_span!(
+            "ledgence.http.client",
+            otel.name = %format!("{} {}", method, route),
+            otel.kind = "client",
+            http.request.method = method.as_str(),
+            url.path = route,
+            server.address = self.base.host_str().unwrap_or_default(),
+            server.port = self.base.port_or_known_default().map(i64::from),
+            http.response.status_code = tracing::field::Empty,
+            ledgence.request.id = tracing::field::Empty,
+            ledgence.duration_ms = tracing::field::Empty,
+            error.type = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty,
+        );
+        let exchange_trace = self.trace_bridge.context(&span);
+        async {
+            let mut metadata = ExchangeMetadata {
+                request_id: None,
+                status: None,
+                elapsed: Duration::ZERO,
             };
-            if response
-                .content_length()
-                .is_some_and(|length| length > limit as u64)
-            {
-                return Err(unavailable("HTTP response exceeds its body limit"));
-            }
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|_| {
-                unavailable("HTTP response body was interrupted; outcome is uncertain")
-            })? {
-                if chunk.len() > limit.saturating_sub(bytes.len()) {
-                    return Err(unavailable("HTTP response exceeds its body limit"));
+            let result = tokio::time::timeout_at(start + self.timeout, async {
+                let mut url = self
+                    .base
+                    .join(route)
+                    .map_err(|_| unavailable("HTTP route could not be constructed"))?;
+                if !query.is_empty() {
+                    url.query_pairs_mut()
+                        .extend_pairs(query.iter().map(|(key, value)| (*key, value.as_str())));
                 }
-                bytes.extend_from_slice(&chunk);
-            }
-            self.blocking(move || {
-                if status == 200 {
-                    let value: R = decode_unique_json(&bytes, RESPONSE_MAX_BYTES)
-                        .map_err(|_| unavailable("HTTP success response is malformed"))?;
-                    value.validate_values().map_err(|_| {
-                        unavailable("HTTP success response violates application value limits")
-                    })?;
-                    Ok(value)
-                } else {
-                    let error: ContractError = decode_unique_json(&bytes, ERROR_MAX_BYTES)
-                        .map_err(|_| {
-                            unavailable("HTTP error response is not a known domain rejection")
-                        })?;
-                    let matches = status == error_status(&error)
-                        || (matches!(error, ContractError::InvalidInput(_))
-                            && matches!(status, 413 | 415));
-                    if matches {
-                        Err(error)
-                    } else {
-                        Err(unavailable(
-                            "HTTP error status disagrees with its domain code",
-                        ))
+                let body = body.await?;
+                let mut request = self
+                    .client
+                    .request(method, url)
+                    .header(header::ACCEPT, "application/json");
+                if let Some(context) = &exchange_trace {
+                    request = request.header("traceparent", &context.traceparent);
+                    if let Some(state) = &context.tracestate {
+                        request = request.header("tracestate", state);
                     }
                 }
+                if let Some(body) = body {
+                    request = request
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(body);
+                }
+                let mut response = request.send().await.map_err(|_| {
+                    unavailable("HTTP exchange failed; the operation may have committed")
+                })?;
+                let status = response.status().as_u16();
+                metadata.status = Some(status);
+                metadata.request_id = response
+                    .headers()
+                    .get("request-id")
+                    .and_then(|value| value.to_str().ok())
+                    .filter(|value| {
+                        value.len() <= 256 && value.bytes().all(|byte| byte.is_ascii_graphic())
+                    })
+                    .map(str::to_owned);
+                if response
+                    .headers()
+                    .get_all(header::CONTENT_TYPE)
+                    .iter()
+                    .count()
+                    != 1
+                    || !response
+                        .headers()
+                        .get(header::CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .is_some_and(is_json)
+                    || response
+                        .headers()
+                        .get_all(header::CONTENT_ENCODING)
+                        .iter()
+                        .count()
+                        > 1
+                    || response
+                        .headers()
+                        .get(header::CONTENT_ENCODING)
+                        .is_some_and(|value| value != "identity")
+                {
+                    return Err(unavailable(
+                        "HTTP response has unsupported content type or encoding",
+                    ));
+                }
+                let limit = if status == 200 {
+                    RESPONSE_MAX_BYTES
+                } else {
+                    ERROR_MAX_BYTES
+                };
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > limit as u64)
+                {
+                    return Err(unavailable("HTTP response exceeds its body limit"));
+                }
+                let mut bytes = Vec::new();
+                while let Some(chunk) = response.chunk().await.map_err(|_| {
+                    unavailable("HTTP response body was interrupted; outcome is uncertain")
+                })? {
+                    if chunk.len() > limit.saturating_sub(bytes.len()) {
+                        return Err(unavailable("HTTP response exceeds its body limit"));
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                self.blocking(move || {
+                    if status == 200 {
+                        let value: R = decode_unique_json(&bytes, RESPONSE_MAX_BYTES)
+                            .map_err(|_| unavailable("HTTP success response is malformed"))?;
+                        value.validate_values().map_err(|_| {
+                            unavailable("HTTP success response violates application value limits")
+                        })?;
+                        Ok(value)
+                    } else {
+                        let error: ContractError = decode_unique_json(&bytes, ERROR_MAX_BYTES)
+                            .map_err(|_| {
+                                unavailable("HTTP error response is not a known domain rejection")
+                            })?;
+                        let matches = status == error_status(&error)
+                            || (matches!(error, ContractError::InvalidInput(_))
+                                && matches!(status, 413 | 415));
+                        if matches {
+                            Err(error)
+                        } else {
+                            Err(unavailable(
+                                "HTTP error status disagrees with its domain code",
+                            ))
+                        }
+                    }
+                })
+                .await
             })
             .await
-        })
-        .await
-        .unwrap_or_else(|_| {
-            Err(unavailable(
-                "HTTP exchange deadline exceeded; the operation may have committed",
-            ))
-        });
-        metadata.elapsed = start.elapsed();
-        // timeout cannot interrupt a synchronous poll that returns after its deadline.
-        let result = if metadata.elapsed >= self.timeout {
-            Err(unavailable(
-                "HTTP exchange deadline exceeded; the operation may have committed",
-            ))
-        } else {
+            .unwrap_or_else(|_| {
+                Err(unavailable(
+                    "HTTP exchange deadline exceeded; the operation may have committed",
+                ))
+            });
+            metadata.elapsed = start.elapsed();
+            // timeout cannot interrupt a synchronous poll that returns after its deadline.
+            let result = if metadata.elapsed >= self.timeout {
+                Err(unavailable(
+                    "HTTP exchange deadline exceeded; the operation may have committed",
+                ))
+            } else {
+                result
+            };
+            let span = tracing::Span::current();
+            if let Some(status) = metadata.status {
+                span.record("http.response.status_code", i64::from(status));
+            }
+            if let Some(request_id) = &metadata.request_id {
+                span.record("ledgence.request.id", request_id);
+            }
+            span.record(
+                "ledgence.duration_ms",
+                i64::try_from(metadata.elapsed.as_millis()).unwrap_or(i64::MAX),
+            );
+            if let Err(error) = &result {
+                span.record("error.type", error_code(error));
+                span.record("otel.status_code", "ERROR");
+            }
+            tracing::info!(
+                route,
+                status = metadata.status,
+                request_id = metadata.request_id.as_deref(),
+                elapsed_ms = metadata.elapsed.as_millis() as u64,
+                error_code = result.as_ref().err().map(error_code),
+                "orchestration HTTP exchange"
+            );
+            if let Some(observer) = &self.observer {
+                observer(&metadata);
+            }
             result
-        };
-        tracing::info!(
-            route,
-            status = metadata.status,
-            request_id = metadata.request_id.as_deref(),
-            elapsed_ms = metadata.elapsed.as_millis() as u64,
-            error_code = result.as_ref().err().map(error_code),
-            "orchestration HTTP exchange"
-        );
-        if let Some(observer) = &self.observer {
-            observer(&metadata);
         }
-        result
+        .instrument(span)
+        .await
     }
 }
 

@@ -69,3 +69,21 @@ impl std::fmt::Display for ExecutionFailure {
 }
 impl std::error::Error for ExecutionFailure {}
 pub type ExecutionResult = std::result::Result<ExecutionReport, ExecutionFailure>;
+
+/// Ephemeral runtime input. The carrier belongs to the current execution span;
+/// it does not modify the durable request or its immutable CloudEvent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeInvocation {
+    pub event: CloudEvent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_context: Option<crate::TraceContext>,
+}
+impl From<CloudEvent> for RuntimeInvocation {
+    fn from(event: CloudEvent) -> Self {
+        Self {
+            event,
+            processing_context: None,
+        }
+    }
+}

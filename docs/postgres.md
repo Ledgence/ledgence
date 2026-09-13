@@ -2,7 +2,7 @@
 
 Ledgence provides a Rust application service and an initial PostgreSQL 18 storage adapter. Together they implement durable single-task submission, acquisition, lease renewal, settlement, cancellation, history, and expiry recovery. They call the existing lifecycle core inside database transactions and return mutation success only after commit.
 
-The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. Long polling, OpenTelemetry export, and retention deletion remain later work. These tests do not establish exactly-once external business effects or database failover guarantees.
+The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. Long polling and retention deletion remain later work; [optional OpenTelemetry traces](observability.md) are available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
 ## Using the adapter
 

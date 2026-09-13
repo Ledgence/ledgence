@@ -106,3 +106,23 @@ For `httpdate` and `mime`, these files retain the MIT alternative. Both licenses
 Axum `0.8.9` disables defaults and enables only `http1` and `tokio`. The `ledgence-adapter-http` server feature activates Axum and `http-body-util 0.1.5` (already present in the dependency graph). Its client feature activates the existing `reqwest 0.13.4`, with defaults disabled and `rustls`; it reuses the reviewed TLS stack. No new TLS implementation, hosted service, or gRPC dependency is introduced. The adapter's empty default features require neither HTTP side. The public `TaskService` interface remains independent of Axum, reqwest, and SQLx types.
 
 `tools/check-http-features.py` inspects each selected production/build tree and runs Clippy with warnings denied for no features, client only, and server only. Client-only trees reject Axum; server-only trees reject reqwest and TLS implementations; every selection rejects SQLx. This complements the full all-feature dependency-policy scan and crate-boundary check rather than replacing either one. Development tests may intentionally compose both HTTP sides and PostgreSQL. Orchestrator nonblocking logging reuses the existing `nix` version and features; it introduces no new package version or license exception.
+
+## Optional Rust telemetry adapter
+
+`ledgence-adapter-otel` confines the OpenTelemetry API/SDK, tracing bridge, and OTLP HTTP/protobuf exporter. Platform executables select the adapter through the `otel` feature. It is enabled in ordinary builds; `--no-default-features` preserves the tracing-disabled build. Runtime export remains off unless an explicit traces endpoint is configured. No provider or exporter SDK type appears in portable execution or orchestration DTOs.
+
+All direct telemetry dependencies disable their default features: `opentelemetry =0.32.0` (`trace`), `opentelemetry_sdk =0.32.1` (`trace`), `tracing-opentelemetry =0.33.0` (no features), and `opentelemetry-otlp =0.32.0` (`trace,http-proto,reqwest-blocking-client,internal-logs`). The adapter reuses `reqwest =0.13.4` with `blocking,rustls`. Its bounded HTTP client also uses the already selected `opentelemetry-http =0.32.0` and `async-trait =0.1.92`. The ordinary SDK batch processor owns the blocking export thread; no experimental async processor, retry feature, tonic transport, logs exporter, or metrics provider is configured. Upstream `http-proto` activates generated metric message types internally; this is not metric export. `prost =0.14.4` and `opentelemetry-proto =0.32.0` decode bounded collector acknowledgements and actual OTLP requests in the capture fixture. [OTLP manifest](https://docs.rs/crate/opentelemetry-otlp/0.32.0/source/Cargo.toml), [SDK batch processor](https://docs.rs/crate/opentelemetry_sdk/0.32.1/source/src/trace/span_processor.rs).
+
+The resolved graph adds 23 package versions. All have retained legal material listed, with source and SHA256, in [the notice inventory](../legal/third-party/observability-notice-inventory.json). OpenTelemetry crates that omit a standalone root license in the published archive use the license from the exact upstream revision in their published `.cargo_vcs_info.json`. This incremental inventory does not replace release-specific inventory of native, toolchain, and image contents.
+
+| Packages | Selected permissive license |
+| --- | --- |
+| anyhow 1.0.104; async-trait 0.1.92; futures-macro 0.3.34; getrandom 0.3.4; itertools 0.14.0 | MIT or Apache-2.0 |
+| opentelemetry, opentelemetry-http, opentelemetry-otlp, opentelemetry-proto 0.32.0; opentelemetry_sdk 0.32.1 | Apache-2.0 |
+| portable-atomic 1.15.0; ppv-lite86 0.2.21 | MIT or Apache-2.0 |
+| prost, prost-derive 0.14.4 | Apache-2.0 |
+| r-efi 5.3.0; rand 0.9.5; rand_chacha 0.9.0; rand_core 0.9.5 | MIT or Apache-2.0 |
+| tracing-opentelemetry 0.33.0 | MIT |
+| wasip2 1.0.4+wasi-0.2.12; wit-bindgen 0.57.1; zerocopy 0.8.57; zerocopy-derive 0.8.57 | MIT or Apache-2.0 |
+
+The additional alternatives in some declared OR expressions do not require selecting LGPL, BSD-2-Clause, or Apache's LLVM exception. Retain the chosen license and applicable notices. These components remain third-party code under their respective terms; they are not relicensed to MIT. No general allowlist or license exception is broadened by this feature. Rust OpenTelemetry is Beta upstream; the versions are pinned behind the adapter and upgrades require renewed compatibility and dependency review. [Rust status](https://opentelemetry.io/docs/languages/rust/).

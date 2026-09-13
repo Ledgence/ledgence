@@ -14,9 +14,13 @@ impl Application {
         F: Future<Output = Result<(), String>>,
     {
         let (finished, observed) = oneshot::channel();
+        let subscriber = tracing::dispatcher::get_default(Clone::clone);
+        let span = tracing::Span::current();
         let thread = thread::Builder::new()
             .name("ledgence-orchestrator-application".into())
             .spawn(move || {
+                let _subscriber = tracing::dispatcher::set_default(&subscriber);
+                let _span = span.enter();
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()

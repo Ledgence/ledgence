@@ -7,7 +7,12 @@ license.workspace = true
 repository.workspace = true
 description = "Ledgence worker executable and composition"
 
+[features]
+default = ["otel"]
+otel = ["dep:ledgence-adapter-otel"]
+
 [dependencies]
+ledgence-adapter-otel = { workspace = true, optional = true }
 ledgence-worker-api.workspace = true
 ledgence-worker-core.workspace = true
 ledgence-adapter-artifact.workspace = true

@@ -10,8 +10,9 @@ mod storage;
 mod transaction;
 
 use ledgence_orchestration_api::*;
+use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::{future::Future, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 use transaction::TransactionConnection;
 
 /// Versioned embedded migrations. Running them is an explicit deployment action.
@@ -40,6 +41,7 @@ impl Default for PostgresOptions {
 pub struct PostgresStore {
     pool: PgPool,
     operation_timeout: Duration,
+    trace_bridge: Arc<dyn TraceBridge>,
 }
 impl PostgresStore {
     /// Connect without changing the schema. A fresh database needs `migrate`.
@@ -80,7 +82,15 @@ impl PostgresStore {
         Ok(Self {
             pool,
             operation_timeout: options.operation_timeout,
+            trace_bridge: Arc::new(NoopTraceBridge),
         })
+    }
+
+    /// Instrument genuinely new invocation allocations. Durable replays retain
+    /// their original event context and do not create another producer span.
+    pub fn with_trace_bridge(mut self, bridge: Arc<dyn TraceBridge>) -> Self {
+        self.trace_bridge = bridge;
+        self
     }
 
     /// Apply checksum-verified migrations under SQLx's migration lock.
@@ -269,3 +279,6 @@ mod tests;
 mod transaction_db_tests;
 #[cfg(test)]
 mod worker_delivery_tests;
+
+#[cfg(test)]
+mod observability_db_tests;

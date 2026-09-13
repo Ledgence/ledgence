@@ -55,12 +55,16 @@ async fn respond(socket: &mut TcpStream, status: &str, body: &str) {
 }
 
 fn diagnostic(output: &Output) -> Value {
-    serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
-        panic!(
-            "invalid stderr JSON: {error}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-    })
+    let records: Vec<Value> = output
+        .stderr
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).expect("each stderr record is complete JSON"))
+        .collect();
+    records
+        .into_iter()
+        .find(|record| record.get("request_id").is_some() || record.get("error").is_some())
+        .expect("operator diagnostic is separate from optional tracing logs")
 }
 
 #[tokio::test]

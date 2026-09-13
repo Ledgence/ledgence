@@ -14,11 +14,11 @@ import inspect
 import json
 import math
 import os
+import re
 from pathlib import Path
 import traceback
 
 
-PROTOCOL_VERSION = 1
 # Keep the portable wire profile in step with ledgence_worker_api's validator.
 MAX_WIRE_VALUE_DEPTH = 64
 # Match ledgence_worker_api.DEFAULT_RUNTIME_FRAME_MAX_BYTES. The Rust adapter
@@ -165,11 +165,12 @@ def _text(value, field):
     return value
 
 
-def _invoke(handler, event, event_id, attempt_id, limit):
+def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None):
     from ledgence_worker import InvocationContext, _invocation
+    from ledgence_worker.otel import _activate
 
     envelope = {
-        "v": PROTOCOL_VERSION,
+        "v": version,
         "type": "result",
         "event_id": event_id,
         "attempt_id": attempt_id,
@@ -177,7 +178,20 @@ def _invoke(handler, event, event_id, attempt_id, limit):
     # A protocol with separate input/output limits may accept identities too large
     # for even an empty failure result. Reject that before running application code.
     _failure(envelope, "invalid_output", "", limit)
-    token = _invocation.set(InvocationContext(event_id, attempt_id))
+    token = _invocation.set(InvocationContext(
+        event_id, attempt_id, source=event.get("source"),
+        tenant_id=event.get("ldgtenantid"), namespace=event.get("ldgnamespace"),
+        run_id=event.get("ldgrunid"), task_id=event.get("ldgtaskid"),
+        attempt_no=event.get("ldgattemptno"), processing_context=processing_context,
+    ))
+    try:
+        with _activate(processing_context):
+            return _invoke_output(handler, event, envelope, limit)
+    finally:
+        _invocation.reset(token)
+
+
+def _invoke_output(handler, event, envelope, limit):
     try:
         output = handler(event)
         try:
@@ -194,8 +208,40 @@ def _invoke(handler, event, event_id, attempt_id, limit):
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
         return _failure(envelope, "business_error", exc, limit)
-    finally:
-        _invocation.reset(token)
+
+
+def _processing_context(value):
+    from ledgence_worker import TraceContext
+
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - {"traceparent", "tracestate"}:
+        raise ProtocolError("invalid processing context")
+    trace = value.get("traceparent")
+    if (not isinstance(trace, str)
+            or not re.fullmatch(r"00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}", trace)
+            or trace[3:35] == "0" * 32 or trace[36:52] == "0" * 16):
+        raise ProtocolError("invalid processing traceparent")
+    state = value.get("tracestate")
+    if state is not None:
+        if not isinstance(state, str) or len(state) > 512 or not state.isascii():
+            raise ProtocolError("invalid processing tracestate")
+        members = state.split(",")
+        keys = set()
+        if len(members) > 32:
+            raise ProtocolError("invalid processing tracestate")
+        for member in members:
+            member = member.strip(" ")
+            if not member:
+                continue
+            key, equal, item = member.partition("=")
+            if (not equal or not item or len(item) > 256 or key in keys
+                    or not re.fullmatch(
+                        r"(?:[a-z][a-z0-9_*/-]{0,255}|[a-z0-9][a-z0-9_*/-]{0,240}@[a-z][a-z0-9_*/-]{0,13})", key)
+                    or any(not 0x20 <= ord(char) <= 0x7e or char in ",=" for char in item)):
+                raise ProtocolError("invalid processing tracestate")
+            keys.add(key)
+    return TraceContext(trace, state)
 
 
 def main():
@@ -209,6 +255,7 @@ def main():
     parser.add_argument("--package-root", required=True)
     parser.add_argument("--handler", required=True)
     parser.add_argument("--python-version", required=True)
+    parser.add_argument("--protocol-version", type=int, choices=(1, 2), default=1)
     parser.add_argument("--max-input-bytes", type=int, default=DEFAULT_RUNTIME_FRAME_MAX_BYTES)
     parser.add_argument("--max-output-bytes", type=int, default=DEFAULT_RUNTIME_FRAME_MAX_BYTES)
     args = parser.parse_args()
@@ -235,16 +282,26 @@ def main():
     # -I -S omits implicit project/site imports. Load the helper first, then add
     # the exact prepared artifact root for application code and vendored deps.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    import ledgence_worker  # noqa: F401
+    import ledgence_worker
+
+    writer = None
+    if args.protocol_version == 2:
+        from ledgence_worker._protocol import ProtocolWriter
+        from ledgence_worker import _logging
+
+        writer = ProtocolWriter(protocol, args.max_output_bytes)
+        _logging._sink = writer
+
+    def write(value, closing=False):
+        if writer is None:
+            _write(protocol, value, args.max_output_bytes)
+        else:
+            writer.control(_encode(value, args.max_output_bytes), closing=closing)
 
     sys.path.insert(0, str(root))
     handler = _load_handler(root, module_name, function_name)
-    _write(
-        protocol,
-        {"v": PROTOCOL_VERSION, "type": "ready", "pid": os.getpid(),
-         "python_version": actual_version},
-        args.max_output_bytes,
-    )
+    write({"v": args.protocol_version, "type": "ready", "pid": os.getpid(),
+           "python_version": actual_version})
     while True:
         line = sys.stdin.buffer.readline(args.max_input_bytes + 1)
         if not line:
@@ -252,12 +309,14 @@ def main():
         if len(line) > args.max_input_bytes or not line.endswith(b"\n"):
             raise ProtocolError("protocol input exceeds limit or has no newline")
         message = json.loads(line, parse_constant=_reject_constant)
-        if not isinstance(message, dict) or message.get("v") != PROTOCOL_VERSION:
+        if not isinstance(message, dict) or message.get("v") != args.protocol_version:
             raise ProtocolError("invalid protocol version or envelope")
         if message.get("type") == "shutdown":
             # Acknowledge while still alive. The parent owns group termination
             # and reaping; exiting here would race Darwin's zombie-only killpg.
-            _write(protocol, {"v": PROTOCOL_VERSION, "type": "closing"}, args.max_output_bytes)
+            if args.protocol_version == 2:
+                ledgence_worker._shutdown()
+            write({"v": args.protocol_version, "type": "closing"}, closing=True)
             # EOF also permits exit if the parent disappears before signaling.
             while sys.stdin.buffer.read(4096):
                 pass
@@ -270,12 +329,18 @@ def main():
         if (not isinstance(event, dict) or event.get("id") != event_id
                 or event.get("ldgattemptid") != attempt_id):
             raise ProtocolError("invocation event identity does not match event")
+        processing = None
+        if args.protocol_version == 2:
+            if "processing_context" not in message:
+                raise ProtocolError("v2 invocation requires processing_context (null when disabled)")
+            processing = _processing_context(message["processing_context"])
         # A fresh Context prevents contextvars set by an earlier invocation
         # leaking into the next one in this persistent process.
         response = contextvars.Context().run(
-            _invoke, handler, event, event_id, attempt_id, args.max_output_bytes
+            _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
+            args.protocol_version, processing
         )
-        _write(protocol, response, args.max_output_bytes)
+        write(response)
 
 
 if __name__ == "__main__":

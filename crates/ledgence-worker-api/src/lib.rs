@@ -3,9 +3,12 @@
 //! This first milestone models preparation and reusable execution. It does not
 //! implement distributed attempt leases or durable orchestration settlement.
 
+mod trace;
+pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;
 pub use execution::{
     ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult, Phase,
+    RuntimeInvocation,
 };
 mod invocation;
 mod json;
@@ -174,7 +177,10 @@ pub struct ProgramManifest {
 impl ProgramManifest {
     pub fn validate(&self) -> Result<()> {
         self.program.validate()?;
-        if self.schema_version != 1 || self.runtime.kind != "python" || self.runtime.protocol != 1 {
+        if self.schema_version != 1
+            || self.runtime.kind != "python"
+            || !matches!(self.runtime.protocol, 1 | 2)
+        {
             return Err(Error::new(
                 ErrorKind::Incompatible,
                 "unsupported manifest, runtime, or protocol version",
@@ -685,7 +691,7 @@ pub trait ExecutionSession: Send {
     /// so `close` can still confirm cleanup. Adapter panics close worker admission.
     fn execute<'a>(
         &'a mut self,
-        event: CloudEvent,
+        invocation: RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome>;
     /// Resolves successfully only once the process group is stopped and child reaped.
