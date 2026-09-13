@@ -10,6 +10,7 @@ def violations(graph):
     """Check manifest declarations, including renamed and target dependencies."""
     allowed = {
         "ledgence-worker-api": set(),
+        "ledgence-adapter-otel": {"ledgence-worker-api"},
         "ledgence-orchestration-api": {"ledgence-worker-api"},
         "ledgence-orchestration-core": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestration-service": {
@@ -27,11 +28,13 @@ def violations(graph):
         "ledgence-adapter-subprocess": {"ledgence-worker-api"},
         "ledgence-adapter-http": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestrator": {
+            "ledgence-adapter-otel",
             "ledgence-adapter-http", "ledgence-adapter-artifact", "ledgence-adapter-postgres",
             "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
         },
-        "ledgence-cli": {"ledgence-adapter-http", "ledgence-orchestration-api", "ledgence-worker-api"},
+        "ledgence-cli": {"ledgence-adapter-otel","ledgence-adapter-http", "ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-worker": {
+            "ledgence-adapter-otel",
             "ledgence-worker-api", "ledgence-worker-core",
             "ledgence-adapter-artifact", "ledgence-adapter-subprocess",
             "ledgence-adapter-http", "ledgence-worker-delivery", "ledgence-orchestration-api",
@@ -58,6 +61,8 @@ def violations(graph):
                     }
                     if dependency["uses_default_features"] or set(dependency["features"]) - allowed_features:
                         errors.append(f"{name}: SQLx must use only the reviewed PostgreSQL features")
+            if (target.startswith("opentelemetry") or target == "tracing-opentelemetry") and name != "ledgence-adapter-otel" and dependency["kind"] != "dev":
+                errors.append(f"{name}: OpenTelemetry SDK dependencies belong only in ledgence-adapter-otel")
             if dependency["kind"] == "dev":
                 continue
             if target in packages and target not in allowed[name]:

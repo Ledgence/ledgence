@@ -8,7 +8,7 @@ use crate::tests::{TestDb, acquire_command, assignment, command, completed, desc
 use ledgence_adapter_http::{HttpTaskService, server::router};
 use ledgence_orchestration_service::ApplicationService;
 use ledgence_worker_api::{
-    self as worker_api, ArtifactCache, CloudEvent, Digest, Error, ErrorKind, ExecutionContext,
+    self as worker_api, ArtifactCache, Digest, Error, ErrorKind, ExecutionContext,
     ExecutionFailure, ExecutionRuntime, ExecutionSession, InvocationIdentity, Phase, Platform,
     PortFuture, PreparedArtifact, ProgramDescriptor, ProgramManifest, ProgramOutcome, ProgramRef,
     ProgramStore, PythonRuntime, RunControl, StartOutcome,
@@ -184,9 +184,10 @@ impl ExecutionSession for Session {
 
     fn execute<'a>(
         &'a mut self,
-        event: CloudEvent,
+        invocation: ledgence_worker_api::RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome> {
+        let event = invocation.event;
         Box::pin(async move {
             control.check()?;
             assert_eq!(self.artifact.manifest().program, descriptor().program);

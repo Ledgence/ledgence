@@ -1,5 +1,6 @@
 use crate::{persistence as db, *};
 use ledgence_orchestration_core as core;
+use tracing::Instrument;
 
 impl PostgresStore {
     pub(crate) async fn acquire_once(&self, command: &AcquireCommand) -> StoreResult<AcquireReply> {
@@ -61,7 +62,7 @@ impl PostgresStore {
             *old_attempt =
                 db::load_attempt(&mut tx, candidate, &old_attempt.lease.owner.attempt_id).await?;
         }
-        let ids = if let Some(candidate) = &candidate {
+        let mut ids = if let Some(candidate) = &candidate {
             Some(core::AttemptIds {
                 attempt_id: db::id(&mut tx, "att").await?,
                 lease_id: db::id(&mut tx, "lease").await?,
@@ -71,38 +72,78 @@ impl PostgresStore {
         } else {
             None
         };
-        let transition = core::acquire(
-            core::Acquisition {
-                session: Some(&session),
-                cursor: cursor.as_ref(),
-                previous: previous.as_ref().map(|(t, a)| (t, a)),
-                candidate: candidate.as_ref(),
-                ids: ids.as_ref(),
-            },
-            command,
-            db::now(&mut tx).await?,
-        )?;
-        if let Some(changes) = &transition.changes {
-            let attempt = changes.attempt.as_ref().ok_or_else(|| {
-                ContractError::Unavailable("claim transition omitted its attempt".into())
-            })?;
-            db::insert_attempt(&mut tx, attempt).await?;
-            db::apply(&mut tx, changes).await?;
+        // This point is reached only after the durable response replay check.
+        // Parent/link must be supplied before asking the bridge for a context:
+        // materialization can run the sampler, including for nonrecording spans.
+        let producer = candidate.as_ref().zip(ids.as_mut()).map(|(task, ids)| {
+            let transport = self.trace_bridge.context(&tracing::Span::current());
+            let span = invocation_span(task, command, ids);
+            self.trace_bridge
+                .set_parent(&span, task.origin_trace.as_ref());
+            if let Some(transport) = &transport {
+                self.trace_bridge.add_link(&span, transport);
+            }
+            ids.trace = self
+                .trace_bridge
+                .context(&span)
+                .or_else(|| task.origin_trace.clone());
+            span
+        });
+        let operation_span = producer.clone().unwrap_or_else(tracing::Span::none);
+        async {
+            let transition = core::acquire(
+                core::Acquisition {
+                    session: Some(&session),
+                    cursor: cursor.as_ref(),
+                    previous: previous.as_ref().map(|(t, a)| (t, a)),
+                    candidate: candidate.as_ref(),
+                    ids: ids.as_ref(),
+                },
+                command,
+                db::now(&mut tx).await?,
+            )?;
+            if let Some(changes) = &transition.changes {
+                let attempt = changes.attempt.as_ref().ok_or_else(|| {
+                    ContractError::Unavailable("claim transition omitted its attempt".into())
+                })?;
+                db::insert_attempt(&mut tx, attempt).await?;
+                db::apply(&mut tx, changes).await?;
+            }
+            let sequence = command.sequence.to_string();
+            let task = transition
+                .cursor
+                .assignment
+                .as_ref()
+                .map(|a| a.task_id.as_str());
+            let attempt = transition
+                .cursor
+                .assignment
+                .as_ref()
+                .map(|a| a.attempt_id.as_str());
+            sqlx::query!("UPDATE consumer_cursors SET sequence=($3::text)::ldg_u64,task_id=$4,attempt_id=$5 WHERE session_id=$1 AND consumer_id=$2",session.id,consumer,sequence,task,attempt).execute(&mut *tx).await?;
+            if let Some(span) = &producer {
+                // If cancellation or transport failure interrupts COMMIT, retain an
+                // uncertain outcome instead of claiming publication or rollback.
+                span.record("ledgence.publication.outcome", "commit_unconfirmed");
+            }
+            let committed = tx.commit().await;
+            if let Some(span) = &producer {
+                match &committed {
+                    Ok(()) => {
+                        span.record("ledgence.publication.outcome", "committed");
+                        span.record("otel.status_code", "OK");
+                    }
+                    Err(error) if error.as_database_error().and_then(|error| error.code()).as_deref().is_some_and(known_commit_rollback) => {
+                        span.record("ledgence.publication.outcome", "rolled_back");
+                    }
+                    Err(_) => {}
+                }
+            }
+            committed?;
+            Ok(transition.reply)
         }
-        let sequence = command.sequence.to_string();
-        let task = transition
-            .cursor
-            .assignment
-            .as_ref()
-            .map(|a| a.task_id.as_str());
-        let attempt = transition
-            .cursor
-            .assignment
-            .as_ref()
-            .map(|a| a.attempt_id.as_str());
-        sqlx::query!("UPDATE consumer_cursors SET sequence=($3::text)::ldg_u64,task_id=$4,attempt_id=$5 WHERE session_id=$1 AND consumer_id=$2",session.id,consumer,sequence,task,attempt).execute(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(transition.reply)
+        .instrument(operation_span)
+        .await
     }
 
     pub(crate) async fn renew_once(&self, command: &RenewCommand) -> StoreResult<Authority> {
@@ -191,12 +232,68 @@ impl PostgresStore {
             db::apply(&mut tx, &transition).await?;
         }
         tx.commit().await?;
+        if transition.reply {
+            tracing::info!(
+                ledgence.tenant.id = task.input.tenant_id,
+                ledgence.namespace = task.input.namespace,
+                ledgence.task.id = task.task_id,
+                ledgence.run.id = task.run_id,
+                ledgence.attempt.id = id,
+                "recovery committed attempt expiry"
+            );
+        }
         Ok(transition.reply)
     }
 }
+
+// SQLSTATE 40003 explicitly means completion is unknown. Connection loss,
+// shutdown, and unfamiliar failures also retain uncertainty; only recognized
+// transaction rollback and deferred-constraint rejections establish rollback.
+fn known_commit_rollback(code: &str) -> bool {
+    matches!(code, "40000" | "40001" | "40002" | "40P01") || code.starts_with("23")
+}
+
+fn invocation_span(
+    task: &TaskSnapshot,
+    command: &AcquireCommand,
+    ids: &core::AttemptIds,
+) -> tracing::Span {
+    tracing::info_span!(
+        parent: None,
+        "ledgence.invocation.create",
+        otel.kind = "producer",
+        ledgence.tenant.id = task.input.tenant_id,
+        ledgence.namespace = task.input.namespace,
+        ledgence.run.id = task.run_id,
+        ledgence.task.id = task.task_id,
+        ledgence.attempt.id = ids.attempt_id,
+        ledgence.attempt.number = i64::from(task.attempt_count.saturating_add(1)),
+        ledgence.worker.session.id = command.worker_session_id,
+        ledgence.consumer.id = i64::from(command.consumer_id),
+        ledgence.program.id = task.descriptor.program.id,
+        ledgence.program.version = task.descriptor.program.version,
+        ledgence.program.digest = task.descriptor.digest.0,
+        ledgence.business.correlation_key = task.input.correlation_key.as_deref(),
+        cloudevents.event_id = ids.event_id,
+        cloudevents.event_source = "urn:ledgence:orchestrator",
+        cloudevents.event_spec_version = "1.0",
+        cloudevents.event_type = "com.ledgence.task.invocation.requested.v1",
+        ledgence.publication.outcome = "not_committed",
+        otel.status_code = "ERROR",
+    )
+}
+
 impl RecoveryStore for PostgresStore {
     fn expire_batch(&self, limit: u32) -> ContractFuture<'_, RecoveryProgress> {
         Box::pin(async move {
+            let span = tracing::info_span!(
+                parent: None,
+                "ledgence.recovery.scan",
+                otel.kind = "internal",
+                ledgence.recovery.examined = tracing::field::Empty,
+                ledgence.recovery.expired = tracing::field::Empty,
+                otel.status_code = tracing::field::Empty,
+            );
             let work = async {
                 if !(1..=MAX_RECOVERY_BATCH).contains(&limit) {
                     return Err(ContractError::InvalidInput(
@@ -226,13 +323,39 @@ impl RecoveryStore for PostgresStore {
                 }
                 Ok(progress)
             };
-            tokio::time::timeout(self.operation_timeout, work)
-                .await
-                .unwrap_or_else(|_| {
-                    Err(ContractError::Unavailable(
-                        "expiry batch timed out; committed progress remains durable".into(),
-                    ))
-                })
+            let result =
+                tokio::time::timeout(self.operation_timeout, work.instrument(span.clone()))
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(ContractError::Unavailable(
+                            "expiry batch timed out; committed progress remains durable".into(),
+                        ))
+                    });
+            match &result {
+                Ok(progress) => {
+                    span.record("ledgence.recovery.examined", i64::from(progress.examined));
+                    span.record("ledgence.recovery.expired", i64::from(progress.expired));
+                }
+                Err(_) => {
+                    span.record("otel.status_code", "ERROR");
+                }
+            }
+            result
         })
+    }
+}
+
+#[cfg(test)]
+mod trace_outcome_tests {
+    use super::known_commit_rollback;
+
+    #[test]
+    fn ambiguous_server_errors_do_not_claim_rollback() {
+        for code in ["40003", "08007", "08006", "57P01", "58030", "XX000"] {
+            assert!(!known_commit_rollback(code), "{code}");
+        }
+        for code in ["40001", "40P01", "23503", "23505", "23514"] {
+            assert!(known_commit_rollback(code), "{code}");
+        }
     }
 }

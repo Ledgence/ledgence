@@ -229,7 +229,10 @@ async fn maximum_submission_with_escaped_metadata_executes_and_settles_with_defa
 
     let mut session = ready(runtime.start(artifact, control()).await);
     let result = session
-        .execute(event.clone(), RunControl::new(Duration::from_secs(30)))
+        .execute(
+            event.clone().into(),
+            RunControl::new(Duration::from_secs(30)),
+        )
         .await;
     session.close().await.unwrap();
     let outcome = result.expect("the complete accepted input must fit the default runtime");
@@ -263,7 +266,10 @@ def handle(event):
         let claimed = claim(&artifact, json!(extra_byte), extra_byte * 16);
         let event = &claimed.assignment.event;
         let outcome = session
-            .execute(event.clone(), RunControl::new(Duration::from_secs(30)))
+            .execute(
+                event.clone().into(),
+                RunControl::new(Duration::from_secs(30)),
+            )
             .await
             .unwrap();
         if extra_byte == 0 {

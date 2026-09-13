@@ -10,7 +10,7 @@ use crate::{
 };
 use ledgence_adapter_http::HttpTaskService;
 use ledgence_orchestration_api::{ContractError, Scope, validate_text};
-use ledgence_worker_api::{Error, ErrorKind, Result};
+use ledgence_worker_api::{Error, ErrorKind, Result, TraceBridge};
 use ledgence_worker_delivery::{DeliveryConfig, DeliveryDriver, DeliveryHandle};
 use serde_json::json;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
@@ -56,8 +56,13 @@ pub async fn run(
     output: &Sink,
     signals: &mut ShutdownSignals,
     interrupted: &mut bool,
+    trace: Arc<dyn TraceBridge>,
 ) -> Result<()> {
-    let client = Arc::new(HttpTaskService::new(&config.server).map_err(contract_error)?);
+    let client = Arc::new(
+        HttpTaskService::new(&config.server)
+            .map_err(contract_error)?
+            .with_trace_bridge(trace.clone()),
+    );
     let delivery_config = DeliveryConfig::new(config.scope, config.queue);
     // Retain blocking disk preparation while still observing both signals.
     let mut preparation = tokio::task::spawn_blocking(move || {
@@ -78,6 +83,7 @@ pub async fn run(
             }
         }
     };
+    let worker = worker.with_trace_bridge(trace);
     if *interrupted {
         finish_shutdown(&worker, signals, interrupted).await?;
         return Err(Error::new(

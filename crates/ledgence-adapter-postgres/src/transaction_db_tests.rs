@@ -20,16 +20,42 @@ use tokio::{
     task::JoinSet,
 };
 
-struct BeginReplyGate {
-    address: std::net::SocketAddr,
-    armed: Arc<AtomicBool>,
-    reached: oneshot::Receiver<()>,
-    release: Arc<Notify>,
+pub(crate) struct BeginReplyGate {
+    pub(crate) address: std::net::SocketAddr,
+    pub(crate) armed: Arc<AtomicBool>,
+    pub(crate) reached: oneshot::Receiver<()>,
+    pub(crate) release: Arc<Notify>,
     task: tokio::task::JoinHandle<()>,
+}
+
+#[derive(Clone, Copy)]
+enum Boundary {
+    Begin,
+    Commit,
+}
+impl Boundary {
+    fn statement(self) -> &'static [u8] {
+        match self {
+            Self::Begin => b"BEGIN",
+            Self::Commit => b"COMMIT",
+        }
+    }
+    fn status(self) -> u8 {
+        match self {
+            Self::Begin => b'T',
+            Self::Commit => b'I',
+        }
+    }
 }
 
 impl BeginReplyGate {
     async fn new(target_host: String, target_port: u16) -> Self {
+        Self::at_boundary(target_host, target_port, Boundary::Begin).await
+    }
+    pub(crate) async fn at_commit(target_host: String, target_port: u16) -> Self {
+        Self::at_boundary(target_host, target_port, Boundary::Commit).await
+    }
+    async fn at_boundary(target_host: String, target_port: u16, boundary: Boundary) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let armed = Arc::new(AtomicBool::new(false));
@@ -49,7 +75,7 @@ impl BeginReplyGate {
                         connections.spawn(forward_connection(
                             client, target_host.clone(), target_port,
                             frontend_armed.clone(), backend_release.clone(),
-                            reached_send.clone(),
+                            reached_send.clone(), boundary,
                         ));
                     }
                     Some(result) = connections.join_next() => {
@@ -88,6 +114,7 @@ async fn forward_connection(
     armed: Arc<AtomicBool>,
     release: Arc<Notify>,
     reached: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    boundary: Boundary,
 ) -> io::Result<()> {
     let mut server = TcpStream::connect((target_host.as_str(), target_port)).await?;
     client.set_nodelay(true)?;
@@ -107,8 +134,8 @@ async fn forward_connection(
     let pending = Arc::new(AtomicBool::new(false));
     // Either side closing ends both halves, including a withheld BEGIN reply.
     tokio::select! {
-        result = forward_frontend(client_read, server_write, armed, pending.clone()) => result,
-        result = forward_backend(server_read, client_write, pending, release, reached) => result,
+        result = forward_frontend(client_read, server_write, armed, pending.clone(), boundary) => result,
+        result = forward_backend(server_read, client_write, pending, release, reached, boundary) => result,
     }
 }
 
@@ -140,10 +167,14 @@ async fn forward_frontend(
     mut writer: impl AsyncWrite + Unpin,
     armed: Arc<AtomicBool>,
     pending: Arc<AtomicBool>,
+    boundary: Boundary,
 ) -> io::Result<()> {
     loop {
         let (kind, payload) = frame(&mut reader).await?;
-        if kind == b'Q' && payload.starts_with(b"BEGIN") && armed.swap(false, Ordering::SeqCst) {
+        if kind == b'Q'
+            && payload.starts_with(boundary.statement())
+            && armed.swap(false, Ordering::SeqCst)
+        {
             pending.store(true, Ordering::SeqCst);
         }
         write_frame(&mut writer, kind, &payload).await?;
@@ -156,11 +187,16 @@ async fn forward_backend(
     pending: Arc<AtomicBool>,
     release: Arc<Notify>,
     reached: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    boundary: Boundary,
 ) -> io::Result<()> {
     loop {
         let (kind, payload) = frame(&mut reader).await?;
         if kind == b'Z' && pending.swap(false, Ordering::SeqCst) {
-            assert_eq!(payload, b"T", "the backend must have entered a transaction");
+            assert_eq!(
+                payload,
+                [boundary.status()],
+                "the backend must have crossed the requested transaction boundary"
+            );
             let _ = reached.lock().unwrap().take().unwrap().send(());
             release.notified().await;
         }

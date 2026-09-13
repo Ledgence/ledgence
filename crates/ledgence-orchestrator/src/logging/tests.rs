@@ -17,10 +17,9 @@ fn signal_child() {
     };
     let marker = PathBuf::from(marker);
     let mut logs = Logs::stderr().unwrap();
-    tracing_subscriber::fmt()
-        .with_writer(logs.sink.clone())
-        .json()
-        .init();
+    let telemetry =
+        crate::telemetry::Telemetry::start("ledgence-orchestrator", logs.sink.clone()).unwrap();
+    let trace = telemetry.bridge();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -36,8 +35,9 @@ fn signal_child() {
             std::fs::write(marker, b"logging remains responsive").unwrap();
         });
         with_signals(
-            |stopped| crate::dispatch(Command::Migrate, stopped),
+            move |stopped| crate::dispatch(Command::Migrate, stopped, trace),
             &mut logs,
+            telemetry,
         )
         .await
     });
@@ -65,13 +65,22 @@ async fn unread_stderr_does_not_block_service_signals_or_force_shutdown() {
         "postgresql://postgres@{}/ledgence?sslmode=disable",
         listener.local_addr().unwrap()
     );
-    let mut child = tokio::process::Command::new(std::env::current_exe().unwrap())
+    let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+    // This fixture must exercise actual log backpressure regardless of the
+    // developer's log filter or collector configuration.
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("OTEL_") {
+            command.env_remove(name);
+        }
+    }
+    let mut child = command
         .args([
             "--exact",
             "logging::tests::signal_child",
             "--nocapture",
             "--test-threads=1",
         ])
+        .env("RUST_LOG", "info")
         .env("LEDGENCE_LOG_TEST_MARKER", &marker)
         .env("DATABASE_URL", database)
         .stdout(Stdio::null())
@@ -106,7 +115,6 @@ async fn unread_stderr_does_not_block_service_signals_or_force_shutdown() {
         .await
         .expect("second signal must stay responsive with unread logs")
         .unwrap();
-    assert_eq!(status.code(), Some(42));
     let mut stderr = Vec::new();
     child
         .stderr
@@ -115,6 +123,12 @@ async fn unread_stderr_does_not_block_service_signals_or_force_shutdown() {
         .read_to_end(&mut stderr)
         .await
         .unwrap();
+    assert_eq!(
+        status.code(),
+        Some(42),
+        "child diagnostics: {}",
+        String::from_utf8_lossy(&stderr)
+    );
     assert!(!stderr.is_empty());
     assert!(
         stderr.len() < 2 * 1024 * 1024,

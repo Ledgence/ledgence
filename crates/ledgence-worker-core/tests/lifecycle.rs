@@ -169,9 +169,10 @@ impl ExecutionSession for Session {
     }
     fn execute<'a>(
         &'a mut self,
-        event: CloudEvent,
+        invocation: ledgence_worker_api::RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome> {
+        let event = invocation.event;
         Box::pin(async move {
             self.counts.executions.fetch_add(1, Ordering::SeqCst);
             if event.value()["data"]["hold_execution"] == true {
@@ -1489,4 +1490,300 @@ async fn completed_delivery_release_preserves_shared_control_for_running_peer() 
         assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
         assert!(counts.peak.load(Ordering::SeqCst) <= 2);
     }
+}
+
+// The bridge remembers one portable context per live tracing span, so assertions
+// compare span identity rather than depending on operation call order.
+#[derive(Clone, Debug)]
+struct RecordedTraceSpan {
+    name: &'static str,
+    fields: serde_json::Map<String, serde_json::Value>,
+    parent: Option<Option<TraceContext>>,
+    context: TraceContext,
+}
+#[derive(Default)]
+struct TraceProbeState {
+    next_span: u64,
+    live: HashMap<tracing::Id, RecordedTraceSpan>,
+    closed: Vec<RecordedTraceSpan>,
+}
+#[derive(Default)]
+struct TraceProbe(std::sync::Mutex<TraceProbeState>);
+impl TraceProbe {
+    fn closed(&self, name: &str) -> Vec<RecordedTraceSpan> {
+        self.0
+            .lock()
+            .unwrap()
+            .closed
+            .iter()
+            .filter(|span| span.name == name)
+            .cloned()
+            .collect()
+    }
+    fn attempt(&self, attempt_id: &str) -> RecordedTraceSpan {
+        self.closed("ledgence.attempt.process")
+            .into_iter()
+            .find(|span| span.fields["ledgence.attempt.id"] == attempt_id)
+            .expect("the attempt span must close")
+    }
+}
+impl TraceBridge for TraceProbe {
+    fn set_parent(&self, span: &tracing::Span, parent: Option<&TraceContext>) {
+        let Some(id) = span.id() else { return };
+        let mut state = self.0.lock().unwrap();
+        let recorded = state.live.get_mut(&id).expect("span must be registered");
+        recorded.parent = Some(parent.cloned());
+        if let Some(parent) = parent {
+            parent.validate().unwrap();
+            recorded.context.traceparent = format!(
+                "00-{}-{}-{}",
+                &parent.traceparent[3..35],
+                &recorded.context.traceparent[36..52],
+                &parent.traceparent[53..55],
+            );
+            recorded.context.tracestate = parent.tracestate.clone();
+        }
+    }
+    fn add_link(&self, _: &tracing::Span, _: &TraceContext) {}
+    fn context(&self, span: &tracing::Span) -> Option<TraceContext> {
+        let id = span.id()?;
+        self.0
+            .lock()
+            .unwrap()
+            .live
+            .get(&id)
+            .map(|span| span.context.clone())
+    }
+}
+struct TraceFields<'a>(&'a mut serde_json::Map<String, serde_json::Value>);
+impl tracing::field::Visit for TraceFields<'_> {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        self.0
+            .insert(field.name().into(), format!("{value:?}").into());
+    }
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        self.0.insert(field.name().into(), value.into());
+    }
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.0.insert(field.name().into(), value.into());
+    }
+}
+struct TraceCapture(Arc<TraceProbe>);
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for TraceCapture {
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        id: &tracing::Id,
+        _: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut state = self.0.0.lock().unwrap();
+        state.next_span += 1;
+        let sequence = state.next_span;
+        let mut fields = serde_json::Map::new();
+        attributes.record(&mut TraceFields(&mut fields));
+        state.live.insert(
+            id.clone(),
+            RecordedTraceSpan {
+                name: attributes.metadata().name(),
+                fields,
+                parent: None,
+                context: TraceContext {
+                    traceparent: format!("00-{sequence:032x}-{sequence:016x}-01"),
+                    tracestate: None,
+                },
+            },
+        );
+    }
+    fn on_record(
+        &self,
+        id: &tracing::Id,
+        values: &tracing::span::Record<'_>,
+        _: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if let Some(span) = self.0.0.lock().unwrap().live.get_mut(id) {
+            values.record(&mut TraceFields(&mut span.fields));
+        }
+    }
+    fn on_close(&self, id: tracing::Id, _: tracing_subscriber::layer::Context<'_, S>) {
+        let mut state = self.0.0.lock().unwrap();
+        let span = state.live.remove(&id).expect("span must be registered");
+        state.closed.push(span);
+    }
+}
+async fn with_trace_probe<F: std::future::Future<Output = ()>>(
+    test: impl FnOnce(Arc<TraceProbe>) -> F,
+) {
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::prelude::*;
+
+    // Keep tracing-core out of its one-subscriber fast path: other lifecycle
+    // tests run concurrently without this scoped subscriber.
+    let _second_dispatch = tracing::Dispatch::new(tracing_subscriber::registry());
+    let probe = Arc::new(TraceProbe::default());
+    let subscriber = tracing_subscriber::registry().with(TraceCapture(probe.clone()));
+    test(probe).with_subscriber(subscriber).await;
+}
+fn assert_failed_trace(span: &RecordedTraceSpan, kind: &str) {
+    assert_eq!(span.fields["otel.status_code"], "ERROR", "{span:?}");
+    assert_eq!(span.fields["error.type"], kind, "{span:?}");
+    assert!(
+        span.fields["ledgence.duration_ms"]
+            .as_i64()
+            .is_some_and(|duration| duration >= 0),
+        "operation must retain a numeric duration when it fails: {span:?}"
+    );
+}
+
+#[tokio::test]
+async fn startup_cleanup_required_is_an_error_and_shutdown_retries_keep_its_attempt_parent() {
+    with_trace_probe(|probe| async move {
+        let (worker, counts) = setup(1);
+        let worker = worker.with_trace_bridge(probe.clone());
+        counts.startup_cleanup_required.store(1, Ordering::SeqCst);
+        counts.close_failures.store(1, Ordering::SeqCst);
+        let failure = worker
+            .execute(request(1, 1, 0), control())
+            .await
+            .unwrap_err();
+        assert_eq!(failure.phase, Phase::Startup);
+        wait_for(|| probe.closed("ledgence.attempt.process").len() == 1).await;
+        let attempt = probe.attempt("att_1");
+        let starts = probe.closed("ledgence.runtime.start");
+        assert_eq!(starts.len(), 1);
+        assert_failed_trace(&starts[0], "Runtime");
+        assert_eq!(starts[0].parent, Some(Some(attempt.context.clone())));
+        assert!(probe.closed("ledgence.program.execute").is_empty());
+
+        // Shutdown owns a separate task after the original W span has closed.
+        assert_eq!(
+            worker
+                .shutdown(Duration::ZERO, Duration::from_secs(1))
+                .await
+                .unwrap_err()
+                .kind,
+            ErrorKind::Io
+        );
+        worker
+            .shutdown(Duration::ZERO, Duration::from_secs(1))
+            .await
+            .unwrap();
+        let cleanup = probe.closed("ledgence.attempt.cleanup");
+        assert_eq!(cleanup.len(), 2);
+        for span in &cleanup {
+            assert_eq!(span.parent, Some(Some(attempt.context.clone())));
+        }
+        assert_failed_trace(&cleanup[0], "Io");
+        assert_ne!(
+            cleanup[1].fields.get("otel.status_code"),
+            Some(&json!("ERROR"))
+        );
+        assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+        assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn failed_and_panicking_cleanup_keep_the_attempt_parent_during_shutdown_retry() {
+    for panic in [false, true] {
+        with_trace_probe(|probe| async move {
+            let (worker, counts) = setup(1);
+            let worker = worker.with_trace_bridge(probe.clone());
+            if panic {
+                counts.close_panics.store(1, Ordering::SeqCst);
+            } else {
+                counts.close_failures.store(1, Ordering::SeqCst);
+            }
+            let mut invocation = request(1, 1, 0);
+            let mut event = invocation.event.into_value();
+            event["data"]["crash"] = true.into();
+            invocation.event = CloudEvent::new(event).unwrap();
+            let failure = worker.execute(invocation, control()).await.unwrap_err();
+            assert_eq!(failure.phase, Phase::Execution);
+            assert_eq!(failure.error.message, "lost response");
+            assert!(failure.cleanup_error.is_some());
+            wait_for(|| probe.closed("ledgence.attempt.process").len() == 1).await;
+            let attempt = probe.attempt("att_1");
+            worker
+                .shutdown(Duration::ZERO, Duration::from_secs(1))
+                .await
+                .unwrap();
+            let cleanup = probe.closed("ledgence.attempt.cleanup");
+            assert_eq!(cleanup.len(), 2);
+            for span in &cleanup {
+                assert_eq!(span.parent, Some(Some(attempt.context.clone())));
+            }
+            assert_failed_trace(&cleanup[0], if panic { "Runtime" } else { "Io" });
+            assert_ne!(
+                cleanup[1].fields.get("otel.status_code"),
+                Some(&json!("ERROR"))
+            );
+            assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+            assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+        })
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn warm_eviction_uses_the_new_attempt_and_healthy_shutdown_forgets_previous_attempts() {
+    with_trace_probe(|probe| async move {
+        let (worker, counts) = setup(1);
+        let worker = worker.with_trace_bridge(probe.clone());
+        let first = worker.execute(request(1, 1, 0), control()).await.unwrap();
+        let second = worker.execute(request(2, 1, 0), control()).await.unwrap();
+        assert_eq!(first.process_id, second.process_id);
+        assert!(second.reused_process);
+        worker.execute(request(3, 2, 0), control()).await.unwrap();
+        wait_for(|| probe.closed("ledgence.attempt.process").len() == 3).await;
+        let third = probe.attempt("att_3");
+        let cleanup = probe.closed("ledgence.attempt.cleanup");
+        assert_eq!(cleanup.len(), 1);
+        assert_eq!(cleanup[0].parent, Some(Some(third.context)));
+        worker
+            .shutdown(Duration::ZERO, Duration::from_secs(1))
+            .await
+            .unwrap();
+        let cleanup = probe.closed("ledgence.attempt.cleanup");
+        assert_eq!(cleanup.len(), 2);
+        assert_eq!(
+            cleanup[1].parent,
+            Some(None),
+            "a healthy warm session must not retain an old W"
+        );
+        assert_eq!(counts.starts.load(Ordering::SeqCst), 2);
+        assert_eq!(counts.close_completions.load(Ordering::SeqCst), 2);
+        assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn startup_panic_closes_the_start_span_with_error_and_duration() {
+    with_trace_probe(|probe| async move {
+        let (worker, counts) = setup(1);
+        let worker = worker.with_trace_bridge(probe.clone());
+        counts.start_panics.store(1, Ordering::SeqCst);
+        let failure = worker
+            .execute(request(1, 1, 0), control())
+            .await
+            .unwrap_err();
+        assert_eq!(failure.phase, Phase::Startup);
+        wait_for(|| probe.closed("ledgence.attempt.process").len() == 1).await;
+        let starts = probe.closed("ledgence.runtime.start");
+        assert_eq!(starts.len(), 1);
+        assert_failed_trace(&starts[0], "Runtime");
+        assert_eq!(starts[0].parent, Some(Some(probe.attempt("att_1").context)));
+        assert!(probe.closed("ledgence.program.execute").is_empty());
+        assert!(
+            worker
+                .shutdown(Duration::ZERO, Duration::from_secs(1))
+                .await
+                .is_err()
+        );
+        assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+        assert!(probe.closed("ledgence.attempt.cleanup").is_empty());
+    })
+    .await;
 }

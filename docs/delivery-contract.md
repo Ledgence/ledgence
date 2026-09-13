@@ -1,6 +1,6 @@
 # Delivery contract
 
-Ledgence implements portable orchestration types, deterministic state transitions, worker capacity reservations, a [delivery driver](worker-delivery.md), and a Rust application service backed by a [PostgreSQL storage adapter](postgres.md). The driver coordinates service sessions, acquisition, lease renewal, execution, and result reconciliation through `TaskService`. The adapter persists submissions, identities, leases, settlement receipts, and history, with expiry recovery. The [HTTP/JSON transport](http-orchestration.md) connects separate orchestrator and worker executables with immediate polling and supplies a task administration CLI. Long polling and OTLP export remain later work. The local `run` command still consumes a fixture.
+Ledgence implements portable orchestration types, deterministic state transitions, worker capacity reservations, a [delivery driver](worker-delivery.md), and a Rust application service backed by a [PostgreSQL storage adapter](postgres.md). The driver coordinates service sessions, acquisition, lease renewal, execution, and result reconciliation through `TaskService`. The adapter persists submissions, identities, leases, settlement receipts, and history, with expiry recovery. The [HTTP/JSON transport](http-orchestration.md) connects separate orchestrator and worker executables with immediate polling and supplies a task administration CLI. Long polling remains later work; [optional OTLP traces](observability.md) are available. The local `run` command still consumes a fixture.
 
 ## Boundaries
 

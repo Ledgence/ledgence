@@ -15,11 +15,17 @@ my_dependency/
 {
   "schema_version": 1,
   "program": {"id": "invoice-issuer", "version": "1.2.0"},
-  "runtime": {"kind": "python", "python": "3.12", "protocol": 1},
+  "runtime": {"kind": "python", "python": "3.12", "protocol": 2},
   "handler": "program:handle",
   "platform": {"os": "linux", "arch": "x86_64"}
 }
 ```
+
+The manifest schema remains version 1. Runtime protocol 2 adds invocation-local
+processing trace context and best-effort contextual logging. Existing immutable
+protocol 1 packages still execute unchanged. Changing a manifest to protocol 2
+requires publishing a new program version and digest; the worker never silently
+falls back to another protocol after dispatch. See the [Python helper](../sdk/python/README.md).
 
 Program IDs and versions are nonempty, lowercase portable path components, at most 128 bytes. The runtime declaration requires an exact CPython major/minor of at least 3.11. Supported target labels are `linux`/`macos` and `x86_64`/`aarch64`. A worker rejects a package for another target. Publishing a prepared package for a different target is allowed.
 

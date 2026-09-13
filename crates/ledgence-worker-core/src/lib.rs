@@ -57,6 +57,7 @@ pub struct WorkerStats {
 #[derive(Clone)]
 pub struct Worker {
     inner: Arc<Inner>,
+    trace: Arc<dyn TraceBridge>,
 }
 struct Inner {
     config: WorkerConfig,
@@ -97,6 +98,8 @@ struct Pool {
 }
 struct Idle {
     key: SessionKey,
+    /// Retain failed-attempt context through cleanup by a separate shutdown task.
+    processing: Option<TraceContext>,
     session: Box<dyn ExecutionSession>,
     _artifact: PreparedArtifact,
     _consumer: Option<Arc<ConsumerOwnership>>,
@@ -159,6 +162,7 @@ impl Worker {
             ));
         }
         Ok(Self {
+            trace: Arc::new(NoopTraceBridge),
             inner: Arc::new(Inner {
                 consumers: Arc::new(Semaphore::new(config.concurrency)),
                 config,
@@ -181,6 +185,16 @@ impl Worker {
                 shutdown_lock: Mutex::new(()),
             }),
         })
+    }
+
+    /// Select optional context propagation independently of execution adapters.
+    pub fn with_trace_bridge(mut self, trace: Arc<dyn TraceBridge>) -> Self {
+        self.trace = trace;
+        self
+    }
+
+    pub fn trace_bridge(&self) -> &Arc<dyn TraceBridge> {
+        &self.trace
     }
 
     /// Dropping the caller future requests cancellation. Results may precede
@@ -259,7 +273,15 @@ impl Worker {
         let worker = self.clone();
         let owned_context = context.clone();
         let mut cancellation = CancelOnDrop(Some(control.clone()));
-        let span = invocation_span(&context);
+        let parent = self.trace.context(&tracing::Span::current());
+        let span = invocation_span(&context, reservation.is_none());
+        let processing = if reservation.is_none() {
+            self.trace
+                .set_parent(&span, TraceContext::from_event(&request.event).as_ref());
+            self.trace.context(&span)
+        } else {
+            parent
+        };
         tokio::spawn(
             async move {
                 let mut registration = Registration {
@@ -281,6 +303,7 @@ impl Worker {
                     &owned_context,
                     &mut completion,
                     &mut ownership,
+                    processing.as_ref(),
                 ))
                 .await
                 {
@@ -347,6 +370,7 @@ impl Worker {
         context: &ExecutionContext,
         completion: &mut Completion,
         ownership: &mut InvocationOwnership,
+        processing: Option<&TraceContext>,
     ) -> ExecutionResult {
         let started = Instant::now();
         if ownership.permit.is_none() {
@@ -365,8 +389,11 @@ impl Worker {
         }
         ownership.stage = InvocationStage::Preparation;
         tracing::info!(phase = "preparation", "preparing invocation");
-        let artifact = self
-            .prepare(
+        let prepare_span = operation_span("prepare");
+        self.trace.set_parent(&prepare_span, processing);
+        let artifact = observe(
+            prepare_span,
+            self.prepare(
                 &request.descriptor,
                 &control,
                 context,
@@ -375,9 +402,10 @@ impl Worker {
                     .permit
                     .as_ref()
                     .and_then(ConsumerPermit::reservation),
-            )
-            .await
-            .map_err(|error| failure(error, Phase::Preparation, false, context))?;
+            ),
+        )
+        .await
+        .map_err(|error| failure(error, Phase::Preparation, false, context))?;
         control
             .check()
             .map_err(|error| failure(error, Phase::Preparation, false, context))?;
@@ -397,6 +425,7 @@ impl Worker {
                 artifact.clone(),
                 control.clone(),
                 &context.identity,
+                processing,
                 ownership
                     .permit
                     .as_ref()
@@ -408,6 +437,7 @@ impl Worker {
         // unwinds a borrow of the session; retirement still has its real handle.
         ownership.session = Some(Idle {
             key,
+            processing: processing.cloned(),
             session,
             _artifact: artifact,
             _consumer: ownership
@@ -442,15 +472,25 @@ impl Worker {
         };
         ownership.stage = InvocationStage::Execution;
         tracing::info!(pid, reused, phase = "execution", "invoking program");
+        let execution_span = operation_span("execute");
+        self.trace.set_parent(&execution_span, processing);
+        execution_span.record("process.pid", i64::from(pid));
+        execution_span.record("ledgence.process.reused", reused);
+        let invocation = RuntimeInvocation {
+            event: request.event.clone(),
+            processing_context: self.trace.context(&execution_span),
+        };
+        let execution_started = Instant::now();
         let outcome = match catch_panic(async {
             ownership
                 .session
                 .as_mut()
                 .expect("session acquired")
                 .session
-                .execute(request.event.clone(), control)
+                .execute(invocation, control)
                 .await
         })
+        .instrument(execution_span.clone())
         .await
         {
             Ok(result) => result,
@@ -459,12 +499,27 @@ impl Worker {
                 Err(error)
             }
         };
+        execution_span.record("ledgence.duration_ms", elapsed_ms(execution_started));
+        let outcome_name = match &outcome {
+            Ok(ProgramOutcome::Success { .. }) => "success",
+            Ok(ProgramOutcome::Failure { .. }) => "failure",
+            Err(error) => {
+                execution_span.record("error.type", format!("{:?}", error.kind));
+                "runtime_error"
+            }
+        };
+        execution_span.record("ledgence.outcome", outcome_name);
+        if outcome_name != "success" {
+            execution_span.record("otel.status_code", "ERROR");
+        }
+        drop(execution_span);
         match outcome {
             Ok(outcome) => {
                 let mut idle = ownership.session.take().expect("session acquired");
                 // A healthy reusable process is owned by the global process
                 // pool, not by the previous delivery's settlement reservation.
                 idle._consumer = None;
+                idle.processing = None;
                 self.inner.pool.lock().await.idle.push(idle);
                 ownership.stage = InvocationStage::Settled;
                 tracing::info!(pid, phase = "completed", "program returned");
@@ -519,9 +574,11 @@ impl Worker {
             &context.identity,
         )?;
         if let Some(hit) = cached {
+            tracing::Span::current().record("ledgence.cache.hit", true);
             tracing::debug!(phase = "preparation", cache_hit = true, "artifact ready");
             return Ok(hit);
         }
+        tracing::Span::current().record("ledgence.cache.hit", false);
         // The lookup may outlive cancellation or the invocation deadline. Keep
         // that existing operation owned, but do not begin a new download afterward.
         control.check()?;
@@ -593,6 +650,7 @@ impl Worker {
         artifact: PreparedArtifact,
         control: RunControl,
         identity: &InvocationIdentity,
+        processing: Option<&TraceContext>,
         reservation: Option<Arc<ConsumerOwnership>>,
     ) -> Result<(Box<dyn ExecutionSession>, bool)> {
         let retired = {
@@ -613,6 +671,7 @@ impl Worker {
             }
         };
         if let Some(mut idle) = retired {
+            idle.processing = processing.cloned();
             idle._consumer = reservation.clone();
             if let Err(error) = self.close_session(&mut idle, Some(identity)).await {
                 if let Some(owner) = &idle._consumer {
@@ -627,8 +686,21 @@ impl Worker {
             self.inner.pool.lock().await.occupied -= 1;
             return Err(error);
         }
-        match catch_panic(async { self.inner.runtime.start(artifact.clone(), control).await }).await
-        {
+        let span = operation_span("start");
+        self.trace.set_parent(&span, processing);
+        let started = observe_supervised(span.clone(), async {
+            self.inner.runtime.start(artifact.clone(), control).await
+        })
+        .await;
+        if let Ok(Ok(StartOutcome::CleanupRequired { error, .. })) = &started {
+            span.record("otel.status_code", "ERROR");
+            span.record("error.type", format!("{:?}", error.kind));
+        } else if let Err(error) = &started {
+            span.record("otel.status_code", "ERROR");
+            span.record("error.type", format!("{:?}", error.kind));
+        }
+        drop(span);
+        match started {
             Ok(Ok(StartOutcome::Ready(session))) => Ok((session, false)),
             Ok(Ok(StartOutcome::CleanupRequired { error, session })) => {
                 if let Some(owner) = &reservation {
@@ -636,6 +708,7 @@ impl Worker {
                 }
                 self.inner.pool.lock().await.quarantined.push(Idle {
                     key: key.clone(),
+                    processing: processing.cloned(),
                     session,
                     _artifact: artifact,
                     _consumer: reservation.clone(),
@@ -667,7 +740,13 @@ impl Worker {
         idle: &mut Idle,
         identity: Option<&InvocationIdentity>,
     ) -> Result<()> {
-        match catch_panic(async { idle.session.close().await }).await {
+        let span = operation_span("cleanup");
+        let processing = idle
+            .processing
+            .clone()
+            .or_else(|| self.trace.context(&tracing::Span::current()));
+        self.trace.set_parent(&span, processing.as_ref());
+        match observe_supervised(span, async { idle.session.close().await }).await {
             Ok(Ok(())) => {
                 if let Some(owner) = &idle._consumer {
                     owner.confirm_cleanup();
@@ -741,6 +820,7 @@ impl Worker {
     ) -> Result<bool> {
         let idle = self.inner.pool.lock().await.idle.pop();
         if let Some(mut idle) = idle {
+            idle.processing = self.trace.context(&tracing::Span::current());
             idle._consumer = reservation;
             self.retire(idle, Some(identity)).await?;
             Ok(true)
@@ -785,10 +865,13 @@ impl Worker {
 
     async fn shutdown_supervised(&self, grace: Duration, cleanup: Option<Duration>) -> Result<()> {
         let worker = self.clone();
-        tokio::spawn(async move {
-            let _shutdown = worker.inner.shutdown_lock.lock().await;
-            worker.shutdown_owned(grace, cleanup).await
-        })
+        tokio::spawn(
+            async move {
+                let _shutdown = worker.inner.shutdown_lock.lock().await;
+                worker.shutdown_owned(grace, cleanup).await
+            }
+            .with_current_subscriber(),
+        )
         .await
         .map_err(|e| {
             Error::new(
@@ -978,13 +1061,84 @@ fn logged_failure(
     trace_failure(&failure);
     failure
 }
-fn invocation_span(context: &ExecutionContext) -> tracing::Span {
+fn invocation_span(context: &ExecutionContext, direct: bool) -> tracing::Span {
     let identity = &context.identity;
-    tracing::info_span!("invocation", source = %identity.source, event_id = %identity.event_id, tenant_id = %identity.tenant_id, namespace = %identity.namespace, run_id = %identity.run_id, task_id = %identity.task_id, attempt_id = %identity.attempt_id, attempt_no = identity.attempt_no, traceparent = identity.traceparent.as_deref().unwrap_or(""), tracestate = identity.tracestate.as_deref().unwrap_or(""), program_id = %context.program.id, program_version = %context.program.version, digest = %context.digest.0)
+    macro_rules! invocation {
+        ($name:literal, $target:literal) => { tracing::info_span!(target: $target, $name,
+            otel.kind = if direct { "consumer" } else { "internal" },
+            ledgence.tenant.id = %identity.tenant_id, ledgence.namespace = %identity.namespace,
+            ledgence.run.id = %identity.run_id, ledgence.task.id = %identity.task_id,
+            ledgence.attempt.id = %identity.attempt_id, ledgence.attempt.number = i64::from(identity.attempt_no),
+            ledgence.program.id = %context.program.id, ledgence.program.version = %context.program.version,
+            ledgence.program.digest = %context.digest.0,
+            source = %identity.source, event_id = %identity.event_id,
+            tenant_id = %identity.tenant_id, namespace = %identity.namespace, run_id = %identity.run_id,
+            task_id = %identity.task_id, attempt_id = %identity.attempt_id, attempt_no = identity.attempt_no,
+            traceparent = identity.traceparent.as_deref().unwrap_or(""),
+            tracestate = identity.tracestate.as_deref().unwrap_or(""),
+            program_id = %context.program.id, program_version = %context.program.version, digest = %context.digest.0
+        ) };
+    }
+    if direct {
+        invocation!("ledgence.attempt.process", "ledgence_worker_core")
+    } else {
+        invocation!("ledgence.worker.coordinate", "ledgence::context")
+    }
+}
+
+fn elapsed_ms(started: Instant) -> i64 {
+    started.elapsed().as_millis().try_into().unwrap_or(i64::MAX)
+}
+
+fn operation_span(operation: &str) -> tracing::Span {
+    macro_rules! span {
+        ($name:literal) => { tracing::info_span!($name, otel.kind = "internal",
+            otel.status_code = tracing::field::Empty, error.type = tracing::field::Empty,
+            ledgence.outcome = tracing::field::Empty, ledgence.duration_ms = tracing::field::Empty,
+            ledgence.cache.hit = tracing::field::Empty, process.pid = tracing::field::Empty,
+            ledgence.process.reused = tracing::field::Empty) };
+    }
+    match operation {
+        "prepare" => span!("ledgence.program.prepare"),
+        "start" => span!("ledgence.runtime.start"),
+        "execute" => span!("ledgence.program.execute"),
+        "cleanup" => span!("ledgence.attempt.cleanup"),
+        _ => unreachable!("static operation name"),
+    }
 }
 
 fn trace_failure(failure: &ExecutionFailure) {
     let context = &failure.context;
     let identity = &context.identity;
     tracing::warn!(source = %identity.source, event_id = %identity.event_id, tenant_id = %identity.tenant_id, namespace = %identity.namespace, run_id = %identity.run_id, task_id = %identity.task_id, attempt_id = %identity.attempt_id, attempt_no = identity.attempt_no, traceparent = identity.traceparent.as_deref().unwrap_or(""), tracestate = identity.tracestate.as_deref().unwrap_or(""), program_id = %context.program.id, program_version = %context.program.version, digest = %context.digest.0, phase = ?failure.phase, error = %failure.error, cleanup_error = ?failure.cleanup_error, execution_may_have_started = failure.execution_may_have_started, "invocation failed");
+}
+
+async fn observe<T>(
+    span: tracing::Span,
+    operation: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    let started = Instant::now();
+    let result = operation.instrument(span.clone()).await;
+    span.record("ledgence.duration_ms", elapsed_ms(started));
+    if let Err(error) = &result {
+        span.record("otel.status_code", "ERROR");
+        span.record("error.type", format!("{:?}", error.kind));
+    }
+    result
+}
+
+/// Preserve the distinction between adapter rejection and a caught adapter panic,
+/// while recording both as observed operation failures.
+async fn observe_supervised<T>(
+    span: tracing::Span,
+    operation: impl std::future::Future<Output = Result<T>>,
+) -> Result<Result<T>> {
+    let started = Instant::now();
+    let result = catch_panic(operation.instrument(span.clone())).await;
+    span.record("ledgence.duration_ms", elapsed_ms(started));
+    if let Err(error) | Ok(Err(error)) = &result {
+        span.record("otel.status_code", "ERROR");
+        span.record("error.type", format!("{:?}", error.kind));
+    }
+    result
 }

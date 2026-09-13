@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Portable contracts for Ledgence worker adapters"
 
 [dependencies]
+tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 iri-string = { version = "0.7.14", default-features = false }

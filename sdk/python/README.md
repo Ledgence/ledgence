@@ -56,3 +56,85 @@ log capture must continue draining stderr even after its retention limit.
 
 This process boundary executes trusted code with the worker's OS permissions.
 The helper is not a sandbox and cannot undo external effects on retries.
+
+## Protocol versions and contextual logs
+
+Existing `runtime.protocol: 1` packages keep the original invoke/result protocol.
+New packages should select protocol 2. The ready version must match the manifest;
+a mismatch fails before calling the handler. Protocol 2 passes an invocation-local
+`processing_context` outside the complete, unchanged CloudEvent. It is null when
+worker tracing is disabled. It never replaces the event's origin `traceparent`.
+
+`current_invocation()` provides `event_id`, `attempt_id`, `source`, `tenant_id`,
+`namespace`, `run_id`, `task_id`, `attempt_no`, and the optional frozen W3C
+`processing_context`. Context is reset on success, business exception, and invalid
+output. No invocation context is written to process-global environment variables.
+
+```python
+from ledgence_worker import current_invocation, get_logger
+
+log = get_logger(__name__)
+
+def handle(event):
+    log.info("Invoice issued", extra={"attributes": {"invoice.id": event["data"]["invoice_id"]}})
+    return {"task_id": current_invocation().task_id}
+```
+
+`get_logger` returns a normal `logging.Logger`, adding one Ledgence handler while
+preserving existing handlers and root configuration. An unset logger level becomes
+INFO. User attributes occupy a separate map. A record snapshots correlation and
+attributes synchronously at emission; intentionally copied old contexts retain
+their original IDs even if a background thread logs during a later invocation.
+Outside an invocation, records carry process identity only unless the application
+explicitly activates its own OTel span. Raw stdout/stderr remains process-level.
+
+One dedicated v2 writer owns ready, result, log and closing frames. Its optional
+queue is bounded to 64 records and 1 MiB; each log frame is at most 16 KiB or the
+configured output limit, including the newline. Encoding bounds the complete
+attribute tree (64 nodes, four nested levels, shared text budget). Oversized
+optional content is shortened; a record whose correlation cannot fit is dropped.
+Telemetry encoding errors and queue overflow drop logs and increment a saturating
+local counter; they do not replace a handler result. This Python-side count stays
+in the process: it is not carried in result or closing frames, durable task
+history, or a collector export. Worker-side optional-record validation and output
+budget drops have separate bounded diagnostics. Results/control have a
+reserved priority slot. At most one already-writing bounded log precedes a newly
+queued result; IPC itself still has backpressure. Closing discards remaining
+optional records. Telemetry is best effort and may be lost on shutdown or crash.
+
+## Optional OpenTelemetry API bridge
+
+Programs may vendor `opentelemetry-api` and call
+`from ledgence_worker.otel import enable_context; enable_context()` once at module
+initialization. The bridge activates only the invocation's processing carrier
+using the fixed W3C propagator, and attaches an empty context when it is null.
+It resets the OTel context in `finally`. It neither installs a provider nor creates
+a duplicate span for the worker's execution span. Logging inside application
+child spans captures those children's active trace/span IDs.
+
+The default helper imports no OpenTelemetry dependency. To record custom spans,
+the application supplies and owns its SDK/provider and dependencies, with their
+legal notices. Use bounded asynchronous processors for any application exporter.
+Ledgence does not bundle a Python network exporter or serialize Python spans over
+the result channel. The worker exports its own execution spans independently.
+
+`register_shutdown(provider.shutdown)` optionally registers an application-owned
+callback. Each registered callback runs once before the graceful closing ACK;
+exceptions are reported on stderr and other callbacks continue. The parent's
+existing process shutdown deadline bounds callbacks, including a hanging exporter.
+Forced retirement/crashes do not promise a callback or complete flush. There is no
+per-invocation flush or reliance on `atexit`.
+
+The default tests require only the standard library. Optional API/SDK parentage
+tests accept an already prepared dependency directory and make no network calls:
+
+```sh
+LEDGENCE_PYTHON_OTEL_TEST_PACKAGES=/path/to/reviewed-api-sdk-packages \
+  python3 -m unittest discover -s sdk/python/tests -v
+```
+
+The reviewed test set is `opentelemetry-api==1.44.0`,
+`opentelemetry-sdk==1.44.0`, `opentelemetry-semantic-conventions==0.65b0`, and
+`typing_extensions==4.16.0`. The test exporter is in memory. Tests copy prepared
+packages into the temporary artifact to exercise the same isolated import path as
+real programs; nothing is installed at execution time.

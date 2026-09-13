@@ -6,17 +6,49 @@ use ledgence_worker_core::ConsumerReservation;
 use renewal::Monitor;
 
 impl Context {
-    #[tracing::instrument(name = "delivery_attempt", skip_all, fields(
-        task_id = %assignment.lease.owner.task_id, attempt_id = %assignment.lease.owner.attempt_id,
-        lease_id = %assignment.lease.owner.lease_id, generation = assignment.lease.owner.generation,
-        event_id = %assignment.event.id(), program_id = %assignment.descriptor.program.id,
-        program_version = %assignment.descriptor.program.version, digest = %assignment.descriptor.digest.0
-    ))]
     pub(super) async fn attempt(
+        self: &Arc<Self>,
+        reservation: ConsumerReservation,
+        assignment: Assignment,
+        started: Instant,
+    ) {
+        let event = &assignment.event;
+        let owner = &assignment.lease.owner;
+        let span = tracing::info_span!("ledgence.attempt.process", otel.kind = "consumer",
+            ledgence.tenant.id = %event.tenant_id(), ledgence.namespace = %event.namespace(),
+            ledgence.run.id = %event.value()["ldgrunid"].as_str().expect("validated run ID"), ledgence.task.id = %owner.task_id,
+            ledgence.attempt.id = %owner.attempt_id, ledgence.attempt.number = i64::from(owner.generation),
+            ledgence.worker.session.id = %owner.worker_session_id, ledgence.consumer.id = i64::from(owner.consumer_id),
+            ledgence.program.id = %assignment.descriptor.program.id,
+            ledgence.program.version = %assignment.descriptor.program.version,
+            ledgence.program.digest = %assignment.descriptor.digest.0,
+            cloudevents.event_id = %event.id(), cloudevents.event_source = %event.value()["source"].as_str().expect("validated source"),
+            otel.status_code = tracing::field::Empty, ledgence.outcome = tracing::field::Empty,
+            ledgence.duration_ms = tracing::field::Empty,
+            task_id = %owner.task_id, attempt_id = %owner.attempt_id,
+            lease_id = %owner.lease_id, generation = owner.generation,
+            event_id = %event.id(), program_id = %assignment.descriptor.program.id,
+            program_version = %assignment.descriptor.program.version, digest = %assignment.descriptor.digest.0);
+        let bridge = self.worker.trace_bridge();
+        bridge.set_parent(&span, TraceContext::from_event(event).as_ref());
+        // Capture exactly once before dispatch. Settlement normalization and every
+        // subsequent transport retry retain this value, including unsampled IDs.
+        let processing_trace = bridge.context(&span);
+        self.process(reservation, assignment, started, processing_trace)
+            .instrument(span.clone())
+            .await;
+        span.record(
+            "ledgence.duration_ms",
+            started.elapsed().as_millis().try_into().unwrap_or(i64::MAX),
+        );
+    }
+
+    async fn process(
         self: &Arc<Self>,
         mut reservation: ConsumerReservation,
         assignment: Assignment,
         started: Instant,
+        processing_trace: Option<TraceContext>,
     ) {
         let request = ExecutionRequest {
             descriptor: assignment.descriptor.clone(),
@@ -62,7 +94,7 @@ impl Context {
             operation_id: "worker-result-v1".into(),
             report,
             quiescence,
-            processing_trace: None,
+            processing_trace,
         };
         if !valid_settlement(&command) {
             command.report = failure(
@@ -75,7 +107,13 @@ impl Context {
         let report_valid = valid_settlement(&command);
         // No changes to command after the first exchange, even when cleanup
         // finishes meanwhile. Accepted Unconfirmed reports use a separate call.
-        let accepted = loop {
+        let settlement_span = tracing::info_span!(
+            "ledgence.attempt.settle",
+            otel.kind = "internal",
+            ledgence.outcome = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty
+        );
+        let accepted = async { loop {
             if !report_valid {
                 self.shared.fatal(protocol(
                     "normalized settlement remains invalid; ownership is unresolved",
@@ -119,7 +157,19 @@ impl Context {
                 Err(error) => self.shared.fatal(error),
             }
             tokio::time::sleep(self.config.retry_delay).await;
-        };
+        } }.instrument(settlement_span.clone()).await;
+        settlement_span.record(
+            "ledgence.outcome",
+            if accepted {
+                "accepted"
+            } else {
+                "ownership_lost"
+            },
+        );
+        if !accepted {
+            settlement_span.record("otel.status_code", "ERROR");
+        }
+        drop(settlement_span);
         while !reservation.is_quiescent() {
             tokio::time::sleep(TICK).await;
         }
@@ -142,6 +192,17 @@ impl Context {
             self.shared.fatal(ContractError::Unavailable(format!(
                 "lease supervisor failed: {error}"
             )));
+        }
+        tracing::Span::current().record(
+            "ledgence.outcome",
+            if accepted {
+                "settled"
+            } else {
+                "ownership_lost"
+            },
+        );
+        if !accepted {
+            tracing::Span::current().record("otel.status_code", "ERROR");
         }
         reservation.release();
     }

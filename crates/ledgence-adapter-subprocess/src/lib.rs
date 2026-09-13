@@ -4,10 +4,13 @@
 //! cancels that exchange; it never transfers the live child back to the pool.
 
 use ledgence_worker_api::{
-    CloudEvent, DEFAULT_RUNTIME_FRAME_MAX_BYTES, Error, ErrorKind, ExecutionRuntime,
-    ExecutionSession, PortFuture, PreparedArtifact, ProgramOutcome, Result, RunControl,
+    DEFAULT_RUNTIME_FRAME_MAX_BYTES, Error, ErrorKind, ExecutionRuntime, ExecutionSession,
+    PortFuture, PreparedArtifact, ProgramOutcome, Result, RunControl, RuntimeInvocation,
     StartOutcome, validate_wire_value,
 };
+mod logs;
+
+use logs::LogForwarder;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -26,6 +29,7 @@ use tokio::{
     sync::{Mutex, mpsc, oneshot, watch},
     task::JoinHandle,
 };
+use tracing::instrument::WithSubscriber;
 
 #[derive(Debug, Clone)]
 pub struct SubprocessConfig {
@@ -157,6 +161,10 @@ impl ExecutionRuntime for SubprocessRuntime {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .kill_on_drop(true);
+            // Keep v1 launches compatible with old helpers that do not know this flag.
+            if artifact.manifest().runtime.protocol == 2 {
+                command.arg("--protocol-version").arg("2");
+            }
             #[cfg(unix)]
             command.process_group(0);
             let mut child = command
@@ -187,18 +195,21 @@ impl ExecutionRuntime for SubprocessRuntime {
             let (started, startup) = oneshot::channel();
             let (terminated, termination) = watch::channel(None);
             // There is no suspension between spawn and transferring ownership to the actor.
-            tokio::spawn(supervise(
-                owner.clone(),
-                self.owners.clone(),
-                stdin,
-                stdout,
-                stderr,
-                self.config.clone(),
-                control,
-                receiver,
-                started,
-                terminated,
-            ));
+            tokio::spawn(
+                supervise(
+                    owner.clone(),
+                    self.owners.clone(),
+                    stdin,
+                    stdout,
+                    stderr,
+                    self.config.clone(),
+                    control,
+                    receiver,
+                    started,
+                    terminated,
+                )
+                .with_current_subscriber(),
+            );
             let session = Box::new(Session {
                 pid,
                 commands: Some(commands),
@@ -247,7 +258,7 @@ async fn finish_startup(
 
 enum SessionCommand {
     Invoke {
-        event: CloudEvent,
+        invocation: RuntimeInvocation,
         control: RunControl,
         reply: oneshot::Sender<Result<ProgramOutcome>>,
     },
@@ -260,7 +271,7 @@ impl ExecutionSession for Session {
     }
     fn execute<'a>(
         &'a mut self,
-        event: CloudEvent,
+        invocation: RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome> {
         Box::pin(async move {
@@ -269,7 +280,7 @@ impl ExecutionSession for Session {
             let (reply, response) = oneshot::channel();
             sender
                 .send(SessionCommand::Invoke {
-                    event,
+                    invocation,
                     control,
                     reply,
                 })
@@ -336,24 +347,30 @@ async fn supervise(
     let mut resources = owner.lock().await;
     let pid = resources.child.id().expect("actor owns a new child");
     let budget = Arc::new(AtomicUsize::new(config.max_log_bytes));
-    resources.logs = Some(tokio::spawn(drain_logs(
-        stderr,
-        budget.clone(),
-        pid,
-        resources
-            .artifact
-            .as_ref()
-            .expect("owned artifact")
-            .digest()
-            .0
-            .clone(),
-    )));
+    resources.logs = Some(tokio::spawn(
+        drain_logs(
+            stderr,
+            budget.clone(),
+            pid,
+            resources
+                .artifact
+                .as_ref()
+                .expect("owned artifact")
+                .digest()
+                .0
+                .clone(),
+        )
+        .with_current_subscriber(),
+    ));
+    let artifact = resources.artifact.as_ref().expect("owned artifact");
+    let version = artifact.manifest().runtime.protocol;
+    let mut logs = LogForwarder::new(pid, artifact.digest().0.clone(), budget.clone());
     let mut frames = FrameReader::new(stdout, config.max_frame_bytes);
     let startup = guarded(
         async {
             let frame: Ready = serde_json::from_value(frames.next().await?)
                 .map_err(|e| protocol(format!("invalid ready frame: {e}")))?;
-            if frame.v != 1
+            if frame.v != version
                 || frame.kind != "ready"
                 || frame.pid != pid
                 || frame.python_version
@@ -394,21 +411,35 @@ async fn supervise(
         // Read unexpected output/EOF while idle, without reaping first: the owned
         // child's PID cannot be reused before process-group cleanup is requested.
         let command = tokio::select! {
+            biased;
             command = commands.recv() => command,
             unsolicited = frames.next() => {
+                if let Ok(frame) = &unsolicited
+                    && logs.accept(frame, version) {
+                        // Always yield, including an idle flood from user background work.
+                        tokio::task::yield_now().await;
+                        continue;
+                    }
                 tracing::warn!(subprocess_pid = pid, error = ?unsolicited, "subprocess exited or sent unsolicited protocol data");
                 None
             }
         };
         match command {
             Some(SessionCommand::Invoke {
-                event,
+                invocation,
                 control,
                 mut reply,
             }) => {
                 budget.store(config.max_log_bytes, Ordering::Release);
                 let result = guarded(
-                    invoke(&mut stdin, &mut frames, &event, config.max_frame_bytes),
+                    invoke(
+                        &mut stdin,
+                        &mut frames,
+                        &invocation,
+                        version,
+                        &mut logs,
+                        config.max_frame_bytes,
+                    ),
                     &control,
                     &mut reply,
                     None,
@@ -435,12 +466,12 @@ async fn supervise(
                 let _ = tokio::time::timeout(config.shutdown_timeout, async {
                     write_frame(
                         &mut stdin,
-                        &json!({"v": 1, "type": "shutdown"}),
+                        &json!({"v": version, "type": "shutdown"}),
                         config.max_frame_bytes,
                     )
                     .await?;
-                    let closing = frames.next().await?;
-                    if closing != json!({"v": 1, "type": "closing"}) {
+                    let closing = next_control(&mut frames, version, &mut logs).await?;
+                    if closing != json!({"v": version, "type": "closing"}) {
                         return Err(protocol("invalid shutdown response"));
                     }
                     Ok(())
@@ -507,13 +538,23 @@ struct Ready {
 async fn invoke(
     stdin: &mut ChildStdin,
     frames: &mut FrameReader,
-    event: &CloudEvent,
+    invocation: &RuntimeInvocation,
+    version: u32,
+    logs: &mut LogForwarder,
     limit: usize,
 ) -> Result<ProgramOutcome> {
-    let request = json!({"v": 1, "type": "invoke", "event_id": event.id(), "attempt_id": event.attempt_id(), "event": event.value()});
+    let event = &invocation.event;
+    let mut request = json!({"v": version, "type": "invoke", "event_id": event.id(), "attempt_id": event.attempt_id(), "event": event.value()});
+    if version == 2 {
+        if let Some(context) = &invocation.processing_context {
+            context.validate()?;
+        }
+        request["processing_context"] = serde_json::to_value(&invocation.processing_context)
+            .map_err(|error| protocol(format!("cannot encode processing context: {error}")))?;
+    }
     write_frame(stdin, &request, limit).await?;
-    let response = frames.next().await?;
-    if response.get("v").and_then(Value::as_u64) != Some(1)
+    let response = next_control(frames, version, logs).await?;
+    if response.get("v").and_then(Value::as_u64) != Some(u64::from(version))
         || response.get("type").and_then(Value::as_str) != Some("result")
         || response.get("event_id").and_then(Value::as_str) != Some(event.id())
         || response.get("attempt_id").and_then(Value::as_str) != Some(event.attempt_id())
@@ -549,6 +590,27 @@ async fn invoke(
             })
         }
         _ => Err(protocol("unknown program result status")),
+    }
+}
+
+async fn next_control(
+    frames: &mut FrameReader,
+    version: u32,
+    logs: &mut LogForwarder,
+) -> Result<Value> {
+    let mut consecutive = 0;
+    loop {
+        let frame = frames.next().await?;
+        if !logs.accept(&frame, version) {
+            return Ok(frame);
+        }
+        consecutive += 1;
+        if consecutive == 16 {
+            // An always-readable telemetry pipe must not starve cancellation,
+            // deadlines, lease renewal, or other consumer tasks.
+            tokio::task::yield_now().await;
+            consecutive = 0;
+        }
     }
 }
 

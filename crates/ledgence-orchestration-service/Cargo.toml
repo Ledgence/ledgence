@@ -11,6 +11,7 @@ description = "Application service for durable Ledgence task orchestration"
 ledgence-orchestration-api.workspace = true
 ledgence-orchestration-core.workspace = true
 ledgence-worker-api.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

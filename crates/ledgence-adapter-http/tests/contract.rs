@@ -1163,3 +1163,68 @@ async fn exact_response_budget_includes_whitespace_with_or_without_content_lengt
         ));
     }
 }
+
+#[derive(Default)]
+struct ExchangeTraceBridge {
+    next: AtomicUsize,
+    parents: Mutex<Vec<Option<TraceContext>>>,
+}
+impl ledgence_worker_api::TraceBridge for ExchangeTraceBridge {
+    fn set_parent(&self, _: &tracing::Span, parent: Option<&TraceContext>) {
+        self.parents.lock().unwrap().push(parent.cloned());
+    }
+    fn add_link(&self, _: &tracing::Span, _: &TraceContext) {
+        panic!("HTTP exchanges do not add causal links");
+    }
+    fn context(&self, _: &tracing::Span) -> Option<TraceContext> {
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        Some(TraceContext {
+            traceparent: format!("00-4bf92f3577b34da6a3ce929d0e0e4736-{id:016x}-00"),
+            tracestate: Some("transport=unsampled".into()),
+        })
+    }
+}
+
+#[tokio::test]
+async fn tracing_bridge_propagates_a_new_exchange_without_rewriting_command_origins() {
+    let mock = Arc::new(Mock::default());
+    mock.set("submit", Ok(task(Value::Null)));
+    let bridge = Arc::new(ExchangeTraceBridge::default());
+    let running = start(server::router_with_observability(
+        mock.clone(),
+        Arc::new(AtomicBool::new(false)),
+        bridge.clone(),
+    ))
+    .await;
+    let client = HttpTaskService::new(&running.url)
+        .unwrap()
+        .with_trace_bridge(bridge.clone());
+    let mut command = submit(json!({"caller": "owned"}));
+    command.origin_trace = Some(TraceContext {
+        traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".into(),
+        tracestate: Some("origin=immutable".into()),
+    });
+    client.submit(&command).await.unwrap();
+    client.submit(&command).await.unwrap();
+    let disabled = HttpTaskService::new(&running.url).unwrap();
+    disabled.submit(&command).await.unwrap();
+    let parents = bridge.parents.lock().unwrap();
+    assert_eq!(parents.len(), 3);
+    let first = parents[0].as_ref().unwrap();
+    let second = parents[1].as_ref().unwrap();
+    assert_ne!(first.traceparent, second.traceparent);
+    assert!(first.traceparent.ends_with("-00"));
+    assert_eq!(first.tracestate.as_deref(), Some("transport=unsampled"));
+    assert_eq!(
+        parents[2], None,
+        "no-op client must not invent transport IDs"
+    );
+    assert_eq!(bridge.next.load(Ordering::Relaxed), 2);
+    let calls = mock.calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert!(
+        calls
+            .iter()
+            .all(|(_, value)| *value == serde_json::to_value(&command).unwrap())
+    );
+}

@@ -217,7 +217,7 @@ impl Outputs {
         if lost != 0 && !self.stderr.state.closing.load(Ordering::Acquire) {
             let _ = self
                 .stderr
-                .line(format!("{lost} log record(s) were not delivered"))
+                .line(serde_json::json!({"level":"WARN", "message":"optional log records were not delivered", "dropped_log_records":lost}).to_string())
                 .await;
         }
         for writer in &self.writers {
@@ -245,10 +245,6 @@ impl Outputs {
             }
             if let Some(failure) = writer.state.failure.lock().unwrap().as_ref() {
                 failures.push(failure.clone());
-            }
-            let lost = writer.state.lost_logs.load(Ordering::Acquire);
-            if lost != 0 {
-                failures.push(format!("{lost} log record(s) were not delivered"));
             }
         }
         if failures.is_empty() {

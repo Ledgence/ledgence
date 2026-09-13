@@ -62,6 +62,7 @@ struct Counts {
     injected_outcome: Mutex<Option<ProgramOutcome>>,
     injected_error: Mutex<Option<worker_api::Error>>,
     observed_events: Mutex<Vec<Value>>,
+    observed_processing: Mutex<Vec<Option<TraceContext>>>,
 }
 
 struct Store(Arc<Counts>);
@@ -178,9 +179,15 @@ impl ExecutionSession for Session {
 
     fn execute<'a>(
         &'a mut self,
-        event: CloudEvent,
+        invocation: ledgence_worker_api::RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome> {
+        self.counts
+            .observed_processing
+            .lock()
+            .unwrap()
+            .push(invocation.processing_context);
+        let event = invocation.event;
         Box::pin(async move {
             self.counts.executions.fetch_add(1, Ordering::SeqCst);
             self.counts
@@ -1392,4 +1399,93 @@ async fn repaired_slow_cleanup_confirms_quiescence_without_rewriting_the_report(
         serde_json::to_vec(&state.accepted["att_1"]).unwrap(),
         accepted
     );
+}
+
+#[derive(Default)]
+struct RecordingTraceBridge {
+    parents: Mutex<Vec<(String, Option<TraceContext>)>>,
+}
+impl worker_api::TraceBridge for RecordingTraceBridge {
+    fn set_parent(&self, span: &tracing::Span, parent: Option<&TraceContext>) {
+        if let Some(metadata) = span.metadata() {
+            self.parents
+                .lock()
+                .unwrap()
+                .push((metadata.name().into(), parent.cloned()));
+        }
+    }
+    fn add_link(&self, _: &tracing::Span, _: &TraceContext) {}
+    fn context(&self, span: &tracing::Span) -> Option<TraceContext> {
+        span.id().map(|id| TraceContext {
+            traceparent: format!(
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-{:016x}-01",
+                id.into_u64()
+            ),
+            tracestate: Some("test=value".into()),
+        })
+    }
+}
+
+#[tokio::test]
+async fn processing_context_is_frozen_across_replies_and_normalization_and_separate_from_event() {
+    // Exercise heterogeneous scoped dispatch: other parallel tests intentionally
+    // have no subscriber. Avoid tracing-core's single-dispatch callsite shortcut.
+    let _other_dispatch = tracing::Dispatch::new(tracing_subscriber::registry());
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(std::io::sink)
+        .with_max_level(tracing::Level::TRACE)
+        .finish();
+    let _subscriber = tracing::subscriber::set_default(subscriber);
+    for normalize in [false, true] {
+        let bridge = Arc::new(RecordingTraceBridge::default());
+        let (worker, counts) = setup(1);
+        let worker = worker.with_trace_bridge(bridge.clone());
+        if normalize {
+            *counts.injected_outcome.lock().unwrap() = Some(ProgramOutcome::Success {
+                output: json!({"oversized": "x".repeat(SETTLEMENT_MAX_BYTES)}),
+            });
+        }
+        let service = Service::new(1);
+        service.lost_acquire_replies.store(1, Ordering::SeqCst);
+        service.lost_settlement_replies.store(1, Ordering::SeqCst);
+        let mut handle = DeliveryDriver::new(worker, service.clone(), config())
+            .unwrap()
+            .start();
+        wait_for(|| handle.status().settled_attempts == 1).await;
+        handle.shutdown(WAIT).await.unwrap();
+        let state = service.state.lock().unwrap();
+        assert_eq!(state.settlements.len(), 2);
+        let command = &state.settlements[0];
+        let processing = command
+            .processing_trace
+            .as_ref()
+            .expect("actual processing context");
+        assert_eq!(
+            serde_json::to_vec(command).unwrap(),
+            serde_json::to_vec(&state.settlements[1]).unwrap()
+        );
+        assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+        let executions = counts.observed_processing.lock().unwrap();
+        let execution = executions[0].as_ref().expect("separate execution context");
+        assert_ne!(processing, execution);
+        let events = counts.observed_events.lock().unwrap();
+        assert_ne!(events[0]["traceparent"], processing.traceparent);
+        let parents = bridge.parents.lock().unwrap();
+        let (_, parent) = parents
+            .iter()
+            .find(|(name, _)| name == "ledgence.program.execute")
+            .unwrap();
+        assert_eq!(parent.as_ref(), Some(processing));
+        let (_, origin) = parents
+            .iter()
+            .find(|(name, _)| name == "ledgence.attempt.process")
+            .unwrap();
+        assert_eq!(
+            origin.as_ref().unwrap().traceparent,
+            events[0]["traceparent"]
+        );
+        if normalize {
+            assert!(matches!(command.report, AttemptReport::Failed(_)));
+        }
+    }
 }

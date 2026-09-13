@@ -4,6 +4,8 @@
 //! or transport by themselves. Adapters must apply the full operation before
 //! acknowledging it. See `docs/delivery-contract.md` for replay and retention.
 
+pub use ledgence_worker_api::TraceContext;
+
 mod delivery;
 mod storage;
 mod submission;
