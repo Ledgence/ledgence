@@ -1,0 +1,67 @@
+//! Application value checks that serde's structural decoding does not perform.
+//! Execution authority and replay semantics remain with the delivery/core layers.
+
+use ledgence_orchestration_api::*;
+use ledgence_worker_api::{CloudEvent, ProgramOutcome, validate_wire_value};
+use serde::de::DeserializeOwned;
+
+pub(crate) trait ResponseValue: DeserializeOwned + Send + 'static {
+    fn validate_values(&self) -> Result<()> {
+        Ok(())
+    }
+}
+impl ResponseValue for WorkerSession {}
+impl ResponseValue for Authority {}
+impl ResponseValue for SettleReply {}
+impl ResponseValue for TaskState {}
+impl ResponseValue for Vec<RecordedHistoryEvent> {}
+impl ResponseValue for TaskSnapshot {
+    fn validate_values(&self) -> Result<()> {
+        self.input.validate()?;
+        self.descriptor.validate()?;
+        Ok(())
+    }
+}
+impl ResponseValue for AcquireReply {
+    fn validate_values(&self) -> Result<()> {
+        if let Self::Assigned { assignment, .. } = self {
+            validate_event_data(&assignment.event)?;
+            assignment.descriptor.validate()?;
+        }
+        Ok(())
+    }
+}
+impl ResponseValue for AttemptSnapshot {
+    fn validate_values(&self) -> Result<()> {
+        validate_event_data(&self.event)?;
+        self.descriptor.validate()?;
+        if let Some(accepted) = &self.settlement {
+            if let AttemptReport::Completed(report) = &accepted.command.report
+                && let ProgramOutcome::Success { output } = &report.outcome
+            {
+                validate_wire_value(output)?;
+            }
+            let command = serde_json::to_vec(&accepted.command).map_err(|_| {
+                ContractError::InvalidInput("invalid accepted settlement JSON".into())
+            })?;
+            if command.len() > SETTLEMENT_MAX_BYTES {
+                return Err(ContractError::InvalidInput(
+                    "accepted settlement exceeds its body limit".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+fn validate_event_data(event: &CloudEvent) -> Result<()> {
+    let data = &event.value()["data"];
+    validate_wire_value(data)?;
+    let bytes = serde_json::to_vec(data)
+        .map_err(|_| ContractError::InvalidInput("invalid event data JSON".into()))?;
+    if bytes.len() > SUBMISSION_DATA_MAX_BYTES {
+        return Err(ContractError::InvalidInput(
+            "event data exceeds submission limit".into(),
+        ));
+    }
+    Ok(())
+}

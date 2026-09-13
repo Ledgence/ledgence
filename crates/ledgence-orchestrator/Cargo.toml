@@ -1,29 +1,28 @@
 [package]
-name = "ledgence-worker"
+name = "ledgence-orchestrator"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Ledgence worker executable and composition"
+description = "Ledgence HTTP orchestration service and recovery supervisor"
 
 [dependencies]
-ledgence-worker-api.workspace = true
-ledgence-worker-core.workspace = true
+ledgence-adapter-http = { workspace = true, features = ["server"] }
 ledgence-adapter-artifact.workspace = true
-ledgence-adapter-subprocess.workspace = true
-ledgence-adapter-http = { workspace = true, features = ["client"] }
+ledgence-adapter-postgres.workspace = true
 ledgence-orchestration-api.workspace = true
-ledgence-worker-delivery.workspace = true
-tokio.workspace = true
-serde.workspace = true
+ledgence-orchestration-service.workspace = true
+ledgence-worker-api.workspace = true
+axum.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
-sha2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["fs"] }

@@ -10,6 +10,9 @@ members = [
   "crates/ledgence-orchestration-service",
   "crates/ledgence-adapter-postgres",
   "crates/ledgence-worker-delivery",
+  "crates/ledgence-adapter-http",
+  "crates/ledgence-orchestrator",
+  "crates/ledgence-cli",
 ]
 resolver = "3"
 
@@ -24,6 +27,7 @@ repository = "https://github.com/Ledgence/ledgence"
 ledgence-worker-api = { version = "0.1.0", path = "crates/ledgence-worker-api" }
 ledgence-worker-core = { version = "0.1.0", path = "crates/ledgence-worker-core" }
 ledgence-worker-delivery = { version = "0.1.0", path = "crates/ledgence-worker-delivery" }
+ledgence-adapter-http = { version = "0.1.0", path = "crates/ledgence-adapter-http", default-features = false }
 ledgence-orchestration-api = { version = "0.1.0", path = "crates/ledgence-orchestration-api" }
 ledgence-orchestration-core = { version = "0.1.0", path = "crates/ledgence-orchestration-core" }
 ledgence-adapter-artifact = { version = "0.1.0", path = "crates/ledgence-adapter-artifact" }
@@ -35,6 +39,8 @@ sha2 = "0.10.9"
 tempfile = "3.27.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["rustls"] }
 time = { version = "0.3.55", default-features = false, features = ["formatting"] }
 
 sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "migrate", "macros"] }

@@ -25,9 +25,16 @@ def violations(graph):
         },
         "ledgence-adapter-artifact": {"ledgence-worker-api"},
         "ledgence-adapter-subprocess": {"ledgence-worker-api"},
+        "ledgence-adapter-http": {"ledgence-orchestration-api", "ledgence-worker-api"},
+        "ledgence-orchestrator": {
+            "ledgence-adapter-http", "ledgence-adapter-artifact", "ledgence-adapter-postgres",
+            "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
+        },
+        "ledgence-cli": {"ledgence-adapter-http", "ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-worker": {
             "ledgence-worker-api", "ledgence-worker-core",
             "ledgence-adapter-artifact", "ledgence-adapter-subprocess",
+            "ledgence-adapter-http", "ledgence-worker-delivery", "ledgence-orchestration-api",
         },
     }
     members = set(graph["workspace_members"])

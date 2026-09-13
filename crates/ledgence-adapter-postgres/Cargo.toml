@@ -17,6 +17,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
+ledgence-adapter-http = { workspace = true, features = ["client", "server"] }
 ledgence-adapter-artifact.workspace = true
 ledgence-adapter-subprocess.workspace = true
 ledgence-orchestration-service.workspace = true

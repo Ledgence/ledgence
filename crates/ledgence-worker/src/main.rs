@@ -1,14 +1,13 @@
-//! Composition root and local execution fixture for the first worker milestone.
+//! Composition root for local fixture execution and connected worker delivery.
 
+mod composition;
+mod connect;
 mod output;
 mod signals;
 
-use ledgence_adapter_artifact::{
-    ArtifactLimits, FileArtifactCache, FileProgramStore, HttpProgramStore, publish_directory,
-};
-use ledgence_adapter_subprocess::SubprocessRuntime;
+use ledgence_adapter_artifact::{ArtifactLimits, publish_directory};
 use ledgence_worker_api::*;
-use ledgence_worker_core::{ExecutionRequest, Worker, WorkerConfig};
+use ledgence_worker_core::{ExecutionRequest, Worker};
 use output::{Outputs, Sink};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -25,7 +24,7 @@ use std::{
 };
 use tokio::{sync::Mutex, task::JoinSet};
 
-const HELP: &str = "Ledgence worker foundation\n\nCommands:\n  example --directory DIR --python EXE\n  publish --source DIR --store DIR\n  run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n\nThe run command consumes a local JSON task fixture. A production orchestration\ntransport, distributed leases, and durable settlement are not implemented yet.\n";
+const HELP: &str = "Ledgence worker\n\nCommands:\n  example --directory DIR --python EXE\n  publish --source DIR --store DIR\n  run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
 
 fn main() -> std::process::ExitCode {
     let mut outputs = match Outputs::new() {
@@ -138,6 +137,10 @@ async fn dispatch(
         }
     }
     match command.as_str() {
+        "connect" => {
+            let config = connect::ConnectOptions::parse(options)?;
+            connect::run(config, output, signals, interrupted).await
+        }
         "example" => {
             let directory = required(&mut options, "--directory")?;
             let python = required(&mut options, "--python")?;
@@ -199,25 +202,23 @@ async fn prepare(
     let concurrency = config.concurrency;
     // Disk inspection may block; keep the signal-driving task responsive and
     // retain this operation until it completes, including after cancellation.
-    let (store, cache, runtime, tasks) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let limits = ArtifactLimits::default();
-        let store: Arc<dyn ProgramStore> =
-            if config.store.starts_with("http://") || config.store.starts_with("https://") {
-                Arc::new(HttpProgramStore::new(&config.store, limits.clone())?)
-            } else {
-                Arc::new(FileProgramStore::new(&config.store, limits.clone())?)
-            };
-        let cache = Arc::new(FileArtifactCache::new(&config.cache, limits)?);
-        let runtime = Arc::new(SubprocessRuntime::new(&config.python, &config.runner));
+    let (parts, tasks) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let parts = composition::WorkerParts::new(
+            &config.store,
+            &config.cache,
+            &config.python,
+            &config.runner,
+        )?;
         let tasks: Vec<SubmittedTask> = decode_json(&read_bounded(&config.tasks, 8 * 1024 * 1024)?)
             .map_err(|e| input(format!("invalid task fixture: {e}")))?;
         if tasks.len() > 1000 {
             return Err(input("task fixture is limited to 1000 invocations"));
         }
-        Ok((store, cache, runtime, tasks))
+        Ok((parts, tasks))
     })
     .await
     .map_err(|error| Error::new(ErrorKind::Io, format!("preparation failed: {error}")))??;
+    let store = parts.store.clone();
     let mut attempts = HashSet::new();
     let mut releases = HashMap::<ProgramRef, ProgramDescriptor>::new();
     let mut bindings = HashMap::new();
@@ -262,15 +263,7 @@ async fn prepare(
             event: task.event,
         });
     }
-    let worker = Worker::new(
-        WorkerConfig {
-            concurrency,
-            ..WorkerConfig::default()
-        },
-        store,
-        cache,
-        runtime,
-    )?;
+    let worker = parts.worker(concurrency)?;
     Ok((worker, assignments))
 }
 

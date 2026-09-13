@@ -40,6 +40,6 @@ pub fn forced_exit() -> Error {
     FORCE_EXIT.store(true, Ordering::Release);
     Error::new(
         ErrorKind::Runtime,
-        "forced exit requested with process cleanup or output delivery unresolved",
+        "forced exit requested with delivery, process cleanup, or output unresolved",
     )
 }

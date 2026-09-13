@@ -68,8 +68,11 @@ pool reservation. This also applies when the startup channel disappears before
 the supervisor confirms cleanup. The runtime retains the resource record until
 cleanup succeeds, including if a caller drops the returned handle. A subsequent
 `close()` can finish interrupted cleanup or retry removal of a repaired working
-directory. A process-group error after the direct child has been reaped remains
-unresolved; numeric process-group IDs are never signaled after ownership is lost.
+directory. After reaping, a failed group signal can be resolved by a read-only
+signal-0 probe returning `ESRCH`, confirming that the group is absent. An existing
+group or any other probe result retains the original error and ownership. No
+actual signal is delivered to a remembered group ID after reaping, including
+when the operating system has reused that ID.
 
 User stdout, including native writes to descriptor 1, is redirected to stderr.
 The protocol uses a separate descriptor. Rust continuously drains stderr using
@@ -85,8 +88,8 @@ own persistent globals and background work between invocations. Descendants
 that deliberately leave the process group or change credentials can escape
 group cleanup. Following a spontaneous child exit, macOS group signaling can
 report `EPERM` for an already dead group as well as for a real permission denial;
-the adapter conservatively
-reports that cleanup uncertainty after reaping the direct child. Repeating a
+the adapter retains that cleanup uncertainty unless a later read-only probe
+confirms the group is absent. Repeating a
 task after a crash can repeat external effects; idempotency belongs to the
 program and orchestration contract.
 
