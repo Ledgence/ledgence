@@ -19,6 +19,10 @@ def violations(graph):
             "ledgence-orchestration-api", "ledgence-orchestration-core", "ledgence-worker-api",
         },
         "ledgence-worker-core": {"ledgence-worker-api"},
+        "ledgence-worker-delivery": {
+            "ledgence-worker-api", "ledgence-worker-core",
+            "ledgence-orchestration-api", "ledgence-orchestration-core",
+        },
         "ledgence-adapter-artifact": {"ledgence-worker-api"},
         "ledgence-adapter-subprocess": {"ledgence-worker-api"},
         "ledgence-worker": {

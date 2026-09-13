@@ -17,7 +17,12 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+ledgence-adapter-artifact.workspace = true
+ledgence-adapter-subprocess.workspace = true
 ledgence-orchestration-service.workspace = true
+ledgence-worker-core.workspace = true
+ledgence-worker-delivery.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

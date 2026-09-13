@@ -1,0 +1,20 @@
+[package]
+name = "ledgence-worker-delivery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Transport-independent supervised worker delivery"
+
+[dependencies]
+ledgence-worker-api.workspace = true
+ledgence-worker-core.workspace = true
+ledgence-orchestration-api.workspace = true
+ledgence-orchestration-core.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

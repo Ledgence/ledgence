@@ -2,7 +2,7 @@
 
 Ledgence provides a Rust application service and an initial PostgreSQL 18 storage adapter. Together they implement durable single-task submission, acquisition, lease renewal, settlement, cancellation, history, and expiry recovery. They call the existing lifecycle core inside database transactions and return mutation success only after commit.
 
-This feature does not connect the worker to an HTTP endpoint or start a production poller. The existing worker still executes local fixtures. OpenTelemetry export and retention deletion remain later work. PostgreSQL persistence tests establish database behavior, not exactly-once external business effects or database failover guarantees.
+The [delivery driver](worker-delivery.md) can execute assignments through the application service and this adapter in a Rust composition. Its PostgreSQL/Python acceptance tests cover that path. The CLI still executes local fixtures; an HTTP endpoint/client and long polling remain later work, along with OpenTelemetry export and retention deletion. These tests do not establish exactly-once external business effects or database failover guarantees.
 
 ## Using the adapter
 
@@ -16,6 +16,8 @@ cargo run -p ledgence-adapter-postgres --example migrate --locked
 Use the installed library's `PostgresStore::migrate` in a deployment command when composing another executable. Apply migrations once as an explicit deployment step; never edit an already-applied SQL migration. SQLx checks checksums and serializes migration runners. Ordinary builds use committed `.sqlx` query metadata without connecting to a database.
 
 Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
+
+The delivery driver accepts `Arc<dyn TaskService>`. Tests can supply this in-process application service directly; the production driver has no PostgreSQL dependency. A future worker transport adapter will implement the same port. The service composition remains responsible for scheduling expiry recovery; the worker driver does not run database scans.
 
 The platform does not require a database vendor account or PostgreSQL extension. This adapter supports PostgreSQL 18; compatibility with another major must be tested before changing that support boundary. PostgreSQL is isolated behind portable API ports. Custom adapters must uphold the same atomic and recovery behavior.
 
@@ -33,7 +35,7 @@ The previous assignment is read together with its task in one statement while ho
 
 Due-task acquisition skips locked rows and does not promise strict FIFO. A completed Empty disposition remains Empty when replayed, even if new work arrived. The next sequence performs a fresh acquisition. No transaction remains open while waiting for work; long-poll transport will be a later adapter.
 
-The store samples database wall time after relevant locks. Database clock discipline remains an operational assumption. Assignment replay returns remaining authority rather than resetting a lease duration; worker transport integration must continue to use the existing conservative local deadline rules. Dispatch permission records possible execution before acknowledging it.
+The store samples database wall time after relevant locks. Database clock discipline remains an operational assumption. Assignment replay returns remaining authority rather than resetting a lease duration. The delivery driver uses the conservative local deadline rules and renews dispatch permission before execution; future transport adapters must preserve these authority fields. Dispatch permission records possible execution before acknowledging it.
 
 ## Results, interruption, and inspection
 
@@ -57,15 +59,17 @@ Retention deletion is not implemented: records and submission deduplication can 
 
 Run ordinary workspace checks without a database using the committed offline metadata. Real database tests are explicitly ignored by default so their absence cannot be confused with a successful database validation. The dedicated gate lists and executes them against PostgreSQL 18.
 
-For the full PostgreSQL gate, provision an empty disposable database and its Docker container, then set `LEDGENCE_POSTGRES_URL` and `LEDGENCE_POSTGRES_CONTAINER` and run:
+For the full PostgreSQL gate, provision an empty disposable database and its Docker container, then set `LEDGENCE_POSTGRES_URL`, `LEDGENCE_POSTGRES_CONTAINER`, and `LEDGENCE_PYTHON` to a CPython 3.11-or-newer interpreter and run:
 
 ```sh
 python3 tools/check-postgres.py
 ```
 
-This requires `psql`, Docker, and Cargo. The gate applies the schema to the empty query-checking database, checks SQL macro metadata against the actual schema, and runs the real database tests serially. Individual tests use isolated databases and clean them up. The crash-recovery test deliberately kills and restarts the explicitly named disposable PostgreSQL container after proving it contains that test's unique database. Do not point this gate at a shared deployment. The scratch-schema setup is not a production migration tool.
+This requires `psql`, Docker, Cargo, and CPython. The gate applies the schema to the empty query-checking database, checks SQL macro metadata against the actual schema, and runs the real database tests serially, including delivery through real Python subprocesses. Individual tests use isolated databases and clean them up. The crash-recovery test deliberately kills and restarts the explicitly named disposable PostgreSQL container after proving it contains that test's unique database. Do not point this gate at a shared deployment. The scratch-schema setup is not a production migration tool.
 
 The tests cover concurrent submissions and initial cursors, competing consumers, live ownership, lock waits crossing expiry, dispatch and cancellation, rollback after intermediate writes, replay after reconnect, immutable historical receipts, expiry recovery, JSON fidelity, schema constraints, migration checksums, and actual PostgreSQL crash recovery. Mutation/clock/ID queries have compile-time SQLx descriptions; complex snapshot hydration uses explicit PostgreSQL row codecs exercised by database tests.
+
+Delivery acceptance tests publish a Python package with a prepared dependency, submit tasks, and run the reusable worker through `TaskService`. They verify the complete CloudEvent, one artifact download, warm process reuse, and durable results/history. A service wrapper loses acquisition, dispatch, and settlement replies after real commits; retries preserve operation identities and the handler runs once for that attempt. Another case reconnects the store and restarts the worker after removing the published descriptor/blob, then executes a previously accepted task using its persisted binding and reopened cache. These tests do not use an HTTP transport.
 
 For changed query macros, create the migrated scratch schema, set `DATABASE_URL` to it, and generate metadata with `SQLX_OFFLINE=false SQLX_OFFLINE_DIR=<absolute .sqlx path>` while checking the adapter. Force recompilation of the adapter with `cargo clean -p ledgence-adapter-postgres` first so all macros expand. Review additions/removals rather than keeping obsolete descriptions. `tools/check-postgres.py` independently regenerates into a temporary directory and compares exact descriptions.
 

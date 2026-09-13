@@ -9,6 +9,7 @@ members = [
   "crates/ledgence-orchestration-core",
   "crates/ledgence-orchestration-service",
   "crates/ledgence-adapter-postgres",
+  "crates/ledgence-worker-delivery",
 ]
 resolver = "3"
 
@@ -22,6 +23,7 @@ repository = "https://github.com/Ledgence/ledgence"
 [workspace.dependencies]
 ledgence-worker-api = { version = "0.1.0", path = "crates/ledgence-worker-api" }
 ledgence-worker-core = { version = "0.1.0", path = "crates/ledgence-worker-core" }
+ledgence-worker-delivery = { version = "0.1.0", path = "crates/ledgence-worker-delivery" }
 ledgence-orchestration-api = { version = "0.1.0", path = "crates/ledgence-orchestration-api" }
 ledgence-orchestration-core = { version = "0.1.0", path = "crates/ledgence-orchestration-core" }
 ledgence-adapter-artifact = { version = "0.1.0", path = "crates/ledgence-adapter-artifact" }

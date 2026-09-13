@@ -535,6 +535,14 @@ pub struct RunControl {
     deadline: Instant,
 }
 impl RunControl {
+    /// Bind to an already established monotonic execution deadline.
+    pub fn with_deadline(deadline: Instant) -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            deadline,
+        }
+    }
+
     /// Constructs a deadline. An unrepresentable duration fails closed as an
     /// immediately expired control; use `try_new` to report invalid input.
     pub fn new(timeout: Duration) -> Self {

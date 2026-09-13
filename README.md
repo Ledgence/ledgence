@@ -4,7 +4,7 @@ Open-source task orchestration with portable programs, reusable workers, and tra
 
 Ledgence is being built in Rust. Its worker can publish a Python program with its application dependencies, fetch and verify it on demand, cache it, and run complete CloudEvents through a bounded pool of reusable subprocesses.
 
-The `run` command currently reads a local task fixture. Rust libraries provide delivery contracts, deterministic task/lease transitions, and an application service backed by durable PostgreSQL storage. Worker capacity reservations support future remote acquisition and settlement, but the worker is not yet connected to an orchestration HTTP API or production poller. Automatic remote retries and OpenTelemetry export remain future work. See the [delivery contract](docs/delivery-contract.md). This is an early development version, with no stable public API commitment yet.
+The `run` command currently reads a local task fixture. Rust libraries also connect the worker to `TaskService`: the delivery driver acquires assignments, renews leases, executes programs, and reconciles durable results. The application service can use PostgreSQL storage. This library composition is tested with real PostgreSQL and Python; an HTTP server/client, long polling, a delivery CLI command, and OpenTelemetry export remain future work. See [worker delivery](docs/worker-delivery.md) and the [delivery contract](docs/delivery-contract.md). This is an early development version, with no stable public API commitment yet.
 
 ## Try it
 
@@ -64,7 +64,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --lock
 cargo deny --locked check
 ```
 
-Install the reviewed dependency checker with `cargo install cargo-deny --version 0.20.2 --locked`. Tests include real Python subprocesses, archive integrity and limits, cache recovery, cancellation, process capacity, and the full publish-to-execution flow. Git integration follows feature branches from `develop`, passing checks before merging back; `main` is reserved for stable releases.
+Install the reviewed dependency checker with `cargo install cargo-deny --version 0.20.2 --locked`. Tests include real Python subprocesses, archive integrity and limits, cache recovery, cancellation, process capacity, and the full publish-to-execution flow. Delivery fault tests exercise lease expiry and uncertain replies. Real PostgreSQL/Python delivery tests run separately through the [database gate](docs/postgres.md#verification); ordinary workspace tests leave those explicitly ignored. Git integration follows feature branches from `develop`, passing checks before merging back; `main` is reserved for stable releases.
 
 ## License
 
@@ -72,4 +72,4 @@ Ledgence-owned code is [MIT licensed](LICENSE). Your applications and programs c
 
 ## Durable orchestration storage
 
-The Rust application service and PostgreSQL 18 adapter implement transactional task submission, attempts, leases, result acceptance, cancellation, inspection, and expiry recovery. See [PostgreSQL setup and guarantees](docs/postgres.md). The worker is not yet connected to a production HTTP poller; local execution remains the runnable worker path.
+The Rust application service and PostgreSQL 18 adapter implement transactional task submission, attempts, leases, result acceptance, cancellation, inspection, and expiry recovery. See [PostgreSQL setup and guarantees](docs/postgres.md). Embedding applications can supply this service to the [delivery driver](docs/worker-delivery.md); the driver depends on the portable `TaskService` interface and does not depend on PostgreSQL. The CLI continues to run local fixtures.

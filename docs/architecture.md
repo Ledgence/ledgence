@@ -1,6 +1,6 @@
 # Architecture
 
-Ledgence provides a local worker foundation and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the service and storage adapter persist tasks, leases, results, and history. Orchestration transport remains a future adapter: the worker does not yet poll a production queue or connect its execution, lease renewal, and settlement to the service.
+Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The current executable runs local fixtures. HTTP transport, long polling, and a delivery CLI command remain future work.
 
 ## Crate boundaries
 
@@ -8,9 +8,10 @@ Ledgence provides a local worker foundation and a Rust orchestration service bac
 | --- | --- | --- |
 | `ledgence-worker-api` | Events, manifests, descriptors, cancellation, and adapter ports | None |
 | `ledgence-worker-core` | Admission, preparation coordination, process capacity and reuse, shutdown | API |
+| `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
-| `ledgence-worker` | Configuration, command-line entry points, local fixture composition | All four |
+| `ledgence-worker` | Configuration, command-line entry points, local fixture composition | Worker API/core, artifact and subprocess adapters |
 | `ledgence-orchestration-api` | Submission, delivery, lease, receipt, and service contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
 | `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
@@ -20,7 +21,11 @@ Ledgence provides a local worker foundation and a Rust orchestration service bac
 
 The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
 
-The [delivery contract](delivery-contract.md) adds the portable `TaskService` boundary and executable orchestration decisions. The [PostgreSQL persistence adapter](postgres.md) implements the durable service/store operations. Execution reports now live in worker-api and remain reexported by worker-core. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before future acquisition and through settlement; its local execution method is single-use. The PostgreSQL adapter commits all transition records atomically before returning a durable acknowledgement. Library transition tests do not establish distributed delivery guarantees.
+The [delivery contract](delivery-contract.md) defines the portable `TaskService` boundary and executable orchestration decisions. The [delivery driver](worker-delivery.md) accepts `Worker` and `Arc<dyn TaskService>` and derives N from `Worker::concurrency()`. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before acquisition and through settlement; its local execution method is single-use. Execution reports live in worker-api and remain reexported by worker-core. The [PostgreSQL persistence adapter](postgres.md) commits all transition records atomically before returning a durable acknowledgement. The driver has no PostgreSQL dependency; integration tests compose the real service, database, artifact, and subprocess adapters.
+
+The driver opens a session and starts N consumers. Each reserves worker capacity before its ordered acquisition. A committed Empty is followed by an idle delay; it is not a server-side wait. Assigned work requires a dispatch renewal before preparation/execution. A separate lease monitor cancels user work at its conservative local deadline while settlement and cleanup reconciliation continue. Uncertain acquisition, renewal, and settlement replies reuse the same operation identity. The driver retains its reservation until remote ownership is resolved and local work is quiescent.
+
+Stopping the driver closes worker admission and runs worker cleanup concurrently with those consumers. If an execution returns while its local work or cleanup is still outstanding, the driver reports unconfirmed quiescence and drains the whole worker. Repeated worker shutdown advances retained cleanup; a separate confirmation finishes accepted reports without changing them. The embedding Tokio runtime must remain alive while this process is pending.
 
 ## Invocation ownership
 
@@ -51,11 +56,11 @@ Adapter panics close worker admission from inside the retained supervisor. Sessi
 
 ## Current boundaries of reliability
 
-The CLI resolves all fixture program references before execution, rejects duplicate attempt identities, and pins one descriptor per logical task for that batch. Separately, the orchestration service and PostgreSQL adapter persist that binding so later acquisitions and retries retain the same program bytes across restarts. The worker still needs transport integration to execute those assignments. The local registry is not durable deduplication.
+The CLI resolves all fixture program references before execution, rejects duplicate attempt identities, and pins one descriptor per logical task for that batch. The orchestration service and PostgreSQL adapter persist that binding so later acquisitions and retries retain the same program bytes across restarts. The delivery driver executes the descriptor in the assignment without resolving the release label again. Worker/service restart and persisted cache reuse are covered by PostgreSQL/Python acceptance tests. The local registry is not durable deduplication.
 
 Reports and failures share `InvocationIdentity`: source/event ID, tenant/namespace, run/task/attempt ID, attempt number, and optional `traceparent`/`tracestate`. Bound program identity and digest accompany that context, including preparation failures before a PID exists. Warning and error logs carry the same context even when informational spans are filtered. A secondary cleanup error is retained separately from the original execution error. Raw program stderr is tagged with process ID and artifact digest because arbitrary byte streams cannot be assigned reliably to an invocation. There is no OpenTelemetry span activation/exporter or metrics backend yet.
 
-This milestone does not implement distributed at-least-once delivery. That remains the target orchestration contract. Applications will still need idempotency for external effects; neither process supervision nor an event ID can guarantee exactly-once business outcomes.
+The driver retains uncertain operations only in memory. A worker process crash loses that local state; a replacement starts a new worker session, and service-side lease expiry and the task's retry policy recover unfinished attempts. The service composition must schedule expiry recovery. An expired or unknown session drains the current driver instead of recreating it and transplanting old cursors. A network transport and deployment-level failure validation are still needed for distributed at-least-once delivery. Applications need idempotency for external effects; neither process supervision nor an event ID guarantees exactly-once business outcomes.
 
 ## Design references
 

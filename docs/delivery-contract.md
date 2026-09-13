@@ -1,10 +1,10 @@
 # Delivery contract
 
-Ledgence implements portable orchestration types, deterministic state transitions, worker capacity reservations, and a Rust application service backed by a [PostgreSQL storage adapter](postgres.md). The adapter persists submissions, identities, leases, settlement receipts, and history, with expiry recovery. HTTPS/JSON long polling is the selected direction for worker transport; a server, production poller, automatic remote retry loop, and OTLP exporter remain future work. The local `run` command still consumes a fixture.
+Ledgence implements portable orchestration types, deterministic state transitions, worker capacity reservations, a [delivery driver](worker-delivery.md), and a Rust application service backed by a [PostgreSQL storage adapter](postgres.md). The driver coordinates service sessions, acquisition, lease renewal, execution, and result reconciliation through `TaskService`. The adapter persists submissions, identities, leases, settlement receipts, and history, with expiry recovery. HTTPS/JSON long polling is the selected direction for a future transport adapter. An HTTP server/client, long polling, a delivery CLI command, and OTLP export are not implemented. The local `run` command still consumes a fixture.
 
 ## Boundaries
 
-`ledgence-orchestration-api` defines submission, acquisition, lease, report, receipt, inspection, and service contracts. It depends on worker-api's portable CloudEvent, program descriptor, and execution report types. `ledgence-orchestration-core` decides transitions over supplied records; it performs no I/O, ID allocation, or clock reads. `TaskService` is implemented by the Rust application service over atomic storage ports. The [PostgreSQL adapter](postgres.md) supplies durable transactions; HTTP worker transport remains future work.
+`ledgence-orchestration-api` defines submission, acquisition, lease, report, receipt, inspection, and service contracts. It depends on worker-api's portable CloudEvent, program descriptor, and execution report types. `ledgence-orchestration-core` decides transitions over supplied records; it performs no I/O, ID allocation, or clock reads. `TaskService` is implemented by the Rust application service over atomic storage ports. The [PostgreSQL adapter](postgres.md) supplies durable transactions. `ledgence-worker-delivery` depends on the portable service interface and worker API/core; it does not depend on a database or HTTP implementation.
 
 Each core transition returns proposed task/attempt updates, history, and a reply. **A returned transition is not a durable acknowledgement.** A store must lock the relevant records, obtain fresh authoritative time, run the transition, commit every update atomically, and only then expose the reply. Input snapshots remain unchanged even when validation fails.
 
@@ -55,6 +55,8 @@ Each consumer index is below N. Its durable cursor keeps only the latest complet
 - The next sequence can close only after Empty or after the previous attempt no longer owns authority. It cannot create extra work while the previous claim is live.
 - Waiting for work is adapter behavior. A wait is not a committed Empty. Each completed poll atomically updates its cursor and any claimed task/attempt.
 
+The current delivery driver performs immediate acquisition and delays after a committed Empty before advancing its sequence. The PostgreSQL operation commits Empty immediately when no task is found. A future long-poll server therefore needs a non-finalizing wait/acquisition mechanism; repeatedly replaying the same committed Empty cannot discover newly arrived work. No database transaction or connection should be held for the wait.
+
 Cursors for a live session must not be deleted/reset. A cursor's referenced task/attempt must remain resolvable: retain their minimal tombstones after payload retention expires until the cursor advances or its session expires. Otherwise an idle consumer could be stranded when it next tries to advance. Once a session expires, its cursor records may be removed after outstanding ownership is reconciled; an unknown session still rejects old commands. This avoids an indefinitely growing receipt history for idle polls. Renewals similarly retain one ordered command, not a history row per heartbeat.
 
 ## Lease and execution deadlines
@@ -83,11 +85,21 @@ An already terminal task stays terminal. Cancellation of initial queued work or 
 
 Retained invocation supervisors share that same permit. Caller cancellation, an early fetch timeout, or release after a report cannot free capacity while the underlying local operation is still owned. Quarantined cleanup and unrecoverable starts retain their process slots and relevant consumer ownership. Healthy warm processes keep their globally counted process slot without retaining a completed consumer's reservation.
 
-N is per worker instance, across all its programs and versions. `is_cancellation_requested()` lets a future delivery driver observe shutdown while it owns an acquisition or report. Shutdown retries available quarantined cleanup while external reservations remain held, so those owners can observe local completion and reconcile their reports. Shutdown remains incomplete until external owners resolve and release their reservations. This feature supplies that ownership primitive, not a production delivery driver.
+N is per worker instance, across all its programs and versions. `is_cancellation_requested()` exposes local shutdown while a caller owns an acquisition or report. Shutdown retries available quarantined cleanup while external reservations remain held, so those owners can observe local completion and reconcile their reports. Shutdown remains incomplete until external owners resolve and release their reservations. The delivery driver uses these ownership primitives and derives its consumer count from the existing worker configuration.
 
 `is_quiescent()` observes whether the reservation still has supervised local work or cleanup outstanding. A successful returned report can coexist with a healthy warm process and a quiescent reservation; an early fetch-timeout report can coexist with a non-quiescent reservation until its retained fetch finishes. The observation does not confirm remote acceptance or absence of arbitrary application side effects.
 
 The reservation keeps its execution cancellation control attached while supervised work or required cleanup remains. Once that local lifetime is complete, releasing the reservation does not cancel the finished execution's control, including when other invocations share it. Early reports and unconfirmed cleanup do not end that lifetime.
+
+## Implemented delivery driver
+
+`DeliveryDriver::new(worker, service, config)?.start()` opens a service session and starts N supervised consumers. Each consumer reserves capacity before acquiring work and retains it during retries of an uncertain acquisition. Before local execution, the driver validates the assignment and obtains dispatch permission through an ordered renewal. Lease monitoring runs during preparation, startup, execution, and report reconciliation. A late reply cannot restart work after the conservative deadline or cancellation has stopped it.
+
+Acquisition and renewal retries preserve their command and sequence. Once a settlement is sent, its operation ID, report, quiescence, and trace fields stay unchanged. The driver validates the receipt identity before recording local acceptance. An accepted unconfirmed report uses a separate `confirm_quiescence` call when local ownership has finished. A result that exceeds the settlement contract is replaced with a bounded protocol failure before the first settlement request; it does not cause local re-execution.
+
+Non-quiescent local completion drains the entire worker: this lets its existing shutdown owner retry cleanup while consumers continue remote reconciliation. `stop`, dropping the delivery handle, or a shutdown timeout does not abandon those supervisors. `shutdown(timeout)` returns `ShutdownPending` if work remains; callers can wait again on the same handle and must keep the runtime alive. Invalid responses and protocol conflicts stop admission but cannot stand in for proof that an uncertain claim or report is resolved.
+
+The driver keeps session/cursor/report state in memory. It has no local durable recovery journal. A replacement after process failure creates a new worker and session; the service's expiry recovery and retry policy handle unfinished attempts. An expired or unknown session drains its driver instead of automatically opening a replacement. See [worker delivery](worker-delivery.md) for composition, configuration, and shutdown.
 
 ## Initial limits and retention contract
 
@@ -102,11 +114,11 @@ The reservation keeps its execution cancellation control attached while supervis
 | Attempt execution budget including preparation/startup | 5 minutes by default; configurable 1 minute–24 hours |
 | Lease / renewal cadence / safety margin | 60 seconds / 15 seconds / 5 seconds |
 | Cleanup/report authority after execution deadline or cancellation | Up to 30 seconds; existing shorter lease remains authoritative until renewed |
-| Long-poll wait / request deadline | 20 seconds / 30 seconds; future proxy configuration must accommodate them |
+| Planned long-poll wait / control request deadline | 20 seconds / 30 seconds; the current driver uses immediate polling |
 | Session validity from creation/extension | 24 hours; expired sessions cannot be extended |
 | Task history, accepted reports/receipts, submission deduplication | Entire active life plus 90 days after terminal task state |
 
-The subprocess frame budget includes generated CloudEvent metadata and the protocol wrapper in addition to application data. The default accommodates the full submission data limit with the largest supported generated identifiers and trace context. Local applications may override frame limits; smaller frames can reject otherwise valid submissions, and larger output frames require checking the settlement/report budget. A future delivery adapter must check its configured runtime limits against these contracts.
+The subprocess frame budget includes generated CloudEvent metadata and the protocol wrapper in addition to application data. The default accommodates the full submission data limit with the largest supported generated identifiers and trace context. Embedding applications may override frame limits; smaller frames can reject otherwise valid submissions. The delivery driver checks the serialized settlement contract and reports a protocol failure if an execution result cannot fit it. Configure runtime frame limits to suit these budgets.
 
 The minimum execution budget exceeds the initial control request deadline and safety margin. Long-poll request latency is charged conservatively, so a fresh authority exchange may still be needed before starting work. These initial values establish bounded behavior, not throughput promises. Execution duration, leases, cleanup, and byte limits are distinct from the sole concurrency parameter. Existing local-worker timeouts retain their previous behavior.
 
@@ -116,4 +128,4 @@ Retention cleanup is not implemented. The PostgreSQL adapter currently retains r
 
 Deterministic tests exercise duplicate/obsolete sequences, loss of permission, receipt replay during retries, cancellation ordering, cleanup progression, payload preservation, and transition errors without input mutation. Worker tests prove capacity retention with gated preparation/cleanup and caller cancellation.
 
-Real PostgreSQL tests additionally cover concurrent claimers, row-lock waits crossing expiry, transaction rollback, replay after reconnect, retained outcomes, schema migrations, and database crash recovery. See the [PostgreSQL validation gate](postgres.md#verification). These tests establish storage behavior; they do not establish end-to-end worker delivery or every ambiguous commit failure. Worker/API integration still needs transport failure, retry/reconciliation, and long-poll wakeup tests.
+Driver fault tests cover capacity before acquisition, ambiguous replies, local lease deadlines, retained shutdown, and cleanup reconciliation. Real PostgreSQL tests additionally cover concurrent claimers, row-lock waits crossing expiry, transaction rollback, replay after reconnect, retained outcomes, schema migrations, and database crash recovery. The PostgreSQL/Python acceptance tests exercise publication, submission, driver acquisition, dynamic download/cache, reusable execution, durable result/history, lost committed replies, and service/worker restart. See the [PostgreSQL validation gate](postgres.md#verification). These are in-process service compositions; network interruption and long-poll wakeup behavior require tests alongside the future transport.
