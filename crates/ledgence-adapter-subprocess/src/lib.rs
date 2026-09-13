@@ -72,11 +72,19 @@ struct Resources {
     /// The signal outcome is committed before wait() can suspend. Reaping may
     /// be interrupted, but an already observed signal must never be forgotten.
     group_signal_attempted: bool,
-    group_error: Option<Error>,
+    group_error: Option<GroupTerminationError>,
     #[cfg(test)]
     before_reap: Option<Arc<tokio::sync::Semaphore>>,
     #[cfg(test)]
     group_signal_attempts: usize,
+}
+
+struct GroupTerminationError {
+    error: Error,
+    /// After reaping, this identifier is only valid for a read-only existence
+    /// check. It must never be used to deliver another signal.
+    #[cfg(unix)]
+    group_id: nix::unistd::Pid,
 }
 
 impl SubprocessRuntime {
@@ -626,8 +634,8 @@ async fn drain_logs(mut stderr: ChildStderr, budget: Arc<AtomicUsize>, pid: u32,
 }
 
 async fn terminate(resources: &mut Resources) -> Result<()> {
-    // Signal the owned group BEFORE waiting/reaping. Never retain a numeric PGID
-    // for signaling after wait() releases the child's PID to the operating system.
+    // Signal the owned group BEFORE waiting/reaping. Never deliver a signal
+    // after wait() releases the child's PID to the operating system.
     if !resources.reaped && !resources.group_signal_attempted {
         #[cfg(test)]
         {
@@ -641,16 +649,20 @@ async fn terminate(resources: &mut Resources) -> Result<()> {
                 unistd::Pid,
             };
             let pid = i32::try_from(pid).ok().filter(|pid| *pid > 1)?;
-            match killpg(Pid::from_raw(pid), Signal::SIGKILL) {
+            let group_id = Pid::from_raw(pid);
+            match killpg(group_id, Signal::SIGKILL) {
                 Ok(()) | Err(Errno::ESRCH) => None,
-                Err(error) => Some(Error::new(
-                    ErrorKind::Runtime,
-                    format!("cannot terminate subprocess group: {error}"),
-                )),
+                Err(error) => Some(GroupTerminationError {
+                    error: Error::new(
+                        ErrorKind::Runtime,
+                        format!("cannot terminate subprocess group: {error}"),
+                    ),
+                    group_id,
+                }),
             }
         });
         #[cfg(not(unix))]
-        let group_error: Option<Error> = None;
+        let group_error: Option<GroupTerminationError> = None;
         resources.group_error = group_error;
         resources.group_signal_attempted = true;
         let _ = resources.child.start_kill();
@@ -667,6 +679,19 @@ async fn terminate(resources: &mut Resources) -> Result<()> {
         resources.child.wait().await.map_err(Error::from)?;
         resources.reaped = true;
     }
+    // Darwin can reject the initial killpg with EPERM when the group contains
+    // only an unreaped zombie. Confirm that the group is absent after reaping;
+    // neither EPERM nor a successful existence check confirms cleanup. Signal 0
+    // is read-only, including if this numeric PGID has since been reused.
+    #[cfg(unix)]
+    if resources.group_error.as_ref().is_some_and(|failure| {
+        matches!(
+            nix::sys::signal::killpg(failure.group_id, None),
+            Err(nix::errno::Errno::ESRCH)
+        )
+    }) {
+        resources.group_error = None;
+    }
     // Escaped descendants can retain stderr. They must not hold the actor forever.
     if let Some(logs) = resources.logs.as_mut()
         && tokio::time::timeout(Duration::from_millis(200), &mut *logs)
@@ -677,8 +702,8 @@ async fn terminate(resources: &mut Resources) -> Result<()> {
         let _ = logs.await;
     }
     resources.logs = None;
-    if let Some(error) = &resources.group_error {
-        return Err(error.clone());
+    if let Some(failure) = &resources.group_error {
+        return Err(failure.error.clone());
     }
     if let Some(path) = resources.workspace.as_ref() {
         std::fs::remove_dir_all(path)
@@ -724,6 +749,165 @@ fn release_confirmed(
 mod tests {
     use super::*;
     use ledgence_worker_api::{Digest, Platform, ProgramManifest, ProgramRef, PythonRuntime};
+
+    fn cleanup_resources(child: Child) -> (tempfile::TempDir, Resources, std::sync::Weak<()>) {
+        let artifact_root = tempfile::tempdir().unwrap();
+        let pin = Arc::new(());
+        let weak = Arc::downgrade(&pin);
+        let artifact = PreparedArtifact::new(
+            artifact_root.path().to_owned(),
+            ProgramManifest {
+                schema_version: 1,
+                program: ProgramRef {
+                    id: "cleanup".into(),
+                    version: "v1".into(),
+                },
+                runtime: PythonRuntime {
+                    kind: "python".into(),
+                    python: "3.12".into(),
+                    protocol: 1,
+                },
+                handler: "program:handle".into(),
+                platform: Platform {
+                    os: std::env::consts::OS.into(),
+                    arch: std::env::consts::ARCH.into(),
+                },
+            },
+            Digest(format!("sha256:{}", "0".repeat(64))),
+            pin,
+        );
+        let resources = Resources {
+            child,
+            artifact: Some(artifact),
+            workspace: Some(tempfile::tempdir().unwrap().keep()),
+            logs: None,
+            reaped: false,
+            group_signal_attempted: false,
+            group_error: None,
+            before_reap: None,
+            group_signal_attempts: 0,
+        };
+        (artifact_root, resources, weak)
+    }
+
+    #[tokio::test]
+    async fn spontaneously_exited_child_is_confirmed_after_interrupted_reaping() {
+        let child = Command::new("/bin/sh")
+            .args(["-c", "exit 23"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        // Observe exit without wait/try_wait, so the group still contains the
+        // unreaped child when the first cleanup signal is attempted.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let status = Command::new("ps")
+                    .args(["-o", "stat=", "-p", &pid.to_string()])
+                    .output()
+                    .await
+                    .unwrap();
+                if String::from_utf8_lossy(&status.stdout)
+                    .trim()
+                    .starts_with('Z')
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("owned child should exit without being reaped");
+        let (_artifact_root, mut resources, pin) = cleanup_resources(child);
+        let workspace = resources.workspace.clone().unwrap();
+        let before_reap = Arc::new(tokio::sync::Semaphore::new(0));
+        resources.before_reap = Some(before_reap.clone());
+        let first_poll = {
+            let mut cleanup = Box::pin(terminate(&mut resources));
+            std::future::poll_fn(|cx| std::task::Poll::Ready(cleanup.as_mut().poll(cx))).await
+        };
+        assert!(first_poll.is_pending());
+        assert!(!resources.reaped);
+        assert_eq!(resources.group_signal_attempts, 1);
+        #[cfg(target_os = "macos")]
+        if let Some(failure) = resources.group_error.as_ref() {
+            assert_eq!(
+                failure.error.message,
+                "cannot terminate subprocess group: EPERM: Operation not permitted"
+            );
+        }
+        assert!(pin.upgrade().is_some());
+        assert!(workspace.exists());
+
+        before_reap.add_permits(1);
+        terminate(&mut resources).await.unwrap();
+        terminate(&mut resources).await.unwrap();
+        assert!(resources.reaped);
+        assert!(resources.group_error.is_none());
+        assert_eq!(resources.group_signal_attempts, 1);
+        assert!(pin.upgrade().is_none());
+        assert!(!workspace.exists());
+        assert_eq!(
+            nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid as i32), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_group_signal_retains_ownership_until_remaining_group_disappears() {
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let group_id = nix::unistd::Pid::from_raw(child.id().unwrap() as i32);
+        let mut member = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(group_id.as_raw())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let (_artifact_root, mut resources, pin) = cleanup_resources(child);
+        let workspace = resources.workspace.clone().unwrap();
+        // Model a failed group signal followed by the direct-child fallback.
+        // A permission failure must not become success merely because the
+        // direct child is reaped while another group member remains alive.
+        let error = Error::new(ErrorKind::Runtime, "group signal permission denied");
+        resources.group_signal_attempted = true;
+        resources.group_signal_attempts = 1;
+        resources.group_error = Some(GroupTerminationError {
+            error: error.clone(),
+            group_id,
+        });
+        resources.child.start_kill().unwrap();
+        for _ in 0..2 {
+            assert_eq!(terminate(&mut resources).await.unwrap_err(), error);
+            assert!(resources.reaped);
+            assert_eq!(resources.group_signal_attempts, 1);
+            assert!(member.try_wait().unwrap().is_none());
+            assert!(pin.upgrade().is_some());
+            assert!(workspace.exists());
+        }
+        // The test still owns this child handle. Only its owner may kill/reap
+        // it; runtime retries must restrict themselves to read-only checks.
+        member.kill().await.unwrap();
+        terminate(&mut resources).await.unwrap();
+        assert!(pin.upgrade().is_none());
+        assert!(!workspace.exists());
+        assert!(resources.group_error.is_none());
+        assert_eq!(resources.group_signal_attempts, 1);
+    }
 
     #[tokio::test]
     async fn lost_startup_channel_returns_real_cleanup_ownership() {

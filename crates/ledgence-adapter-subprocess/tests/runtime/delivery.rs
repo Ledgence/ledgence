@@ -231,7 +231,7 @@ async fn maximum_submission_with_escaped_metadata_executes_and_settles_with_defa
     let result = session
         .execute(event.clone(), RunControl::new(Duration::from_secs(30)))
         .await;
-    assert_cleanup(session.close().await);
+    session.close().await.unwrap();
     let outcome = result.expect("the complete accepted input must fit the default runtime");
     assert_eq!(output(outcome.clone()), *event.value());
     let settlement_bytes = settle_outcome(&claimed, outcome, session.pid());
@@ -287,5 +287,5 @@ def handle(event):
             "default result boundary: extra={extra_byte}, frame limit={DEFAULT_RUNTIME_FRAME_MAX_BYTES}, settlement={settlement_bytes}"
         );
     }
-    assert_cleanup(session.close().await);
+    session.close().await.unwrap();
 }

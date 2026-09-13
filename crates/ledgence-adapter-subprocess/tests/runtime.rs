@@ -83,21 +83,6 @@ fn ready(result: ledgence_worker_api::Result<StartOutcome>) -> Box<dyn Execution
         }
     }
 }
-fn assert_cleanup(result: ledgence_worker_api::Result<()>) {
-    // Darwin's killpg can reject a group consisting solely of an unreaped
-    // zombie. Keep that uncertainty visible rather than ignoring EPERM in the
-    // adapter. Every relevant test separately verifies direct-child reaping.
-    if cfg!(target_os = "macos")
-        && result.as_ref().is_err_and(|error| {
-            error.kind == ErrorKind::Runtime
-                && error.message
-                    == "cannot terminate subprocess group: EPERM: Operation not permitted"
-        })
-    {
-        return;
-    }
-    result.unwrap();
-}
 fn output(value: ProgramOutcome) -> Value {
     match value {
         ProgramOutcome::Success { output } => output,
@@ -303,7 +288,7 @@ async fn timeout_retires_and_reaps_before_returning() {
     #[cfg(unix)]
     assert!(!running(pid));
     assert!(session.execute(event("again"), control()).await.is_err());
-    assert_cleanup(session.close().await);
+    session.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -322,7 +307,7 @@ async fn cancellation_retires_and_reaps_before_returning() {
     assert_eq!(error.kind, ErrorKind::Cancelled);
     #[cfg(unix)]
     assert!(!running(pid));
-    assert_cleanup(session.close().await);
+    session.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -341,7 +326,7 @@ async fn dropping_execute_future_cleans_up_even_with_session_still_owned() {
     );
     #[cfg(unix)]
     eventually_gone(pid).await;
-    assert_cleanup(session.close().await);
+    session.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -372,9 +357,23 @@ async fn dropping_idle_session_reaps_child_and_releases_artifact_pin() {
 
 #[tokio::test]
 async fn crash_returns_uncertain_runtime_error_and_session_is_retired() {
-    let (_dir, artifact, runtime) = fixture("import os\ndef handle(event): os._exit(23)\n");
+    let (_dir, artifact, runtime) = fixture(
+        "import os\ndef handle(event):\n    if event['id'] == 'crash': os._exit(23)\n    return os.getcwd()\n",
+    );
+    let pin = Arc::new(());
+    let weak = Arc::downgrade(&pin);
+    let artifact = PreparedArtifact::new(
+        artifact.root().to_owned(),
+        artifact.manifest().clone(),
+        artifact.digest().clone(),
+        pin,
+    );
     let mut session = ready(runtime.start(artifact, control()).await);
     let pid = session.pid();
+    let working = output(session.execute(event("warm"), control()).await.unwrap());
+    let workspace = PathBuf::from(working.as_str().unwrap());
+    assert!(workspace.exists());
+    assert!(weak.upgrade().is_some());
     let error = session
         .execute(event("crash"), control())
         .await
@@ -383,20 +382,17 @@ async fn crash_returns_uncertain_runtime_error_and_session_is_retired() {
     assert!(error.message.contains("result is unavailable"));
     #[cfg(unix)]
     assert!(!running(pid));
-    let first_close = session.close().await;
-    let second_close = session.close().await;
-    assert_eq!(
-        first_close, second_close,
-        "cleanup uncertainty must not disappear on retry"
-    );
-    assert_cleanup(first_close);
+    session.close().await.unwrap();
+    session.close().await.unwrap();
+    assert!(!workspace.exists());
+    assert!(weak.upgrade().is_none());
 }
 
 #[tokio::test]
 async fn normal_close_ack_avoids_the_darwin_zombie_race_and_is_idempotent() {
     let (_dir, artifact, runtime) = fixture("def handle(event): return event['id']\n");
     // Repeated short sessions specifically exercise the former acknowledgement /
-    // child-exit race. Every close must succeed without the Darwin EPERM allowance.
+    // child-exit race. Every close must confirm cleanup.
     for index in 0..30 {
         let mut session = ready(runtime.start(artifact.clone(), control()).await);
         let pid = session.pid();
@@ -472,7 +468,7 @@ async fn protocol_identity_mismatch_and_oversized_frames_are_retired() {
         assert_eq!(error.kind, ErrorKind::Protocol);
         #[cfg(unix)]
         assert!(!running(pid));
-        assert_cleanup(session.close().await);
+        session.close().await.unwrap();
     }
 }
 
@@ -614,7 +610,7 @@ async fn cancellation_terminates_same_group_grandchildren() {
             .unwrap();
         let status = String::from_utf8_lossy(&status.stdout);
         if status.trim().is_empty() || status.trim().starts_with('Z') {
-            assert_cleanup(session.close().await);
+            session.close().await.unwrap();
             return;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
