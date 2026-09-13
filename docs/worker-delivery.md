@@ -63,7 +63,7 @@ Successful execution can leave a healthy warm subprocess while its invocation is
 
 ## Shutdown and diagnostics
 
-`DeliveryHandle::stop()` requests shutdown. `shutdown(timeout).await` requests shutdown and waits up to that duration. A `ShutdownPending` result retains the same supervisor and reservation ownership; retry the wait while keeping the Tokio runtime alive. Dropping the handle also requests stop, and dropping a wait future does not abort the supervisor.
+`DeliveryHandle::stop()` requests shutdown. `shutdown(timeout).await` requests shutdown and waits up to that duration. A `ShutdownPending` result retains the same supervisor and reservation ownership; retry the wait while keeping the Tokio runtime alive. Dropping the handle also requests stop, and dropping a wait future does not abort the supervisor. The timeout limits the caller's wait; it is not an adapter cleanup deadline.
 
 For an embedding application that wants bounded status updates while it waits:
 
@@ -83,7 +83,9 @@ async fn stop_delivery(handle: &mut DeliveryHandle) -> DeliveryStatus {
 }
 ```
 
-The driver repeatedly invokes worker shutdown while consumers reconcile assignments and reports. It cannot finish while required local cleanup is unconfirmed. A protocol conflict or invalid response stops admission but does not prove that an uncertain acquisition, result, or cleanup operation can be discarded. An unavailable service or an adapter without recoverable cleanup may therefore leave shutdown pending indefinitely.
+The driver uses `Worker::shutdown_until_quiescent()` and keeps that cleanup operation running while consumers reconcile assignments and reports. A handle wait timeout or status check does not cancel an adapter's `close` future. If cleanup returns an error, the session remains quarantined and the driver retries after a short delay. It cannot finish while required local cleanup is unconfirmed. A protocol conflict or invalid response stops admission but does not prove that an uncertain acquisition, result, or cleanup operation can be discarded. An unavailable service or an adapter without recoverable cleanup may therefore leave shutdown pending indefinitely.
+
+The existing `Worker::shutdown(grace, cleanup)` API provides explicit grace and cleanup budgets for local callers. `shutdown_until_quiescent()` cancels work immediately and imposes no cleanup deadline; an adapter that never completes can keep it pending. Both retain their supervisor if the caller stops waiting.
 
 `status()` exposes the session ID, stopping/finished flags, accepted-settlement and lost-attempt counters, and the last observed error. An accepted settlement may describe a failure or still await cleanup; `settled_attempts` is not a successful-task count. `last_error` can retain an earlier transient failure after recovery. Use `TaskService::inspect`, `inspect_attempt`, and `history` for durable task outcomes. Check `finished` when observing completion; status diagnostics do not certify external business effects.
 

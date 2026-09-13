@@ -585,6 +585,50 @@ async fn dropping_shutdown_caller_preserves_the_in_progress_retirement() {
 }
 
 #[tokio::test]
+async fn dropping_unbounded_shutdown_caller_preserves_the_same_retirement() {
+    let (worker, counts) = setup(1);
+    worker.execute(request(1, 1, 0), control()).await.unwrap();
+    let gate = CloseGate::install(&counts);
+    let shutdown = {
+        let worker = worker.clone();
+        tokio::spawn(async move { worker.shutdown_until_quiescent().await })
+    };
+    gate.wait_until_entered().await;
+    shutdown.abort();
+    assert!(shutdown.await.unwrap_err().is_cancelled());
+
+    // A second caller waits behind the retained cleanup supervisor. Its own
+    // observation timeouts cannot restart or drop the session being retired.
+    let observer = worker.shutdown_until_quiescent();
+    tokio::pin!(observer);
+    for _ in 0..2 {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), &mut observer)
+                .await
+                .is_err()
+        );
+        let stats = worker.stats().await;
+        assert!(!stats.accepting);
+        assert_eq!(stats.process_slots, 1);
+        assert_eq!(counts.close_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(counts.close_completions.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+        assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    }
+
+    gate.finish(&counts);
+    tokio::time::timeout(Duration::from_secs(2), &mut observer)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(counts.close_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.close_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    assert_eq!(worker.stats().await.process_slots, 0);
+}
+
+#[tokio::test]
 async fn invalid_artifact_is_not_treated_as_cache_pressure_and_keeps_warm_session() {
     let cache = Arc::new(Cache::default());
     let (worker, counts) = setup_with_cache(1, cache.clone());

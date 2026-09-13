@@ -768,6 +768,22 @@ impl Worker {
     /// Stop admission, drain, cancel if necessary, then retire processes. If cleanup
     /// exceeds its separate budget, report incomplete shutdown and retain ownership.
     pub async fn shutdown(&self, grace: Duration, cleanup: Duration) -> Result<()> {
+        self.shutdown_supervised(grace, Some(cleanup)).await
+    }
+
+    /// Stop admission and cancel work, then wait for local quiescence without
+    /// imposing a deadline on an adapter's cleanup operation. External consumer
+    /// owners must continue reconciling delivery and release their reservations.
+    ///
+    /// Dropping this caller only stops observation: the retained supervisor keeps
+    /// cleanup running. An adapter error returns with its session quarantined so
+    /// a later call can retry. A pending adapter or unresolved owner can keep this
+    /// operation pending indefinitely; the embedding runtime must remain alive.
+    pub async fn shutdown_until_quiescent(&self) -> Result<()> {
+        self.shutdown_supervised(Duration::ZERO, None).await
+    }
+
+    async fn shutdown_supervised(&self, grace: Duration, cleanup: Option<Duration>) -> Result<()> {
         let worker = self.clone();
         tokio::spawn(async move {
             let _shutdown = worker.inner.shutdown_lock.lock().await;
@@ -782,7 +798,7 @@ impl Worker {
         })?
     }
 
-    async fn shutdown_owned(&self, grace: Duration, cleanup: Duration) -> Result<()> {
+    async fn shutdown_owned(&self, grace: Duration, cleanup: Option<Duration>) -> Result<()> {
         self.inner
             .registry
             .lock()
@@ -802,9 +818,13 @@ impl Worker {
                 .unwrap_or_else(|p| p.into_inner());
             registry.cancel_all();
         }
-        let cleanup_until = Instant::now()
-            .checked_add(cleanup)
-            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "cleanup period is too large"))?;
+        let cleanup_until = cleanup
+            .map(|budget| {
+                Instant::now().checked_add(budget).ok_or_else(|| {
+                    Error::new(ErrorKind::InvalidInput, "cleanup period is too large")
+                })
+            })
+            .transpose()?;
         loop {
             // External delivery owners may need to observe this cleanup before
             // releasing their reservation. Retire available sessions while they
@@ -819,7 +839,7 @@ impl Worker {
                 if !active {
                     break;
                 }
-                if Instant::now() >= cleanup_until {
+                if cleanup_until.is_some_and(|deadline| Instant::now() >= deadline) {
                     return Err(Error::new(
                         ErrorKind::TimedOut,
                         "shutdown incomplete: active consumers still own work",
@@ -828,21 +848,28 @@ impl Worker {
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 continue;
             };
-            let remaining = cleanup_until.saturating_duration_since(Instant::now());
-            match tokio::time::timeout(remaining, self.close_session(&mut idle, None)).await {
-                Ok(Ok(())) => self.inner.pool.lock().await.occupied -= 1,
-                result => {
+            let result = match cleanup_until {
+                Some(deadline) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    tokio::time::timeout(remaining, self.close_session(&mut idle, None))
+                        .await
+                        .unwrap_or_else(|_| {
+                            Err(Error::new(
+                                ErrorKind::TimedOut,
+                                "shutdown incomplete: process retirement pending",
+                            ))
+                        })
+                }
+                None => self.close_session(&mut idle, None).await,
+            };
+            match result {
+                Ok(()) => self.inner.pool.lock().await.occupied -= 1,
+                Err(error) => {
                     if let Some(owner) = &idle._consumer {
                         owner.retain_cleanup();
                     }
                     self.inner.pool.lock().await.quarantined.push(idle);
-                    return Err(match result {
-                        Ok(Err(error)) => error,
-                        _ => Error::new(
-                            ErrorKind::TimedOut,
-                            "shutdown incomplete: process retirement pending",
-                        ),
-                    });
+                    return Err(error);
                 }
             }
         }

@@ -50,6 +50,9 @@ struct Counts {
     executions: AtomicUsize,
     cancelled: AtomicUsize,
     closes: AtomicUsize,
+    slow_closes: AtomicUsize,
+    close_delay_ms: AtomicU64,
+    hold_slow_cleanup: AtomicBool,
     implicit_drops: AtomicUsize,
     hold_execution: AtomicBool,
     hold_fetch: AtomicBool,
@@ -221,6 +224,16 @@ impl ExecutionSession for Session {
                     ErrorKind::Io,
                     "injected cleanup remains unconfirmed",
                 ));
+            }
+            let delay = self.counts.close_delay_ms.load(Ordering::SeqCst);
+            if delay != 0 {
+                self.counts.slow_closes.fetch_add(1, Ordering::SeqCst);
+                // This step makes no progress until its delay completes. Dropping
+                // the future retains process ownership and restarts the delay.
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                while self.counts.hold_slow_cleanup.load(Ordering::SeqCst) {
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
             }
             self.stop();
             Ok(())
@@ -1277,4 +1290,106 @@ async fn fetch_response_timeout_drains_until_owned_fetch_finishes_and_confirms_s
         accepted
     );
     assert_eq!(state.next_task, 1);
+}
+
+#[tokio::test]
+async fn slow_warm_cleanup_survives_repeated_shutdown_wait_timeouts() {
+    let (worker, counts) = setup(1);
+    counts.close_delay_ms.store(250, Ordering::SeqCst);
+    counts.hold_slow_cleanup.store(true, Ordering::SeqCst);
+    let service = Service::new(1);
+    let mut handle = DeliveryDriver::new(worker.clone(), service, config())
+        .unwrap()
+        .start();
+    wait_for(|| handle.status().settled_attempts == 1).await;
+    assert_eq!(worker.stats().await.warm_processes, 1);
+
+    // A caller stops waiting while the retained driver still owns cleanup. The
+    // completion gate makes these observations independent of scheduler pauses.
+    for _ in 0..4 {
+        assert!(handle.shutdown(Duration::from_millis(40)).await.is_err());
+        assert!(!handle.status().finished);
+        assert_eq!(worker.stats().await.process_slots, 1);
+        assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+    }
+    assert_eq!(counts.slow_closes.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.closes.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+
+    counts.hold_slow_cleanup.store(false, Ordering::SeqCst);
+    let status = handle.shutdown(WAIT).await.unwrap();
+    assert!(status.finished);
+    assert_eq!(counts.slow_closes.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.closes.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    assert_eq!(worker.stats().await.process_slots, 0);
+    assert_eq!(worker.stats().await.active_consumers, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn repaired_slow_cleanup_confirms_quiescence_without_rewriting_the_report() {
+    let (worker, counts) = setup(1);
+    counts.execution_error.store(true, Ordering::SeqCst);
+    counts.hold_cleanup.store(true, Ordering::SeqCst);
+    let service = Service::new(2);
+    service.lost_settlement_replies.store(1, Ordering::SeqCst);
+    let mut handle = DeliveryDriver::new(worker.clone(), service.clone(), config())
+        .unwrap()
+        .start();
+    wait_for(|| handle.status().settled_attempts == 1).await;
+    let accepted = {
+        let state = service.state.lock().unwrap();
+        assert_eq!(state.accepted["att_1"].quiescence, Quiescence::Unconfirmed);
+        assert!(state.confirmations.is_empty());
+        serde_json::to_vec(&state.accepted["att_1"]).unwrap()
+    };
+
+    // Repair the initial error, then keep the slow successful close observable
+    // until all short caller waits have ended. No external cleanup is needed.
+    counts.close_delay_ms.store(250, Ordering::SeqCst);
+    counts.hold_slow_cleanup.store(true, Ordering::SeqCst);
+    counts.hold_cleanup.store(false, Ordering::SeqCst);
+    wait_for(|| counts.slow_closes.load(Ordering::SeqCst) == 1).await;
+    for _ in 0..4 {
+        assert!(handle.shutdown(Duration::from_millis(40)).await.is_err());
+        assert!(!handle.status().finished);
+        let stats = worker.stats().await;
+        assert_eq!(stats.active_consumers, 1);
+        assert_eq!(stats.process_slots, 1);
+        assert_eq!(counts.live.load(Ordering::SeqCst), 1);
+        assert!(service.state.lock().unwrap().confirmations.is_empty());
+    }
+    assert_eq!(counts.slow_closes.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+
+    counts.hold_slow_cleanup.store(false, Ordering::SeqCst);
+    let status = handle.shutdown(WAIT).await.unwrap();
+    assert!(status.finished);
+    assert_eq!(status.settled_attempts, 1);
+    assert_eq!(counts.slow_closes.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.implicit_drops.load(Ordering::SeqCst), 0);
+    let stats = worker.stats().await;
+    assert_eq!(stats.active_consumers, 0);
+    assert_eq!(stats.process_slots, 0);
+    let state = service.state.lock().unwrap();
+    assert_eq!(state.next_task, 1);
+    assert_eq!(state.capacity_violations, 0);
+    assert_eq!(state.accepted.len(), 1);
+    assert_eq!(
+        state.confirmations,
+        vec![state.accepted["att_1"].owner.clone()]
+    );
+    assert!(state.settlements.len() >= 2);
+    assert!(state.settlements.iter().all(|command| {
+        command.quiescence == Quiescence::Unconfirmed
+            && serde_json::to_vec(command).unwrap() == accepted
+    }));
+    assert_eq!(
+        serde_json::to_vec(&state.accepted["att_1"]).unwrap(),
+        accepted
+    );
 }
