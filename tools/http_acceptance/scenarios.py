@@ -10,6 +10,8 @@ import threading
 import urllib.parse
 
 from .harness import eventually, exchange, unused_port
+from .longpoll import SCENARIOS as LONGPOLL_SCENARIOS
+from .resource_checks import SCENARIOS as RESOURCE_SCENARIOS
 
 
 def report(attempt):
@@ -448,4 +450,4 @@ def history_pagination(d):
 SCENARIOS = [warm_cache_and_cli, committed_response_loss, normalized_submission, cancellation_and_failures,
              worker_crash_recovery, orchestrator_restart, network_outage,
              capacity_and_multiple_servers, history_pagination, database_outage,
-             preparation_and_startup_outage, shutdown_reconciliation]
+             preparation_and_startup_outage, shutdown_reconciliation] + LONGPOLL_SCENARIOS + RESOURCE_SCENARIOS

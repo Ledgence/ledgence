@@ -35,7 +35,7 @@ struct Server {
     invalid_trace_headers: Arc<AtomicU64>,
 }
 
-/// Bind the portable service to the `/v1` routes. Acquisition is immediate.
+/// Bind the portable service to the `/v1` routes. Acquisition waits are bounded.
 /// All replies, including route/method failures, carry Request-Id and no-store.
 /// Merge health routes in the composition executable before serving.
 pub fn router(service: Arc<dyn TaskService>) -> Router {
@@ -117,6 +117,7 @@ fn invalid(message: &str) -> ContractError {
 
 async fn handle(State(server): State<Server>, request: Request) -> Response {
     let start = Instant::now();
+    let deadline = start + Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS);
     let request_id = format!(
         "{}_{:x}",
         server.request_prefix,
@@ -172,17 +173,24 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 let result = if server.stopping.load(Ordering::Acquire) {
                     Err(unavailable("orchestrator is shutting down").into())
                 } else {
-                    tokio::time::timeout(
-                        Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS),
-                        dispatch(&server, request),
+                    tokio::time::timeout_at(deadline, dispatch(&server, request, deadline))
+                        .await
+                        .unwrap_or_else(|_| {
+                            Err(unavailable(
+                                "server request deadline exceeded; operation outcome is uncertain",
+                            )
+                            .into())
+                        })
+                };
+                // A synchronous poll can finish after timeout_at's deadline.
+                // Never acknowledge a late success as fresh authority.
+                let result = if Instant::now() >= deadline {
+                    Err(unavailable(
+                        "server request deadline exceeded; operation outcome is uncertain",
                     )
-                    .await
-                    .unwrap_or_else(|_| {
-                        Err(unavailable(
-                            "server request deadline exceeded; operation outcome is uncertain",
-                        )
-                        .into())
-                    })
+                    .into())
+                } else {
+                    result
                 };
                 match result {
                     Ok(bytes) => (200, bytes, None),
@@ -378,7 +386,14 @@ impl Server {
     }
 }
 
-async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<u8>, Failure> {
+async fn dispatch(
+    server: &Server,
+    request: Request,
+    deadline: Instant,
+) -> std::result::Result<Vec<u8>, Failure> {
+    if Instant::now() >= deadline {
+        return Err(unavailable("server request deadline exceeded before dispatch").into());
+    }
     let (parts, body) = request.into_parts();
     let path = parts.uri.path();
     if parts.method == axum::http::Method::GET {
@@ -575,7 +590,13 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
                 .await
         }
         "/v1/acquisitions" => {
-            let command: AcquireCommand = server.decode(bytes, maximum).await?;
+            let request: AcquisitionRequest = server.decode(bytes, maximum).await?;
+            // Preserve the preference separately from identity and carry the
+            // original budget through body transfer, decode, and service waiting.
+            // The service reserves finalization time inside this fixed deadline.
+            let options =
+                AcquireOptions::new(Duration::from_millis(request.wait_ms), deadline.into_std())?;
+            let command = request.into_command();
             command.scope.validate()?;
             validate_text(&command.queue, 128)?;
             validate_text(&command.worker_session_id, 128)?;
@@ -592,7 +613,7 @@ async fn dispatch(server: &Server, request: Request) -> std::result::Result<Vec<
                 sequence = command.sequence,
                 "HTTP acquisition"
             );
-            let reply = server.service.acquire(&command).await?;
+            let reply = server.service.acquire(&command, options).await?;
             match &reply {
                 AcquireReply::Assigned { assignment, .. } => {
                     log_binding(&assignment.event, &assignment.descriptor)

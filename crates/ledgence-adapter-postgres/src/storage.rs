@@ -53,6 +53,11 @@ impl TaskStore for PostgresStore {
                 task
             };
             tx.commit().await?;
+            if inserted == 1 {
+                self.acquisition_wake.publish(AcquisitionHint::QueueChanged(AcquisitionQueue {
+                    scope: task.scope(), queue: task.input.queue.clone(),
+                }));
+            }
             Ok(task)
         }))
     }
@@ -141,8 +146,15 @@ impl TaskStore for PostgresStore {
             Ok(events)
         }))
     }
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
-        Box::pin(self.run(move || self.acquire_once(command)))
+    fn probe_acquisition<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        finish_empty: bool,
+        deadline: Instant,
+    ) -> ContractFuture<'a, AcquisitionProbe> {
+        Box::pin(self.run_until(deadline, move || {
+            self.probe_acquisition_once(command, finish_empty)
+        }))
     }
     fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority> {
         Box::pin(self.run(move || self.renew_once(command)))
@@ -168,6 +180,7 @@ impl TaskStore for PostgresStore {
                 core::confirm_quiescence(&task, &attempt, owner, db::now(&mut tx).await?)?;
             db::apply(&mut tx, &transition).await?;
             tx.commit().await?;
+            self.wake_queued_transition(&transition);
             Ok(transition.reply)
         }))
     }
@@ -200,5 +213,17 @@ fn error_kind(error: &ContractError) -> &'static str {
         ContractError::NotFound => "not_found",
         ContractError::Unavailable(_) => "unavailable",
         _ => "invalid_operation",
+    }
+}
+
+impl PostgresStore {
+    pub(crate) fn wake_queued_transition<R>(&self, transition: &core::Transition<R>) {
+        if transition.task.state == TaskState::Queued && !transition.history.is_empty() {
+            self.acquisition_wake
+                .publish(AcquisitionHint::QueueChanged(AcquisitionQueue {
+                    scope: transition.task.scope(),
+                    queue: transition.task.input.queue.clone(),
+                }));
+        }
     }
 }

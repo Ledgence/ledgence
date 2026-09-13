@@ -253,6 +253,7 @@ struct ServiceState {
     session: Option<WorkerSession>,
     next_task: usize,
     acquisitions: Vec<AcquireCommand>,
+    acquisition_waits: Vec<Duration>,
     replies: HashMap<(u32, u64), AcquireReply>,
     active: HashMap<u32, String>,
     renewals: Vec<RenewCommand>,
@@ -271,6 +272,7 @@ struct Service {
     renew_unavailable: AtomicBool,
     confirm_unavailable: AtomicBool,
     malformed_acquire: AtomicBool,
+    malformed_dispatch_once: AtomicUsize,
     acquire_error: Mutex<Option<ContractError>>,
     acquire_panics: AtomicUsize,
     settle_panics: AtomicUsize,
@@ -297,6 +299,7 @@ impl Service {
             renew_unavailable: AtomicBool::new(false),
             confirm_unavailable: AtomicBool::new(false),
             malformed_acquire: AtomicBool::new(false),
+            malformed_dispatch_once: AtomicUsize::new(0),
             acquire_error: Mutex::new(None),
             acquire_panics: AtomicUsize::new(0),
             settle_panics: AtomicUsize::new(0),
@@ -373,11 +376,16 @@ impl TaskService for Service {
         })
     }
 
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
+    fn acquire<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, AcquireReply> {
         Box::pin(async move {
             let mut reply = {
                 let mut state = self.state.lock().unwrap();
                 state.acquisitions.push(command.clone());
+                state.acquisition_waits.push(options.max_wait);
                 let key = (command.consumer_id, command.sequence);
                 if let Some(reply) = state.replies.get(&key) {
                     reply.clone()
@@ -504,11 +512,20 @@ impl TaskService for Service {
                     return Err(unavailable());
                 }
             }
-            Ok(self.authority(
+            let mut authority = self.authority(
                 &command.owner,
                 command.sequence,
                 command.intent == RenewIntent::Dispatch,
-            ))
+            );
+            if command.intent == RenewIntent::Dispatch {
+                match self.malformed_dispatch_once.swap(0, Ordering::SeqCst) {
+                    0 => {}
+                    1 => authority.owner.task_id = "wrong-task".into(),
+                    2 => authority.renew_sequence += 1,
+                    _ => panic!("unknown malformed Dispatch fixture"),
+                }
+            }
+            Ok(authority)
         })
     }
 
@@ -1487,5 +1504,217 @@ async fn processing_context_is_frozen_across_replies_and_normalization_and_separ
         if normalize {
             assert!(matches!(command.report, AttemptReport::Failed(_)));
         }
+    }
+}
+
+#[tokio::test]
+async fn stopping_a_long_poll_reconciles_immediately_without_releasing_its_sequence() {
+    let (worker, counts) = setup(1);
+    let service = Service::new(1);
+    service
+        .first_acquire_delay_ms
+        .store(20_000, Ordering::SeqCst);
+    let mut settings = config();
+    settings.request_timeout = Duration::from_secs(30);
+    let mut handle = DeliveryDriver::new(worker, service.clone(), settings)
+        .unwrap()
+        .start();
+    wait_for(|| service.state.lock().unwrap().acquisitions.len() == 1).await;
+    handle.stop();
+    let status = handle.shutdown(Duration::from_secs(2)).await.unwrap();
+    assert!(status.finished);
+    let state = service.state.lock().unwrap();
+    assert_eq!(state.acquisitions.len(), 2);
+    assert_eq!(state.acquisitions[0], state.acquisitions[1]);
+    assert_eq!(
+        state.acquisition_waits,
+        [Duration::from_secs(20), Duration::ZERO]
+    );
+    assert!(
+        state
+            .renewals
+            .iter()
+            .all(|command| command.intent == RenewIntent::KeepAlive)
+    );
+    assert_eq!(counts.fetches.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+    assert_eq!(state.accepted.len(), 1);
+}
+
+#[tokio::test]
+async fn stopping_during_initial_confirmation_replays_sent_dispatch_without_running_user_code() {
+    let (worker, counts) = setup(1);
+    let service = Service::new(1);
+    service
+        .first_dispatch_delay_ms
+        .store(5_000, Ordering::SeqCst);
+    service.settle_unavailable.store(true, Ordering::SeqCst);
+    let mut handle = DeliveryDriver::new(worker, service.clone(), config())
+        .unwrap()
+        .start();
+    wait_for(|| service.state.lock().unwrap().renewals.len() == 1).await;
+    handle.stop();
+    wait_for(|| {
+        service
+            .state
+            .lock()
+            .unwrap()
+            .renewals
+            .iter()
+            .any(|command| command.intent == RenewIntent::KeepAlive)
+    })
+    .await;
+    {
+        let state = service.state.lock().unwrap();
+        assert_eq!(state.renewals[0], state.renewals[1]);
+        assert_eq!(state.renewals[0].sequence, 1);
+        assert_eq!(state.renewals[0].intent, RenewIntent::Dispatch);
+        assert!(state.accepted.len() == 1);
+    }
+    assert_eq!(counts.fetches.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+    service.settle_unavailable.store(false, Ordering::SeqCst);
+    assert!(handle.shutdown(WAIT).await.unwrap().finished);
+}
+
+#[tokio::test]
+async fn processing_span_duration_excludes_acquisition_hold_and_empty_polls_create_no_span() {
+    use tracing::{field::Visit, span};
+    use tracing_subscriber::{Layer, Registry, layer::Context, prelude::*};
+
+    struct Timing {
+        id: span::Id,
+        started: Instant,
+        recorded: Option<(Duration, Instant)>,
+    }
+    struct Timings(Arc<Mutex<Vec<Timing>>>);
+    #[derive(Default)]
+    struct DurationField(Option<Duration>);
+    impl Visit for DurationField {
+        fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+            if field.name() == "ledgence.duration_ms" {
+                self.0 = Some(Duration::from_millis(value.try_into().unwrap()));
+            }
+        }
+        fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
+    }
+    impl Layer<Registry> for Timings {
+        fn on_new_span(
+            &self,
+            attributes: &span::Attributes<'_>,
+            id: &span::Id,
+            _: Context<'_, Registry>,
+        ) {
+            if attributes.metadata().name() == "ledgence.attempt.process" {
+                self.0.lock().unwrap().push(Timing {
+                    id: id.clone(),
+                    started: Instant::now(),
+                    recorded: None,
+                });
+            }
+        }
+        fn on_record(&self, id: &span::Id, values: &span::Record<'_>, _: Context<'_, Registry>) {
+            let mut timings = self.0.lock().unwrap();
+            if let Some(timing) = timings.iter_mut().find(|timing| &timing.id == id) {
+                let mut duration = DurationField::default();
+                values.record(&mut duration);
+                if let Some(duration) = duration.0 {
+                    assert!(
+                        timing.recorded.is_none(),
+                        "processing duration changed after recording"
+                    );
+                    timing.recorded = Some((duration, Instant::now()));
+                }
+            }
+        }
+    }
+
+    // Keep callsite interest valid while parallel tests use other dispatchers.
+    let _other_dispatch = tracing::Dispatch::new(tracing_subscriber::registry());
+    let timings = Arc::new(Mutex::new(Vec::new()));
+    let _subscriber = tracing::subscriber::set_default(
+        tracing_subscriber::registry().with(Timings(timings.clone())),
+    );
+    let (worker, counts) = setup(1);
+    let service = Service::new(1);
+    let hold = Duration::from_millis(500);
+    service.first_acquire_delay_ms.store(500, Ordering::SeqCst);
+    let mut settings = config();
+    settings.request_timeout = WAIT;
+    let started = Instant::now();
+    let mut handle = DeliveryDriver::new(worker, service.clone(), settings)
+        .unwrap()
+        .start();
+    // Observe a subsequent Empty poll as well as the completed assignment.
+    wait_for(|| service.state.lock().unwrap().acquisitions.len() >= 2).await;
+    assert_eq!(handle.status().settled_attempts, 1);
+    handle.shutdown(WAIT).await.unwrap();
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    let timings = timings.lock().unwrap();
+    assert_eq!(
+        timings.len(),
+        1,
+        "Empty acquisition created a processing span"
+    );
+    let timing = &timings[0];
+    let (duration, recorded) = timing
+        .recorded
+        .expect("integer processing duration was recorded");
+    assert!(timing.started.duration_since(started) >= hold - Duration::from_millis(5));
+    // Compare to the observed span lifetime, not a machine-speed assumption:
+    // slow execution or cleanup may increase both values and still passes.
+    assert!(duration <= recorded.duration_since(timing.started) + Duration::from_millis(100));
+    assert!(duration + hold / 2 < recorded.duration_since(started));
+}
+
+#[tokio::test]
+async fn malformed_initial_dispatch_stops_execution_and_reconciles_exact_sent_command() {
+    for malformed in [1, 2] {
+        let (worker, counts) = setup(1);
+        let service = Service::new(1);
+        service
+            .malformed_dispatch_once
+            .store(malformed, Ordering::SeqCst);
+        // Retain cleanup while the supervisor reconciles the malformed reply
+        // with a subsequent valid authority and moves to KeepAlive.
+        service.settle_unavailable.store(true, Ordering::SeqCst);
+        let mut handle = DeliveryDriver::new(worker, service.clone(), config())
+            .unwrap()
+            .start();
+        wait_for(|| {
+            let state = service.state.lock().unwrap();
+            state.accepted.contains_key("att_1")
+                && state
+                    .renewals
+                    .iter()
+                    .any(|command| command.intent == RenewIntent::KeepAlive)
+        })
+        .await;
+        assert!(handle.status().stopping);
+        assert_eq!(service.malformed_dispatch_once.load(Ordering::SeqCst), 0);
+        {
+            let state = service.state.lock().unwrap();
+            assert_eq!(state.renewals[0], state.renewals[1]);
+            assert_eq!(state.renewals[0].sequence, 1);
+            assert_eq!(state.renewals[0].intent, RenewIntent::Dispatch);
+            assert_eq!(state.renewals[2].sequence, 2);
+            assert_eq!(state.renewals[2].intent, RenewIntent::KeepAlive);
+            let AttemptReport::Failed(failure) = &state.accepted["att_1"].report else {
+                panic!("expected cancellation before preparation");
+            };
+            assert_eq!(failure.error.kind, ErrorKind::Cancelled);
+            assert!(!failure.execution_may_have_started);
+        }
+        assert_eq!(counts.fetches.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+        service.settle_unavailable.store(false, Ordering::SeqCst);
+        assert!(handle.shutdown(WAIT).await.unwrap().finished);
+        // The valid retry reconciles authority but must never revive local work.
+        assert_eq!(counts.fetches.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.starts.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
     }
 }

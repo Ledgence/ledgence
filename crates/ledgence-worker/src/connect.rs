@@ -9,7 +9,7 @@ use crate::{
     signals::{ShutdownSignals, forced_exit},
 };
 use ledgence_adapter_http::HttpTaskService;
-use ledgence_orchestration_api::{ContractError, Scope, validate_text};
+use ledgence_orchestration_api::{ContractError, LONG_POLL_WAIT_MS, Scope, validate_text};
 use ledgence_worker_api::{Error, ErrorKind, Result, TraceBridge};
 use ledgence_worker_delivery::{DeliveryConfig, DeliveryDriver, DeliveryHandle};
 use serde_json::json;
@@ -24,10 +24,23 @@ pub struct ConnectOptions {
     python: PathBuf,
     runner: PathBuf,
     concurrency: usize,
+    acquire_wait: Duration,
 }
 
 impl ConnectOptions {
     pub fn parse(mut options: HashMap<String, String>) -> Result<Self> {
+        let acquire_wait_ms = options
+            .remove("--acquire-wait-ms")
+            .map(|value| {
+                value
+                    .parse::<u64>()
+                    .map_err(|_| input("invalid acquisition wait"))
+            })
+            .transpose()?
+            .unwrap_or(LONG_POLL_WAIT_MS);
+        if acquire_wait_ms > LONG_POLL_WAIT_MS {
+            return Err(input("acquisition wait must be between 0 and 20000 ms"));
+        }
         let config = Self {
             server: required(&mut options, "--server")?,
             scope: Scope {
@@ -40,6 +53,7 @@ impl ConnectOptions {
             python: required(&mut options, "--python")?.into(),
             runner: required(&mut options, "--runner")?.into(),
             concurrency: number(options.remove("--concurrency"), 4, "concurrency")?,
+            acquire_wait: Duration::from_millis(acquire_wait_ms),
         };
         check_empty(options)?;
         config.scope.validate().map_err(contract_error)?;
@@ -63,7 +77,8 @@ pub async fn run(
             .map_err(contract_error)?
             .with_trace_bridge(trace.clone()),
     );
-    let delivery_config = DeliveryConfig::new(config.scope, config.queue);
+    let mut delivery_config = DeliveryConfig::new(config.scope, config.queue);
+    delivery_config.acquire_wait = config.acquire_wait;
     // Retain blocking disk preparation while still observing both signals.
     let mut preparation = tokio::task::spawn_blocking(move || {
         WorkerParts::new(&config.store, &config.cache, &config.python, &config.runner)?
@@ -187,4 +202,53 @@ fn contract_error(error: ContractError) -> Error {
         ErrorKind::Runtime
     };
     Error::new(kind, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(wait: Option<&str>) -> HashMap<String, String> {
+        let mut options: HashMap<_, _> = [
+            ("--server", "http://127.0.0.1:8080"),
+            ("--tenant", "tenant"),
+            ("--namespace", "namespace"),
+            ("--queue", "queue"),
+            ("--store", "/tmp/store"),
+            ("--cache", "/tmp/cache"),
+            ("--python", "python3"),
+            ("--runner", "/tmp/runner.py"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect();
+        if let Some(wait) = wait {
+            options.insert("--acquire-wait-ms".into(), wait.into());
+        }
+        options
+    }
+
+    #[test]
+    fn acquisition_wait_defaults_to_long_poll_and_accepts_immediate_mode() {
+        for (input, expected) in [
+            (None, 20_000),
+            (Some("0"), 0),
+            (Some("123"), 123),
+            (Some("20000"), 20_000),
+        ] {
+            let config = ConnectOptions::parse(options(input)).unwrap();
+            assert_eq!(config.acquire_wait, Duration::from_millis(expected));
+            assert_eq!(config.concurrency, 4);
+        }
+    }
+
+    #[test]
+    fn acquisition_wait_rejects_invalid_and_out_of_contract_values() {
+        for invalid in ["-1", "1.5", "twenty", "20001", "18446744073709551616"] {
+            assert!(
+                ConnectOptions::parse(options(Some(invalid))).is_err(),
+                "accepted {invalid}"
+            );
+        }
+    }
 }

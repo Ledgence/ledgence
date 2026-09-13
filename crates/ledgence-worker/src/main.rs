@@ -25,7 +25,7 @@ use std::{
 };
 use tokio::{sync::Mutex, task::JoinSet};
 
-const HELP: &str = "Ledgence worker\n\nCommands:\n  example --directory DIR --python EXE\n  publish --source DIR --store DIR\n  run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
+const HELP: &str = "Ledgence worker\n\nCommands:\n  example --directory DIR --python EXE\n  publish --source DIR --store DIR\n  run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
 
 fn main() -> std::process::ExitCode {
     let mut outputs = match Outputs::new() {

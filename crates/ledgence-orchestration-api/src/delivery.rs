@@ -4,7 +4,7 @@ use ledgence_worker_api::{CloudEvent, ExecutionFailure, ExecutionReport, Program
 /// UTC milliseconds since the Unix epoch, supplied by the authoritative store.
 pub type Timestamp = u64;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scope {
     pub tenant_id: String,
@@ -320,7 +320,11 @@ pub trait TaskService: Send + Sync {
         task_id: &'a str,
         after_sequence: u64,
     ) -> ContractFuture<'a, Vec<RecordedHistoryEvent>>;
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply>;
+    fn acquire<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, AcquireReply>;
     fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority>;
     fn settle<'a>(&'a self, command: &'a SettleCommand) -> ContractFuture<'a, SettleReply>;
     fn confirm_quiescence<'a>(&'a self, owner: &'a LeaseOwner) -> ContractFuture<'a, TaskState>;

@@ -128,7 +128,12 @@ impl TaskStore for MemoryStore {
         unused()
     }
 
-    fn acquire<'a>(&'a self, _: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
+    fn probe_acquisition<'a>(
+        &'a self,
+        _: &'a AcquireCommand,
+        _: bool,
+        _: std::time::Instant,
+    ) -> ContractFuture<'a, AcquisitionProbe> {
         unused()
     }
 

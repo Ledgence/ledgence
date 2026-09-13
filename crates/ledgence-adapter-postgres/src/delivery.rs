@@ -3,7 +3,11 @@ use ledgence_orchestration_core as core;
 use tracing::Instrument;
 
 impl PostgresStore {
-    pub(crate) async fn acquire_once(&self, command: &AcquireCommand) -> StoreResult<AcquireReply> {
+    pub(crate) async fn probe_acquisition_once(
+        &self,
+        command: &AcquireCommand,
+        finish_empty: bool,
+    ) -> StoreResult<AcquisitionProbe> {
         command.scope.validate()?;
         validate_text(&command.worker_session_id, 128)?;
         validate_text(&command.queue, 128)?;
@@ -49,12 +53,37 @@ impl PostgresStore {
         )?;
         if replay {
             tx.commit().await?;
-            return Ok(checked.reply);
+            return Ok(AcquisitionProbe::Completed {
+                reply: checked.reply,
+                kind: AcquisitionCompletion::Replayed,
+            });
         }
         let before_ms = codec::ms(before)?;
         let row = sqlx::query("SELECT * FROM tasks WHERE tenant_id=$1 AND namespace=$2 AND queue=$3 AND state='queued' AND cancel_requested_at_ms IS NULL AND available_at_ms <= $4 ORDER BY available_at_ms,submitted_at_ms,task_id LIMIT 1 FOR NO KEY UPDATE SKIP LOCKED")
             .bind(&command.scope.tenant_id).bind(&command.scope.namespace).bind(&command.queue).bind(before_ms).fetch_optional(&mut *tx).await?;
         let candidate = row.as_ref().map(codec::task).transpose()?;
+        if candidate.is_none() && !finish_empty {
+            // A first-sequence placeholder participates in serialization, but
+            // remains uncommitted. Explicit rollback releases it and all locks.
+            let now = db::now(&mut tx).await?;
+            core::acquire(
+                core::Acquisition {
+                    session: Some(&session),
+                    cursor: cursor.as_ref(),
+                    previous: previous.as_ref().map(|(t, a)| (t, a)),
+                    candidate: None,
+                    ids: None,
+                },
+                command,
+                now,
+            )?;
+            let session_remaining_ms = session.expires_at.saturating_sub(now);
+            tx.rollback().await?;
+            return Ok(AcquisitionProbe::Pending {
+                session_remaining_ms,
+            });
+        }
+
         if let (Some(candidate), Some((old_task, old_attempt))) = (&candidate, &mut previous)
             && candidate.task_id == old_task.task_id
         {
@@ -140,7 +169,11 @@ impl PostgresStore {
                 }
             }
             committed?;
-            Ok(transition.reply)
+            self.acquisition_wake.publish(AcquisitionHint::AcquisitionCompleted(command.into()));
+            Ok(AcquisitionProbe::Completed {
+                reply: transition.reply,
+                kind: if candidate.is_some() { AcquisitionCompletion::Claimed } else { AcquisitionCompletion::FinalizedEmpty },
+            })
         }
         .instrument(operation_span)
         .await
@@ -188,6 +221,7 @@ impl PostgresStore {
         let transition = core::settle(&task, &attempt, command, db::now(&mut tx).await?)?;
         db::apply(&mut tx, &transition).await?;
         tx.commit().await?;
+        self.wake_queued_transition(&transition);
         Ok(transition.reply)
     }
 
@@ -232,6 +266,7 @@ impl PostgresStore {
             db::apply(&mut tx, &transition).await?;
         }
         tx.commit().await?;
+        self.wake_queued_transition(&transition);
         if transition.reply {
             tracing::info!(
                 ledgence.tenant.id = task.input.tenant_id,

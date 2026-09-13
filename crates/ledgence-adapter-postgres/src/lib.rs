@@ -5,14 +5,20 @@
 
 mod codec;
 mod delivery;
+mod notifications;
 mod persistence;
 mod storage;
 mod transaction;
 
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
+pub use notifications::{AcquisitionNotificationStatistics, AcquisitionNotifications};
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use transaction::TransactionConnection;
 
 /// Versioned embedded migrations. Running them is an explicit deployment action.
@@ -42,6 +48,7 @@ pub struct PostgresStore {
     pool: PgPool,
     operation_timeout: Duration,
     trace_bridge: Arc<dyn TraceBridge>,
+    acquisition_wake: Arc<notifications::WakeDispatch>,
 }
 impl PostgresStore {
     /// Connect without changing the schema. A fresh database needs `migrate`.
@@ -83,6 +90,7 @@ impl PostgresStore {
             pool,
             operation_timeout: options.operation_timeout,
             trace_bridge: Arc::new(NoopTraceBridge),
+            acquisition_wake: Arc::new(notifications::WakeDispatch::default()),
         })
     }
 
@@ -91,6 +99,19 @@ impl PostgresStore {
     pub fn with_trace_bridge(mut self, bridge: Arc<dyn TraceBridge>) -> Self {
         self.trace_bridge = bridge;
         self
+    }
+
+    /// Attach local acquisition wakeups to this store and all of its clones.
+    /// The sink receives advisory hints only; durable state remains authoritative.
+    pub fn set_acquisition_wake(&self, wake: Arc<dyn AcquisitionWake>) {
+        self.acquisition_wake.set_local(wake);
+    }
+
+    /// Start optional, bounded PostgreSQL notification delivery in the background.
+    /// LISTEN startup failure leaves periodic acquisition fallback available.
+    /// The supplied endpoint must preserve PostgreSQL session affinity.
+    pub fn start_acquisition_notifications(&self, url: &str) -> Result<AcquisitionNotifications> {
+        notifications::start(url, self.acquisition_wake.clone())
     }
 
     /// Apply checksum-verified migrations under SQLx's migration lock.
@@ -183,11 +204,26 @@ impl PostgresStore {
         Ok(TransactionConnection::new(self.pool.acquire().await?))
     }
 
-    async fn run<T, F, Fut>(&self, mut operation: F) -> Result<T>
+    async fn run<T, F, Fut>(&self, operation: F) -> Result<T>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = StoreResult<T>>,
     {
+        self.run_until(Instant::now() + self.operation_timeout, operation)
+            .await
+    }
+
+    async fn run_until<T, F, Fut>(&self, deadline: Instant, mut operation: F) -> Result<T>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = StoreResult<T>>,
+    {
+        let deadline = deadline.min(Instant::now() + self.operation_timeout);
+        if deadline <= Instant::now() {
+            return Err(ContractError::Unavailable(
+                "database operation budget exhausted".into(),
+            ));
+        }
         let work = async {
             for retry in 0..3 {
                 match operation().await {
@@ -200,7 +236,7 @@ impl PostgresStore {
             }
             unreachable!("retry loop always returns")
         };
-        tokio::time::timeout(self.operation_timeout, work)
+        tokio::time::timeout_at(deadline.into(), work)
             .await
             .unwrap_or_else(|_| {
                 Err(ContractError::Unavailable(
@@ -282,3 +318,6 @@ mod worker_delivery_tests;
 
 #[cfg(test)]
 mod observability_db_tests;
+
+#[cfg(test)]
+mod acquisition_db_tests;

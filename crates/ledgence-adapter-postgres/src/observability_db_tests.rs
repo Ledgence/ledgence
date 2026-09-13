@@ -107,6 +107,40 @@ async fn durable_producer_context_survives_replay_and_retries_use_the_accepted_o
     let spans = Arc::new(ProducerSpans::default());
     let store = db.store.clone().with_trace_bridge(bridge.clone());
     async {
+        let idle_session = store.open_session(&scope(), "python", 1).await.unwrap();
+        let idle = acquire_command(&idle_session, 0, 1);
+        let deadline = || Instant::now() + Duration::from_secs(5);
+        for _ in 0..3 {
+            assert!(matches!(
+                store
+                    .probe_acquisition(&idle, false, deadline())
+                    .await
+                    .unwrap(),
+                AcquisitionProbe::Pending { .. }
+            ));
+        }
+        for (finish_empty, expected) in [
+            (true, AcquisitionCompletion::FinalizedEmpty),
+            (false, AcquisitionCompletion::Replayed),
+            (true, AcquisitionCompletion::Replayed),
+        ] {
+            let AcquisitionProbe::Completed { reply, kind } = store
+                .probe_acquisition(&idle, finish_empty, deadline())
+                .await
+                .unwrap()
+            else {
+                panic!("expected completed Empty cursor")
+            };
+            assert_eq!(kind, expected);
+            assert!(matches!(reply, AcquireReply::Empty { sequence: 1 }));
+        }
+        assert!(bridge.produced.lock().unwrap().is_empty());
+        assert!(bridge.parents.lock().unwrap().is_empty());
+        assert!(bridge.links.lock().unwrap().is_empty());
+        assert!(spans.active.lock().unwrap().is_empty());
+        assert!(spans.ended.lock().unwrap().is_empty());
+        // The real allocations below also prove this capture is enabled: only
+        // they create the six producer contexts and committed spans.
         for (index, flags) in [Some("01"), Some("00"), None].into_iter().enumerate() {
             let mut submission = command();
             submission.idempotency_key = format!("trace_{index}");

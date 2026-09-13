@@ -4,6 +4,9 @@
 //! authoritative for concurrent submission acceptance, generated identities,
 //! database time, and commit. No database implementation is selected here.
 
+mod acquisition;
+pub use acquisition::AcquisitionStatistics;
+
 use ledgence_orchestration_api::*;
 use ledgence_orchestration_core::{replay_submission, validate_submission};
 use ledgence_worker_api::{Error, ErrorKind, ProgramStore};
@@ -15,11 +18,30 @@ use tracing::Instrument;
 pub struct ApplicationService {
     store: Arc<dyn TaskStore>,
     programs: Arc<dyn ProgramStore>,
+    acquisition: Arc<acquisition::Coordinator>,
 }
 
 impl ApplicationService {
     pub fn new(store: Arc<dyn TaskStore>, programs: Arc<dyn ProgramStore>) -> Self {
-        Self { store, programs }
+        Self {
+            store,
+            programs,
+            acquisition: acquisition::Coordinator::new(),
+        }
+    }
+
+    /// Adapter wake sink; hints are advisory and contain no cached authority.
+    pub fn acquisition_wake(&self) -> Arc<dyn AcquisitionWake> {
+        self.acquisition.clone()
+    }
+
+    /// Reject new acquisitions and finalize accepted waiters under their original budgets.
+    pub fn stop_acquisitions(&self) {
+        self.acquisition.stop();
+    }
+
+    pub fn acquisition_statistics(&self) -> AcquisitionStatistics {
+        self.acquisition.statistics()
     }
 
     async fn accepted_submission(&self, command: &SubmitCommand) -> Result<Option<TaskSnapshot>> {
@@ -152,8 +174,15 @@ impl TaskService for ApplicationService {
         self.store.history(scope, task_id, after_sequence)
     }
 
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
-        self.store.acquire(command)
+    fn acquire<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, AcquireReply> {
+        Box::pin(
+            self.acquisition
+                .acquire(self.store.as_ref(), command, options),
+        )
     }
 
     fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority> {

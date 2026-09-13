@@ -60,7 +60,29 @@ pub trait TaskStore: Send + Sync {
         task_id: &'a str,
         after_sequence: u64,
     ) -> ContractFuture<'a, Vec<RecordedHistoryEvent>>;
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply>;
+    /// Probe under short atomic storage locks. Pending must roll back every
+    /// mutation and release its connection before returning. The deadline bounds
+    /// connection admission, contention, retries and commit acknowledgement.
+    fn probe_acquisition<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        finish_empty: bool,
+        deadline: std::time::Instant,
+    ) -> ContractFuture<'a, AcquisitionProbe>;
+
+    /// Immediate completion convenience for storage consumers and adapter tests.
+    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
+        Box::pin(async move {
+            let deadline = std::time::Instant::now()
+                + std::time::Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS);
+            match self.probe_acquisition(command, true, deadline).await? {
+                AcquisitionProbe::Completed { reply, .. } => Ok(reply),
+                AcquisitionProbe::Pending { .. } => Err(ContractError::Unavailable(
+                    "store returned Pending from final acquisition probe".into(),
+                )),
+            }
+        })
+    }
     fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority>;
     fn settle<'a>(&'a self, command: &'a SettleCommand) -> ContractFuture<'a, SettleReply>;
     fn confirm_quiescence<'a>(&'a self, owner: &'a LeaseOwner) -> ContractFuture<'a, TaskState>;

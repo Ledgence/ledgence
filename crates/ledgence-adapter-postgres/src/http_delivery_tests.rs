@@ -384,7 +384,10 @@ async fn acquire_first(service: &dyn TaskService) -> (TaskSnapshot, WorkerSessio
     let session = service.open_session(&scope(), "python", 1).await.unwrap();
     let assigned = assignment(
         service
-            .acquire(&acquire_command(&session, 0, 1))
+            .acquire(
+                &acquire_command(&session, 0, 1),
+                AcquireOptions::for_wait(Duration::ZERO).unwrap(),
+            )
             .await
             .unwrap(),
     );
@@ -488,7 +491,10 @@ async fn http_old_unconfirmed_failure_receipt_and_cleanup_leave_later_attempt_un
     let second = assignment(
         server
             .client
-            .acquire(&acquire_command(&session, 0, 2))
+            .acquire(
+                &acquire_command(&session, 0, 2),
+                AcquireOptions::for_wait(Duration::ZERO).unwrap(),
+            )
             .await
             .unwrap(),
     );
@@ -572,7 +578,10 @@ async fn http_inspection_preserves_partial_expiry_batch_progress_after_database_
         assignments.push(assignment(
             server
                 .client
-                .acquire(&acquire_command(&session, consumer, 1))
+                .acquire(
+                    &acquire_command(&session, consumer, 1),
+                    AcquireOptions::for_wait(Duration::ZERO).unwrap(),
+                )
                 .await
                 .unwrap(),
         ));

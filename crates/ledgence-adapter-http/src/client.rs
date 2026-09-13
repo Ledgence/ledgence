@@ -128,9 +128,26 @@ impl HttpTaskService {
         command: &T,
         limit: usize,
     ) -> Result<R> {
+        self.post_until(
+            route,
+            command,
+            limit,
+            std::time::Instant::now() + self.timeout,
+        )
+        .await
+    }
+
+    async fn post_until<T: Serialize + Clone + Send + 'static, R: ResponseValue>(
+        &self,
+        route: &str,
+        command: &T,
+        limit: usize,
+        deadline: std::time::Instant,
+    ) -> Result<R> {
         let start = Instant::now();
+        let deadline = Instant::from_std(deadline).min(start + self.timeout);
         let command = command.clone();
-        self.exchange(Method::POST, route, &[], start, async {
+        self.exchange(Method::POST, route, &[], start, deadline, async {
             self.blocking(move || {
                 let bytes = serde_json::to_vec(&command).map_err(|_| {
                     ContractError::InvalidInput("command cannot be encoded as JSON".into())
@@ -148,9 +165,15 @@ impl HttpTaskService {
     }
 
     async fn get<R: ResponseValue>(&self, route: &str, query: &[(&str, String)]) -> Result<R> {
-        self.exchange(Method::GET, route, query, Instant::now(), async {
-            Ok(None)
-        })
+        let start = Instant::now();
+        self.exchange(
+            Method::GET,
+            route,
+            query,
+            start,
+            start + self.timeout,
+            async { Ok(None) },
+        )
         .await
     }
 
@@ -160,6 +183,7 @@ impl HttpTaskService {
         route: &str,
         query: &[(&str, String)],
         start: Instant,
+        deadline: Instant,
         body: impl std::future::Future<Output = Result<Option<Vec<u8>>>>,
     ) -> Result<R> {
         let span = tracing::info_span!(
@@ -183,7 +207,12 @@ impl HttpTaskService {
                 status: None,
                 elapsed: Duration::ZERO,
             };
-            let result = tokio::time::timeout_at(start + self.timeout, async {
+            let result = tokio::time::timeout_at(deadline, async {
+                if Instant::now() >= deadline {
+                    return Err(unavailable(
+                        "HTTP exchange deadline exceeded before sending the request",
+                    ));
+                }
                 let mut url = self
                     .base
                     .join(route)
@@ -302,7 +331,7 @@ impl HttpTaskService {
             });
             metadata.elapsed = start.elapsed();
             // timeout cannot interrupt a synchronous poll that returns after its deadline.
-            let result = if metadata.elapsed >= self.timeout {
+            let result = if Instant::now() >= deadline {
                 Err(unavailable(
                     "HTTP exchange deadline exceeded; the operation may have committed",
                 ))
@@ -419,8 +448,20 @@ impl TaskService for HttpTaskService {
             self.get("v1/tasks/history", &query).await
         })
     }
-    fn acquire<'a>(&'a self, command: &'a AcquireCommand) -> ContractFuture<'a, AcquireReply> {
-        Box::pin(self.post("v1/acquisitions", command, SUBMISSION_MAX_BYTES))
+    fn acquire<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, AcquireReply> {
+        Box::pin(async move {
+            let deadline = options
+                .deadline
+                .min(std::time::Instant::now() + self.timeout);
+            options.validate()?;
+            let request = AcquisitionRequest::new(command, options.max_wait.as_millis() as u64);
+            self.post_until("v1/acquisitions", &request, SUBMISSION_MAX_BYTES, deadline)
+                .await
+        })
     }
     fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority> {
         Box::pin(self.post("v1/renewals", command, SUBMISSION_MAX_BYTES))
@@ -449,6 +490,41 @@ impl TaskService for HttpTaskService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn acquisition_deadline_includes_waiting_for_json_encoding_capacity() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client =
+            HttpTaskService::new(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let held = client.blocking.clone().acquire_many_owned(4).await.unwrap();
+        let command = AcquireCommand {
+            scope: Scope {
+                tenant_id: "tenant".into(),
+                namespace: "namespace".into(),
+            },
+            queue: "queue".into(),
+            worker_session_id: "session".into(),
+            consumer_id: 0,
+            sequence: 1,
+        };
+        let options = AcquireOptions::new(
+            Duration::from_secs(20),
+            std::time::Instant::now() + Duration::from_millis(50),
+        )
+        .unwrap();
+        let result =
+            tokio::time::timeout(Duration::from_secs(1), client.acquire(&command, options))
+                .await
+                .expect("encoding queue must share the caller's deadline");
+        assert!(matches!(result, Err(ContractError::Unavailable(_))));
+        drop(held);
+        assert_eq!(client.blocking.available_permits(), 4);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), listener.accept())
+                .await
+                .is_err()
+        );
+    }
 
     #[tokio::test]
     async fn timed_out_json_observation_keeps_running_job_capacity_reserved() {
