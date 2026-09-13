@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT task_id FROM tasks WHERE state='active' AND next_expiry_ms <= floor(extract(epoch FROM clock_timestamp())*1000)::bigint ORDER BY next_expiry_ms,task_id LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "321488ae5dba54caf1aa3da1caa9c612b976b465711a215d9c8322662bfebefe"
+}

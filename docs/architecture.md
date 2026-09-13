@@ -13,12 +13,14 @@ This milestone proves local program preparation and process lifecycle behavior. 
 | `ledgence-worker` | Configuration, command-line entry points, local fixture composition | All four |
 | `ledgence-orchestration-api` | Submission, delivery, lease, receipt, and service contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
+| `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
+| `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The core currently uses Tokio for scheduling.
 
 The public ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
 
-The [delivery contract](delivery-contract.md) adds the portable `TaskService` boundary and executable orchestration decisions without implementing a service/store. Execution reports now live in worker-api and remain reexported by worker-core. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before future acquisition and through settlement; its local execution method is single-use. A future adapter must commit all transition records atomically before returning a durable acknowledgement. Library transition tests do not establish distributed delivery guarantees.
+The [delivery contract](delivery-contract.md) adds the portable `TaskService` boundary and executable orchestration decisions. The [PostgreSQL persistence adapter](postgres.md) implements the durable service/store operations. Execution reports now live in worker-api and remain reexported by worker-core. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before future acquisition and through settlement; its local execution method is single-use. The PostgreSQL adapter commits all transition records atomically before returning a durable acknowledgement. Library transition tests do not establish distributed delivery guarantees.
 
 ## Invocation ownership
 

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE consumer_cursors SET sequence=($3::text)::ldg_u64,task_id=$4,attempt_id=$5 WHERE session_id=$1 AND consumer_id=$2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "60ce0c3ba5cceb23d0440f3a190af82cb1de93b21dc02414ca5d2157bf85f6e7"
+}
