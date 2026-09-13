@@ -106,6 +106,64 @@ impl PostgresStore {
             })
     }
 
+    /// Verify the exact embedded migration set without applying any changes.
+    /// Missing, dirty, newer, or checksum-mismatched schema versions cannot serve.
+    pub async fn verify_schema(&self) -> Result<()> {
+        let work = async {
+            let applied: Vec<(i64, bool, Vec<u8>)> = sqlx::query_as(
+                "SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| {
+                ContractError::Unavailable(
+                    "schema verification failed; run ledgence-orchestrator migrate explicitly"
+                        .into(),
+                )
+            })?;
+            let expected: Vec<_> = MIGRATOR
+                .iter()
+                .filter(|migration| migration.migration_type.is_up_migration())
+                .collect();
+            if applied.len() != expected.len()
+                || applied.iter().zip(expected).any(|(applied, expected)| {
+                    applied.0 != expected.version
+                        || !applied.1
+                        || applied.2.as_slice() != expected.checksum.as_ref()
+                })
+            {
+                return Err(ContractError::Unavailable(
+                    "database schema does not match this orchestrator's migrations".into(),
+                ));
+            }
+            Ok(())
+        };
+        tokio::time::timeout(self.operation_timeout, work)
+            .await
+            .unwrap_or_else(|_| {
+                Err(ContractError::Unavailable(
+                    "schema verification timed out".into(),
+                ))
+            })
+    }
+
+    /// Check database availability within the configured operation budget.
+    pub async fn check_connection(&self) -> Result<()> {
+        tokio::time::timeout(self.operation_timeout, async {
+            sqlx::query("SELECT 1")
+                .execute(&self.pool)
+                .await
+                .map_err(database_error)?;
+            Ok(())
+        })
+        .await
+        .unwrap_or_else(|_| {
+            Err(ContractError::Unavailable(
+                "database availability check timed out".into(),
+            ))
+        })
+    }
+
     /// Close this pool after callers have stopped submitting operations.
     pub async fn close(&self) {
         self.pool.close().await;
@@ -200,7 +258,11 @@ mod codec_db_tests;
 #[cfg(test)]
 mod expiry_db_tests;
 #[cfg(test)]
+mod http_delivery_tests;
+#[cfg(test)]
 mod restart_db_tests;
+#[cfg(test)]
+mod schema_db_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

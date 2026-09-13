@@ -1,6 +1,6 @@
 # Delivery contract
 
-Ledgence implements portable orchestration types, deterministic state transitions, worker capacity reservations, a [delivery driver](worker-delivery.md), and a Rust application service backed by a [PostgreSQL storage adapter](postgres.md). The driver coordinates service sessions, acquisition, lease renewal, execution, and result reconciliation through `TaskService`. The adapter persists submissions, identities, leases, settlement receipts, and history, with expiry recovery. HTTPS/JSON long polling is the selected direction for a future transport adapter. An HTTP server/client, long polling, a delivery CLI command, and OTLP export are not implemented. The local `run` command still consumes a fixture.
+Ledgence implements portable orchestration types, deterministic state transitions, worker capacity reservations, a [delivery driver](worker-delivery.md), and a Rust application service backed by a [PostgreSQL storage adapter](postgres.md). The driver coordinates service sessions, acquisition, lease renewal, execution, and result reconciliation through `TaskService`. The adapter persists submissions, identities, leases, settlement receipts, and history, with expiry recovery. The [HTTP/JSON transport](http-orchestration.md) connects separate orchestrator and worker executables with immediate polling and supplies a task administration CLI. Long polling and OTLP export remain later work. The local `run` command still consumes a fixture.
 
 ## Boundaries
 
@@ -12,7 +12,7 @@ The PostgreSQL adapter enforces uniqueness for scoped submission keys, task/run 
 
 ## Submission and JSON
 
-The public submission payload contains client-owned settings and data; the service supplies execution identities. HTTP mapping is future adapter work. A valid submission is:
+The public submission payload contains client-owned settings and data; the service supplies execution identities. The HTTP endpoint wraps this input in `SubmitCommand` with its scoped idempotency key and optional origin trace. A valid submission input is:
 
 ```json
 {
@@ -128,4 +128,4 @@ Retention cleanup is not implemented. The PostgreSQL adapter currently retains r
 
 Deterministic tests exercise duplicate/obsolete sequences, loss of permission, receipt replay during retries, cancellation ordering, cleanup progression, payload preservation, and transition errors without input mutation. Worker tests prove capacity retention with gated preparation/cleanup and caller cancellation.
 
-Driver fault tests cover capacity before acquisition, ambiguous replies, local lease deadlines, retained shutdown, and cleanup reconciliation. Real PostgreSQL tests additionally cover concurrent claimers, row-lock waits crossing expiry, transaction rollback, replay after reconnect, retained outcomes, schema migrations, and database crash recovery. The PostgreSQL/Python acceptance tests exercise publication, submission, driver acquisition, dynamic download/cache, reusable execution, durable result/history, lost committed replies, and service/worker restart. See the [PostgreSQL validation gate](postgres.md#verification). These are in-process service compositions; network interruption and long-poll wakeup behavior require tests alongside the future transport.
+Driver fault tests cover capacity before acquisition, ambiguous replies, local lease deadlines, retained shutdown, and cleanup reconciliation. Real PostgreSQL tests additionally cover concurrent claimers, row-lock waits crossing expiry, transaction rollback, replay after reconnect, retained outcomes, schema migrations, and database crash recovery. The PostgreSQL/Python acceptance tests exercise publication, submission, driver acquisition, dynamic download/cache, reusable execution, durable result/history, lost committed replies, and service/worker restart. See the [PostgreSQL validation gate](postgres.md#verification). The [HTTP gate](http-orchestration.md#verification) adds separate executables and real socket faults. Controlled service/runtime fault tests remain distinct from real Python execution; long-poll wakeup behavior is not implemented or validated.

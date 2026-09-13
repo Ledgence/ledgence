@@ -1,6 +1,6 @@
 # Architecture
 
-Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The current executable runs local fixtures. HTTP transport, long polling, and a delivery CLI command remain future work.
+Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The [HTTP composition](http-orchestration.md) supplies an orchestrator executable, connected worker command, and task administration CLI. Acquisition uses immediate polling; long polling remains later work.
 
 ## Crate boundaries
 
@@ -11,13 +11,18 @@ Ledgence provides a worker, a transport-independent delivery driver, and a Rust 
 | `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
-| `ledgence-worker` | Configuration, command-line entry points, local fixture composition | Worker API/core, artifact and subprocess adapters |
+| `ledgence-worker` | Local fixture and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters |
 | `ledgence-orchestration-api` | Submission, delivery, lease, receipt, and service contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
 | `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
+| `ledgence-adapter-http` | Optional HTTP client/server implementations of `TaskService` | Orchestration API, worker API |
+| `ledgence-orchestrator` | HTTP serving, explicit migrations, readiness and supervised recovery | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters |
+| `ledgence-cli` | `ledgence task` submission, inspection, history and cancellation | Orchestration API, worker API, HTTP adapter |
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
+
+The HTTP adapter has empty default features and separate `client` and `server` features. The worker and task CLI select the client; the orchestrator selects the server and supplies its own `ApplicationService`. Neither HTTP side depends on SQLx. `tools/check-http-features.py` separately checks each selection so a workspace build's feature unification cannot conceal coupling between the two sides.
 
 The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
 
@@ -50,7 +55,7 @@ Logs never wait for output capacity. The log queue holds 64 records of at most 2
 
 Pipe and terminal output uses nonblocking writes, so a paused reader cannot stop task timers or signal handling. The CLI retains writer ownership and signal subscriptions through final output draining and restores shared descriptor flags after normal completion. A filesystem write that the operating system cannot interrupt remains owned; the existing explicit second-signal force policy applies to unfinished output as well as process cleanup.
 
-The subprocess adapter signals its owned process group before reaping its direct child. It never signals a remembered PID after reaping. On macOS, an already-dead group may produce an ambiguous permission error; this remains an unresolved cleanup result rather than freeing capacity on an assumption. See the [runtime details](../crates/ledgence-adapter-subprocess/README.md).
+The subprocess adapter signals its owned process group before reaping its direct child. After reaping, it never delivers a signal to a remembered PID or process group. On macOS, a group containing only an unreaped zombie can return a permission error. A later read-only signal-0 probe resolves that uncertainty only when the operating system confirms the group no longer exists; any remaining group or ambiguous error retains cleanup ownership and capacity. See the [runtime details](../crates/ledgence-adapter-subprocess/README.md).
 
 Adapter panics close worker admission from inside the retained supervisor. Session handles remain available for retirement or quarantine even when the original caller is gone. An adapter that panics during startup before returning a cleanup handle leaves an explicitly unresolved reservation and artifact pin; the worker cannot invent cleanup confirmation. A preparation adapter panic without a recovery handle likewise retains an unresolved-operation marker and prevents successful shutdown. Adapters must honor the documented ownership contract and avoid panics.
 
@@ -60,7 +65,7 @@ The CLI resolves all fixture program references before execution, rejects duplic
 
 Reports and failures share `InvocationIdentity`: source/event ID, tenant/namespace, run/task/attempt ID, attempt number, and optional `traceparent`/`tracestate`. Bound program identity and digest accompany that context, including preparation failures before a PID exists. Warning and error logs carry the same context even when informational spans are filtered. A secondary cleanup error is retained separately from the original execution error. Raw program stderr is tagged with process ID and artifact digest because arbitrary byte streams cannot be assigned reliably to an invocation. There is no OpenTelemetry span activation/exporter or metrics backend yet.
 
-The driver retains uncertain operations only in memory. A worker process crash loses that local state; a replacement starts a new worker session, and service-side lease expiry and the task's retry policy recover unfinished attempts. The service composition must schedule expiry recovery. An expired or unknown session drains the current driver instead of recreating it and transplanting old cursors. A network transport and deployment-level failure validation are still needed for distributed at-least-once delivery. Applications need idempotency for external effects; neither process supervision nor an event ID guarantees exactly-once business outcomes.
+The driver retains uncertain operations only in memory. A worker process crash loses that local state; a replacement starts a new worker session, and service-side lease expiry and the task's retry policy recover unfinished attempts. The orchestrator schedules expiry recovery and supervises readiness; custom service compositions must do the same. An expired or unknown session drains the current driver instead of recreating it and transplanting old cursors. The HTTP acceptance gate exercises separate processes and socket faults with PostgreSQL. Applications need idempotency for external effects; neither process supervision nor an event ID guarantees exactly-once business outcomes.
 
 ## Design references
 

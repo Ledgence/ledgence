@@ -46,6 +46,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Check Rust warnings
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Check isolated HTTP adapter features
+        run: python tools/check-http-features.py
       - name: Test Rust and real subprocess execution
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
@@ -58,9 +60,9 @@ jobs:
         run: python -m unittest discover -s sdk/python/tests -v
 
   postgres:
-    name: PostgreSQL 18 delivery and query metadata
+    name: PostgreSQL 18 and HTTP delivery
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         # PostgreSQL 18.6; multi-platform image index verified 2026-09-13.
@@ -84,6 +86,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Python for verification tooling
+        id: python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
@@ -92,6 +95,7 @@ jobs:
       - name: Check queries and transactional PostgreSQL behavior
         env:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
           cat > "$RUNNER_TEMP/ledgence-psql" <<'SH'
           #!/bin/sh
@@ -99,6 +103,13 @@ jobs:
           SH
           chmod +x "$RUNNER_TEMP/ledgence-psql"
           python tools/check-postgres.py --psql "$RUNNER_TEMP/ledgence-psql"
+      - name: Check separate-process HTTP delivery
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          python tools/check-http.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --evidence "$RUNNER_TEMP/ledgence-http-evidence"
 
   dependencies:
     name: Dependency policy
