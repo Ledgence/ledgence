@@ -43,9 +43,13 @@ An accepted success with unconfirmed cleanup is retained through restart and fin
 
 Database errors never become Empty or successful acknowledgement. Known deadlock/serialization aborts receive bounded retries. Connection loss during commit, or a timeout while committing, can leave an unknown outcome: repeat the same submission key, acquisition sequence, renewal sequence, or settlement command to reconcile it. Session creation has no request idempotency key; an uncertain registration can leave an unused session that expires.
 
+Cancellation or timeout while a transaction is starting closes the uncertain connection before pool reuse. Once startup succeeds, normal transaction rollback and connection reuse apply to mutations and snapshot reads.
+
 `inspect` returns the task; `inspect_attempt` returns a coherent task/attempt view including its accepted outcome; `history` returns at most 100 ordered lifecycle records after a sequence. Polls and ordinary renewals do not append history. Origin, invocation, and processing trace contexts stay separate; assignment replay preserves the event. Without creation-span instrumentation, new events carry the accepted origin context if supplied. Storing that context does not activate or export spans.
 
 Invoke `RecoveryStore::expire_batch` periodically from the service composition. Its limit is 1–100 shortlisted task IDs; each candidate is locked and rechecked in a separate transaction. Progress distinguishes examined candidates from expired tasks. Locked or renewed candidates may be skipped. A later error or overall timeout does not undo earlier committed recovery. Repeat scans safely; a batch does not establish that all expired work has been exhausted.
+
+The shortlist uses database statement time as a fixed index range cutoff. Each locked candidate is then rechecked against fresh database wall time before its expiry transition.
 
 Retention deletion is not implemented: records and submission deduplication can remain beyond the proposed ninety-day terminal period. Current cursor reconciliation requires complete referenced snapshots, so deleting payloads or resetting cursors early is incorrect. The next retention implementation must preserve that behavior explicitly.
 

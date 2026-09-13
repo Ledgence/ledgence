@@ -29,7 +29,8 @@ impl TaskStore for PostgresStore {
     ) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(self.run(move || async move {
             core::validate_submission(command)?;
-            let mut tx = self.begin().await?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_write().await?;
             let task_id = db::id(&mut tx,"task").await?;
             let run_id = db::id(&mut tx,"run").await?;
             let transition = core::submit(command,descriptor,&task_id,&run_id,db::now(&mut tx).await?)?;
@@ -62,7 +63,8 @@ impl TaskStore for PostgresStore {
         concurrency: u32,
     ) -> ContractFuture<'a, WorkerSession> {
         Box::pin(self.run(move || async move {
-            let mut tx = self.begin().await?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_write().await?;
             let id = db::id(&mut tx,"ws").await?;
             let session = core::open_session(&id,scope.clone(),queue,concurrency,db::now(&mut tx).await?)?;
             let n = i64::from(concurrency); let at = codec::ms(session.expires_at)?;
@@ -74,7 +76,8 @@ impl TaskStore for PostgresStore {
     fn extend_session<'a>(&'a self, id: &'a str) -> ContractFuture<'a, WorkerSession> {
         Box::pin(self.run(move || async move {
             validate_text(id, 128)?;
-            let mut tx = self.begin().await?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_write().await?;
             let row = sqlx::query("SELECT * FROM worker_sessions WHERE session_id=$1 FOR UPDATE")
                 .bind(id)
                 .fetch_optional(&mut *tx)
@@ -112,8 +115,8 @@ impl TaskStore for PostgresStore {
             scope.validate()?;
             validate_text(task_id, 128)?;
             validate_text(attempt_id, 128)?;
-            let mut tx = self.pool.begin().await?;
-            db::read_snapshot(&mut tx).await?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_read().await?;
             let task = db::load_task(&mut tx, scope, task_id, false).await?;
             let attempt = db::load_attempt(&mut tx, &task, attempt_id).await?;
             tx.commit().await?;
@@ -128,8 +131,8 @@ impl TaskStore for PostgresStore {
     ) -> ContractFuture<'a, Vec<RecordedHistoryEvent>> {
         Box::pin(self.run(move || async move {
             scope.validate()?; validate_text(task_id,128)?;
-            let mut tx = self.pool.begin().await?;
-            db::read_snapshot(&mut tx).await?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_read().await?;
             db::load_task(&mut tx,scope,task_id,false).await?;
             let rows = sqlx::query("SELECT *,trunc(sequence)::text AS sequence_text FROM task_history WHERE task_id=$1 AND sequence>($2::text)::ldg_u64 ORDER BY sequence LIMIT 100")
                 .bind(task_id).bind(after.to_string()).fetch_all(&mut *tx).await?;
@@ -157,7 +160,8 @@ impl TaskStore for PostgresStore {
     fn confirm_quiescence<'a>(&'a self, owner: &'a LeaseOwner) -> ContractFuture<'a, TaskState> {
         Box::pin(self.run(move || async move {
             owner.scope.validate()?;
-            let mut tx = self.begin().await?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_write().await?;
             let task = db::load_task(&mut tx, &owner.scope, &owner.task_id, true).await?;
             let attempt = db::load_attempt(&mut tx, &task, &owner.attempt_id).await?;
             let transition =
@@ -171,7 +175,8 @@ impl TaskStore for PostgresStore {
         Box::pin(self.run(move || async move {
             scope.validate()?;
             validate_text(id, 128)?;
-            let mut tx = self.begin().await?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_write().await?;
             let task = db::load_task(&mut tx, scope, id, true).await?;
             let attempt = match &task.current_attempt_id {
                 Some(id) => Some(db::load_attempt(&mut tx, &task, id).await?),

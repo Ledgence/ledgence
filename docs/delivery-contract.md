@@ -1,6 +1,6 @@
 # Delivery contract
 
-This feature implements portable orchestration types, deterministic state transitions, and worker capacity reservations. PostgreSQL and HTTPS/JSON long polling are the selected direction for the next adapters. There is no database adapter, server, production poller, automatic remote retry loop, or OTLP exporter in this feature. The local `run` command still consumes a fixture.
+Ledgence implements portable orchestration types, deterministic state transitions, worker capacity reservations, and a Rust application service backed by a [PostgreSQL storage adapter](postgres.md). The adapter persists submissions, identities, leases, settlement receipts, and history, with expiry recovery. HTTPS/JSON long polling is the selected direction for worker transport; a server, production poller, automatic remote retry loop, and OTLP exporter remain future work. The local `run` command still consumes a fixture.
 
 ## Boundaries
 
@@ -110,10 +110,10 @@ The subprocess frame budget includes generated CloudEvent metadata and the proto
 
 The minimum execution budget exceeds the initial control request deadline and safety margin. Long-poll request latency is charged conservatively, so a fresh authority exchange may still be needed before starting work. These initial values establish bounded behavior, not throughput promises. Execution duration, leases, cleanup, and byte limits are distinct from the sole concurrency parameter. Existing local-worker timeouts retain their previous behavior.
 
-Retention cleanup is not implemented in this feature. The future store must preserve accepted settlement receipts for the entire attempt-history lifetime and keep submission identity while the task is active. At the documented 90-day terminal expiry, inspection may return NotFound and a reused submission key may create a new task. Such submission deduplication is not permanent business idempotency. Per-consumer cursor compaction cannot turn an old sequence into a new assignment, even after session record removal.
+Retention cleanup is not implemented. The PostgreSQL adapter currently retains records and submission deduplication beyond the proposed 90-day terminal period. A future cleanup implementation must preserve accepted settlement receipts for the entire attempt-history lifetime and keep submission identity while the task is active. After terminal retention expires, inspection may return NotFound and a reused submission key may create a new task. Such submission deduplication is not permanent business idempotency. Per-consumer cursor compaction cannot turn an old sequence into a new assignment, even after session record removal.
 
-## Validation and next adapter
+## Validation and remaining integration
 
 Deterministic tests exercise duplicate/obsolete sequences, loss of permission, receipt replay during retries, cancellation ordering, cleanup progression, payload preservation, and transition errors without input mutation. Worker tests prove capacity retention with gated preparation/cleanup and caller cancellation.
 
-These tests establish in-process contracts. The PostgreSQL feature must additionally prove concurrent claimers, row-lock waits crossing expiry, commit/reply loss, restart recovery, schema migrations, retained outcomes, and missed wakeups against PostgreSQL itself. It must not substitute SQLite or in-memory tests for those guarantees.
+Real PostgreSQL tests additionally cover concurrent claimers, row-lock waits crossing expiry, transaction rollback, replay after reconnect, retained outcomes, schema migrations, and database crash recovery. See the [PostgreSQL validation gate](postgres.md#verification). These tests establish storage behavior; they do not establish end-to-end worker delivery or every ambiguous commit failure. Worker/API integration still needs transport failure, retry/reconciliation, and long-poll wakeup tests.

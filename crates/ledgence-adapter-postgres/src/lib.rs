@@ -7,10 +7,12 @@ mod codec;
 mod delivery;
 mod persistence;
 mod storage;
+mod transaction;
 
 use ledgence_orchestration_api::*;
-use sqlx::{PgPool, Postgres, Transaction, postgres::PgPoolOptions};
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{future::Future, time::Duration};
+use transaction::TransactionConnection;
 
 /// Versioned embedded migrations. Running them is an explicit deployment action.
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
@@ -109,15 +111,8 @@ impl PostgresStore {
         self.pool.close().await;
     }
 
-    async fn begin(&self) -> StoreResult<Transaction<'static, Postgres>> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("SET LOCAL synchronous_commit = on")
-            .execute(&mut *tx)
-            .await?;
-        Ok(tx)
+    async fn transaction_connection(&self) -> StoreResult<TransactionConnection> {
+        Ok(TransactionConnection::new(self.pool.acquire().await?))
     }
 
     async fn run<T, F, Fut>(&self, mut operation: F) -> Result<T>
@@ -203,6 +198,10 @@ fn retryable(error: &sqlx::Error) -> bool {
 #[cfg(test)]
 mod codec_db_tests;
 #[cfg(test)]
+mod expiry_db_tests;
+#[cfg(test)]
 mod restart_db_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transaction_db_tests;
