@@ -1,5 +1,6 @@
 //! Network orchestration composition, including supervised expiry recovery.
 
+mod application;
 mod command;
 mod health;
 mod logging;
@@ -11,7 +12,12 @@ use ledgence_adapter_artifact::{ArtifactLimits, FileProgramStore, HttpProgramSto
 use ledgence_adapter_postgres::{PostgresOptions, PostgresStore};
 use ledgence_orchestration_service::ApplicationService;
 use ledgence_worker_api::ProgramStore;
-use std::{future::IntoFuture, process::ExitCode, sync::Arc, time::Duration};
+use std::{
+    future::{Future, IntoFuture},
+    process::ExitCode,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{sync::watch, task::JoinHandle};
 
 const DRAIN_OBSERVATION: Duration = Duration::from_secs(35);
@@ -28,6 +34,15 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    run(move |stopped| dispatch(command, stopped))
+}
+
+/// Only signal handling and log observation run on this runtime. Application
+/// work owns a separate runtime so its destruction cannot block force signals.
+fn run<F>(work: impl FnOnce(watch::Receiver<bool>) -> F + Send + 'static) -> ExitCode
+where
+    F: Future<Output = Result<(), String>>,
+{
     let mut logs = match logging::Logs::stderr() {
         Ok(logs) => logs,
         // Do not try a blocking fallback write to the same unavailable output.
@@ -40,7 +55,7 @@ fn main() -> ExitCode {
         .with_writer(logs.sink.clone())
         .json()
         .init();
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
+    let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
@@ -51,7 +66,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let (result, forced) = runtime.block_on(with_signals(command, &mut logs));
+    let (result, forced) = runtime.block_on(with_signals(work, &mut logs));
     if forced {
         runtime.block_on(async {
             if let Err(error) = &result {
@@ -60,8 +75,9 @@ fn main() -> ExitCode {
             let _ = tokio::time::timeout(Duration::from_millis(100), logs.finish()).await;
         });
         logs.abort();
-        // A second explicit signal permits abandoning unresolved operations.
-        // Their outcomes remain uncertain and clients must reconcile identities.
+        // The application thread was detached only after an explicit second
+        // signal. Process exit abandons its unresolved work; clients reconcile
+        // uncertain outcomes using their durable operation identities.
         runtime.shutdown_timeout(Duration::ZERO);
     } else {
         drop(runtime);
@@ -72,7 +88,13 @@ fn main() -> ExitCode {
     }
 }
 
-async fn with_signals(command: Command, logs: &mut logging::Logs) -> (Result<(), String>, bool) {
+async fn with_signals<F>(
+    work: impl FnOnce(watch::Receiver<bool>) -> F + Send + 'static,
+    logs: &mut logging::Logs,
+) -> (Result<(), String>, bool)
+where
+    F: Future<Output = Result<(), String>>,
+{
     let mut signals = match Signals::new() {
         Ok(signals) => signals,
         Err(error) => {
@@ -86,7 +108,15 @@ async fn with_signals(command: Command, logs: &mut logging::Logs) -> (Result<(),
         }
     };
     let (stop, stopped) = watch::channel(false);
-    let work = dispatch(command, stopped);
+    // Completion includes runtime destruction, not just dispatch. A timed-out
+    // HTTP waiter can leave a started filesystem operation running there.
+    let application = application::Application::start(move || work(stopped));
+    let work = async move {
+        application
+            .map_err(|error| format!("could not start application thread: {error}"))?
+            .finish()
+            .await
+    };
     tokio::pin!(work);
     let mut interrupted = false;
     let result = loop {
@@ -413,3 +443,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, unix))]
+mod shutdown_tests;
