@@ -314,8 +314,16 @@ mod tests {
         }
     }
 
+    struct PendingRenewal {
+        command: RenewCommand,
+        response: tokio::sync::oneshot::Sender<Result<Authority>>,
+    }
+
     #[derive(Default)]
-    struct Renewals(Mutex<Vec<RenewCommand>>);
+    struct Renewals {
+        commands: Mutex<Vec<RenewCommand>>,
+        controlled: Option<tokio::sync::mpsc::UnboundedSender<PendingRenewal>>,
+    }
     fn unsupported<'a, T>() -> ContractFuture<'a, T> {
         Box::pin(async { Err(ContractError::NotFound) })
     }
@@ -362,9 +370,25 @@ mod tests {
         }
         fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority> {
             Box::pin(async move {
-                let mut commands = self.0.lock().unwrap();
-                assert_eq!(command.sequence, commands.len() as u64 + 1);
-                commands.push(command.clone());
+                {
+                    let mut commands = self.commands.lock().unwrap();
+                    if self.controlled.is_none() {
+                        assert_eq!(command.sequence, commands.len() as u64 + 1);
+                    }
+                    commands.push(command.clone());
+                }
+                if let Some(controlled) = &self.controlled {
+                    let (response, received) = tokio::sync::oneshot::channel();
+                    controlled
+                        .send(PendingRenewal {
+                            command: command.clone(),
+                            response,
+                        })
+                        .unwrap_or_else(|_| panic!("test must receive each renewal request"));
+                    return received
+                        .await
+                        .expect("test must resolve each renewal reply");
+                }
                 Ok(authority(
                     &command.owner,
                     command.sequence,
@@ -405,8 +429,7 @@ mod tests {
         .expect("renewal actor did not reach the expected state");
     }
 
-    #[tokio::test]
-    async fn heartbeats_preserve_dispatch_until_the_consumer_takes_permission() {
+    fn monitor_fixture(service: Arc<dyn TaskService>) -> (Assignment, Arc<Context>) {
         let scope = Scope {
             tenant_id: "tenant".into(),
             namespace: "namespace".into(),
@@ -455,7 +478,6 @@ mod tests {
             ports,
         )
         .unwrap();
-        let service = Arc::new(Renewals::default());
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
             stop_changed: tokio::sync::Notify::new(),
@@ -463,22 +485,31 @@ mod tests {
         });
         let mut config = DeliveryConfig::new(scope, "queue");
         config.renew_interval = Duration::from_millis(1);
+        config.retry_delay = Duration::from_millis(1);
         let context = Arc::new(Context {
             worker,
-            service: service.clone(),
+            service,
             config,
-            shared: shared.clone(),
+            shared,
         });
+        (assignment, context)
+    }
+
+    #[tokio::test]
+    async fn heartbeats_preserve_dispatch_until_the_consumer_takes_permission() {
+        let service = Arc::new(Renewals::default());
+        let (assignment, context) = monitor_fixture(service.clone());
+        let shared = context.shared.clone();
         let monitor = Arc::new(Monitor::new(&assignment));
         let running = monitor.clone();
         let actor = tokio::spawn(async move { running.run(context, assignment).await });
 
         // Withhold consumer scheduling across multiple confirmed renewals. This
         // exercises the handoff race directly, without relying on scheduler luck.
-        observe(|| service.0.lock().unwrap().len() >= 3).await;
+        observe(|| service.commands.lock().unwrap().len() >= 3).await;
         assert!(
             service
-                .0
+                .commands
                 .lock()
                 .unwrap()
                 .iter()
@@ -490,7 +521,7 @@ mod tests {
             .expect("fresh dispatch permission");
         observe(|| {
             service
-                .0
+                .commands
                 .lock()
                 .unwrap()
                 .iter()
@@ -548,32 +579,113 @@ mod tests {
         assert!(state.ready);
     }
 
-    #[test]
-    fn the_initial_confirmation_deadline_is_fixed_and_late_permission_cannot_revive_it() {
-        let now = Instant::now();
-        let mut state = pending_permission(now);
-        let command = RenewCommand {
-            owner: state.tracker.owner().clone(),
-            sequence: 1,
-            intent: RenewIntent::Dispatch,
+    async fn next_renewal(
+        requests: &mut tokio::sync::mpsc::UnboundedReceiver<PendingRenewal>,
+    ) -> PendingRenewal {
+        tokio::time::timeout(Duration::from_secs(2), requests.recv())
+            .await
+            .expect("renewal actor did not send its next request")
+            .expect("renewal actor unexpectedly stopped")
+    }
+
+    #[tokio::test]
+    async fn the_initial_confirmation_deadline_is_fixed_and_late_permission_cannot_revive_it() {
+        let (sent, mut requests) = tokio::sync::mpsc::unbounded_channel();
+        let service = Arc::new(Renewals {
+            controlled: Some(sent),
+            ..Renewals::default()
+        });
+        let (assignment, context) = monitor_fixture(service);
+        let shared = context.shared.clone();
+        let before_construction = Instant::now();
+        let monitor = Arc::new(Monitor::new(&assignment));
+        let constructed = Instant::now();
+        {
+            let state = monitor.permission.lock().unwrap();
+            let Phase::AwaitingAuthority { deadline } = state.phase else {
+                panic!("a live assignment must await initial authority")
+            };
+            assert!(deadline >= before_construction + Duration::from_secs(30));
+            assert!(deadline <= constructed + Duration::from_secs(30));
+        }
+        let running = monitor.clone();
+        let actor = running.run(context, assignment);
+        let scenario = async {
+            let first = next_renewal(&mut requests).await;
+            let command = first.command;
+            assert_eq!(command.sequence, 1);
+            assert_eq!(command.intent, RenewIntent::Dispatch);
+            first
+                .response
+                .send(Err(ContractError::Unavailable(
+                    "uncertain renewal reply".into(),
+                )))
+                .unwrap();
+            let second = next_renewal(&mut requests).await;
+            assert_eq!(second.command, command);
+
+            // Exercise real actor retries on both sides of the confirmation window.
+            // std::time::Instant is the production clock, so deliberately use its
+            // actual 30-second contract instead of a synthetic Permission deadline.
+            tokio::time::sleep_until((constructed + Duration::from_secs(15)).into()).await;
+            second
+                .response
+                .send(Err(ContractError::Unavailable(
+                    "uncertain renewal reply".into(),
+                )))
+                .unwrap();
+            let third = next_renewal(&mut requests).await;
+            assert_eq!(third.command, command);
+            tokio::time::sleep_until(
+                (constructed + Duration::from_secs(30) + Duration::from_millis(100)).into(),
+            )
+            .await;
+            assert!(
+                tokio::time::timeout(Duration::from_secs(1), monitor.dispatch(&shared))
+                    .await
+                    .expect("the original confirmation deadline must stop dispatch")
+                    .is_none()
+            );
+
+            // The reply is still fresh relative to its own request, but too late
+            // for initial confirmation. Observe the next request to establish that
+            // the actor processed the positive reply before checking permission.
+            third
+                .response
+                .send(Ok(authority(&command.owner, command.sequence, true)))
+                .unwrap();
+            let fourth = next_renewal(&mut requests).await;
+            assert_eq!(fourth.command.owner, command.owner);
+            assert_eq!(fourth.command.sequence, command.sequence + 1);
+            assert_eq!(fourth.command.intent, RenewIntent::KeepAlive);
+            assert!(
+                tokio::time::timeout(Duration::from_secs(1), monitor.dispatch(&shared))
+                    .await
+                    .expect("late authority must not revive dispatch permission")
+                    .is_none()
+            );
+            {
+                let state = monitor.permission.lock().unwrap();
+                assert!(state.stopped());
+                assert!(state.tracker.execution_deadline().is_none());
+            }
+            monitor.done.store(true, Ordering::Release);
+            fourth
+                .response
+                .send(Ok(authority(
+                    &fourth.command.owner,
+                    fourth.command.sequence,
+                    false,
+                )))
+                .unwrap();
         };
-        let response = authority(&command.owner, 1, true);
-        state.accept(
-            &response,
-            &command,
-            now + Duration::from_secs(29),
-            now + Duration::from_secs(30),
-        );
-        assert!(state.stopped());
-        assert!(state.tracker.execution_deadline().is_none());
-        state.accept(
-            &response,
-            &command,
-            now + Duration::from_secs(30),
-            now + Duration::from_secs(31),
-        );
-        assert!(state.stopped());
-        assert!(state.tracker.execution_deadline().is_none());
+        // Keep the actor owned by this future so assertion failures also drop
+        // renewal work. The timeout bounds both the scenario and actor shutdown.
+        tokio::time::timeout(Duration::from_secs(35), async {
+            tokio::join!(actor, scenario);
+        })
+        .await
+        .expect("initial confirmation scenario did not finish");
     }
 
     #[test]
