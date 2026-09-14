@@ -34,8 +34,8 @@ impl PostgresStore {
                 tenant_id: row_scope.try_get("tenant_id")?,
                 namespace: row_scope.try_get("namespace")?,
             };
-            let drain = row.try_get::<String, _>("kind")? == "drain";
-            let activation = if drain {
+            let terminal = row.try_get::<String, _>("kind")? == "terminal";
+            let activation = if !terminal {
                 false
             } else {
                 sqlx::query_scalar("SELECT is_activation FROM workflow_task_links WHERE workflow_id=$1 AND task_id=$2")
@@ -128,6 +128,19 @@ impl PostgresStore {
             .await?;
             enqueue_drain(&mut tx, &run, now).await?;
             finish_work(&mut tx, &work.id, now).await?;
+        } else if row.kind == "wait" {
+            let applied =
+                external::apply_external_wait(&mut tx, &snapshot, &work.task_id, now).await?;
+            if let Some(task) = applied.task {
+                wakes.push(task);
+                progress.activations_scheduled += 1;
+            }
+            if let Some(at) = applied.rearm_at {
+                sqlx::query("UPDATE workflow_work SET available_at_ms=$2,lease_token=NULL,lease_until_ms=NULL WHERE id=$1")
+                    .bind(&work.id).bind(codec::ms(at)?).execute(&mut *tx).await?;
+            } else {
+                finish_work(&mut tx, &work.id, now).await?;
+            }
         } else {
             let (is_activation, terminal): (bool, bool) = sqlx::query_as("SELECT is_activation,terminal FROM workflow_task_links WHERE workflow_id=$1 AND task_id=$2")
                 .bind(&work.workflow_id).bind(&work.task_id).fetch_one(&mut *tx).await?;
@@ -203,12 +216,17 @@ impl PostgresStore {
                     }
                 }
             } else if snapshot.state == WorkflowState::Waiting {
-                let bytes: Vec<u8> = sqlx::query_scalar(
-                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1",
+                let bytes: Option<Vec<u8>> = sqlx::query_scalar(
+                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL",
                 )
                 .bind(&snapshot.workflow_id)
-                .fetch_one(&mut *tx)
+                .fetch_optional(&mut *tx)
                 .await?;
+                let Some(bytes) = bytes else {
+                    finish_work(&mut tx, &work.id, now).await?;
+                    tx.commit().await?;
+                    return Ok(progress);
+                };
                 let keys: Vec<String> = codec::decode(&bytes)?;
                 if let Some(inputs) = wait_inputs(&mut tx, &snapshot, &keys).await? {
                     let mut run = load_run(
@@ -219,7 +237,7 @@ impl PostgresStore {
                         false,
                     )
                     .await?;
-                    wakes.push(schedule_activation(&mut tx, &mut run, inputs, now).await?);
+                    wakes.push(schedule_activation(&mut tx, &mut run, inputs, None, now).await?);
                     progress.activations_scheduled += 1;
                     record_history(
                         &mut tx,
@@ -252,7 +270,7 @@ impl PostgresStore {
             return Ok(());
         };
         let now = db::now(&mut tx).await?;
-        if row.kind != "drain" && now.saturating_sub(row.created_at) >= APPLICATION_DEADLINE_MS {
+        if row.kind == "terminal" && now.saturating_sub(row.created_at) >= APPLICATION_DEADLINE_MS {
             fail_run(
                 &mut tx,
                 &mut run,
@@ -465,22 +483,38 @@ async fn apply_decision(
             run.wait_keys = members;
             save_run(connection, run).await?;
             if let Some(inputs) = wait_inputs(connection, &run.snapshot, &run.wait_keys).await? {
-                wakes.push(schedule_activation(connection, run, inputs, now).await?);
+                wakes.push(schedule_activation(connection, run, inputs, None, now).await?);
+                progress.activations_scheduled += 1;
+            }
+        }
+        core::WorkflowDisposition::ExternalWait { wait } => {
+            if let Some(task) = external::install_external_wait(
+                connection,
+                run,
+                &decision.activation_id,
+                &wait,
+                now,
+            )
+            .await?
+            {
+                wakes.push(task);
                 progress.activations_scheduled += 1;
             }
         }
         core::WorkflowDisposition::Continue => {
             let inputs = pending_inputs(connection, run).await?;
-            wakes.push(schedule_activation(connection, run, inputs, now).await?);
+            wakes.push(schedule_activation(connection, run, inputs, None, now).await?);
             progress.activations_scheduled += 1;
         }
         core::WorkflowDisposition::Complete { output } => {
+            external::close_external_wait(connection, run, now).await?;
             run.snapshot.state = WorkflowState::Succeeded;
             run.snapshot.terminal_at = Some(now);
             run.snapshot.activation_id = None;
             run.outcome = Some(WorkflowOutcome::Succeeded { output });
             run.wait_activation = None;
             run.wait_keys.clear();
+            run.external_wait_key = None;
             save_run(connection, run).await?;
         }
         core::WorkflowDisposition::Fail { error } => fail_run(connection, run, &error, now).await?,
@@ -568,6 +602,7 @@ async fn fail_run(
         return Ok(());
     }
     validate_workflow_error(error)?;
+    external::close_external_wait(connection, run, now).await?;
     run.snapshot.state = WorkflowState::Failing;
     run.outcome = Some(WorkflowOutcome::Failed {
         error: error.clone(),
@@ -627,6 +662,7 @@ async fn drain(
         run.snapshot.activation_id = None;
         run.wait_activation = None;
         run.wait_keys.clear();
+        run.external_wait_key = None;
         save_run(connection, run).await?;
         record_history(
             connection,

@@ -85,13 +85,33 @@ impl Context {
                         )
                         .await
                     {
-                        Ok((extension, handler)) => match reservation
-                            .execute_interactive(request.clone(), control, extension, handler)
-                            .await
-                        {
-                            Ok(report) => AttemptReport::Completed(report),
-                            Err(failure) => AttemptReport::Failed(failure),
-                        },
+                        Ok(runtime) => {
+                            // Link the external cause before this new span enters
+                            // or materializes context. The attempt's already captured
+                            // processing trace and original invocation remain stable.
+                            let span = tracing::info_span!("ledgence.workflow.activation",
+                                ledgence.workflow.id = request.event.value()["ldgworkflowid"].as_str(),
+                                ledgence.activation.id = %activation_id,
+                                ledgence.workflow.wake = runtime.extension.payload["wake"]["kind"].as_str(),
+                                cloudevents.event_id = runtime.extension.payload["wake"]["event"]["id"].as_str(),
+                                cloudevents.event_source = runtime.extension.payload["wake"]["event"]["source"].as_str());
+                            if let Some(origin) = &runtime.wake_trace {
+                                self.worker.trace_bridge().add_link(&span, origin);
+                            }
+                            match reservation
+                                .execute_interactive(
+                                    request.clone(),
+                                    control,
+                                    runtime.extension,
+                                    runtime.handler,
+                                )
+                                .instrument(span)
+                                .await
+                            {
+                                Ok(report) => AttemptReport::Completed(report),
+                                Err(failure) => AttemptReport::Failed(failure),
+                            }
+                        }
                         Err(error) => failure(&request, error.kind, &error.message, false),
                     }
                 }

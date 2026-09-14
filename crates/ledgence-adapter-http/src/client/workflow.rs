@@ -27,6 +27,36 @@ impl WorkflowService for HttpTaskService {
             .await
         })
     }
+    fn send_workflow_event<'a>(
+        &'a self,
+        command: &'a WorkflowEventCommand,
+    ) -> ContractFuture<'a, WorkflowEventReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let scope = command.scope.clone();
+            let workflow_id = command.workflow_id.clone();
+            let key = command.key.clone();
+            let event_id = command.event.id().to_owned();
+            let event_source = command.event.source().to_owned();
+            self.post_validated(
+                "v1/workflows/events",
+                command,
+                WORKFLOW_EVENT_COMMAND_MAX_BYTES,
+                move |reply: &WorkflowEventReceipt| {
+                    if reply.scope != scope
+                        || reply.workflow_id != workflow_id
+                        || reply.key != key
+                        || reply.event_id != event_id
+                        || reply.event_source != event_source
+                    {
+                        return Err(unavailable("workflow event receipt identity mismatch"));
+                    }
+                    Ok(())
+                },
+            )
+            .await
+        })
+    }
     fn workflow_status<'a>(
         &'a self,
         scope: &'a Scope,

@@ -131,6 +131,63 @@ change state or become visible between requests, and concurrent changes can make
 matching tasks enter or leave the remaining traversal. Start again without a
 cursor to refresh. Use a task handle's status or result for subsequent observation.
 
+## External workflow events
+
+Send the complete original CloudEvent to a one-shot wait key:
+
+```python
+from ledgence.client import WorkflowEventUncertain
+
+workflow = client.workflows.handle(saved_workflow_id)
+command = workflow.prepare_event("approval:1", event={
+    "specversion": "1.0", "id": "approval-1042", "source": "/billing/approvals",
+    "type": "invoice.approved", "datacontenttype": "application/json",
+    "data": {"invoice_id": "INV-1042", "approved": True},
+})
+try:
+    receipt = await workflow.send_event(command)
+except WorkflowEventUncertain as error:
+    # Application policy decides when to resend these unchanged bytes.
+    saved_command = error.command.to_dict()
+    raise
+```
+
+`await workflow.send_event(key="approval:1", event=original_event)` is the
+convenience form. Preparation freezes the endpoint, scope, workflow, key and full
+event; it generates no event ID and changes no CloudEvent fields. Store the
+prepared command before an await when caller cancellation may require later
+reconciliation. `to_dict()` returns an independent JSON copy. After a caller
+restart, reconnect to the same endpoint/scope/workflow and call
+`prepare_event(saved_command["key"], event=saved_command["event"])`.
+
+`WorkflowEventReceipt` contains `scope`, `workflow_id`, `key`, `event_id`,
+`event_source`, `accepted_at` (Unix milliseconds), and `already_accepted`.
+Acceptance means durable storage, not that the workflow already consumed the
+event. An event may arrive before the controller registers its wait. Source and
+ID identify an event within the workflow run, and each wait key accepts one event.
+Resending an identical command returns its receipt, including after workflow
+completion. Changed bindings raise `Conflict`; closed/late events produce
+`ServiceError` with `code="obsolete_operation"`.
+
+Event POSTs never automatically retry. An uncertain response raises
+`WorkflowEventUncertain` with `.command`, `.cause`, and an optional `.request_id`.
+Explicitly resend `.command` to reconcile. `asyncio.CancelledError` still
+propagates; cancellation does not prove that acceptance failed. Known
+pre-dispatch deadline expiration remains `RequestTimeout(dispatched=False)`.
+
+Events use the common CloudEvents JSON profile: version1.0; nonempty `id`,
+`source`, and `type`; `datacontenttype="application/json"`; and a required `data`
+field (which may be null). Optional time/subject/schema/tracing and scalar context
+extensions are validated. Execution IDs are not required; forwarded context
+fields remain intact. Complete encoded events are capped at 64 KiB, commands at
+70 KiB, and application data at depth64. Preparation uses the strict Python-encoded size, so a float-format boundary may
+be rejected conservatively even if the Rust encoding would fit. Wait keys are one-shot for the whole run;
+use new iteration keys when the controller waits again.
+
+External event IDs are limited to 128 UTF-8 bytes and sources to 2,048 UTF-8
+bytes, in addition to the complete event budget. Sources must be valid URI
+references; encode non-ASCII URI characters with percent escapes.
+
 ## Submission uncertainty
 
 An explicit idempotency key is required. Optional `RetryPolicy`,

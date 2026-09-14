@@ -22,11 +22,11 @@ __all__ = [
 ]
 
 from .errors import (
-    WorkflowCancellationUncertain, WorkflowCancelled, WorkflowFailed, WorkflowWaitTimeout,
+    WorkflowCancellationUncertain, WorkflowCancelled, WorkflowEventUncertain, WorkflowFailed, WorkflowWaitTimeout,
 )
 from .workflow_models import (
     WorkflowCancellation, WorkflowFailure, WorkflowResult, WorkflowState, WorkflowStatus,
-    WorkflowSubmission, WorkflowSucceeded,
+    WorkflowSubmission, WorkflowSucceeded, WorkflowEventCommand, WorkflowEventReceipt,
 )
 from .workflows import WorkflowHandle
 
@@ -34,4 +34,5 @@ __all__ += [
     "WorkflowHandle", "WorkflowSubmission", "WorkflowState", "WorkflowStatus", "WorkflowResult",
     "WorkflowSucceeded", "WorkflowFailure", "WorkflowCancellation", "WorkflowFailed",
     "WorkflowCancelled", "WorkflowWaitTimeout", "WorkflowCancellationUncertain",
+    "WorkflowEventCommand", "WorkflowEventReceipt", "WorkflowEventUncertain",
 ]

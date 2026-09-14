@@ -225,6 +225,24 @@ impl ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn send_workflow_event<'a>(
+        &'a self,
+        command: &'a WorkflowEventCommand,
+    ) -> ContractFuture<'a, WorkflowEventReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let receipt = self.workflows()?.send_workflow_event(command).await?;
+            receipt
+                .validate()
+                .map_err(|_| ContractError::Unavailable("invalid workflow event receipt".into()))?;
+            if !receipt.matches(command) {
+                return Err(ContractError::Unavailable(
+                    "workflow event receipt identity mismatch".into(),
+                ));
+            }
+            Ok(receipt)
+        })
+    }
     fn submit_workflow<'a>(
         &'a self,
         command: &'a SubmitCommand,

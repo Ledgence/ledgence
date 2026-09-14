@@ -108,6 +108,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("/v1/workflows/status", "GET"),
     ("/v1/workflows/result", "GET"),
     ("/v1/workflows/cancel", "POST"),
+    ("/v1/workflows/events", "POST"),
     ("/v1/workflows/activations/context", "POST"),
     ("/v1/workflows/local-results", "POST"),
     ("/v1/tasks", "GET, POST"),
@@ -571,6 +572,7 @@ async fn dispatch(
     let maximum = match path {
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
+        "/v1/workflows/events" => WORKFLOW_EVENT_COMMAND_MAX_BYTES,
         _ => SUBMISSION_MAX_BYTES,
     };
     let bytes = to_bytes(body, maximum)

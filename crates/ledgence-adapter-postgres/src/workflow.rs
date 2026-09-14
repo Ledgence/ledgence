@@ -2,6 +2,7 @@
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
 mod data;
 mod execution;
+mod external;
 #[cfg(test)]
 mod tests;
 mod work;
@@ -65,7 +66,7 @@ impl WorkflowStore for PostgresStore {
             replay_submission(&run, command)?;
             let mut wakes = Vec::new();
             if inserted == 1 {
-                wakes.push(schedule_activation(&mut tx, &mut run, BTreeMap::new(), now).await?);
+                wakes.push(schedule_activation(&mut tx, &mut run, BTreeMap::new(), None, now).await?);
                 record_history(&mut tx, &run.snapshot.workflow_id, run.snapshot.activation_id.as_deref(), now, "started").await?;
             }
             tx.commit().await?;
@@ -116,6 +117,12 @@ impl WorkflowStore for PostgresStore {
     ) -> ContractFuture<'a, LocalResultReceipt> {
         Box::pin(self.run(move || self.record_local_result_once(command)))
     }
+    fn send_workflow_event<'a>(
+        &'a self,
+        command: &'a WorkflowEventCommand,
+    ) -> ContractFuture<'a, WorkflowEventReceipt> {
+        Box::pin(self.run(move || self.send_workflow_event_once(command)))
+    }
     fn claim_work(&self, limit: u32) -> ContractFuture<'_, Vec<WorkflowWork>> {
         Box::pin(self.run(move || self.claim_work_once(limit)))
     }
@@ -148,6 +155,7 @@ impl WorkflowStore for PostgresStore {
             if !run.snapshot.state.is_terminal() && run.snapshot.state != WorkflowState::Cancelling
             {
                 let now = db::now(&mut tx).await?;
+                external::close_external_wait(&mut tx, &mut run, now).await?;
                 run.snapshot.state = WorkflowState::Cancelling;
                 run.outcome = Some(WorkflowOutcome::Cancelled {});
                 save_run(&mut tx, &run).await?;

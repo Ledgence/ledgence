@@ -32,6 +32,43 @@ class WorkflowSubmission(Submission):
         raise TypeError("create submissions with client.workflows.prepare()")
 
 
+@dataclass(frozen=True, init=False)
+class WorkflowEventCommand:
+    """Frozen external event, bound to one endpoint, scope, workflow, and wait key."""
+    base_url: str
+    scope: Scope
+    workflow_id: str
+    key: str
+    _body: bytes = field(repr=False)
+
+    def __init__(self):
+        raise TypeError("create event commands with workflow.prepare_event()")
+
+    @classmethod
+    def _create(cls, base_url, scope, workflow_id, key, body):
+        value = object.__new__(cls)
+        for name, item in (("base_url", base_url), ("scope", scope),
+                           ("workflow_id", workflow_id), ("key", key), ("_body", body)):
+            object.__setattr__(value, name, item)
+        return value
+
+    def to_dict(self) -> dict:
+        """Return an independent JSON command copy suitable for durable storage."""
+        from .cloud_events import EVENT_COMMAND_LIMIT
+        return codec.decode(self._body, EVENT_COMMAND_LIMIT)
+
+
+@dataclass(frozen=True)
+class WorkflowEventReceipt:
+    scope: Scope
+    workflow_id: str
+    key: str
+    event_id: str
+    event_source: str
+    accepted_at: int
+    already_accepted: bool
+
+
 @dataclass(frozen=True)
 class WorkflowStatus:
     workflow_id: str
@@ -127,3 +164,25 @@ def parse_workflow_result(raw, scope: Scope, workflow_id: str) -> WorkflowResult
         return WorkflowResult(status, value)
     except (ValueError, TypeError, KeyError) as exc:
         raise ProtocolError("invalid workflow result response") from exc
+
+
+def parse_workflow_event_receipt(raw, command: WorkflowEventCommand) -> WorkflowEventReceipt:
+    """Accept only a receipt bound to the exact frozen event being reconciled."""
+    try:
+        codec.fields(raw, set(WorkflowEventReceipt.__dataclass_fields__))
+        actual_scope = _scope(raw["scope"])
+        workflow_id = codec.text(raw["workflow_id"], "workflow_id")
+        key = codec.text(raw["key"], "key")
+        event_id = codec.text(raw["event_id"], "event_id", 128)
+        source = codec.text(raw["event_source"], "event_source", 2048)
+        event = command.to_dict()["event"]
+        if (actual_scope != command.scope or workflow_id != command.workflow_id
+                or key != command.key or event_id != event["id"] or source != event["source"]):
+            raise InputError("workflow event receipt identity does not match the command")
+        accepted_at = codec.integer(raw["accepted_at"], "accepted_at", 0, codec.MAX_TIMESTAMP)
+        if type(raw["already_accepted"]) is not bool:
+            raise InputError("already_accepted must be a boolean")
+        return WorkflowEventReceipt(actual_scope, workflow_id, key, event_id, source,
+                                    accepted_at, raw["already_accepted"])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ProtocolError("invalid workflow event receipt") from exc

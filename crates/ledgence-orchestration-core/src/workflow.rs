@@ -13,6 +13,9 @@ pub struct WorkflowCheckpoint {
 
 #[derive(Debug, Clone)]
 pub enum WorkflowDisposition {
+    ExternalWait {
+        wait: WorkflowWait,
+    },
     Wait {
         members: Vec<String>,
     },
@@ -55,6 +58,18 @@ pub fn plan_workflow_decision(
         .checked_add(1)
         .ok_or_else(|| ContractError::InvalidInput("workflow revision exhausted".into()))?;
     let (checkpoint, disposition) = match &decision.action {
+        WorkflowAction::Wait {
+            state,
+            continuation,
+            wait,
+            ..
+        } => (
+            Some(WorkflowCheckpoint {
+                state: state.clone(),
+                continuation: continuation.clone(),
+            }),
+            WorkflowDisposition::ExternalWait { wait: wait.clone() },
+        ),
         WorkflowAction::Suspend {
             state,
             continuation,

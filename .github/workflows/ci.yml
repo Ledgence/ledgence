@@ -204,6 +204,10 @@ jobs:
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py \
             --endpoint http://127.0.0.1:9324 --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries target/debug --evidence "$RUNNER_TEMP/ledgence-workflow-sqs-evidence"
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py \
+            --scenario events --capture target/debug/examples/otlp-capture \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --evidence "$RUNNER_TEMP/ledgence-workflow-events-otel-evidence"
 
   dependencies:
     name: Dependency policy

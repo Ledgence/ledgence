@@ -87,6 +87,10 @@ pub struct WorkflowActivationContext {
     pub state: Value,
     pub inputs: BTreeMap<String, WorkflowChildResult>,
     pub local_steps: Vec<LocalStepRecord>,
+    /// Frozen result of one external event/timer wait. Absent on older contexts
+    /// and ordinary child continuations; never merged into user CloudEvent data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wake: Option<WorkflowWake>,
 }
 impl WorkflowActivationContext {
     pub fn validate(&self) -> Result<()> {
@@ -127,7 +131,24 @@ impl WorkflowActivationContext {
                 ));
             }
         }
-        bounded(&self.inputs, WORKFLOW_INPUTS_MAX_BYTES, "workflow inputs")?;
+        if let Some(wake) = &self.wake {
+            wake.validate()?;
+            #[derive(Serialize)]
+            struct FrozenInputs<'a> {
+                inputs: &'a BTreeMap<String, WorkflowChildResult>,
+                wake: &'a WorkflowWake,
+            }
+            bounded(
+                &FrozenInputs {
+                    inputs: &self.inputs,
+                    wake,
+                },
+                WORKFLOW_INPUTS_MAX_BYTES,
+                "workflow inputs and wake",
+            )?;
+        } else {
+            bounded(&self.inputs, WORKFLOW_INPUTS_MAX_BYTES, "workflow inputs")?;
+        }
         let mut keys = BTreeSet::new();
         for step in &self.local_steps {
             step.validate()?;
@@ -199,6 +220,12 @@ pub struct WorkflowDecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkflowAction {
+    Wait {
+        state: Value,
+        continuation: String,
+        commands: Vec<WorkflowTaskCommand>,
+        wait: WorkflowWait,
+    },
     Suspend {
         state: Value,
         continuation: String,
@@ -228,6 +255,7 @@ impl WorkflowDecision {
             .as_object()
             .ok_or_else(|| invalid("workflow decision must be an object"))?;
         let action_fields: &[&str] = match object.get("kind").and_then(Value::as_str) {
+            Some("wait") => &["state", "continuation", "commands", "wait"],
             Some("suspend") => &["state", "continuation", "commands", "until"],
             Some("continue") => &["state", "continuation", "commands"],
             Some("complete") => &["output"],
@@ -250,6 +278,15 @@ impl WorkflowDecision {
         version(self.v)?;
         validate_text(&self.activation_id, 128)?;
         match &self.action {
+            WorkflowAction::Wait {
+                state,
+                continuation,
+                commands,
+                wait,
+            } => {
+                validate_continuation(state, continuation, commands)?;
+                wait.validate()?;
+            }
             WorkflowAction::Suspend {
                 state,
                 continuation,
@@ -280,7 +317,8 @@ impl WorkflowDecision {
     }
     pub fn commands(&self) -> &[WorkflowTaskCommand] {
         match &self.action {
-            WorkflowAction::Suspend { commands, .. }
+            WorkflowAction::Wait { commands, .. }
+            | WorkflowAction::Suspend { commands, .. }
             | WorkflowAction::Continue { commands, .. } => commands,
             WorkflowAction::Complete { .. } | WorkflowAction::Fail { .. } => &[],
         }
@@ -440,6 +478,14 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    /// Accept a directly addressed, one-shot event after committing its receipt.
+    /// Exact source/ID/key/payload replays must reconcile before terminal checks.
+    /// Implementations serialize acceptance and wait resolution under workflow
+    /// authority; caller timestamps never decide event/deadline eligibility.
+    fn send_workflow_event<'a>(
+        &'a self,
+        command: &'a WorkflowEventCommand,
+    ) -> ContractFuture<'a, WorkflowEventReceipt>;
     fn lookup_workflow_submission<'a>(
         &'a self,
         scope: &'a Scope,
@@ -498,6 +544,14 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    /// Accept a directly addressed, one-shot event after committing its receipt.
+    /// Exact source/ID/key/payload replays must reconcile before terminal checks.
+    /// Implementations serialize acceptance and wait resolution under workflow
+    /// authority; caller timestamps never decide event/deadline eligibility.
+    fn send_workflow_event<'a>(
+        &'a self,
+        command: &'a WorkflowEventCommand,
+    ) -> ContractFuture<'a, WorkflowEventReceipt>;
     fn submit_workflow<'a>(
         &'a self,
         command: &'a SubmitCommand,
@@ -643,6 +697,7 @@ mod tests {
             state: Value::Null,
             inputs: BTreeMap::from([("child".into(), child)]),
             local_steps: vec![],
+            wake: None,
         };
         context.validate().unwrap();
         let TaskOutcome::Succeeded { output, .. } =

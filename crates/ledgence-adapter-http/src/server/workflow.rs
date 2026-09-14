@@ -58,6 +58,48 @@ pub(super) async fn post(
             }
             encode_snapshot(server, reply).await
         }
+        "/v1/workflows/events" => {
+            let command = server
+                .blocking(move || {
+                    let command: WorkflowEventCommand = decode_unique_json(&bytes, maximum)
+                        .map_err(|_| invalid("malformed JSON command"))?;
+                    command.validate()?;
+                    Ok(command)
+                })
+                .await?;
+            record_scope(&command.scope);
+            let span = tracing::Span::current();
+            span.record("ledgence.workflow.id", &command.workflow_id);
+            // A distinct acceptance span receives the origin link before its
+            // first entry; HTTP context may already have been materialized.
+            let accepted = tracing::info_span!(
+                "ledgence.workflow.event.accept",
+                otel.kind = "internal",
+                ledgence.workflow.id = %command.workflow_id,
+                ledgence.workflow.wait.key = %command.key,
+                cloudevents.event_id = %command.event.id(),
+                cloudevents.event_source = %command.event.source(),
+            );
+            if let Some(origin) = command.event.trace_context() {
+                server.trace_bridge.add_link(&accepted, &origin);
+            }
+            async {
+                let reply = service.send_workflow_event(&command).await?;
+                if !reply.matches(&command) {
+                    return Err(unavailable("workflow event receipt identity mismatch").into());
+                }
+                server
+                    .blocking(move || {
+                        reply
+                            .validate()
+                            .map_err(|_| unavailable("invalid workflow event receipt"))?;
+                        encode_bounded(&reply, TASK_STATUS_MAX_BYTES)
+                    })
+                    .await
+            }
+            .instrument(accepted)
+            .await
+        }
         "/v1/workflows/cancel" => {
             let command: WorkflowReference = server.decode(bytes, maximum).await?;
             command.scope.validate()?;

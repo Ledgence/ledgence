@@ -8,6 +8,7 @@ pub(super) struct RunRecord {
     pub checkpoint: Value,
     pub wait_activation: Option<String>,
     pub wait_keys: Vec<String>,
+    pub external_wait_key: Option<String>,
     pub outcome: Option<WorkflowOutcome>,
 }
 impl RunRecord {
@@ -113,6 +114,7 @@ pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
         continuation: row.try_get("continuation")?,
         checkpoint: codec::decode(&row.try_get::<Vec<u8>, _>("checkpoint_bytes")?)?,
         wait_activation: row.try_get("wait_activation_id")?,
+        external_wait_key: row.try_get("external_wait_key")?,
         wait_keys: row
             .try_get::<Option<Vec<u8>>, _>("wait_keys_bytes")?
             .map(|b| codec::decode(&b))
@@ -168,10 +170,10 @@ pub(super) async fn save_run(connection: &mut PgConnection, run: &RunRecord) -> 
         .as_ref()
         .map(|_| codec::encode(&run.wait_keys))
         .transpose()?;
-    sqlx::query("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10 WHERE workflow_id=$1")
+    sqlx::query("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10,external_wait_key=$11 WHERE workflow_id=$1")
         .bind(&run.snapshot.workflow_id).bind(codec::label(&run.snapshot.state)?).bind(run.snapshot.revision.to_string())
         .bind(&run.continuation).bind(codec::encode(&run.checkpoint)?).bind(&run.snapshot.activation_id).bind(&run.wait_activation)
-        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?)
+        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key)
         .execute(connection).await?;
     Ok(())
 }
@@ -219,6 +221,7 @@ pub(super) async fn schedule_activation(
     connection: &mut PgConnection,
     run: &mut RunRecord,
     inputs: BTreeMap<String, WorkflowChildResult>,
+    wake: Option<WorkflowWake>,
     now: u64,
 ) -> StoreResult<TaskSnapshot> {
     let task_id = db::id(connection, "task").await?;
@@ -230,6 +233,7 @@ pub(super) async fn schedule_activation(
         continuation: run.continuation.clone(),
         state: run.checkpoint.clone(),
         inputs,
+        wake,
         local_steps: Vec::new(),
     };
     context.validate()?;
@@ -261,6 +265,7 @@ pub(super) async fn schedule_activation(
     run.snapshot.state = WorkflowState::Running;
     run.wait_activation = None;
     run.wait_keys.clear();
+    run.external_wait_key = None;
     save_run(connection, run).await?;
     Ok(task)
 }
