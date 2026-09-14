@@ -25,6 +25,7 @@ pub struct ConnectOptions {
     runner: PathBuf,
     concurrency: usize,
     acquire_wait: Duration,
+    delivery_config: Option<PathBuf>,
 }
 
 impl ConnectOptions {
@@ -54,8 +55,15 @@ impl ConnectOptions {
             runner: required(&mut options, "--runner")?.into(),
             concurrency: number(options.remove("--concurrency"), 4, "concurrency")?,
             acquire_wait: Duration::from_millis(acquire_wait_ms),
+            delivery_config: options.remove("--delivery-config").map(PathBuf::from),
         };
         check_empty(options)?;
+        #[cfg(not(feature = "sqs"))]
+        if config.delivery_config.is_some() {
+            return Err(input(
+                "--delivery-config requires a binary built with the sqs feature",
+            ));
+        }
         config.scope.validate().map_err(contract_error)?;
         validate_text(&config.queue, 128).map_err(contract_error)?;
         if config.concurrency > 1024 {
@@ -77,6 +85,7 @@ pub async fn run(
             .map_err(contract_error)?
             .with_trace_bridge(trace.clone()),
     );
+    let broker_source = prepare_broker(&config, client.clone(), signals, interrupted).await?;
     let mut delivery_config = DeliveryConfig::new(config.scope, config.queue);
     delivery_config.acquire_wait = config.acquire_wait;
     // Retain blocking disk preparation while still observing both signals.
@@ -106,10 +115,74 @@ pub async fn run(
             "worker preparation interrupted",
         ));
     }
-    let mut handle = DeliveryDriver::new(worker, client, delivery_config)
-        .map_err(contract_error)?
-        .start();
+    let mut driver =
+        DeliveryDriver::new(worker, client, delivery_config).map_err(contract_error)?;
+    if let Some(source) = broker_source {
+        driver = driver.with_acquisition_source(source);
+    }
+    let mut handle = driver.start();
     supervise(&mut handle, output, signals, interrupted).await
+}
+
+async fn prepare_broker(
+    config: &ConnectOptions,
+    client: Arc<HttpTaskService>,
+    signals: &mut ShutdownSignals,
+    interrupted: &mut bool,
+) -> Result<Option<Arc<dyn ledgence_worker_delivery::AcquisitionSource>>> {
+    let Some(path) = config.delivery_config.clone() else {
+        return Ok(None);
+    };
+    #[cfg(not(feature = "sqs"))]
+    {
+        let _ = (path, client, signals, interrupted);
+        Err(input(
+            "--delivery-config requires a binary built with the sqs feature",
+        ))
+    }
+    #[cfg(feature = "sqs")]
+    {
+        let scope = config.scope.clone();
+        let queue = config.queue.clone();
+        let mut loading = tokio::task::spawn_blocking(move || {
+            let delivery = ledgence_adapter_sqs::deployment::DeliveryConfig::load(&path)?;
+            delivery.validate_worker(&scope, &queue)?;
+            Ok::<_, ContractError>(delivery)
+        });
+        let delivery = loop {
+            tokio::select! {
+                biased;
+                signal = signals.recv() => {
+                    signal?;
+                    if *interrupted { return Err(forced_exit()); }
+                    *interrupted = true;
+                }
+                result = &mut loading => break result.map_err(|_| input("delivery configuration loading failed"))?.map_err(contract_error)?,
+            }
+        };
+        if *interrupted {
+            return Err(Error::new(
+                ErrorKind::Cancelled,
+                "delivery configuration interrupted",
+            ));
+        }
+        let connecting = ledgence_adapter_sqs::SqsQueue::connect(delivery.sqs);
+        tokio::pin!(connecting);
+        let sqs = tokio::select! {
+            biased;
+            signal = signals.recv() => {
+                signal?;
+                if *interrupted { return Err(forced_exit()); }
+                *interrupted = true;
+                // Configuration verification is read-only; no task/receipt has been acquired.
+                return Err(Error::new(ErrorKind::Cancelled, "delivery connection interrupted"));
+            }
+            result = &mut connecting => result.map_err(contract_error)?,
+        };
+        let source = ledgence_worker_delivery::BrokerAcquisitionSource::new(Arc::new(sqs), client)
+            .map_err(contract_error)?;
+        Ok(Some(Arc::new(source)))
+    }
 }
 
 async fn supervise(
@@ -250,5 +323,18 @@ mod tests {
                 "accepted {invalid}"
             );
         }
+    }
+    #[test]
+    fn delivery_configuration_is_feature_gated_before_startup() {
+        let mut supplied = options(None);
+        supplied.insert("--delivery-config".into(), "delivery.json".into());
+        let result = ConnectOptions::parse(supplied);
+        #[cfg(feature = "sqs")]
+        assert_eq!(
+            result.unwrap().delivery_config,
+            Some(PathBuf::from("delivery.json"))
+        );
+        #[cfg(not(feature = "sqs"))]
+        assert!(result.err().unwrap().to_string().contains("sqs feature"));
     }
 }

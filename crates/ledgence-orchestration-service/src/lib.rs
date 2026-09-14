@@ -10,7 +10,10 @@ pub use acquisition::AcquisitionStatistics;
 use ledgence_orchestration_api::*;
 use ledgence_orchestration_core::{replay_submission, validate_submission};
 use ledgence_worker_api::{Error, ErrorKind, ProgramStore};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tracing::Instrument;
 
 /// Implements client/worker operations using independently supplied adapters.
@@ -19,6 +22,7 @@ pub struct ApplicationService {
     store: Arc<dyn TaskStore>,
     programs: Arc<dyn ProgramStore>,
     acquisition: Arc<acquisition::Coordinator>,
+    claims_stopped: Arc<AtomicBool>,
 }
 
 impl ApplicationService {
@@ -27,6 +31,7 @@ impl ApplicationService {
             store,
             programs,
             acquisition: acquisition::Coordinator::new(),
+            claims_stopped: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -35,8 +40,10 @@ impl ApplicationService {
         self.acquisition.clone()
     }
 
-    /// Reject new acquisitions and finalize accepted waiters under their original budgets.
+    /// Reject newly admitted acquisition/claim calls and finalize accepted waiters
+    /// under their original budgets. A live service must reconcile claim receipts.
     pub fn stop_acquisitions(&self) {
+        self.claims_stopped.store(true, Ordering::Release);
         self.acquisition.stop();
     }
 
@@ -61,6 +68,42 @@ impl ApplicationService {
 }
 
 impl TaskService for ApplicationService {
+    fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(async move {
+            command.validate()?;
+            // Receipt lookup and new claim acceptance are one atomic store
+            // operation. Do not guess replay eligibility through a pre-read.
+            if self.claims_stopped.load(Ordering::Acquire) {
+                return Err(ContractError::Unavailable(
+                    "dispatch claim admission is stopped".into(),
+                ));
+            }
+            let deadline = tokio::time::Instant::now()
+                + std::time::Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS);
+            let operation = async {
+                let reply = self.store.claim_dispatch(command).await?;
+                reply.validate_reply_against(command)?;
+                Ok(reply)
+            };
+            let result = tokio::time::timeout_at(deadline, operation)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(ContractError::Unavailable(
+                        "dispatch claim deadline exceeded; outcome is uncertain".into(),
+                    ))
+                });
+            // Synchronous adapter work may return only after the timer expires.
+            // Late errors are also uncertain, not authoritative rejections.
+            if tokio::time::Instant::now() >= deadline {
+                Err(ContractError::Unavailable(
+                    "dispatch claim deadline exceeded; outcome is uncertain".into(),
+                ))
+            } else {
+                result
+            }
+        })
+    }
+
     fn open_session<'a>(
         &'a self,
         scope: &'a Scope,

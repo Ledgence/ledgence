@@ -1,0 +1,15 @@
+{
+  "route": {
+    "scope": {"tenant_id": "tenant_example", "namespace": "demo"},
+    "queue": "python-demo",
+    "destination": "python-demo-sqs"
+  },
+  "sqs": {
+    "region": "us-east-1",
+    "queue_url": "http://127.0.0.1:9324/000000000000/ledgence",
+    "endpoint_url": "http://127.0.0.1:9324",
+    "local_credentials": true,
+    "operation_timeout_ms": 5000,
+    "visibility_timeout_seconds": 60
+  }
+}

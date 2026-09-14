@@ -65,6 +65,10 @@ impl Mock {
     }
 }
 impl TaskService for Mock {
+    fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(async move { self.reply("claim", command) })
+    }
+
     fn open_session<'a>(
         &'a self,
         scope: &'a Scope,
@@ -2128,4 +2132,175 @@ async fn discovery_round_trips_maximum_escaped_metadata_and_large_cursor() {
     assert!(raw_queries[1].contains("%22%5C"));
     assert!(raw_queries[1].len() > cursor.len());
     assert!(raw_queries.iter().all(|query| query.len() < 16 * 1024));
+}
+
+fn claim_command() -> ClaimCommand {
+    ClaimCommand {
+        acquisition: acquisition(),
+        dispatch: DispatchRef {
+            scope: scope(),
+            queue: "queue".into(),
+            task_id: owner().task_id,
+            generation: 1,
+        },
+    }
+}
+
+#[tokio::test]
+async fn targeted_claim_roundtrips_every_handoff_disposition_and_lossless_payload() {
+    let mock = Arc::new(Mock::default());
+    let running = start(server::router(mock.clone())).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    let command = claim_command();
+    let reference = AttemptRef {
+        task_id: owner().task_id,
+        attempt_id: owner().attempt_id,
+    };
+    let data: Value = decode_unique_json(
+        br#"[18446744073709551615,9007199254740993,-0.0,"\u0000"]"#,
+        1000,
+    )
+    .unwrap();
+    let assigned = AcquireReply::Assigned {
+        sequence: command.acquisition.sequence,
+        assignment: Box::new(Assignment {
+            descriptor: descriptor(),
+            event: event(data),
+            lease: Lease {
+                owner: owner(),
+                expires_at: authority().expires_at,
+            },
+            authority: authority(),
+            attempt_deadline: 300000,
+        }),
+    };
+    for disposition in [
+        ClaimDisposition::Claimed { reply: assigned },
+        ClaimDisposition::Claimed {
+            reply: AcquireReply::OwnershipLost {
+                sequence: command.acquisition.sequence,
+                assignment: reference.clone(),
+            },
+        },
+        ClaimDisposition::AlreadyHandedOff { attempt: reference },
+        ClaimDisposition::TerminalOrSuperseded,
+        ClaimDisposition::Deferred {
+            available_at: 300000,
+        },
+    ] {
+        let reply = ClaimReply {
+            command: command.clone(),
+            disposition,
+        };
+        mock.set("claim", Ok(reply.clone()));
+        assert_eq!(
+            exact(client.claim_dispatch(&command).await.unwrap()),
+            exact(reply)
+        );
+    }
+    let calls = mock.calls.lock().unwrap();
+    assert_eq!(calls.len(), 5);
+    assert!(calls.iter().all(|(operation, input)| *operation == "claim"
+        && *input == serde_json::to_value(&command).unwrap()));
+}
+
+#[tokio::test]
+async fn targeted_claim_rejects_malformed_and_oversized_requests_before_service_admission() {
+    let mock = Arc::new(Mock::default());
+    let running = start(server::router(mock.clone())).await;
+    let client = reqwest::Client::new();
+    let command = claim_command();
+    let valid = String::from_utf8(exact(&command)).unwrap();
+    let malformed = [
+        valid.replace("\"generation\":1", "\"generation\":1,\"generation\":1"),
+        valid.replace("\"sequence\":1", "\"sequence\":0"),
+        valid.replacen("\"queue\":\"queue\"", "\"queue\":\"another\"", 1),
+        valid.replacen('{', "{\"receipt\":\"not-allowed\",", 1),
+    ];
+    for body in malformed {
+        let response = client
+            .post(format!("{}/v1/dispatch/claim", running.url))
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(response.headers().contains_key("request-id"));
+    }
+    assert!(mock.calls.lock().unwrap().is_empty());
+    mock.set(
+        "claim",
+        Ok(ClaimReply {
+            command: command.clone(),
+            disposition: ClaimDisposition::TerminalOrSuperseded,
+        }),
+    );
+    let mut body = exact(&command);
+    body.resize(DISPATCH_MAX_BYTES, b' ');
+    let response = client
+        .post(format!("{}/v1/dispatch/claim", running.url))
+        .header("Content-Type", "application/json")
+        .body(body.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    body.push(b' ');
+    let response = client
+        .post(format!("{}/v1/dispatch/claim", running.url))
+        .header("Content-Type", "application/json")
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 413);
+    assert_eq!(mock.calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn targeted_claim_server_rejects_changed_service_identity_and_shutdown_before_body_read() {
+    let mock = Arc::new(Mock::default());
+    let stopping = Arc::new(AtomicBool::new(false));
+    let running = start(server::router_with_admission(
+        mock.clone(),
+        stopping.clone(),
+    ))
+    .await;
+    let command = claim_command();
+    let mut changed = command.clone();
+    changed.dispatch.task_id = "another_task".into();
+    mock.set(
+        "claim",
+        Ok(ClaimReply {
+            command: changed,
+            disposition: ClaimDisposition::TerminalOrSuperseded,
+        }),
+    );
+    let response = reqwest::Client::new()
+        .post(format!("{}/v1/dispatch/claim", running.url))
+        .header("Content-Type", "application/json")
+        .body(exact(&command))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    stopping.store(true, Ordering::Release);
+    let response = reqwest::Client::new()
+        .post(format!("{}/v1/dispatch/claim", running.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    assert_eq!(mock.calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn targeted_claim_declared_response_over_limit_is_uncertain() {
+    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", CLAIM_REPLY_MAX_BYTES + 1).into_bytes();
+    let (running, _) = raw_response(response, None).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    assert!(matches!(client.claim_dispatch(&claim_command()).await,
+        Err(ContractError::Unavailable(message)) if message == "HTTP response exceeds its body limit"));
 }

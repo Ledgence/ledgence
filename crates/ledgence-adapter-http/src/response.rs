@@ -48,6 +48,15 @@ impl ResponseValue for TaskSnapshot {
         Ok(())
     }
 }
+impl ResponseValue for ClaimReply {
+    const MAX_BYTES: usize = CLAIM_REPLY_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        if let ClaimDisposition::Claimed { reply } = &self.disposition {
+            reply.validate_values()?;
+        }
+        Ok(())
+    }
+}
 impl ResponseValue for AcquireReply {
     fn validate_values(&self) -> Result<()> {
         if let Self::Assigned { assignment, .. } = self {

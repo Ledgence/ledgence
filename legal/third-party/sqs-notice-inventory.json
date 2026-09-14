@@ -1,0 +1,615 @@
+{
+  "scope": "37 package versions added by optional SQS adapter, compared with develop Cargo.lock on 2026-09-14; not a complete release SBOM",
+  "packages": [
+    {
+      "name": "arc-swap",
+      "version": "1.9.2",
+      "declared_license": "MIT OR Apache-2.0",
+      "selected_license": "MIT",
+      "rust_version": null,
+      "license_files": [
+        {
+          "name": "arc-swap-1.9.2-LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/arc-swap/1.9.2/source/LICENSE-APACHE"
+        },
+        {
+          "name": "arc-swap-1.9.2-LICENSE-MIT",
+          "sha256": "ff3f1cd12af8866d9bde961d6cc40df774cd131d484de31d3170c4b02b21a7b5",
+          "source": "https://docs.rs/crate/arc-swap/1.9.2/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/vorner/arc-swap"
+    },
+    {
+      "name": "aws-config",
+      "version": "1.12.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-config-1.12.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-config/1.12.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-credential-types",
+      "version": "1.3.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-credential-types-1.3.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-credential-types/1.3.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-runtime",
+      "version": "1.9.2",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-runtime-1.9.2-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-runtime/1.9.2/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-sdk-sqs",
+      "version": "1.109.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-sdk-sqs-1.109.0-LICENSE",
+          "sha256": "929e8ca5ef8ec9905c00a89d004d1f6933bae951996992c8579734875bbf46a8",
+          "source": "https://docs.rs/crate/aws-sdk-sqs/1.109.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/awslabs/aws-sdk-rust"
+    },
+    {
+      "name": "aws-sdk-sts",
+      "version": "1.114.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-sdk-sts-1.114.0-LICENSE",
+          "sha256": "929e8ca5ef8ec9905c00a89d004d1f6933bae951996992c8579734875bbf46a8",
+          "source": "https://docs.rs/crate/aws-sdk-sts/1.114.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/awslabs/aws-sdk-rust"
+    },
+    {
+      "name": "aws-sigv4",
+      "version": "1.5.1",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-sigv4-1.5.1-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-sigv4/1.5.1/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-async",
+      "version": "1.3.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-async-1.3.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-async/1.3.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-http",
+      "version": "0.64.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-http-0.64.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-http/0.64.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-http-client",
+      "version": "1.4.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-http-client-1.4.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-http-client/1.4.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-json",
+      "version": "0.63.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-json-0.63.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-json/0.63.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-observability",
+      "version": "0.3.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-observability-0.3.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-observability/0.3.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/awslabs/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-query",
+      "version": "0.62.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-query-0.62.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-query/0.62.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-runtime",
+      "version": "1.14.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-runtime-1.14.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-runtime/1.14.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-runtime-api",
+      "version": "1.16.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-runtime-api-1.16.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-runtime-api/1.16.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-runtime-api-macros",
+      "version": "1.1.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-runtime-api-macros-1.1.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-runtime-api-macros/1.1.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-schema",
+      "version": "0.2.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-schema-0.2.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-schema/0.2.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-types",
+      "version": "1.6.3",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-types-1.6.3-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-types/1.6.3/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-smithy-xml",
+      "version": "0.62.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-smithy-xml-0.62.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-smithy-xml/0.62.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "aws-types",
+      "version": "1.6.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "license_files": [
+        {
+          "name": "aws-types-1.6.0-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+          "source": "https://docs.rs/crate/aws-types/1.6.0/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/smithy-lang/smithy-rs"
+    },
+    {
+      "name": "base64-simd",
+      "version": "0.8.0",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.63",
+      "license_files": [
+        {
+          "name": "base64-simd-0.8.0-LICENSE",
+          "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d",
+          "source": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/Nugine/simd"
+    },
+    {
+      "name": "bytes-utils",
+      "version": "0.1.4",
+      "declared_license": "Apache-2.0/MIT",
+      "selected_license": "MIT",
+      "rust_version": null,
+      "license_files": [
+        {
+          "name": "bytes-utils-0.1.4-LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/bytes-utils/0.1.4/source/LICENSE-APACHE"
+        },
+        {
+          "name": "bytes-utils-0.1.4-LICENSE-MIT",
+          "sha256": "ff3f1cd12af8866d9bde961d6cc40df774cd131d484de31d3170c4b02b21a7b5",
+          "source": "https://docs.rs/crate/bytes-utils/0.1.4/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/vorner/bytes-utils"
+    },
+    {
+      "name": "const-oid",
+      "version": "0.10.2",
+      "declared_license": "Apache-2.0 OR MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.85",
+      "license_files": [
+        {
+          "name": "const-oid-0.10.2-LICENSE-APACHE",
+          "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
+          "source": "https://docs.rs/crate/const-oid/0.10.2/source/LICENSE-APACHE"
+        },
+        {
+          "name": "const-oid-0.10.2-LICENSE-MIT",
+          "sha256": "73b9dc2e79c7308998dd30296e073aefaefb944a68fb89aa412c23c0edcabcaa",
+          "source": "https://docs.rs/crate/const-oid/0.10.2/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/RustCrypto/formats"
+    },
+    {
+      "name": "fnv",
+      "version": "1.0.7",
+      "declared_license": "Apache-2.0 / MIT",
+      "selected_license": "MIT",
+      "rust_version": null,
+      "license_files": [
+        {
+          "name": "fnv-1.0.7-LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/fnv/1.0.7/source/LICENSE-APACHE"
+        },
+        {
+          "name": "fnv-1.0.7-LICENSE-MIT",
+          "sha256": "65fdb6c76cd61612070c066eec9ecdb30ee74fb27859d0d9af58b9f499fd0c3e",
+          "source": "https://docs.rs/crate/fnv/1.0.7/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/servo/rust-fnv"
+    },
+    {
+      "name": "h2",
+      "version": "0.4.19",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.63",
+      "license_files": [
+        {
+          "name": "h2-0.4.19-LICENSE",
+          "sha256": "b21623012e6c453d944b0342c515b631cfcbf30704c2621b291526b69c10724d",
+          "source": "https://docs.rs/crate/h2/0.4.19/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/hyperium/h2"
+    },
+    {
+      "name": "http",
+      "version": "0.2.12",
+      "declared_license": "MIT OR Apache-2.0",
+      "selected_license": "MIT",
+      "rust_version": "1.49.0",
+      "license_files": [
+        {
+          "name": "http-0.2.12-LICENSE-APACHE",
+          "sha256": "8bb1b50b0e5c9399ae33bd35fab2769010fa6c14e8860c729a52295d84896b7a",
+          "source": "https://docs.rs/crate/http/0.2.12/source/LICENSE-APACHE"
+        },
+        {
+          "name": "http-0.2.12-LICENSE-MIT",
+          "sha256": "dc91f8200e4b2a1f9261035d4c18c33c246911a6c0f7b543d75347e61b249cff",
+          "source": "https://docs.rs/crate/http/0.2.12/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/hyperium/http"
+    },
+    {
+      "name": "http-body",
+      "version": "0.4.6",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": null,
+      "license_files": [
+        {
+          "name": "http-body-0.4.6-LICENSE",
+          "sha256": "0345e2b98685e3807fd802a2478085dcae35023e3da59b5a00f712504314d83a",
+          "source": "https://docs.rs/crate/http-body/0.4.6/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/hyperium/http-body"
+    },
+    {
+      "name": "num-integer",
+      "version": "0.1.47",
+      "declared_license": "MIT OR Apache-2.0",
+      "selected_license": "MIT",
+      "rust_version": "1.31",
+      "license_files": [
+        {
+          "name": "num-integer-0.1.47-LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/num-integer/0.1.47/source/LICENSE-APACHE"
+        },
+        {
+          "name": "num-integer-0.1.47-LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+          "source": "https://docs.rs/crate/num-integer/0.1.47/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/rust-num/num-integer"
+    },
+    {
+      "name": "outref",
+      "version": "0.5.2",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.63.0",
+      "license_files": [
+        {
+          "name": "outref-0.5.2-LICENSE",
+          "sha256": "a00511478c83ebb464ef19d840f061c7444adc4636bb561900e75c5808cfc6cc",
+          "source": "https://docs.rs/crate/outref/0.5.2/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/Nugine/outref"
+    },
+    {
+      "name": "pin-utils",
+      "version": "0.1.0",
+      "declared_license": "MIT OR Apache-2.0",
+      "selected_license": "MIT",
+      "rust_version": null,
+      "license_files": [
+        {
+          "name": "pin-utils-0.1.0-LICENSE-APACHE",
+          "sha256": "a4db788775cb25f2da419a7ccd3f1f89c3d2cfa8748fb25257596b88183b4c77",
+          "source": "https://docs.rs/crate/pin-utils/0.1.0/source/LICENSE-APACHE"
+        },
+        {
+          "name": "pin-utils-0.1.0-LICENSE-MIT",
+          "sha256": "28802412d2bfbafe432b305634413b41a984d30fba0df41d30aa2c8a2077c5b1",
+          "source": "https://docs.rs/crate/pin-utils/0.1.0/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/rust-lang-nursery/pin-utils"
+    },
+    {
+      "name": "regex-lite",
+      "version": "0.1.9",
+      "declared_license": "MIT OR Apache-2.0",
+      "selected_license": "MIT",
+      "rust_version": "1.65",
+      "license_files": [
+        {
+          "name": "regex-lite-0.1.9-LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/regex-lite/0.1.9/source/LICENSE-APACHE"
+        },
+        {
+          "name": "regex-lite-0.1.9-LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+          "source": "https://docs.rs/crate/regex-lite/0.1.9/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/rust-lang/regex"
+    },
+    {
+      "name": "ryu",
+      "version": "1.0.23",
+      "declared_license": "Apache-2.0 OR BSL-1.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.71",
+      "license_files": [
+        {
+          "name": "ryu-1.0.23-LICENSE-APACHE",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://docs.rs/crate/ryu/1.0.23/source/LICENSE-APACHE"
+        },
+        {
+          "name": "ryu-1.0.23-LICENSE-BOOST",
+          "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+          "source": "https://docs.rs/crate/ryu/1.0.23/source/LICENSE-BOOST"
+        }
+      ],
+      "repository": "https://github.com/dtolnay/ryu"
+    },
+    {
+      "name": "tokio-util",
+      "version": "0.7.19",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.71",
+      "license_files": [
+        {
+          "name": "tokio-util-0.7.19-LICENSE",
+          "sha256": "253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552",
+          "source": "https://docs.rs/crate/tokio-util/0.7.19/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/tokio-rs/tokio"
+    },
+    {
+      "name": "urlencoding",
+      "version": "2.1.3",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": null,
+      "license_files": [
+        {
+          "name": "urlencoding-2.1.3-LICENSE",
+          "sha256": "5a952e4a62a3022a7f39e9f0eb8d0638addd3efffb3f4092890923668152296e",
+          "source": "https://docs.rs/crate/urlencoding/2.1.3/source/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/kornelski/rust_urlencoding"
+    },
+    {
+      "name": "uuid",
+      "version": "1.26.1",
+      "declared_license": "Apache-2.0 OR MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.85.0",
+      "license_files": [
+        {
+          "name": "uuid-1.26.1-LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/uuid/1.26.1/source/LICENSE-APACHE"
+        },
+        {
+          "name": "uuid-1.26.1-LICENSE-MIT",
+          "sha256": "436bc5a105d8e57dcd8778730f3754f7bf39c14d2f530e4cde4bd2d17a83ec3d",
+          "source": "https://docs.rs/crate/uuid/1.26.1/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/uuid-rs/uuid"
+    },
+    {
+      "name": "vsimd",
+      "version": "0.8.0",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.63",
+      "license_files": [
+        {
+          "name": "vsimd-0.8.0-LICENSE",
+          "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d",
+          "source": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE"
+        }
+      ],
+      "repository": "https://github.com/Nugine/simd"
+    },
+    {
+      "name": "xmlparser",
+      "version": "0.13.6",
+      "declared_license": "MIT/Apache-2.0",
+      "selected_license": "MIT",
+      "rust_version": null,
+      "license_files": [
+        {
+          "name": "xmlparser-0.13.6-LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://docs.rs/crate/xmlparser/0.13.6/source/LICENSE-APACHE"
+        },
+        {
+          "name": "xmlparser-0.13.6-LICENSE-MIT",
+          "sha256": "0b5f24524360e15bcf9fb79bca875f5aa62f01f94f2988e23238c7ec0e6e8784",
+          "source": "https://docs.rs/crate/xmlparser/0.13.6/source/LICENSE-MIT"
+        }
+      ],
+      "repository": "https://github.com/RazrFalcon/xmlparser"
+    }
+  ]
+}

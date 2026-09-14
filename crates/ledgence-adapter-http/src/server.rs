@@ -91,6 +91,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("/v1/worker-sessions", "POST"),
     ("/v1/worker-sessions/extend", "POST"),
     ("/v1/acquisitions", "POST"),
+    ("/v1/dispatch/claim", "POST"),
     ("/v1/renewals", "POST"),
     ("/v1/settlements", "POST"),
     ("/v1/quiescence-confirmations", "POST"),
@@ -144,6 +145,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         ledgence.task.id = tracing::field::Empty,
         ledgence.attempt.id = tracing::field::Empty,
         ledgence.attempt.number = tracing::field::Empty,
+        ledgence.dispatch.generation = tracing::field::Empty,
         ledgence.worker.session.id = tracing::field::Empty,
         ledgence.consumer.id = tracing::field::Empty,
         ledgence.program.id = tracing::field::Empty,
@@ -532,10 +534,10 @@ async fn dispatch(
             error: invalid("expected uncompressed application/json with UTF-8 encoding"),
         });
     }
-    let maximum = if path == "/v1/settlements" {
-        SETTLEMENT_MAX_BYTES
-    } else {
-        SUBMISSION_MAX_BYTES
+    let maximum = match path {
+        "/v1/settlements" => SETTLEMENT_MAX_BYTES,
+        "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
+        _ => SUBMISSION_MAX_BYTES,
     };
     let bytes = to_bytes(body, maximum)
         .await
@@ -639,6 +641,53 @@ async fn dispatch(
                         .cancel(&command.scope, &command.task_id)
                         .await?,
                 )
+                .await
+        }
+        "/v1/dispatch/claim" => {
+            let command = server
+                .blocking(move || {
+                    ClaimCommand::decode(&bytes)
+                        .map_err(|_| invalid("malformed dispatch claim command").into())
+                })
+                .await?;
+            record_scope(&command.dispatch.scope);
+            let span = tracing::Span::current();
+            span.record(
+                "ledgence.worker.session.id",
+                &command.acquisition.worker_session_id,
+            );
+            span.record(
+                "ledgence.consumer.id",
+                i64::from(command.acquisition.consumer_id),
+            );
+            span.record("ledgence.task.id", &command.dispatch.task_id);
+            span.record(
+                "ledgence.dispatch.generation",
+                i64::from(command.dispatch.generation),
+            );
+            tracing::info!(
+                tenant_id = command.dispatch.scope.tenant_id,
+                namespace = command.dispatch.scope.namespace,
+                queue = command.dispatch.queue,
+                worker_session_id = command.acquisition.worker_session_id,
+                consumer_id = command.acquisition.consumer_id,
+                sequence = command.acquisition.sequence,
+                task_id = command.dispatch.task_id,
+                generation = command.dispatch.generation,
+                "HTTP dispatch claim"
+            );
+            let reply = server.service.claim_dispatch(&command).await?;
+            // A custom service's successful return is not enough: only a
+            // response bound to this exact claim can establish durable handoff.
+            reply.validate_reply_against(&command)?;
+            if let ClaimDisposition::Claimed {
+                reply: AcquireReply::Assigned { assignment, .. },
+            } = &reply.disposition
+            {
+                log_binding(&assignment.event, &assignment.descriptor);
+            }
+            server
+                .blocking(move || encode_bounded(&reply, CLAIM_REPLY_MAX_BYTES))
                 .await
         }
         "/v1/acquisitions" => {

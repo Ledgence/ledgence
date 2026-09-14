@@ -26,15 +26,16 @@ def violations(graph):
         },
         "ledgence-adapter-artifact": {"ledgence-worker-api"},
         "ledgence-adapter-subprocess": {"ledgence-worker-api"},
+        "ledgence-adapter-sqs": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-adapter-http": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestrator": {
-            "ledgence-adapter-otel",
+            "ledgence-adapter-otel", "ledgence-adapter-sqs",
             "ledgence-adapter-http", "ledgence-adapter-artifact", "ledgence-adapter-postgres",
             "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
         },
         "ledgence-cli": {"ledgence-adapter-otel","ledgence-adapter-http", "ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-worker": {
-            "ledgence-adapter-otel",
+            "ledgence-adapter-otel", "ledgence-adapter-sqs",
             "ledgence-worker-api", "ledgence-worker-core",
             "ledgence-adapter-artifact", "ledgence-adapter-subprocess",
             "ledgence-adapter-http", "ledgence-worker-delivery", "ledgence-orchestration-api",
@@ -63,6 +64,8 @@ def violations(graph):
                         errors.append(f"{name}: SQLx must use only the reviewed PostgreSQL features")
             if (target.startswith("opentelemetry") or target == "tracing-opentelemetry") and name != "ledgence-adapter-otel" and dependency["kind"] != "dev":
                 errors.append(f"{name}: OpenTelemetry SDK dependencies belong only in ledgence-adapter-otel")
+            if target.startswith("aws-") and name != "ledgence-adapter-sqs":
+                errors.append(f"{name}: AWS SDK dependencies belong only in ledgence-adapter-sqs")
             if dependency["kind"] == "dev":
                 continue
             if target in packages and target not in allowed[name]:

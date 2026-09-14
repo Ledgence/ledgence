@@ -290,6 +290,17 @@ pub struct RecordedHistoryEvent {
 /// Service boundary implemented by future transport adapters. A successful
 /// mutation reply is permitted only after durable transactional acceptance.
 pub trait TaskService: Send + Sync {
+    /// Claim one exact external dispatch. Successful replies follow durable
+    /// acceptance and bind the complete command. Unsupported implementations
+    /// reject explicitly; they must never fall back to an unrestricted queue scan.
+    fn claim_dispatch<'a>(&'a self, _command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "targeted dispatch claims are unsupported".into(),
+            ))
+        })
+    }
+
     fn open_session<'a>(
         &'a self,
         scope: &'a Scope,

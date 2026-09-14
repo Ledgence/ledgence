@@ -50,6 +50,8 @@ jobs:
         run: python tools/check-http-features.py
       - name: Check builds without OpenTelemetry
         run: python tools/check-otel-features.py
+      - name: Check optional SQS feature boundaries
+        run: python tools/check-sqs-features.py
       - name: Test Rust and real subprocess execution
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
@@ -58,6 +60,8 @@ jobs:
         run: cargo test --workspace --doc --all-features --locked
       - name: Build Rust documentation
         run: cargo doc --workspace --all-features --no-deps --locked
+      - name: Test the performance measurement harness
+        run: python tools/check-performance.py --self-test
       - name: Test the Python runner
         run: python -m unittest discover -s sdk/python/tests -v
       - name: Test optional Python trace context
@@ -97,6 +101,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
+      elasticmq:
+        # ElasticMQ 1.7.1; fixed image used by local adapter conformance.
+        image: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+        ports:
+          - 9324:9324
       postgres:
         # PostgreSQL 18.6; multi-platform image index verified 2026-09-13.
         image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
@@ -136,6 +145,10 @@ jobs:
           SH
           chmod +x "$RUNNER_TEMP/ledgence-psql"
           python tools/check-postgres.py --psql "$RUNNER_TEMP/ledgence-psql"
+      - name: Check SQS adapter against ElasticMQ
+        env:
+          LEDGENCE_TEST_SQS_ENDPOINT: http://127.0.0.1:9324
+        run: cargo test --locked -p ledgence-adapter-sqs elasticmq_acceptance -- --ignored
       - name: Check separate-process HTTP delivery
         env:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
@@ -143,6 +156,16 @@ jobs:
         run: |
           python tools/check-http.py --psql "$RUNNER_TEMP/ledgence-psql" \
             --evidence "$RUNNER_TEMP/ledgence-http-evidence"
+
+      - name: Check SQS delivery through PostgreSQL, HTTP and Python
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          cargo build --workspace --bins --all-features --locked
+          python tools/check-sqs.py --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --evidence "$RUNNER_TEMP/ledgence-sqs-evidence"
 
       - name: Check separate-process observability
         env:

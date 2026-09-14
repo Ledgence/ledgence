@@ -31,6 +31,7 @@ impl TaskStore for PostgresStore {
             core::validate_submission(command)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;
+            let destination = crate::dispatch_intents::submission_destination(&mut tx, command).await?;
             let task_id = db::id(&mut tx,"task").await?;
             let run_id = db::id(&mut tx,"run").await?;
             let transition = core::submit(command,descriptor,&task_id,&run_id,db::now(&mut tx).await?)?;
@@ -39,10 +40,15 @@ impl TaskStore for PostgresStore {
             let descriptor = codec::encode(&t.descriptor)?;
             let trace = t.origin_trace.as_ref().map(codec::encode).transpose()?;
             let at = codec::ms(t.submitted_at)?;
-            let inserted = sqlx::query!("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$11,0) ON CONFLICT(tenant_id,namespace,idempotency_key) DO NOTHING",t.task_id,t.run_id,t.input.tenant_id,t.input.namespace,t.input.queue,t.idempotency_key,t.input.correlation_key,input,descriptor,trace,at)
+            let inserted = sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count,dispatch_destination) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$11,0,$12) ON CONFLICT(tenant_id,namespace,idempotency_key) DO NOTHING")
+                .bind(&t.task_id).bind(&t.run_id).bind(&t.input.tenant_id).bind(&t.input.namespace).bind(&t.input.queue).bind(&t.idempotency_key).bind(&t.input.correlation_key)
+                .bind(input).bind(descriptor).bind(trace).bind(at).bind(destination.as_deref())
                 .execute(&mut *tx).await?.rows_affected();
             let task = if inserted == 1 {
                 db::history(&mut tx,&transition.history).await?;
+                if destination.is_some() {
+                    crate::dispatch_intents::sync_intent(&mut tx, &transition.task.task_id).await?;
+                }
                 transition.task
             } else {
                 // A fresh statement sees the winner after the unique-index wait.
@@ -202,6 +208,10 @@ impl TaskStore for PostgresStore {
             self.probe_acquisition_once(command, finish_empty)
         }))
     }
+    fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(self.run(move || self.claim_dispatch_once(command)))
+    }
+
     fn renew<'a>(&'a self, command: &'a RenewCommand) -> ContractFuture<'a, Authority> {
         Box::pin(self.run(move || self.renew_once(command)))
     }
@@ -258,6 +268,7 @@ fn error_kind(error: &ContractError) -> &'static str {
         ContractError::OwnershipLost => "ownership_lost",
         ContractError::NotFound => "not_found",
         ContractError::Unavailable(_) => "unavailable",
+        ContractError::ExternalDispatchRequired => "external_dispatch_required",
         _ => "invalid_operation",
     }
 }

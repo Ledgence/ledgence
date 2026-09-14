@@ -94,6 +94,7 @@ Requests and responses use UTF-8 `application/json`; an optional UTF-8 charset p
 | `POST /v1/worker-sessions` | `{"scope": Scope, "queue": string, "concurrency": u32}` | `WorkerSession` |
 | `POST /v1/worker-sessions/extend` | `{"worker_session_id": string}` | `WorkerSession` |
 | `POST /v1/acquisitions` | Flat `AcquireCommand` fields plus optional `wait_ms` | `AcquireReply` |
+| `POST /v1/dispatch/claim` | `ClaimCommand` with `acquisition` and exact `dispatch` reference | `ClaimReply` bound to the complete command |
 | `POST /v1/renewals` | `RenewCommand` | `Authority` |
 | `POST /v1/settlements` | `SettleCommand` | `SettleReply` |
 | `POST /v1/quiescence-confirmations` | `LeaseOwner` | `TaskState` JSON string |
@@ -108,13 +109,24 @@ Requests and responses use UTF-8 `application/json`; an optional UTF-8 charset p
 | --- | --- |
 | `400` | `invalid_input` |
 | `404` | `not_found`, `unknown_session` |
-| `409` | `conflict`, `ownership_lost`, `obsolete_operation`, `out_of_order`, `busy` |
+| `409` | `conflict`, `ownership_lost`, `obsolete_operation`, `out_of_order`, `busy`, `external_dispatch_required` |
 | `410` | `session_expired` |
 | `413` | `invalid_input` for an oversized request |
 | `415` | `invalid_input` for unsupported media type/encoding |
+| `502` | `invalid_queue_delivery` (malformed receive from a queue adapter) |
 | `503` | `unavailable` |
 
 Error JSON uses the existing tagged representation, such as `{"code":"conflict"}` or `{"code":"invalid_input","message":"..."}`. Unknown routes/methods instead return transport codes `route_not_found`/`method_not_allowed` with `404`/`405`. The client accepts only known domain codes paired with their allowed HTTP status. Proxy HTML, redirects, incomplete/oversized bodies, wrong media types, malformed JSON, unknown codes, mismatched status/code, and socket/deadline failures become `Unavailable`. That uncertainty never proves a task is absent, a transaction rolled back, or ownership was lost.
+
+## Targeted dispatch claims
+
+`POST /v1/dispatch/claim` performs an immediate claim for one exact task generation. Its body contains `acquisition` (scope, queue, session, consumer, and sequence) and `dispatch` (scope, queue, task ID, and generation). The two scopes and queues must match. Unknown fields, duplicate keys, zero sequence, and invalid identities are rejected. Broker receipt handles, credentials, and provider-specific tokens are not accepted by this endpoint.
+
+Every successful reply echoes the entire command and has a tagged `disposition`: `claimed` contains the assignment or its ownership-lost replay; `already_handed_off` references another durable handoff; `terminal_or_superseded` establishes that this generation no longer needs execution; `deferred` establishes a persisted future delivery obligation. A `claimed` response containing Empty is invalid. A missing task, error, timeout, or malformed/mismatched reply provides no acknowledgment evidence. Consumers must preserve the exact command when reconciling an uncertain claim.
+
+The service and HTTP server verify the returned command, task generation, assignment owner, event identity, and matching authority before exposing success. The HTTP client performs the same checks inside its bounded exchange, before completion telemetry and observers. Claim requests are capped at 16 KiB and replies at 16 MiB; claim calls inherit the existing 30-second control deadline. Client and server spans include scope, worker session, consumer, task ID, and dispatch generation without logging broker receipts.
+
+`ApplicationService::stop_acquisitions` rejects newly admitted targeted claim calls with Unavailable, including calls that might reconcile a historical receipt. Receipt lookup and new claim acceptance share one atomic operation, so the service does not infer replay eligibility through a separate read. Calls admitted before the stop may finish within their existing budgets. Persisted receipts remain available for reconciliation through a live service. HTTP shutdown admission independently rejects new requests before reading their bodies; neither rejection proves ownership loss or authorizes broker acknowledgment.
 
 ## Limits and JSON fidelity
 
@@ -122,6 +134,7 @@ Error JSON uses the existing tagged representation, such as `{"code":"conflict"}
 | --- | --- |
 | Submission and other control request bodies | 2 MiB raw JSON |
 | Settlement request body | 8 MiB raw JSON |
+| Targeted dispatch claim request | 16 KiB raw JSON, including whitespace |
 | Submitted application `data` | 1 MiB compact JSON; 64 nested arrays/objects |
 | Successful response body | 16 MiB |
 | Error response consumed by client | 64 KiB |

@@ -9,12 +9,14 @@ pub use ledgence_worker_api::TraceContext;
 mod acquisition;
 mod delivery;
 mod discovery;
+mod dispatch;
 mod observation;
 mod storage;
 mod submission;
 pub use acquisition::*;
 pub use delivery::*;
 pub use discovery::*;
+pub use dispatch::*;
 pub use observation::*;
 pub use storage::*;
 pub use submission::*;
@@ -29,6 +31,17 @@ use std::{fmt, future::Future, pin::Pin};
 #[serde(tag = "code", content = "message", rename_all = "snake_case")]
 pub enum ContractError {
     InvalidInput(String),
+    /// Integrated acquisition rejected because the queue requires external
+    /// dispatch. This exact operation granted no authority and committed no
+    /// consumer-cursor mutation. Existing completed sequences must replay before
+    /// checking the route. Only a timely confirmed response permits stopping
+    /// reconciliation; a transport timeout remains an unknown outcome.
+    ExternalDispatchRequired,
+    /// A queue receive positively returned invalid transport data, before any
+    /// targeted claim or cursor mutation was issued. This stops new broker
+    /// admission without acknowledging the record. Adapters must not use this
+    /// for timeouts, network failures, or errors from claim/acknowledgment calls.
+    InvalidQueueDelivery(String),
     Conflict,
     OwnershipLost,
     UnknownSession,

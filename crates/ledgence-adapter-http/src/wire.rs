@@ -67,12 +67,14 @@ pub(crate) fn error_status(error: &ContractError) -> u16 {
     match error {
         ContractError::InvalidInput(_) => 400,
         ContractError::NotFound | ContractError::UnknownSession => 404,
-        ContractError::Conflict
+        ContractError::ExternalDispatchRequired
+        | ContractError::Conflict
         | ContractError::OwnershipLost
         | ContractError::ObsoleteOperation
         | ContractError::OutOfOrder
         | ContractError::Busy => 409,
         ContractError::SessionExpired => 410,
+        ContractError::InvalidQueueDelivery(_) => 502,
         ContractError::Unavailable(_) => 503,
     }
 }
@@ -80,6 +82,8 @@ pub(crate) fn error_status(error: &ContractError) -> u16 {
 pub(crate) fn error_code(error: &ContractError) -> &'static str {
     match error {
         ContractError::InvalidInput(_) => "invalid_input",
+        ContractError::ExternalDispatchRequired => "external_dispatch_required",
+        ContractError::InvalidQueueDelivery(_) => "invalid_queue_delivery",
         ContractError::NotFound => "not_found",
         ContractError::UnknownSession => "unknown_session",
         ContractError::Conflict => "conflict",
@@ -125,4 +129,37 @@ pub(crate) fn is_json(content_type: &str) -> bool {
 
 pub(crate) fn unavailable(message: impl Into<String>) -> ContractError {
     ContractError::Unavailable(message.into())
+}
+
+#[cfg(test)]
+mod dispatch_error_tests {
+    use super::*;
+
+    #[test]
+    fn queue_protocol_rejection_has_a_distinct_roundtrippable_wire_code() {
+        let error = ContractError::InvalidQueueDelivery("oversized receive".into());
+        assert_eq!(error_status(&error), 502);
+        assert_eq!(error_code(&error), "invalid_queue_delivery");
+        let bytes = serde_json::to_vec(&error).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<ContractError>(&bytes).unwrap(),
+            error
+        );
+    }
+
+    #[test]
+    fn external_dispatch_rejection_has_a_distinct_roundtrippable_wire_code() {
+        let error = ContractError::ExternalDispatchRequired;
+        assert_eq!(error_status(&error), 409);
+        assert_eq!(error_code(&error), "external_dispatch_required");
+        let bytes = serde_json::to_vec(&error).unwrap();
+        assert_eq!(
+            ledgence_orchestration_api::decode_unique_json::<ContractError>(&bytes, 1024).unwrap(),
+            error
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["code"],
+            "external_dispatch_required"
+        );
+    }
 }

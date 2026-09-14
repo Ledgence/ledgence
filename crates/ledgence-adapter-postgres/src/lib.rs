@@ -6,6 +6,8 @@
 mod codec;
 mod delivery;
 mod discovery;
+mod dispatch_claim;
+mod dispatch_intents;
 mod migration;
 mod notifications;
 mod persistence;

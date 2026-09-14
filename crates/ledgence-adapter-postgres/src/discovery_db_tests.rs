@@ -355,15 +355,33 @@ async fn discovery_migration_upgrades_existing_task_history_without_rewriting_it
         .run(&db.store.pool)
         .await
         .unwrap();
-    let before = seed(
-        &db.store,
-        &scope(),
-        "before-upgrade",
+    // Seed through the old schema, not the current adapter's acceptance path:
+    // current acceptance requires the dispatch migration before it can serve.
+    let mut input = command();
+    input.idempotency_key = "before-upgrade".into();
+    input.input.correlation_key = Some("INV-1042".into());
+    input.input.retry_policy.max_attempts = 1;
+    let transition = ledgence_orchestration_core::submit(
+        &input,
+        &descriptor(),
+        "task_before_upgrade",
+        "run_before_upgrade",
         100,
-        "python",
-        Some("INV-1042"),
     )
-    .await;
+    .unwrap();
+    let task = &transition.task;
+    let mut tx = db.store.pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',100,100,0)")
+        .bind(&task.task_id).bind(&task.run_id).bind(&task.input.tenant_id).bind(&task.input.namespace)
+        .bind(&task.input.queue).bind(&task.idempotency_key).bind(&task.input.correlation_key)
+        .bind(codec::encode(&task.input).unwrap()).bind(codec::encode(&task.descriptor).unwrap())
+        .bind(task.origin_trace.as_ref().map(codec::encode).transpose().unwrap())
+        .execute(&mut *tx).await.unwrap();
+    persistence::history(&mut tx, &transition.history)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let before = db.store.status(&scope(), &task.task_id).await.unwrap();
     let history = db
         .store
         .history(&scope(), &before.task_id, 0)
@@ -393,6 +411,29 @@ async fn discovery_migration_upgrades_existing_task_history_without_rewriting_it
     );
     let indexes: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname LIKE 'tasks_discovery%'").fetch_one(&db.store.pool).await.unwrap();
     assert_eq!(indexes, 4);
+    let destination: Option<String> =
+        sqlx::query_scalar("SELECT dispatch_destination FROM tasks WHERE task_id=$1")
+            .bind(&page.items[0].task_id)
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert!(
+        destination.is_none(),
+        "upgrade preserves integrated delivery"
+    );
+    let intents: i64 = sqlx::query_scalar("SELECT count(*) FROM dispatch_intents")
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+    assert_eq!(intents, 0);
+    let session = db.store.open_session(&scope(), "python", 1).await.unwrap();
+    let assigned = assignment(
+        db.store
+            .acquire(&acquire_command(&session, 0, 1))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(assigned.lease.owner.task_id, page.items[0].task_id);
     db.finish().await;
 }
 

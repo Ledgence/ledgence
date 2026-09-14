@@ -1239,3 +1239,5 @@ async fn previous_assignment_revocation_during_new_claim_is_not_overwritten() {
     );
     db.finish().await;
 }
+
+mod dispatch;
