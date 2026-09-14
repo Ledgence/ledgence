@@ -1638,6 +1638,7 @@ async fn processing_span_duration_excludes_acquisition_hold_and_empty_polls_crea
         tracing_subscriber::registry().with(Timings(timings.clone())),
     );
     let (worker, counts) = setup(1);
+    counts.hold_execution.store(true, Ordering::SeqCst);
     let service = Service::new(1);
     let hold = Duration::from_millis(500);
     service.first_acquire_delay_ms.store(500, Ordering::SeqCst);
@@ -1647,6 +1648,13 @@ async fn processing_span_duration_excludes_acquisition_hold_and_empty_polls_crea
     let mut handle = DeliveryDriver::new(worker, service.clone(), settings)
         .unwrap()
         .start();
+    // Execution cannot finish until released. Measure an interval wholly inside
+    // processing so zero or underreported durations cannot satisfy the test.
+    wait_for(|| counts.executions.load(Ordering::SeqCst) == 1).await;
+    let execution_held_since = Instant::now();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let execution_held = execution_held_since.elapsed();
+    counts.hold_execution.store(false, Ordering::SeqCst);
     // Observe a subsequent Empty poll as well as the completed assignment.
     wait_for(|| service.state.lock().unwrap().acquisitions.len() >= 2).await;
     assert_eq!(handle.status().settled_attempts, 1);
@@ -1665,6 +1673,11 @@ async fn processing_span_duration_excludes_acquisition_hold_and_empty_polls_crea
     assert!(timing.started.duration_since(started) >= hold - Duration::from_millis(5));
     // Compare to the observed span lifetime, not a machine-speed assumption:
     // slow execution or cleanup may increase both values and still passes.
+    // The reported integer milliseconds may round down by less than 1 ms.
+    assert!(
+        duration + Duration::from_millis(1) >= execution_held,
+        "processing duration {duration:?} omitted the controlled execution interval {execution_held:?}"
+    );
     assert!(duration <= recorded.duration_since(timing.started) + Duration::from_millis(100));
     assert!(duration + hold / 2 < recorded.duration_since(started));
 }
