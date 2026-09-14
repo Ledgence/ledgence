@@ -84,6 +84,13 @@ impl TaskService for Mock {
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move { self.reply("submit", command) })
     }
+    fn list_tasks<'a>(
+        &'a self,
+        scope: &'a Scope,
+        query: &'a TaskListQuery,
+    ) -> ContractFuture<'a, TaskPage> {
+        Box::pin(async move { self.reply("list", json!({"scope":scope,"query":query})) })
+    }
     fn inspect<'a>(&'a self, scope: &'a Scope, task: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move { self.reply("inspect", json!([scope, task])) })
     }
@@ -1826,4 +1833,299 @@ fn shared_json_fixtures_preserve_cross_language_values() {
             decode_unique_json(&exact(&value), SUBMISSION_DATA_MAX_BYTES).unwrap();
         assert_eq!(value, roundtrip, "{}", fixture["name"]);
     }
+}
+
+#[tokio::test]
+async fn discovery_round_trips_filters_and_scope_bound_cursor() {
+    let mock = Arc::new(Mock::default());
+    let running = start(server::router(mock.clone())).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    let query = TaskListQuery {
+        filters: TaskFilters {
+            state: Some(TaskState::Queued),
+            queue: Some("a +%/é".into()),
+            correlation_key: Some(String::new()),
+            submitted_from: Some(1),
+            submitted_until: Some(3),
+        },
+        limit: 1,
+        cursor: None,
+    };
+    let mut task = compact_status(TaskState::Queued);
+    task.queue = query.filters.queue.clone().unwrap();
+    task.correlation_key = Some(String::new());
+    let cursor = query
+        .next_cursor(&scope(), &TaskPosition::from(&task))
+        .unwrap();
+    let page = TaskPage {
+        items: vec![task],
+        next_cursor: Some(cursor.clone()),
+    };
+    mock.set("list", Ok(&page));
+    assert_eq!(client.list_tasks(&scope(), &query).await.unwrap(), page);
+    assert_eq!(
+        mock.calls.lock().unwrap()[0],
+        ("list", json!({"scope":scope(),"query":query}))
+    );
+    let continuation = TaskListQuery {
+        limit: 2,
+        cursor: Some(cursor),
+        ..query.clone()
+    };
+    mock.set(
+        "list",
+        Ok(TaskPage {
+            items: vec![],
+            next_cursor: None,
+        }),
+    );
+    assert!(
+        client
+            .list_tasks(&scope(), &continuation)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    let mut changed = continuation;
+    changed.filters.correlation_key = None;
+    assert!(matches!(
+        client.list_tasks(&scope(), &changed).await,
+        Err(ContractError::InvalidInput(_))
+    ));
+    assert_eq!(
+        mock.calls.lock().unwrap().len(),
+        2,
+        "bad cursor must not dispatch"
+    );
+}
+
+#[tokio::test]
+async fn discovery_rejects_bad_queries_before_service_and_preserves_method_contract() {
+    let mock = Arc::new(Mock::default());
+    let running = start(server::router(mock.clone())).await;
+    let client = reqwest::Client::new();
+    for query in [
+        "tenant_id=a",
+        "tenant_id=a&namespace=b&task_id=x",
+        "tenant_id=a&namespace=b&state=done",
+        "tenant_id=a&namespace=b&queue=",
+        "tenant_id=a&namespace=b&limit=0",
+        "tenant_id=a&namespace=b&limit=101",
+        "tenant_id=a&namespace=b&limit=1&limit=2",
+        "tenant_id=a&namespace=b&limit=+1",
+        "tenant_id=a&namespace=b&submitted_from=-1",
+        "tenant_id=a&namespace=b&submitted_from=1.0",
+        "tenant_id=a&namespace=b&submitted_from=2&submitted_until=2",
+        "tenant_id=a&namespace=b&submitted_until=253402300800000",
+        "tenant_id=a&namespace=b&cursor=",
+        "tenant_id=a&namespace=b&cursor=aa",
+        "tenant_id=a&namespace=b&correlation_key=%00",
+        "tenant_id=a&namespace=b&correlation_key=%FF",
+        "tenant_id=a&namespace=b&correlation_key=%",
+        "tenant_id=a&namespace=b&unknown=x",
+    ] {
+        let reply = client
+            .get(format!("{}/v1/tasks?{query}", running.url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), 400, "{query}");
+        assert_eq!(reply.headers()["cache-control"], "no-store");
+        assert!(reply.headers().contains_key("request-id"));
+    }
+    let reply = client
+        .get(format!("{}/v1/tasks?tenant_id=a&namespace=b", running.url))
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reply.status(), 400);
+    let reply = client
+        .put(format!("{}/v1/tasks", running.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reply.status(), 405);
+    assert_eq!(reply.headers()["allow"], "GET, POST");
+    assert!(mock.calls.lock().unwrap().is_empty());
+    mock.set(
+        "list",
+        Ok(TaskPage {
+            items: vec![],
+            next_cursor: None,
+        }),
+    );
+    let reply = client
+        .get(format!("{}/v1/tasks?tenant_id=a&namespace=b", running.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reply.status(), 200);
+    assert_eq!(reply.headers()["cache-control"], "no-store");
+    let calls = mock.calls.lock().unwrap();
+    assert_eq!(calls[0].1["query"]["limit"], 50);
+}
+
+#[tokio::test]
+async fn discovery_client_and_server_reject_inconsistent_pages() {
+    let query = TaskListQuery::default();
+    let task = compact_status(TaskState::Queued);
+    let mut wrong_scope = task.clone();
+    wrong_scope.scope.namespace = "another".into();
+    let mut older = task.clone();
+    older.task_id = "z".into();
+    let cases = vec![
+        json!({"items":[task.clone()]}),
+        json!({"items":[],"next_cursor":null,"total":0}),
+        json!({"items":[wrong_scope],"next_cursor":null}),
+        json!({"items":[task.clone(),task.clone()],"next_cursor":null}),
+        json!({"items":[task.clone(),older],"next_cursor":null}),
+        json!({"items":[],"next_cursor":"aa"}),
+        json!({"items":vec![task.clone();101],"next_cursor":null}),
+    ];
+    for case in cases {
+        let (running, _) =
+            raw_response(response(200, "application/json", &exact(&case)), None).await;
+        assert!(
+            matches!(
+                HttpTaskService::new(&running.url)
+                    .unwrap()
+                    .list_tasks(&scope(), &query)
+                    .await,
+                Err(ContractError::Unavailable(_))
+            ),
+            "accepted {case}"
+        );
+    }
+    let mock = Arc::new(Mock::default());
+    mock.set(
+        "list",
+        Ok(TaskPage {
+            items: vec![task.clone(), task],
+            next_cursor: None,
+        }),
+    );
+    let running = start(server::router(mock)).await;
+    assert!(matches!(
+        HttpTaskService::new(&running.url)
+            .unwrap()
+            .list_tasks(&scope(), &query)
+            .await,
+        Err(ContractError::Unavailable(_))
+    ));
+}
+
+#[tokio::test]
+async fn discovery_enforces_streamed_and_declared_page_body_limit() {
+    let mut page = exact(json!({"items":[],"next_cursor":null}));
+    page.resize(TASK_PAGE_MAX_BYTES + 1, b' ');
+    for bytes in [
+        response(200, "application/json", &page),
+        [
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+                .as_slice(),
+            page.as_slice(),
+        ]
+        .concat(),
+    ] {
+        let (running, _) = raw_response(bytes, None).await;
+        assert!(matches!(
+            HttpTaskService::new(&running.url)
+                .unwrap()
+                .list_tasks(&scope(), &TaskListQuery::default())
+                .await,
+            Err(ContractError::Unavailable(_))
+        ));
+    }
+}
+
+#[tokio::test]
+async fn discovery_round_trips_maximum_escaped_metadata_and_large_cursor() {
+    let mock = Arc::new(Mock::default());
+    let raw_queries = Arc::new(Mutex::new(Vec::<String>::new()));
+    let captured = raw_queries.clone();
+    let router = server::router(mock.clone()).layer(axum::middleware::from_fn(
+        move |request: axum::extract::Request, next: axum::middleware::Next| {
+            let captured = captured.clone();
+            async move {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(request.uri().query().unwrap_or_default().into());
+                next.run(request).await
+            }
+        },
+    ));
+    let running = start(router).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    // Every source byte needs escaping in JSON and percent-encoding in a URL.
+    let identifier = "\"\\".repeat(64);
+    let correlation = "\"\\".repeat(256);
+    assert_eq!(identifier.len(), 128);
+    assert_eq!(correlation.len(), 512);
+    let scope = Scope {
+        tenant_id: identifier.clone(),
+        namespace: identifier.clone(),
+    };
+    let query = TaskListQuery {
+        filters: TaskFilters {
+            state: Some(TaskState::Queued),
+            queue: Some(identifier.clone()),
+            correlation_key: Some(correlation.clone()),
+            submitted_from: Some(0),
+            submitted_until: Some(253_402_300_799_999),
+        },
+        limit: 1,
+        cursor: None,
+    };
+    let mut task = compact_status(TaskState::Queued);
+    task.scope = scope.clone();
+    task.task_id = identifier;
+    task.queue = query.filters.queue.clone().unwrap();
+    task.correlation_key = Some(correlation);
+    task.validate().unwrap();
+    let cursor = query
+        .next_cursor(&scope, &TaskPosition::from(&task))
+        .unwrap();
+    assert!(
+        cursor.len() > 4096,
+        "the regression must exercise a cursor larger than 4 KiB"
+    );
+    assert!(cursor.len() <= TASK_CURSOR_MAX_BYTES);
+    let first = TaskPage {
+        items: vec![task],
+        next_cursor: Some(cursor.clone()),
+    };
+    mock.set("list", Ok(&first));
+    assert_eq!(client.list_tasks(&scope, &query).await.unwrap(), first);
+
+    let continuation = TaskListQuery {
+        cursor: Some(cursor.clone()),
+        limit: 100,
+        ..query.clone()
+    };
+    let empty = TaskPage {
+        items: Vec::new(),
+        next_cursor: None,
+    };
+    mock.set("list", Ok(&empty));
+    assert_eq!(
+        client.list_tasks(&scope, &continuation).await.unwrap(),
+        empty
+    );
+    let calls = mock.calls.lock().unwrap();
+    assert_eq!(
+        calls.as_slice(),
+        &[
+            ("list", json!({"scope":scope,"query":query})),
+            ("list", json!({"scope":scope,"query":continuation})),
+        ]
+    );
+    let raw_queries = raw_queries.lock().unwrap();
+    assert_eq!(raw_queries.len(), 2);
+    assert!(raw_queries[1].contains(&format!("cursor={cursor}")));
+    assert!(raw_queries[1].contains("%22%5C"));
+    assert!(raw_queries[1].len() > cursor.len());
+    assert!(raw_queries.iter().all(|query| query.len() < 16 * 1024));
 }

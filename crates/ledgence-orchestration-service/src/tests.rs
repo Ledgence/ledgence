@@ -40,6 +40,8 @@ struct MemoryStore {
     lookups: AtomicUsize,
     accepts: AtomicUsize,
     lookup_error: Mutex<Option<ContractError>>,
+    list_calls: AtomicUsize,
+    list_reply: Mutex<Option<Result<TaskPage>>>,
 }
 
 impl TaskStore for MemoryStore {
@@ -104,6 +106,21 @@ impl TaskStore for MemoryStore {
 
     fn extend_session<'a>(&'a self, _: &'a str) -> ContractFuture<'a, WorkerSession> {
         unused()
+    }
+
+    fn list_tasks<'a>(
+        &'a self,
+        _: &'a Scope,
+        _: &'a TaskListQuery,
+    ) -> ContractFuture<'a, TaskPage> {
+        Box::pin(async move {
+            self.list_calls.fetch_add(1, Ordering::SeqCst);
+            self.list_reply
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("configured list reply")
+        })
     }
 
     fn status<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskStatus> {
@@ -516,4 +533,48 @@ async fn observations_delegate_scoped_reads_without_contacting_program_store() {
         Err(ContractError::NotFound)
     );
     assert!(fixture.requests.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn task_listing_rejects_input_before_storage_and_validates_adapter_pages() {
+    let store = Arc::new(MemoryStore::default());
+    let (requests, _receiver) = mpsc::unbounded_channel();
+    let service = ApplicationService::new(store.clone(), Arc::new(ControlledPrograms { requests }));
+    let scope = Scope {
+        tenant_id: "tenant".into(),
+        namespace: "billing".into(),
+    };
+    let invalid = TaskListQuery {
+        limit: 0,
+        ..TaskListQuery::default()
+    };
+    assert!(matches!(
+        service.list_tasks(&scope, &invalid).await,
+        Err(ContractError::InvalidInput(_))
+    ));
+    assert_eq!(store.list_calls.load(Ordering::SeqCst), 0);
+
+    let query = TaskListQuery::default();
+    let empty = TaskPage {
+        items: Vec::new(),
+        next_cursor: None,
+    };
+    *store.list_reply.lock().unwrap() = Some(Ok(empty.clone()));
+    assert_eq!(service.list_tasks(&scope, &query).await.unwrap(), empty);
+    let malformed = TaskPage {
+        items: Vec::new(),
+        next_cursor: Some("00".into()),
+    };
+    *store.list_reply.lock().unwrap() = Some(Ok(malformed));
+    assert!(matches!(
+        service.list_tasks(&scope, &query).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    *store.list_reply.lock().unwrap() =
+        Some(Err(ContractError::Unavailable("storage failure".into())));
+    assert_eq!(
+        service.list_tasks(&scope, &query).await,
+        Err(ContractError::Unavailable("storage failure".into()))
+    );
+    assert_eq!(store.list_calls.load(Ordering::SeqCst), 3);
 }

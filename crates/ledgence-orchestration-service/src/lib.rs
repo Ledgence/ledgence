@@ -148,6 +148,19 @@ impl TaskService for ApplicationService {
         })
     }
 
+    fn list_tasks<'a>(
+        &'a self,
+        scope: &'a Scope,
+        query: &'a TaskListQuery,
+    ) -> ContractFuture<'a, TaskPage> {
+        Box::pin(async move {
+            query.validate(scope)?;
+            let page = self.store.list_tasks(scope, query).await?;
+            page.validate(scope, query)?;
+            Ok(page)
+        })
+    }
+
     fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus> {
         self.store.status(scope, task_id)
     }

@@ -102,6 +102,14 @@ impl TaskStore for PostgresStore {
             Ok(session)
         }))
     }
+    fn list_tasks<'a>(
+        &'a self,
+        scope: &'a Scope,
+        query: &'a TaskListQuery,
+    ) -> ContractFuture<'a, TaskPage> {
+        Box::pin(self.run(move || self.list_tasks_once(scope, query)))
+    }
+
     fn status<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskStatus> {
         Box::pin(self.run(move || async move {
             scope.validate()?;

@@ -301,6 +301,13 @@ pub trait TaskService: Send + Sync {
         worker_session_id: &'a str,
     ) -> ContractFuture<'a, WorkerSession>;
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot>;
+    /// Read one bounded page of matching committed task statuses in descending
+    /// submission-time/task-ID order. Each page has its own read snapshot.
+    fn list_tasks<'a>(
+        &'a self,
+        scope: &'a Scope,
+        query: &'a TaskListQuery,
+    ) -> ContractFuture<'a, TaskPage>;
     /// Read compact scheduling metadata without application payloads.
     fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus>;
     /// Read task metadata and its logical outcome from one consistent snapshot.

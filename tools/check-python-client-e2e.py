@@ -196,6 +196,58 @@ async def scenarios(d, record):
         assert (await unavailable_cancel.outcome()).outcome.kind == "cancelled"
         record("unavailable_after_cancellation_commit", unavailable_cancel.id)
 
+        # Discover by business identity without loading payloads, then continue a
+        # live page across a cancellation and a newly committed submission.
+        discovery_queue = "discovery-no-consumer"
+        business_key = "INV +%/é-1042"
+        handles = []
+        for index in range(3):
+            handles.append(await client.tasks.submit(program="echo", version="1.0.0",
+                queue=discovery_queue, data={"private_payload": index},
+                correlation_key=business_key, idempotency_key=f"discovery-{index}"))
+        filters = dict(state="queued", queue=discovery_queue, correlation_key=business_key)
+        first = await client.tasks.list(**filters, limit=1)
+        assert len(first.items) == 1 and first.next_cursor
+        all_page = await client.tasks.list(**filters, limit=100)
+        assert {item.task_id for item in all_page.items} == {handle.id for handle in handles}
+        assert all_page.next_cursor is None
+        oldest = all_page.items[-1]
+        assert await client.tasks.handle(oldest.task_id).cancel() == "cancelled"
+        await asyncio.sleep(0.01)
+        newer = await client.tasks.submit(program="echo", version="1.0.0", queue=discovery_queue,
+            data=None, correlation_key=business_key, idempotency_key="discovery-newer")
+        assert (await newer.status()).submitted_at > first.items[0].submitted_at
+        continued = await client.tasks.list(**filters, limit=2, cursor=first.next_cursor)
+        assert {item.task_id for item in continued.items} == {
+            item.task_id for item in all_page.items[1:] if item.task_id != oldest.task_id}
+        assert continued.next_cursor is None
+        refreshed = await client.tasks.list(**filters)
+        assert newer.id in {item.task_id for item in refreshed.items}
+        from ledgence.client import ServiceError
+        try:
+            await client.tasks.list(queue=discovery_queue, cursor=first.next_cursor)
+            raise AssertionError("changed cursor filters must be rejected")
+        except ServiceError as error:
+            assert error.code == "invalid_input"
+            assert error.request_id is not None
+        failed_page = await client.tasks.list(state="failed")
+        assert failed.id in {item.task_id for item in failed_page.items}
+        empty_key = await client.tasks.submit(program="echo", version="1.0.0", queue=discovery_queue,
+            data=None, correlation_key="", idempotency_key="discovery-empty-business")
+        assert [item.task_id for item in (await client.tasks.list(correlation_key="")).items] == [empty_key.id]
+        exact_time = await client.tasks.list(correlation_key=business_key,
+            submitted_from=first.items[0].submitted_at, submitted_until=first.items[0].submitted_at+1)
+        assert first.items[0].task_id in {item.task_id for item in exact_time.items}
+        cli_page = await asyncio.to_thread(d.command, "ledgence", ["task", "list",
+            "--server", d.server_url, "--tenant", options["tenant"], "--namespace", options["namespace"],
+            "--state", "queued", "--queue", discovery_queue, "--correlation-key", business_key, "--limit", "100"])
+        assert {item["task_id"] for item in cli_page["items"]} == {item.task_id for item in refreshed.items}
+        assert all(not {"input", "data", "output", "descriptor", "settlement"} & item.keys()
+                   for item in cli_page["items"])
+        async with AsyncClient(d.server_url, tenant=options["tenant"], namespace="wrong") as wrong:
+            assert not (await wrong.tasks.list(correlation_key=business_key)).items
+        record("task_discovery_live_pagination_and_business_filters", len(all_page.items))
+
         # Restart the actual Rust server. Saving task ID/scope is sufficient to
         # resume reads without serializing a local Python handle.
         await asyncio.to_thread(d.server.stop)

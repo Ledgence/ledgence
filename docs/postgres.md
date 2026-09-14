@@ -82,3 +82,7 @@ After the database gate, run `python3 tools/check-http.py --psql /path/to/psql` 
 For changed query macros, create the migrated scratch schema, set `DATABASE_URL` to it, and generate metadata with `SQLX_OFFLINE=false SQLX_OFFLINE_DIR=<absolute .sqlx path>` while checking the adapter. Force recompilation of the adapter with `cargo clean -p ledgence-adapter-postgres` first so all macros expand. Review additions/removals rather than keeping obsolete descriptions. `tools/check-postgres.py` independently regenerates into a temporary directory and compares exact descriptions.
 
 The standalone SQLx CLI is not required. Its reviewed 0.9.0 distribution did not pass the existing dependency gate; the verification tool uses SQLx's supported macro output and the PostgreSQL client instead. See [dependency policy](dependencies.md).
+
+## Task discovery indexes
+
+[Task discovery](task-discovery.md) adds migration `20260913010000_task_discovery.sql` with scoped indexes for submission order, state, queue, and exact correlation. Apply it explicitly before serving the updated application. Index creation is transactional and can block concurrent writes. Existing tasks remain unchanged. The database gate includes initial-schema upgrades and query-plan regressions over 100,000 tasks and 100,000 attempts.

@@ -18,6 +18,11 @@ pub struct ExchangeMetadata {
 
 type Observer = dyn Fn(&ExchangeMetadata) + Send + Sync;
 
+struct ExchangeBudget {
+    start: Instant,
+    deadline: Instant,
+}
+
 /// Pooled, concurrent HTTP task service. There are no automatic retries,
 /// redirects, or response caches. A timeout is an uncertain outcome.
 #[derive(Clone)]
@@ -147,20 +152,27 @@ impl HttpTaskService {
         let start = Instant::now();
         let deadline = Instant::from_std(deadline).min(start + self.timeout);
         let command = command.clone();
-        self.exchange(Method::POST, route, &[], start, deadline, async {
-            self.blocking(move || {
-                let bytes = serde_json::to_vec(&command).map_err(|_| {
-                    ContractError::InvalidInput("command cannot be encoded as JSON".into())
-                })?;
-                if bytes.len() > limit {
-                    return Err(ContractError::InvalidInput(
-                        "command exceeds HTTP body limit".into(),
-                    ));
-                }
-                Ok(Some(bytes))
-            })
-            .await
-        })
+        self.exchange(
+            Method::POST,
+            route,
+            &[],
+            ExchangeBudget { start, deadline },
+            async {
+                self.blocking(move || {
+                    let bytes = serde_json::to_vec(&command).map_err(|_| {
+                        ContractError::InvalidInput("command cannot be encoded as JSON".into())
+                    })?;
+                    if bytes.len() > limit {
+                        return Err(ContractError::InvalidInput(
+                            "command exceeds HTTP body limit".into(),
+                        ));
+                    }
+                    Ok(Some(bytes))
+                })
+                .await
+            },
+            |_| Ok(()),
+        )
         .await
     }
 
@@ -170,9 +182,12 @@ impl HttpTaskService {
             Method::GET,
             route,
             query,
-            start,
-            start + self.timeout,
+            ExchangeBudget {
+                start,
+                deadline: start + self.timeout,
+            },
             async { Ok(None) },
+            |_| Ok(()),
         )
         .await
     }
@@ -182,10 +197,11 @@ impl HttpTaskService {
         method: Method,
         route: &str,
         query: &[(&str, String)],
-        start: Instant,
-        deadline: Instant,
+        budget: ExchangeBudget,
         body: impl std::future::Future<Output = Result<Option<Vec<u8>>>>,
+        validate_response: impl FnOnce(&R) -> Result<()> + Send + 'static,
     ) -> Result<R> {
+        let ExchangeBudget { start, deadline } = budget;
         let span = tracing::info_span!(
             "ledgence.http.client",
             otel.name = %format!("{} {}", method, route),
@@ -303,6 +319,7 @@ impl HttpTaskService {
                         value.validate_values().map_err(|_| {
                             unavailable("HTTP success response violates application value limits")
                         })?;
+                        validate_response(&value)?;
                         Ok(value)
                     } else {
                         let error: ContractError = decode_unique_json(&bytes, ERROR_MAX_BYTES)
@@ -426,6 +443,63 @@ impl TaskService for HttpTaskService {
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(self.post("v1/tasks", command, SUBMISSION_MAX_BYTES))
     }
+    fn list_tasks<'a>(
+        &'a self,
+        scope: &'a Scope,
+        query: &'a TaskListQuery,
+    ) -> ContractFuture<'a, TaskPage> {
+        Box::pin(async move {
+            let start = Instant::now();
+            query.validate(scope)?;
+            let mut fields = vec![
+                ("tenant_id", scope.tenant_id.clone()),
+                ("namespace", scope.namespace.clone()),
+                ("limit", query.limit.to_string()),
+            ];
+            if let Some(state) = query.filters.state {
+                let value =
+                    serde_json::to_value(state).expect("task state has a JSON representation");
+                fields.push((
+                    "state",
+                    value.as_str().expect("task state is a string").to_owned(),
+                ));
+            }
+            for (name, value) in [
+                ("queue", &query.filters.queue),
+                ("correlation_key", &query.filters.correlation_key),
+                ("cursor", &query.cursor),
+            ] {
+                if let Some(value) = value {
+                    fields.push((name, value.clone()));
+                }
+            }
+            for (name, value) in [
+                ("submitted_from", query.filters.submitted_from),
+                ("submitted_until", query.filters.submitted_until),
+            ] {
+                if let Some(value) = value {
+                    fields.push((name, value.to_string()));
+                }
+            }
+            let scope = scope.clone();
+            let query = query.clone();
+            self.exchange(
+                Method::GET,
+                "v1/tasks",
+                &fields,
+                ExchangeBudget {
+                    start,
+                    deadline: start + self.timeout,
+                },
+                async { Ok(None) },
+                move |page: &TaskPage| {
+                    page.validate(&scope, &query)
+                        .map_err(|_| unavailable("HTTP task page contradicts its query"))
+                },
+            )
+            .await
+        })
+    }
     fn inspect<'a>(
         &'a self,
         scope: &'a Scope,
@@ -513,6 +587,125 @@ impl TaskService for HttpTaskService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct SpanRecords(Arc<std::sync::Mutex<Vec<(String, String)>>>);
+
+    impl tracing::field::Visit for SpanRecords {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            self.0
+                .lock()
+                .unwrap()
+                .push((field.name().into(), format!("{value:?}")));
+        }
+    }
+    impl tracing::Subscriber for SpanRecords {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, attributes: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            attributes.record(&mut self.clone());
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+            values.record(&mut self.clone());
+        }
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            event.record(&mut self.clone());
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    async fn serve_page(bytes: &'static [u8]) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+            }
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nRequest-Id: req_discovery\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            );
+            stream.write_all(headers.as_bytes()).await.unwrap();
+            stream.write_all(bytes).await.unwrap();
+        });
+        (url, server)
+    }
+
+    #[tokio::test]
+    async fn contradictory_task_page_records_failed_exchange_and_request_diagnostics() {
+        use tracing::instrument::WithSubscriber;
+        let (url, server) = serve_page(br#"{"items":[],"next_cursor":"00"}"#).await;
+        let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = observed.clone();
+        let client = HttpTaskService::new(&url)
+            .unwrap()
+            .with_observer(move |metadata| captured.lock().unwrap().push(metadata.clone()));
+        let scope = Scope {
+            tenant_id: "tenant".into(),
+            namespace: "namespace".into(),
+        };
+        let records = SpanRecords::default();
+        let result = client
+            .list_tasks(&scope, &TaskListQuery::default())
+            .with_subscriber(records.clone())
+            .await;
+        server.await.unwrap();
+        assert!(matches!(result, Err(ContractError::Unavailable(_))));
+        let observed = observed.lock().unwrap();
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0].request_id.as_deref(), Some("req_discovery"));
+        assert_eq!(observed[0].status, Some(200));
+        let records = records.0.lock().unwrap();
+        assert!(
+            records
+                .iter()
+                .any(|(key, value)| key == "error_code" && value.contains("unavailable")),
+            "the exchange completion event must report query validation failure: {records:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn listing_timeout_while_waiting_for_decode_preserves_observer_and_request_id() {
+        let (url, server) = serve_page(br#"{"items":[],"next_cursor":null}"#).await;
+        let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = observed.clone();
+        let client = HttpTaskService::with_timeout(&url, Duration::from_millis(150))
+            .unwrap()
+            .with_observer(move |metadata| captured.lock().unwrap().push(metadata.clone()));
+        let held = client.blocking.clone().acquire_many_owned(4).await.unwrap();
+        let scope = Scope {
+            tenant_id: "tenant".into(),
+            namespace: "namespace".into(),
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.list_tasks(&scope, &TaskListQuery::default()),
+        )
+        .await;
+        drop(held);
+        server.await.unwrap();
+        assert!(matches!(
+            result.unwrap(),
+            Err(ContractError::Unavailable(_))
+        ));
+        let observed = observed.lock().unwrap();
+        assert_eq!(
+            observed.len(),
+            1,
+            "the listing deadline must finalize its exchange observer"
+        );
+        assert_eq!(observed[0].request_id.as_deref(), Some("req_discovery"));
+        assert_eq!(observed[0].status, Some(200));
+        assert!(observed[0].elapsed >= Duration::from_millis(150));
+        assert_eq!(client.blocking.available_permits(), 4);
+    }
 
     #[tokio::test]
     async fn acquisition_deadline_includes_waiting_for_json_encoding_capacity() {

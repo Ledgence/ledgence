@@ -81,7 +81,7 @@ pub fn router_with_observability(
 }
 
 const ROUTES: &[(&str, &str)] = &[
-    ("/v1/tasks", "POST"),
+    ("/v1/tasks", "GET, POST"),
     ("/v1/tasks/inspect", "GET"),
     ("/v1/tasks/status", "GET"),
     ("/v1/tasks/result", "GET"),
@@ -166,7 +166,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 br#"{"code":"route_not_found"}"#.to_vec(),
                 Some("route_not_found"),
             ),
-            Some((_, expected)) if method != *expected => (
+            Some((_, expected)) if !expected.split(", ").any(|allowed| method == allowed) => (
                 405,
                 br#"{"code":"method_not_allowed"}"#.to_vec(),
                 Some("method_not_allowed"),
@@ -420,6 +420,20 @@ async fn dispatch(
             namespace: fields["namespace"].clone(),
         };
         scope.validate()?;
+        if path == "/v1/tasks" {
+            record_scope(&scope);
+            let query = list_query(&fields)?;
+            query.validate(&scope)?;
+            let reply = server.service.list_tasks(&scope, &query).await?;
+            return server
+                .blocking(move || {
+                    reply
+                        .validate(&scope, &query)
+                        .map_err(|_| unavailable("invalid service task page"))?;
+                    encode_bounded(&reply, TASK_PAGE_MAX_BYTES)
+                })
+                .await;
+        }
         let task = &fields["task_id"];
         validate_text(task, 128)?;
         record_scope(&scope);
@@ -722,7 +736,13 @@ fn log_owner(owner: &LeaseOwner) -> Result<()> {
 }
 
 fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
-    if raw.len() > 8192 {
+    if raw.len()
+        > if route == "/v1/tasks" {
+            16 * 1024
+        } else {
+            8192
+        }
+    {
         return Err(invalid("query exceeds supported length"));
     }
     let mut fields = BTreeMap::new();
@@ -731,7 +751,19 @@ fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
             .split_once('=')
             .ok_or_else(|| invalid("malformed query parameter"))?;
         let name = decode_component(name)?;
-        let allowed = matches!(name.as_str(), "tenant_id" | "namespace" | "task_id")
+        let allowed = matches!(name.as_str(), "tenant_id" | "namespace")
+            || (route != "/v1/tasks" && name == "task_id")
+            || (route == "/v1/tasks"
+                && matches!(
+                    name.as_str(),
+                    "state"
+                        | "queue"
+                        | "correlation_key"
+                        | "submitted_from"
+                        | "submitted_until"
+                        | "limit"
+                        | "cursor"
+                ))
             || (route == "/v1/attempts/inspect" && name == "attempt_id")
             || (route == "/v1/tasks/history" && name == "after_sequence");
         if !allowed || fields.contains_key(&name) {
@@ -740,7 +772,7 @@ fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
         fields.insert(name, decode_component(value)?);
     }
     for required in ["tenant_id", "namespace", "task_id"] {
-        if !fields.contains_key(required) {
+        if (required != "task_id" || route != "/v1/tasks") && !fields.contains_key(required) {
             return Err(invalid("missing required query parameter"));
         }
     }
@@ -748,6 +780,43 @@ fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
         return Err(invalid("missing attempt_id query parameter"));
     }
     Ok(fields)
+}
+
+fn list_query(fields: &BTreeMap<String, String>) -> Result<TaskListQuery> {
+    let number = |key: &str| -> Result<Option<u64>> {
+        fields
+            .get(key)
+            .map(|value| {
+                if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(invalid("list numbers must be unsigned integers"));
+                }
+                value
+                    .parse()
+                    .map_err(|_| invalid("list number exceeds supported range"))
+            })
+            .transpose()
+    };
+    Ok(TaskListQuery {
+        filters: TaskFilters {
+            state: fields
+                .get("state")
+                .map(|value| {
+                    serde_json::from_value(serde_json::Value::String(value.clone()))
+                        .map_err(|_| invalid("invalid task state"))
+                })
+                .transpose()?,
+            queue: fields.get("queue").cloned(),
+            correlation_key: fields.get("correlation_key").cloned(),
+            submitted_from: number("submitted_from")?,
+            submitted_until: number("submitted_until")?,
+        },
+        limit: number("limit")?
+            .map(u32::try_from)
+            .transpose()
+            .map_err(|_| invalid("invalid list limit"))?
+            .unwrap_or(TASK_LIST_DEFAULT_LIMIT),
+        cursor: fields.get("cursor").cloned(),
+    })
 }
 
 fn decode_component(raw: &str) -> Result<String> {

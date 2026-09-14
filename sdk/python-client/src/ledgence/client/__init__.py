@@ -8,13 +8,13 @@ from .errors import (
 from .models import (
     ApplicationFailure, AttemptLost, Cancelled, ErrorDetail, ExecutionFailure, Failed,
     Quiescence, RetryPolicy, Scope, Submission, Succeeded, TaskResult, TaskState,
-    TaskStatus, TraceContext,
+    TaskPage, TaskStatus, TraceContext,
 )
 from .tasks import TaskHandle
 
 __all__ = [
     "AsyncClient", "TaskHandle", "Submission", "Scope", "RetryPolicy", "TraceContext",
-    "TaskState", "TaskStatus", "TaskResult", "Quiescence", "Succeeded", "Failed", "Cancelled",
+    "TaskState", "TaskStatus", "TaskPage", "TaskResult", "Quiescence", "Succeeded", "Failed", "Cancelled",
     "ApplicationFailure", "ExecutionFailure", "AttemptLost", "ErrorDetail", "LedgenceError",
     "InputError", "NotFound", "Conflict", "ServiceError", "TransportError", "ProtocolError",
     "Unavailable", "RequestTimeout", "SubmissionUncertain", "CancellationUncertain",

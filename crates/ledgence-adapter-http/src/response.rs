@@ -17,6 +17,20 @@ impl ResponseValue for TaskStatus {
         self.validate()
     }
 }
+impl ResponseValue for TaskPage {
+    const MAX_BYTES: usize = TASK_PAGE_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        if self.items.len() > TASK_LIST_MAX_LIMIT as usize {
+            return Err(ContractError::Unavailable(
+                "task page exceeds item limit".into(),
+            ));
+        }
+        for item in &self.items {
+            item.validate()?;
+        }
+        Ok(())
+    }
+}
 impl ResponseValue for TaskResult {
     fn validate_values(&self) -> Result<()> {
         self.validate()
