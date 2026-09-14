@@ -35,7 +35,15 @@ fn signal_child() {
             std::fs::write(marker, b"logging remains responsive").unwrap();
         });
         with_signals(
-            move |stopped| crate::dispatch(Command::Migrate, stopped, trace),
+            move |stopped| {
+                crate::dispatch(
+                    Command::Migrate {
+                        options: ledgence_adapter_postgres::MigrationOptions::default(),
+                    },
+                    stopped,
+                    trace,
+                )
+            },
             &mut logs,
             telemetry,
         )

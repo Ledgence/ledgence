@@ -177,6 +177,15 @@ impl HttpTaskService {
     }
 
     async fn get<R: ResponseValue>(&self, route: &str, query: &[(&str, String)]) -> Result<R> {
+        self.get_validated(route, query, |_| Ok(())).await
+    }
+
+    async fn get_validated<R: ResponseValue>(
+        &self,
+        route: &str,
+        query: &[(&str, String)],
+        validate_response: impl FnOnce(&R) -> Result<()> + Send + 'static,
+    ) -> Result<R> {
         let start = Instant::now();
         self.exchange(
             Method::GET,
@@ -187,7 +196,7 @@ impl HttpTaskService {
                 deadline: start + self.timeout,
             },
             async { Ok(None) },
-            |_| Ok(()),
+            validate_response,
         )
         .await
     }
@@ -509,16 +518,24 @@ impl TaskService for HttpTaskService {
     }
     fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus> {
         Box::pin(async move {
-            let reply: TaskStatus = self.get("v1/tasks/status", &query(scope, task_id)).await?;
-            check_identity(&reply, scope, task_id)?;
-            Ok(reply)
+            let query = query(scope, task_id);
+            let scope = scope.clone();
+            let task_id = task_id.to_owned();
+            self.get_validated("v1/tasks/status", &query, move |reply: &TaskStatus| {
+                check_identity(reply, &scope, &task_id)
+            })
+            .await
         })
     }
     fn result<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskResult> {
         Box::pin(async move {
-            let reply: TaskResult = self.get("v1/tasks/result", &query(scope, task_id)).await?;
-            check_identity(&reply.task, scope, task_id)?;
-            Ok(reply)
+            let query = query(scope, task_id);
+            let scope = scope.clone();
+            let task_id = task_id.to_owned();
+            self.get_validated("v1/tasks/result", &query, move |reply: &TaskResult| {
+                check_identity(&reply.task, &scope, &task_id)
+            })
+            .await
         })
     }
     fn inspect_attempt<'a>(
@@ -587,6 +604,7 @@ impl TaskService for HttpTaskService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracing_subscriber::{layer::Context, prelude::*};
 
     #[derive(Clone, Default)]
     struct SpanRecords(Arc<std::sync::Mutex<Vec<(String, String)>>>);
@@ -599,30 +617,36 @@ mod tests {
                 .push((field.name().into(), format!("{value:?}")));
         }
     }
-    impl tracing::Subscriber for SpanRecords {
-        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-            true
-        }
-        fn new_span(&self, attributes: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for SpanRecords {
+        fn on_new_span(
+            &self,
+            attributes: &tracing::span::Attributes<'_>,
+            _: &tracing::span::Id,
+            _: Context<'_, S>,
+        ) {
             attributes.record(&mut self.clone());
-            tracing::span::Id::from_u64(1)
         }
-        fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+        fn on_record(
+            &self,
+            _: &tracing::span::Id,
+            values: &tracing::span::Record<'_>,
+            _: Context<'_, S>,
+        ) {
             values.record(&mut self.clone());
         }
-        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-        fn event(&self, event: &tracing::Event<'_>) {
+        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
             event.record(&mut self.clone());
         }
-        fn enter(&self, _: &tracing::span::Id) {}
-        fn exit(&self, _: &tracing::span::Id) {}
     }
 
-    async fn serve_page(bytes: &'static [u8]) -> (String, tokio::task::JoinHandle<()>) {
+    async fn serve_json(
+        bytes: impl AsRef<[u8]> + Send + 'static,
+    ) -> (String, tokio::task::JoinHandle<()>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move {
+            let bytes = bytes.as_ref();
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut request = Vec::new();
             while !request.ends_with(b"\r\n\r\n") {
@@ -641,7 +665,7 @@ mod tests {
     #[tokio::test]
     async fn contradictory_task_page_records_failed_exchange_and_request_diagnostics() {
         use tracing::instrument::WithSubscriber;
-        let (url, server) = serve_page(br#"{"items":[],"next_cursor":"00"}"#).await;
+        let (url, server) = serve_json(br#"{"items":[],"next_cursor":"00"}"#).await;
         let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured = observed.clone();
         let client = HttpTaskService::new(&url)
@@ -654,7 +678,7 @@ mod tests {
         let records = SpanRecords::default();
         let result = client
             .list_tasks(&scope, &TaskListQuery::default())
-            .with_subscriber(records.clone())
+            .with_subscriber(tracing_subscriber::registry().with(records.clone()))
             .await;
         server.await.unwrap();
         assert!(matches!(result, Err(ContractError::Unavailable(_))));
@@ -672,8 +696,116 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn task_read_identity_validation_finishes_before_exchange_diagnostics() {
+        use tracing::instrument::WithSubscriber;
+        let scope = Scope {
+            tenant_id: "tenant".into(),
+            namespace: "namespace".into(),
+        };
+        let expected = TaskStatus {
+            scope: scope.clone(),
+            task_id: "task".into(),
+            run_id: "run".into(),
+            queue: "queue".into(),
+            correlation_key: None,
+            state: TaskState::Queued,
+            attempt_count: 0,
+            current_attempt_id: None,
+            latest_attempt_id: None,
+            submitted_at: 1,
+            available_at: 1,
+            terminal_at: None,
+            cancel_requested_at: None,
+        };
+        for route in ["status", "result"] {
+            for mismatch in [None, Some("task"), Some("tenant"), Some("namespace")] {
+                let mut reply = expected.clone();
+                match mismatch {
+                    Some("task") => reply.task_id = "other_task".into(),
+                    Some("tenant") => reply.scope.tenant_id = "other_tenant".into(),
+                    Some("namespace") => reply.scope.namespace = "other_namespace".into(),
+                    None => {}
+                    _ => unreachable!(),
+                }
+                // The wire response is structurally valid; only its relationship
+                // to this request distinguishes a semantic rejection from success.
+                reply.validate().unwrap();
+                let bytes = if route == "status" {
+                    serde_json::to_vec(&reply).unwrap()
+                } else {
+                    let reply = TaskResult {
+                        task: reply,
+                        outcome: None,
+                    };
+                    reply.validate().unwrap();
+                    serde_json::to_vec(&reply).unwrap()
+                };
+                let (url, server) = serve_json(bytes).await;
+                let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let captured = observed.clone();
+                let client = HttpTaskService::new(&url)
+                    .unwrap()
+                    .with_observer(move |metadata| {
+                        captured.lock().unwrap().push(metadata.clone());
+                    });
+                let records = SpanRecords::default();
+                let result = async {
+                    if route == "status" {
+                        client.status(&scope, "task").await
+                    } else {
+                        client.result(&scope, "task").await.map(|reply| reply.task)
+                    }
+                }
+                .with_subscriber(tracing_subscriber::registry().with(records.clone()))
+                .await;
+                server.await.unwrap();
+                if mismatch.is_some() {
+                    assert!(
+                        matches!(
+                            result,
+                            Err(ContractError::Unavailable(ref message))
+                                if message == "HTTP task response identity disagrees with its request"
+                        ),
+                        "{route} {mismatch:?}: {result:?}"
+                    );
+                } else {
+                    assert_eq!(result.unwrap(), expected);
+                }
+                let observed = observed.lock().unwrap();
+                assert_eq!(observed.len(), 1, "{route} {mismatch:?}");
+                assert_eq!(observed[0].request_id.as_deref(), Some("req_discovery"));
+                assert_eq!(observed[0].status, Some(200));
+                let records = records.0.lock().unwrap();
+                let count = |name: &str, value: &str| {
+                    records
+                        .iter()
+                        .filter(|(key, recorded)| key == name && recorded == value)
+                        .count()
+                };
+                assert_eq!(count("message", "orchestration HTTP exchange"), 1);
+                assert_eq!(count("status", "200"), 1);
+                assert_eq!(count("http.response.status_code", "200"), 1);
+                assert_eq!(count("request_id", "\"req_discovery\""), 1);
+                assert_eq!(count("ledgence.request.id", "\"req_discovery\""), 1);
+                let failures = usize::from(mismatch.is_some());
+                for (field, value) in [
+                    ("error_code", "\"unavailable\""),
+                    ("error.type", "\"unavailable\""),
+                    ("otel.status_code", "\"ERROR\""),
+                ] {
+                    assert_eq!(
+                        count(field, value),
+                        failures,
+                        "{route} {mismatch:?}: {records:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn listing_timeout_while_waiting_for_decode_preserves_observer_and_request_id() {
-        let (url, server) = serve_page(br#"{"items":[],"next_cursor":null}"#).await;
+        let (url, server) = serve_json(br#"{"items":[],"next_cursor":null}"#).await;
         let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured = observed.clone();
         let client = HttpTaskService::with_timeout(&url, Duration::from_millis(150))

@@ -6,7 +6,7 @@ This version supports bounded HTTP/JSON long polling. Workers request up to 20 s
 
 ## Run a task
 
-Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it.
+Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it. Migration work defaults to a ten-minute budget, configurable with `migrate --timeout-ms`; see [migration execution](postgres.md#migration-execution-budget).
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
