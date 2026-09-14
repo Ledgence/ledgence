@@ -10,8 +10,9 @@ warm pool, available for reuse or replacement.
 
 This first workflow slice provides durable local steps, distributed child tasks,
 sealed all-terminal waits, explicit continuations, workflow results and
-cancellation. Subworkflows, external signals/callbacks, durable timers,
-administrative redrive, automatic code upgrades, and large externalized
+cancellation. [External events and durable timers](workflow-events.md) add
+one-shot callback waits and persisted deadlines to the same checkpoint model.
+Subworkflows, administrative redrive, automatic code upgrades, and large externalized
 checkpoint/result payloads are later capabilities.
 
 ## Application model
@@ -163,6 +164,7 @@ the core API contains no SQS or PostgreSQL types.
 | `POST /v1/workflows` | Submit a workflow using the existing `SubmitCommand` JSON shape |
 | `GET /v1/workflows/status` | Read compact workflow status |
 | `GET /v1/workflows/result` | Read status and an optional terminal outcome |
+| `POST /v1/workflows/events` | Accept or reconcile a directly addressed external CloudEvent |
 | `POST /v1/workflows/cancel` | Request cancellation with `{scope, workflow_id}` |
 | `POST /v1/workflows/activations/context` | Worker read using its exact `LeaseOwner` |
 | `POST /v1/workflows/local-results` | Commit `{owner, record}` for a local step |
@@ -177,7 +179,9 @@ its existing task, run and attempt identities. CloudEvents add `ldgworkflowid`,
 and controller events add `ldgactivationid`. The activation ID equals its stable
 controller task ID; retries receive new attempt IDs. Runtime context uses schema
 `ledgence.workflow.activation.v1`, and its checkpoint decision carries `v: 1`,
-`activation_id`, and `revision`. Revision advances on committed control decisions,
+`activation_id`, and `revision`. An optional `wake` adds the frozen external event/timer result; it is
+omitted on ordinary child continuations. Old contexts without `wake` remain valid.
+Revision advances on committed control decisions,
 independently of local journal progress and incoming child completions.
 
 ## Bounds and performance

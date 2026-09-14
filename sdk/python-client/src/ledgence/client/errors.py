@@ -138,3 +138,12 @@ class WorkflowCancelled(LedgenceError):
     def __init__(self, result):
         super().__init__("workflow was cancelled")
         self.result = result
+
+
+class WorkflowEventUncertain(LedgenceError):
+    """Event acceptance is uncertain; explicitly resend the same frozen command."""
+
+    def __init__(self, command, cause: TransportError):
+        super().__init__("workflow event acceptance is uncertain", request_id=cause.request_id)
+        self.command = command
+        self.cause = cause

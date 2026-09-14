@@ -6,13 +6,19 @@ use ledgence_worker_api::{
 };
 use serde_json::json;
 
+pub(super) struct WorkflowRuntime {
+    pub extension: RuntimeExtension,
+    pub handler: Arc<dyn RuntimeRequestHandler>,
+    pub wake_trace: Option<TraceContext>,
+}
+
 impl Context {
     pub(super) async fn workflow_runtime(
         &self,
         owner: LeaseOwner,
         expected_workflow: &str,
         control: &RunControl,
-    ) -> ledgence_worker_api::Result<(RuntimeExtension, Arc<dyn RuntimeRequestHandler>)> {
+    ) -> ledgence_worker_api::Result<WorkflowRuntime> {
         let service = self.workflows.clone().ok_or_else(|| {
             Error::new(
                 ErrorKind::Incompatible,
@@ -27,6 +33,10 @@ impl Context {
             control,
         )
         .await?;
+        let wake_trace = context.wake.as_ref().and_then(|wake| match wake {
+            WorkflowWake::Event { event, .. } => event.trace_context(),
+            _ => None,
+        });
         let payload = serde_json::to_value(context)
             .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
         let handler = Arc::new(LocalJournal {
@@ -35,13 +45,14 @@ impl Context {
             request_timeout: self.config.request_timeout,
             retry_delay: self.config.retry_delay,
         });
-        Ok((
-            RuntimeExtension {
+        Ok(WorkflowRuntime {
+            extension: RuntimeExtension {
                 schema: WORKFLOW_RUNTIME_SCHEMA.into(),
                 payload,
             },
             handler,
-        ))
+            wake_trace,
+        })
     }
 }
 

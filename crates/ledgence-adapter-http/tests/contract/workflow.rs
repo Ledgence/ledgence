@@ -3,6 +3,12 @@ impl WorkflowService for Mock {
     fn submit_workflow<'a>(&'a self, c: &'a SubmitCommand) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(async move { self.reply("wf_submit", c) })
     }
+    fn send_workflow_event<'a>(
+        &'a self,
+        command: &'a WorkflowEventCommand,
+    ) -> ContractFuture<'a, WorkflowEventReceipt> {
+        Box::pin(async move { self.reply("wf_event", command) })
+    }
     fn workflow_status<'a>(
         &'a self,
         s: &'a Scope,
@@ -59,6 +65,7 @@ fn context() -> WorkflowActivationContext {
         state: Value::Null,
         inputs: Default::default(),
         local_steps: vec![],
+        wake: None,
     }
 }
 async fn setup(mock: &Arc<Mock>) -> Running {
@@ -305,3 +312,6 @@ async fn malformed_post_mutation_workflow_replies_remain_uncertain() {
         "the accepted service calls were not reissued"
     );
 }
+
+#[path = "workflow_events.rs"]
+mod events;

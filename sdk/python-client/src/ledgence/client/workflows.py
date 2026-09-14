@@ -6,15 +6,17 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 from . import codec
+from .cloud_events import EVENT_COMMAND_LIMIT, validate_event
 from .errors import (
     InputError, ProtocolError, RequestTimeout, SubmissionUncertain, TransportError,
-    WorkflowCancellationUncertain, WorkflowCancelled, WorkflowFailed, WorkflowWaitTimeout,
+    WorkflowCancellationUncertain, WorkflowCancelled, WorkflowEventUncertain, WorkflowFailed, WorkflowWaitTimeout,
 )
 from .models import RetryPolicy, Scope, TraceContext
 from .tasks import _UNSET
 from .workflow_models import (
     WorkflowCancellation, WorkflowFailure, WorkflowResult, WorkflowStatus, WorkflowSubmission,
-    WorkflowSucceeded, parse_workflow_result, parse_workflow_status,
+    WorkflowSucceeded, WorkflowEventCommand, WorkflowEventReceipt, parse_workflow_event_receipt,
+    parse_workflow_result, parse_workflow_status,
 )
 
 if TYPE_CHECKING:
@@ -161,6 +163,52 @@ class WorkflowHandle:
         if isinstance(result.outcome, WorkflowCancellation):
             raise WorkflowCancelled(result)
         raise ProtocolError("terminal workflow has no outcome")
+
+    def prepare_event(self, key: str, *, event: Any) -> WorkflowEventCommand:
+        """Freeze a full original CloudEvent for one run-global, one-shot wait key.
+
+        Preserve this command before sending when cancellation or transport
+        failure might require reconciliation. No event ID is generated or changed.
+        """
+        key = codec.text(key, "key")
+        validate_event(event)
+        body = codec.encode({"scope": {"tenant_id": self.scope.tenant_id,
+                                       "namespace": self.scope.namespace},
+                             "workflow_id": self.id, "key": key, "event": event},
+                            EVENT_COMMAND_LIMIT, max_depth=96)
+        return WorkflowEventCommand._create(self._base_url, self.scope, self.id, key, body)
+
+    async def send_event(self, command: WorkflowEventCommand | None = None, *,
+                         key: str | None = None, event: Any = _UNSET) -> WorkflowEventReceipt:
+        """Send once, or reconcile by resending an unchanged prepared command.
+
+        Acceptance may precede the workflow's wait. Changed bindings conflict;
+        closed or late keys are rejected by the orchestrator. This does not wait
+        for the workflow to consume the event or create another workflow.
+        """
+        deadline = asyncio.get_running_loop().time() + self._client.request_timeout
+        transport = self._client._require_transport()
+        if command is None:
+            if key is None or event is _UNSET:
+                raise InputError("supply an event command or key and full CloudEvent")
+            command = self.prepare_event(key, event=event)
+        elif (type(command) is not WorkflowEventCommand or key is not None or event is not _UNSET):
+            raise InputError("supply one WorkflowEventCommand or key and event")
+        elif (command.scope != self.scope or command.base_url != self._base_url
+              or command.workflow_id != self.id):
+            raise InputError("event command belongs to another endpoint, scope, or workflow")
+        try:
+            return await transport.exchange(
+                "POST", "/v1/workflows/events", body=command._body, deadline=deadline,
+                parser=lambda raw: parse_workflow_event_receipt(raw, command),
+                limit=EVENT_COMMAND_LIMIT,
+            )
+        except RequestTimeout as exc:
+            if not exc.dispatched:
+                raise
+            raise WorkflowEventUncertain(command, exc) from exc
+        except TransportError as exc:
+            raise WorkflowEventUncertain(command, exc) from exc
 
     async def cancel(self) -> WorkflowStatus:
         deadline = asyncio.get_running_loop().time() + self._client.request_timeout

@@ -245,6 +245,127 @@ impl ProgramManifest {
     }
 }
 
+/// Validate the shared JSON CloudEvents profile without requiring invocation IDs.
+/// Context and trace attributes retain their original representation; `data` is
+/// user-owned JSON. Callers separately enforce their payload size/depth limits.
+pub fn validate_json_cloudevent(value: &Value) -> Result<()> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "CloudEvent must be an object"))?;
+    for (name, field) in object {
+        if name == "data" {
+            continue;
+        }
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!("invalid CloudEvent context name {name}"),
+            ));
+        }
+        match field {
+            Value::String(text) if valid_context_string(text) => {}
+            Value::Bool(_) => {}
+            Value::Number(number)
+                if number
+                    .as_i64()
+                    .and_then(|n| i32::try_from(n).ok())
+                    .is_some() => {}
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("invalid CloudEvent context value for {name}"),
+                ));
+            }
+        }
+    }
+    if object.get("specversion").and_then(Value::as_str) != Some("1.0") {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "CloudEvent specversion must be 1.0",
+        ));
+    }
+    for key in ["id", "source", "type"] {
+        if object
+            .get(key)
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!("missing nonempty CloudEvent {key}"),
+            ));
+        }
+    }
+    let source = context_string(object, "source")?.expect("required source checked");
+    UriReferenceStr::new(source)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "source must be a URI-reference"))?;
+    if let Some(schema) = context_string(object, "dataschema")? {
+        UriAbsoluteStr::new(schema).map_err(|_| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "dataschema must be an absolute URI without a fragment",
+            )
+        })?;
+    }
+    if context_string(object, "subject")?.is_some_and(str::is_empty) {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "subject must be nonempty when present",
+        ));
+    }
+    if let Some(timestamp) = context_string(object, "time")? {
+        // time's parser also accepts non-RFC3339 separators. Keep the shared
+        // event profile aligned with Python before accepting a durable wake.
+        if !matches!(timestamp.as_bytes().get(10), Some(b'T' | b't')) {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "time must use an RFC 3339 T separator",
+            ));
+        }
+        OffsetDateTime::parse(timestamp, &Rfc3339).map_err(|_| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "time must be an RFC 3339 timestamp",
+            )
+        })?;
+    }
+    if !object.contains_key("data") || object.contains_key("data_base64") {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "this profile requires user-owned JSON data",
+        ));
+    }
+    if object.get("datacontenttype").and_then(Value::as_str) != Some("application/json") {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "datacontenttype must be application/json",
+        ));
+    }
+    if let Some(trace) = object.get("traceparent") {
+        let Some(trace) = trace.as_str() else {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "traceparent must be a string",
+            ));
+        };
+        validate_traceparent(trace)?;
+    }
+    if let Some(state) = context_string(object, "tracestate")? {
+        if !object.contains_key("traceparent") {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "tracestate requires traceparent in this invocation profile",
+            ));
+        }
+        validate_tracestate(state)?;
+    }
+    Ok(())
+}
+
 /// Owns the original logical JSON event without rewriting user-owned `data`.
 ///
 /// This invocation profile uses CloudEvents 1.0.2 context names/types, requires
@@ -257,49 +378,9 @@ impl ProgramManifest {
 pub struct CloudEvent(Value);
 impl CloudEvent {
     pub fn new(value: Value) -> Result<Self> {
-        let object = value
-            .as_object()
-            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "CloudEvent must be an object"))?;
-        for (name, field) in object {
-            if name == "data" {
-                continue;
-            }
-            if name.is_empty()
-                || !name
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-            {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    format!("invalid CloudEvent context name {name}"),
-                ));
-            }
-            match field {
-                Value::String(text) if valid_context_string(text) => {}
-                Value::Bool(_) => {}
-                Value::Number(number)
-                    if number
-                        .as_i64()
-                        .and_then(|n| i32::try_from(n).ok())
-                        .is_some() => {}
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidInput,
-                        format!("invalid CloudEvent context value for {name}"),
-                    ));
-                }
-            }
-        }
-        if object.get("specversion").and_then(Value::as_str) != Some("1.0") {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "CloudEvent specversion must be 1.0",
-            ));
-        }
+        validate_json_cloudevent(&value)?;
+        let object = value.as_object().expect("validated CloudEvent object");
         for key in [
-            "id",
-            "source",
-            "type",
             "ldgtenantid",
             "ldgnamespace",
             "ldgrunid",
@@ -345,61 +426,6 @@ impl CloudEvent {
                 ErrorKind::InvalidInput,
                 "workflow activation requires its workflow ID and matching task ID",
             ));
-        }
-        let source = context_string(object, "source")?.expect("required source checked");
-        UriReferenceStr::new(source)
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "source must be a URI-reference"))?;
-        if let Some(schema) = context_string(object, "dataschema")? {
-            UriAbsoluteStr::new(schema).map_err(|_| {
-                Error::new(
-                    ErrorKind::InvalidInput,
-                    "dataschema must be an absolute URI without a fragment",
-                )
-            })?;
-        }
-        if context_string(object, "subject")?.is_some_and(str::is_empty) {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "subject must be nonempty when present",
-            ));
-        }
-        if let Some(timestamp) = context_string(object, "time")? {
-            OffsetDateTime::parse(timestamp, &Rfc3339).map_err(|_| {
-                Error::new(
-                    ErrorKind::InvalidInput,
-                    "time must be an RFC 3339 timestamp",
-                )
-            })?;
-        }
-        if !object.contains_key("data") || object.contains_key("data_base64") {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "this profile requires user-owned JSON data",
-            ));
-        }
-        if object.get("datacontenttype").and_then(Value::as_str) != Some("application/json") {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "datacontenttype must be application/json",
-            ));
-        }
-        if let Some(trace) = object.get("traceparent") {
-            let Some(trace) = trace.as_str() else {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "traceparent must be a string",
-                ));
-            };
-            validate_traceparent(trace)?;
-        }
-        if let Some(state) = context_string(object, "tracestate")? {
-            if !object.contains_key("traceparent") {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "tracestate requires traceparent in this invocation profile",
-                ));
-            }
-            validate_tracestate(state)?;
         }
         Ok(Self(value))
     }

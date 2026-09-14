@@ -125,3 +125,10 @@ impl ResponseValue for LocalResultReceipt {
         validate_text(&self.key, 128)
     }
 }
+
+impl ResponseValue for WorkflowEventReceipt {
+    const MAX_BYTES: usize = TASK_STATUS_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}

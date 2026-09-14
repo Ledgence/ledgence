@@ -14,6 +14,7 @@ mod observation;
 mod storage;
 mod submission;
 mod workflow;
+mod workflow_events;
 pub use acquisition::*;
 pub use delivery::*;
 pub use discovery::*;
@@ -22,6 +23,7 @@ pub use observation::*;
 pub use storage::*;
 pub use submission::*;
 pub use workflow::*;
+pub use workflow_events::*;
 
 use ledgence_worker_api::{Error, ErrorKind};
 use serde::{Deserialize, Serialize};

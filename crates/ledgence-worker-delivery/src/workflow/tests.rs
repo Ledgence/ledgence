@@ -16,6 +16,12 @@ struct Mock {
     commits: mpsc::UnboundedSender<CommitRequest>,
 }
 impl WorkflowService for Mock {
+    fn send_workflow_event<'a>(
+        &'a self,
+        _: &'a WorkflowEventCommand,
+    ) -> ContractFuture<'a, WorkflowEventReceipt> {
+        Box::pin(async { panic!("unexpected workflow event mutation") })
+    }
     fn activation_context<'a>(
         &'a self,
         owner: &'a LeaseOwner,
@@ -104,6 +110,7 @@ fn context() -> WorkflowActivationContext {
         state: json!({"round":2}),
         inputs: Default::default(),
         local_steps: vec![],
+        wake: None,
     }
 }
 fn request() -> RuntimeRequest {

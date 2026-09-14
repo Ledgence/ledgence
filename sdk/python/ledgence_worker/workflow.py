@@ -7,6 +7,8 @@ its result is durably acknowledged; use an external idempotency key when needed.
 from __future__ import annotations
 
 import asyncio
+import calendar
+import ipaddress
 from contextvars import ContextVar
 import inspect
 import json
@@ -23,6 +25,9 @@ MAX_RECORDS_BYTES = 256 * 1024
 MAX_DECISION_BYTES = 256 * 1024
 MAX_STATE_BYTES = 64 * 1024
 MAX_CONTEXT_BYTES = 640 * 1024
+MAX_WAIT_MS = 31_536_000_000
+MAX_EVENT_BYTES = 64 * 1024
+MAX_TIMESTAMP = 253402300799999
 
 
 class WorkflowError(Exception):
@@ -34,7 +39,11 @@ _local_owner: ContextVar[WorkflowContext | None] = ContextVar("ledgence_local_ow
 
 
 def _text(value, name, limit=128):
-    if (type(value) is not str or not value or len(value.encode("utf-8")) > limit
+    try:
+        raw = value.encode("utf-8") if type(value) is str else b""
+    except UnicodeError as exc:
+        raise WorkflowError(f"{name} must contain Unicode scalar values") from exc
+    if (type(value) is not str or not value or len(raw) > limit
             or any(unicodedata.category(char) == "Cc" or 0xFDD0 <= ord(char) <= 0xFDEF
                    or ord(char) & 0xFFFE == 0xFFFE for char in value)):
         raise WorkflowError(f"{name} must be a nonempty string of at most {limit} UTF-8 bytes")
@@ -52,11 +61,12 @@ def _fields(value, required, optional=()):
         raise WorkflowError("invalid workflow object fields")
 
 
-def _encode(value, limit, max_depth=64):
+def _encode(value, limit, max_depth=64, *, authoritative=False):
     remaining = limit
+    float_slack = 0
 
     def check(item, depth=0, ancestors=None):
-        nonlocal remaining
+        nonlocal remaining, float_slack
         remaining -= 1
         if remaining < 0:
             raise WorkflowError("workflow value exceeds its byte limit")
@@ -75,6 +85,15 @@ def _encode(value, limit, max_depth=64):
         if type(item) is float:
             if not math.isfinite(item):
                 raise WorkflowError("JSON number must be finite")
+            if authoritative:
+                # Rust's canonical finite float token uses at least three
+                # bytes. CPython JSON emits float.__repr__ for this exact type.
+                # Allow only that per-token possible expansion when copying
+                # already accepted values; authored writes remain strict.
+                width = len(repr(item))
+                if width > 32:
+                    raise WorkflowError("unsupported floating-point representation")
+                float_slack += max(0, width - 3)
             return
         if type(item) not in (dict, list, tuple) or depth >= max_depth:
             raise WorkflowError("workflow values must be bounded JSON")
@@ -96,6 +115,7 @@ def _encode(value, limit, max_depth=64):
             ancestors.remove(id(item))
     try:
         check(value)
+        encoded_limit = limit + float_slack
         chunks = []
         length = 0
         encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False,
@@ -103,7 +123,7 @@ def _encode(value, limit, max_depth=64):
         for part in encoder.iterencode(value):
             chunk = part.encode("utf-8")
             length += len(chunk)
-            if length > limit:
+            if length > encoded_limit:
                 raise WorkflowError("workflow value exceeds its byte limit")
             chunks.append(chunk)
         return b"".join(chunks)
@@ -111,8 +131,148 @@ def _encode(value, limit, max_depth=64):
         raise WorkflowError("invalid workflow JSON value") from exc
 
 
-def _freeze(value, limit, max_depth=64):
-    return json.loads(_encode(value, limit, max_depth))
+def _freeze(value, limit, max_depth=64, *, authoritative=False):
+    return json.loads(_encode(value, limit, max_depth, authoritative=authoritative))
+
+
+def _validate_event_uri(value, *, absolute=False):
+    """Validate RFC 3986 URI references without rewriting their identity."""
+    atom = r"(?:[A-Za-z0-9._~!$&'()*+,;=\-]|%[0-9A-Fa-f]{2})"
+    pchar = rf"(?:{atom}|[:@])"
+    path_query, fragment_mark, fragment = value.partition("#")
+    if absolute and fragment_mark:
+        raise WorkflowError("dataschema must be an absolute URI without a fragment")
+    path, query_mark, query = path_query.partition("?")
+    if not re.fullmatch(rf"(?:{pchar}|[/?])*", fragment) or not re.fullmatch(rf"(?:{pchar}|[/?])*", query):
+        raise WorkflowError("invalid CloudEvent URI query or fragment")
+    scheme = re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", path)
+    if absolute and scheme is None:
+        raise WorkflowError("dataschema must be an absolute URI")
+    if scheme is not None:
+        path = path[scheme.end():]
+    authority = path.startswith("//")
+    if authority:
+        host, slash, rest = path[2:].partition("/")
+        path = slash + rest
+        if "@" in host:
+            user, _, host = host.partition("@")
+            if not re.fullmatch(rf"(?:{atom}|:)*", user):
+                raise WorkflowError("invalid CloudEvent URI user information")
+        if host.startswith("["):
+            address, close, port = host[1:].partition("]")
+            if not close or (port and not re.fullmatch(r":[0-9]*", port)):
+                raise WorkflowError("invalid CloudEvent URI host")
+            if re.fullmatch(r"v[0-9A-Fa-f]+\.[A-Za-z0-9._~!$&'()*+,;=:\-]+", address, re.IGNORECASE) is None:
+                try:
+                    if "%" in address:
+                        raise ValueError("zone identifier is not an RFC3986 address")
+                    ipaddress.IPv6Address(address)
+                except ValueError as exc:
+                    raise WorkflowError("invalid CloudEvent URI address") from exc
+        else:
+            name, colon, port = host.partition(":")
+            if not re.fullmatch(rf"{atom}*", name) or (colon and not re.fullmatch(r"[0-9]*", port)):
+                raise WorkflowError("invalid CloudEvent URI host or port")
+    if not re.fullmatch(rf"(?:{pchar}|/)*", path):
+        raise WorkflowError("invalid CloudEvent URI path")
+    if scheme is None and not authority and ":" in path.partition("/")[0]:
+        raise WorkflowError("relative CloudEvent URI first segment cannot contain a colon")
+
+
+def _validate_event_trace(event):
+    trace = event.get("traceparent")
+    if trace is not None and (type(trace) is not str
+            or not re.fullmatch(r"00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}", trace)
+            or trace[3:35] == "0" * 32 or trace[36:52] == "0" * 16):
+        raise WorkflowError("invalid CloudEvent traceparent")
+    if "tracestate" not in event:
+        return
+    state = event["tracestate"]
+    if trace is None or type(state) is not str or not state.isascii() or len(state) > 512:
+        raise WorkflowError("invalid CloudEvent tracestate")
+    members = state.split(",")
+    if len(members) > 32:
+        raise WorkflowError("too many CloudEvent tracestate members")
+    seen = set()
+    for member in members:
+        member = member.strip(" ")
+        if not member:
+            continue
+        key, equal, item = member.partition("=")
+        if (not equal or not item or len(item) > 256 or key in seen
+                or not re.fullmatch(r"(?:[a-z][a-z0-9_*/-]{0,255}|[a-z0-9][a-z0-9_*/-]{0,240}@[a-z][a-z0-9_*/-]{0,13})", key)
+                or any(not 0x20 <= ord(char) <= 0x7e or char in ",=" for char in item)):
+            raise WorkflowError("invalid CloudEvent tracestate member")
+        seen.add(key)
+
+
+def _valid_event_leap_second(year, month, day, hour, minute, offset_minutes):
+    # Match time's final-UTC-second-of-a-month stand-in. Integer/calendar
+    # arithmetic preserves year0000 and rollover into UTC year-1, unlike datetime.
+    day_change, utc_minute = divmod(hour * 60 + minute - offset_minutes, 24 * 60)
+    if utc_minute != 23 * 60 + 59:
+        return False
+    day += day_change
+    if day < 1:
+        month -= 1
+        if month == 0:
+            year, month = year - 1, 12
+        day += calendar.monthrange(year, month)[1]
+    elif day > calendar.monthrange(year, month)[1]:
+        day -= calendar.monthrange(year, month)[1]
+        month += 1
+        if month == 13:
+            year, month = year + 1, 1
+    return -9999 <= year <= 9999 and day == calendar.monthrange(year, month)[1]
+
+
+def _validate_event(value, *, authoritative=False):
+    # Keep this portable common profile aligned with worker-api's borrowed
+    # CloudEvent validator. Execution identity requirements do not apply here.
+    _encode(value, MAX_EVENT_BYTES, 96, authoritative=authoritative)
+    if type(value) is not dict:
+        raise WorkflowError("CloudEvent must be an object")
+    for name, item in value.items():
+        if name == "data":
+            continue
+        if re.fullmatch(r"[a-z0-9]+", name) is None:
+            raise WorkflowError("invalid CloudEvent context name")
+        if type(item) is str:
+            if any(unicodedata.category(c) == "Cc" or 0xFDD0 <= ord(c) <= 0xFDEF
+                   or ord(c) & 0xFFFE == 0xFFFE for c in item):
+                raise WorkflowError("invalid CloudEvent context string")
+        elif type(item) is not bool and (type(item) is not int or not -(1 << 31) <= item < (1 << 31)):
+            raise WorkflowError("invalid CloudEvent context value")
+    if value.get("specversion") != "1.0" or value.get("datacontenttype") != "application/json" or "data" not in value:
+        raise WorkflowError("CloudEvent requires version1.0 and JSON data")
+    for name in ("id", "source", "type"):
+        if type(value.get(name)) is not str or not value[name]:
+            raise WorkflowError(f"CloudEvent requires nonempty {name}")
+    if len(value["id"].encode("utf-8")) > 128 or len(value["source"].encode("utf-8")) > 2048:
+        raise WorkflowError("CloudEvent id/source exceed their UTF-8 byte limits")
+    _validate_event_uri(value["source"])
+    for name in ("subject", "dataschema", "time"):
+        if name in value and (type(value[name]) is not str or not value[name]):
+            raise WorkflowError(f"CloudEvent {name} must be a nonempty string")
+    if "dataschema" in value:
+        _validate_event_uri(value["dataschema"], absolute=True)
+    if "time" in value:
+        match = re.fullmatch(r"([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?(?:[Zz]|([+-])([0-9]{2}):([0-9]{2}))", value["time"])
+        if match is None:
+            raise WorkflowError("CloudEvent time must be RFC3339")
+        year, month, day, hour, minute, second = map(int, match.groups()[:6])
+        if (not 1 <= month <= 12 or not 1 <= day <= calendar.monthrange(year, month)[1]
+                or hour > 23 or minute > 59 or second > 60
+                or (match[7] is not None and (int(match[8]) > 23 or int(match[9]) > 59))):
+            raise WorkflowError("invalid CloudEvent RFC3339 timestamp")
+        offset = 0 if match[7] is None else (int(match[8]) * 60 + int(match[9]))
+        if match[7] == "-":
+            offset = -offset
+        if second == 60 and not _valid_event_leap_second(year, month, day, hour, minute, offset):
+            raise WorkflowError("CloudEvent leap second must be the final UTC second of a month")
+    _validate_event_trace(value)
+    _encode(value["data"], MAX_EVENT_BYTES, authoritative=authoritative)
+    return value
 
 
 def workflow_context() -> WorkflowContext:
@@ -144,7 +304,7 @@ class _LocalResult:
         # A cancelled observer cannot abandon a running local operation. The
         # activation retains ownership and drains it before process reuse.
         try:
-            return _freeze(await asyncio.shield(self._task), MAX_RECORD_BYTES)
+            return _freeze(await asyncio.shield(self._task), MAX_RECORD_BYTES, authoritative=True)
         except BaseException as exc:
             if (self._task.done() and not self._task.cancelled()
                     and self._task.exception() is exc):
@@ -159,20 +319,25 @@ class WorkflowContext:
     """One explicit activation. Constructed by the worker, not application code."""
 
     def __init__(self, payload, rpc):
-        payload = _freeze(payload, MAX_CONTEXT_BYTES, 96)
+        payload = _freeze(payload, MAX_CONTEXT_BYTES, 96, authoritative=True)
         _fields(payload, {"v", "workflow_id", "activation_id", "revision", "continuation",
-                          "state", "inputs", "local_steps"})
+                          "state", "inputs", "local_steps"}, {"wake"})
         if type(payload["v"]) is not int or payload["v"] != 1:
             raise WorkflowError("unsupported workflow activation version")
         self.workflow_id = _text(payload["workflow_id"], "workflow_id")
         self.activation_id = _text(payload["activation_id"], "activation_id")
         self.revision = _integer(payload["revision"], "revision")
         self.continuation = _text(payload["continuation"], "continuation")
-        self._state = _freeze(payload["state"], MAX_STATE_BYTES)
+        self._state = _freeze(payload["state"], MAX_STATE_BYTES, authoritative=True)
         self._inputs = payload["inputs"]
         if type(self._inputs) is not dict or len(self._inputs) > MAX_COMMANDS:
             raise WorkflowError("workflow inputs must be a bounded object")
-        _encode(self._inputs, MAX_DECISION_BYTES, 96)
+        self._wake = payload.get("wake")
+        if self._wake is not None:
+            self._validate_wake(self._wake)
+        # Preserve old payloads; wake and child inputs share one bounded batch.
+        combined = self._inputs if self._wake is None else {"inputs": self._inputs, "wake": self._wake}
+        _encode(combined, MAX_DECISION_BYTES, 96, authoritative=True)
         for key, item in self._inputs.items():
             _text(key, "input key")
             _fields(item, {"task_id", "state", "outcome"})
@@ -182,10 +347,10 @@ class WorkflowContext:
         records = payload["local_steps"]
         if type(records) is not list or len(records) > MAX_STEPS:
             raise WorkflowError("too many local step records")
-        _encode(records, MAX_RECORDS_BYTES, 96)
+        _encode(records, MAX_RECORDS_BYTES, 96, authoritative=True)
         self._records = {}
         for record in records:
-            self._validate_record(record)
+            self._validate_record(record, authoritative=True)
             if record["key"] in self._records:
                 raise WorkflowError("duplicate local step record")
             self._records[record["key"]] = record
@@ -200,11 +365,48 @@ class WorkflowContext:
 
     @property
     def state(self):
-        return _freeze(self._state, MAX_STATE_BYTES)
+        return _freeze(self._state, MAX_STATE_BYTES, authoritative=True)
 
     @property
     def inputs(self):
-        return _freeze(self._inputs, MAX_DECISION_BYTES, 96)
+        return _freeze(self._inputs, MAX_DECISION_BYTES, 96, authoritative=True)
+
+    @property
+    def wake(self):
+        """Return the event, timeout, or timer that resumed this activation."""
+        return _freeze(self._wake, MAX_DECISION_BYTES, 96, authoritative=True)
+
+    @staticmethod
+    def _validate_wake(wake):
+        if type(wake) is not dict:
+            raise WorkflowError("invalid workflow wake")
+        kind = wake.get("kind")
+        if kind == "event":
+            _fields(wake, {"kind", "key", "event", "accepted_at"})
+            _validate_event(wake["event"], authoritative=True)
+            _integer(wake["accepted_at"], "accepted_at", maximum=MAX_TIMESTAMP)
+        elif kind in ("timeout", "timer"):
+            _fields(wake, {"kind", "key", "deadline"})
+            _integer(wake["deadline"], "deadline", maximum=MAX_TIMESTAMP)
+        else:
+            raise WorkflowError("invalid workflow wake kind")
+        _text(wake["key"], "wake key")
+
+    @staticmethod
+    def _validate_wait(wait):
+        if type(wait) is not dict:
+            raise WorkflowError("invalid workflow wait")
+        kind = wait.get("kind")
+        if kind == "event":
+            _fields(wait, {"kind", "key", "timeout_ms"})
+            if wait["timeout_ms"] is not None:
+                _integer(wait["timeout_ms"], "timeout_ms", maximum=MAX_WAIT_MS)
+        elif kind == "timer":
+            _fields(wait, {"kind", "key", "delay_ms"})
+            _integer(wait["delay_ms"], "delay_ms", maximum=MAX_WAIT_MS)
+        else:
+            raise WorkflowError("invalid workflow wait kind")
+        _text(wait["key"], "wait key")
 
     def _active(self):
         if _local_owner.get() is not None:
@@ -221,13 +423,13 @@ class WorkflowContext:
             raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
 
     @staticmethod
-    def _validate_record(record):
+    def _validate_record(record, *, authoritative=False):
         _fields(record, {"key", "callable", "input", "output"})
         _text(record["key"], "local key")
         _text(record["callable"], "local callable", 512)
-        _encode(record["input"], MAX_RECORD_BYTES)
-        _encode(record["output"], MAX_RECORD_BYTES)
-        _encode(record, MAX_RECORD_BYTES, 96)
+        _encode(record["input"], MAX_RECORD_BYTES, authoritative=authoritative)
+        _encode(record["output"], MAX_RECORD_BYTES, authoritative=authoritative)
+        _encode(record, MAX_RECORD_BYTES, 96, authoritative=authoritative)
 
     def local(self, key, fn, **kwargs):
         """Start a local step; await its durably acknowledged JSON result.
@@ -244,13 +446,15 @@ class WorkflowContext:
         name = getattr(fn, "__qualname__", None)
         if not module or not name:
             raise WorkflowError("local callable requires a stable module and qualified name")
-        binding = {"key": key, "callable": _text(module + ":" + name, "local callable", 512),
-                   "input": _freeze(kwargs, MAX_RECORD_BYTES)}
-        binding_bytes = _encode(binding, MAX_RECORD_BYTES, 96)
         previous = self._records.get(key)
+        # Exact replay may copy an accepted Rust-size-boundary binding whose
+        # Python float text is longer. A new binding never receives this slack.
+        binding = {"key": key, "callable": _text(module + ":" + name, "local callable", 512),
+                   "input": _freeze(kwargs, MAX_RECORD_BYTES, authoritative=previous is not None)}
+        binding_bytes = _encode(binding, MAX_RECORD_BYTES, 96, authoritative=previous is not None)
         if previous is not None:
             actual = {field: previous[field] for field in ("key", "callable", "input")}
-            if _encode(actual, MAX_RECORD_BYTES, 96) != binding_bytes:
+            if _encode(actual, MAX_RECORD_BYTES, 96, authoritative=True) != binding_bytes:
                 raise WorkflowError("local step key was reused with a different binding")
         if key in self._pending:
             known, task = self._pending[key]
@@ -351,7 +555,7 @@ class WorkflowContext:
         if (item["state"] != "succeeded" or type(outcome) is not dict
                 or outcome.get("kind") != "succeeded" or "output" not in outcome):
             raise WorkflowError("child did not succeed; inspect inputs for its outcome")
-        return _freeze(outcome["output"], MAX_DECISION_BYTES)
+        return _freeze(outcome["output"], MAX_DECISION_BYTES, authoritative=True)
 
     def _decision(self, kind, **fields):
         self._active()
@@ -371,6 +575,32 @@ class WorkflowContext:
         return self._decision("suspend", continuation=_text(continuation, "continuation"),
                               state=_freeze(state, MAX_STATE_BYTES), commands=self._commands,
                               until=keys)
+
+    def wait_event(self, key, *, continuation, state, timeout_ms=None):
+        """Checkpoint and wait for one external event, optionally until a deadline.
+
+        The key is one-shot across the workflow run. Return this decision from
+        the controller; preparing it does not dispatch or wait in Python.
+        """
+        self._active()
+        wait = {"kind": "event", "key": key, "timeout_ms": timeout_ms}
+        self._validate_wait(wait)
+        return self._decision("wait", continuation=_text(continuation, "continuation"),
+                              state=_freeze(state, MAX_STATE_BYTES),
+                              commands=self._commands, wait=wait)
+
+    def sleep(self, key, delay_ms, *, continuation, state):
+        """Checkpoint a durable timer and release this invocation's worker slot.
+
+        Return this decision. The orchestrator owns the timer; this method does
+        not block, sleep, or keep a Python process alive until the deadline.
+        """
+        self._active()
+        wait = {"kind": "timer", "key": key, "delay_ms": delay_ms}
+        self._validate_wait(wait)
+        return self._decision("wait", continuation=_text(continuation, "continuation"),
+                              state=_freeze(state, MAX_STATE_BYTES),
+                              commands=self._commands, wait=wait)
 
     def continue_(self, *, continuation, state):
         """Commit a checkpoint and request another activation without a wait."""
@@ -394,9 +624,12 @@ class WorkflowContext:
         if type(decision) is not dict:
             raise WorkflowError("workflow handler must return a workflow decision")
         kind = decision.get("kind")
+        if type(kind) is not str:
+            raise WorkflowError("invalid workflow decision kind")
         extra = {"complete": {"output"}, "fail": {"error"},
                  "continue": {"continuation", "state", "commands"},
-                 "suspend": {"continuation", "state", "commands", "until"}}.get(kind)
+                 "suspend": {"continuation", "state", "commands", "until"},
+                 "wait": {"continuation", "state", "commands", "wait"}}.get(kind)
         if extra is None:
             raise WorkflowError("invalid workflow decision kind")
         if kind == "complete" and self._commands:
@@ -408,13 +641,16 @@ class WorkflowContext:
             raise WorkflowError("workflow decision changed activation identity")
         if kind == "complete":
             _encode(decision["output"], MAX_DECISION_BYTES)
-        if kind in ("suspend", "continue"):
+        if kind in ("suspend", "continue", "wait"):
+            _text(decision["continuation"], "continuation")
             if (_encode(decision["commands"], MAX_DECISION_BYTES, 96)
                     != _encode(self._commands, MAX_DECISION_BYTES, 96)):
                 raise WorkflowError("workflow decision does not contain the staged child commands")
             _encode(decision["state"], MAX_STATE_BYTES)
             for command in decision["commands"]:
                 _encode(command["data"], MAX_DECISION_BYTES)
+        if kind == "wait":
+            self._validate_wait(decision["wait"])
         return _freeze(decision, MAX_DECISION_BYTES, 96)
 
     async def _drain(self):

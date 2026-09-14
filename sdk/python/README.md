@@ -146,8 +146,8 @@ real programs; nothing is installed at execution time.
 ## Explicit checkpoint workflows (protocol 3)
 
 Workflow programs use `from ledgence_worker.workflow import workflow_context` and
-return `ctx.suspend(...)`, `ctx.continue_(...)`, `ctx.complete(output)`, or
-`ctx.fail(kind, message)`. `ctx.continuation` starts as `"start"`; `ctx.state` is
+return `ctx.suspend(...)`, `ctx.continue_(...)`, `ctx.wait_event(...)`,
+`ctx.sleep(...)`, `ctx.complete(output)`, or `ctx.fail(kind, message)`. `ctx.continuation` starts as `"start"`; `ctx.state` is
 explicit JSON state and `ctx.inputs` is the frozen batch of child outcomes.
 The complete CloudEvent, including user-owned `data`, remains the handler argument.
 
@@ -182,6 +182,65 @@ for an existing key conflicts. `ctx.suspend(continuation=..., state=..., until=[
 waits until all listed children are terminal; the next activation can read
 `ctx.get_result(ref_or_key)` for successful output or inspect `ctx.inputs` for
 failures. String keys can also refer to children from earlier activations.
+
+External events and durable timers also use explicit checkpoint decisions:
+
+```python
+from ledgence_worker.workflow import workflow_context
+
+def handle(event):
+    ctx = workflow_context()
+    if ctx.continuation == "start":
+        return ctx.wait_event(
+            "approval:1", continuation="approved", state={}, timeout_ms=60_000,
+        )
+    wake = ctx.wake
+    if wake["kind"] == "event":
+        return ctx.complete(wake["event"]["data"])
+    return ctx.fail("approval_timeout", "No approval arrived before the deadline")
+```
+
+`ctx.wake` is `None` initially and when no external wait resumed the activation.
+An event wake is `{"kind": "event", "key": ..., "event": <full CloudEvent>,
+"accepted_at": <milliseconds>}`. Event timeouts carry `{"kind": "timeout",
+"key": ..., "deadline": <milliseconds>}`; timers use `kind="timer"` with the same
+key/deadline fields. Returned wake/state/input values are independent JSON copies.
+`ctx.inputs` continues to contain only child outcomes. Event `data` and its original
+context envelope are preserved separately from the controller invocation event.
+
+Return `ctx.sleep("retry:1", 5_000, continuation="retry", state={...})` to register
+a durable timer. Both helpers stage the existing child commands in the same
+checkpoint and end this activation; the Rust orchestrator owns the persisted wait
+and later activation. They do not call `asyncio.sleep` or hold a worker slot until
+the deadline. Timeout/delay values are integer milliseconds from zero through
+31,536,000,000 (365 days). `timeout_ms=None` waits for an event without a deadline.
+Timer deadlines are persisted by the orchestrator when the checkpoint is applied.
+
+Wait keys are one-shot across the workflow run, including later activations.
+Use a fresh key such as `"retry:2"` for the next loop iteration. Reusing a closed
+key does not start another wait. Events can be accepted before their wait is
+registered. An event wake carries at most 64 KiB of complete encoded CloudEvent;
+child inputs plus wake share a 256 KiB encoded budget, and the entire activation
+context retains its 640 KiB budget. Application event data retains depth64 while
+workflow envelope metadata has separate room.
+
+External event IDs are limited to 128 UTF-8 bytes and sources to 2,048 UTF-8
+bytes, in addition to the complete event budget. Sources must be valid URI
+references; encode non-ASCII URI characters with percent escapes.
+
+Rust and Python may spell the same finite float differently. Reading a context
+already accepted by Rust therefore allows a bounded encoding expansion: for each
+float, at most `max(0, len(repr(value)) - 3)` additional bytes. Rust's canonical
+float tokens have at least three bytes; CPython JSON uses that float representation
+(and the helper bounds it at 32 bytes). Existing traversal, string, node and depth
+checks still apply. The allowance covers received state, child inputs, event
+wakes, journal records, copied getters and exact committed-step replay.
+
+New decisions, child commands, local inputs/results and added journal entries
+retain the strict Python encoding limits. Copying a near-boundary received value
+into a new write, or adding to a ledger whose Python encoding expanded, can be
+rejected conservatively even when Rust's representation would fit. Pure reading
+and exact committed replay do not spend a new-write budget.
 
 Each protocol 3 invocation uses a fresh event loop inside the reused Python
 process. Create and close loop-bound clients inside the handler, rather than

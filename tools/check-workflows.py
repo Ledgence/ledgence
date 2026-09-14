@@ -29,12 +29,12 @@ import traceback
 import urllib.parse
 import uuid
 
-from http_acceptance.harness import Deployment, eventually, exchange
+from http_acceptance.harness import Deployment, Process, eventually, exchange
 from http_acceptance.sqs import SqsDeployment
 
 
 FIXTURE = r'''
-import asyncio, json, os, time
+import asyncio, hashlib, json, os, time
 from pathlib import Path
 from urllib.request import urlopen
 from ledgence_worker.workflow import workflow_context
@@ -62,6 +62,24 @@ async def handle(event):
     data = event['data']
     tag, marker = data['tag'], data['marker']
     mark(marker, tag, 'activation', activation=ctx.activation_id, attempt=event['ldgattemptno'], continuation=ctx.continuation)
+    if data['mode'] in ('event', 'timer'):
+        if ctx.continuation == 'start':
+            state = {'checkpoint': data['tag']}
+            if data['mode'] == 'event':
+                return ctx.wait_event(data['wait_key'], continuation='woken', state=state,
+                    timeout_ms=data.get('timeout_ms'))
+            return ctx.sleep(data['wait_key'], data['delay_ms'], continuation='woken', state=state)
+        wake = ctx.wake
+        mark(marker, tag, 'wake', activation=ctx.activation_id, attempt=event['ldgattemptno'], wake=wake)
+        if data.get('retry_on_wake') and event['ldgattemptno'] == 1:
+            raise RuntimeError('intentional first resumed activation failure')
+        if data.get('summarize_wake'):
+            source = wake['event']
+            encoded = json.dumps(source, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+            return ctx.complete(dict(event_id=source['id'], time=source['time'], value=source['data']['value'],
+                padding_bytes=len(source['data']['padding'].encode()), event_sha256=hashlib.sha256(encoded).hexdigest(),
+                python_encoded_bytes=len(encoded)))
+        return ctx.complete(dict(wake=wake, state=ctx.state, inputs=ctx.inputs))
     if data['mode'] == 'depth':
         return ctx.complete(await ctx.local('depth', deep_value, depth=64))
     if data['mode'] == 'distributed':
@@ -186,8 +204,29 @@ def snapshot(d, workflow_id):
     return result
 
 
-async def scenarios(d, delay, names, record, placement_iterations=3):
-    from ledgence.client import AsyncClient, RetryPolicy, WaitTimeout
+def boundary_event():
+    # Rust's JSON encoder omits the leading zero in this float exponent.
+    # The event is exactly at the authoritative 64 KiB limit, although Python
+    # encodes the same typed JSON one byte longer. Bypass outbound SDK preflight
+    # only for this cross-language inbound compatibility regression.
+    event = dict(specversion='1.0', id='evt-float-boundary', source='urn:workflow-acceptance:boundary',
+        type='boundary.accepted.v1', time='2016-12-31T23:59:60Z', datacontenttype='application/json',
+        data=dict(value=2.9802322387695312e-8, padding=''))
+    event['data']['padding'] = 'x' * (65536-len(rust_boundary_bytes(event)))
+    encoded = rust_boundary_bytes(event)
+    assert len(encoded)==65536 and len(json.dumps(event,sort_keys=True,separators=(',', ':')).encode())==65537
+    assert json.loads(encoded)==event
+    return event, encoded
+
+
+def rust_boundary_bytes(value):
+    encoded = json.dumps(value,sort_keys=True,separators=(',', ':'),ensure_ascii=False).encode()
+    assert encoded.count(b'2.9802322387695312e-08')==1
+    return encoded.replace(b'2.9802322387695312e-08',b'2.9802322387695312e-8')
+
+
+async def scenarios(d, delay, names, record, placement_iterations=3, capture=None):
+    from ledgence.client import AsyncClient, RetryPolicy, WaitTimeout, WorkflowEventUncertain
     options = dict(tenant=d.scope['tenant_id'], namespace=d.scope['namespace'])
 
     def data(tag, mode='mixed', count=4, **extra):
@@ -296,6 +335,151 @@ async def scenarios(d, delay, names, record, placement_iterations=3):
             record('crash',dict(workflow_id=handle.id,attempts=2,local_execution_count=1,lease_expiry='production 60 seconds'))
         await asyncio.to_thread(replacement.stop)
 
+    if 'events' in names:
+        proxy = d.proxy()
+        lost = proxy.lose_once('/v1/workflows/events')
+        async with AsyncClient(proxy.url, **options) as client:
+            handle = await submit(client, 'early-event', mode='event', wait_key='approval:1', retry_on_wake=True)
+            event = dict(specversion='1.0', id='evt-approval-1', source='urn:workflow-acceptance',
+                type='approval.granted.v1', datacontenttype='application/json',
+                traceparent='00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00',
+                tracestate='original=event', businessid='INV-1042',
+                data={'approved':True,'values':[None,1,1.0,-0.0,18446744073709551615]})
+            prepared = handle.prepare_event('approval:1', event=event)
+            try:
+                await handle.send_event(prepared)
+                raise AssertionError('lost event ACK must expose an uncertain outcome')
+            except WorkflowEventUncertain as uncertain:
+                assert uncertain.command is prepared
+                assert len(proxy.commands('/v1/workflows/events'))==1, 'event was automatically retried'
+                accepted = await handle.send_event(uncertain.command)
+            assert lost.is_set(), 'event acceptance reply was not lost'
+            calls = proxy.commands('/v1/workflows/events')
+            assert len(calls)>=2 and all(call['body']==calls[0]['body'] for call in calls), calls
+            assert accepted.already_accepted, 'lost ACK did not reconcile the original event'
+            assert not records(d,'early-event','activation'), 'early event test started a worker too soon'
+            if capture:
+                await asyncio.to_thread(eventually, lambda: len([span for span in trace_rows(capture)
+                    if span['name']=='ledgence.workflow.event.accept'
+                    and span['attributes'].get('ledgence.workflow.id')==handle.id]) >= 2,
+                    description='committed event acceptance span export before restart')
+            await asyncio.to_thread(d.server.kill)
+            d.server,_ = await asyncio.to_thread(d.start_server)
+            worker = d.start_worker(server=proxy.url, concurrency=1)
+            result = await handle.result(timeout=110)
+            expected = dict(kind='event', key='approval:1', event=event, accepted_at=accepted.accepted_at)
+            assert json.dumps(result['wake'],sort_keys=True)==json.dumps(expected,sort_keys=True), result
+            assert result['state']=={'checkpoint':'early-event'} and result['inputs']=={}, result
+            wakes = records(d,'early-event','wake')
+            assert len(wakes)==2 and [row['attempt'] for row in wakes]==[1,2], wakes
+            assert wakes[0]['activation']==wakes[1]['activation']
+            assert all(json.dumps(row['wake'],sort_keys=True)==json.dumps(expected,sort_keys=True) for row in wakes), wakes
+            reconciled = await handle.send_event(prepared)
+            assert reconciled.already_accepted and reconciled.accepted_at==accepted.accepted_at
+            if capture:
+                await asyncio.to_thread(eventually, lambda: len([span for span in trace_rows(capture)
+                    if span['name']=='ledgence.workflow.event.accept'
+                    and span['attributes'].get('ledgence.workflow.id')==handle.id]) >= 3,
+                    description='event reconciliation span export')
+            record('events',dict(workflow_id=handle.id,early_before_worker=True,lost_acceptance_ack=True,
+                event_requests=len(proxy.commands('/v1/workflows/events')),resumed_attempts=2,
+                frozen_wake_preserved=True,inbox_survived_server_restart=True,receipt_reconciled_after_completion=True))
+        await asyncio.to_thread(worker.stop)
+
+    if 'event-boundaries' in names:
+        worker = d.start_worker(concurrency=1)
+        async with AsyncClient(d.server_url, **options) as client:
+            handle = await submit(client,'event-boundaries',mode='event',wait_key='boundary:1',
+                summarize_wake=True,retry_on_wake=True)
+            event, encoded_event = boundary_event()
+            command = dict(scope=d.scope,workflow_id=handle.id,key='boundary:1',event=event)
+            rejected = ['2024-02-29 12:00:00Z','2024-01-15T12:00:60Z']
+            for invalid_time in rejected:
+                invalid = dict(command,event=dict(event,time=invalid_time))
+                status,_,error = await asyncio.to_thread(exchange,d.server_url,'POST','/v1/workflows/events',
+                    rust_boundary_bytes(invalid))
+                assert status==400 and error['code']=='invalid_input',error
+            encoded_command = rust_boundary_bytes(command)
+            status,_,receipt = await asyncio.to_thread(exchange,d.server_url,'POST','/v1/workflows/events',encoded_command)
+            assert status==200 and not receipt['already_accepted'],receipt
+            assert receipt['workflow_id']==handle.id and receipt['key']=='boundary:1',receipt
+            expected_encoding = json.dumps(event,sort_keys=True,separators=(',', ':'),ensure_ascii=False).encode()
+            expected = dict(event_id=event['id'],time=event['time'],value=event['data']['value'],
+                padding_bytes=len(event['data']['padding']),event_sha256=hashlib.sha256(expected_encoding).hexdigest(),
+                python_encoded_bytes=len(expected_encoding))
+            result = await handle.result(timeout=110)
+            assert result==expected,result
+            wakes = records(d,'event-boundaries','wake')
+            assert len(wakes)==2 and [row['attempt'] for row in wakes]==[1,2], 'boundary wake was not retried'
+            assert wakes[0]['activation']==wakes[1]['activation']
+            for wake in wakes:
+                assert json.dumps(wake['wake']['event'],sort_keys=True,separators=(',', ':')).encode()==expected_encoding
+            status,_,replayed = await asyncio.to_thread(exchange,d.server_url,'POST','/v1/workflows/events',encoded_command)
+            assert status==200 and replayed['already_accepted'] and replayed['accepted_at']==receipt['accepted_at'],replayed
+            record('event-boundaries',dict(workflow_id=handle.id,rust_event_bytes=len(encoded_event),
+                python_event_bytes=len(expected_encoding),valid_leap_second=event['time'],
+                invalid_times_rejected=rejected,resumed_attempts=2,compact_output=result,receipt_reconciled_after_completion=True))
+        await asyncio.to_thread(worker.stop)
+
+    if 'timers' in names:
+        worker = d.start_worker(concurrency=1)
+        async with AsyncClient(d.server_url, **options) as client:
+            handle = await submit(client,'timer-restart',mode='timer',wait_key='delay:1',delay_ms=5000)
+            await asyncio.to_thread(eventually,lambda: snapshot(d,handle.id)['state']=='waiting',description='persisted timer wait')
+            # This ordinary task can execute using the only consumer while the
+            # workflow's timer remains asleep. No runtime slot belongs to it.
+            task = await client.tasks.submit(program='workflow-io',version='1.0.0',queue=d.queue,
+                data=dict(url=delay.url,marker=str(d.directory/'workflow-markers.jsonl'),tag='timer-capacity',index=7),
+                idempotency_key='timer-capacity')
+            assert (await task.result(timeout=30))['index']==7
+            assert (await asyncio.to_thread(snapshot,d,handle.id))['state']=='waiting'
+            await asyncio.to_thread(d.server.kill)
+            await asyncio.sleep(5.25)
+            restart_at = int(time.time()*1000)
+            d.server,_ = await asyncio.to_thread(d.start_server)
+            result = await handle.result(timeout=110)
+            assert result['wake']['kind']=='timer' and result['wake']['key']=='delay:1',result
+            assert result['wake']['deadline']<restart_at, 'timer deadline restarted after server recovery'
+            assert len(records(d,'timer-restart','activation'))==2
+            record('timers',dict(workflow_id=handle.id,concurrency=1,ordinary_task_while_waiting=True,
+                server_down_when_due=True,original_deadline=result['wake']['deadline'],restart_at=restart_at,
+                controller_activations=2))
+        await asyncio.to_thread(worker.stop)
+
+    if 'wait-cancellation' in names:
+        worker = d.start_worker(concurrency=1)
+        async with AsyncClient(d.server_url, **options) as client:
+            handle = await submit(client,'event-timeout',mode='event',wait_key='approval:expired',timeout_ms=0)
+            result = await handle.result(timeout=30)
+            assert result['wake']['kind']=='timeout' and result['wake']['key']=='approval:expired',result
+            def external(workflow_id,key,identifier):
+                return dict(scope=d.scope,workflow_id=workflow_id,key=key,event=dict(
+                    specversion='1.0',id=identifier,source='urn:workflow-acceptance',type='approval.granted.v1',
+                    datacontenttype='application/json',data=None))
+            status,_,error = await asyncio.to_thread(exchange,d.server_url,'POST','/v1/workflows/events',
+                external(handle.id,'approval:expired','evt-too-late'))
+            assert status==409 and error['code']=='obsolete_operation',error
+            cancelled = []
+            for mode in ('event','timer'):
+                tag = 'cancel-'+mode
+                extra = dict(timeout_ms=None) if mode=='event' else dict(delay_ms=3000)
+                waiting = await submit(client,tag,mode=mode,wait_key='cancel:1',**extra)
+                await asyncio.to_thread(eventually,lambda: snapshot(d,waiting.id)['state']=='waiting',description='cancellable durable wait')
+                await waiting.cancel()
+                await asyncio.to_thread(eventually,lambda: snapshot(d,waiting.id)['state']=='cancelled',description='cancelled durable wait')
+                if mode=='event':
+                    status,_,error = await asyncio.to_thread(exchange,d.server_url,'POST','/v1/workflows/events',
+                        external(waiting.id,'cancel:1','evt-after-cancel'))
+                    assert status==409 and error['code']=='obsolete_operation',error
+                cancelled.append((tag,waiting.id))
+            await asyncio.sleep(3.25)
+            for tag,workflow_id in cancelled:
+                assert (await asyncio.to_thread(snapshot,d,workflow_id))['state']=='cancelled'
+                assert len(records(d,tag,'activation'))==1 and not records(d,tag,'wake')
+            record('wait-cancellation',dict(timed_out_workflow=handle.id,late_event_rejected=True,
+                cancelled_event_and_timer=[identifier for _,identifier in cancelled],no_resurrection=True))
+        await asyncio.to_thread(worker.stop)
+
     if 'placement' in names:
         worker = d.start_worker(concurrency=1)
         samples = []
@@ -333,6 +517,56 @@ async def scenarios(d, delay, names, record, placement_iterations=3):
             response_payload_bytes=len(b'local network I/O'),distributed_batch_size=50,samples=samples,
             interpretation='Paired end-to-end functional measurements: local I/O overlaps, distributed tasks execute serially at N=1. elapsed_seconds includes 1-second client observation polling; workflow_committed_elapsed_ms uses server submission/terminal timestamps. Server-wide WAL deltas may include other databases and maintenance; these are not isolated workflow write costs or production throughput/tail benchmarks.'))
         await asyncio.to_thread(worker.stop)
+
+
+def trace_rows(capture):
+    return [json.loads(line) for line in capture.stdout_path.read_text().splitlines(keepends=True)
+            if line.endswith('\n')]
+
+
+def verify_event_traces(d, capture, results):
+    detail = next(row['detail'] for row in results if row['scenario']=='events')
+    workflow_id = detail['workflow_id']
+    wake = records(d,'early-event','wake')[0]['wake']
+    origin = wake['event']['traceparent'].split('-')
+    original = (origin[1],origin[2])
+    rows = trace_rows(capture)
+    accepts = [span for span in rows if span['name']=='ledgence.workflow.event.accept'
+        and span['attributes'].get('ledgence.workflow.id')==workflow_id]
+    activations = [span for span in rows if span['name']=='ledgence.workflow.activation'
+        and span['attributes'].get('ledgence.workflow.id')==workflow_id
+        and span['attributes'].get('ledgence.workflow.wake')=='event']
+    assert len(accepts)>=3, 'missing actual event acceptance and reconciliation spans'
+    assert len(activations)==2, 'each resumed attempt must export a causal activation span'
+    for span in accepts+activations:
+        assert [(link['trace_id'],link['span_id']) for link in span['links']]==[original],span
+        assert span['attributes']['cloudevents.event_id']==wake['event']['id'],span
+        assert span['attributes']['cloudevents.event_source']==wake['event']['source'],span
+        assert span['trace_id']!=original[0], 'the external event must be linked, not become the processing parent'
+    for accepted in accepts:
+        parent = [span for span in rows if (span['trace_id'],span['span_id'])==
+            (accepted['trace_id'],accepted['parent_span_id'])]
+        assert len(parent)==1 and parent[0]['attributes'].get('http.route')=='/v1/workflows/events',parent
+    inspected = []
+    for activation in activations:
+        parents = [span for span in rows if (span['trace_id'],span['span_id'])==
+            (activation['trace_id'],activation['parent_span_id'])]
+        assert len(parents)==1 and parents[0]['name']=='ledgence.attempt.process',parents
+        parent = parents[0]
+        task_id = parent['attributes']['ledgence.task.id']
+        attempt_id = parent['attributes']['ledgence.attempt.id']
+        query = urllib.parse.urlencode(dict(d.scope,task_id=task_id,attempt_id=attempt_id))
+        status,_,attempt = exchange(d.server_url,'GET','/v1/attempts/inspect?'+query)
+        assert status==200,attempt
+        processing = attempt['settlement']['command']['processing_trace']['traceparent'].split('-')
+        assert (processing[1],processing[2])==(parent['trace_id'],parent['span_id']),attempt
+        creation = attempt['event']['traceparent'].split('-')
+        assert (creation[1],creation[2])==(parent['trace_id'],parent['parent_span_id']),attempt
+        inspected.append(dict(task_id=task_id,attempt_id=attempt_id,processing_span=parent['span_id'],
+            activation_span=activation['span_id']))
+    return dict(workflow_id=workflow_id,acceptance_spans=len(accepts),resumed_activation_spans=len(activations),
+        original_event_trace=original[0],original_event_span=original[1],processing_trace_unchanged=True,
+        inspected_attempts=inspected,decoded_spans=len(rows),capture_file=capture.stdout_path.name)
 
 
 def artifact_metadata(root, binaries, python, d):
@@ -393,6 +627,7 @@ def self_test(root):
     namespace = {'__name__': 'workflow_acceptance_example'}
     exec(compile(controller,'example.py','exec'),namespace)
     compile(FIXTURE,'workflow_fixture.py','exec')
+    boundary_event()
     compile(CHILD,'child_fixture.py','exec')
     compile((root/'examples/checkpoint-workflow/child/program.py').read_text(),'example_child.py','exec')
     delay = DelayServer()
@@ -415,12 +650,15 @@ def main():
     parser.add_argument('--psql',default='psql')
     parser.add_argument('--binaries',type=Path)
     parser.add_argument('--evidence',type=Path)
+    parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; requires the events scenario')
     parser.add_argument('--placement-iterations',type=int,default=3,help='paired local/distributed timing iterations (1..10; default 3)')
-    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','placement'])
+    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement'])
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if args.self_test:
         return self_test(root)
+    if args.capture and (not args.capture.is_file() or (args.scenario and 'events' not in args.scenario)):
+        parser.error('--capture requires an existing executable and the events scenario')
     if not 1 <= args.placement_iterations <= 10:
         parser.error('--placement-iterations must be 1..10')
     if args.endpoint:
@@ -455,7 +693,7 @@ def main():
         directory.mkdir(parents=True,exist_ok=False)
     database = 'ledgence_workflow_'+uuid.uuid4().hex
     database_url = urllib.parse.urlunsplit(urllib.parse.urlsplit(parent_url)._replace(path='/'+database))
-    deployment = delay = queue_admin = queue_url = None
+    deployment = delay = queue_admin = queue_url = capture = None
     queue_name = 'ledgence-test-workflow-'+uuid.uuid4().hex
     created = queue_started = succeeded = False
     results = []
@@ -478,6 +716,12 @@ def main():
         cls = SqsDeployment if args.endpoint else Deployment
         extra = dict(queue_url=queue_url,endpoint=args.endpoint,region=args.region) if args.endpoint else {}
         deployment = cls(root,directory,binaries,python,database_url,args.psql,**extra)
+        if args.capture:
+            capture = Process([str(args.capture.resolve()), '127.0.0.1:0'], directory, 'workflow-capture', dict(os.environ))
+            line = eventually(lambda: next((line for line in capture.stderr_path.read_text().splitlines()
+                if line.startswith('OTLP_CAPTURE_ENDPOINT=')), None), description='workflow trace capture readiness')
+            deployment.environment.update(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=line.split('=',1)[1],
+                OTEL_SDK_DISABLED='false',OTEL_TRACES_SAMPLER='parentbased_always_on',OTEL_TRACES_SAMPLER_ARG='1')
         # Exercise the public example's exact async HTTP helper in the fixture.
         controller = (root/'examples/checkpoint-workflow/controller/program.py').read_text()
         fetch = controller[:controller.index('\n\nasync def handle(event):')]
@@ -494,7 +738,14 @@ def main():
         provenance = artifact_metadata(root,binaries,python,deployment)
         provenance.update(mode='elasticmq' if args.endpoint else 'integrated',database=database,queue_url=queue_url,real_aws=False,published_programs=packages)
         (directory/'resources.json').write_text(json.dumps(provenance,indent=2)+'\n')
-        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','placement'],record,args.placement_iterations))
+        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement'],record,args.placement_iterations,capture))
+        if capture:
+            # Workers have drained their exporters, but the server must remain
+            # available while durable attempt snapshots are checked.
+            eventually(lambda: len([span for span in trace_rows(capture)
+                if span['name']=='ledgence.workflow.event.accept']) >= 3,
+                description='final event reconciliation span export')
+            record('event-traces',verify_event_traces(deployment,capture,results))
         deployment.server.stop()
         succeeded = True
         print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}',flush=True)
@@ -509,6 +760,8 @@ def main():
                 deployment.close()
             if delay:
                 delay.close()
+            if capture:
+                capture.cleanup()
         finally:
             try:
                 if created:
