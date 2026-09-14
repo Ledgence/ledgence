@@ -1124,3 +1124,6 @@ fn rejected_commands_leave_input_snapshots_unchanged_and_do_not_grant_authority(
     assert!(!current.attempt.execution_may_have_started);
     assert!(current.attempt.settlement.is_none());
 }
+
+#[path = "observation_tests.rs"]
+mod observation;

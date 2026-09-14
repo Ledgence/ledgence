@@ -6,8 +6,20 @@ use ledgence_worker_api::{CloudEvent, ProgramOutcome, validate_wire_value};
 use serde::de::DeserializeOwned;
 
 pub(crate) trait ResponseValue: DeserializeOwned + Send + 'static {
+    const MAX_BYTES: usize = crate::RESPONSE_MAX_BYTES;
     fn validate_values(&self) -> Result<()> {
         Ok(())
+    }
+}
+impl ResponseValue for TaskStatus {
+    const MAX_BYTES: usize = crate::STATUS_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for TaskResult {
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
     }
 }
 impl ResponseValue for WorkerSession {}

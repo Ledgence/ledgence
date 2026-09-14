@@ -301,6 +301,10 @@ pub trait TaskService: Send + Sync {
         worker_session_id: &'a str,
     ) -> ContractFuture<'a, WorkerSession>;
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot>;
+    /// Read compact scheduling metadata without application payloads.
+    fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus>;
+    /// Read task metadata and its logical outcome from one consistent snapshot.
+    fn result<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskResult>;
     fn inspect<'a>(
         &'a self,
         scope: &'a Scope,
@@ -313,7 +317,7 @@ pub trait TaskService: Send + Sync {
         attempt_id: &'a str,
     ) -> ContractFuture<'a, AttemptSnapshot>;
     /// Return at most 100 ordered records after the supplied sequence. Large
-    /// application outcomes are fetched through inspect_attempt, not history.
+    /// application outcomes are fetched through result or inspect_attempt, not history.
     fn history<'a>(
         &'a self,
         scope: &'a Scope,

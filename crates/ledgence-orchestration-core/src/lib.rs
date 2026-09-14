@@ -8,9 +8,11 @@
 mod acquisition;
 mod authority;
 mod lifecycle;
+mod observation;
 pub use acquisition::*;
 pub use authority::*;
 pub use lifecycle::*;
+pub use observation::*;
 
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{CloudEvent, ProgramDescriptor};

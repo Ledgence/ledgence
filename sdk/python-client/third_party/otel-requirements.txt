@@ -1,0 +1,4 @@
+# Generated from the reviewed inventory; changes require dependency review.
+# Use --require-hashes --only-binary=:all: with the reviewed target wheelhouse.
+opentelemetry-api==1.44.0 --hash=sha256:94b98c893a91b88657eaac1e3ba89618cdb85be6918196705354f34728b2cdef
+typing-extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

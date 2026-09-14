@@ -1,0 +1,1631 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-09-13",
+  "targets": [
+    "linux-x86_64-cp311",
+    "linux-x86_64-cp312",
+    "linux-x86_64-cp313",
+    "linux-x86_64-cp314",
+    "macos-arm64-cp311",
+    "macos-arm64-cp312",
+    "macos-arm64-cp313",
+    "macos-arm64-cp314"
+  ],
+  "groups": {
+    "runtime": [
+      "aiohttp"
+    ],
+    "build": [
+      "flit-core"
+    ],
+    "test": [],
+    "otel": [
+      "opentelemetry-api"
+    ]
+  },
+  "packages": [
+    {
+      "name": "aiohappyeyeballs",
+      "version": "2.7.1",
+      "artifacts": [
+        {
+          "filename": "aiohappyeyeballs-2.7.1-py3-none-any.whl",
+          "sha256": "9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472",
+          "url": "https://files.pythonhosted.org/packages/71/43/1947f06babed6b3f1d7f38b0c767f52df66bfb2bc10b468c4a7de9eceff2/aiohappyeyeballs-2.7.1-py3-none-any.whl",
+          "targets": [
+            "linux-x86_64-cp311",
+            "macos-arm64-cp311",
+            "linux-x86_64-cp312",
+            "macos-arm64-cp312",
+            "linux-x86_64-cp313",
+            "macos-arm64-cp313",
+            "linux-x86_64-cp314",
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "PSF-2.0",
+          "license_files": {
+            "aiohappyeyeballs-2.7.1.dist-info/licenses/LICENSE": {
+              "path": "licenses/aiohappyeyeballs-2.7.1/wheel/LICENSE",
+              "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+            }
+          },
+          "native_files": []
+        }
+      ],
+      "license_expression": "PSF-2.0",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/ce/f4/eec0465c2f67b2664688d0240b3212d5196fd89e741df67ddb81f8d35658/aiohappyeyeballs-2.7.1.tar.gz",
+        "sha256": "065665c041c42a5938ed220bdcd7230f22527fbec085e1853d2402c8a3615d9d",
+        "filename": "aiohappyeyeballs-2.7.1.tar.gz",
+        "license_files": {
+          "aiohappyeyeballs-2.7.1/LICENSE": {
+            "path": "licenses/aiohappyeyeballs-2.7.1/source/LICENSE",
+            "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "aiohttp",
+      "version": "3.14.3",
+      "artifacts": [
+        {
+          "filename": "aiohttp-3.14.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "53e7b4ce82b54a8bcc71b3b67a5cbd177ca1d7f592cbc92cd38b7349f73482db",
+          "url": "https://files.pythonhosted.org/packages/a5/b9/2b8f0c0ce09c87a1daf80fd483431b56b1435d3f62789bc86f572e1245de/aiohttp-3.14.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp311"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_parser.cpython-311-x86_64-linux-gnu.so",
+            "aiohttp/_http_writer.cpython-311-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/mask.cpython-311-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/reader_c.cpython-311-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "aiohttp-3.14.3-cp311-cp311-macosx_11_0_arm64.whl",
+          "sha256": "21c016079415ed3fd676963e9793700a566d85dbbd6bfc564b9b2d209147dcc8",
+          "url": "https://files.pythonhosted.org/packages/b9/3f/01264f820ee2e3712a827892b1cd6ff80f3300c1fcbffbb45714a915d47a/aiohttp-3.14.3-cp311-cp311-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp311"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_parser.cpython-311-darwin.so",
+            "aiohttp/_http_writer.cpython-311-darwin.so",
+            "aiohttp/_websocket/mask.cpython-311-darwin.so",
+            "aiohttp/_websocket/reader_c.cpython-311-darwin.so"
+          ]
+        },
+        {
+          "filename": "aiohttp-3.14.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "543906c127fb1d929b95076db19b83fa2d46751006ff1e23b093aa5ac4d8db42",
+          "url": "https://files.pythonhosted.org/packages/52/b7/7cd31f29d6055bd711ae6e669367fba6f5ae9de463910a793e30556a8db7/aiohttp-3.14.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp312"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_parser.cpython-312-x86_64-linux-gnu.so",
+            "aiohttp/_http_writer.cpython-312-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/mask.cpython-312-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/reader_c.cpython-312-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "aiohttp-3.14.3-cp312-cp312-macosx_11_0_arm64.whl",
+          "sha256": "617105e2c3018ee38d0c8ce5ee3c84f621a6d8b9f723202aacaff28449ca91ee",
+          "url": "https://files.pythonhosted.org/packages/30/07/4bbc222cc8dbe31d4c3e8a5baad2286e4d42026ac0c570027b89afce6344/aiohttp-3.14.3-cp312-cp312-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp312"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_writer.cpython-312-darwin.so",
+            "aiohttp/_http_parser.cpython-312-darwin.so",
+            "aiohttp/_websocket/mask.cpython-312-darwin.so",
+            "aiohttp/_websocket/reader_c.cpython-312-darwin.so"
+          ]
+        },
+        {
+          "filename": "aiohttp-3.14.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "d7d2deec16eeedf55f2c7cf75b521ea3856a5177e123844f8fd0f114ce252cb5",
+          "url": "https://files.pythonhosted.org/packages/ca/1c/7da8d08e74d56f00070822f9638ff3f1c563f8ad87d1efa996c87bfc8644/aiohttp-3.14.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp313"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_parser.cpython-313-x86_64-linux-gnu.so",
+            "aiohttp/_http_writer.cpython-313-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/mask.cpython-313-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/reader_c.cpython-313-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "aiohttp-3.14.3-cp313-cp313-macosx_11_0_arm64.whl",
+          "sha256": "11fb37ef075669eee52ab1928fbf6e1741fada40409fa309ebde9607a962aebf",
+          "url": "https://files.pythonhosted.org/packages/bc/6b/e7f13410d391c6e55b4c007a8de024355389d7d459e3d64c42b2d33617e5/aiohttp-3.14.3-cp313-cp313-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp313"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_writer.cpython-313-darwin.so",
+            "aiohttp/_http_parser.cpython-313-darwin.so",
+            "aiohttp/_websocket/mask.cpython-313-darwin.so",
+            "aiohttp/_websocket/reader_c.cpython-313-darwin.so"
+          ]
+        },
+        {
+          "filename": "aiohttp-3.14.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "18cb43369747b2ae007bd2655fb8e63a099c2ff1d207962943636dac989b3147",
+          "url": "https://files.pythonhosted.org/packages/d5/b7/1da684a04175473fa4cddbf9a2f572e79514c3fd27a74597f43057d4f3da/aiohttp-3.14.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp314"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_parser.cpython-314-x86_64-linux-gnu.so",
+            "aiohttp/_http_writer.cpython-314-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/mask.cpython-314-x86_64-linux-gnu.so",
+            "aiohttp/_websocket/reader_c.cpython-314-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "aiohttp-3.14.3-cp314-cp314-macosx_11_0_arm64.whl",
+          "sha256": "db332af25642007330fca8be5c4d194caf2bea7a7fc84415aff3497af5dfee6b",
+          "url": "https://files.pythonhosted.org/packages/85/ed/0357a015892fd68058bf2d39d3fd1958e459b997a7db30aaa6aaa434ae96/aiohttp-3.14.3-cp314-cp314-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [
+            "aiohappyeyeballs>=2.5.0",
+            "aiosignal>=1.4.0",
+            "async-timeout<6.0,>=4.0; python_version < \"3.11\"",
+            "attrs>=17.3.0",
+            "frozenlist>=1.1.1",
+            "multidict<7.0,>=4.5",
+            "propcache>=0.2.0",
+            "typing_extensions>=4.4; python_version < \"3.13\"",
+            "yarl<2.0,>=1.17.0",
+            "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\"",
+            "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\"",
+            "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0 AND MIT",
+          "license_files": {
+            "aiohttp-3.14.3.dist-info/licenses/LICENSE.txt": {
+              "path": "licenses/aiohttp-3.14.3/wheel/LICENSE.txt",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            },
+            "aiohttp-3.14.3.dist-info/licenses/vendor/llhttp/LICENSE": {
+              "path": "licenses/aiohttp-3.14.3/wheel/vendor/llhttp/LICENSE",
+              "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+            }
+          },
+          "native_files": [
+            "aiohttp/_http_writer.cpython-314-darwin.so",
+            "aiohttp/_http_parser.cpython-314-darwin.so",
+            "aiohttp/_websocket/reader_c.cpython-314-darwin.so",
+            "aiohttp/_websocket/mask.cpython-314-darwin.so"
+          ]
+        }
+      ],
+      "license_expression": "Apache-2.0 AND MIT",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/58/d9/22ce5786ac0c1653ae8b6c23bded02c1686d11f0dbb45b31ce128e0df985/aiohttp-3.14.3.tar.gz",
+        "sha256": "9491196535a88924a60afd5b5f434b5b203b6cc616250878dbdb223a8f7844bc",
+        "filename": "aiohttp-3.14.3.tar.gz",
+        "license_files": {
+          "aiohttp-3.14.3/LICENSE.txt": {
+            "path": "licenses/aiohttp-3.14.3/source/LICENSE.txt",
+            "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+          },
+          "aiohttp-3.14.3/vendor/llhttp/LICENSE": {
+            "path": "licenses/aiohttp-3.14.3/source/vendor/llhttp/LICENSE",
+            "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+          }
+        }
+      },
+      "embedded_components": [
+        {
+          "name": "llhttp",
+          "license_expression": "MIT",
+          "source_path": "vendor/llhttp/LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "aiosignal",
+      "version": "1.4.0",
+      "artifacts": [
+        {
+          "filename": "aiosignal-1.4.0-py3-none-any.whl",
+          "sha256": "053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e",
+          "url": "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl",
+          "targets": [
+            "linux-x86_64-cp311",
+            "macos-arm64-cp311",
+            "linux-x86_64-cp312",
+            "macos-arm64-cp312",
+            "linux-x86_64-cp313",
+            "macos-arm64-cp313",
+            "linux-x86_64-cp314",
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [
+            "frozenlist>=1.1.0",
+            "typing-extensions>=4.2; python_version < \"3.13\""
+          ],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache 2.0",
+          "license_files": {
+            "aiosignal-1.4.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/aiosignal-1.4.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": []
+        }
+      ],
+      "license_expression": "Apache-2.0",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz",
+        "sha256": "f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7",
+        "filename": "aiosignal-1.4.0.tar.gz",
+        "license_files": {
+          "aiosignal-1.4.0/LICENSE": {
+            "path": "licenses/aiosignal-1.4.0/source/LICENSE",
+            "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0",
+      "artifacts": [
+        {
+          "filename": "attrs-26.1.0-py3-none-any.whl",
+          "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309",
+          "url": "https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl",
+          "targets": [
+            "linux-x86_64-cp311",
+            "macos-arm64-cp311",
+            "linux-x86_64-cp312",
+            "macos-arm64-cp312",
+            "linux-x86_64-cp313",
+            "macos-arm64-cp313",
+            "linux-x86_64-cp314",
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": "MIT",
+          "license": null,
+          "license_files": {
+            "attrs-26.1.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/attrs-26.1.0/wheel/LICENSE",
+              "sha256": "882115c95dfc2af1eeb6714f8ec6d5cbcabf667caff8729f42420da63f714e9f"
+            }
+          },
+          "native_files": []
+        }
+      ],
+      "license_expression": "MIT",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/9a/8e/82a0fe20a541c03148528be8cac2408564a6c9a0cc7e9171802bc1d26985/attrs-26.1.0.tar.gz",
+        "sha256": "d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32",
+        "filename": "attrs-26.1.0.tar.gz",
+        "license_files": {
+          "attrs-26.1.0/LICENSE": {
+            "path": "licenses/attrs-26.1.0/source/LICENSE",
+            "sha256": "882115c95dfc2af1eeb6714f8ec6d5cbcabf667caff8729f42420da63f714e9f"
+          },
+          "attrs-26.1.0/docs/license.md": {
+            "path": "licenses/attrs-26.1.0/source/docs/license.md",
+            "sha256": "b26415d5042a70fcc29edc17112f68311aa09935290a208218d4930d9b571a7a"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "flit-core",
+      "version": "3.12.0",
+      "artifacts": [
+        {
+          "filename": "flit_core-3.12.0-py3-none-any.whl",
+          "sha256": "e7a0304069ea895172e3c7bb703292e992c5d1555dd1233ab7b5621b5b69e62c",
+          "url": "https://files.pythonhosted.org/packages/f2/65/b6ba90634c984a4fcc02c7e3afe523fef500c4980fec67cc27536ee50acf/flit_core-3.12.0-py3-none-any.whl",
+          "targets": [
+            "linux-x86_64-cp311",
+            "macos-arm64-cp311",
+            "linux-x86_64-cp312",
+            "macos-arm64-cp312",
+            "linux-x86_64-cp313",
+            "macos-arm64-cp313",
+            "linux-x86_64-cp314",
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.6",
+          "license_expression": "BSD-3-Clause",
+          "license": null,
+          "license_files": {
+            "flit_core-3.12.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/flit-core-3.12.0/wheel/LICENSE",
+              "sha256": "35b4f1dec512e617077fd6980dbb43ef8c2887adc5d0185edb4c04da175dd816"
+            },
+            "flit_core-3.12.0.dist-info/licenses/flit_core/vendor/tomli-1.2.3.dist-info/LICENSE": {
+              "path": "licenses/flit-core-3.12.0/wheel/flit_core/vendor/tomli-1.2.3.dist-info/LICENSE",
+              "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+            },
+            "flit_core/vendor/tomli-1.2.3.dist-info/LICENSE": {
+              "path": "licenses/flit-core-3.12.0/wheel/vendor/tomli-1.2.3.dist-info/LICENSE",
+              "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+            }
+          },
+          "native_files": []
+        }
+      ],
+      "license_expression": "BSD-3-Clause AND MIT",
+      "source": {
+        "filename": "flit_core-3.12.0.tar.gz",
+        "sha256": "18f63100d6f94385c6ed57a72073443e1a71a4acb4339491615d0f16d6ff01b2",
+        "url": "https://files.pythonhosted.org/packages/69/59/b6fc2188dfc7ea4f936cd12b49d707f66a1cb7a1d2c16172963534db741b/flit_core-3.12.0.tar.gz",
+        "license_files": {
+          "flit_core-3.12.0/LICENSE": {
+            "path": "licenses/flit-core-3.12.0/source/LICENSE",
+            "sha256": "35b4f1dec512e617077fd6980dbb43ef8c2887adc5d0185edb4c04da175dd816"
+          },
+          "flit_core-3.12.0/flit_core/vendor/tomli-1.2.3.dist-info/LICENSE": {
+            "path": "licenses/flit-core-3.12.0/source/flit_core/vendor/tomli-1.2.3.dist-info/LICENSE",
+            "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+          },
+          "flit_core-3.12.0/tests_core/samples/pep517/LICENSE": {
+            "path": "licenses/flit-core-3.12.0/source/tests_core/samples/pep517/LICENSE",
+            "sha256": "729df96f52c48b21fb51c0616ffad1f7170ec07656b0faf1d5b4bf72e376130f"
+          },
+          "flit_core-3.12.0/tests_core/samples/pep621/LICENSE": {
+            "path": "licenses/flit-core-3.12.0/source/tests_core/samples/pep621/LICENSE",
+            "sha256": "729df96f52c48b21fb51c0616ffad1f7170ec07656b0faf1d5b4bf72e376130f"
+          },
+          "flit_core-3.12.0/tests_core/samples/pep621_license_files/LICENSE": {
+            "path": "licenses/flit-core-3.12.0/source/tests_core/samples/pep621_license_files/LICENSE",
+            "sha256": "729df96f52c48b21fb51c0616ffad1f7170ec07656b0faf1d5b4bf72e376130f"
+          },
+          "flit_core-3.12.0/tests_core/samples/pep621_license_files/module/vendor/LICENSE_VENDOR": {
+            "path": "licenses/flit-core-3.12.0/source/tests_core/samples/pep621_license_files/module/vendor/LICENSE_VENDOR",
+            "sha256": "729df96f52c48b21fb51c0616ffad1f7170ec07656b0faf1d5b4bf72e376130f"
+          },
+          "flit_core-3.12.0/tests_core/samples/with_data_dir/LICENSE": {
+            "path": "licenses/flit-core-3.12.0/source/tests_core/samples/with_data_dir/LICENSE",
+            "sha256": "729df96f52c48b21fb51c0616ffad1f7170ec07656b0faf1d5b4bf72e376130f"
+          }
+        }
+      },
+      "embedded_components": [
+        {
+          "name": "tomli",
+          "version": "1.2.3",
+          "license_expression": "MIT",
+          "source_path": "flit_core/vendor/tomli-1.2.3.dist-info/LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "frozenlist",
+      "version": "1.8.0",
+      "artifacts": [
+        {
+          "filename": "frozenlist-1.8.0-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "sha256": "2552f44204b744fba866e573be4c1f9048d6a324dfe14475103fd51613eb1d1f",
+          "url": "https://files.pythonhosted.org/packages/11/b1/71a477adc7c36e5fb628245dfbdea2166feae310757dea848d02bd0689fd/frozenlist-1.8.0-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp311"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-311-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "frozenlist-1.8.0-cp311-cp311-macosx_11_0_arm64.whl",
+          "sha256": "fa47e444b8ba08fffd1c18e8cdb9a75db1b6a27f17507522834ad13ed5922b93",
+          "url": "https://files.pythonhosted.org/packages/6e/ef/0e8f1fe32f8a53dd26bdd1f9347efe0778b0fddf62789ea683f4cc7d787d/frozenlist-1.8.0-cp311-cp311-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp311"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-311-darwin.so"
+          ]
+        },
+        {
+          "filename": "frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "sha256": "494a5952b1c597ba44e0e78113a7266e656b9794eec897b19ead706bd7074383",
+          "url": "https://files.pythonhosted.org/packages/6a/bd/d91c5e39f490a49df14320f4e8c80161cfcce09f1e2cde1edd16a551abb3/frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp312"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-312-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "frozenlist-1.8.0-cp312-cp312-macosx_11_0_arm64.whl",
+          "sha256": "f833670942247a14eafbb675458b4e61c82e002a148f49e68257b79296e865c4",
+          "url": "https://files.pythonhosted.org/packages/2b/94/5c8a2b50a496b11dd519f4a24cb5496cf125681dd99e94c604ccdea9419a/frozenlist-1.8.0-cp312-cp312-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp312"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-312-darwin.so"
+          ]
+        },
+        {
+          "filename": "frozenlist-1.8.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "sha256": "fb30f9626572a76dfe4293c7194a09fb1fe93ba94c7d4f720dfae3b646b45027",
+          "url": "https://files.pythonhosted.org/packages/d5/4e/e4691508f9477ce67da2015d8c00acd751e6287739123113a9fca6f1604e/frozenlist-1.8.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp313"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-313-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "frozenlist-1.8.0-cp313-cp313-macosx_11_0_arm64.whl",
+          "sha256": "f21f00a91358803399890ab167098c131ec2ddd5f8f5fd5fe9c9f2c6fcd91e40",
+          "url": "https://files.pythonhosted.org/packages/0c/ab/6e5080ee374f875296c4243c381bbdef97a9ac39c6e3ce1d5f7d42cb78d6/frozenlist-1.8.0-cp313-cp313-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp313"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-313-darwin.so"
+          ]
+        },
+        {
+          "filename": "frozenlist-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "sha256": "cba69cb73723c3f329622e34bdbf5ce1f80c21c290ff04256cff1cd3c2036ed2",
+          "url": "https://files.pythonhosted.org/packages/a7/b2/fabede9fafd976b991e9f1b9c8c873ed86f202889b864756f240ce6dd855/frozenlist-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-314-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "frozenlist-1.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+          "sha256": "4970ece02dbc8c3a92fcc5228e36a3e933a01a999f7094ff7c23fbd2beeaa67c",
+          "url": "https://files.pythonhosted.org/packages/a1/93/72b1736d68f03fda5fdf0f2180fb6caaae3894f1b854d006ac61ecc727ee/frozenlist-1.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "frozenlist-1.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/frozenlist-1.8.0/wheel/LICENSE",
+              "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+            }
+          },
+          "native_files": [
+            "frozenlist/_frozenlist.cpython-314-darwin.so"
+          ]
+        }
+      ],
+      "license_expression": "Apache-2.0",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/2d/f5/c831fac6cc817d26fd54c7eaccd04ef7e0288806943f7cc5bbf69f3ac1f0/frozenlist-1.8.0.tar.gz",
+        "sha256": "3ede829ed8d842f6cd48fc7081d7a41001a56f1f38603f9d49bf3020d59a31ad",
+        "filename": "frozenlist-1.8.0.tar.gz",
+        "license_files": {
+          "frozenlist-1.8.0/LICENSE": {
+            "path": "licenses/frozenlist-1.8.0/source/LICENSE",
+            "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "idna",
+      "version": "3.19",
+      "artifacts": [
+        {
+          "filename": "idna-3.19-py3-none-any.whl",
+          "sha256": "815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4",
+          "url": "https://files.pythonhosted.org/packages/57/b0/0e52c878c53f245edd3a11020f20979b3f490f245af532c7cae3027754b5/idna-3.19-py3-none-any.whl",
+          "targets": [
+            "linux-x86_64-cp311",
+            "macos-arm64-cp311",
+            "linux-x86_64-cp312",
+            "macos-arm64-cp312",
+            "linux-x86_64-cp313",
+            "macos-arm64-cp313",
+            "linux-x86_64-cp314",
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [
+            "ruff >= 0.16.0 ; extra == \"all\"",
+            "mypy >= 1.11.2 ; extra == \"all\"",
+            "ty >= 0.0.37 ; extra == \"all\"",
+            "pytest >= 8.3.2 ; extra == \"all\"",
+            "hypothesis >= 6.141.1 ; extra == \"all\"",
+            "coverage >= 7.10.0 ; extra == \"all\""
+          ],
+          "requires_python": ">=3.9",
+          "license_expression": "BSD-3-Clause",
+          "license": null,
+          "license_files": {
+            "idna-3.19.dist-info/licenses/LICENSE.md": {
+              "path": "licenses/idna-3.19/wheel/LICENSE.md",
+              "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+            }
+          },
+          "native_files": []
+        }
+      ],
+      "license_expression": "BSD-3-Clause",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/5f/f7/abb373e5757eaec4b922b92f97ec8d6d7e057cf06778247604fbc4e7c3f3/idna-3.19.tar.gz",
+        "sha256": "5e0811a4383b21dc5838069f801c4fb62113b7447663d2530d2bd6e77b49bf15",
+        "filename": "idna-3.19.tar.gz",
+        "license_files": {
+          "idna-3.19/LICENSE.md": {
+            "path": "licenses/idna-3.19/source/LICENSE.md",
+            "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "multidict",
+      "version": "6.8.0",
+      "artifacts": [
+        {
+          "filename": "multidict-6.8.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "ab83fdd8cf307353edba9c427c17a3a021c2522d690f5633dd9f72d28b48ccca",
+          "url": "https://files.pythonhosted.org/packages/f2/9d/6bb4f84fdd82acfa09dc312ac133e7f76cbf2370004447f2a90e65e5d63f/multidict-6.8.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp311"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-311-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "multidict-6.8.0-cp311-cp311-macosx_11_0_arm64.whl",
+          "sha256": "26a7aafc992e78872e2c8c1f7248c0e01139cf9020a7781b0c064fa566832712",
+          "url": "https://files.pythonhosted.org/packages/c5/da/35d70c920812d9ddc6f295f6426457665194335fbc35aa0b96716aba219f/multidict-6.8.0-cp311-cp311-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp311"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-311-darwin.so"
+          ]
+        },
+        {
+          "filename": "multidict-6.8.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "003a3bddb32915c3f67096ea41d24e53edf710edb65a1f5d0c70ab40b0e4d20b",
+          "url": "https://files.pythonhosted.org/packages/c6/c7/4544cc02e45bbfac4d8788b05379bb360021fd8c53fa74b0f624126ac188/multidict-6.8.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp312"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-312-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "multidict-6.8.0-cp312-cp312-macosx_11_0_arm64.whl",
+          "sha256": "10456943903744ae1249728161c96bd9d2f7eb5ee17fcc2ffda2dc32e1bb36c7",
+          "url": "https://files.pythonhosted.org/packages/91/9d/954b139bfa969855f2d4cb5ae7b7d44dd7106f754305b6e21a9068213aa7/multidict-6.8.0-cp312-cp312-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp312"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-312-darwin.so"
+          ]
+        },
+        {
+          "filename": "multidict-6.8.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "122adc7c46ac1e31ecfc7f81b2530533dccafdba70f5d741649f87e336c63384",
+          "url": "https://files.pythonhosted.org/packages/c2/75/9435f68b0cfc442d4917de85c26f2b2e1292630883414a25576083fa2469/multidict-6.8.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp313"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-313-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "multidict-6.8.0-cp313-cp313-macosx_11_0_arm64.whl",
+          "sha256": "88a6df88567680504ae28bfa7a1f2f64243d91e79a40b2c92ef42efc531e23da",
+          "url": "https://files.pythonhosted.org/packages/c4/fe/db552d402a3f6b650f5d3ae11b82b93833836aebb51bcda22d8691121129/multidict-6.8.0-cp313-cp313-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp313"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-313-darwin.so"
+          ]
+        },
+        {
+          "filename": "multidict-6.8.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "9606f583e7acaf61e7b3f56074e14037b9af7cb194590edfc0114b3ae5931ff7",
+          "url": "https://files.pythonhosted.org/packages/68/2a/066123b17291671bf67d2a5c65ee81a48de53913bd1b1578791519eacdb0/multidict-6.8.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp314"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-314-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "multidict-6.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+          "sha256": "bea7df027015856ba5d0a88e3b4777ff8cb5c66b58fc108050fe79d4dd9d4d2d",
+          "url": "https://files.pythonhosted.org/packages/f5/b7/f4f4989594f99bc121ad9277090c4e49819b08ab1a96e132b628a9e10b7d/multidict-6.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.1.0; python_version < \"3.11\""
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache License 2.0",
+          "license_files": {
+            "multidict-6.8.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/multidict-6.8.0/wheel/LICENSE",
+              "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+            }
+          },
+          "native_files": [
+            "multidict/_multidict.cpython-314-darwin.so"
+          ]
+        }
+      ],
+      "license_expression": "Apache-2.0",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/14/95/989c1b5ca17b72128661530cd6e351a0a83cda9a4d6c036e9ed976c18931/multidict-6.8.0.tar.gz",
+        "sha256": "5cd4637ce76312ba1e05eb9c5193fec231f64fee0944e135fa1e951242355b37",
+        "filename": "multidict-6.8.0.tar.gz",
+        "license_files": {
+          "multidict-6.8.0/LICENSE": {
+            "path": "licenses/multidict-6.8.0/source/LICENSE",
+            "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "opentelemetry-api",
+      "version": "1.44.0",
+      "artifacts": [
+        {
+          "filename": "opentelemetry_api-1.44.0-py3-none-any.whl",
+          "sha256": "94b98c893a91b88657eaac1e3ba89618cdb85be6918196705354f34728b2cdef",
+          "url": "https://files.pythonhosted.org/packages/ca/6f/a04e900f465ff3221ccc395522503e2d10e79fa21f2723c8e177aae1e0d1/opentelemetry_api-1.44.0-py3-none-any.whl",
+          "targets": [
+            "linux-x86_64-cp311",
+            "macos-arm64-cp311",
+            "linux-x86_64-cp312",
+            "macos-arm64-cp312",
+            "linux-x86_64-cp313",
+            "macos-arm64-cp313",
+            "linux-x86_64-cp314",
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [
+            "typing-extensions>=4.5.0"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": "Apache-2.0",
+          "license": null,
+          "license_files": {
+            "opentelemetry_api-1.44.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/opentelemetry-api-1.44.0/wheel/LICENSE",
+              "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+            }
+          },
+          "native_files": []
+        }
+      ],
+      "license_expression": "Apache-2.0",
+      "source": {
+        "filename": "opentelemetry_api-1.44.0.tar.gz",
+        "sha256": "67647e5e9566edcf421166fdf022b3537f818635daa852b289e34604dc6fb33a",
+        "url": "https://files.pythonhosted.org/packages/ee/8b/aa9e2d8b8dfa7c946f7dec5d1f8f6ba8eca062f43509a06bdb5ce93d26c0/opentelemetry_api-1.44.0.tar.gz",
+        "license_files": {
+          "opentelemetry_api-1.44.0/LICENSE": {
+            "path": "licenses/opentelemetry-api-1.44.0/source/LICENSE",
+            "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "propcache",
+      "version": "0.5.2",
+      "artifacts": [
+        {
+          "filename": "propcache-0.5.2-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "5aaa2b923c1944ac8febd6609cb373540a5563e7cbcb0fd770f75dace2eb817b",
+          "url": "https://files.pythonhosted.org/packages/27/1b/16ab7f2cf2041da2f60d156ba64c2484eadf9168075b4ff43c3ef60045af/propcache-0.5.2-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp311"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-311-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "propcache-0.5.2-cp311-cp311-macosx_11_0_arm64.whl",
+          "sha256": "c6844ba6364fb12f403928a82cfd295ab103a2b315c77c747b2dbe4a41894ea7",
+          "url": "https://files.pythonhosted.org/packages/15/a8/8ede85d6aa1f79fc7dc2f8fd2c8d65920b8272c3892903c8a1affde48cfb/propcache-0.5.2-cp311-cp311-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp311"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-311-darwin.so"
+          ]
+        },
+        {
+          "filename": "propcache-0.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "6f328175a2cde1f0ff2c4ed8ce968b9dcfb55f3a7153f39e2957ed994da13476",
+          "url": "https://files.pythonhosted.org/packages/14/15/5574111ae50dd6e879456888c0eadd4c5a869959775854e18e18a6b345f3/propcache-0.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp312"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-312-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "propcache-0.5.2-cp312-cp312-macosx_11_0_arm64.whl",
+          "sha256": "e5cbfac9f61484f7e9f3597775500cd3ebe8274e9b050c38f9525c77c97520bf",
+          "url": "https://files.pythonhosted.org/packages/2c/7d/49777a3e20b55863d4794384a38acd460c04157b0a00f8602b0d508b8431/propcache-0.5.2-cp312-cp312-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp312"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-312-darwin.so"
+          ]
+        },
+        {
+          "filename": "propcache-0.5.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "4db0ba63d693afd40d249bd93f842b5f144f8fcbb83de05660373bcf30517b1d",
+          "url": "https://files.pythonhosted.org/packages/8b/c6/979176efdaa3d239e36d503d5af63a0a773b36662ed8f52e5b6a6d9fd40e/propcache-0.5.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp313"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-313-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "propcache-0.5.2-cp313-cp313-macosx_11_0_arm64.whl",
+          "sha256": "fc299c129490f55f254cd90be0deca4764e36e9a7c08b4aa588479a3bbed3098",
+          "url": "https://files.pythonhosted.org/packages/a9/12/a6ba6482bb5ea3260c000c9b20881c95fa11c6b30173715668259f844ed7/propcache-0.5.2-cp313-cp313-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp313"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-313-darwin.so"
+          ]
+        },
+        {
+          "filename": "propcache-0.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "e00820e192c8dbebcafb383ebbf99030895f09905e7a0eb2e0340a0bcc2bc825",
+          "url": "https://files.pythonhosted.org/packages/2b/76/7f1bfd6afff4c5e38e36a3c6d68eb5f4b7311ea80baf693db78d95b603c4/propcache-0.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-314-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "propcache-0.5.2-cp314-cp314-macosx_11_0_arm64.whl",
+          "sha256": "97797ebb098e670a2f92dd66f32897e30d7615b14e7f59711de23e30a9072539",
+          "url": "https://files.pythonhosted.org/packages/63/b1/4260d67d6bd85e58a66b72d54ce15d5de789b6f3870cc6bedf8ff9667401/propcache-0.5.2-cp314-cp314-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "propcache-0.5.2.dist-info/licenses/LICENSE": {
+              "path": "licenses/propcache-0.5.2/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "propcache-0.5.2.dist-info/licenses/NOTICE": {
+              "path": "licenses/propcache-0.5.2/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "propcache/_helpers_c.cpython-314-darwin.so"
+          ]
+        }
+      ],
+      "license_expression": "Apache-2.0",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/ec/44/c87281c333769159c50594f22610f77398a47ccbfbbf23074e744e86f87c/propcache-0.5.2.tar.gz",
+        "sha256": "01c4fc7480cd0598bb4b57022df55b9ca296da7fc5a8760bd8451a7e63a7d427",
+        "filename": "propcache-0.5.2.tar.gz",
+        "license_files": {
+          "propcache-0.5.2/LICENSE": {
+            "path": "licenses/propcache-0.5.2/source/LICENSE",
+            "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          },
+          "propcache-0.5.2/NOTICE": {
+            "path": "licenses/propcache-0.5.2/source/NOTICE",
+            "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "artifacts": [
+        {
+          "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+          "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+          "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+          "targets": [
+            "linux-x86_64-cp311",
+            "macos-arm64-cp311",
+            "linux-x86_64-cp312",
+            "macos-arm64-cp312",
+            "linux-x86_64-cp313",
+            "macos-arm64-cp313",
+            "linux-x86_64-cp314",
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [],
+          "requires_python": ">=3.9",
+          "license_expression": "PSF-2.0",
+          "license": null,
+          "license_files": {
+            "typing_extensions-4.16.0.dist-info/licenses/LICENSE": {
+              "path": "licenses/typing-extensions-4.16.0/wheel/LICENSE",
+              "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+            }
+          },
+          "native_files": []
+        }
+      ],
+      "license_expression": "PSF-2.0",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz",
+        "sha256": "dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5",
+        "filename": "typing_extensions-4.16.0.tar.gz",
+        "license_files": {
+          "typing_extensions-4.16.0/LICENSE": {
+            "path": "licenses/typing-extensions-4.16.0/source/LICENSE",
+            "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+          }
+        }
+      },
+      "embedded_components": []
+    },
+    {
+      "name": "yarl",
+      "version": "1.24.5",
+      "artifacts": [
+        {
+          "filename": "yarl-1.24.5-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "570fec8fbd22b032733625f03f10b7ff023bc399213db15e72a7acaef28c2f4e",
+          "url": "https://files.pythonhosted.org/packages/66/ca/95aa4d0e5b7ea4f20e4d577c42d001ed9df207569fdb063cc5ed4ebb496b/yarl-1.24.5-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp311"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-311-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "yarl-1.24.5-cp311-cp311-macosx_11_0_arm64.whl",
+          "sha256": "709f1efed56c4a145793c046cd4939f9959bcd818979a787b77d8e09c57a0840",
+          "url": "https://files.pythonhosted.org/packages/ce/97/10b939c44d7b28d1dbc389cfc7012306d1ea8dba01eaef44b39fffaee52a/yarl-1.24.5-cp311-cp311-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp311"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-311-darwin.so"
+          ]
+        },
+        {
+          "filename": "yarl-1.24.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "f08c7513ecef5aad65687bfdf6bc601ae9fccd04a42904501f8f7141abad9eb9",
+          "url": "https://files.pythonhosted.org/packages/d6/d0/d56c859b8222116f5d68459199f48359e0bf121b6f65a69bf329b3602ba0/yarl-1.24.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp312"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-312-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "yarl-1.24.5-cp312-cp312-macosx_11_0_arm64.whl",
+          "sha256": "9d399bdcfb4a0f659b9b3788bbc89babe63d9a6a65aacdf4d4e7065ff2e6316c",
+          "url": "https://files.pythonhosted.org/packages/ea/b4/05b4131c407006cd1e410e9c6539f16a0945724677e5364447313c15ea3e/yarl-1.24.5-cp312-cp312-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp312"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-312-darwin.so"
+          ]
+        },
+        {
+          "filename": "yarl-1.24.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "d46b86567dd4e248c6c159fcbcdcce01e0a5c8a7cd2334a0fff759d0fa075b16",
+          "url": "https://files.pythonhosted.org/packages/0a/43/8e55ae7538ba5f28ccb3c845c6dd4549cf7016d5992e5326512519107cdd/yarl-1.24.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp313"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-313-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "yarl-1.24.5-cp313-cp313-macosx_11_0_arm64.whl",
+          "sha256": "92ab3e11448f2ff7bf53c5a26eff0edc086898ec8b21fb154b85839ce1d88075",
+          "url": "https://files.pythonhosted.org/packages/15/f0/7688d3f2cfff7590df2af38ec46d969f4281a4dddb08a9ad2eafbcdddf98/yarl-1.24.5-cp313-cp313-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp313"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-313-darwin.so"
+          ]
+        },
+        {
+          "filename": "yarl-1.24.5-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "66410eb6345d467151934b49bfa70fb32f5b35a6140baa40ad97d6436abea2e9",
+          "url": "https://files.pythonhosted.org/packages/9b/e8/f20557aca240d88e69850ad1ee91756821d094bb1310565c04d25c6682a2/yarl-1.24.5-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "targets": [
+            "linux-x86_64-cp314"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-314-x86_64-linux-gnu.so"
+          ]
+        },
+        {
+          "filename": "yarl-1.24.5-cp314-cp314-macosx_11_0_arm64.whl",
+          "sha256": "e42d75862735da90e7fc5a7b23db0c976f737113a54b3c9777a9b665e9cbff75",
+          "url": "https://files.pythonhosted.org/packages/18/a9/a07f76f3c44e02b25cc743af5ef93eef27f7013eadca770451b6a6ccb5db/yarl-1.24.5-cp314-cp314-macosx_11_0_arm64.whl",
+          "targets": [
+            "macos-arm64-cp314"
+          ],
+          "requires_dist": [
+            "idna>=2.0",
+            "multidict>=4.0",
+            "propcache>=0.2.1"
+          ],
+          "requires_python": ">=3.10",
+          "license_expression": null,
+          "license": "Apache-2.0",
+          "license_files": {
+            "yarl-1.24.5.dist-info/licenses/LICENSE": {
+              "path": "licenses/yarl-1.24.5/wheel/LICENSE",
+              "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+            },
+            "yarl-1.24.5.dist-info/licenses/NOTICE": {
+              "path": "licenses/yarl-1.24.5/wheel/NOTICE",
+              "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+            }
+          },
+          "native_files": [
+            "yarl/_quoting_c.cpython-314-darwin.so"
+          ]
+        }
+      ],
+      "license_expression": "Apache-2.0",
+      "source": {
+        "url": "https://files.pythonhosted.org/packages/31/33/ebe9e3d1f86c7a0b51094c0a146392045ca1631d2664889539dec8088a33/yarl-1.24.5.tar.gz",
+        "sha256": "e81b83143bee16329c23db3c1b2d82b29892fcbcb849186d2f6e98a5abe9a57f",
+        "filename": "yarl-1.24.5.tar.gz",
+        "license_files": {
+          "yarl-1.24.5/LICENSE": {
+            "path": "licenses/yarl-1.24.5/source/LICENSE",
+            "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          },
+          "yarl-1.24.5/NOTICE": {
+            "path": "licenses/yarl-1.24.5/source/NOTICE",
+            "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+          }
+        }
+      },
+      "embedded_components": []
+    }
+  ]
+}

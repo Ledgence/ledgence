@@ -106,7 +106,7 @@ async fn cancellation_returns_only_result_json_and_separate_request_id() {
 
 #[tokio::test]
 async fn inspection_queries_preserve_unusual_ids_and_history_cursor() {
-    for operation in ["inspect", "attempt", "history"] {
+    for operation in ["inspect", "status", "result", "attempt", "history"] {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let server = format!("http://{}", listener.local_addr().unwrap());
         let exchange = tokio::spawn(async move {
@@ -122,6 +122,8 @@ async fn inspection_queries_preserve_unusual_ids_and_history_cursor() {
             assert!(body.is_empty());
             match operation {
                 "inspect" => assert!(target.starts_with("GET /v1/tasks/inspect?")),
+                "status" => assert!(target.starts_with("GET /v1/tasks/status?")),
+                "result" => assert!(target.starts_with("GET /v1/tasks/result?")),
                 "attempt" => {
                     assert!(target.starts_with("GET /v1/attempts/inspect?"));
                     assert!(target.contains("attempt_id=+.%2F%2B%25+"));

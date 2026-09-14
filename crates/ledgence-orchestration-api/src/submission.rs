@@ -195,7 +195,7 @@ fn invalid(message: impl Into<String>) -> Error {
     Error::new(ErrorKind::InvalidInput, message)
 }
 
-fn check_encoded_size(value: &impl Serialize, limit: usize, label: &str) -> Result<()> {
+pub(crate) fn check_encoded_size(value: &impl Serialize, limit: usize, label: &str) -> Result<()> {
     let mut counter = ByteCounter { written: 0, limit };
     serde_json::to_writer(&mut counter, value)
         .map_err(|_| invalid(format!("{label} exceeds its {limit}-byte JSON limit")))

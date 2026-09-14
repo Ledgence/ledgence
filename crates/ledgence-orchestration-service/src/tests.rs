@@ -106,6 +106,26 @@ impl TaskStore for MemoryStore {
         unused()
     }
 
+    fn status<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskStatus> {
+        Box::pin(async move {
+            let tasks = self.tasks.lock().unwrap();
+            let task = tasks
+                .iter()
+                .find(|task| task.scope() == *scope && task.task_id == id)
+                .ok_or(ContractError::NotFound)?;
+            core::task_status(task, None)
+        })
+    }
+    fn result<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskResult> {
+        Box::pin(async move {
+            let tasks = self.tasks.lock().unwrap();
+            let task = tasks
+                .iter()
+                .find(|task| task.scope() == *scope && task.task_id == id)
+                .ok_or(ContractError::NotFound)?;
+            core::task_result(task, None)
+        })
+    }
     fn inspect<'a>(&'a self, _: &'a Scope, _: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         unused()
     }
@@ -467,4 +487,33 @@ async fn submission_scope_keeps_identical_keys_independent() {
     assert_eq!(second.input.namespace, "shipping");
     assert_eq!(second.descriptor, descriptor('b'));
     assert_eq!(fixture.store.tasks.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn observations_delegate_scoped_reads_without_contacting_program_store() {
+    let mut fixture = Fixture::new();
+    let command = command();
+    let task = fixture
+        .store
+        .accept_resolved_submission(&command, &descriptor('a'))
+        .await
+        .unwrap();
+    let status = fixture
+        .service
+        .status(&task.scope(), &task.task_id)
+        .await
+        .unwrap();
+    let result = fixture
+        .service
+        .result(&task.scope(), &task.task_id)
+        .await
+        .unwrap();
+    assert_eq!(status, result.task);
+    assert_eq!(status.state, TaskState::Queued);
+    assert!(result.outcome.is_none());
+    assert_eq!(
+        fixture.service.status(&task.scope(), "missing").await,
+        Err(ContractError::NotFound)
+    );
+    assert!(fixture.requests.try_recv().is_err());
 }

@@ -3,7 +3,7 @@
 use ledgence_orchestration_api::{ContractError, Result, Scope, validate_text};
 use std::{collections::HashMap, path::PathBuf};
 
-pub const HELP: &str = "Ledgence task administration\n\nCommands:\n  task submit --server URL --file FILE\n  task inspect --server URL --tenant ID --namespace ID --task ID\n  task attempt --server URL --tenant ID --namespace ID --task ID --attempt ID\n  task history --server URL --tenant ID --namespace ID --task ID [--after N]\n  task cancel --server URL --tenant ID --namespace ID --task ID\n\nsubmit reads the complete SubmitCommand JSON, including its idempotency_key.\nEach command makes one bounded HTTP exchange without automatic retries.\nJSON results go to stdout; diagnostics and Request-Id go to stderr.\nExit 0 means accepted operation, 2 means invalid input/usage, 1 means failure.\nA successful submit confirms acceptance, not successful task execution.\n";
+pub const HELP: &str = "Ledgence task administration\n\nCommands:\n  task submit --server URL --file FILE\n  task inspect --server URL --tenant ID --namespace ID --task ID\n  task status --server URL --tenant ID --namespace ID --task ID\n  task result --server URL --tenant ID --namespace ID --task ID\n  task attempt --server URL --tenant ID --namespace ID --task ID --attempt ID\n  task history --server URL --tenant ID --namespace ID --task ID [--after N]\n  task cancel --server URL --tenant ID --namespace ID --task ID\n\nsubmit reads the complete SubmitCommand JSON, including its idempotency_key.\nEach command makes one bounded HTTP exchange without automatic retries.\nJSON results go to stdout; diagnostics and Request-Id go to stderr.\nExit 0 means accepted operation, 2 means invalid input/usage, 1 means failure.\nA successful submit confirms acceptance, not successful task execution.\n";
 
 #[derive(Debug)]
 pub enum Command {
@@ -18,6 +18,14 @@ pub enum Command {
 pub enum Operation {
     Submit(PathBuf),
     Inspect {
+        scope: Scope,
+        task_id: String,
+    },
+    Status {
+        scope: Scope,
+        task_id: String,
+    },
+    Result {
         scope: Scope,
         task_id: String,
     },
@@ -70,7 +78,7 @@ impl Command {
         let server = required(&mut options, "--server")?;
         let operation = match operation.as_str() {
             "submit" => Operation::Submit(required(&mut options, "--file")?.into()),
-            "inspect" | "attempt" | "history" | "cancel" => {
+            "inspect" | "status" | "result" | "attempt" | "history" | "cancel" => {
                 let scope = Scope {
                     tenant_id: required(&mut options, "--tenant")?,
                     namespace: required(&mut options, "--namespace")?,
@@ -80,6 +88,8 @@ impl Command {
                 validate_text(&task_id, 128)?;
                 match operation.as_str() {
                     "inspect" => Operation::Inspect { scope, task_id },
+                    "status" => Operation::Status { scope, task_id },
+                    "result" => Operation::Result { scope, task_id },
                     "attempt" => {
                         let attempt_id = required(&mut options, "--attempt")?;
                         validate_text(&attempt_id, 128)?;

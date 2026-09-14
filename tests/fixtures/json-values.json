@@ -1,0 +1,121 @@
+[
+  {
+    "name": "null",
+    "json": "null",
+    "kind": "null",
+    "valid": true
+  },
+  {
+    "name": "false",
+    "json": "false",
+    "kind": "bool",
+    "valid": true
+  },
+  {
+    "name": "int",
+    "json": "1",
+    "kind": "integer",
+    "valid": true
+  },
+  {
+    "name": "float",
+    "json": "1.0",
+    "kind": "float",
+    "valid": true
+  },
+  {
+    "name": "negative-integer-zero",
+    "json": "-0",
+    "kind": "float",
+    "valid": true
+  },
+  {
+    "name": "negative-float-zero",
+    "json": "-0.0",
+    "kind": "float",
+    "valid": true
+  },
+  {
+    "name": "i64-min",
+    "json": "-9223372036854775808",
+    "kind": "integer",
+    "valid": true
+  },
+  {
+    "name": "u64-max",
+    "json": "18446744073709551615",
+    "kind": "integer",
+    "valid": true
+  },
+  {
+    "name": "subnormal",
+    "json": "5e-324",
+    "kind": "float",
+    "valid": true
+  },
+  {
+    "name": "max-f64",
+    "json": "1.7976931348623157e308",
+    "kind": "float",
+    "valid": true
+  },
+  {
+    "name": "scalar-unicode",
+    "json": "\"é\\u0000𝄞\"",
+    "kind": "string",
+    "valid": true
+  },
+  {
+    "name": "object",
+    "json": "{\"int\":1,\"float\":1.0,\"zero\":-0}",
+    "kind": "object",
+    "valid": true
+  },
+  {
+    "name": "array",
+    "json": "[null,false,1,1.0,-0.0]",
+    "kind": "array",
+    "valid": true
+  },
+  {
+    "name": "depth64",
+    "json": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[null]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+    "kind": "array",
+    "valid": true
+  },
+  {
+    "name": "duplicate",
+    "json": "{\"a\":{\"k\":1,\"\\u006b\":2}}",
+    "valid": false
+  },
+  {
+    "name": "overflow",
+    "json": "18446744073709551616",
+    "valid": false
+  },
+  {
+    "name": "underflow",
+    "json": "-9223372036854775809",
+    "valid": false
+  },
+  {
+    "name": "nonfinite",
+    "json": "NaN",
+    "valid": false
+  },
+  {
+    "name": "float-overflow",
+    "json": "1e400",
+    "valid": false
+  },
+  {
+    "name": "surrogate",
+    "json": "\"\\ud800\"",
+    "valid": false
+  },
+  {
+    "name": "depth65",
+    "json": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[null]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+    "valid": false
+  }
+]

@@ -75,6 +75,12 @@ impl TaskStore for Observed {
     ) -> ContractFuture<'a, TaskSnapshot> {
         self.inner.accept_resolved_submission(command, descriptor)
     }
+    fn status<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskStatus> {
+        self.inner.status(scope, id)
+    }
+    fn result<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskResult> {
+        self.inner.result(scope, id)
+    }
     fn inspect<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         self.inner.inspect(scope, id)
     }
