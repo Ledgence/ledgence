@@ -1,0 +1,3 @@
+# Generated from the reviewed inventory; changes require dependency review.
+# Use --require-hashes --only-binary=:all: with the reviewed target wheelhouse.
+flit-core==3.12.0 --hash=sha256:e7a0304069ea895172e3c7bb703292e992c5d1555dd1233ab7b5621b5b69e62c

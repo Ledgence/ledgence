@@ -42,6 +42,10 @@ pub trait TaskStore: Send + Sync {
         command: &'a SubmitCommand,
         descriptor: &'a ProgramDescriptor,
     ) -> ContractFuture<'a, TaskSnapshot>;
+    /// Read compact scheduling metadata without application payloads.
+    fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus>;
+    /// Read task metadata and its logical outcome from one consistent snapshot.
+    fn result<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskResult>;
     fn inspect<'a>(
         &'a self,
         scope: &'a Scope,

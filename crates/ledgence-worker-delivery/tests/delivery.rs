@@ -598,6 +598,12 @@ impl TaskService for Service {
     fn inspect<'a>(&'a self, _: &'a Scope, _: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async { Err(ContractError::NotFound) })
     }
+    fn status<'a>(&'a self, _: &'a Scope, _: &'a str) -> ContractFuture<'a, TaskStatus> {
+        Box::pin(async { Err(ContractError::Unavailable("unused test observation".into())) })
+    }
+    fn result<'a>(&'a self, _: &'a Scope, _: &'a str) -> ContractFuture<'a, TaskResult> {
+        Box::pin(async { Err(ContractError::Unavailable("unused test observation".into())) })
+    }
     fn inspect_attempt<'a>(
         &'a self,
         _: &'a Scope,

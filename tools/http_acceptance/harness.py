@@ -180,10 +180,16 @@ class FaultProxy:
                             if rule[3]:
                                 owner.blocked = True
                             rule[2].set()
-                    if rule is not None:
+                    if rule is not None and rule[4] == "drop":
                         self.close_connection = True
                         return
-                    self.send_response(response.status)
+                    status = response.status
+                    if rule is not None and rule[4] == "unavailable":
+                        # The real upstream committed before this availability
+                        # response was substituted. It is not a domain rejection.
+                        status = 503
+                        payload = b'{"code":"unavailable","message":"response delivery failed after commit"}'
+                    self.send_response(status)
                     for key, value in response_headers.items():
                         if key.lower() not in ("content-length", "transfer-encoding", "connection"):
                             self.send_header(key, value)
@@ -209,7 +215,13 @@ class FaultProxy:
     def lose_once(self, path, predicate=lambda _: True, block_after=False):
         event = threading.Event()
         with self.lock:
-            self.rules.append((path, predicate, event, block_after))
+            self.rules.append((path, predicate, event, block_after, "drop"))
+        return event
+
+    def unavailable_once(self, path, predicate=lambda _: True):
+        event = threading.Event()
+        with self.lock:
+            self.rules.append((path, predicate, event, False, "unavailable"))
         return event
 
     def commands(self, path, predicate=lambda _: True):
@@ -283,7 +295,7 @@ class Deployment:
         )
         return json.loads(result.stdout) if result.stdout.strip() else None
 
-    def publish(self, name, version, startup_gate=None):
+    def publish(self, name, version, startup_gate=None, program_source=PROGRAM):
         directory = self.directory / f"package-{name}-{version}"
         info = self.command("ledgence-worker", ["example", "--directory", str(directory),
                                                "--python", self.python])
@@ -292,7 +304,7 @@ class Deployment:
         manifest = json.loads(manifest_path.read_text())
         manifest["program"] = {"id": name, "version": version}
         manifest_path.write_text(json.dumps(manifest))
-        program = PROGRAM
+        program = program_source
         if startup_gate is not None:
             self.gates.add(startup_gate)
             program = ("import os, time\nfrom pathlib import Path\n"

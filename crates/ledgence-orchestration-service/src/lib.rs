@@ -148,6 +148,14 @@ impl TaskService for ApplicationService {
         })
     }
 
+    fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus> {
+        self.store.status(scope, task_id)
+    }
+
+    fn result<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskResult> {
+        self.store.result(scope, task_id)
+    }
+
     fn inspect<'a>(
         &'a self,
         scope: &'a Scope,

@@ -70,6 +70,20 @@ impl TaskStore for Store {
     ) -> ContractFuture<'a, TaskSnapshot> {
         unused()
     }
+    fn status<'a>(&'a self, _: &'a Scope, _: &'a str) -> ContractFuture<'a, TaskStatus> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "status unused in this fixture".into(),
+            ))
+        })
+    }
+    fn result<'a>(&'a self, _: &'a Scope, _: &'a str) -> ContractFuture<'a, TaskResult> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "result unused in this fixture".into(),
+            ))
+        })
+    }
     fn inspect<'a>(&'a self, _: &'a Scope, _: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         unused()
     }

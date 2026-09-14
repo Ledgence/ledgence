@@ -321,3 +321,6 @@ mod observability_db_tests;
 
 #[cfg(test)]
 mod acquisition_db_tests;
+
+#[cfg(test)]
+mod observation_db_tests;

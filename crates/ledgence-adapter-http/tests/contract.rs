@@ -87,6 +87,12 @@ impl TaskService for Mock {
     fn inspect<'a>(&'a self, scope: &'a Scope, task: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move { self.reply("inspect", json!([scope, task])) })
     }
+    fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus> {
+        Box::pin(async move { self.reply("status", json!({"scope":scope,"task_id":task_id})) })
+    }
+    fn result<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskResult> {
+        Box::pin(async move { self.reply("result", json!({"scope":scope,"task_id":task_id})) })
+    }
     fn inspect_attempt<'a>(
         &'a self,
         scope: &'a Scope,
@@ -572,16 +578,18 @@ async fn query_parameters_are_strictly_decoded_once_and_routes_have_distinct_err
         "tenant_id=a&namespace=b&task_id=x&",
         "tenant_id=a&namespace=b&task_id=x&after_sequence=1",
     ] {
-        assert_eq!(
-            client
-                .get(format!("{}/v1/tasks/inspect?{query}", running.url))
-                .send()
-                .await
-                .unwrap()
-                .status(),
-            400,
-            "{query}"
-        );
+        for route in ["inspect", "status", "result"] {
+            assert_eq!(
+                client
+                    .get(format!("{}/v1/tasks/{route}?{query}", running.url))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                400,
+                "{query}"
+            );
+        }
     }
     assert!(mock.calls.lock().unwrap().is_empty());
     let response = client
@@ -1609,4 +1617,213 @@ async fn disconnected_waiting_http_request_drops_its_service_future() {
         mock.calls.lock().unwrap().is_empty(),
         "cancellation must not fabricate a completed reply"
     );
+}
+
+fn compact_status(state: TaskState) -> TaskStatus {
+    let allocated = state != TaskState::Queued;
+    TaskStatus {
+        scope: scope(),
+        task_id: "..".into(),
+        run_id: "run".into(),
+        queue: "queue".into(),
+        correlation_key: None,
+        state,
+        attempt_count: u32::from(allocated),
+        current_attempt_id: (state == TaskState::Active).then(|| "attempt".into()),
+        latest_attempt_id: allocated.then(|| "attempt".into()),
+        submitted_at: 1,
+        available_at: 1,
+        terminal_at: state.is_terminal().then_some(2),
+        cancel_requested_at: (state == TaskState::Cancelled).then_some(2),
+    }
+}
+
+#[tokio::test]
+async fn task_observation_routes_preserve_pending_null_and_terminal_evidence() {
+    let mock = Arc::new(Mock::default());
+    let running = start(server::router(mock.clone())).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    let outcomes = [
+        (TaskState::Queued, None),
+        (TaskState::Active, None),
+        (
+            TaskState::Succeeded,
+            Some(TaskOutcome::Succeeded {
+                attempt_id: "attempt".into(),
+                quiescence: Quiescence::Unconfirmed,
+                execution_may_have_started: true,
+                output: Value::Null,
+            }),
+        ),
+        (
+            TaskState::Failed,
+            Some(TaskOutcome::Failed {
+                attempt_id: "attempt".into(),
+                quiescence: Quiescence::Unconfirmed,
+                execution_may_have_started: true,
+                failure: TaskFailure::AttemptLost {},
+            }),
+        ),
+        (TaskState::Cancelled, Some(TaskOutcome::Cancelled {})),
+    ];
+    for (state, outcome) in outcomes {
+        let status = compact_status(state);
+        let result = TaskResult {
+            task: status.clone(),
+            outcome,
+        };
+        mock.set("status", Ok(&status));
+        mock.set("result", Ok(&result));
+        assert_eq!(client.status(&scope(), "..").await.unwrap(), status);
+        assert_eq!(client.result(&scope(), "..").await.unwrap(), result);
+        let mut url = reqwest::Url::parse(&format!("{}/v1/tasks/result", running.url)).unwrap();
+        url.query_pairs_mut().extend_pairs([
+            ("tenant_id", scope().tenant_id.as_str()),
+            ("namespace", scope().namespace.as_str()),
+            ("task_id", ".."),
+        ]);
+        let query = reqwest::Client::new().get(url).send().await.unwrap();
+        assert_eq!(query.status(), 200);
+        assert_eq!(query.headers()["cache-control"], "no-store");
+        assert!(query.headers().contains_key("request-id"));
+        assert_eq!(query.bytes().await.unwrap().as_ref(), exact(&result));
+    }
+    assert_eq!(mock.calls.lock().unwrap().len(), 15);
+    for route in ["status", "result"] {
+        for error in [
+            ContractError::NotFound,
+            ContractError::Unavailable("offline".into()),
+        ] {
+            mock.set::<TaskStatus>(route, Err(error.clone()));
+            let actual = if route == "status" {
+                client.status(&scope(), "..").await.unwrap_err()
+            } else {
+                client.result(&scope(), "..").await.unwrap_err()
+            };
+            assert_eq!(actual, error);
+        }
+    }
+}
+
+#[tokio::test]
+async fn result_rejects_fabricated_outcomes_and_response_identity_changes() {
+    let pending = json!({"task":compact_status(TaskState::Active), "outcome":null});
+    let mut cases = Vec::new();
+    let mut premature = pending.clone();
+    premature["outcome"] = json!({"kind":"succeeded","attempt_id":"attempt","quiescence":"confirmed","execution_may_have_started":true,"output":null});
+    cases.push(premature);
+    let mut wrong_task = pending.clone();
+    wrong_task["task"]["task_id"] = json!("another");
+    cases.push(wrong_task);
+    let mut wrong_scope = pending.clone();
+    wrong_scope["task"]["scope"]["namespace"] = json!("another");
+    cases.push(wrong_scope);
+    let mut missing_outcome = pending.clone();
+    missing_outcome.as_object_mut().unwrap().remove("outcome");
+    cases.push(missing_outcome);
+    let mut missing_latest = pending;
+    missing_latest["task"]["latest_attempt_id"] = Value::Null;
+    cases.push(missing_latest);
+    let mut cancelled = json!({"task":compact_status(TaskState::Cancelled),"outcome":{"kind":"cancelled","attempt_id":"attempt"}});
+    cases.push(cancelled.clone());
+    cancelled["outcome"] = Value::Null;
+    cases.push(cancelled);
+    for case in cases {
+        let (running, _) =
+            raw_response(response(200, "application/json", &exact(&case)), None).await;
+        let client = HttpTaskService::new(&running.url).unwrap();
+        assert!(
+            matches!(
+                client.result(&scope(), "..").await,
+                Err(ContractError::Unavailable(_))
+            ),
+            "accepted invalid case: {case}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn status_has_a_compact_body_bound_and_server_checks_adapter_results() {
+    let maximum = ledgence_adapter_http::STATUS_MAX_BYTES;
+    let mut status = exact(compact_status(TaskState::Queued));
+    status.resize(maximum + 1, b' ');
+    for bytes in [
+        response(200, "application/json", &status),
+        [
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+                .as_slice(),
+            status.as_slice(),
+        ]
+        .concat(),
+    ] {
+        let (running, _) = raw_response(bytes, None).await;
+        assert!(matches!(
+            HttpTaskService::new(&running.url)
+                .unwrap()
+                .status(&scope(), "..")
+                .await,
+            Err(ContractError::Unavailable(_))
+        ));
+    }
+    let mock = Arc::new(Mock::default());
+    let running = start(server::router(mock.clone())).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    let mut invalid = compact_status(TaskState::Queued);
+    invalid.task_id = "another".into();
+    mock.set("status", Ok(invalid));
+    mock.set(
+        "result",
+        Ok(TaskResult {
+            task: compact_status(TaskState::Succeeded),
+            outcome: None,
+        }),
+    );
+    assert!(matches!(
+        client.status(&scope(), "..").await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert!(matches!(
+        client.result(&scope(), "..").await,
+        Err(ContractError::Unavailable(_))
+    ));
+}
+
+#[test]
+fn shared_json_fixtures_preserve_cross_language_values() {
+    let fixtures: Vec<Value> =
+        serde_json::from_str(include_str!("../../../tests/fixtures/json-values.json")).unwrap();
+    for fixture in fixtures {
+        let bytes = fixture["json"].as_str().unwrap().as_bytes();
+        let decoded: ledgence_worker_api::Result<Value> =
+            decode_unique_json(bytes, SUBMISSION_DATA_MAX_BYTES).and_then(|value| {
+                ledgence_worker_api::validate_wire_value(&value)?;
+                Ok(value)
+            });
+        if fixture["valid"] == false {
+            assert!(decoded.is_err(), "{}", fixture["name"]);
+            continue;
+        }
+        let value = decoded.unwrap_or_else(|error| panic!("{}: {error}", fixture["name"]));
+        let kind = match &value {
+            Value::Null => "null",
+            Value::Bool(_) => "bool",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Number(n) if n.is_f64() => "float",
+            Value::Number(_) => "integer",
+        };
+        assert_eq!(
+            kind,
+            fixture["kind"].as_str().unwrap(),
+            "{}",
+            fixture["name"]
+        );
+        if fixture["name"].as_str().unwrap().starts_with("negative-") {
+            assert_eq!(value.as_f64().unwrap().to_bits(), (-0.0_f64).to_bits());
+        }
+        let roundtrip: Value =
+            decode_unique_json(&exact(&value), SUBMISSION_DATA_MAX_BYTES).unwrap();
+        assert_eq!(value, roundtrip, "{}", fixture["name"]);
+    }
 }

@@ -102,6 +102,44 @@ impl TaskStore for PostgresStore {
             Ok(session)
         }))
     }
+    fn status<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskStatus> {
+        Box::pin(self.run(move || async move {
+            scope.validate()?;
+            validate_text(id, 128)?;
+            let row = sqlx::query(include_str!("../queries/task_status.sql"))
+                .bind(&scope.tenant_id)
+                .bind(&scope.namespace)
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or(ContractError::NotFound)?;
+            Ok(codec::status(&row)?)
+        }))
+    }
+
+    fn result<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskResult> {
+        Box::pin(self.run(move || async move {
+            scope.validate()?;
+            validate_text(id, 128)?;
+            // One statement snapshot binds scheduling state to the latest attempt
+            // and its immutable report even while another transaction finalizes.
+            let row = sqlx::query(include_str!("../queries/task_result.sql"))
+                .bind(&scope.tenant_id)
+                .bind(&scope.namespace)
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or(ContractError::NotFound)?;
+            let task = codec::task(&row)?;
+            let attempt = if task.attempt_count == 0 {
+                None
+            } else {
+                Some(codec::attempt_prefixed(&row, &task, "a_")?)
+            };
+            Ok(core::task_result(&task, attempt.as_ref())?)
+        }))
+    }
+
     fn inspect<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(self.run(move || async move {
             scope.validate()?;

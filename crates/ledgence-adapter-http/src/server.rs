@@ -83,6 +83,8 @@ pub fn router_with_observability(
 const ROUTES: &[(&str, &str)] = &[
     ("/v1/tasks", "POST"),
     ("/v1/tasks/inspect", "GET"),
+    ("/v1/tasks/status", "GET"),
+    ("/v1/tasks/result", "GET"),
     ("/v1/attempts/inspect", "GET"),
     ("/v1/tasks/history", "GET"),
     ("/v1/tasks/cancel", "POST"),
@@ -374,16 +376,28 @@ impl Server {
         &self,
         value: T,
     ) -> std::result::Result<Vec<u8>, Failure> {
-        self.blocking(move || {
-            let bytes = serde_json::to_vec(&value)
-                .map_err(|_| unavailable("service response cannot be encoded"))?;
-            if bytes.len() > RESPONSE_MAX_BYTES {
-                return Err(unavailable("service response exceeds HTTP limit").into());
-            }
-            Ok(bytes)
-        })
-        .await
+        self.blocking(move || encode_bounded(&value, RESPONSE_MAX_BYTES))
+            .await
     }
+}
+
+fn encode_bounded(value: &impl Serialize, limit: usize) -> std::result::Result<Vec<u8>, Failure> {
+    let bytes =
+        serde_json::to_vec(value).map_err(|_| unavailable("service response cannot be encoded"))?;
+    if bytes.len() > limit {
+        return Err(unavailable("service response exceeds HTTP limit").into());
+    }
+    Ok(bytes)
+}
+
+fn check_task_identity(reply: &TaskStatus, scope: &Scope, task_id: &str) -> Result<()> {
+    if &reply.scope != scope || reply.task_id != task_id {
+        return Err(unavailable(
+            "service task response identity disagrees with its request",
+        ));
+    }
+    tracing::Span::current().record("ledgence.run.id", bounded(&reply.run_id));
+    Ok(())
 }
 
 async fn dispatch(
@@ -421,6 +435,30 @@ async fn dispatch(
                 let reply = server.service.inspect(&scope, task).await?;
                 log_task(&reply);
                 server.encode(reply).await
+            }
+            "/v1/tasks/status" => {
+                let reply = server.service.status(&scope, task).await?;
+                check_task_identity(&reply, &scope, task)?;
+                server
+                    .blocking(move || {
+                        reply
+                            .validate()
+                            .map_err(|_| unavailable("invalid service task status"))?;
+                        encode_bounded(&reply, crate::STATUS_MAX_BYTES)
+                    })
+                    .await
+            }
+            "/v1/tasks/result" => {
+                let reply = server.service.result(&scope, task).await?;
+                check_task_identity(&reply.task, &scope, task)?;
+                server
+                    .blocking(move || {
+                        reply
+                            .validate()
+                            .map_err(|_| unavailable("invalid service task result"))?;
+                        encode_bounded(&reply, RESPONSE_MAX_BYTES)
+                    })
+                    .await
             }
             "/v1/attempts/inspect" => {
                 let attempt = &fields["attempt_id"];

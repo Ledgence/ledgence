@@ -1,4 +1,4 @@
-use crate::{ERROR_MAX_BYTES, RESPONSE_MAX_BYTES, response::ResponseValue, wire::*};
+use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
 use reqwest::{Client, Method, Url, header};
@@ -277,7 +277,7 @@ impl HttpTaskService {
                     ));
                 }
                 let limit = if status == 200 {
-                    RESPONSE_MAX_BYTES
+                    R::MAX_BYTES
                 } else {
                     ERROR_MAX_BYTES
                 };
@@ -298,7 +298,7 @@ impl HttpTaskService {
                 }
                 self.blocking(move || {
                     if status == 200 {
-                        let value: R = decode_unique_json(&bytes, RESPONSE_MAX_BYTES)
+                        let value: R = decode_unique_json(&bytes, R::MAX_BYTES)
                             .map_err(|_| unavailable("HTTP success response is malformed"))?;
                         value.validate_values().map_err(|_| {
                             unavailable("HTTP success response violates application value limits")
@@ -371,6 +371,15 @@ impl HttpTaskService {
     }
 }
 
+fn check_identity(reply: &TaskStatus, scope: &Scope, task_id: &str) -> Result<()> {
+    if &reply.scope != scope || reply.task_id != task_id {
+        return Err(unavailable(
+            "HTTP task response identity disagrees with its request",
+        ));
+    }
+    Ok(())
+}
+
 fn query(scope: &Scope, task_id: &str) -> Vec<(&'static str, String)> {
     vec![
         ("tenant_id", scope.tenant_id.clone()),
@@ -423,6 +432,20 @@ impl TaskService for HttpTaskService {
         task_id: &'a str,
     ) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move { self.get("v1/tasks/inspect", &query(scope, task_id)).await })
+    }
+    fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus> {
+        Box::pin(async move {
+            let reply: TaskStatus = self.get("v1/tasks/status", &query(scope, task_id)).await?;
+            check_identity(&reply, scope, task_id)?;
+            Ok(reply)
+        })
+    }
+    fn result<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskResult> {
+        Box::pin(async move {
+            let reply: TaskResult = self.get("v1/tasks/result", &query(scope, task_id)).await?;
+            check_identity(&reply.task, scope, task_id)?;
+            Ok(reply)
+        })
     }
     fn inspect_attempt<'a>(
         &'a self,

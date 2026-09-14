@@ -67,7 +67,7 @@ In a third terminal, save this complete submission as `submit.json`:
   --tenant tenant_example --namespace demo --task TASK_ID
 ```
 
-Replace `TASK_ID` with the submitted snapshot's `task_id`. Obtain an attempt ID from `current_attempt_id` while active, or a `claimed` history record after completion. Task inspection returns scheduling state and input; attempt inspection returns the accepted result, when present. History returns up to 100 records; request the next page using the last record's `sequence`. An empty page only means no later records exist at that moment.
+Replace `TASK_ID` with the submitted snapshot's `task_id`. Use `task status` for compact scheduling metadata and `task result` for the authoritative logical outcome; see [task results](task-results.md). Status includes `latest_attempt_id` for diagnostic attempt inspection. Task inspection returns scheduling state and input; attempt inspection returns the accepted report, which can precede logical finalization. History returns up to 100 records; request the next page using the last record's `sequence`. An empty page only means no later records exist at that moment.
 
 `ledgence` writes one JSON result to stdout and request diagnostics to stderr. Exit `0` means the operation was accepted, `2` means input/usage rejection, and `1` means a service or transport failure. Successful submission does not mean successful execution. Each command makes one bounded exchange. If submission has an uncertain outcome, resubmit the same file/key; do not generate a replacement key. Matching replays preserve the first accepted input, descriptor, and origin context. Changed normalized input under the same scoped key conflicts. The [delivery contract](delivery-contract.md) defines normalization and deduplication scope.
 
@@ -83,6 +83,8 @@ Requests and responses use UTF-8 `application/json`; an optional UTF-8 charset p
 | --- | --- | --- |
 | `POST /v1/tasks` | `SubmitCommand` | `TaskSnapshot` |
 | `GET /v1/tasks/inspect` | `tenant_id`, `namespace`, `task_id` query values | `TaskSnapshot` |
+| `GET /v1/tasks/status` | Same scope/task query values | Compact `TaskStatus` |
+| `GET /v1/tasks/result` | Same scope/task query values | `TaskResult` with nullable terminal outcome |
 | `GET /v1/attempts/inspect` | Same scope/task values plus `attempt_id` | `AttemptSnapshot` |
 | `GET /v1/tasks/history` | Scope/task values; optional `after_sequence`, default `0` | Up to 100 `RecordedHistoryEvent` values |
 | `POST /v1/tasks/cancel` | `{"scope": Scope, "task_id": string}` | `TaskState` JSON string |

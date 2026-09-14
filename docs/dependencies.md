@@ -126,3 +126,28 @@ The resolved graph adds 23 package versions. All have retained legal material li
 | wasip2 1.0.4+wasi-0.2.12; wit-bindgen 0.57.1; zerocopy 0.8.57; zerocopy-derive 0.8.57 | MIT or Apache-2.0 |
 
 The additional alternatives in some declared OR expressions do not require selecting LGPL, BSD-2-Clause, or Apache's LLVM exception. Retain the chosen license and applicable notices. These components remain third-party code under their respective terms; they are not relicensed to MIT. No general allowlist or license exception is broadened by this feature. Rust OpenTelemetry is Beta upstream; the versions are pinned behind the adapter and upgrades require renewed compatibility and dependency review. [Rust status](https://opentelemetry.io/docs/languages/rust/).
+
+
+## Python task client
+
+The separate `ledgence-client` distribution provides `ledgence.client`. Its required transport is pinned to `aiohttp==3.14.3` without extras. The standard-library-only `ledgence_worker` helper does not acquire this dependency. Optional tracing imports `opentelemetry-api==1.44.0`; providers and exporters remain application choices.
+
+The reviewed runtime pins aiohappyeyeballs 2.7.1, aiosignal 1.4.0, attrs 26.1.0, frozenlist 1.8.0, idna 3.19, multidict 6.8.0, propcache 0.5.2, yarl 1.24.5, and typing_extensions 4.16.0 where interpreter markers require it. Runtime closure is ten packages on Python 3.11–3.12 and nine on 3.13–3.14. The optional OTel graph consists of the API plus typing_extensions on every supported interpreter. The build graph is flit_core 3.12.0; tests add no third-party framework beyond the separately locked runtime. The checker invokes the PEP 517 backend directly, so no extra build frontend is installed.
+
+Python package approval is separate from Cargo's license allowlist. PSF-2.0 is approved specifically for aiohappyeyeballs 2.7.1 and typing_extensions 4.16.0, including their full supplied license/history texts. Other selected terms are MIT, Apache-2.0 and BSD-3-Clause. Aiohttp includes llhttp under MIT; flit_core includes tomli 1.2.3 under MIT alongside Flit's BSD-3-Clause terms. The inspected terms require applicable legal notices and, for distributed modifications, change notices or summaries; they do not require application source disclosure, product branding or promotional credit. These components keep their actual licenses. No general copyleft or source-obligation allowance is introduced.
+
+[The client legal inventory](../sdk/python-client/third_party/inventory.json) records 47 actual wheel artifacts and 12 source archives, their published URLs and SHA256 hashes, wheel requirements and interpreter markers, native-extension filenames, and exact legal-file hashes. [Third-party notices](../sdk/python-client/third_party/NOTICE.md) identify the separate graphs and retained material, including llhttp, the full PSF histories, and the propcache/yarl NOTICE files. Client wheels and source distributions include the retained license/NOTICE texts; source distributions also include the inventory and graph locks. This is the client dependency inventory, not an interpreter, operating-system, or complete release-image SBOM.
+
+The configured matrix is CPython 3.11–3.14 on Linux x86_64/glibc (`ubuntu-24.04`) and macOS arm64 (`macos-14`). Each target has an explicitly inspected wheel selection. Other architectures, musl, Windows, PyPy, free-threaded interpreters, dependency extras and building third-party source archives are outside this review. Source archives are inspected for provenance and embedded legal material, never built by these gates. Artifact inspection for another target is not evidence of execution on that target; local and hosted CI results must be recorded separately.
+
+Run the deterministic policy and installed-wheel gates with a supported host interpreter:
+
+```sh
+python tools/check-python-client-dependencies.py
+python tools/check-python-client-dependencies.py --download /tmp/ledgence-client-wheels
+python tools/check-python-client.py --wheelhouse /tmp/ledgence-client-wheels --offline
+```
+
+The policy rejects changed package/version/license selections, missing active transitive dependencies, invalid interpreter markers, requirement/lock drift, and missing or changed retained legal files. Download mode additionally verifies actual artifact hashes, metadata, native-file inventory and complete license/NOTICE bytes. The four graph lockfiles require hashes and only reviewed binary wheels; the isolated build gate installs from a target wheelhouse with `--no-index`, checks the installed closure, rebuilds the wheel from the sdist, verifies legal contents, and runs tests outside checkout before and after adding the optional API. CPython's supplied `ensurepip` bootstrap tooling is not a client runtime/build dependency and is not bundled in the wheel. This deterministic selection/notice gate does not claim a vulnerability scan.
+
+Dependency upgrades require renewed artifact, source, license, coupling, marker and target review, followed by deliberate updates to the version-specific policy, inventory, graph locks and relevant manifests. Updating a version range or a lockfile alone cannot pass the gate. The published client metadata pins the complete reviewed runtime and optional graphs, including interpreter markers, so ordinary installation also selects the reviewed versions. The checked-in locks and wheelhouse additionally identify the exact artifact bytes validated for this release.

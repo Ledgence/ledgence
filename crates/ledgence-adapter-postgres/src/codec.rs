@@ -123,6 +123,54 @@ fn identifier(row: &impl Record, column: &str, maximum: usize) -> Result<String>
     Ok(value)
 }
 
+/// Decode compact indexed metadata only; no application byte payload is selected.
+pub(crate) fn status(row: &PgRow) -> Result<TaskStatus> {
+    let status = TaskStatus {
+        scope: Scope {
+            tenant_id: identifier(row, "tenant_id", 128)?,
+            namespace: identifier(row, "namespace", 128)?,
+        },
+        task_id: identifier(row, "task_id", 128)?,
+        run_id: identifier(row, "run_id", 128)?,
+        queue: identifier(row, "queue", 128)?,
+        correlation_key: get(row, "correlation_key")?,
+        state: enum_value(get(row, "state")?)?,
+        attempt_count: count(row, "attempt_count")?,
+        current_attempt_id: get(row, "current_attempt_id")?,
+        latest_attempt_id: get(row, "latest_attempt_id")?,
+        submitted_at: time(row, "submitted_at_ms")?,
+        available_at: time(row, "available_at_ms")?,
+        terminal_at: optional_time(row, "terminal_at_ms")?,
+        cancel_requested_at: optional_time(row, "cancel_requested_at_ms")?,
+    };
+    status.validate()?;
+    let latest_state: Option<AttemptState> = get::<Option<String>>(row, "latest_attempt_state")?
+        .map(enum_value)
+        .transpose()?;
+    if (status.state == TaskState::Active) != optional_time(row, "next_expiry_ms")?.is_some()
+        || (latest_state == Some(AttemptState::Active)) != (status.state == TaskState::Active)
+        || (status.state == TaskState::Succeeded && latest_state != Some(AttemptState::Succeeded))
+        || (status.state == TaskState::Failed
+            && !matches!(
+                latest_state,
+                Some(AttemptState::Failed | AttemptState::Lost)
+            ))
+        || (status.state == TaskState::Queued
+            && !matches!(
+                latest_state,
+                None | Some(AttemptState::Failed | AttemptState::Lost)
+            ))
+        || (status.state == TaskState::Cancelled
+            && !matches!(
+                latest_state,
+                None | Some(AttemptState::Cancelled | AttemptState::Failed | AttemptState::Lost)
+            ))
+    {
+        return Err(corrupt("task status and latest attempt state differ"));
+    }
+    Ok(status)
+}
+
 pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
     let command = SubmitCommand {
         idempotency_key: identifier(row, "idempotency_key", 255)?,

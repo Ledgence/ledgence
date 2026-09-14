@@ -67,6 +67,31 @@ jobs:
           LEDGENCE_PYTHON_OTEL_TEST_PACKAGES="$RUNNER_TEMP/ledgence-python-otel" \
             python -m unittest discover -s sdk/python/tests -v
 
+  python-client:
+    name: Installed Python client (${{ matrix.os }}, ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+        python: ['3.11', '3.12', '3.13', '3.14']
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython ${{ matrix.python }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Check the reviewed Python dependency and legal inventory
+        run: python tools/check-python-client-dependencies.py
+      - name: Build sdist and wheel and test installed client outside checkout
+        run: |
+          python tools/check-python-client.py \
+            --evidence "$RUNNER_TEMP/python-client-${{ matrix.python }}.json"
+
   postgres:
     name: PostgreSQL 18 and HTTP delivery
     runs-on: ubuntu-24.04
@@ -129,6 +154,20 @@ jobs:
             --binaries target/debug --capture target/debug/examples/otlp-capture \
             --evidence "$RUNNER_TEMP/ledgence-observability-evidence"
 
+      - name: Build and install the Python client wheel for end-to-end acceptance
+        run: |
+          python tools/check-python-client.py \
+            --venv-dir "$RUNNER_TEMP/ledgence-client-e2e-env" \
+            --evidence "$RUNNER_TEMP/ledgence-client-package.json"
+      - name: Check installed Python client with PostgreSQL, HTTP and the packaged worker
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-python-client-e2e.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --evidence "$RUNNER_TEMP/ledgence-client-e2e-evidence"
+
   dependencies:
     name: Dependency policy
     runs-on: ubuntu-24.04
@@ -140,6 +179,14 @@ jobs:
           persist-credentials: false
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Set up Python for artifact policy checks
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify actual Python wheels and sources across the reviewed matrix
+        run: |
+          python tools/check-python-client-dependencies.py \
+            --download "$RUNNER_TEMP/ledgence-reviewed-python-artifacts" --target all --sources
       - name: Install the reviewed dependency checker
         run: cargo install cargo-deny --version 0.20.2 --locked
       - name: Check licenses, advisories, and sources

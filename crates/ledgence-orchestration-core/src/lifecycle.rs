@@ -332,18 +332,9 @@ fn finish(
                 ProgramOutcome::Success { .. } => (AttemptState::Succeeded, false),
                 ProgramOutcome::Failure { .. } => (AttemptState::Failed, false),
             },
-            Some(AttemptReport::Failed(report)) => (
-                AttemptState::Failed,
-                matches!(
-                    report.error.kind,
-                    ErrorKind::Unavailable
-                        | ErrorKind::Io
-                        | ErrorKind::Capacity
-                        | ErrorKind::Runtime
-                        | ErrorKind::TimedOut
-                        | ErrorKind::Cancelled
-                ),
-            ),
+            Some(AttemptReport::Failed(report)) => {
+                (AttemptState::Failed, retryable_failure(report.error.kind))
+            }
             None => (AttemptState::Lost, true),
         }
     };
@@ -388,4 +379,17 @@ fn finish(
         task.terminal_at = Some(now);
     }
     Ok(())
+}
+
+/// One classification shared by scheduling and read-model consistency checks.
+pub(crate) fn retryable_failure(kind: ErrorKind) -> bool {
+    matches!(
+        kind,
+        ErrorKind::Unavailable
+            | ErrorKind::Io
+            | ErrorKind::Capacity
+            | ErrorKind::Runtime
+            | ErrorKind::TimedOut
+            | ErrorKind::Cancelled
+    )
 }
