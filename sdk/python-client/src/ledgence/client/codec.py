@@ -11,7 +11,10 @@ DATA_LIMIT = 1024 * 1024
 CONTROL_LIMIT = 2 * 1024 * 1024
 RESPONSE_LIMIT = 16 * 1024 * 1024
 STATUS_LIMIT = 16 * 1024
+TASK_PAGE_LIMIT = 2 * 1024 * 1024
 MAX_DEPTH = 64
+# Milliseconds through the last instant with a four-digit RFC3339 year.
+MAX_TIMESTAMP = 253402300799999
 
 
 def text(value, name: str, maximum: int = 128, *, empty: bool = False,

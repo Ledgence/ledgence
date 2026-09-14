@@ -141,6 +141,7 @@ async fn execute(service: &dyn TaskService, operation: Operation) -> Result<Vec<
                 })??;
             encode(service.submit(&command).await?)
         }
+        Operation::List { scope, query } => encode(service.list_tasks(&scope, &query).await?),
         Operation::Inspect { scope, task_id } => encode(service.inspect(&scope, &task_id).await?),
         Operation::Status { scope, task_id } => encode(service.status(&scope, &task_id).await?),
         Operation::Result { scope, task_id } => encode(service.result(&scope, &task_id).await?),

@@ -1,9 +1,11 @@
 //! Strict command parsing without changing operator-provided identities.
 
-use ledgence_orchestration_api::{ContractError, Result, Scope, validate_text};
+use ledgence_orchestration_api::{
+    ContractError, Result, Scope, TaskFilters, TaskListQuery, validate_text,
+};
 use std::{collections::HashMap, path::PathBuf};
 
-pub const HELP: &str = "Ledgence task administration\n\nCommands:\n  task submit --server URL --file FILE\n  task inspect --server URL --tenant ID --namespace ID --task ID\n  task status --server URL --tenant ID --namespace ID --task ID\n  task result --server URL --tenant ID --namespace ID --task ID\n  task attempt --server URL --tenant ID --namespace ID --task ID --attempt ID\n  task history --server URL --tenant ID --namespace ID --task ID [--after N]\n  task cancel --server URL --tenant ID --namespace ID --task ID\n\nsubmit reads the complete SubmitCommand JSON, including its idempotency_key.\nEach command makes one bounded HTTP exchange without automatic retries.\nJSON results go to stdout; diagnostics and Request-Id go to stderr.\nExit 0 means accepted operation, 2 means invalid input/usage, 1 means failure.\nA successful submit confirms acceptance, not successful task execution.\n";
+pub const HELP: &str = "Ledgence task administration\n\nCommands:\n  task submit --server URL --file FILE\n  task list --server URL --tenant ID --namespace ID [--state STATE] [--queue NAME] [--correlation-key KEY] [--submitted-from MS] [--submitted-until MS] [--limit N] [--cursor CURSOR]\n  task inspect --server URL --tenant ID --namespace ID --task ID\n  task status --server URL --tenant ID --namespace ID --task ID\n  task result --server URL --tenant ID --namespace ID --task ID\n  task attempt --server URL --tenant ID --namespace ID --task ID --attempt ID\n  task history --server URL --tenant ID --namespace ID --task ID [--after N]\n  task cancel --server URL --tenant ID --namespace ID --task ID\n\nsubmit reads the complete SubmitCommand JSON, including its idempotency_key.\nEach command makes one bounded HTTP exchange without automatic retries.\nJSON results go to stdout; diagnostics and Request-Id go to stderr.\nExit 0 means accepted operation, 2 means invalid input/usage, 1 means failure.\nA successful submit confirms acceptance, not successful task execution.\n";
 
 #[derive(Debug)]
 pub enum Command {
@@ -17,6 +19,10 @@ pub enum Command {
 #[derive(Debug)]
 pub enum Operation {
     Submit(PathBuf),
+    List {
+        scope: Scope,
+        query: TaskListQuery,
+    },
     Inspect {
         scope: Scope,
         task_id: String,
@@ -78,6 +84,35 @@ impl Command {
         let server = required(&mut options, "--server")?;
         let operation = match operation.as_str() {
             "submit" => Operation::Submit(required(&mut options, "--file")?.into()),
+            "list" => {
+                let scope = Scope {
+                    tenant_id: required(&mut options, "--tenant")?,
+                    namespace: required(&mut options, "--namespace")?,
+                };
+                let query = TaskListQuery {
+                    filters: TaskFilters {
+                        state: options
+                            .remove("--state")
+                            .map(|value| {
+                                serde_json::from_value(serde_json::Value::String(value))
+                                    .map_err(|_| invalid("invalid task state"))
+                            })
+                            .transpose()?,
+                        queue: options.remove("--queue"),
+                        correlation_key: options.remove("--correlation-key"),
+                        submitted_from: number(&mut options, "--submitted-from")?,
+                        submitted_until: number(&mut options, "--submitted-until")?,
+                    },
+                    limit: number(&mut options, "--limit")?
+                        .map(u32::try_from)
+                        .transpose()
+                        .map_err(|_| invalid("invalid list limit"))?
+                        .unwrap_or(ledgence_orchestration_api::TASK_LIST_DEFAULT_LIMIT),
+                    cursor: options.remove("--cursor"),
+                };
+                query.validate(&scope)?;
+                Operation::List { scope, query }
+            }
             "inspect" | "status" | "result" | "attempt" | "history" | "cancel" => {
                 let scope = Scope {
                     tenant_id: required(&mut options, "--tenant")?,
@@ -135,4 +170,18 @@ fn required(options: &mut HashMap<String, String>, key: &str) -> Result<String> 
 
 pub fn invalid(message: impl Into<String>) -> ContractError {
     ContractError::InvalidInput(message.into())
+}
+
+fn number(options: &mut HashMap<String, String>, key: &str) -> Result<Option<u64>> {
+    options
+        .remove(key)
+        .map(|value| {
+            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(invalid(format!("{key} must be an unsigned integer")));
+            }
+            value
+                .parse()
+                .map_err(|_| invalid(format!("{key} exceeds supported range")))
+        })
+        .transpose()
 }

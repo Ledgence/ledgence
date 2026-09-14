@@ -6,22 +6,23 @@ async fn schema_verification_is_read_only_and_rejects_incompatible_versions() {
     let db = TestDb::new().await;
     db.store.verify_schema().await.unwrap();
     db.store.check_connection().await.unwrap();
-    let original: Vec<u8> = sqlx::query_scalar("SELECT checksum FROM _sqlx_migrations")
-        .fetch_one(&db.store.pool)
-        .await
-        .unwrap();
+    let original: Vec<u8> =
+        sqlx::query_scalar("SELECT checksum FROM _sqlx_migrations WHERE version=20260913000000")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
 
-    sqlx::query("UPDATE _sqlx_migrations SET success = false")
+    sqlx::query("UPDATE _sqlx_migrations SET success = false WHERE version=20260913000000")
         .execute(&db.store.pool)
         .await
         .unwrap();
     assert!(db.store.verify_schema().await.is_err());
-    sqlx::query("UPDATE _sqlx_migrations SET success = true, checksum = ''::bytea")
+    sqlx::query("UPDATE _sqlx_migrations SET success = true, checksum = ''::bytea WHERE version=20260913000000")
         .execute(&db.store.pool)
         .await
         .unwrap();
     assert!(db.store.verify_schema().await.is_err());
-    sqlx::query("UPDATE _sqlx_migrations SET checksum = $1")
+    sqlx::query("UPDATE _sqlx_migrations SET checksum = $1 WHERE version=20260913000000")
         .bind(original)
         .execute(&db.store.pool)
         .await

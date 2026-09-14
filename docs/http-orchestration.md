@@ -67,6 +67,8 @@ In a third terminal, save this complete submission as `submit.json`:
   --tenant tenant_example --namespace demo --task TASK_ID
 ```
 
+Use `task list` to find tasks by state, queue, submission time, or exact business correlation; see [task discovery](task-discovery.md).
+
 Replace `TASK_ID` with the submitted snapshot's `task_id`. Use `task status` for compact scheduling metadata and `task result` for the authoritative logical outcome; see [task results](task-results.md). Status includes `latest_attempt_id` for diagnostic attempt inspection. Task inspection returns scheduling state and input; attempt inspection returns the accepted report, which can precede logical finalization. History returns up to 100 records; request the next page using the last record's `sequence`. An empty page only means no later records exist at that moment.
 
 `ledgence` writes one JSON result to stdout and request diagnostics to stderr. Exit `0` means the operation was accepted, `2` means input/usage rejection, and `1` means a service or transport failure. Successful submission does not mean successful execution. Each command makes one bounded exchange. If submission has an uncertain outcome, resubmit the same file/key; do not generate a replacement key. Matching replays preserve the first accepted input, descriptor, and origin context. Changed normalized input under the same scoped key conflicts. The [delivery contract](delivery-contract.md) defines normalization and deduplication scope.
@@ -81,6 +83,7 @@ Requests and responses use UTF-8 `application/json`; an optional UTF-8 charset p
 
 | Method and path | Input | Reply |
 | --- | --- | --- |
+| `GET /v1/tasks` | Required scope, optional state/queue/correlation/time filters and cursor/limit | Compact `TaskPage`; see [discovery](task-discovery.md) |
 | `POST /v1/tasks` | `SubmitCommand` | `TaskSnapshot` |
 | `GET /v1/tasks/inspect` | `tenant_id`, `namespace`, `task_id` query values | `TaskSnapshot` |
 | `GET /v1/tasks/status` | Same scope/task query values | Compact `TaskStatus` |
@@ -95,7 +98,7 @@ Requests and responses use UTF-8 `application/json`; an optional UTF-8 charset p
 | `POST /v1/settlements` | `SettleCommand` | `SettleReply` |
 | `POST /v1/quiescence-confirmations` | `LeaseOwner` | `TaskState` JSON string |
 
-`Scope` is `{"tenant_id": string, "namespace": string}`. Full command/reply definitions live in `ledgence-orchestration-api`. Fixed inspection paths keep identifiers out of path normalization; query encoding preserves valid Unicode, spaces, slashes, plus and percent signs, including identifiers `.` and `..`. Duplicate/unknown query fields, malformed encoding, and bodies on GET requests are rejected. Submission keys stay in JSON; there is no competing `Idempotency-Key` header mapping. There is no task-list/search endpoint.
+`Scope` is `{"tenant_id": string, "namespace": string}`. Full command/reply definitions live in `ledgence-orchestration-api`. Fixed inspection paths keep identifiers out of path normalization; query encoding preserves valid Unicode, spaces, slashes, plus and percent signs, including identifiers `.` and `..`. Duplicate/unknown query fields, malformed encoding, and bodies on GET requests are rejected. Submission keys stay in JSON; there is no competing `Idempotency-Key` header mapping. Task discovery uses exact indexed metadata filters; arbitrary payload search is not supported.
 
 `wait_ms` is an integer from 0 through 20,000; absence means 0. Null, fractions, strings, negative/oversized values, duplicate keys and unknown acquisition fields are rejected. The HTTP client omits a zero wait so immediate mode works with an older strict server. Upgrade the server before enabling nonzero waits; errors do not trigger an implicit downgrade. Wait duration is not part of cursor identity. The local monotonic exchange deadline is never serialized.
 
@@ -127,6 +130,8 @@ Error JSON uses the existing tagged representation, such as `{"code":"conflict"}
 Streaming reads enforce limits even without `Content-Length`. Decoding starts from original bytes, rejects duplicate keys at every depth and out-of-range integer tokens, and preserves signed/unsigned 64-bit integers, finite binary64 values, negative floating zero, and escaped U+0000. Unknown-field behavior follows each portable type; not every response type rejects additional fields. See [event numeric semantics](events.md).
 
 The 16 MiB response cap accommodates the current service's largest response, `AttemptSnapshot`: one accepted command of at most 8 MiB, one generated event containing at most 1 MiB of data, and bounded metadata. Outside those two payloads, the attempt contains fewer than 64 variable strings, each at most 512 UTF-8 bytes (identifiers are at most 128; trace state at most 512). Valid metadata excludes control characters; JSON escaping therefore adds at most a factor of two. Allowing 64 KiB for these strings and another 64 KiB for fixed keys, punctuation, numeric fields, and fixed event text gives a conservative total below **9 MiB + 128 KiB**. The accepted command already includes its report context and processing trace; those are not counted again. A descriptor's two program names are each at most 128 ASCII bytes and its digest is exactly 71 bytes.
+
+A `TaskPage` contains at most 100 compact statuses of 16 KiB each plus an 8192-byte cursor and framing, below its separate 2 MiB body cap. Listing uses the same exchange deadline through query validation, database read, and response validation/encoding.
 
 `TaskSnapshot` has at most a 2 MiB validated input plus the same generous 128 KiB metadata allowance. An assignment has at most a 1 MiB event payload plus that allowance. A history record contains two bounded identifiers and fixed scalar metadata; even a conservative 2 KiB per record keeps its 100-record page below 200 KiB. Session, authority, and settlement replies are smaller. These bounds describe records generated through the current lifecycle/service contract, not arbitrary extensions supplied by a custom `TaskService`. Custom services must honor the HTTP response cap. Changing response fields, envelope extensions, or domain limits requires reviewing the derivation and fixtures. Oversized responses fail; reports are never silently truncated.
 

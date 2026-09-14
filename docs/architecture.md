@@ -19,9 +19,11 @@ Ledgence provides a worker, a transport-independent delivery driver, and a Rust 
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 | `ledgence-adapter-http` | Optional HTTP client/server implementations of `TaskService` | Orchestration API, worker API |
 | `ledgence-orchestrator` | HTTP serving, explicit migrations, readiness and supervised recovery | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel adapter |
-| `ledgence-cli` | `ledgence task` submission, inspection, history and cancellation | Orchestration API, worker API, HTTP adapter, optional OTel adapter |
+| `ledgence-cli` | `ledgence task` submission, discovery, inspection, history and cancellation | Orchestration API, worker API, HTTP adapter, optional OTel adapter |
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
+
+[Task discovery](task-discovery.md) uses portable query/page contracts and required service/store methods. Metadata reads have no lifecycle transitions and keep application payloads out of listing results.
 
 The HTTP adapter has empty default features and separate `client` and `server` features. The worker and task CLI select the client; the orchestrator selects the server and supplies its own `ApplicationService`. Neither HTTP side depends on SQLx. `tools/check-http-features.py` separately checks each selection so a workspace build's feature unification cannot conceal coupling between the two sides.
 

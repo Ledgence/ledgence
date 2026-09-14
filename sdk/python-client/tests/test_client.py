@@ -158,6 +158,31 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 await self.client.tasks.submit(**self.args(1))
             self.assertIsInstance(exc.exception.cause, ProtocolError)
 
+    async def test_submission_timestamp_range_failure_preserves_uncertainty(self):
+        maximum = 253402300799999
+        fields = ("submitted_at", "available_at", "terminal_at", "cancel_requested_at")
+        times = {field: maximum for field in fields}
+
+        async def cancelled(request, body):
+            reply = submitted(json.loads(body))
+            reply.update(state="cancelled", **times)
+            return response(reply)
+
+        self.callback = cancelled
+        frozen = self.client.tasks.prepare(**self.args())
+        task = await self.client.tasks.submit(frozen)
+        self.assertEqual(task.id, "task")
+        for field in fields:
+            times[field] = maximum + 1
+            with self.subTest(field=field):
+                with self.assertRaises(SubmissionUncertain) as raised:
+                    await self.client.tasks.submit(frozen)
+                self.assertIs(raised.exception.submission, frozen)
+                self.assertIsInstance(raised.exception.cause, ProtocolError)
+            times[field] = maximum
+        self.assertTrue(all(request[0] == "POST" for request in self.requests))
+        self.assertEqual(len(self.requests), 5)
+
     async def test_program_failures_are_distinct_and_wait_returns_values(self):
         failures = [
             {"kind": "application", "error": {"kind": "business", "message": "declined"}},

@@ -8,11 +8,13 @@ pub use ledgence_worker_api::TraceContext;
 
 mod acquisition;
 mod delivery;
+mod discovery;
 mod observation;
 mod storage;
 mod submission;
 pub use acquisition::*;
 pub use delivery::*;
+pub use discovery::*;
 pub use observation::*;
 pub use storage::*;
 pub use submission::*;

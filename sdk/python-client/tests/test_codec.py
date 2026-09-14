@@ -114,6 +114,23 @@ class CodecTests(unittest.TestCase):
             else: bad["cancel_requested_at"] = 2
             with self.assertRaises(ProtocolError): parse_status(bad, scope, "task")
 
+    def test_observation_timestamps_match_rust_four_digit_rfc3339_range(self):
+        scope = Scope("tenant", "tests")
+        maximum = 253402300799999
+        fields = ("submitted_at", "available_at", "terminal_at", "cancel_requested_at")
+        valid = status("cancelled")
+        valid.update({field: maximum for field in fields})
+        parsed = parse_status(valid, scope, "task")
+        for field in fields:
+            self.assertEqual(getattr(parsed, field), maximum)
+            invalid = {**valid, field: maximum + 1}
+            with self.subTest(field=field), self.assertRaises(ProtocolError):
+                parse_status(invalid, scope, "task")
+            with self.subTest(result_field=field), self.assertRaises(ProtocolError):
+                parse_result({"task": invalid, "outcome": {"kind": "cancelled"}}, scope, "task")
+        self.assertEqual(parse_result({"task": valid, "outcome": {"kind": "cancelled"}},
+                                      scope, "task").task, parsed)
+
     def test_terminal_execution_evidence(self):
         scope = Scope("tenant", "tests")
         success = result()

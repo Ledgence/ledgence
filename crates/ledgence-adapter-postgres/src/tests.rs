@@ -19,6 +19,12 @@ pub(crate) struct TestDb {
 
 impl TestDb {
     pub(crate) async fn new() -> Self {
+        let fixture = Self::without_migrations().await;
+        fixture.store.migrate().await.unwrap();
+        fixture
+    }
+
+    pub(crate) async fn without_migrations() -> Self {
         let admin_url = std::env::var("LEDGENCE_POSTGRES_URL")
             .expect("set LEDGENCE_POSTGRES_URL to a PostgreSQL 18 test admin database");
         let admin = PgPoolOptions::new()
@@ -52,15 +58,13 @@ impl TestDb {
             }
         };
         admin.close().await;
-        let fixture = Self {
+        Self {
             store,
             url,
             admin_url,
             name,
             finished: false,
-        };
-        fixture.store.migrate().await.unwrap();
-        fixture
+        }
     }
 
     pub(crate) async fn finish(mut self) {
@@ -1095,11 +1099,15 @@ async fn migrations_are_repeatable_checksum_checked_and_transactional() {
     let directory =
         MigrationDirectory(std::env::temp_dir().join(format!("{}_migrations", db.name)));
     std::fs::create_dir(&directory.0).unwrap();
-    std::fs::write(
-        directory.0.join("20260913000000_initial.sql"),
-        include_str!("../migrations/20260913000000_initial.sql"),
-    )
-    .unwrap();
+    for migration in MIGRATOR.iter() {
+        std::fs::write(
+            directory
+                .0
+                .join(format!("{}_applied.sql", migration.version)),
+            migration.sql.as_str().as_bytes(),
+        )
+        .unwrap();
+    }
     std::fs::write(
         directory.0.join("20260914000000_injected_failure.sql"),
         "CREATE TABLE migration_rollback_probe(id integer); SELECT 1/0;",
@@ -1128,7 +1136,7 @@ async fn migrations_are_repeatable_checksum_checked_and_transactional() {
         .fetch_one(&db.store.pool)
         .await
         .unwrap();
-    assert_eq!(migration_count, 1);
+    assert_eq!(migration_count as usize, MIGRATOR.iter().count());
     db.store.migrate().await.unwrap();
     db.finish().await;
 }

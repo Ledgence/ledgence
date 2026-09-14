@@ -135,6 +135,13 @@ class TaskStatus:
 
 
 @dataclass(frozen=True)
+class TaskPage:
+    """One bounded page of live task observations, newest submissions first."""
+    items: tuple[TaskStatus, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
 class ErrorDetail:
     kind: str
     message: str
@@ -198,7 +205,7 @@ def _optional_text(raw, name, maximum=128, **kwargs):
 
 
 def _optional_time(raw, name):
-    return None if raw is None else codec.integer(raw, name, 0, (1 << 63) - 1)
+    return None if raw is None else codec.integer(raw, name, 0, codec.MAX_TIMESTAMP)
 
 
 def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
@@ -230,8 +237,8 @@ def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
         correlation_key=_optional_text(raw["correlation_key"], "correlation_key", 512,
                                        empty=True, noncharacters=True),
         state=state, attempt_count=count, current_attempt_id=current, latest_attempt_id=latest,
-        submitted_at=codec.integer(raw["submitted_at"], "submitted_at", 0, (1 << 63) - 1),
-        available_at=codec.integer(raw["available_at"], "available_at", 0, (1 << 63) - 1),
+        submitted_at=codec.integer(raw["submitted_at"], "submitted_at", 0, codec.MAX_TIMESTAMP),
+        available_at=codec.integer(raw["available_at"], "available_at", 0, codec.MAX_TIMESTAMP),
         terminal_at=terminal, cancel_requested_at=cancelled_at,
     )
 

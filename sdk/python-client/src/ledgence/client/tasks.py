@@ -8,13 +8,14 @@ import re
 from typing import Any, TYPE_CHECKING
 
 from . import codec, otel
+from .discovery import _TaskQuery
 from .errors import (
     CancellationUncertain, InputError, ProtocolError, RequestTimeout, SubmissionUncertain,
     TaskCancelled, TaskFailed, TransportError, WaitTimeout,
 )
 from .models import (
     Cancelled, Failed, RetryPolicy, Scope, Submission, Succeeded, TaskResult, TaskState,
-    TaskStatus, TraceContext, parse_result, parse_status,
+    TaskPage, TaskStatus, TraceContext, parse_result, parse_status,
 )
 
 if TYPE_CHECKING:
@@ -98,7 +99,7 @@ def _submission_reply(raw, submission: Submission) -> tuple[str, str]:
             raise InputError("invalid terminal timestamp")
         for key in ("submitted_at", "available_at", "terminal_at", "cancel_requested_at"):
             if raw[key] is not None:
-                codec.integer(raw[key], key, 0, (1 << 63) - 1)
+                codec.integer(raw[key], key, 0, codec.MAX_TIMESTAMP)
             elif key in ("submitted_at", "available_at"):
                 raise InputError("missing timestamp")
         if (state == TaskState.CANCELLED and raw["cancel_requested_at"] is None) or (
@@ -172,6 +173,21 @@ class Tasks:
         except TransportError as exc:
             raise SubmissionUncertain(submission, exc) from exc
         return TaskHandle(self._client, task_id, run_id)
+
+    async def list(self, *, state: TaskState | str | None = None,
+                   queue: str | None = None, correlation_key: str | None = None,
+                   submitted_from: int | None = None, submitted_until: int | None = None,
+                   limit: int = 50, cursor: str | None = None) -> TaskPage:
+        """Read one live page; repeat the filters when using its opaque cursor."""
+        deadline = asyncio.get_running_loop().time() + self._client.request_timeout
+        transport = self._client._require_transport()
+        query = _TaskQuery(state=state, queue=queue, correlation_key=correlation_key,
+                           submitted_from=submitted_from, submitted_until=submitted_until,
+                           limit=limit, cursor=cursor)
+        return await transport.exchange(
+            "GET", "/v1/tasks", query=query.parameters(self._client.scope), deadline=deadline,
+            parser=lambda raw: query.parse(raw, self._client.scope), limit=codec.TASK_PAGE_LIMIT,
+        )
 
     def handle(self, task_id: str) -> TaskHandle:
         """Construct a local scoped reference; this does not check existence."""

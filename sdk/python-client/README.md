@@ -59,6 +59,41 @@ physical cleanup. Check `result.outcome.quiescence` when cleanup evidence matter
 Cancellation outcomes have no deciding attempt or output. The status's
 `latest_attempt_id` is only a diagnostic reference to earlier work.
 
+## Finding tasks
+
+```python
+page = await client.tasks.list(
+    state="failed", correlation_key="INV-1042", limit=50,
+)
+for task in page.items:
+    print(task.task_id, task.state, task.latest_attempt_id)
+if page.next_cursor is not None:
+    page = await client.tasks.list(
+        state="failed", correlation_key="INV-1042", limit=50,
+        cursor=page.next_cursor,
+    )
+```
+
+`list()` returns one immutable `TaskPage` containing a tuple of compact
+`TaskStatus` observations and a nullable `next_cursor`. Each call has the client's
+existing request deadline. It does not fetch results or automatically traverse
+more pages. Filters always apply inside the client's tenant and namespace.
+
+Optional `state` accepts one state string or `TaskState`; `queue` and
+`correlation_key` match exactly. An omitted correlation filter matches any key;
+`correlation_key=""` matches only an explicitly empty key. `submitted_from` is
+inclusive and `submitted_until` exclusive, in Unix epoch milliseconds from zero
+through `253402300799999`. If both are present, `submitted_from` must be smaller.
+`limit` defaults to 50 and must be an integer from 1 through 100.
+
+Tasks are ordered by immutable `(submitted_at, task_id)`, descending. Treat the
+cursor as opaque, repeat the same filters and use it with the same scope; changing
+the page limit is allowed. A null cursor ends this traversal. Each page reads
+committed state when queried. Multiple pages are not a frozen snapshot: tasks may
+change state or become visible between requests, and concurrent changes can make
+matching tasks enter or leave the remaining traversal. Start again without a
+cursor to refresh. Use a task handle's status or result for subsequent observation.
+
 ## Submission uncertainty
 
 An explicit idempotency key is required. Optional `RetryPolicy`,
@@ -135,7 +170,8 @@ does not alter private retry flags or pretend every GET is one wire request.
 TLS uses the host Python SSL context and trust roots. Redirects and compressed
 responses are rejected; system proxy configuration is not implicitly adopted.
 No vendor service or account is required. Error responses are capped at 64 KiB,
-status responses at 16 KiB, and other responses at the existing 16 MiB bound.
+status responses at 16 KiB, task pages at 2 MiB, and other responses at the
+existing 16 MiB bound.
 Client I/O admission does not alter worker execution concurrency.
 
 ## JSON and optional tracing

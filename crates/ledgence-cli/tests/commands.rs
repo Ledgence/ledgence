@@ -318,3 +318,100 @@ async fn invalid_options_fail_as_usage_without_output() {
         assert_eq!(diagnostic(&output)["error"]["code"], "invalid_input");
     }
 }
+
+#[tokio::test]
+async fn task_list_encodes_exact_filters_and_prints_one_page() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let exchange = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let (header, body) = request(&mut socket).await;
+        assert!(header.starts_with("GET /v1/tasks?"));
+        for value in [
+            "tenant_id=tenant",
+            "namespace=billing",
+            "state=failed",
+            "queue=+q%2B%25%2F%C3%A9",
+            "correlation_key=",
+            "submitted_from=0",
+            "submitted_until=42",
+            "limit=2",
+        ] {
+            assert!(
+                header.lines().next().unwrap().contains(value),
+                "{value}: {header}"
+            );
+        }
+        assert!(body.is_empty());
+        respond(&mut socket, "200 OK", r#"{"items":[],"next_cursor":null}"#).await;
+    });
+    let output = invoke(&[
+        "task",
+        "list",
+        "--server",
+        &server,
+        "--tenant",
+        "tenant",
+        "--namespace",
+        "billing",
+        "--state",
+        "failed",
+        "--queue",
+        " q+%/é",
+        "--correlation-key",
+        "",
+        "--submitted-from",
+        "0",
+        "--submitted-until",
+        "42",
+        "--limit",
+        "2",
+    ])
+    .await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        json!({"items":[],"next_cursor":null})
+    );
+    assert_eq!(diagnostic(&output), json!({"request_id":"req-cli-test"}));
+    exchange.await.unwrap();
+}
+
+#[tokio::test]
+async fn task_list_rejects_invalid_options_without_network() {
+    for extra in [
+        vec!["--task", "x"],
+        vec!["--limit", "0"],
+        vec!["--limit", "101"],
+        vec!["--limit", "+2"],
+        vec!["--state", "done"],
+        vec!["--submitted-from", "2", "--submitted-until", "1"],
+        vec!["--cursor", "aa"],
+        vec!["--queue", ""],
+        vec!["--limit", "2", "--limit", "3"],
+    ] {
+        let mut args = vec![
+            "task",
+            "list",
+            "--server",
+            "http://127.0.0.1:1",
+            "--tenant",
+            "tenant",
+            "--namespace",
+            "billing",
+        ];
+        args.extend(extra);
+        let output = invoke(&args).await;
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
+    }
+}

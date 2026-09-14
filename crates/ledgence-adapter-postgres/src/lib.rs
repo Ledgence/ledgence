@@ -5,6 +5,7 @@
 
 mod codec;
 mod delivery;
+mod discovery;
 mod notifications;
 mod persistence;
 mod storage;
@@ -324,3 +325,6 @@ mod acquisition_db_tests;
 
 #[cfg(test)]
 mod observation_db_tests;
+
+#[cfg(test)]
+mod discovery_db_tests;

@@ -332,6 +332,13 @@ impl TaskService for LoseReplies {
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
         self.inner.submit(command)
     }
+    fn list_tasks<'a>(
+        &'a self,
+        scope: &'a Scope,
+        query: &'a TaskListQuery,
+    ) -> ContractFuture<'a, TaskPage> {
+        self.inner.list_tasks(scope, query)
+    }
     fn status<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskStatus> {
         self.inner.status(scope, id)
     }
