@@ -1,4 +1,4 @@
-//! Best-effort v2 telemetry. Records carry their creation-time identity; idle or
+//! Best-effort v2/v3 telemetry. Records carry their creation-time identity; idle or
 //! late records never inherit the actor's current invocation.
 
 use ledgence_worker_api::{CloudEvent, TraceContext, validate_wire_value};
@@ -36,6 +36,8 @@ struct LogInvocation {
     tenant_id: String,
     namespace: String,
     run_id: String,
+    workflow_id: Option<String>,
+    activation_id: Option<String>,
     task_id: String,
     attempt_no: i32,
 }
@@ -57,13 +59,13 @@ impl LogForwarder {
         }
     }
 
-    /// Return true for optional v2 log data, including invalid optional content.
+    /// Return true for optional v2/v3 log data, including invalid optional content.
     /// Framing and result/control validation remain the protocol reader's job.
     pub fn accept(&mut self, value: &Value, version: u32) -> bool {
-        if version != 2 || value.get("type").and_then(Value::as_str) != Some("log") {
+        if !matches!(version, 2 | 3) || value.get("type").and_then(Value::as_str) != Some("log") {
             return false;
         }
-        if let Some(record) = validated(value) {
+        if let Some(record) = validated(value, version) {
             let bytes = serde_json::to_vec(value).map_or(MAX_LOG_FRAME_BYTES + 1, |v| v.len() + 1);
             let allowance = self
                 .budget
@@ -87,6 +89,8 @@ impl LogForwarder {
                     tenant_id = identity.map(|v| v.tenant_id.as_str()),
                     namespace = identity.map(|v| v.namespace.as_str()),
                     run_id = identity.map(|v| v.run_id.as_str()),
+                    workflow_id = identity.and_then(|v| v.workflow_id.as_deref()),
+                    activation_id = identity.and_then(|v| v.activation_id.as_deref()),
                     task_id = identity.map(|v| v.task_id.as_str()),
                     attempt_id = identity.map(|v| v.attempt_id.as_str()),
                     attempt_no = identity.map(|v| v.attempt_no),
@@ -115,13 +119,13 @@ impl LogForwarder {
     }
 }
 
-fn validated(value: &Value) -> Option<LogRecord> {
+fn validated(value: &Value, version: u32) -> Option<LogRecord> {
     if serde_json::to_vec(value).ok()?.len() >= MAX_LOG_FRAME_BYTES {
         return None;
     }
     validate_wire_value(value).ok()?;
     let record: LogRecord = serde_json::from_value(value.clone()).ok()?;
-    if record.v != 2
+    if record.v != version
         || record.kind != "log"
         || record.time.is_empty()
         || record.time.len() > 64
@@ -149,14 +153,28 @@ fn validated(value: &Value) -> Option<LogRecord> {
     if let Some(identity) = &record.invocation {
         // Reuse envelope identity validation without reading user data or looking
         // up whichever invocation happens to be active when this record arrives.
-        CloudEvent::new(json!({"specversion": "1.0", "type": "ledgence.log",
+        if version == 2 && (identity.workflow_id.is_some() || identity.activation_id.is_some()) {
+            return None;
+        }
+        let mut event = json!({"specversion": "1.0", "type": "ledgence.log",
             "id": identity.event_id, "source": identity.source,
             "ldgtenantid": identity.tenant_id, "ldgnamespace": identity.namespace,
             "ldgrunid": identity.run_id, "ldgtaskid": identity.task_id,
             "ldgattemptid": identity.attempt_id, "ldgattemptno": identity.attempt_no,
             "datacontenttype": "application/json", "time": record.time, "data": null
-        }))
-        .ok()?;
+        });
+        for (key, value) in [
+            ("ldgworkflowid", &identity.workflow_id),
+            ("ldgactivationid", &identity.activation_id),
+        ] {
+            if let Some(value) = value {
+                if value.is_empty() || value.len() > 128 {
+                    return None;
+                }
+                event[key] = Value::String(value.clone());
+            }
+        }
+        CloudEvent::new(event).ok()?;
     }
     Some(record)
 }

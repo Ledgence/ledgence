@@ -1,5 +1,5 @@
 use super::*;
-use ledgence_worker_api::{ErrorKind, InvocationIdentity, ProgramOutcome, validate_wire_value};
+use ledgence_worker_api::{ErrorKind, InvocationIdentity, ProgramOutcome};
 
 /// Accept one ordered renewal. Duplicate sequences never extend the lease twice.
 pub fn renew(
@@ -286,7 +286,7 @@ pub fn validate_report(attempt: &AttemptSnapshot, command: &SettleCommand) -> Re
     let context = match &command.report {
         AttemptReport::Completed(report) => {
             if let ProgramOutcome::Success { output } = &report.outcome {
-                validate_wire_value(output)?;
+                validate_task_output(output, report.context.identity.activation_id.is_some())?;
             }
             &report.context
         }

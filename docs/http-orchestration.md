@@ -1,6 +1,6 @@
 # HTTP orchestration
 
-Ledgence provides three Rust executables: `ledgence-orchestrator` serves the durable task API and runs expiry recovery, `ledgence-worker connect` executes assignments, and `ledgence` submits and inspects tasks. PostgreSQL 18 stores orchestration state. Program packages remain in a separate filesystem or HTTPS store and are downloaded into each worker's verified cache on demand.
+Ledgence provides three Rust executables: `ledgence-orchestrator` serves the durable task/workflow APIs and runs expiry and workflow recovery, `ledgence-worker connect` executes assignments, and `ledgence` submits and inspects tasks. PostgreSQL 18 stores orchestration state. Program packages remain in a separate filesystem or HTTPS store and are downloaded into each worker's verified cache on demand.
 
 This version supports bounded HTTP/JSON long polling. Workers request up to 20 seconds of waiting, with optional PostgreSQL notifications and periodic queue checks. Immediate acquisition remains available with `--acquire-wait-ms 0`. gRPC, a package upload API, and retention deletion remain later work. Optional tracing uses the OTLP HTTP/protobuf exporter; acquisition semantics remain independent of telemetry availability. The API is versioned under `/v1` but has no stable-release compatibility promise yet.
 
@@ -197,3 +197,20 @@ python3 tools/check-http.py --psql /path/to/psql \
 `LEDGENCE_POSTGRES_URL` supplies the disposable server connection and `LEDGENCE_PYTHON` selects Python. The HTTP gate creates/drops its own unique database and starts separate orchestrator, worker, and CLI binaries, a program server, and a fault proxy. It builds binaries unless `--binaries DIRECTORY` is supplied. Use `--scenario NAME` to select a case; omit it for the full gate. The proxy drops responses after consuming upstream committed replies, allowing tests to check real socket uncertainty and durable replay. Runtime fault tests and controlled cleanup tests remain separate from deployment tests; they are not substitutes for one another.
 
 The feature gate checks the HTTP adapter with no features, client only, and server only, and verifies that client dependencies do not pull in Axum and server dependencies do not pull in reqwest or SQLx. The Linux PostgreSQL CI job runs network acceptance after the database gate. CI configuration describes required checks; it is not evidence of a completed hosted run. Long-poll verification includes cross-replica completion, notification fallback, replay and shutdown. Database failover remains outside this version's validation scope.
+
+
+## Checkpoint workflow endpoints
+
+The packaged service also exposes workflow submission, compact status, result,
+cancellation, and worker activation/local-result routes. Their exact shapes,
+limits, and persistence semantics are in [workflows](workflows.md#interfaces-and-adapters).
+The Python client provides `client.workflows`; the task CLI still exposes task
+operations. Embedded applications opt in with
+`server::router_with_workflows` and a `WorkflowService` implementation.
+
+The coordinator is independently supervised. Readiness requires fresh successful
+workflow recovery progress as well as the existing database/recovery/publisher
+checks. Shutdown first closes HTTP admission and drains accepted requests, then
+stops background recovery; unprocessed obligations remain durable for restart.
+Task statuses include optional `workflow_id` and `workflow_activation_id` for
+linked tasks. Ordinary statuses omit those fields.

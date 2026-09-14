@@ -4,7 +4,7 @@ use crate::*;
 use sqlx::{Postgres, QueryBuilder};
 
 const STATUS_COLUMNS: &str = "t.tenant_id,t.namespace,t.task_id,t.run_id,t.queue,t.correlation_key,\
-    t.state,t.attempt_count,t.current_attempt_id,t.submitted_at_ms,\
+    t.workflow_id,t.workflow_activation_id,t.state,t.attempt_count,t.current_attempt_id,t.submitted_at_ms,\
     t.available_at_ms,t.terminal_at_ms,t.cancel_requested_at_ms,t.next_expiry_ms";
 
 /// Predicates are selected from fixed SQL fragments; all values are bound.

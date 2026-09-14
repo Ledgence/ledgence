@@ -30,15 +30,17 @@ def _endpoint(value: str) -> str:
 
 
 class AsyncClient:
-    """Async task client. Open with async with; all use stays on one event loop."""
+    """Async task and workflow client. Open with async with; all use stays on one event loop."""
 
     def __init__(self, base_url: str, *, tenant: str, namespace: str,
                  request_timeout: float = 30.0):
         from .tasks import Tasks
+        from .workflows import Workflows
         self._base_url = _endpoint(base_url)
         self._scope = Scope(tenant, namespace)
         self._request_timeout = codec.duration(request_timeout, "request_timeout", 30.0)
         self.tasks = Tasks(self)
+        self.workflows = Workflows(self)
         self._transport: _Transport | None = None
         self._closed = False
 

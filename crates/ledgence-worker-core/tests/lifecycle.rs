@@ -12,6 +12,9 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 
+#[path = "lifecycle/interactive.rs"]
+mod interactive;
+
 #[derive(Default)]
 struct Counts {
     fetches: AtomicUsize,

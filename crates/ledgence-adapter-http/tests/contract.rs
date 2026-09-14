@@ -1,5 +1,8 @@
 #![cfg(all(feature = "client", feature = "server"))]
 
+#[path = "contract/workflow.rs"]
+mod workflow;
+
 use ledgence_adapter_http::{HttpTaskService, RESPONSE_MAX_BYTES, server};
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{
@@ -207,6 +210,8 @@ fn submit(data: Value) -> SubmitCommand {
 fn task(data: Value) -> TaskSnapshot {
     let submit = submit(data);
     TaskSnapshot {
+        workflow_id: None,
+        workflow_activation_id: None,
         task_id: "..".into(),
         run_id: "run".into(),
         idempotency_key: submit.idempotency_key,
@@ -342,6 +347,7 @@ async fn all_methods_roundtrip_scoped_opaque_ids_and_lossless_application_values
     }];
     mock.set("history", Ok(history.clone()));
     let assignment = Assignment {
+        workflow_activation_id: None,
         descriptor: descriptor(),
         event: event(data.clone()),
         lease: attempt.lease.clone(),
@@ -1636,6 +1642,8 @@ fn compact_status(state: TaskState) -> TaskStatus {
         scope: scope(),
         task_id: "..".into(),
         run_id: "run".into(),
+        workflow_id: None,
+        workflow_activation_id: None,
         queue: "queue".into(),
         correlation_key: None,
         state,
@@ -2164,6 +2172,7 @@ async fn targeted_claim_roundtrips_every_handoff_disposition_and_lossless_payloa
     let assigned = AcquireReply::Assigned {
         sequence: command.acquisition.sequence,
         assignment: Box::new(Assignment {
+            workflow_activation_id: None,
             descriptor: descriptor(),
             event: event(data),
             lease: Lease {

@@ -357,7 +357,7 @@ async fn compact_status_selects_no_payload_columns_and_corrupt_results_are_unava
             .iter()
             .all(|column| column.type_info().name() != "BYTEA")
     );
-    assert_eq!(described.columns().len(), 16);
+    assert_eq!(described.columns().len(), 18);
     let (task, _, assigned) = claimed(&db.store).await;
     db.store
         .settle(&completed(&assigned, Quiescence::Confirmed, Value::Null))

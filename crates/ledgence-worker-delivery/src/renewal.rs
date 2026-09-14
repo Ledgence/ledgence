@@ -461,6 +461,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            workflow_activation_id: None,
             descriptor: ProgramDescriptor {
                 program: ProgramRef {
                     id: "program".into(),
@@ -504,6 +505,7 @@ mod tests {
         config.renew_interval = Duration::from_millis(1);
         config.retry_delay = Duration::from_millis(1);
         let context = Arc::new(Context {
+            workflows: None,
             worker,
             source: Arc::new(source::ServiceAcquisitionSource {
                 service: service.clone(),

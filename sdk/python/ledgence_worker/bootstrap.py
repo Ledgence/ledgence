@@ -30,6 +30,15 @@ class ProtocolError(Exception):
     pass
 
 
+def _unique_fields(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ProtocolError("duplicate JSON object field")
+        value[key] = item
+    return value
+
+
 def _reject_constant(value):
     raise ProtocolError("non-finite JSON number: " + value)
 
@@ -43,7 +52,7 @@ def _encode(value, limit):
     return encoded
 
 
-def _validate_wire_value(value, depth=0, ancestors=None):
+def _validate_wire_value(value, depth=0, ancestors=None, max_depth=MAX_WIRE_VALUE_DEPTH):
     """Validate the shared JSON value profile before reporting handler success."""
     if value is None or isinstance(value, bool):
         return
@@ -60,7 +69,7 @@ def _validate_wire_value(value, depth=0, ancestors=None):
         return
     if not isinstance(value, (dict, list, tuple)):
         raise ProtocolError("output must contain only JSON-compatible values")
-    if depth >= MAX_WIRE_VALUE_DEPTH:
+    if depth >= max_depth:
         raise ProtocolError("output exceeds the maximum JSON container depth")
     if ancestors is None:
         ancestors = set()
@@ -74,15 +83,15 @@ def _validate_wire_value(value, depth=0, ancestors=None):
                 if not isinstance(key, str):
                     raise ProtocolError("JSON object keys must be strings")
                 key.encode("utf-8", errors="strict")
-                _validate_wire_value(item, depth + 1, ancestors)
+                _validate_wire_value(item, depth + 1, ancestors, max_depth)
         else:
             for item in value:
-                _validate_wire_value(item, depth + 1, ancestors)
+                _validate_wire_value(item, depth + 1, ancestors, max_depth)
     finally:
         ancestors.remove(identity)
 
 
-def _failure(envelope, kind, error, limit):
+def _failure(envelope, kind, error, limit, status="error"):
     """Fit the entire failure frame, including identities and UTF-8 escaping."""
     try:
         message = str(error)
@@ -91,7 +100,7 @@ def _failure(envelope, kind, error, limit):
     # This is infrastructure error text, not user output. Replace invalid scalar
     # sequences so even a malformed exception cannot corrupt the response pipe.
     message = message[:512].encode("utf-8", errors="replace").decode("utf-8")
-    response = dict(envelope, status="error", error={"kind": kind, "message": ""})
+    response = dict(envelope, status=status, error={"kind": kind, "message": ""})
     _encode(response, limit)  # The caller must establish this fits before invoking.
     low, high = 0, len(message)
     while low < high:
@@ -122,7 +131,7 @@ def _check_module_origin(spec, root):
         raise ProtocolError("handler package search path leaves the artifact")
 
 
-def _load_handler(root, module_name, function_name):
+def _load_handler(root, module_name, function_name, allow_async=False):
     # Changing sys.path does not replace a module already loaded by the bootstrap.
     # Reject those names explicitly instead of silently executing unrelated code.
     names = [".".join(module_name.split(".")[:i])
@@ -143,7 +152,7 @@ def _load_handler(root, module_name, function_name):
                 raise ProtocolError("handler parent module is not a package")
             search_path = module.__spec__.submodule_search_locations
     handler = getattr(module, function_name)
-    if not callable(handler) or inspect.iscoroutinefunction(handler):
+    if not callable(handler) or (inspect.iscoroutinefunction(handler) and not allow_async):
         raise ProtocolError("handler must be a synchronous callable")
     return handler
 
@@ -165,7 +174,8 @@ def _text(value, field):
     return value
 
 
-def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None):
+def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
+            extension=None, rpc=None):
     from ledgence_worker import InvocationContext, _invocation
     from ledgence_worker.otel import _activate
 
@@ -177,15 +187,20 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
     }
     # A protocol with separate input/output limits may accept identities too large
     # for even an empty failure result. Reject that before running application code.
-    _failure(envelope, "invalid_output", "", limit)
+    _failure(envelope, "invalid_output", "", limit,
+             status="runtime_error" if extension is not None else "error")
     token = _invocation.set(InvocationContext(
         event_id, attempt_id, source=event.get("source"),
         tenant_id=event.get("ldgtenantid"), namespace=event.get("ldgnamespace"),
         run_id=event.get("ldgrunid"), task_id=event.get("ldgtaskid"),
         attempt_no=event.get("ldgattemptno"), processing_context=processing_context,
+        workflow_id=event.get("ldgworkflowid"), activation_id=event.get("ldgactivationid"),
     ))
     try:
         with _activate(processing_context):
+            if version >= 3:
+                import asyncio
+                return asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc))
             return _invoke_output(handler, event, envelope, limit)
     finally:
         _invocation.reset(token)
@@ -208,6 +223,96 @@ def _invoke_output(handler, event, envelope, limit):
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
         return _failure(envelope, "business_error", exc, limit)
+
+
+async def _invoke_async(handler, event, envelope, limit, extension, rpc):
+    import asyncio
+    from ledgence_worker.workflow import SCHEMA, WorkflowContext, _workflow
+
+    context = None
+    token = None
+    failed = True
+    try:
+        if extension is not None:
+            if (not isinstance(extension, dict) or set(extension) != {"schema", "payload"}
+                    or extension["schema"] != SCHEMA):
+                raise ProtocolError("unsupported runtime extension")
+            context = WorkflowContext(extension["payload"], rpc)
+            if (context.activation_id != event.get("ldgtaskid")
+                    or context.activation_id != event.get("ldgactivationid")
+                    or context.workflow_id != event.get("ldgworkflowid")):
+                raise ProtocolError("workflow activation context does not match the event identity")
+            token = _workflow.set(context)
+        output = handler(event)
+        if inspect.isawaitable(output):
+            output = await output
+        if context is not None:
+            # Wait for every owned local operation before producing a checkpoint.
+            # This preserves durable commits even when an observer did not await.
+            await context._drain()
+            output = context._validate_decision(output)
+        try:
+            _validate_wire_value(output, max_depth=96 if context is not None else MAX_WIRE_VALUE_DEPTH)
+            response = dict(envelope, status="success", output=output)
+            _encode(response, limit)
+        except (TypeError, ValueError, OverflowError, RecursionError, ProtocolError) as exc:
+            if context is not None:
+                raise
+            return _failure(envelope, "invalid_output", exc, limit)
+        failed = False
+        return response
+    except Exception as exc:
+        traceback.print_exc(file=sys.stderr)
+        return _failure(envelope, "workflow_error" if extension is not None else "business_error", exc, limit,
+                        status="runtime_error" if extension is not None else "error")
+    finally:
+        if context is not None:
+            await context._finish(cancel=failed)
+        if token is not None:
+            _workflow.reset(token)
+
+
+class _RuntimeRpc:
+    """One serialized control exchange; local asynchronous work remains parallel."""
+
+    def __init__(self, write, stream, input_limit, event_id, attempt_id):
+        import asyncio
+        self._write = write
+        self._stream = stream
+        self._input_limit = input_limit
+        self._identity = {"v": 3, "event_id": event_id, "attempt_id": attempt_id}
+        self._sequence = 0
+        self._lock = asyncio.Lock()
+
+    async def __call__(self, operation, payload):
+        import asyncio
+        async with self._lock:
+            self._sequence += 1
+            request = dict(self._identity, type="runtime_request", id=self._sequence,
+                           operation=operation, payload=payload)
+            exchange = asyncio.create_task(asyncio.to_thread(self._exchange, request))
+            try:
+                return await asyncio.shield(exchange)
+            except asyncio.CancelledError:
+                # A cancelled await does not cancel the blocking pipe operation.
+                # Retain it until completion; the Rust owner bounds process life.
+                await exchange
+                raise
+
+    def _exchange(self, request):
+        self._write(request)
+        line = self._stream.readline(self._input_limit + 1)
+        if not line or len(line) > self._input_limit or not line.endswith(b"\n"):
+            raise ProtocolError("invalid runtime reply frame size or EOF")
+        reply = json.loads(line, parse_constant=_reject_constant, object_pairs_hook=_unique_fields)
+        required = {"v", "type", "event_id", "attempt_id", "id", "result"}
+        if (not isinstance(reply, dict) or set(reply) != required
+                or reply.get("type") != "runtime_reply"
+                or type(reply.get("id")) is not int or reply["id"] != request["id"]
+                or any(type(reply.get(key)) is not type(value) or reply[key] != value
+                       for key, value in self._identity.items())):
+            raise ProtocolError("runtime reply identity or envelope mismatch")
+        return reply["result"]
 
 
 def _processing_context(value):
@@ -255,7 +360,7 @@ def main():
     parser.add_argument("--package-root", required=True)
     parser.add_argument("--handler", required=True)
     parser.add_argument("--python-version", required=True)
-    parser.add_argument("--protocol-version", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--protocol-version", type=int, choices=(1, 2, 3), default=1)
     parser.add_argument("--max-input-bytes", type=int, default=DEFAULT_RUNTIME_FRAME_MAX_BYTES)
     parser.add_argument("--max-output-bytes", type=int, default=DEFAULT_RUNTIME_FRAME_MAX_BYTES)
     args = parser.parse_args()
@@ -283,13 +388,18 @@ def main():
     # the exact prepared artifact root for application code and vendored deps.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     import ledgence_worker
+    if args.protocol_version >= 3:
+        # Load runtime dependencies before application imports, preserving the
+        # original preloaded-module surface for synchronous v1/v2 packages.
+        import asyncio
 
     writer = None
-    if args.protocol_version == 2:
+    if args.protocol_version >= 2:
         from ledgence_worker._protocol import ProtocolWriter
         from ledgence_worker import _logging
 
         writer = ProtocolWriter(protocol, args.max_output_bytes)
+        writer.protocol_version = args.protocol_version
         _logging._sink = writer
 
     def write(value, closing=False):
@@ -299,7 +409,7 @@ def main():
             writer.control(_encode(value, args.max_output_bytes), closing=closing)
 
     sys.path.insert(0, str(root))
-    handler = _load_handler(root, module_name, function_name)
+    handler = _load_handler(root, module_name, function_name, allow_async=args.protocol_version >= 3)
     write({"v": args.protocol_version, "type": "ready", "pid": os.getpid(),
            "python_version": actual_version})
     while True:
@@ -314,7 +424,7 @@ def main():
         if message.get("type") == "shutdown":
             # Acknowledge while still alive. The parent owns group termination
             # and reaping; exiting here would race Darwin's zombie-only killpg.
-            if args.protocol_version == 2:
+            if args.protocol_version >= 2:
                 ledgence_worker._shutdown()
             write({"v": args.protocol_version, "type": "closing"}, closing=True)
             # EOF also permits exit if the parent disappears before signaling.
@@ -330,15 +440,17 @@ def main():
                 or event.get("ldgattemptid") != attempt_id):
             raise ProtocolError("invocation event identity does not match event")
         processing = None
-        if args.protocol_version == 2:
+        if args.protocol_version >= 2:
             if "processing_context" not in message:
-                raise ProtocolError("v2 invocation requires processing_context (null when disabled)")
+                raise ProtocolError("v2+ invocation requires processing_context (null when disabled)")
             processing = _processing_context(message["processing_context"])
+        extension = message.get("extension") if args.protocol_version >= 3 else None
+        rpc = _RuntimeRpc(write, sys.stdin.buffer, args.max_input_bytes, event_id, attempt_id) if args.protocol_version >= 3 else None
         # A fresh Context prevents contextvars set by an earlier invocation
         # leaking into the next one in this persistent process.
         response = contextvars.Context().run(
             _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
-            args.protocol_version, processing
+            args.protocol_version, processing, extension, rpc
         )
         write(response)
 

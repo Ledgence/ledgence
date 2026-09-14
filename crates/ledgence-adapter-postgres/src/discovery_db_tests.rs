@@ -381,12 +381,12 @@ async fn discovery_migration_upgrades_existing_task_history_without_rewriting_it
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let before = db.store.status(&scope(), &task.task_id).await.unwrap();
-    let history = db
-        .store
-        .history(&scope(), &before.task_id, 0)
-        .await
-        .unwrap();
+    // Current status queries require the new nullable workflow identity columns.
+    // The historical seed is the expected snapshot until all migrations apply.
+    let before = ledgence_orchestration_core::task_status(task, None).unwrap();
+    let history = sqlx::query("SELECT *,trunc(sequence)::text AS sequence_text FROM task_history WHERE task_id=$1 ORDER BY sequence")
+        .bind(&before.task_id).fetch_all(&db.store.pool).await.unwrap()
+        .iter().map(codec::history).collect::<Result<Vec<_>>>().unwrap();
     assert!(
         db.store.verify_schema().await.is_err(),
         "old schemas cannot serve new queries before explicit migration"

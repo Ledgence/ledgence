@@ -7,6 +7,7 @@ use crate::{
     CloudEvent, Digest, Error, InvocationIdentity, ProgramDescriptor, ProgramOutcome, ProgramRef,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionRequest {
@@ -78,12 +79,69 @@ pub struct RuntimeInvocation {
     pub event: CloudEvent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_context: Option<crate::TraceContext>,
+    /// Optional platform context, separate from the wholly user-owned event data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<RuntimeExtension>,
 }
 impl From<CloudEvent> for RuntimeInvocation {
     fn from(event: CloudEvent) -> Self {
         Self {
             event,
             processing_context: None,
+            extension: None,
         }
     }
+}
+
+/// Versioned, runtime-neutral context for an opt-in interactive invocation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeExtension {
+    pub schema: String,
+    pub payload: Value,
+}
+impl RuntimeExtension {
+    pub fn validate(&self) -> crate::Result<()> {
+        validate_name(&self.schema, "runtime extension schema")?;
+        crate::validate_runtime_payload(&self.payload, crate::RUNTIME_EXTENSION_MAX_BYTES)
+    }
+}
+
+/// One invocation-scoped request. The host, not these fields, supplies authority.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeRequest {
+    pub id: u64,
+    pub operation: String,
+    pub payload: Value,
+}
+impl RuntimeRequest {
+    pub fn validate(&self) -> crate::Result<()> {
+        if self.id == 0 {
+            return Err(Error::new(
+                crate::ErrorKind::InvalidInput,
+                "runtime request ID must be positive",
+            ));
+        }
+        validate_name(&self.operation, "runtime request operation")?;
+        crate::validate_runtime_payload(&self.payload, crate::RUNTIME_REQUEST_MAX_BYTES)
+    }
+}
+
+/// An acknowledgement for exactly one request; its result schema belongs to the handler.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeReply {
+    pub id: u64,
+    pub result: Value,
+}
+
+fn validate_name(value: &str, label: &str) -> crate::Result<()> {
+    if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
+        return Err(Error::new(
+            crate::ErrorKind::InvalidInput,
+            format!("{label} must contain 1..=256 bytes without control characters"),
+        ));
+    }
+    Ok(())
 }

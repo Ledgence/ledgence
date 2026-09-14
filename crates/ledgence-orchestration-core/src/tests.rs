@@ -1127,3 +1127,61 @@ fn rejected_commands_leave_input_snapshots_unchanged_and_do_not_grant_authority(
 
 #[path = "observation_tests.rs"]
 mod observation;
+
+#[test]
+fn workflow_decision_envelopes_preserve_application_depth_without_widening_ordinary_outputs() {
+    let mut value = Value::Null;
+    for _ in 0..64 {
+        value = json!([value]);
+    }
+    let mut task = queued();
+    task.workflow_id = Some("workflow_depth".into());
+    task.workflow_activation_id = Some(task.task_id.clone());
+    let current = claim_task(task);
+    let decision = json!({"v":1,"activation_id":current.task.task_id,"revision":0,"kind":"complete","output":value});
+    WorkflowDecision::decode(&decision).unwrap();
+    let mut command = success(&current.attempt, Quiescence::Confirmed);
+    let AttemptReport::Completed(ref mut report) = command.report else {
+        unreachable!()
+    };
+    report.outcome = ProgramOutcome::Success {
+        output: decision.clone(),
+    };
+    SettleCommand::decode(&serde_json::to_vec(&command).unwrap()).unwrap();
+    let accepted = settle(&current.task, &current.attempt, &command, NOW + 1).unwrap();
+    let result = task_result(&accepted.task, accepted.attempt.as_ref()).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.task.workflow_id.as_deref(), Some("workflow_depth"));
+    assert_eq!(
+        result.task.workflow_activation_id.as_deref(),
+        Some(current.task.task_id.as_str())
+    );
+    assert!(matches!(result.outcome,Some(TaskOutcome::Succeeded{output,..}) if output == decision));
+
+    let ordinary = claimed();
+    let mut ordinary_command = success(&ordinary.attempt, Quiescence::Confirmed);
+    let AttemptReport::Completed(ref mut report) = ordinary_command.report else {
+        unreachable!()
+    };
+    report.outcome = ProgramOutcome::Success { output: decision };
+    assert!(SettleCommand::decode(&serde_json::to_vec(&ordinary_command).unwrap()).is_err());
+    report_marker(&mut ordinary_command);
+    assert_eq!(
+        settle(
+            &ordinary.task,
+            &ordinary.attempt,
+            &ordinary_command,
+            NOW + 1
+        )
+        .unwrap_err(),
+        ContractError::Conflict
+    );
+
+    fn report_marker(command: &mut SettleCommand) {
+        let AttemptReport::Completed(ref mut report) = command.report else {
+            unreachable!()
+        };
+        report.context.identity.workflow_id = Some("workflow_depth".into());
+        report.context.identity.activation_id = Some(report.context.identity.task_id.clone());
+    }
+}

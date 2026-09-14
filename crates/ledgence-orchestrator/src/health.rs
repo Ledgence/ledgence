@@ -19,11 +19,12 @@ struct Progress {
     prerequisites: bool,
     last_success: Option<Instant>,
     failure: Option<&'static str>,
-    publication: Option<PublicationProgress>,
+    publication: Option<ComponentProgress>,
+    workflow: Option<ComponentProgress>,
 }
 
 #[derive(Default)]
-struct PublicationProgress {
+struct ComponentProgress {
     last_success: Option<Instant>,
     failure: Option<&'static str>,
 }
@@ -53,7 +54,7 @@ impl Health {
 
     #[cfg(feature = "sqs")]
     pub fn require_publication(&self) {
-        self.progress().publication = Some(PublicationProgress::default());
+        self.progress().publication = Some(ComponentProgress::default());
     }
 
     #[cfg(feature = "sqs")]
@@ -68,6 +69,21 @@ impl Health {
     pub fn publication_failure(&self, reason: &'static str) {
         if let Some(publication) = &mut self.progress().publication {
             publication.failure = Some(reason);
+        }
+    }
+
+    pub fn require_workflows(&self) {
+        self.progress().workflow = Some(ComponentProgress::default());
+    }
+    pub fn workflow_success(&self) {
+        if let Some(progress) = &mut self.progress().workflow {
+            progress.last_success = Some(Instant::now());
+            progress.failure = None;
+        }
+    }
+    pub fn workflow_failure(&self, reason: &'static str) {
+        if let Some(progress) = &mut self.progress().workflow {
+            progress.failure = Some(reason);
         }
     }
 
@@ -106,6 +122,16 @@ impl Health {
             match publication.last_success.map(|at| at.elapsed()) {
                 None => reasons.push("publication_pending"),
                 Some(age) if age > self.freshness => reasons.push("publication_stale"),
+                _ => {}
+            }
+        }
+        if let Some(workflow) = &progress.workflow {
+            if let Some(reason) = workflow.failure {
+                reasons.push(reason);
+            }
+            match workflow.last_success.map(|at| at.elapsed()) {
+                None => reasons.push("workflow_pending"),
+                Some(age) if age > self.freshness => reasons.push("workflow_stale"),
                 _ => {}
             }
         }

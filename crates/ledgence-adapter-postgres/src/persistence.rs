@@ -138,6 +138,14 @@ pub(crate) async fn apply<R>(
     if binding.dispatch_destination.is_some() && changes_dispatch_eligibility(&transition.history) {
         crate::dispatch_intents::sync_intent(connection, &t.task_id).await?;
     }
+    if transition.history.iter().any(|event| {
+        matches!(
+            event.reason,
+            TransitionReason::Succeeded | TransitionReason::Failed | TransitionReason::Cancelled
+        )
+    }) {
+        crate::workflow::terminal_obligation(connection, t).await?;
+    }
     Ok(())
 }
 

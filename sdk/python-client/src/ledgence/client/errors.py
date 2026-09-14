@@ -104,3 +104,37 @@ class TaskCancelled(LedgenceError):
     def __init__(self, result: TaskResult):
         super().__init__("task was cancelled")
         self.result = result
+
+
+class WorkflowWaitTimeout(WaitTimeout):
+    """Observation expired; the remote workflow continues independently."""
+
+    def __init__(self, workflow, last_status, last_error):
+        super().__init__(workflow, last_status, last_error)
+        self.args = ("workflow observation deadline expired",)
+        self.workflow = workflow
+
+
+class WorkflowCancellationUncertain(CancellationUncertain):
+    """Cancellation may have committed; reconcile using the same workflow ID."""
+
+    def __init__(self, workflow, cause):
+        super().__init__(workflow, cause)
+        self.workflow = workflow
+
+
+class WorkflowFailed(LedgenceError):
+    """The workflow has an authoritative terminal failure."""
+
+    def __init__(self, result):
+        super().__init__("workflow failed")
+        self.result = result
+        self.error = result.outcome.error
+
+
+class WorkflowCancelled(LedgenceError):
+    """The workflow has an authoritative terminal cancellation."""
+
+    def __init__(self, result):
+        super().__init__("workflow was cancelled")
+        self.result = result

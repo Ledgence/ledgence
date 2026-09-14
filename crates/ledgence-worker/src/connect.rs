@@ -115,8 +115,9 @@ pub async fn run(
             "worker preparation interrupted",
         ));
     }
-    let mut driver =
-        DeliveryDriver::new(worker, client, delivery_config).map_err(contract_error)?;
+    let mut driver = DeliveryDriver::new(worker, client.clone(), delivery_config)
+        .map_err(contract_error)?
+        .with_workflows(client);
     if let Some(source) = broker_source {
         driver = driver.with_acquisition_source(source);
     }

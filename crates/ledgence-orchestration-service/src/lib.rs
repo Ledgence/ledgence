@@ -5,6 +5,7 @@
 //! database time, and commit. No database implementation is selected here.
 
 mod acquisition;
+mod workflow;
 pub use acquisition::AcquisitionStatistics;
 
 use ledgence_orchestration_api::*;
@@ -20,6 +21,7 @@ use tracing::Instrument;
 #[derive(Clone)]
 pub struct ApplicationService {
     store: Arc<dyn TaskStore>,
+    workflows: Option<Arc<dyn WorkflowStore>>,
     programs: Arc<dyn ProgramStore>,
     acquisition: Arc<acquisition::Coordinator>,
     claims_stopped: Arc<AtomicBool>,
@@ -29,6 +31,7 @@ impl ApplicationService {
     pub fn new(store: Arc<dyn TaskStore>, programs: Arc<dyn ProgramStore>) -> Self {
         Self {
             store,
+            workflows: None,
             programs,
             acquisition: acquisition::Coordinator::new(),
             claims_stopped: Arc::new(AtomicBool::new(false)),

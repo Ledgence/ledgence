@@ -126,6 +126,8 @@ fn identifier(row: &impl Record, column: &str, maximum: usize) -> Result<String>
 /// Decode compact indexed metadata only; no application byte payload is selected.
 pub(crate) fn status(row: &PgRow) -> Result<TaskStatus> {
     let status = TaskStatus {
+        workflow_id: get(row, "workflow_id")?,
+        workflow_activation_id: get(row, "workflow_activation_id")?,
         scope: Scope {
             tenant_id: identifier(row, "tenant_id", 128)?,
             namespace: identifier(row, "namespace", 128)?,
@@ -192,6 +194,8 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
         return Err(corrupt("indexed submission differs from immutable binding"));
     }
     let task = TaskSnapshot {
+        workflow_id: get(row, "workflow_id")?,
+        workflow_activation_id: get(row, "workflow_activation_id")?,
         task_id: identifier(row, "task_id", 128)?,
         run_id: identifier(row, "run_id", 128)?,
         idempotency_key: command.idempotency_key,
@@ -206,6 +210,19 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
         attempt_count: count(row, "attempt_count")?,
         cancel_requested_at: optional_time(row, "cancel_requested_at_ms")?,
     };
+    for id in [&task.workflow_id, &task.workflow_activation_id]
+        .into_iter()
+        .flatten()
+    {
+        validate_text(id, 128).map_err(|_| corrupt("workflow identity"))?;
+    }
+    if task
+        .workflow_activation_id
+        .as_ref()
+        .is_some_and(|id| id != &task.task_id || task.workflow_id.is_none())
+    {
+        return Err(corrupt("workflow activation identity"));
+    }
     if let Some(id) = &task.current_attempt_id {
         validate_text(id, 128).map_err(|_| corrupt("current attempt identity"))?;
     }

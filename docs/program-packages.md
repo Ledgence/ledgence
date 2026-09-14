@@ -27,6 +27,13 @@ protocol 1 packages still execute unchanged. Changing a manifest to protocol 2
 requires publishing a new program version and digest; the worker never silently
 falls back to another protocol after dispatch. See the [Python helper](../sdk/python/README.md).
 
+Runtime protocol 3 opts into [checkpoint workflows](workflows.md), including
+async workflow handlers and durable local-result request/acknowledgment frames.
+Protocol 1 and 2 synchronous packages remain supported unchanged. A workflow
+package uses the same digest-pinned prepared dependency environment, and its
+local steps share that environment. The worker does not import independently
+packaged programs into a workflow interpreter.
+
 Program IDs and versions are nonempty, lowercase portable path components, at most 128 bytes. The runtime declaration requires an exact CPython major/minor of at least 3.11. Supported target labels are `linux`/`macos` and `x86_64`/`aarch64`. A worker rejects a package for another target. Publishing a prepared package for a different target is allowed.
 
 Build dependencies for the declared target. Native extensions require compatible OS libraries, architecture, and Python ABI; a ZIP alone cannot make them portable. Deployments should pin and vendor their complete dependency set, including its required legal notices. For example, in a build environment matching the worker:

@@ -59,6 +59,14 @@ pub struct Worker {
     inner: Arc<Inner>,
     trace: Arc<dyn TraceBridge>,
 }
+struct InteractiveExecution {
+    extension: RuntimeExtension,
+    handler: Arc<dyn RuntimeRequestHandler>,
+}
+struct InvocationInput {
+    request: ExecutionRequest,
+    interactive: Option<InteractiveExecution>,
+}
 struct Inner {
     config: WorkerConfig,
     store: Arc<dyn ProgramStore>,
@@ -200,7 +208,26 @@ impl Worker {
     /// Dropping the caller future requests cancellation. Results may precede
     /// operation completion; the supervisor retains its reservation until then.
     pub async fn execute(&self, request: ExecutionRequest, control: RunControl) -> ExecutionResult {
-        self.execute_with_reservation(request, control, None).await
+        self.execute_with_reservation(request, control, None, None)
+            .await
+    }
+
+    /// Execute with ephemeral extension context and invocation-scoped callbacks.
+    /// Local work shares this invocation's existing consumer and process slot.
+    pub async fn execute_interactive(
+        &self,
+        request: ExecutionRequest,
+        control: RunControl,
+        extension: RuntimeExtension,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> ExecutionResult {
+        self.execute_with_reservation(
+            request,
+            control,
+            None,
+            Some(InteractiveExecution { extension, handler }),
+        )
+        .await
     }
 
     async fn execute_with_reservation(
@@ -208,8 +235,15 @@ impl Worker {
         request: ExecutionRequest,
         control: RunControl,
         reservation: Option<Arc<ConsumerOwnership>>,
+        interactive: Option<InteractiveExecution>,
     ) -> ExecutionResult {
         let context = Box::new(ExecutionContext::from(&request));
+        if let Some(interactive) = &interactive {
+            interactive
+                .extension
+                .validate()
+                .map_err(|error| logged_failure(error, Phase::Admission, false, &context))?;
+        }
         request
             .descriptor
             .validate()
@@ -298,7 +332,10 @@ impl Worker {
                     stage: InvocationStage::Admission,
                 };
                 let result = match catch_panic(worker.execute_owned(
-                    request,
+                    InvocationInput {
+                        request,
+                        interactive,
+                    },
                     control,
                     &owned_context,
                     &mut completion,
@@ -365,13 +402,17 @@ impl Worker {
 
     async fn execute_owned(
         &self,
-        request: ExecutionRequest,
+        input: InvocationInput,
         control: RunControl,
         context: &ExecutionContext,
         completion: &mut Completion,
         ownership: &mut InvocationOwnership,
         processing: Option<&TraceContext>,
     ) -> ExecutionResult {
+        let InvocationInput {
+            request,
+            interactive,
+        } = input;
         let started = Instant::now();
         if ownership.permit.is_none() {
             let acquire = self.inner.consumers.clone().acquire_owned();
@@ -413,6 +454,17 @@ impl Worker {
             .manifest()
             .validate_host()
             .map_err(|error| failure(error, Phase::Preparation, false, context))?;
+        if interactive.is_some() && artifact.manifest().runtime.protocol != 3 {
+            return Err(failure(
+                Error::new(
+                    ErrorKind::Incompatible,
+                    "interactive execution requires runtime protocol 3",
+                ),
+                Phase::Preparation,
+                false,
+                context,
+            ));
+        }
         let key = SessionKey {
             digest: artifact.digest().clone(),
             tenant: request.event.tenant_id().into(),
@@ -479,16 +531,23 @@ impl Worker {
         let invocation = RuntimeInvocation {
             event: request.event.clone(),
             processing_context: self.trace.context(&execution_span),
+            extension: interactive.as_ref().map(|value| value.extension.clone()),
         };
         let execution_started = Instant::now();
         let outcome = match catch_panic(async {
-            ownership
+            let session = &mut ownership
                 .session
                 .as_mut()
                 .expect("session acquired")
-                .session
-                .execute(invocation, control)
-                .await
+                .session;
+            match interactive {
+                Some(interactive) => {
+                    session
+                        .execute_with_requests(invocation, control, interactive.handler)
+                        .await
+                }
+                None => session.execute(invocation, control).await,
+            }
         })
         .instrument(execution_span.clone())
         .await
@@ -1068,12 +1127,14 @@ fn invocation_span(context: &ExecutionContext, direct: bool) -> tracing::Span {
             otel.kind = if direct { "consumer" } else { "internal" },
             ledgence.tenant.id = %identity.tenant_id, ledgence.namespace = %identity.namespace,
             ledgence.run.id = %identity.run_id, ledgence.task.id = %identity.task_id,
+            ledgence.workflow.id = identity.workflow_id.as_deref(), ledgence.activation.id = identity.activation_id.as_deref(),
             ledgence.attempt.id = %identity.attempt_id, ledgence.attempt.number = i64::from(identity.attempt_no),
             ledgence.program.id = %context.program.id, ledgence.program.version = %context.program.version,
             ledgence.program.digest = %context.digest.0,
             source = %identity.source, event_id = %identity.event_id,
             tenant_id = %identity.tenant_id, namespace = %identity.namespace, run_id = %identity.run_id,
             task_id = %identity.task_id, attempt_id = %identity.attempt_id, attempt_no = identity.attempt_no,
+            workflow_id = identity.workflow_id.as_deref(), activation_id = identity.activation_id.as_deref(),
             traceparent = identity.traceparent.as_deref().unwrap_or(""),
             tracestate = identity.tracestate.as_deref().unwrap_or(""),
             program_id = %context.program.id, program_version = %context.program.version, digest = %context.digest.0
@@ -1110,7 +1171,7 @@ fn operation_span(operation: &str) -> tracing::Span {
 fn trace_failure(failure: &ExecutionFailure) {
     let context = &failure.context;
     let identity = &context.identity;
-    tracing::warn!(source = %identity.source, event_id = %identity.event_id, tenant_id = %identity.tenant_id, namespace = %identity.namespace, run_id = %identity.run_id, task_id = %identity.task_id, attempt_id = %identity.attempt_id, attempt_no = identity.attempt_no, traceparent = identity.traceparent.as_deref().unwrap_or(""), tracestate = identity.tracestate.as_deref().unwrap_or(""), program_id = %context.program.id, program_version = %context.program.version, digest = %context.digest.0, phase = ?failure.phase, error = %failure.error, cleanup_error = ?failure.cleanup_error, execution_may_have_started = failure.execution_may_have_started, "invocation failed");
+    tracing::warn!(source = %identity.source, event_id = %identity.event_id, tenant_id = %identity.tenant_id, namespace = %identity.namespace, run_id = %identity.run_id, workflow_id = identity.workflow_id.as_deref(), activation_id = identity.activation_id.as_deref(), task_id = %identity.task_id, attempt_id = %identity.attempt_id, attempt_no = identity.attempt_no, traceparent = identity.traceparent.as_deref().unwrap_or(""), tracestate = identity.tracestate.as_deref().unwrap_or(""), program_id = %context.program.id, program_version = %context.program.version, digest = %context.digest.0, phase = ?failure.phase, error = %failure.error, cleanup_error = ?failure.cleanup_error, execution_may_have_started = failure.execution_may_have_started, "invocation failed");
 }
 
 async fn observe<T>(

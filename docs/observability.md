@@ -77,7 +77,7 @@ Measured `ledgence.duration_ms` fields use local monotonic clocks. SDK span time
 
 ## Python programs
 
-Use protocol v2 packages for the separate processing carrier and structured logging. Existing immutable v1 packages remain executable. See the [Python helper](../sdk/python/README.md) and [package protocol](program-packages.md).
+Use protocol v2 or v3 packages for the separate processing carrier and structured logging. Existing immutable v1 packages remain executable. See the [Python helper](../sdk/python/README.md) and [package protocol](program-packages.md).
 
 ```python
 from ledgence_worker import get_logger
@@ -109,3 +109,20 @@ cargo run -p ledgence-adapter-otel --example otlp-capture --locked -- 127.0.0.1:
 ```
 
 The example receives actual OTLP HTTP/protobuf and writes decoded spans with parent IDs, attributes, status, and resource identity. It is a bounded verification fixture, not a production OpenTelemetry Collector or persistent tracing backend. Point the processes at its `/v1/traces` endpoint and run the HTTP quickstart. Adapter tests use actual OTLP bytes for parentage, sampling, bounds, and stalled-exporter checks; database tests separately verify replay and ambiguous commit behavior. The separate-process observability gate checks the composed platform against this receiver.
+
+
+## Workflow correlation
+
+Controller and child CloudEvents carry `ldgworkflowid`; controller events also
+carry `ldgactivationid`, equal to their stable task ID. Task inspection/status
+preserves those relationships. Worker processing/execution spans and structured
+logs add `ledgence.workflow.id` and `ledgence.activation.id` when applicable;
+protocol 3 Python log records retain the same workflow identity across forwarding.
+Normal warm reuse clears the previous invocation's context.
+
+Workflow children and later activations currently retain the workflow's accepted
+submission origin for invocation creation. The first slice does not export a
+dedicated span per durable local step or reconstruct an uninterrupted span through
+a suspended wait. Existing per-attempt trace carriers and durable workflow/task
+IDs provide correlation; traces remain optional, lossy observations. Durable
+workflow state, checkpoints, and result records establish execution outcomes.

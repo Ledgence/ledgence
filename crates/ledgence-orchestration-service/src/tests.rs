@@ -1,3 +1,5 @@
+mod workflow;
+
 use super::*;
 use ledgence_orchestration_core as core;
 use ledgence_worker_api::{Digest, PortFuture, ProgramDescriptor, ProgramRef};

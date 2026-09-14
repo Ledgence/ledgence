@@ -10,6 +10,8 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
         scope: task.scope(),
         task_id: task.task_id.clone(),
         run_id: task.run_id.clone(),
+        workflow_id: task.workflow_id.clone(),
+        workflow_activation_id: task.workflow_activation_id.clone(),
         queue: task.input.queue.clone(),
         correlation_key: task.input.correlation_key.clone(),
         state: task.state,

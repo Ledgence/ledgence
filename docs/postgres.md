@@ -29,7 +29,7 @@ Configure the connection URL's SSL mode and certificate settings for the deploym
 
 ## Atomic records and locking
 
-The six application tables are `tasks`, `attempts`, `worker_sessions`, `consumer_cursors`, `accepted_settlements`, and `task_history`. SQLx also maintains its migration bookkeeping. Tasks hold immutable submissions and descriptors alongside relational scheduling fields; attempt events and accepted reports use validated JSON bytes. They are not converted to JSONB, preserving supported numeric distinctions and escaped U+0000. User `data` stays user-owned.
+The task lifecycle tables are `tasks`, `attempts`, `worker_sessions`, `consumer_cursors`, `accepted_settlements`, and `task_history`. SQLx also maintains its migration bookkeeping. Tasks hold immutable submissions and descriptors alongside relational scheduling fields; attempt events and accepted reports use validated JSON bytes. They are not converted to JSONB, preserving supported numeric distinctions and escaped U+0000. User `data` stays user-owned.
 
 Acquisition and every renewal lock the session for sharing, then the existing consumer cursor for update, then at most one task for non-key update. Acquisition can create a missing cursor race-safely; renewal cannot. Renewal verifies the cursor still names the requested assignment. Settlement, cleanup confirmation, cancellation, and expiry lock the task and never subsequently lock a cursor/session.
 
@@ -106,3 +106,35 @@ Workers claim a specific task under its consumer cursor, session and task locks;
 Publication batches use `FOR UPDATE SKIP LOCKED` over due intents. Publisher transactions lock intents without taking task locks, preserving the task-then-intent order of lifecycle changes. Ordinary renewals and integrated task transitions do not maintain external intents. Empty external receives perform no PostgreSQL acquisition or cursor update. This separates transport work; it does not eliminate the database writes required for durable ownership, results and history.
 
 Retention remains unimplemented for targeted-claim receipts as well as existing task records. Do not delete receipts, referenced attempts or session cursors independently. See [dispatch contracts and supported backends](dispatch-delivery.md) and [performance measurement](performance.md); local conformance checks are not an AWS capacity or day-long endurance qualification.
+
+
+## Workflow persistence
+
+Migration `20260915000000_workflows.sql` adds `workflow_runs`,
+`workflow_activations`, `workflow_task_links`, `workflow_local_results`,
+`workflow_work`, and `workflow_history`. Existing tasks gain nullable workflow
+and activation identities; standalone task behavior is unchanged. Apply the
+migration explicitly before starting the updated executable.
+
+Workflow submission commits its controller binding and first activation task
+together. Each acknowledged local result is immutable and belongs to one logical
+activation across its task attempts. The accepted controller decision commits
+its checkpoint, consumed inputs, child bindings, wait membership, and scheduling
+obligations in one transaction. Terminal task transitions insert completion work
+in that same lifecycle transaction; ordinary standalone transitions skip this
+workflow SQL.
+
+Workflow operations lock the workflow for non-key update, then any work/task
+records they change. Ordinary task settlement never takes a workflow mutation
+lock. Coordinator claims release their transaction before external program
+resolution. Application rechecks the work lease and stored task outcome under
+the workflow lock. Worker local-result requests bind the exact lease owner;
+accepted receipts may replay after that lease expires, while new writes require
+live authority.
+
+Compact status and local-result authority reads exclude application payloads.
+Child completion notifications do not load result bodies until a continuation
+needs them. All-terminal waits use bounded membership; cancellation drains up to
+16 owned tasks per transaction. The adapter retains history and journal records;
+workflow retention deletion and sharding are not implemented. See
+[workflow semantics and bounds](workflows.md).

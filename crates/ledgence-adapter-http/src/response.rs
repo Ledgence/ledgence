@@ -62,6 +62,7 @@ impl ResponseValue for AcquireReply {
         if let Self::Assigned { assignment, .. } = self {
             validate_event_data(&assignment.event)?;
             assignment.descriptor.validate()?;
+            assignment.validate_workflow_identity()?;
         }
         Ok(())
     }
@@ -74,7 +75,7 @@ impl ResponseValue for AttemptSnapshot {
             if let AttemptReport::Completed(report) = &accepted.command.report
                 && let ProgramOutcome::Success { output } = &report.outcome
             {
-                validate_wire_value(output)?;
+                validate_task_output(output, report.context.identity.activation_id.is_some())?;
             }
             let command = serde_json::to_vec(&accepted.command).map_err(|_| {
                 ContractError::InvalidInput("invalid accepted settlement JSON".into())
@@ -99,4 +100,28 @@ fn validate_event_data(event: &CloudEvent) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+impl ResponseValue for WorkflowSnapshot {
+    const MAX_BYTES: usize = TASK_STATUS_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for WorkflowResult {
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for WorkflowActivationContext {
+    const MAX_BYTES: usize = WORKFLOW_CONTEXT_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for LocalResultReceipt {
+    const MAX_BYTES: usize = 1024;
+    fn validate_values(&self) -> Result<()> {
+        validate_text(&self.key, 128)
+    }
 }

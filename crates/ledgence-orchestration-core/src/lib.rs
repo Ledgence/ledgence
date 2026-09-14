@@ -5,6 +5,8 @@
 //! under the required locks, obtain fresh authoritative time, call a transition,
 //! persist ALL returned records/history, and commit before returning its reply.
 
+mod workflow;
+pub use workflow::*;
 mod dispatch;
 pub use dispatch::{DispatchDecision, classify_dispatch};
 mod acquisition;
@@ -63,6 +65,8 @@ pub fn submit(
         return Err(ContractError::Conflict);
     }
     let task = TaskSnapshot {
+        workflow_id: None,
+        workflow_activation_id: None,
         task_id: task_id.into(),
         run_id: run_id.into(),
         idempotency_key: command.idempotency_key.clone(),

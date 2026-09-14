@@ -132,6 +132,8 @@ class TaskStatus:
     available_at: int
     terminal_at: int | None
     cancel_requested_at: int | None
+    workflow_id: str | None = None
+    workflow_activation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -209,7 +211,8 @@ def _optional_time(raw, name):
 
 
 def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
-    codec.fields(raw, set(TaskStatus.__dataclass_fields__))
+    workflow_fields = {"workflow_id", "workflow_activation_id"}
+    codec.fields(raw, set(TaskStatus.__dataclass_fields__) - workflow_fields, workflow_fields)
     actual_scope = _scope(raw["scope"])
     if actual_scope != scope or raw["task_id"] != task_id:
         raise InputError("task identity does not match the request")
@@ -231,6 +234,10 @@ def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
         cancelled_at is not None and state not in (TaskState.ACTIVE, TaskState.CANCELLED)
     ):
         raise InputError("inconsistent cancellation metadata")
+    workflow_id = _optional_text(raw.get("workflow_id"), "workflow_id")
+    activation_id = _optional_text(raw.get("workflow_activation_id"), "workflow_activation_id")
+    if activation_id is not None and (workflow_id is None or activation_id != task_id):
+        raise InputError("inconsistent workflow controller identity")
     return TaskStatus(
         scope=actual_scope, task_id=codec.text(raw["task_id"], "task_id"),
         run_id=codec.text(raw["run_id"], "run_id"), queue=codec.text(raw["queue"], "queue"),
@@ -240,6 +247,7 @@ def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
         submitted_at=codec.integer(raw["submitted_at"], "submitted_at", 0, codec.MAX_TIMESTAMP),
         available_at=codec.integer(raw["available_at"], "available_at", 0, codec.MAX_TIMESTAMP),
         terminal_at=terminal, cancel_requested_at=cancelled_at,
+        workflow_id=workflow_id, workflow_activation_id=activation_id,
     )
 
 
@@ -294,7 +302,8 @@ def parse_result(raw, scope: Scope, task_id: str) -> TaskResult:
             return TaskResult(task, None)
         if type(outcome) is not dict or outcome.get("kind") != task.state.value:
             raise InputError("outcome contradicts task state")
-        codec.encode(outcome, 8 * 1024 * 1024)
+        codec.encode(outcome, 8 * 1024 * 1024,
+                     max_depth=104 if task.workflow_activation_id is not None else codec.MAX_DEPTH + 8)
         if task.state == TaskState.CANCELLED:
             codec.fields(outcome, {"kind"})
             return TaskResult(task, Cancelled())
@@ -310,8 +319,9 @@ def parse_result(raw, scope: Scope, task_id: str) -> TaskResult:
         if task.state == TaskState.SUCCEEDED:
             if not started:
                 raise InputError("success requires execution-start evidence")
-            codec.validate(outcome["output"], 8 * 1024 * 1024)
-            codec.encode(outcome["output"], 8 * 1024 * 1024, max_depth=codec.MAX_DEPTH)
+            output_depth = 96 if task.workflow_activation_id is not None else codec.MAX_DEPTH
+            codec.validate(outcome["output"], 8 * 1024 * 1024, max_depth=output_depth)
+            codec.encode(outcome["output"], 8 * 1024 * 1024, max_depth=output_depth)
             value = Succeeded(outcome["attempt_id"], quiescence, started, outcome["output"])
         else:
             failure = _failure(outcome["failure"])

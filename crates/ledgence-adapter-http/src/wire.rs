@@ -163,3 +163,10 @@ mod dispatch_error_tests {
         );
     }
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WorkflowReference {
+    pub scope: Scope,
+    pub workflow_id: String,
+}

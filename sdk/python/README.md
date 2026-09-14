@@ -19,7 +19,8 @@ cleanup removes this directory. Read packaged resources relative to the program
 module's `__file__`, not the working directory. Directory separation is file
 lifecycle management and does not change OS access permissions.
 
-Expose a synchronous callable as `module:function`. Its module and package
+Expose a callable as `module:function`; protocols 1/2 require a synchronous
+handler, while protocol 3 also supports `async def`. Its module and package
 parents must originate inside the artifact. Names already loaded by the bootstrap
 (such as `json`, `os`, and `ledgence_worker`) cannot be handler modules; conflicts
 are rejected before readiness. Use an application-specific module name. Regular
@@ -37,7 +38,7 @@ Unicode scalar strings, integers from `-2**63` through `2**64 - 1`, finite binar
 floating-point values, arrays, and objects with string keys. Python tuples are
 encoded as JSON arrays. At most 64 nested containers are permitted; a scalar has
 depth zero. Cycles, non-string keys, lone surrogate characters, out-of-range
-integers, non-finite numbers, coroutines, and oversized results produce typed
+integers, non-finite numbers, unawaited values, and oversized results produce typed
 `invalid_output` failures and leave the process reusable. Rust checks the shared
 wire profile when accepting the response.
 
@@ -60,14 +61,17 @@ The helper is not a sandbox and cannot undo external effects on retries.
 ## Protocol versions and contextual logs
 
 Existing `runtime.protocol: 1` packages keep the original invoke/result protocol.
-New packages should select protocol 2. The ready version must match the manifest;
-a mismatch fails before calling the handler. Protocol 2 passes an invocation-local
+Protocol 2 adds contextual logs; protocol 3 also enables asynchronous handlers and
+workflow control exchanges. The ready version must match the manifest; a mismatch
+fails before calling the handler. Protocols 2/3 pass an invocation-local
 `processing_context` outside the complete, unchanged CloudEvent. It is null when
 worker tracing is disabled. It never replaces the event's origin `traceparent`.
 
 `current_invocation()` provides `event_id`, `attempt_id`, `source`, `tenant_id`,
 `namespace`, `run_id`, `task_id`, `attempt_no`, and the optional frozen W3C
-`processing_context`. Context is reset on success, business exception, and invalid
+`processing_context`. Optional `workflow_id` and `activation_id` come from envelope
+extensions, without inserting platform fields into user data. Context is reset on
+success, business exception, and invalid
 output. No invocation context is written to process-global environment variables.
 
 ```python
@@ -88,7 +92,7 @@ their original IDs even if a background thread logs during a later invocation.
 Outside an invocation, records carry process identity only unless the application
 explicitly activates its own OTel span. Raw stdout/stderr remains process-level.
 
-One dedicated v2 writer owns ready, result, log and closing frames. Its optional
+One dedicated writer in protocols 2/3 owns ready, result, log and closing frames. Its optional
 queue is bounded to 64 records and 1 MiB; each log frame is at most 16 KiB or the
 configured output limit, including the newline. Encoding bounds the complete
 attribute tree (64 nodes, four nested levels, shared text budget). Oversized
@@ -138,3 +142,56 @@ The reviewed test set is `opentelemetry-api==1.44.0`,
 `typing_extensions==4.16.0`. The test exporter is in memory. Tests copy prepared
 packages into the temporary artifact to exercise the same isolated import path as
 real programs; nothing is installed at execution time.
+
+## Explicit checkpoint workflows (protocol 3)
+
+Workflow programs use `from ledgence_worker.workflow import workflow_context` and
+return `ctx.suspend(...)`, `ctx.continue_(...)`, `ctx.complete(output)`, or
+`ctx.fail(kind, message)`. `ctx.continuation` starts as `"start"`; `ctx.state` is
+explicit JSON state and `ctx.inputs` is the frozen batch of child outcomes.
+The complete CloudEvent, including user-owned `data`, remains the handler argument.
+
+`await ctx.local(key, fn, **json_kwargs)` executes in the current process and
+returns only after the Rust owner acknowledges durable storage of the result.
+Calls sharing an activation-local key and the same callable/input reuse the result.
+The callable does application work and may make ordinary nested Python calls.
+It cannot call workflow control APIs, start another journaled local step, or stage
+distributed tasks; the controller does those after awaiting its result. Otherwise
+replaying the cached result would skip those workflow operations. This boundary
+also applies through asynchronous child tasks and `asyncio.to_thread`.
+Pass all changing inputs explicitly: closure variables and process memory are not
+part of the persisted binding. Ordinary calls have no durable result record. An
+external effect can still repeat after a crash before its commit acknowledgement;
+use an external idempotency key for effects that require deduplication.
+
+`ctx.local(...)` starts an owned operation immediately and returns an awaitable.
+Use `await ctx.gather(ctx.local(...), ctx.local(...))` to overlap asynchronous I/O.
+A synchronous callable retains its normal blocking semantics. The activation
+retains ownership of started local operations and drains them before returning a
+checkpoint, even when an observer stops awaiting one. An unobserved local failure
+fails the activation; explicitly caught local errors remain under controller control.
+A failed commit cannot be
+caught and converted into successful workflow completion.
+
+`ctx.task(key, program=..., version=..., queue=..., data=...)` stages a distributed
+child command. The following checkpoint atomically registers those commands;
+calling `task()` alone makes no network call. Child keys belong to the whole
+workflow, and an identical binding reuses the original child. Use iteration
+suffixes such as `"invoice:3"` to request a new child in a loop. A changed binding
+for an existing key conflicts. `ctx.suspend(continuation=..., state=..., until=[ref])`
+waits until all listed children are terminal; the next activation can read
+`ctx.get_result(ref_or_key)` for successful output or inspect `ctx.inputs` for
+failures. String keys can also refer to children from earlier activations.
+
+Each protocol 3 invocation uses a fresh event loop inside the reused Python
+process. Create and close loop-bound clients inside the handler, rather than
+saving them in module globals. Started asynchronous work is drained or cancelled
+before the process is reused. While local operations run, the activation holds
+one consumer/process slot; a committed suspension releases it for other tasks.
+
+Unexpected controller exceptions are retryable activation runtime failures.
+`ctx.fail(...)` explicitly requests workflow failure. Ordinary task output is
+never interpreted as a workflow decision, even when it contains a `kind` field.
+
+See [`docs/workflows.md`](../../docs/workflows.md) for the supported first slice,
+checkpoint limits, cancellation, and recovery semantics.

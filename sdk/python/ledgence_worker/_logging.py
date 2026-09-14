@@ -53,7 +53,7 @@ def _bounded(value, depth=0, budget=None):
 def _snapshot(record):
     from .otel import _active_ids, _api
 
-    frame = {"v": 2, "type": "log",
+    frame = {"v": getattr(_sink, "protocol_version", 2), "type": "log",
              "time": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
              "severity": record.levelname[:32], "logger": record.name[:256],
              "message": record.getMessage()[:_MAX_TEXT],
@@ -63,6 +63,10 @@ def _snapshot(record):
         frame["invocation"] = {key: getattr(invocation, key) for key in (
             "event_id", "attempt_id", "source", "tenant_id", "namespace",
             "run_id", "task_id", "attempt_no") if getattr(invocation, key) is not None}
+        if frame["v"] >= 3:
+            frame["invocation"].update({key: getattr(invocation, key) for key in
+                                        ("workflow_id", "activation_id")
+                                        if getattr(invocation, key) is not None})
     active = _active_ids()
     if active is None and _api is None and invocation is not None:
         carrier = invocation.processing_context

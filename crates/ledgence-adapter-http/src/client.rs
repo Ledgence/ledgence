@@ -1,4 +1,6 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
+mod workflow;
+
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
 use reqwest::{Client, Method, Url, header};
@@ -149,6 +151,35 @@ impl HttpTaskService {
         limit: usize,
         deadline: std::time::Instant,
     ) -> Result<R> {
+        self.post_until_validated(route, command, limit, deadline, |_| Ok(()))
+            .await
+    }
+
+    async fn post_validated<T: Serialize + Clone + Send + 'static, R: ResponseValue>(
+        &self,
+        route: &str,
+        command: &T,
+        limit: usize,
+        validate_response: impl FnOnce(&R) -> Result<()> + Send + 'static,
+    ) -> Result<R> {
+        self.post_until_validated(
+            route,
+            command,
+            limit,
+            std::time::Instant::now() + self.timeout,
+            validate_response,
+        )
+        .await
+    }
+
+    async fn post_until_validated<T: Serialize + Clone + Send + 'static, R: ResponseValue>(
+        &self,
+        route: &str,
+        command: &T,
+        limit: usize,
+        deadline: std::time::Instant,
+        validate_response: impl FnOnce(&R) -> Result<()> + Send + 'static,
+    ) -> Result<R> {
         let start = Instant::now();
         let deadline = Instant::from_std(deadline).min(start + self.timeout);
         let command = command.clone();
@@ -171,7 +202,7 @@ impl HttpTaskService {
                 })
                 .await
             },
-            |_| Ok(()),
+            validate_response,
         )
         .await
     }
@@ -693,7 +724,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
-            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },
+            workflow_activation_id: None,            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },
                 digest: Digest(format!("sha256:{}", "a".repeat(64))), size: 123 },
             event: CloudEvent::new(serde_json::json!({"specversion":"1.0", "id":"event", "source":"urn:ledgence:orchestrator",
                 "type":"com.ledgence.task.invocation.requested.v1", "datacontenttype":"application/json",
@@ -997,6 +1028,8 @@ mod tests {
             scope: scope.clone(),
             task_id: "task".into(),
             run_id: "run".into(),
+            workflow_id: None,
+            workflow_activation_id: None,
             queue: "queue".into(),
             correlation_key: None,
             state: TaskState::Queued,
@@ -1193,5 +1226,56 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(permits.available_permits(), 4);
+    }
+    #[tokio::test]
+    async fn workflow_post_identity_failure_is_recorded_before_exchange_observer() {
+        use tracing::instrument::WithSubscriber;
+        let reply = LocalResultReceipt {
+            key: "wrong".into(),
+            already_accepted: true,
+        };
+        let (url, server) = serve_json(serde_json::to_vec(&reply).unwrap()).await;
+        let records = SpanRecords::default();
+        let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = observed.clone();
+        let client = HttpTaskService::new(&url)
+            .unwrap()
+            .with_observer(move |metadata| captured.lock().unwrap().push(metadata.clone()));
+        let command = LocalResultCommand {
+            owner: LeaseOwner {
+                scope: Scope {
+                    tenant_id: "t".into(),
+                    namespace: "n".into(),
+                },
+                task_id: "task".into(),
+                attempt_id: "attempt".into(),
+                lease_id: "lease".into(),
+                generation: 1,
+                worker_session_id: "worker".into(),
+                consumer_id: 0,
+            },
+            record: LocalStepRecord {
+                key: "expected".into(),
+                callable: "app:f".into(),
+                input: serde_json::Value::Null,
+                output: serde_json::Value::Null,
+            },
+        };
+        let result = client
+            .record_local_result(&command)
+            .with_subscriber(recording_dispatch(&records))
+            .await;
+        server.await.unwrap();
+        assert!(matches!(result, Err(ContractError::Unavailable(_))));
+        assert_eq!(observed.lock().unwrap().len(), 1);
+        assert!(
+            records
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(key, value)| key == "error_code" && value.contains("unavailable")),
+            "workflow identity validation must finish inside the exchange"
+        );
     }
 }
