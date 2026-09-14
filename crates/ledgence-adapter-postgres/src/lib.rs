@@ -6,6 +6,7 @@
 mod codec;
 mod delivery;
 mod discovery;
+mod migration;
 mod notifications;
 mod persistence;
 mod storage;
@@ -13,6 +14,7 @@ mod transaction;
 
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
+pub use migration::MigrationOptions;
 pub use notifications::{AcquisitionNotificationStatistics, AcquisitionNotifications};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{
@@ -113,29 +115,6 @@ impl PostgresStore {
     /// The supplied endpoint must preserve PostgreSQL session affinity.
     pub fn start_acquisition_notifications(&self, url: &str) -> Result<AcquisitionNotifications> {
         notifications::start(url, self.acquisition_wake.clone())
-    }
-
-    /// Apply checksum-verified migrations under SQLx's migration lock.
-    pub async fn migrate(&self) -> Result<()> {
-        let work = async {
-            // SQLx migration errors can leave a session advisory lock held.
-            // Never return this connection to the pool, including cancellation.
-            let mut connection = self.pool.acquire().await.map_err(database_error)?;
-            connection.close_on_drop();
-            let result = MIGRATOR.run(&mut *connection).await.map_err(|error| {
-                tracing::error!(error = %error, "PostgreSQL migration failed");
-                ContractError::Unavailable("PostgreSQL migration failed".into())
-            });
-            connection.close().await.map_err(database_error)?;
-            result
-        };
-        tokio::time::timeout(self.operation_timeout, work)
-            .await
-            .unwrap_or_else(|_| {
-                Err(ContractError::Unavailable(
-                    "PostgreSQL migration timed out".into(),
-                ))
-            })
     }
 
     /// Verify the exact embedded migration set without applying any changes.
@@ -328,3 +307,6 @@ mod observation_db_tests;
 
 #[cfg(test)]
 mod discovery_db_tests;
+
+#[cfg(test)]
+mod migration_db_tests;

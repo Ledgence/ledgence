@@ -54,7 +54,7 @@ Portable `TaskFilters`, `TaskListQuery`, `TaskPage`, and the required `TaskServi
 
 The PostgreSQL adapter uses bound conditional predicates and keyset seeks. It selects at most `limit + 1` task rows before looking up their latest attempts through the existing `(task_id, generation)` index. A separate migration adds scoped ordering indexes for unfiltered, state, queue, and correlation queries. Combined filters may use an index plus residual filtering; scan cost depends on data distribution. These indexes add storage and write work. No exact total count or arbitrary metadata/program filter is provided.
 
-Run the existing explicit `ledgence-orchestrator migrate` before starting the updated server. The discovery migration adds normal indexes transactionally, preserving task data. Index creation can block writes while it runs; schedule the migration accordingly. This is not a concurrent-index rollout. Startup continues to verify migration checksums rather than changing the schema automatically.
+Run the explicit `ledgence-orchestrator migrate` before starting the updated server. Migrations have a separate ten-minute default budget; use `migrate --timeout-ms 1800000` to allow thirty minutes for a larger existing database. See [migration budgets and interruption](postgres.md#migration-execution-budget). The discovery migration adds normal indexes transactionally, preserving task data. Index creation can block writes while it runs; schedule the migration accordingly. This is not a concurrent-index rollout. Startup continues to verify migration checksums rather than changing the schema automatically.
 
 ## Verification
 

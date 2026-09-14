@@ -208,8 +208,11 @@ async fn dispatch(
         Ok(())
     } else {
         match command {
-            Command::Migrate => {
-                let result = store.migrate().await.map_err(|error| error.to_string());
+            Command::Migrate { options } => {
+                let result = store
+                    .migrate_with_options(options)
+                    .await
+                    .map_err(|error| error.to_string());
                 if result.is_ok() {
                     tracing::info!("database migrations completed");
                 }
