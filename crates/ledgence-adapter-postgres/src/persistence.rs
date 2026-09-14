@@ -129,9 +129,34 @@ pub(crate) async fn apply<R>(
     let terminal = t.terminal_at.map(codec::ms).transpose()?;
     let cancelled = t.cancel_requested_at.map(codec::ms).transpose()?;
     let count = i64::from(t.attempt_count);
-    sqlx::query!("UPDATE tasks SET state=$2,available_at_ms=$3,terminal_at_ms=$4,current_attempt_id=$5,attempt_count=$6,cancel_requested_at_ms=$7,next_expiry_ms=(SELECT LEAST(expires_at_ms,authority_deadline_ms) FROM attempts WHERE attempt_id=$5 AND task_id=$1) WHERE task_id=$1",t.task_id,state,available,terminal,t.current_attempt_id,count,cancelled)
-        .execute(&mut *connection).await?;
-    history(connection, &transition.history).await
+    let binding = sqlx::query!("UPDATE tasks SET state=$2,available_at_ms=$3,terminal_at_ms=$4,current_attempt_id=$5,attempt_count=$6,cancel_requested_at_ms=$7,next_expiry_ms=(SELECT LEAST(expires_at_ms,authority_deadline_ms) FROM attempts WHERE attempt_id=$5 AND task_id=$1) WHERE task_id=$1 RETURNING dispatch_destination",t.task_id,state,available,terminal,t.current_attempt_id,count,cancelled)
+        .fetch_one(&mut *connection).await?;
+    history(connection, &transition.history).await?;
+    // Submission creates its initial obligation separately in the same task
+    // transaction. Only entering/leaving queued needs maintenance here; claim
+    // already removed the obligation before later active/terminal transitions.
+    if binding.dispatch_destination.is_some() && changes_dispatch_eligibility(&transition.history) {
+        crate::dispatch_intents::sync_intent(connection, &t.task_id).await?;
+    }
+    Ok(())
+}
+
+/// Exhaustive so a new lifecycle reason requires an explicit eligibility decision.
+fn changes_dispatch_eligibility(events: &[HistoryEvent]) -> bool {
+    events.iter().any(|event| match event.reason {
+        TransitionReason::Claimed | TransitionReason::RetryScheduled => true,
+        // A queued task has no current attempt, including a queued retry with
+        // prior attempts. Active cancellation/finalization identifies its attempt.
+        TransitionReason::Cancelled => event.attempt_id.is_none(),
+        TransitionReason::Submitted
+        | TransitionReason::DispatchAuthorized
+        | TransitionReason::CancelRequested
+        | TransitionReason::ReportAccepted
+        | TransitionReason::CleanupConfirmed
+        | TransitionReason::Succeeded
+        | TransitionReason::Failed
+        | TransitionReason::LeaseExpired => false,
+    })
 }
 
 pub(crate) async fn history(

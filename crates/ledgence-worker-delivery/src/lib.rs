@@ -7,6 +7,8 @@
 
 mod attempt;
 mod renewal;
+mod source;
+pub use source::{AcquisitionSource, BrokerAcquisitionSource, SourceReply};
 
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::RunControl;
@@ -139,6 +141,7 @@ impl Shared {
 pub struct DeliveryDriver {
     worker: Worker,
     service: Arc<dyn TaskService>,
+    source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
 }
 impl DeliveryDriver {
@@ -153,9 +156,17 @@ impl DeliveryDriver {
         })?;
         Ok(Self {
             worker,
+            source: Arc::new(source::ServiceAcquisitionSource {
+                service: service.clone(),
+            }),
             service,
             config,
         })
+    }
+    /// Use a pluggable source with the same N consumers and attempt lifecycle.
+    pub fn with_acquisition_source(mut self, source: Arc<dyn AcquisitionSource>) -> Self {
+        self.source = source;
+        self
     }
     /// Start one non-resumable service session with N supervised consumers.
     /// Session expiry drains this driver; callers may start a new worker after
@@ -190,6 +201,28 @@ impl DeliveryDriver {
         let mut consumers = Vec::new();
         let maintenance_done = Arc::new(AtomicBool::new(false));
         let mut maintenance = None;
+        let source = self.source.clone();
+        let mut source_session = None;
+        let session = session.filter(|session| {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                source.start_session(session)
+            }))
+            .unwrap_or_else(|_| {
+                Err(ContractError::Unavailable(
+                    "acquisition source panicked during session setup".into(),
+                ))
+            });
+            match result {
+                Ok(()) => {
+                    source_session = Some(session.id.clone());
+                    true
+                }
+                Err(error) => {
+                    shared.fatal(error);
+                    false
+                }
+            }
+        });
         if let Some(session) = session {
             shared
                 .status
@@ -199,6 +232,7 @@ impl DeliveryDriver {
             let context = Arc::new(Context {
                 worker: self.worker.clone(),
                 service: self.service,
+                source: source.clone(),
                 config: self.config,
                 shared: shared.clone(),
             });
@@ -250,6 +284,16 @@ impl DeliveryDriver {
                 _ = &mut cleanup, if !cleanup_finished => cleanup_finished = true,
                 _ = tokio::time::sleep(TICK) => {},
             }
+        }
+        if let Some(session_id) = source_session
+            && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                source.finish_session(&session_id);
+            }))
+            .is_err()
+        {
+            shared.fatal(ContractError::Unavailable(
+                "acquisition source panicked during session cleanup".into(),
+            ));
         }
         maintenance_done.store(true, Ordering::Release);
         if let Some(maintenance) = maintenance {
@@ -382,6 +426,7 @@ impl Drop for DeliveryHandle {
 struct Context {
     worker: Worker,
     service: Arc<dyn TaskService>,
+    source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
     shared: Arc<Shared>,
 }
@@ -471,7 +516,7 @@ impl Context {
                     .expect("validated acquisition timing");
                 let result = {
                     let request = exchange(self.config.request_timeout, || {
-                        self.service.acquire(&command, options)
+                        self.source.acquire(&command, options)
                     });
                     tokio::pin!(request);
                     tokio::select! {
@@ -485,7 +530,15 @@ impl Context {
                 };
                 let Some(result) = result else { continue };
                 match result {
-                    Ok(reply) => {
+                    Ok(reply @ (SourceReply::Idle | SourceReply::Stopped { .. })) => break reply,
+                    Ok(SourceReply::Discarded { sequence }) => {
+                        if sequence == command.sequence {
+                            break SourceReply::Discarded { sequence };
+                        }
+                        self.shared
+                            .fatal(protocol("discarded handoff changed sequence"));
+                    }
+                    Ok(SourceReply::Completed(reply)) => {
                         let sequence = match &reply {
                             AcquireReply::Empty { sequence }
                             | AcquireReply::Assigned { sequence, .. }
@@ -499,7 +552,7 @@ impl Context {
                             Ok(())
                         };
                         match valid {
-                            Ok(()) => break reply,
+                            Ok(()) => break SourceReply::Completed(reply),
                             Err(error) => self.shared.fatal(error),
                         }
                     }
@@ -514,11 +567,12 @@ impl Context {
                 }
                 tokio::time::sleep(self.config.retry_delay).await;
             };
+            let idle = matches!(reply, SourceReply::Idle);
             match reply {
-                AcquireReply::Assigned { assignment, .. } => {
+                SourceReply::Completed(AcquireReply::Assigned { assignment, .. }) => {
                     self.attempt(reservation, *assignment).await
                 }
-                AcquireReply::Empty { .. } => {
+                SourceReply::Idle | SourceReply::Completed(AcquireReply::Empty { .. }) => {
                     drop(reservation);
                     pause(
                         self.config
@@ -528,13 +582,21 @@ impl Context {
                     )
                     .await;
                 }
-                AcquireReply::OwnershipLost { .. } => {
+                SourceReply::Completed(AcquireReply::OwnershipLost { .. }) => {
                     self.shared
                         .status
                         .lock()
                         .unwrap_or_else(|p| p.into_inner())
                         .lost_attempts += 1;
                 }
+                SourceReply::Discarded { .. } => drop(reservation),
+                SourceReply::Stopped { error } => {
+                    self.shared.fatal(error);
+                    return;
+                }
+            }
+            if idle {
+                continue;
             }
             let Some(next) = command.sequence.checked_add(1) else {
                 self.shared
@@ -550,10 +612,19 @@ async fn exchange<T, F: Future<Output = Result<T>>>(
     timeout: Duration,
     call: impl FnOnce() -> F,
 ) -> Result<T> {
+    let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
+        ContractError::Unavailable("control request timed out; outcome is unknown".into())
+    })?;
+    exchange_until(deadline, call).await
+}
+
+async fn exchange_until<T, F: Future<Output = Result<T>>>(
+    deadline: Instant,
+    call: impl FnOnce() -> F,
+) -> Result<T> {
     use std::panic::{AssertUnwindSafe, catch_unwind};
     let timed_out =
         || ContractError::Unavailable("control request timed out; outcome is unknown".into());
-    let deadline = Instant::now().checked_add(timeout).ok_or_else(timed_out)?;
     if Instant::now() >= deadline {
         return Err(timed_out());
     }

@@ -388,3 +388,134 @@ async fn lost_commit_acknowledgment_keeps_uncertainty_and_replay_preserves_the_c
     store.close().await;
     db.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn targeted_dispatch_claim_preserves_origin_transport_and_durable_producer_on_replay() {
+    let db = TestDb::new().await;
+    let bridge = Arc::new(TraceProbe::default());
+    let spans = Arc::new(ProducerSpans::default());
+    let store = db.store.clone().with_trace_bridge(bridge.clone());
+    store
+        .configure_route(&DispatchRoute {
+            scope: scope(),
+            queue: "python".into(),
+            destination: "trace-dispatch".into(),
+        })
+        .await
+        .unwrap();
+    async {
+        for (index, flags) in [Some("01"), Some("00"), None].into_iter().enumerate() {
+            let mut submission = command();
+            submission.idempotency_key = format!("dispatch_trace_{index}");
+            submission.origin_trace = flags.map(|flags| TraceContext {
+                traceparent: format!(
+                    "00-0af7651916cd43dd8448eb211c80319c-1111111111111111-{flags}"
+                ),
+                tracestate: Some("origin=accepted".into()),
+            });
+            let task = store
+                .accept_resolved_submission(&submission, &descriptor())
+                .await
+                .unwrap();
+            let session = store.open_session(&scope(), "python", 1).await.unwrap();
+            let claim = ClaimCommand {
+                acquisition: acquire_command(&session, 0, 1),
+                dispatch: DispatchRef {
+                    scope: scope(),
+                    queue: "python".into(),
+                    task_id: task.task_id.clone(),
+                    generation: 1,
+                },
+            };
+            let first = store
+                .claim_dispatch(&claim)
+                .instrument(tracing::info_span!("test.http.dispatch.claim"))
+                .await
+                .unwrap();
+            first.validate_reply_against(&claim).unwrap();
+            let ClaimDisposition::Claimed { reply } = first.disposition else {
+                panic!("expected targeted assignment")
+            };
+            let first = assignment(reply);
+            let context = TraceContext::from_event(&first.event).unwrap();
+            assert_eq!(
+                bridge.parents.lock().unwrap()[index],
+                submission.origin_trace
+            );
+            assert_eq!(bridge.links.lock().unwrap()[index], transport());
+            assert_eq!(bridge.produced.lock().unwrap()[index], context);
+            assert_ne!(context, transport(), "HTTP transport must only be a link");
+            assert_ne!(Some(&context), submission.origin_trace.as_ref());
+            if let Some(origin) = &submission.origin_trace {
+                assert_eq!(&context.traceparent[3..35], &origin.traceparent[3..35]);
+                assert_eq!(&context.traceparent[53..55], &origin.traceparent[53..55]);
+                assert_eq!(context.tracestate, origin.tracestate);
+            }
+            let stored: Vec<u8> =
+                sqlx::query_scalar("SELECT event_bytes FROM attempts WHERE attempt_id=$1")
+                    .bind(&first.lease.owner.attempt_id)
+                    .fetch_one(&store.pool)
+                    .await
+                    .unwrap();
+            let stored: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+            assert_eq!(&stored, first.event.value());
+            assert_eq!(
+                store
+                    .inspect(&scope(), &task.task_id)
+                    .await
+                    .unwrap()
+                    .origin_trace,
+                submission.origin_trace
+            );
+            let replay = store
+                .claim_dispatch(&claim)
+                .instrument(tracing::info_span!("test.http.dispatch.claim.replay"))
+                .await
+                .unwrap();
+            replay.validate_reply_against(&claim).unwrap();
+            let ClaimDisposition::Claimed { reply } = replay.disposition else {
+                panic!("expected exact claim replay")
+            };
+            let replay = assignment(reply);
+            assert_eq!(replay.lease.owner, first.lease.owner);
+            assert_eq!(replay.event.value(), first.event.value());
+            assert_eq!(TraceContext::from_event(&replay.event), Some(context));
+            assert_eq!(bridge.produced.lock().unwrap().len(), index + 1);
+            assert_eq!(bridge.parents.lock().unwrap().len(), index + 1);
+            assert_eq!(bridge.links.lock().unwrap().len(), index + 1);
+            // A different consumer's duplicate is not another invocation and
+            // must not create another producer span either.
+            let other = store.open_session(&scope(), "python", 1).await.unwrap();
+            let duplicate = ClaimCommand {
+                acquisition: acquire_command(&other, 0, 1),
+                dispatch: claim.dispatch.clone(),
+            };
+            assert!(matches!(
+                store.claim_dispatch(&duplicate).await.unwrap().disposition,
+                ClaimDisposition::AlreadyHandedOff { .. }
+            ));
+            assert_eq!(bridge.produced.lock().unwrap().len(), index + 1);
+            store
+                .settle(&completed(&first, Quiescence::Confirmed, json!("done")))
+                .await
+                .unwrap();
+        }
+    }
+    .with_subscriber(tracing_subscriber::registry().with(Capture(spans.clone())))
+    .await;
+    assert!(spans.active.lock().unwrap().is_empty());
+    {
+        let ended = spans.ended.lock().unwrap();
+        assert_eq!(
+            ended.len(),
+            3,
+            "replays and duplicates must not create producers"
+        );
+        assert!(ended.iter().all(|fields| {
+            fields["ledgence.publication.outcome"] == "committed"
+                && fields["otel.status_code"] == "OK"
+        }));
+    }
+    db.finish().await;
+}

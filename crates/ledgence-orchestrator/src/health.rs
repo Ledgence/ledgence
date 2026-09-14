@@ -19,6 +19,13 @@ struct Progress {
     prerequisites: bool,
     last_success: Option<Instant>,
     failure: Option<&'static str>,
+    publication: Option<PublicationProgress>,
+}
+
+#[derive(Default)]
+struct PublicationProgress {
+    last_success: Option<Instant>,
+    failure: Option<&'static str>,
 }
 
 impl Health {
@@ -44,6 +51,26 @@ impl Health {
         self.progress().failure = Some(reason);
     }
 
+    #[cfg(feature = "sqs")]
+    pub fn require_publication(&self) {
+        self.progress().publication = Some(PublicationProgress::default());
+    }
+
+    #[cfg(feature = "sqs")]
+    pub fn publication_success(&self) {
+        if let Some(publication) = &mut self.progress().publication {
+            publication.last_success = Some(Instant::now());
+            publication.failure = None;
+        }
+    }
+
+    #[cfg(feature = "sqs")]
+    pub fn publication_failure(&self, reason: &'static str) {
+        if let Some(publication) = &mut self.progress().publication {
+            publication.failure = Some(reason);
+        }
+    }
+
     pub fn stop(&self) {
         self.stopping.store(true, Ordering::Release);
     }
@@ -54,7 +81,7 @@ impl Health {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn readiness(&self) -> (StatusCode, serde_json::Value) {
+    pub(crate) fn readiness(&self) -> (StatusCode, serde_json::Value) {
         let progress = self.progress();
         let age = progress.last_success.map(|instant| instant.elapsed());
         let mut reasons = Vec::new();
@@ -71,6 +98,16 @@ impl Health {
             None => reasons.push("recovery_pending"),
             Some(age) if age > self.freshness => reasons.push("recovery_stale"),
             _ => {}
+        }
+        if let Some(publication) = &progress.publication {
+            if let Some(reason) = publication.failure {
+                reasons.push(reason);
+            }
+            match publication.last_success.map(|at| at.elapsed()) {
+                None => reasons.push("publication_pending"),
+                Some(age) if age > self.freshness => reasons.push("publication_stale"),
+                _ => {}
+            }
         }
         let ready = reasons.is_empty();
         (

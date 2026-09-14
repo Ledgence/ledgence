@@ -219,6 +219,12 @@ impl HttpTaskService {
             url.path = route,
             server.address = self.base.host_str().unwrap_or_default(),
             server.port = self.base.port_or_known_default().map(i64::from),
+            ledgence.tenant.id = tracing::field::Empty,
+            ledgence.namespace = tracing::field::Empty,
+            ledgence.worker.session.id = tracing::field::Empty,
+            ledgence.consumer.id = tracing::field::Empty,
+            ledgence.task.id = tracing::field::Empty,
+            ledgence.dispatch.generation = tracing::field::Empty,
             http.response.status_code = tracing::field::Empty,
             ledgence.request.id = tracing::field::Empty,
             ledgence.duration_ms = tracing::field::Empty,
@@ -415,6 +421,56 @@ fn query(scope: &Scope, task_id: &str) -> Vec<(&'static str, String)> {
 }
 
 impl TaskService for HttpTaskService {
+    fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(async move {
+            command.validate()?;
+            let start = Instant::now();
+            let request = command.clone();
+            let expected = command.clone();
+            self.exchange(
+                Method::POST,
+                "v1/dispatch/claim",
+                &[],
+                ExchangeBudget {
+                    start,
+                    deadline: start + self.timeout,
+                },
+                async {
+                    self.blocking(move || {
+                        let span = tracing::Span::current();
+                        span.record("ledgence.tenant.id", &request.dispatch.scope.tenant_id);
+                        span.record("ledgence.namespace", &request.dispatch.scope.namespace);
+                        span.record(
+                            "ledgence.worker.session.id",
+                            &request.acquisition.worker_session_id,
+                        );
+                        span.record(
+                            "ledgence.consumer.id",
+                            i64::from(request.acquisition.consumer_id),
+                        );
+                        span.record("ledgence.task.id", &request.dispatch.task_id);
+                        span.record(
+                            "ledgence.dispatch.generation",
+                            i64::from(request.dispatch.generation),
+                        );
+                        let bytes = serde_json::to_vec(&request).map_err(|_| {
+                            ContractError::InvalidInput("claim cannot be encoded as JSON".into())
+                        })?;
+                        if bytes.len() > DISPATCH_MAX_BYTES {
+                            return Err(ContractError::InvalidInput(
+                                "claim exceeds HTTP body limit".into(),
+                            ));
+                        }
+                        Ok(Some(bytes))
+                    })
+                    .await
+                },
+                move |reply: &ClaimReply| reply.validate_reply_against(&expected),
+            )
+            .await
+        })
+    }
+
     fn open_session<'a>(
         &'a self,
         scope: &'a Scope,
@@ -606,6 +662,179 @@ mod tests {
     use super::*;
     use tracing_subscriber::{layer::Context, prelude::*};
 
+    fn claim_fixture() -> ClaimReply {
+        use ledgence_worker_api::{CloudEvent, Digest, ProgramDescriptor, ProgramRef};
+        let scope = Scope {
+            tenant_id: "tenant".into(),
+            namespace: "namespace".into(),
+        };
+        let command = ClaimCommand {
+            acquisition: AcquireCommand {
+                scope: scope.clone(),
+                queue: "queue".into(),
+                worker_session_id: "session".into(),
+                consumer_id: 0,
+                sequence: 1,
+            },
+            dispatch: DispatchRef {
+                scope: scope.clone(),
+                queue: "queue".into(),
+                task_id: "task".into(),
+                generation: 1,
+            },
+        };
+        let owner = LeaseOwner {
+            scope,
+            task_id: "task".into(),
+            attempt_id: "attempt".into(),
+            lease_id: "lease".into(),
+            generation: 1,
+            worker_session_id: "session".into(),
+            consumer_id: 0,
+        };
+        let assignment = Assignment {
+            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },
+                digest: Digest(format!("sha256:{}", "a".repeat(64))), size: 123 },
+            event: CloudEvent::new(serde_json::json!({"specversion":"1.0", "id":"event", "source":"urn:ledgence:orchestrator",
+                "type":"com.ledgence.task.invocation.requested.v1", "datacontenttype":"application/json",
+                "ldgtenantid":"tenant", "ldgnamespace":"namespace", "ldgrunid":"run", "ldgtaskid":"task",
+                "ldgattemptid":"attempt", "ldgattemptno":1, "data":null})).unwrap(),
+            lease: Lease { owner: owner.clone(), expires_at: 60000 },
+            authority: Authority { owner, expires_at: 60000, remaining_ms: 59000, execution_remaining_ms: 299000,
+                renew_sequence: 0, cancel_requested: false, dispatch_allowed: false },
+            attempt_deadline: 300000,
+        };
+        ClaimReply {
+            command,
+            disposition: ClaimDisposition::Claimed {
+                reply: AcquireReply::Assigned {
+                    sequence: 1,
+                    assignment: Box::new(assignment),
+                },
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn claim_identity_and_malformed_reply_fail_before_exchange_telemetry_and_observer() {
+        use tracing::instrument::WithSubscriber;
+        let expected = claim_fixture();
+        for mismatch in [
+            "none",
+            "command_task",
+            "command_scope",
+            "command_queue",
+            "command_session",
+            "command_consumer",
+            "command_sequence",
+            "command_generation",
+            "authority_owner",
+            "authority_expiry",
+            "event_task",
+            "reply_sequence",
+            "malformed",
+            "duplicate",
+        ] {
+            let mut value = serde_json::to_value(&expected).unwrap();
+            match mismatch {
+                "command_task" => value["command"]["dispatch"]["task_id"] = "other_task".into(),
+                "command_scope" => {
+                    value["command"]["dispatch"]["scope"]["namespace"] = "other_namespace".into()
+                }
+                "command_queue" => value["command"]["dispatch"]["queue"] = "other_queue".into(),
+                "command_session" => {
+                    value["command"]["acquisition"]["worker_session_id"] = "other_session".into()
+                }
+                "command_consumer" => value["command"]["acquisition"]["consumer_id"] = 1.into(),
+                "command_sequence" => value["command"]["acquisition"]["sequence"] = 2.into(),
+                "command_generation" => value["command"]["dispatch"]["generation"] = 2.into(),
+                "authority_owner" => {
+                    value["disposition"]["reply"]["assignment"]["authority"]["owner"]["attempt_id"] =
+                        "other_attempt".into()
+                }
+                "authority_expiry" => {
+                    value["disposition"]["reply"]["assignment"]["authority"]["expires_at"] =
+                        70000.into()
+                }
+                "event_task" => {
+                    value["disposition"]["reply"]["assignment"]["event"]["ldgtaskid"] =
+                        "other_task".into()
+                }
+                "reply_sequence" => value["disposition"]["reply"]["sequence"] = 2.into(),
+                "none" | "malformed" | "duplicate" => {}
+                _ => unreachable!(),
+            }
+            let bytes = match mismatch {
+                "malformed" => b"{invalid".to_vec(),
+                "duplicate" => serde_json::to_string(&value)
+                    .unwrap()
+                    .replacen("\"sequence\":1", "\"sequence\":1,\"sequence\":1", 1)
+                    .into_bytes(),
+                _ => serde_json::to_vec(&value).unwrap(),
+            };
+            let (url, server) = serve_json(bytes).await;
+            let records = SpanRecords::default();
+            let callback_records = records.clone();
+            let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let callbacks = observed.clone();
+            let client = HttpTaskService::new(&url)
+                .unwrap()
+                .with_observer(move |metadata| {
+                    let records = callback_records.0.lock().unwrap();
+                    let completed = records.iter().any(|(key, value)| {
+                        key == "message" && value == "orchestration HTTP exchange"
+                    });
+                    let failed = records
+                        .iter()
+                        .any(|(key, value)| key == "error.type" && value == "\"unavailable\"");
+                    callbacks
+                        .lock()
+                        .unwrap()
+                        .push((metadata.clone(), completed, failed));
+                });
+            let result = client
+                .claim_dispatch(&expected.command)
+                .with_subscriber(recording_dispatch(&records))
+                .await;
+            server.await.unwrap();
+            if mismatch == "none" {
+                result
+                    .unwrap()
+                    .validate_reply_against(&expected.command)
+                    .unwrap();
+            } else {
+                assert!(
+                    matches!(result, Err(ContractError::Unavailable(_))),
+                    "{mismatch}: {result:?}"
+                );
+            }
+            let observed = observed.lock().unwrap();
+            assert_eq!(observed.len(), 1, "{mismatch}");
+            assert_eq!(observed[0].0.status, Some(200));
+            assert_eq!(observed[0].0.request_id.as_deref(), Some("req_discovery"));
+            assert!(
+                observed[0].1,
+                "completion telemetry must precede observer: {mismatch}"
+            );
+            assert_eq!(observed[0].2, mismatch != "none", "{mismatch}");
+            let records = records.0.lock().unwrap();
+            for (field, expected) in [
+                ("ledgence.tenant.id", "\"tenant\""),
+                ("ledgence.namespace", "\"namespace\""),
+                ("ledgence.worker.session.id", "\"session\""),
+                ("ledgence.consumer.id", "0"),
+                ("ledgence.task.id", "\"task\""),
+            ] {
+                assert!(
+                    records
+                        .iter()
+                        .any(|(key, value)| key == field && value == expected),
+                    "missing {field}: {records:?}"
+                );
+            }
+        }
+    }
+
     #[derive(Clone, Default)]
     struct SpanRecords(Arc<std::sync::Mutex<Vec<(String, String)>>>);
 
@@ -639,6 +868,57 @@ mod tests {
         }
     }
 
+    fn recording_dispatch(records: &SpanRecords) -> tracing::Dispatch {
+        // tracing-core's single-dispatcher callsite fast path consults the
+        // current thread. A concurrent test without our scoped subscriber can
+        // otherwise register a shared callsite as permanently disabled. Retain
+        // an inert dispatcher so registrations account for all scoped collectors.
+        // This neither installs a global subscriber nor mixes per-test records.
+        static ANCHOR: std::sync::OnceLock<tracing::Dispatch> = std::sync::OnceLock::new();
+        let _anchor = ANCHOR
+            .get_or_init(|| tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default()));
+        tracing::Dispatch::new(tracing_subscriber::registry().with(records.clone()))
+    }
+
+    #[test]
+    fn scoped_capture_survives_callsite_first_used_without_a_subscriber() {
+        const CHILD: &str = "LEDGENCE_HTTP_TRACE_REGISTRATION_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            // The tracing callsite registry is process-wide. A child makes the
+            // initial single-subscriber state deterministic despite parallel tests.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "client::tests::scoped_capture_survives_callsite_first_used_without_a_subscriber",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated tracing fixture failed: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        fn emit() {
+            tracing::info!("scoped capture first-use probe");
+        }
+        let records = SpanRecords::default();
+        let dispatch = recording_dispatch(&records);
+        // Another test can use the same generic HTTP event callsite while its
+        // thread has no collector, even when our scoped collector already exists.
+        std::thread::spawn(emit).join().unwrap();
+        tracing::dispatcher::with_default(&dispatch, emit);
+        assert_eq!(
+            records.0.lock().unwrap().iter().filter(|(key, value)|
+                key == "message" && value == "scoped capture first-use probe").count(),
+            1
+        );
+    }
+
     async fn serve_json(
         bytes: impl AsRef<[u8]> + Send + 'static,
     ) -> (String, tokio::task::JoinHandle<()>) {
@@ -652,6 +932,17 @@ mod tests {
             while !request.ends_with(b"\r\n\r\n") {
                 request.push(stream.read_u8().await.unwrap());
             }
+            let length = String::from_utf8_lossy(&request)
+                .lines()
+                .find_map(|line| {
+                    let (key, value) = line.split_once(':')?;
+                    key.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            assert!(length <= SUBMISSION_MAX_BYTES);
+            let mut body = vec![0; length];
+            stream.read_exact(&mut body).await.unwrap();
             let headers = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nRequest-Id: req_discovery\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 bytes.len()
@@ -678,7 +969,7 @@ mod tests {
         let records = SpanRecords::default();
         let result = client
             .list_tasks(&scope, &TaskListQuery::default())
-            .with_subscriber(tracing_subscriber::registry().with(records.clone()))
+            .with_subscriber(recording_dispatch(&records))
             .await;
         server.await.unwrap();
         assert!(matches!(result, Err(ContractError::Unavailable(_))));
@@ -756,7 +1047,7 @@ mod tests {
                         client.result(&scope, "task").await.map(|reply| reply.task)
                     }
                 }
-                .with_subscriber(tracing_subscriber::registry().with(records.clone()))
+                .with_subscriber(recording_dispatch(&records))
                 .await;
                 server.await.unwrap();
                 if mismatch.is_some() {

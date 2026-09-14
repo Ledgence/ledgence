@@ -15,6 +15,17 @@ use ledgence_worker_api::ProgramDescriptor;
 /// the required locks, and atomically persist its complete transition. These
 /// operations must not perform external program resolution inside transactions.
 pub trait TaskStore: Send + Sync {
+    /// Claim one exact external dispatch. Successful replies follow durable
+    /// acceptance and bind the complete command. Unsupported implementations
+    /// reject explicitly; they must never fall back to an unrestricted queue scan.
+    fn claim_dispatch<'a>(&'a self, _command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "targeted dispatch claims are unsupported".into(),
+            ))
+        })
+    }
+
     fn open_session<'a>(
         &'a self,
         scope: &'a Scope,

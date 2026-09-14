@@ -4,6 +4,8 @@ mod application;
 mod command;
 mod health;
 mod logging;
+#[cfg(feature = "sqs")]
+mod publication;
 mod recovery;
 mod telemetry;
 
@@ -221,7 +223,19 @@ async fn dispatch(
             Command::Serve {
                 bind,
                 store: programs,
-            } => prepare_and_serve(store.clone(), bind, programs, stopped, trace, &url).await,
+                delivery_config,
+            } => {
+                prepare_and_serve(
+                    store.clone(),
+                    bind,
+                    programs,
+                    stopped,
+                    trace,
+                    &url,
+                    delivery_config,
+                )
+                .await
+            }
             Command::Help => unreachable!("help is handled before runtime startup"),
         }
     };
@@ -238,6 +252,7 @@ async fn prepare_and_serve(
     stopped: watch::Receiver<bool>,
     trace: Arc<dyn TraceBridge>,
     database_url: &str,
+    delivery_config: Option<std::path::PathBuf>,
 ) -> Result<(), String> {
     store
         .verify_schema()
@@ -247,6 +262,40 @@ async fn prepare_and_serve(
         .check_connection()
         .await
         .map_err(|error| error.to_string())?;
+    #[cfg(feature = "sqs")]
+    let broker = match delivery_config {
+        Some(path) => {
+            use ledgence_orchestration_api::DispatchIntentStore;
+            let config = tokio::task::spawn_blocking(move || {
+                ledgence_adapter_sqs::deployment::DeliveryConfig::load(&path)
+            })
+            .await
+            .map_err(|_| "delivery configuration loading failed".to_owned())?
+            .map_err(|error| error.to_string())?;
+            if *stopped.borrow() {
+                return Ok(());
+            }
+            let queue = Arc::new(
+                ledgence_adapter_sqs::SqsQueue::connect(config.sqs)
+                    .await
+                    .map_err(|error| error.to_string())?,
+            );
+            if *stopped.borrow() {
+                return Ok(());
+            }
+            // Verify external capabilities before committing route activation.
+            store
+                .configure_route(&config.route)
+                .await
+                .map_err(|error| error.to_string())?;
+            Some((queue, config.route))
+        }
+        None => None,
+    };
+    #[cfg(not(feature = "sqs"))]
+    if delivery_config.is_some() {
+        return Err("--delivery-config requires a binary built with the sqs feature".into());
+    }
     let programs = tokio::task::spawn_blocking(move || -> Result<Arc<dyn ProgramStore>, String> {
         let limits = ArtifactLimits::default();
         if location.starts_with("http://") || location.starts_with("https://") {
@@ -299,6 +348,23 @@ async fn prepare_and_serve(
             .into_future()
             .with_current_subscriber(),
     );
+    #[cfg(feature = "sqs")]
+    let publisher = broker.map(|(queue, route)| {
+        health.require_publication();
+        let checked_queue = queue.clone();
+        let probe: publication::ConfigurationProbe = Arc::new(move || {
+            let queue = checked_queue.clone();
+            Box::pin(async move { queue.check_configuration().await })
+        });
+        let (stop, stopped) = watch::channel(false);
+        let task = tokio::spawn(
+            publication::run(store.clone(), queue, route, probe, health.clone(), stopped)
+                .with_current_subscriber(),
+        );
+        PublicationTask { task, stop }
+    });
+    #[cfg(not(feature = "sqs"))]
+    let publisher = None;
     let scanner = tokio::spawn(
         recovery::run(store, health.clone(), recovery_stopped, config).with_current_subscriber(),
     );
@@ -306,7 +372,7 @@ async fn prepare_and_serve(
     let acquisition_service = service.clone();
     let result = supervise(
         http,
-        scanner,
+        BackgroundTasks { scanner, publisher },
         health,
         stopped,
         http_stop,
@@ -341,17 +407,32 @@ async fn stop_requested(mut stopped: watch::Receiver<bool>) {
     }
 }
 
+struct PublicationTask {
+    task: JoinHandle<ledgence_orchestration_api::Result<()>>,
+    stop: watch::Sender<bool>,
+}
+
+struct BackgroundTasks {
+    scanner: JoinHandle<ledgence_orchestration_api::Result<()>>,
+    publisher: Option<PublicationTask>,
+}
+
 async fn supervise(
     mut http: JoinHandle<std::io::Result<()>>,
-    mut scanner: JoinHandle<ledgence_orchestration_api::Result<()>>,
+    background: BackgroundTasks,
     health: Health,
     stopped: watch::Receiver<bool>,
     http_stop: watch::Sender<bool>,
     recovery_stop: watch::Sender<bool>,
     stop_acquisitions: impl FnOnce(),
 ) -> Result<(), String> {
+    let BackgroundTasks {
+        mut scanner,
+        mut publisher,
+    } = background;
     let mut http_finished = false;
     let mut scanner_finished = false;
+    let mut publisher_finished = false;
     let mut failure = tokio::select! {
         _ = stop_requested(stopped) => None,
         finished = &mut http => {
@@ -361,6 +442,15 @@ async fn supervise(
         finished = &mut scanner => {
             scanner_finished = true;
             Some(format!("recovery supervisor stopped unexpectedly: {finished:?}"))
+        }
+        finished = async {
+            match &mut publisher {
+                Some(publication) => (&mut publication.task).await,
+                None => std::future::pending().await,
+            }
+        } => {
+            publisher_finished = true;
+            Some(format!("publication supervisor stopped unexpectedly: {finished:?}"))
         }
     };
     health.stop();
@@ -377,11 +467,24 @@ async fn supervise(
     // Recovery continues while already accepted requests drain. Once no HTTP
     // operation remains, stop scanning between bounded batches before DB close.
     let _ = recovery_stop.send(true);
+    if let Some(publication) = &publisher {
+        let _ = publication.stop.send(true);
+    }
     if !scanner_finished {
         match observe_drain(&mut scanner, "expiry recovery").await {
             Ok(Ok(())) => {}
             result => {
                 failure.get_or_insert_with(|| format!("recovery drain failed: {result:?}"));
+            }
+        }
+    }
+    if let Some(publication) = &mut publisher
+        && !publisher_finished
+    {
+        match observe_drain(&mut publication.task, "dispatch publication").await {
+            Ok(Ok(())) => {}
+            result => {
+                failure.get_or_insert_with(|| format!("publication drain failed: {result:?}"));
             }
         }
     }
@@ -458,7 +561,10 @@ mod tests {
         });
         let supervisor = tokio::spawn(supervise(
             http,
-            scanner,
+            BackgroundTasks {
+                scanner,
+                publisher: None,
+            },
             health,
             stopped,
             http_stop,
@@ -506,7 +612,10 @@ mod tests {
         });
         let result = supervise(
             http,
-            scanner,
+            BackgroundTasks {
+                scanner,
+                publisher: None,
+            },
             health,
             stopped,
             http_stop,
@@ -536,4 +645,102 @@ where
     F: Future<Output = Result<(), String>>,
 {
     run_with_bridge(move |stopped, _| work(stopped))
+}
+
+#[cfg(test)]
+mod publication_supervision_tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    #[tokio::test(start_paused = true)]
+    async fn publication_runs_through_http_drain_then_retains_its_inflight_batch() {
+        let health = Health::new(Duration::from_secs(40));
+        let (stop, stopped) = watch::channel(false);
+        let (http_stop, mut http_stopped) = watch::channel(false);
+        let (recovery_stop, recovery_stopped) = watch::channel(false);
+        let (publication_stop, mut publication_stopped) = watch::channel(false);
+        let (http_finish, http_finished) = oneshot::channel();
+        let (publication_finish, publication_finished) = oneshot::channel();
+        let http = tokio::spawn(async move {
+            http_finished.await.unwrap();
+            Ok(())
+        });
+        let scanner = tokio::spawn(async move {
+            stop_requested(recovery_stopped).await;
+            Ok(())
+        });
+        let publisher = Some(PublicationTask {
+            stop: publication_stop,
+            task: tokio::spawn(async move {
+                publication_finished.await.unwrap();
+                Ok(())
+            }),
+        });
+        let task = tokio::spawn(supervise(
+            http,
+            BackgroundTasks { scanner, publisher },
+            health,
+            stopped,
+            http_stop,
+            recovery_stop,
+            || {},
+        ));
+        stop.send(true).unwrap();
+        http_stopped.changed().await.unwrap();
+        assert!(!*publication_stopped.borrow());
+        tokio::time::advance(Duration::from_secs(36)).await;
+        assert!(!task.is_finished());
+        assert!(!*publication_stopped.borrow());
+        http_finish.send(()).unwrap();
+        publication_stopped.changed().await.unwrap();
+        assert!(*publication_stopped.borrow());
+        assert!(!task.is_finished());
+        publication_finish.send(()).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn publication_failure_and_panic_stop_http_and_recovery_with_explicit_failure() {
+        for panic in [false, true] {
+            let health = Health::new(Duration::from_secs(40));
+            let observed = health.clone();
+            let (_stop, stopped) = watch::channel(false);
+            let (http_stop, http_stopped) = watch::channel(false);
+            let (recovery_stop, recovery_stopped) = watch::channel(false);
+            let (publication_stop, _publication_stopped) = watch::channel(false);
+            let http = tokio::spawn(async move {
+                stop_requested(http_stopped).await;
+                Ok(())
+            });
+            let scanner = tokio::spawn(async move {
+                stop_requested(recovery_stopped).await;
+                Ok(())
+            });
+            let publisher = Some(PublicationTask {
+                stop: publication_stop,
+                task: tokio::spawn(async move {
+                    assert!(!panic, "controlled publication panic");
+                    Err(ledgence_orchestration_api::ContractError::InvalidInput(
+                        "controlled publication error".into(),
+                    ))
+                }),
+            });
+            let result = supervise(
+                http,
+                BackgroundTasks { scanner, publisher },
+                health,
+                stopped,
+                http_stop,
+                recovery_stop,
+                || {},
+            )
+            .await;
+            assert!(
+                result
+                    .unwrap_err()
+                    .contains("publication supervisor stopped unexpectedly")
+            );
+            assert!(observed.stopping.load(std::sync::atomic::Ordering::Acquire));
+        }
+    }
 }

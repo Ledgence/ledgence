@@ -42,9 +42,29 @@ struct MemoryStore {
     lookup_error: Mutex<Option<ContractError>>,
     list_calls: AtomicUsize,
     list_reply: Mutex<Option<Result<TaskPage>>>,
+    claim_calls: Mutex<Vec<ClaimCommand>>,
+    claim_reply: Mutex<Option<Result<ClaimReply>>>,
+    claim_gate: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    claim_entered: tokio::sync::Notify,
 }
 
 impl TaskStore for MemoryStore {
+    fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(async move {
+            self.claim_calls.lock().unwrap().push(command.clone());
+            self.claim_entered.notify_one();
+            let gate = self.claim_gate.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            self.claim_reply
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("configured claim reply")
+        })
+    }
+
     fn lookup_submission<'a>(
         &'a self,
         scope: &'a Scope,
@@ -577,4 +597,104 @@ async fn task_listing_rejects_input_before_storage_and_validates_adapter_pages()
         Err(ContractError::Unavailable("storage failure".into()))
     );
     assert_eq!(store.list_calls.load(Ordering::SeqCst), 3);
+}
+
+fn claim_command() -> ClaimCommand {
+    let scope = Scope {
+        tenant_id: "acme".into(),
+        namespace: "billing".into(),
+    };
+    ClaimCommand {
+        acquisition: AcquireCommand {
+            scope: scope.clone(),
+            queue: "invoices".into(),
+            worker_session_id: "session".into(),
+            consumer_id: 0,
+            sequence: 1,
+        },
+        dispatch: DispatchRef {
+            scope,
+            queue: "invoices".into(),
+            task_id: "task_1".into(),
+            generation: 1,
+        },
+    }
+}
+
+#[tokio::test]
+async fn targeted_claim_validates_commands_and_store_handoff_identity_without_program_resolution() {
+    let mut fixture = Fixture::new();
+    let command = claim_command();
+    let mut invalid = command.clone();
+    invalid.acquisition.sequence = 0;
+    assert!(matches!(
+        fixture.service.claim_dispatch(&invalid).await,
+        Err(ContractError::InvalidInput(_))
+    ));
+    assert!(fixture.store.claim_calls.lock().unwrap().is_empty());
+    let reply = ClaimReply {
+        command: command.clone(),
+        disposition: ClaimDisposition::TerminalOrSuperseded,
+    };
+    *fixture.store.claim_reply.lock().unwrap() = Some(Ok(reply.clone()));
+    let accepted = fixture.service.claim_dispatch(&command).await.unwrap();
+    accepted.validate_reply_against(&command).unwrap();
+    let mut changed = reply;
+    changed.command.dispatch.task_id = "another_task".into();
+    *fixture.store.claim_reply.lock().unwrap() = Some(Ok(changed));
+    assert!(matches!(
+        fixture.service.claim_dispatch(&command).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert_eq!(
+        *fixture.store.claim_calls.lock().unwrap(),
+        vec![command.clone(), command]
+    );
+    assert!(
+        fixture.requests.try_recv().is_err(),
+        "claim must not resolve or download programs"
+    );
+}
+
+#[tokio::test]
+async fn targeted_claim_shutdown_finishes_admitted_calls_but_rejects_new_calls_across_clones() {
+    let fixture = Fixture::new();
+    let command = claim_command();
+    *fixture.store.claim_reply.lock().unwrap() = Some(Ok(ClaimReply {
+        command: command.clone(),
+        disposition: ClaimDisposition::TerminalOrSuperseded,
+    }));
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *fixture.store.claim_gate.lock().unwrap() = Some(gate.clone());
+    let service = fixture.service.clone();
+    let active_command = command.clone();
+    let active = tokio::spawn(async move { service.claim_dispatch(&active_command).await });
+    bounded(fixture.store.claim_entered.notified()).await;
+    fixture.service.clone().stop_acquisitions();
+    assert!(matches!(
+        fixture.service.claim_dispatch(&command).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    gate.notify_one();
+    bounded(active)
+        .await
+        .unwrap()
+        .unwrap()
+        .validate_reply_against(&command)
+        .unwrap();
+    assert_eq!(fixture.store.claim_calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn targeted_claim_has_a_bounded_service_deadline() {
+    let fixture = Fixture::new();
+    *fixture.store.claim_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Notify::new()));
+    let service = fixture.service.clone();
+    let active = tokio::spawn(async move { service.claim_dispatch(&claim_command()).await });
+    fixture.store.claim_entered.notified().await;
+    tokio::time::advance(Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS)).await;
+    assert!(matches!(
+        active.await.unwrap(),
+        Err(ContractError::Unavailable(_))
+    ));
 }

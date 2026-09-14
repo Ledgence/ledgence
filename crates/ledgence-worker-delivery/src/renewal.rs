@@ -505,6 +505,9 @@ mod tests {
         config.retry_delay = Duration::from_millis(1);
         let context = Arc::new(Context {
             worker,
+            source: Arc::new(source::ServiceAcquisitionSource {
+                service: service.clone(),
+            }),
             service,
             config,
             shared,

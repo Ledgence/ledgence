@@ -265,6 +265,9 @@ struct ServiceState {
 }
 
 struct Service {
+    broker_commands: Mutex<Vec<ClaimCommand>>,
+    broker_disposition: Mutex<Option<ClaimDisposition>>,
+    malformed_claim: AtomicBool,
     state: Mutex<ServiceState>,
     task_count: usize,
     acquire_unavailable: AtomicBool,
@@ -292,6 +295,9 @@ struct Service {
 impl Service {
     fn new(task_count: usize) -> Arc<Self> {
         Arc::new(Self {
+            broker_commands: Mutex::new(Vec::new()),
+            broker_disposition: Mutex::new(None),
+            malformed_claim: AtomicBool::new(false),
             state: Mutex::new(ServiceState::default()),
             task_count,
             acquire_unavailable: AtomicBool::new(false),
@@ -345,6 +351,32 @@ fn unavailable() -> ContractError {
 }
 
 impl TaskService for Service {
+    fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
+        Box::pin(async move {
+            self.broker_commands.lock().unwrap().push(command.clone());
+            let injected = self.broker_disposition.lock().unwrap().clone();
+            let disposition = if let Some(disposition) = injected {
+                disposition
+            } else {
+                ClaimDisposition::Claimed {
+                    reply: self
+                        .acquire(
+                            &command.acquisition,
+                            AcquireOptions::immediate(Instant::now() + WAIT),
+                        )
+                        .await?,
+                }
+            };
+            let mut echo = command.clone();
+            if self.malformed_claim.load(Ordering::SeqCst) {
+                echo.dispatch.task_id = "wrong-task".into();
+            }
+            Ok(ClaimReply {
+                command: echo,
+                disposition,
+            })
+        })
+    }
     fn open_session<'a>(
         &'a self,
         scope: &'a Scope,
@@ -1748,3 +1780,9 @@ async fn malformed_initial_dispatch_stops_execution_and_reconciles_exact_sent_co
         assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
     }
 }
+
+#[path = "delivery/broker.rs"]
+mod broker;
+
+#[path = "delivery/sqs.rs"]
+mod sqs;

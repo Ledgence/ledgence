@@ -52,14 +52,25 @@ impl PostgresStore {
             before,
         )?;
         if replay {
+            let targeted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM dispatch_claim_receipts WHERE session_id=$1 AND consumer_id=$2 AND sequence=($3::text)::ldg_u64)")
+                .bind(&session.id).bind(consumer).bind(command.sequence.to_string()).fetch_one(&mut *tx).await?;
+            if targeted {
+                return Err(ContractError::Conflict.into());
+            }
             tx.commit().await?;
             return Ok(AcquisitionProbe::Completed {
                 reply: checked.reply,
                 kind: AcquisitionCompletion::Replayed,
             });
         }
+        let external: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM dispatch_routes WHERE tenant_id=$1 AND namespace=$2 AND queue=$3 AND destination IS NOT NULL)")
+            .bind(&command.scope.tenant_id).bind(&command.scope.namespace).bind(&command.queue)
+            .fetch_one(&mut *tx).await?;
+        if external {
+            return Err(ContractError::ExternalDispatchRequired.into());
+        }
         let before_ms = codec::ms(before)?;
-        let row = sqlx::query("SELECT * FROM tasks WHERE tenant_id=$1 AND namespace=$2 AND queue=$3 AND state='queued' AND cancel_requested_at_ms IS NULL AND available_at_ms <= $4 ORDER BY available_at_ms,submitted_at_ms,task_id LIMIT 1 FOR NO KEY UPDATE SKIP LOCKED")
+        let row = sqlx::query("SELECT * FROM tasks WHERE tenant_id=$1 AND namespace=$2 AND queue=$3 AND state='queued' AND cancel_requested_at_ms IS NULL AND dispatch_destination IS NULL AND available_at_ms <= $4 ORDER BY available_at_ms,submitted_at_ms,task_id LIMIT 1 FOR NO KEY UPDATE SKIP LOCKED")
             .bind(&command.scope.tenant_id).bind(&command.scope.namespace).bind(&command.queue).bind(before_ms).fetch_optional(&mut *tx).await?;
         let candidate = row.as_ref().map(codec::task).transpose()?;
         if candidate.is_none() && !finish_empty {
@@ -225,7 +236,7 @@ impl PostgresStore {
         Ok(transition.reply)
     }
 
-    async fn lock_session(
+    pub(crate) async fn lock_session(
         &self,
         tx: &mut sqlx::PgConnection,
         id: &str,
@@ -288,7 +299,7 @@ fn known_commit_rollback(code: &str) -> bool {
     matches!(code, "40000" | "40001" | "40002" | "40P01") || code.starts_with("23")
 }
 
-fn invocation_span(
+pub(crate) fn invocation_span(
     task: &TaskSnapshot,
     command: &AcquireCommand,
     ids: &core::AttemptIds,
