@@ -79,8 +79,11 @@ polls the same future instead of issuing a competing receive. This prevents a
 healthy abandoned long poll from invisibly receiving tasks after worker restart.
 A graceful stop drains this bounded receive, which can take the configured
 acquisition exchange budget (30 seconds by default). A second shutdown signal
-still forces exit. Real network loss or receive timeout remains uncertain and
-uses broker redelivery and durable dispatch repair.
+still forces exit. Once stopping, the source issues no new receives or claims.
+Records returned by the outstanding receive remain unacknowledged for redelivery.
+A failed receive can finish shutdown when no claim has started; an already-issued
+claim still requires reconciliation. Real network loss or receive timeout uses
+broker redelivery and durable dispatch repair.
 
 For each selected record, the source retains its dispatch, receipt, and immutable
 claim command. A timeout or dropped future never replaces that record under the
@@ -99,8 +102,10 @@ result, or mismatched receipt is logged as unconfirmed acknowledgment; it cannot
 reverse the durable handoff. Execution may proceed, and later broker redelivery
 is reconciled against task state. If the acquisition future itself is cancelled
 during acknowledgment, the original command and receipt remain available for
-reconciliation. Replayed assignments obtain current authority from the service;
-the source does not cache a lease time-to-live.
+reconciliation. Each selected record gets at most one acknowledgment attempt;
+a replay refreshes its claim without repeating a delete that could consume the
+entire acquisition deadline again. Replayed assignments obtain current authority
+from the service; the source does not cache a lease time-to-live.
 
 The ordinary worker dispatch-authorization step still runs before user code.
 Acknowledging the broker record does not release worker capacity. Preparation,
@@ -127,6 +132,11 @@ or the connector's wire-body cap. The source consumes that rejection only from
 its receive stage, before any task claim. Network failures and timeouts remain
 uncertain and retryable; the same error coming from a claim cannot abandon its
 original operation.
+
+Custom `AcquisitionSource` implementations receive an explicit `drain` call during
+shutdown. Its default reconciles through `acquire`, preserving uncertain claims.
+An override may return `Idle` only after outstanding transport receives finish
+and when no claim can have started. A zero poll wait alone does not mean shutdown.
 
 The driver closes the source session only after its consumers stop. Session
 expiry or process loss leaves task recovery to durable orchestration state.
@@ -176,7 +186,7 @@ For AWS, supply the real Standard queue URL and region, omit `endpoint_url`, and
 
 `operation_timeout_ms` defaults to 5,000 and accepts whole milliseconds from 1 through 30,000. `visibility_timeout_seconds` defaults to 60 and accepts whole seconds from 30 through 43,200. Visibility protects transport handoff, independently of Ledgence execution leases. These settings do not add worker concurrency parameters.
 
-The orchestrator validates SQS before durably activating the route. Initial activation requires an empty logical queue, and another logical route cannot reuse its destination alias. Route activation persists across restarts. **At least one orchestrator configured as the publisher for that destination must remain active.** Additional HTTP-only orchestrators may share the database. Removing all publisher configuration does not revert externally routed tasks to PostgreSQL acquisition; their durable intents remain pending until a matching publisher returns.
+The orchestrator validates SQS, prepares the program store, binds its listener, and configures optional notifications before durably activating the route. Failure in these prerequisites leaves routing unchanged. Activation failure shuts down any started notification listener before closing the database pool. A successful activation remains durable even if shutdown arrives during that write. Initial activation requires an empty logical queue, and another logical route cannot reuse its destination alias. Route activation persists across restarts. **At least one orchestrator configured as the publisher for that destination must remain active.** Additional HTTP-only orchestrators may share the database. Removing all publisher configuration does not revert externally routed tasks to PostgreSQL acquisition; their durable intents remain pending until a matching publisher returns.
 
 ## Publication supervision and readiness
 

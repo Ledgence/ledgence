@@ -265,7 +265,6 @@ async fn prepare_and_serve(
     #[cfg(feature = "sqs")]
     let broker = match delivery_config {
         Some(path) => {
-            use ledgence_orchestration_api::DispatchIntentStore;
             let config = tokio::task::spawn_blocking(move || {
                 ledgence_adapter_sqs::deployment::DeliveryConfig::load(&path)
             })
@@ -275,6 +274,7 @@ async fn prepare_and_serve(
             if *stopped.borrow() {
                 return Ok(());
             }
+            // Validate external capabilities without changing durable routing.
             let queue = Arc::new(
                 ledgence_adapter_sqs::SqsQueue::connect(config.sqs)
                     .await
@@ -283,11 +283,6 @@ async fn prepare_and_serve(
             if *stopped.borrow() {
                 return Ok(());
             }
-            // Verify external capabilities before committing route activation.
-            store
-                .configure_route(&config.route)
-                .await
-                .map_err(|error| error.to_string())?;
             Some((queue, config.route))
         }
         None => None,
@@ -334,51 +329,74 @@ async fn prepare_and_serve(
     } else {
         None
     };
-    let router = ledgence_adapter_http::server::router_with_observability(
-        service.clone(),
-        health.stopping.clone(),
-        trace,
-    )
-    .merge(health.router());
-    let (http_stop, http_stopped) = watch::channel(false);
-    let (recovery_stop, recovery_stopped) = watch::channel(false);
-    let http = tokio::spawn(
-        axum::serve(listener, router)
-            .with_graceful_shutdown(stop_requested(http_stopped))
-            .into_future()
-            .with_current_subscriber(),
-    );
-    #[cfg(feature = "sqs")]
-    let publisher = broker.map(|(queue, route)| {
-        health.require_publication();
-        let checked_queue = queue.clone();
-        let probe: publication::ConfigurationProbe = Arc::new(move || {
-            let queue = checked_queue.clone();
-            Box::pin(async move { queue.check_configuration().await })
-        });
-        let (stop, stopped) = watch::channel(false);
-        let task = tokio::spawn(
-            publication::run(store.clone(), queue, route, probe, health.clone(), stopped)
+    // Route activation is durable: do not change a live queue until every
+    // locally fallible prerequisite, including binding and notification setup,
+    // has succeeded. Retain notifications through activation failure or stop.
+    let result = async {
+        if *stopped.borrow() {
+            return Ok(());
+        }
+        #[cfg(feature = "sqs")]
+        if let Some((_, route)) = &broker {
+            use ledgence_orchestration_api::DispatchIntentStore;
+            store
+                .configure_route(route)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        // Complete an issued activation before observing stop. Its successful
+        // binding remains durable even if shutdown arrived during the write.
+        if *stopped.borrow() {
+            return Ok(());
+        }
+        let router = ledgence_adapter_http::server::router_with_observability(
+            service.clone(),
+            health.stopping.clone(),
+            trace,
+        )
+        .merge(health.router());
+        let (http_stop, http_stopped) = watch::channel(false);
+        let (recovery_stop, recovery_stopped) = watch::channel(false);
+        let http = tokio::spawn(
+            axum::serve(listener, router)
+                .with_graceful_shutdown(stop_requested(http_stopped))
+                .into_future()
                 .with_current_subscriber(),
         );
-        PublicationTask { task, stop }
-    });
-    #[cfg(not(feature = "sqs"))]
-    let publisher = None;
-    let scanner = tokio::spawn(
-        recovery::run(store, health.clone(), recovery_stopped, config).with_current_subscriber(),
-    );
-    tracing::info!(%address, "orchestration HTTP listener started");
-    let acquisition_service = service.clone();
-    let result = supervise(
-        http,
-        BackgroundTasks { scanner, publisher },
-        health,
-        stopped,
-        http_stop,
-        recovery_stop,
-        move || acquisition_service.stop_acquisitions(),
-    )
+        #[cfg(feature = "sqs")]
+        let publisher = broker.map(|(queue, route)| {
+            health.require_publication();
+            let checked_queue = queue.clone();
+            let probe: publication::ConfigurationProbe = Arc::new(move || {
+                let queue = checked_queue.clone();
+                Box::pin(async move { queue.check_configuration().await })
+            });
+            let (stop, stopped) = watch::channel(false);
+            let task = tokio::spawn(
+                publication::run(store.clone(), queue, route, probe, health.clone(), stopped)
+                    .with_current_subscriber(),
+            );
+            PublicationTask { task, stop }
+        });
+        #[cfg(not(feature = "sqs"))]
+        let publisher = None;
+        let scanner = tokio::spawn(
+            recovery::run(store, health.clone(), recovery_stopped, config)
+                .with_current_subscriber(),
+        );
+        tracing::info!(%address, "orchestration HTTP listener started");
+        let acquisition_service = service.clone();
+        supervise(
+            http,
+            BackgroundTasks { scanner, publisher },
+            health,
+            stopped,
+            http_stop,
+            recovery_stop,
+            move || acquisition_service.stop_acquisitions(),
+        )
+        .await
+    }
     .await;
     tracing::info!(statistics = ?service.acquisition_statistics(), "acquisition coordinator drained");
     // Accepted requests and recovery retain their local wake sink until drained.

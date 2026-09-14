@@ -11,6 +11,7 @@ enum AckBehavior {
     Missing,
     WrongReceipt,
     Pending,
+    DeadlineTimeout,
 }
 #[derive(Default)]
 struct Queue {
@@ -21,6 +22,7 @@ struct Queue {
     ack_entered: Notify,
     receive_pending: AtomicBool,
     receive_panics: AtomicUsize,
+    receive_outage: AtomicBool,
     receive_entered: Notify,
     receive_release: Notify,
 }
@@ -50,6 +52,9 @@ impl AckQueue for Queue {
                 self.receive_entered.notify_one();
                 self.receive_release.notified().await;
             }
+            if self.receive_outage.load(Ordering::SeqCst) {
+                return Err(unavailable());
+            }
             Ok(self
                 .deliveries
                 .lock()
@@ -61,7 +66,7 @@ impl AckQueue for Queue {
     fn acknowledge<'a>(
         &'a self,
         receipts: &'a [String],
-        _: Instant,
+        deadline: Instant,
     ) -> ContractFuture<'a, Vec<AckResult>> {
         Box::pin(async move {
             self.acknowledgments.lock().unwrap().push(receipts.to_vec());
@@ -72,6 +77,11 @@ impl AckQueue for Queue {
                 .pop_front()
                 .unwrap_or_default();
             match behavior {
+                AckBehavior::DeadlineTimeout => {
+                    self.ack_entered.notify_one();
+                    tokio::time::sleep_until(deadline.into()).await;
+                    Err(unavailable())
+                }
                 AckBehavior::Error => Err(unavailable()),
                 AckBehavior::Missing => Ok(Vec::new()),
                 AckBehavior::WrongReceipt => Ok(vec![AckResult {
@@ -197,7 +207,7 @@ async fn dropped_claim_future_reconciles_original_record_without_receiving_again
 }
 
 #[tokio::test]
-async fn dropped_ack_future_replays_same_claim_and_receipt_before_exposing_authority() {
+async fn dropped_ack_future_refreshes_same_claim_without_repeating_acknowledgment() {
     let service = Service::new(1);
     let queue = Queue::with_records([vec![record(1)], vec![record(2)]]);
     queue
@@ -232,8 +242,7 @@ async fn dropped_ack_future_replays_same_claim_and_receipt_before_exposing_autho
     );
     assert_eq!(queue.polls.load(Ordering::SeqCst), 1);
     let acks = queue.acknowledgments.lock().unwrap();
-    assert_eq!(acks.len(), 2);
-    assert_eq!(acks[0], acks[1]);
+    assert_eq!(acks.as_slice(), &[vec!["receipt_1".to_owned()]]);
     let commands = service.broker_commands.lock().unwrap();
     assert_eq!(commands[0], commands[1]);
 }
@@ -643,40 +652,38 @@ async fn source_lifecycle_panics_do_not_skip_driver_shutdown() {
 }
 
 #[tokio::test]
-async fn graceful_stop_drains_retained_receive_and_never_orphans_a_later_task() {
-    let (worker, counts) = setup(1);
-    let service = Service::new(1);
-    let queue = Queue::with_records([]);
-    queue.receive_pending.store(true, Ordering::SeqCst);
-    let source = Arc::new(BrokerAcquisitionSource::new(queue.clone(), service.clone()).unwrap());
-    let mut config = config();
-    config.request_timeout = WAIT;
-    let mut handle = DeliveryDriver::new(worker, service.clone(), config)
-        .unwrap()
-        .with_acquisition_source(source)
-        .start();
-    tokio::time::timeout(WAIT, queue.receive_entered.notified())
-        .await
-        .unwrap();
-    handle.stop();
-    queue.deliveries.lock().unwrap().push_back(vec![record(1)]);
-    queue.receive_release.notify_one();
-    assert!(handle.shutdown(WAIT).await.unwrap().finished);
-    assert_eq!(
-        queue.polls.load(Ordering::SeqCst),
-        1,
-        "same healthy receive must be drained after stop"
-    );
-    assert_eq!(
-        queue.acknowledgments.lock().unwrap().as_slice(),
-        &[vec!["receipt_1".to_string()]]
-    );
-    assert_eq!(
-        service.accepted_count(),
-        1,
-        "received task is durably settled without user execution"
-    );
-    assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+async fn shutdown_leaves_work_from_retained_receive_unclaimed_and_unacknowledged() {
+    for acquire_wait in [Duration::ZERO, Duration::from_secs(1)] {
+        let (worker, counts) = setup(1);
+        let service = Service::new(1);
+        let queue = Queue::with_records([]);
+        queue.receive_pending.store(true, Ordering::SeqCst);
+        let source =
+            Arc::new(BrokerAcquisitionSource::new(queue.clone(), service.clone()).unwrap());
+        let mut config = config();
+        config.acquire_wait = acquire_wait;
+        let mut handle = DeliveryDriver::new(worker, service.clone(), config)
+            .unwrap()
+            .with_acquisition_source(source)
+            .start();
+        tokio::time::timeout(WAIT, queue.receive_entered.notified())
+            .await
+            .unwrap();
+        handle.stop();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), handle.wait())
+                .await
+                .is_err()
+        );
+        queue.deliveries.lock().unwrap().push_back(vec![record(1)]);
+        queue.receive_release.notify_one();
+        assert!(handle.shutdown(WAIT).await.unwrap().finished);
+        assert_eq!(queue.polls.load(Ordering::SeqCst), 1);
+        assert!(queue.acknowledgments.lock().unwrap().is_empty());
+        assert!(service.broker_commands.lock().unwrap().is_empty());
+        assert_eq!(service.accepted_count(), 0);
+        assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+    }
 }
 
 #[tokio::test]
@@ -788,4 +795,129 @@ async fn queue_protocol_error_from_a_claim_does_not_abandon_unknown_authority() 
     let commands = service.broker_commands.lock().unwrap();
     assert_eq!(commands.len(), 2);
     assert_eq!(commands[0], commands[1]);
+}
+
+#[tokio::test]
+async fn full_deadline_ack_outage_allows_execution_and_settlement() {
+    let (worker, counts) = setup(1);
+    let service = Service::new(1);
+    let queue = Queue::with_records([vec![record(1)]]);
+    // Every potential retry consumes the whole acquisition budget. Recovery
+    // must not depend on the queue becoming available on a later attempt.
+    queue
+        .ack_behavior
+        .lock()
+        .unwrap()
+        .extend([AckBehavior::DeadlineTimeout; 100]);
+    let source = Arc::new(BrokerAcquisitionSource::new(queue.clone(), service.clone()).unwrap());
+    let mut handle = DeliveryDriver::new(worker, service.clone(), config())
+        .unwrap()
+        .with_acquisition_source(source)
+        .start();
+    wait_for(|| service.accepted_count() == 1).await;
+    assert!(handle.shutdown(WAIT).await.unwrap().finished);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(queue.acknowledgments.lock().unwrap().len(), 1);
+    let commands = service.broker_commands.lock().unwrap();
+    assert_eq!(commands.len(), 2);
+    assert_eq!(commands[0], commands[1]);
+    assert_eq!(counts.peak.load(Ordering::SeqCst), 1);
+    assert_eq!(service.state.lock().unwrap().capacity_violations, 0);
+}
+
+#[tokio::test]
+async fn full_deadline_ack_outage_allows_graceful_shutdown_and_settlement() {
+    let (worker, counts) = setup(1);
+    let service = Service::new(1);
+    let queue = Queue::with_records([vec![record(1)]]);
+    queue
+        .ack_behavior
+        .lock()
+        .unwrap()
+        .extend([AckBehavior::DeadlineTimeout; 100]);
+    let source = Arc::new(BrokerAcquisitionSource::new(queue.clone(), service.clone()).unwrap());
+    let mut config = config();
+    config.acquire_wait = Duration::ZERO;
+    let mut handle = DeliveryDriver::new(worker, service.clone(), config)
+        .unwrap()
+        .with_acquisition_source(source)
+        .start();
+    tokio::time::timeout(WAIT, queue.ack_entered.notified())
+        .await
+        .unwrap();
+    assert!(handle.shutdown(WAIT).await.unwrap().finished);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+    assert_eq!(service.accepted_count(), 1);
+    assert_eq!(queue.polls.load(Ordering::SeqCst), 1);
+    assert_eq!(queue.acknowledgments.lock().unwrap().len(), 1);
+    let commands = service.broker_commands.lock().unwrap();
+    assert_eq!(commands.len(), 2);
+    assert_eq!(commands[0], commands[1]);
+}
+
+#[tokio::test]
+async fn shutdown_drains_failed_or_expired_receive_without_starting_another() {
+    for acquire_wait in [Duration::ZERO, Duration::from_secs(1)] {
+        for release in [true, false] {
+            let (worker, counts) = setup(1);
+            let service = Service::new(0);
+            let queue = Queue::with_records([]);
+            queue.receive_pending.store(true, Ordering::SeqCst);
+            queue.receive_outage.store(true, Ordering::SeqCst);
+            let source =
+                Arc::new(BrokerAcquisitionSource::new(queue.clone(), service.clone()).unwrap());
+            let mut config = config();
+            config.acquire_wait = acquire_wait;
+            config.request_timeout = Duration::from_millis(200);
+            let mut handle = DeliveryDriver::new(worker, service.clone(), config)
+                .unwrap()
+                .with_acquisition_source(source)
+                .start();
+            tokio::time::timeout(WAIT, queue.receive_entered.notified())
+                .await
+                .unwrap();
+            handle.stop();
+            assert!(
+                tokio::time::timeout(Duration::from_millis(30), handle.wait())
+                    .await
+                    .is_err(),
+                "an already-issued receive must finish or reach its original deadline"
+            );
+            if release {
+                queue.receive_release.notify_one();
+            }
+            assert!(handle.shutdown(WAIT).await.unwrap().finished);
+            assert_eq!(queue.polls.load(Ordering::SeqCst), 1);
+            assert!(service.broker_commands.lock().unwrap().is_empty());
+            assert_eq!(counts.executions.load(Ordering::SeqCst), 0);
+        }
+    }
+}
+
+#[tokio::test]
+async fn running_immediate_polls_retry_receive_errors_and_can_still_claim_work() {
+    let (worker, counts) = setup(1);
+    let service = Service::new(1);
+    let queue = Queue::with_records([vec![record(1)]]);
+    queue.receive_outage.store(true, Ordering::SeqCst);
+    let source = Arc::new(BrokerAcquisitionSource::new(queue.clone(), service.clone()).unwrap());
+    let mut config = config();
+    config.acquire_wait = Duration::ZERO;
+    let mut handle = DeliveryDriver::new(worker, service.clone(), config)
+        .unwrap()
+        .with_acquisition_source(source)
+        .start();
+    wait_for(|| queue.polls.load(Ordering::SeqCst) >= 3).await;
+    assert!(!handle.status().stopping);
+    assert!(service.broker_commands.lock().unwrap().is_empty());
+    queue.receive_outage.store(false, Ordering::SeqCst);
+    wait_for(|| service.accepted_count() == 1).await;
+    assert!(handle.shutdown(WAIT).await.unwrap().finished);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        service.broker_commands.lock().unwrap()[0]
+            .acquisition
+            .sequence,
+        1
+    );
 }
