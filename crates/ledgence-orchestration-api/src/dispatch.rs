@@ -169,6 +169,7 @@ impl ClaimReply {
                     validate_text(&owner.attempt_id, 128)?;
                     validate_text(&owner.lease_id, 128)?;
                     assignment.descriptor.validate()?;
+                    assignment.validate_workflow_identity()?;
                     for key in ["id", "ldgrunid", "ldgtaskid", "ldgattemptid"] {
                         validate_text(event.value()[key].as_str().unwrap_or_default(), 128)?;
                     }
@@ -448,7 +449,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
-            descriptor: ProgramDescriptor {
+            workflow_activation_id: None,            descriptor: ProgramDescriptor {
                 program: ProgramRef { id: "invoice".into(), version: "1".into() },
                 digest: Digest(format!("sha256:{}", "a".repeat(64))), size: 100,
             },

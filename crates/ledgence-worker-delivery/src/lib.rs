@@ -8,6 +8,7 @@
 mod attempt;
 mod renewal;
 mod source;
+mod workflow;
 pub use source::{AcquisitionSource, BrokerAcquisitionSource, SourceReply};
 
 use ledgence_orchestration_api::*;
@@ -141,6 +142,7 @@ impl Shared {
 pub struct DeliveryDriver {
     worker: Worker,
     service: Arc<dyn TaskService>,
+    workflows: Option<Arc<dyn WorkflowService>>,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
 }
@@ -160,9 +162,16 @@ impl DeliveryDriver {
                 service: service.clone(),
             }),
             service,
+            workflows: None,
             config,
         })
     }
+    /// Supply the optional workflow control port used only by marked activations.
+    pub fn with_workflows(mut self, service: Arc<dyn WorkflowService>) -> Self {
+        self.workflows = Some(service);
+        self
+    }
+
     /// Use a pluggable source with the same N consumers and attempt lifecycle.
     pub fn with_acquisition_source(mut self, source: Arc<dyn AcquisitionSource>) -> Self {
         self.source = source;
@@ -232,6 +241,7 @@ impl DeliveryDriver {
             let context = Arc::new(Context {
                 worker: self.worker.clone(),
                 service: self.service,
+                workflows: self.workflows,
                 source: source.clone(),
                 config: self.config,
                 shared: shared.clone(),
@@ -426,6 +436,7 @@ impl Drop for DeliveryHandle {
 struct Context {
     worker: Worker,
     service: Arc<dyn TaskService>,
+    workflows: Option<Arc<dyn WorkflowService>>,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
     shared: Arc<Shared>,

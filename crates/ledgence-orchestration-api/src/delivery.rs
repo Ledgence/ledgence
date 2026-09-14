@@ -63,6 +63,12 @@ pub enum AttemptState {
 /// Transaction-loaded scheduling record. Inputs and the descriptor are immutable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSnapshot {
+    /// Workflow execution identity, distinct from the existing per-task run ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
+    /// Present only for a registered workflow controller task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_activation_id: Option<String>,
     pub task_id: String,
     pub run_id: String,
     pub idempotency_key: String,
@@ -150,11 +156,31 @@ pub struct Authority {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_activation_id: Option<String>,
     pub descriptor: ProgramDescriptor,
     pub event: CloudEvent,
     pub lease: Lease,
     pub authority: Authority,
     pub attempt_deadline: Timestamp,
+}
+impl Assignment {
+    /// The opt-in runtime marker must agree with the immutable invocation event.
+    pub fn validate_workflow_identity(&self) -> Result<()> {
+        let activation = self
+            .event
+            .value()
+            .get("ldgactivationid")
+            .and_then(serde_json::Value::as_str);
+        if self.workflow_activation_id.as_deref() != activation
+            || activation.is_some_and(|id| id != self.lease.owner.task_id)
+        {
+            return Err(ContractError::InvalidInput(
+                "workflow assignment identity mismatch".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "disposition", rename_all = "snake_case")]
@@ -218,7 +244,7 @@ impl SettleCommand {
         if let AttemptReport::Completed(report) = &command.report
             && let ledgence_worker_api::ProgramOutcome::Success { output } = &report.outcome
         {
-            ledgence_worker_api::validate_wire_value(output)?;
+            validate_task_output(output, report.context.identity.activation_id.is_some())?;
         }
         Ok(command)
     }

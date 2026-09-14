@@ -8,6 +8,7 @@ mod logging;
 mod publication;
 mod recovery;
 mod telemetry;
+mod workflow;
 
 use command::Command;
 use health::Health;
@@ -316,7 +317,8 @@ async fn prepare_and_serve(
     let health = Health::new(config.freshness());
     health.prerequisites_ready();
     let store = Arc::new(store);
-    let service = Arc::new(ApplicationService::new(store.clone(), programs));
+    let service =
+        Arc::new(ApplicationService::new(store.clone(), programs).with_workflows(store.clone()));
     store.set_acquisition_wake(service.acquisition_wake());
     let notifications = if notifications_enabled()? {
         let url = std::env::var("LEDGENCE_POSTGRES_NOTIFICATION_URL")
@@ -349,7 +351,8 @@ async fn prepare_and_serve(
         if *stopped.borrow() {
             return Ok(());
         }
-        let router = ledgence_adapter_http::server::router_with_observability(
+        let router = ledgence_adapter_http::server::router_with_workflows(
+            service.clone(),
             service.clone(),
             health.stopping.clone(),
             trace,
@@ -376,10 +379,19 @@ async fn prepare_and_serve(
                 publication::run(store.clone(), queue, route, probe, health.clone(), stopped)
                     .with_current_subscriber(),
             );
-            PublicationTask { task, stop }
+            BackgroundTask { task, stop }
         });
         #[cfg(not(feature = "sqs"))]
         let publisher = None;
+        health.require_workflows();
+        let (workflow_stop, workflow_stopped) = watch::channel(false);
+        let workflow_task = Some(BackgroundTask {
+            task: tokio::spawn(
+                workflow::run(service.clone(), health.clone(), workflow_stopped)
+                    .with_current_subscriber(),
+            ),
+            stop: workflow_stop,
+        });
         let scanner = tokio::spawn(
             recovery::run(store, health.clone(), recovery_stopped, config)
                 .with_current_subscriber(),
@@ -388,7 +400,11 @@ async fn prepare_and_serve(
         let acquisition_service = service.clone();
         supervise(
             http,
-            BackgroundTasks { scanner, publisher },
+            BackgroundTasks {
+                scanner,
+                publisher,
+                workflow: workflow_task,
+            },
             health,
             stopped,
             http_stop,
@@ -425,14 +441,15 @@ async fn stop_requested(mut stopped: watch::Receiver<bool>) {
     }
 }
 
-struct PublicationTask {
+struct BackgroundTask {
     task: JoinHandle<ledgence_orchestration_api::Result<()>>,
     stop: watch::Sender<bool>,
 }
 
 struct BackgroundTasks {
     scanner: JoinHandle<ledgence_orchestration_api::Result<()>>,
-    publisher: Option<PublicationTask>,
+    publisher: Option<BackgroundTask>,
+    workflow: Option<BackgroundTask>,
 }
 
 async fn supervise(
@@ -447,10 +464,12 @@ async fn supervise(
     let BackgroundTasks {
         mut scanner,
         mut publisher,
+        mut workflow,
     } = background;
     let mut http_finished = false;
     let mut scanner_finished = false;
     let mut publisher_finished = false;
+    let mut workflow_finished = false;
     let mut failure = tokio::select! {
         _ = stop_requested(stopped) => None,
         finished = &mut http => {
@@ -460,6 +479,15 @@ async fn supervise(
         finished = &mut scanner => {
             scanner_finished = true;
             Some(format!("recovery supervisor stopped unexpectedly: {finished:?}"))
+        }
+        finished = async {
+            match &mut workflow {
+                Some(coordinator) => (&mut coordinator.task).await,
+                None => std::future::pending().await,
+            }
+        } => {
+            workflow_finished = true;
+            Some(format!("workflow supervisor stopped unexpectedly: {finished:?}"))
         }
         finished = async {
             match &mut publisher {
@@ -485,6 +513,9 @@ async fn supervise(
     // Recovery continues while already accepted requests drain. Once no HTTP
     // operation remains, stop scanning between bounded batches before DB close.
     let _ = recovery_stop.send(true);
+    if let Some(coordinator) = &workflow {
+        let _ = coordinator.stop.send(true);
+    }
     if let Some(publication) = &publisher {
         let _ = publication.stop.send(true);
     }
@@ -503,6 +534,16 @@ async fn supervise(
             Ok(Ok(())) => {}
             result => {
                 failure.get_or_insert_with(|| format!("publication drain failed: {result:?}"));
+            }
+        }
+    }
+    if let Some(coordinator) = &mut workflow
+        && !workflow_finished
+    {
+        match observe_drain(&mut coordinator.task, "workflow recovery").await {
+            Ok(Ok(())) => {}
+            result => {
+                failure.get_or_insert_with(|| format!("workflow drain failed: {result:?}"));
             }
         }
     }
@@ -580,6 +621,7 @@ mod tests {
         let supervisor = tokio::spawn(supervise(
             http,
             BackgroundTasks {
+                workflow: None,
                 scanner,
                 publisher: None,
             },
@@ -631,6 +673,7 @@ mod tests {
         let result = supervise(
             http,
             BackgroundTasks {
+                workflow: None,
                 scanner,
                 publisher: None,
             },
@@ -687,7 +730,7 @@ mod publication_supervision_tests {
             stop_requested(recovery_stopped).await;
             Ok(())
         });
-        let publisher = Some(PublicationTask {
+        let publisher = Some(BackgroundTask {
             stop: publication_stop,
             task: tokio::spawn(async move {
                 publication_finished.await.unwrap();
@@ -696,7 +739,11 @@ mod publication_supervision_tests {
         });
         let task = tokio::spawn(supervise(
             http,
-            BackgroundTasks { scanner, publisher },
+            BackgroundTasks {
+                scanner,
+                publisher,
+                workflow: None,
+            },
             health,
             stopped,
             http_stop,
@@ -734,7 +781,7 @@ mod publication_supervision_tests {
                 stop_requested(recovery_stopped).await;
                 Ok(())
             });
-            let publisher = Some(PublicationTask {
+            let publisher = Some(BackgroundTask {
                 stop: publication_stop,
                 task: tokio::spawn(async move {
                     assert!(!panic, "controlled publication panic");
@@ -745,7 +792,11 @@ mod publication_supervision_tests {
             });
             let result = supervise(
                 http,
-                BackgroundTasks { scanner, publisher },
+                BackgroundTasks {
+                    scanner,
+                    publisher,
+                    workflow: None,
+                },
                 health,
                 stopped,
                 http_stop,

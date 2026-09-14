@@ -9,6 +9,10 @@ pub struct InvocationIdentity {
     pub tenant_id: String,
     pub namespace: String,
     pub run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation_id: Option<String>,
     pub task_id: String,
     pub attempt_id: String,
     pub attempt_no: u32,
@@ -26,6 +30,16 @@ impl From<&CloudEvent> for InvocationIdentity {
             tenant_id: event.tenant_id().to_owned(),
             namespace: event.namespace().to_owned(),
             run_id: event.string("ldgrunid").to_owned(),
+            workflow_id: event
+                .value()
+                .get("ldgworkflowid")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            activation_id: event
+                .value()
+                .get("ldgactivationid")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
             task_id: event.task_id().to_owned(),
             attempt_id: event.attempt_id().to_owned(),
             attempt_no: event.value()["ldgattemptno"]

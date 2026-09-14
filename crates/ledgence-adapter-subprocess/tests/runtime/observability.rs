@@ -37,6 +37,7 @@ def handle(event):
         let result = session
             .execute(
                 RuntimeInvocation {
+                    extension: None,
                     event: event.clone(),
                     processing_context: (id != "off").then(|| carrier.clone()),
                 },
@@ -250,6 +251,7 @@ def handle(event):
         session
             .execute(
                 RuntimeInvocation {
+                    extension: None,
                     event: event(id),
                     processing_context: Some(carrier),
                 },
@@ -277,4 +279,55 @@ def handle(event):
     assert_eq!(late["fields"]["event_id"], "first");
     assert_eq!(late["fields"]["attempt_id"], "attempt-first");
     assert_eq!(late["fields"]["span_id"], "b".repeat(16));
+}
+
+#[tokio::test]
+async fn v3_program_logs_preserve_workflow_scope_and_clear_it_on_reuse() {
+    let captured = CapturedLogs(Arc::new(std::sync::Mutex::new(Vec::new())));
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .without_time()
+        .with_writer(captured.clone())
+        .finish();
+    let _other_dispatch = tracing::Dispatch::new(tracing_subscriber::registry());
+    let _subscriber = tracing::subscriber::set_default(subscriber);
+    let (_dir, artifact, runtime) = fixture(
+        "from ledgence_worker import get_logger\ndef handle(event):\n    get_logger('workflow').info('workflow scope')\n    return 42\n",
+    );
+    let mut manifest = artifact.manifest().clone();
+    manifest.runtime.protocol = 3;
+    let artifact = PreparedArtifact::new(
+        artifact.root().to_owned(),
+        manifest,
+        artifact.digest().clone(),
+        Arc::new(()),
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let mut scoped = event("workflow").into_value();
+    scoped["ldgworkflowid"] = json!("workflow-1");
+    scoped["ldgactivationid"] = scoped["ldgtaskid"].clone();
+    session
+        .execute(CloudEvent::new(scoped).unwrap().into(), control())
+        .await
+        .unwrap();
+    session
+        .execute(event("plain").into(), control())
+        .await
+        .unwrap();
+    session.close().await.unwrap();
+    let bytes = captured.0.lock().unwrap().clone();
+    let text = String::from_utf8(bytes).unwrap();
+    let logs: Vec<Value> = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|record| {
+            record["target"] == "ledgence::program_log"
+                && record["fields"]["text"] == "workflow scope"
+        })
+        .collect();
+    assert_eq!(logs.len(), 2, "{text}");
+    assert_eq!(logs[0]["fields"]["workflow_id"], "workflow-1");
+    assert_eq!(logs[0]["fields"]["activation_id"], "task-a");
+    assert!(logs[1]["fields"].get("workflow_id").is_none());
+    assert!(logs[1]["fields"].get("activation_id").is_none());
 }

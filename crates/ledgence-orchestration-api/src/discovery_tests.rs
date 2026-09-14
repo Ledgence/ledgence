@@ -12,6 +12,8 @@ fn status(id: &str, at: Timestamp) -> TaskStatus {
         scope: scope(),
         task_id: id.into(),
         run_id: format!("run_{id}"),
+        workflow_id: None,
+        workflow_activation_id: None,
         queue: "invoices".into(),
         correlation_key: Some("INV-1".into()),
         state: TaskState::Queued,

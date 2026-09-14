@@ -30,6 +30,31 @@ impl ConsumerReservation {
         request: ExecutionRequest,
         control: RunControl,
     ) -> ExecutionResult {
+        self.execute_inner(request, control, None).await
+    }
+
+    /// Execute one interactive assignment using this same reserved consumer.
+    pub async fn execute_interactive(
+        &mut self,
+        request: ExecutionRequest,
+        control: RunControl,
+        extension: RuntimeExtension,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> ExecutionResult {
+        self.execute_inner(
+            request,
+            control,
+            Some(InteractiveExecution { extension, handler }),
+        )
+        .await
+    }
+
+    async fn execute_inner(
+        &mut self,
+        request: ExecutionRequest,
+        control: RunControl,
+        interactive: Option<InteractiveExecution>,
+    ) -> ExecutionResult {
         if self.used {
             return Err(logged_failure(
                 Error::new(ErrorKind::InvalidInput, "consumer reservation already used"),
@@ -40,7 +65,7 @@ impl ConsumerReservation {
         }
         self.used = true;
         self.worker
-            .execute_with_reservation(request, control, Some(self.ownership.clone()))
+            .execute_with_reservation(request, control, Some(self.ownership.clone()), interactive)
             .await
     }
 

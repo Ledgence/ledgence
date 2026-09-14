@@ -48,3 +48,7 @@ Transport adapters should use `ledgence_worker_api::decode_json` before construc
 Success and failure reports include `source`, `event_id`, `tenant_id`, `namespace`, `run_id`, `task_id`, `attempt_id`, `attempt_no`, bound `program` and `digest`, and optional `traceparent`/`tracestate`. These are copies of the envelope and binding, not fields injected into `data`. A failure retains its primary error and a separate `cleanup_error` if cleanup also failed.
 
 Program results follow the same numeric range, require string object keys and Unicode scalar strings, and allow at most 64 nested arrays/objects. Unsupported Python results become typed `invalid_output` failures without terminating an otherwise healthy process. See the [Python helper contract](../sdk/python/README.md).
+
+## Workflow identity
+
+Workflow activation and child task events additionally contain `ldgworkflowid`, identifying their workflow execution. Controller events also contain `ldgactivationid`, equal to their stable controller task ID across attempts. Existing `ldgrunid` remains the per-task run identity; workflow support does not reinterpret it. These optional identifiers remain outside application-owned `data` and propagate into execution reports and tracing. Checkpoint state and local journals use the separate [workflow runtime context](workflows.md).

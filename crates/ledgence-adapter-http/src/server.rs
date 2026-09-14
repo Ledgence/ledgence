@@ -1,6 +1,8 @@
 //! Axum composition boundary. Application and persistence remain behind
 //! [`TaskService`]; readiness and database lifecycle belong to the executable.
 
+mod workflow;
+
 use crate::{RESPONSE_MAX_BYTES, wire::*};
 use axum::{
     Router,
@@ -27,6 +29,7 @@ use tracing::Instrument;
 #[derive(Clone)]
 struct Server {
     service: Arc<dyn TaskService>,
+    workflows: Option<Arc<dyn WorkflowService>>,
     stopping: Arc<AtomicBool>,
     blocking: Arc<Semaphore>,
     request_prefix: Arc<str>,
@@ -56,8 +59,28 @@ pub fn router_with_observability(
     stopping: Arc<AtomicBool>,
     trace_bridge: Arc<dyn TraceBridge>,
 ) -> Router {
+    build_router(service, None, stopping, trace_bridge)
+}
+
+/// Add independently supplied workflow operations to the task transport.
+pub fn router_with_workflows(
+    service: Arc<dyn TaskService>,
+    workflows: Arc<dyn WorkflowService>,
+    stopping: Arc<AtomicBool>,
+    trace_bridge: Arc<dyn TraceBridge>,
+) -> Router {
+    build_router(service, Some(workflows), stopping, trace_bridge)
+}
+
+fn build_router(
+    service: Arc<dyn TaskService>,
+    workflows: Option<Arc<dyn WorkflowService>>,
+    stopping: Arc<AtomicBool>,
+    trace_bridge: Arc<dyn TraceBridge>,
+) -> Router {
     let state = Server {
         service,
+        workflows,
         stopping,
         blocking: Arc::new(Semaphore::new(4)),
         request_prefix: format!(
@@ -81,6 +104,12 @@ pub fn router_with_observability(
 }
 
 const ROUTES: &[(&str, &str)] = &[
+    ("/v1/workflows", "POST"),
+    ("/v1/workflows/status", "GET"),
+    ("/v1/workflows/result", "GET"),
+    ("/v1/workflows/cancel", "POST"),
+    ("/v1/workflows/activations/context", "POST"),
+    ("/v1/workflows/local-results", "POST"),
     ("/v1/tasks", "GET, POST"),
     ("/v1/tasks/inspect", "GET"),
     ("/v1/tasks/status", "GET"),
@@ -142,6 +171,8 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         ledgence.tenant.id = tracing::field::Empty,
         ledgence.namespace = tracing::field::Empty,
         ledgence.run.id = tracing::field::Empty,
+        ledgence.workflow.id = tracing::field::Empty,
+        ledgence.activation.id = tracing::field::Empty,
         ledgence.task.id = tracing::field::Empty,
         ledgence.attempt.id = tracing::field::Empty,
         ledgence.attempt.number = tracing::field::Empty,
@@ -436,6 +467,9 @@ async fn dispatch(
                 })
                 .await;
         }
+        if path.starts_with("/v1/workflows/") {
+            return workflow::get(server, path, scope, fields["workflow_id"].clone()).await;
+        }
         let task = &fields["task_id"];
         validate_text(task, 128)?;
         record_scope(&scope);
@@ -556,6 +590,9 @@ async fn dispatch(
             }
         })?
         .to_vec();
+    if path.starts_with("/v1/workflows") {
+        return workflow::post(server, path, bytes, maximum).await;
+    }
     match path {
         "/v1/tasks" => {
             let command = server
@@ -794,6 +831,11 @@ fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
     {
         return Err(invalid("query exceeds supported length"));
     }
+    let identity = if route.starts_with("/v1/workflows/") {
+        "workflow_id"
+    } else {
+        "task_id"
+    };
     let mut fields = BTreeMap::new();
     for pair in raw.split('&') {
         let (name, value) = pair
@@ -801,7 +843,7 @@ fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
             .ok_or_else(|| invalid("malformed query parameter"))?;
         let name = decode_component(name)?;
         let allowed = matches!(name.as_str(), "tenant_id" | "namespace")
-            || (route != "/v1/tasks" && name == "task_id")
+            || (route != "/v1/tasks" && name == identity)
             || (route == "/v1/tasks"
                 && matches!(
                     name.as_str(),
@@ -820,8 +862,8 @@ fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
         }
         fields.insert(name, decode_component(value)?);
     }
-    for required in ["tenant_id", "namespace", "task_id"] {
-        if (required != "task_id" || route != "/v1/tasks") && !fields.contains_key(required) {
+    for required in ["tenant_id", "namespace", identity] {
+        if (required != identity || route != "/v1/tasks") && !fields.contains_key(required) {
             return Err(invalid("missing required query parameter"));
         }
     }
@@ -941,6 +983,8 @@ fn log_binding(
     span.record("ledgence.attempt.id", bounded(event.attempt_id()));
     for (field, key) in [
         ("ledgence.run.id", "ldgrunid"),
+        ("ledgence.workflow.id", "ldgworkflowid"),
+        ("ledgence.activation.id", "ldgactivationid"),
         ("ledgence.tenant.id", "ldgtenantid"),
         ("ledgence.namespace", "ldgnamespace"),
     ] {

@@ -10,6 +10,8 @@ use tempfile::TempDir;
 
 #[path = "runtime/delivery.rs"]
 mod delivery;
+#[path = "runtime/interactive.rs"]
+mod interactive;
 #[path = "runtime/observability.rs"]
 mod observability;
 

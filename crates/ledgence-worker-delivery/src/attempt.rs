@@ -16,6 +16,8 @@ impl Context {
         let owner = &assignment.lease.owner;
         let span = tracing::info_span!("ledgence.attempt.process", otel.kind = "consumer",
             ledgence.tenant.id = %event.tenant_id(), ledgence.namespace = %event.namespace(),
+            ledgence.workflow.id = event.value()["ldgworkflowid"].as_str(),
+            ledgence.activation.id = event.value()["ldgactivationid"].as_str(),
             ledgence.run.id = %event.value()["ldgrunid"].as_str().expect("validated run ID"), ledgence.task.id = %owner.task_id,
             ledgence.attempt.id = %owner.attempt_id, ledgence.attempt.number = i64::from(owner.generation),
             ledgence.worker.session.id = %owner.worker_session_id, ledgence.consumer.id = i64::from(owner.consumer_id),
@@ -53,6 +55,7 @@ impl Context {
             descriptor: assignment.descriptor.clone(),
             event: assignment.event.clone(),
         };
+        let workflow_activation_id = assignment.workflow_activation_id.clone();
         let monitor = Arc::new(Monitor::new(&assignment));
         let _monitor_guard = MonitorGuard(monitor.clone());
         let ongoing = monitor.clone();
@@ -63,9 +66,40 @@ impl Context {
                 .with_current_subscriber(),
         );
         let report = if let Some(control) = monitor.dispatch(&self.shared).await {
-            match reservation.execute(request.clone(), control).await {
-                Ok(report) => AttemptReport::Completed(report),
-                Err(failure) => AttemptReport::Failed(failure),
+            if let Some(activation_id) = workflow_activation_id {
+                if activation_id != monitor.owner().task_id {
+                    failure(
+                        &request,
+                        ErrorKind::Protocol,
+                        "workflow assignment identity mismatch",
+                        false,
+                    )
+                } else {
+                    match self
+                        .workflow_runtime(
+                            monitor.owner(),
+                            request.event.value()["ldgworkflowid"]
+                                .as_str()
+                                .expect("validated workflow assignment"),
+                            &control,
+                        )
+                        .await
+                    {
+                        Ok((extension, handler)) => match reservation
+                            .execute_interactive(request.clone(), control, extension, handler)
+                            .await
+                        {
+                            Ok(report) => AttemptReport::Completed(report),
+                            Err(failure) => AttemptReport::Failed(failure),
+                        },
+                        Err(error) => failure(&request, error.kind, &error.message, false),
+                    }
+                }
+            } else {
+                match reservation.execute(request.clone(), control).await {
+                    Ok(report) => AttemptReport::Completed(report),
+                    Err(failure) => AttemptReport::Failed(failure),
+                }
             }
         } else {
             failure(
@@ -221,6 +255,9 @@ pub(super) fn validate_assignment(command: &AcquireCommand, assignment: &Assignm
     {
         return Err(protocol("assignment does not match acquisition identity"));
     }
+    assignment
+        .validate_workflow_identity()
+        .map_err(|_| protocol("workflow assignment does not match event identity"))?;
     assignment.descriptor.validate()?;
     for key in ["id", "ldgrunid", "ldgtaskid", "ldgattemptid"] {
         validate_text(event.value()[key].as_str().unwrap_or_default(), 128)?;
@@ -260,7 +297,7 @@ fn failure(
 fn valid_settlement(command: &SettleCommand) -> bool {
     if let AttemptReport::Completed(report) = &command.report
         && let ledgence_worker_api::ProgramOutcome::Success { output } = &report.outcome
-        && ledgence_worker_api::validate_wire_value(output).is_err()
+        && validate_task_output(output, report.context.identity.activation_id.is_some()).is_err()
     {
         return false;
     }

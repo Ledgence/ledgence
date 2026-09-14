@@ -97,3 +97,19 @@ The driver has no local durable journal. An operating-system process crash loses
 An expired or unknown session stops the current driver and drains owned work. It does not automatically create a replacement session or transplant old cursors. Lease expiry cannot establish that arbitrary external effects did not happen, and a recovered task may run another attempt.
 
 Ordinary driver tests use controlled service/runtime adapters for capacity, retries, lease deadlines, and retained shutdown. The [PostgreSQL gate](postgres.md#verification) also runs real Python programs through publication, submission, dynamic download, warm reuse, and durable inspection. It injects lost replies after committed acquisition, dispatch, and settlement and verifies restart with persisted bindings/cache. Those tests validate an in-process service composition. The [HTTP acceptance gate](http-orchestration.md#verification) separately exercises actual server/worker/CLI processes and a fault proxy. The gate also exercises pending rollback, cross-replica completion hints, lost Empty replies, notification failure fallback, and accepted-wait shutdown.
+
+
+## Workflow activations
+
+An assignment may carry a workflow activation marker matching its immutable
+CloudEvent. After normal dispatch authorization, the worker fetches the activation
+context and uses protocol 3 interactive execution through the same consumer and
+subprocess reservation. Local-result RPCs use the host's acquired lease owner;
+user data cannot choose that authority. Lost acknowledgments retry the identical
+record while authority remains live. A returned controller decision uses the
+existing settlement and cleanup path.
+
+Standalone tasks do not fetch a workflow context or use local-result RPCs.
+Suspension ends the controller invocation; normal process-pool reuse remains
+available. Distributed children have their own ordinary task leases and may use
+protocol 1 or 2 packages. See [workflows](workflows.md).

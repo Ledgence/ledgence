@@ -314,6 +314,8 @@ fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
     let mut value = event();
     value["traceparent"] = trace().into();
     value["tracestate"] = "vendor=state".into();
+    value["ldgworkflowid"] = "workflow-1".into();
+    value["ldgactivationid"] = "task-1".into();
     value["data"] = json!({"source": "do not read this", "ldgrunid": "wrong"});
     let identity = InvocationIdentity::from(&CloudEvent::new(value).unwrap());
     let serialized = serde_json::to_value(&identity).unwrap();
@@ -321,6 +323,8 @@ fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
     assert_eq!(serialized["tenant_id"], "tenant-1");
     assert_eq!(serialized["namespace"], "default");
     assert_eq!(serialized["run_id"], "run-1");
+    assert_eq!(serialized["workflow_id"], "workflow-1");
+    assert_eq!(serialized["activation_id"], "task-1");
     assert_eq!(serialized["event_id"], "invocation-1");
     assert_eq!(serialized["task_id"], "task-1");
     assert_eq!(serialized["attempt_id"], "attempt-1");
@@ -332,6 +336,8 @@ fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
         serde_json::to_value(InvocationIdentity::from(&CloudEvent::new(event()).unwrap())).unwrap();
     assert!(untraced.get("traceparent").is_none());
     assert!(untraced.get("tracestate").is_none());
+    assert!(untraced.get("workflow_id").is_none());
+    assert!(untraced.get("activation_id").is_none());
 }
 
 #[test]
@@ -358,4 +364,106 @@ fn wire_result_depth_accepts_the_boundary_and_rejects_the_next_container() {
     ] {
         validate_wire_value(&value).unwrap();
     }
+}
+
+#[test]
+fn runtime_extension_is_additive_and_does_not_change_user_data() {
+    use ledgence_worker_api::{RuntimeExtension, RuntimeInvocation, RuntimeRequest};
+    let original = event();
+    let mut invocation: RuntimeInvocation =
+        serde_json::from_value(json!({"event": original, "processing_context": null})).unwrap();
+    assert!(invocation.extension.is_none());
+    let extension = RuntimeExtension {
+        schema: "test.activation.v1".into(),
+        payload: json!({"checkpoint": 1}),
+    };
+    extension.validate().unwrap();
+    invocation.extension = Some(extension.clone());
+    assert_eq!(invocation.event.value(), &original);
+    let restored: RuntimeInvocation =
+        serde_json::from_value(serde_json::to_value(invocation).unwrap()).unwrap();
+    assert_eq!(restored.extension, Some(extension));
+    assert_eq!(restored.event.value(), &original);
+    assert!(
+        RuntimeRequest {
+            id: 0,
+            operation: "test.commit".into(),
+            payload: Value::Null
+        }
+        .validate()
+        .is_err()
+    );
+    assert!(
+        RuntimeExtension {
+            schema: "invalid\nschema".into(),
+            payload: Value::Null
+        }
+        .validate()
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<RuntimeRequest>(
+            json!({"id": 1, "operation": "test.commit", "payload": {}, "authority": "forged"})
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn interactive_envelopes_preserve_full_application_depth_and_bound_encoded_bytes() {
+    use ledgence_worker_api::{
+        MAX_RUNTIME_VALUE_DEPTH, RUNTIME_EXTENSION_MAX_BYTES, RuntimeExtension,
+        validate_runtime_payload, validate_wire_value,
+    };
+    let mut application = json!(0);
+    for _ in 0..64 {
+        application = json!([application]);
+    }
+    validate_wire_value(&application).unwrap();
+    let envelope = json!({"local_steps": [{"output": application}]});
+    assert!(validate_wire_value(&envelope).is_err());
+    RuntimeExtension {
+        schema: "test.activation.v1".into(),
+        payload: envelope,
+    }
+    .validate()
+    .unwrap();
+    let mut nested = json!(0);
+    for _ in 0..MAX_RUNTIME_VALUE_DEPTH {
+        nested = json!([nested]);
+    }
+    validate_runtime_payload(&nested, RUNTIME_EXTENSION_MAX_BYTES).unwrap();
+    assert!(validate_runtime_payload(&json!([nested]), RUNTIME_EXTENSION_MAX_BYTES).is_err());
+    validate_runtime_payload(&json!("1234"), 6).unwrap();
+    assert!(validate_runtime_payload(&json!("1234"), 5).is_err());
+    assert!(validate_runtime_payload(&json!("\u{0000}"), 7).is_err());
+    assert!(
+        RuntimeExtension {
+            schema: "test.activation.v1".into(),
+            payload: Value::String("x".repeat(RUNTIME_EXTENSION_MAX_BYTES))
+        }
+        .validate()
+        .is_err()
+    );
+}
+
+#[test]
+fn workflow_context_ids_are_optional_but_have_consistent_identity_when_present() {
+    let mut value = event();
+    value["ldgworkflowid"] = json!("workflow-1");
+    CloudEvent::new(value.clone()).unwrap();
+    value["ldgactivationid"] = value["ldgtaskid"].clone();
+    CloudEvent::new(value.clone()).unwrap();
+    for key in ["ldgworkflowid", "ldgactivationid"] {
+        for invalid in [json!(true), json!(1), json!(""), json!("x".repeat(129))] {
+            let mut bad = value.clone();
+            bad[key] = invalid;
+            assert!(CloudEvent::new(bad).is_err(), "{key}");
+        }
+    }
+    let mut bad = value.clone();
+    bad["ldgactivationid"] = json!("other-task");
+    assert!(CloudEvent::new(bad).is_err());
+    value.as_object_mut().unwrap().remove("ldgworkflowid");
+    assert!(CloudEvent::new(value).is_err());
 }

@@ -1,7 +1,7 @@
 //! Compact, coherent observations of logical tasks, independent of worker reports.
 
 use crate::*;
-use ledgence_worker_api::{Error, Phase, validate_wire_value};
+use ledgence_worker_api::{Error, Phase};
 use serde::Deserializer;
 use serde_json::Value;
 
@@ -15,6 +15,10 @@ pub struct TaskStatus {
     pub scope: Scope,
     pub task_id: String,
     pub run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_activation_id: Option<String>,
     pub queue: String,
     #[serde(deserialize_with = "required_option")]
     pub correlation_key: Option<String>,
@@ -40,6 +44,17 @@ impl TaskStatus {
         self.scope.validate().map_err(|_| invalid())?;
         for value in [&self.task_id, &self.run_id, &self.queue] {
             validate_text(value, 128).map_err(|_| invalid())?;
+        }
+        for value in [&self.workflow_id, &self.workflow_activation_id]
+            .into_iter()
+            .flatten()
+        {
+            validate_text(value, 128).map_err(|_| invalid())?;
+        }
+        if let Some(activation) = &self.workflow_activation_id
+            && (self.workflow_id.is_none() || activation != &self.task_id)
+        {
+            return Err(invalid());
         }
         if let Some(value) = &self.correlation_key
             && (value.len() > 512 || value.chars().any(char::is_control))
@@ -159,7 +174,8 @@ impl TaskResult {
                 {
                     return Err(invalid());
                 }
-                validate_wire_value(output).map_err(|_| invalid())
+                validate_task_output(output, self.task.workflow_activation_id.is_some())
+                    .map_err(|_| invalid())
             }
             (
                 Some(TaskOutcome::Failed {
@@ -192,7 +208,9 @@ impl TaskResult {
     }
 }
 
-fn required_option<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+pub(crate) fn required_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -204,7 +222,7 @@ fn observation_error(message: &str) -> ContractError {
     ContractError::Unavailable(message.into())
 }
 
-fn required_value<'de, D: Deserializer<'de>>(
+pub(crate) fn required_value<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<Value, D::Error> {
     Value::deserialize(deserializer)

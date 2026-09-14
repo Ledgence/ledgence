@@ -168,3 +168,15 @@ The reviewed local-service fixture is `softwaremill/elasticmq-native:1.7.1@sha25
 Run protocol/bounds tests with `cargo test --locked -p ledgence-adapter-sqs`. The ignored `elasticmq_acceptance` test requires an explicit `LEDGENCE_TEST_SQS_ENDPOINT` for an owned loopback service and creates/deletes its own temporary queue. It validates real batch publication, receive, receipt deletion, strict dispatch decoding and long polling. Passing local ElasticMQ tests is not evidence of real AWS SQS acceptance. The full unchanged `cargo deny --locked check` remains required after integration.
 
 Sources: [pinned SQS crate](https://docs.rs/crate/aws-sdk-sqs/1.109.0), [pinned configuration crate](https://docs.rs/crate/aws-config/1.12.0), [Smithy response collection](https://docs.rs/crate/aws-smithy-runtime/1.14.0/source/src/client/orchestrator/http.rs), [ElasticMQ release](https://github.com/softwaremill/elasticmq/releases/tag/v1.7.1), [SIMD source license](https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE).
+
+
+## Workflow milestone dependency update
+
+Workflow support reuses the existing Rust and standard-library Python dependency
+sets. The lockfile updates the existing Rustls dependency from `0.23.44` to
+`0.23.45` to pass the unchanged dependency gate after the upstream patch release.
+No feature selection, vendor coupling, license allowance, or advisory exception
+changes. Rustls offers Apache-2.0, ISC, or MIT; Ledgence retains its MIT alternative
+in [the versioned notice](../legal/third-party/rustls-0.23.45-LICENSE-MIT).
+The published archive checksum is recorded in `Cargo.lock`.
+[Upstream release](https://github.com/rustls/rustls/releases/tag/v/0.23.45).

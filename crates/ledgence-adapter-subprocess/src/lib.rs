@@ -5,8 +5,9 @@
 
 use ledgence_worker_api::{
     DEFAULT_RUNTIME_FRAME_MAX_BYTES, Error, ErrorKind, ExecutionRuntime, ExecutionSession,
-    PortFuture, PreparedArtifact, ProgramOutcome, Result, RunControl, RuntimeInvocation,
-    StartOutcome, validate_wire_value,
+    PortFuture, PreparedArtifact, ProgramOutcome, RUNTIME_REQUEST_MAX_BYTES, Result, RunControl,
+    RuntimeInvocation, RuntimeRequest, RuntimeRequestHandler, StartOutcome,
+    validate_runtime_payload, validate_wire_value,
 };
 mod logs;
 
@@ -162,8 +163,10 @@ impl ExecutionRuntime for SubprocessRuntime {
                 .stderr(Stdio::piped())
                 .kill_on_drop(true);
             // Keep v1 launches compatible with old helpers that do not know this flag.
-            if artifact.manifest().runtime.protocol == 2 {
-                command.arg("--protocol-version").arg("2");
+            if artifact.manifest().runtime.protocol >= 2 {
+                command
+                    .arg("--protocol-version")
+                    .arg(artifact.manifest().runtime.protocol.to_string());
             }
             #[cfg(unix)]
             command.process_group(0);
@@ -260,6 +263,7 @@ enum SessionCommand {
     Invoke {
         invocation: RuntimeInvocation,
         control: RunControl,
+        handler: Option<Arc<dyn RuntimeRequestHandler>>,
         reply: oneshot::Sender<Result<ProgramOutcome>>,
     },
     Close,
@@ -274,20 +278,15 @@ impl ExecutionSession for Session {
         invocation: RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome> {
-        Box::pin(async move {
-            control.check()?;
-            let sender = self.commands.as_ref().ok_or_else(retired)?;
-            let (reply, response) = oneshot::channel();
-            sender
-                .send(SessionCommand::Invoke {
-                    invocation,
-                    control,
-                    reply,
-                })
-                .await
-                .map_err(|_| retired())?;
-            response.await.map_err(|_| retired())?
-        })
+        self.dispatch(invocation, control, None)
+    }
+    fn execute_with_requests<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        self.dispatch(invocation, control, Some(handler))
     }
     fn close(&mut self) -> PortFuture<'_, ()> {
         Box::pin(async move {
@@ -317,6 +316,31 @@ impl ExecutionSession for Session {
             };
             self.cleanup = Some(result.clone());
             result
+        })
+    }
+}
+
+impl Session {
+    fn dispatch<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        handler: Option<Arc<dyn RuntimeRequestHandler>>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async move {
+            control.check()?;
+            let sender = self.commands.as_ref().ok_or_else(retired)?;
+            let (reply, response) = oneshot::channel();
+            sender
+                .send(SessionCommand::Invoke {
+                    invocation,
+                    control,
+                    handler,
+                    reply,
+                })
+                .await
+                .map_err(|_| retired())?;
+            response.await.map_err(|_| retired())?
         })
     }
 }
@@ -428,6 +452,7 @@ async fn supervise(
             Some(SessionCommand::Invoke {
                 invocation,
                 control,
+                handler,
                 mut reply,
             }) => {
                 budget.store(config.max_log_bytes, Ordering::Release);
@@ -439,6 +464,10 @@ async fn supervise(
                         version,
                         &mut logs,
                         config.max_frame_bytes,
+                        RequestDispatch {
+                            handler: handler.as_deref(),
+                            control: &control,
+                        },
                     ),
                     &control,
                     &mut reply,
@@ -535,6 +564,24 @@ struct Ready {
     python_version: String,
 }
 
+struct RequestDispatch<'a> {
+    handler: Option<&'a dyn RuntimeRequestHandler>,
+    control: &'a RunControl,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestFrame {
+    v: u32,
+    #[serde(rename = "type")]
+    kind: String,
+    event_id: String,
+    attempt_id: String,
+    id: u64,
+    operation: String,
+    payload: Value,
+}
+
 async fn invoke(
     stdin: &mut ChildStdin,
     frames: &mut FrameReader,
@@ -542,18 +589,91 @@ async fn invoke(
     version: u32,
     logs: &mut LogForwarder,
     limit: usize,
+    dispatch: RequestDispatch<'_>,
 ) -> Result<ProgramOutcome> {
+    if (dispatch.handler.is_some() || invocation.extension.is_some()) && version != 3 {
+        return Err(Error::new(
+            ErrorKind::Incompatible,
+            "interactive execution requires runtime protocol 3",
+        ));
+    }
+    if invocation.extension.is_some() && dispatch.handler.is_none() {
+        return Err(Error::new(
+            ErrorKind::Incompatible,
+            "runtime extension requires interactive execution",
+        ));
+    }
+    if let Some(extension) = &invocation.extension {
+        extension.validate()?;
+    }
     let event = &invocation.event;
     let mut request = json!({"v": version, "type": "invoke", "event_id": event.id(), "attempt_id": event.attempt_id(), "event": event.value()});
-    if version == 2 {
+    if version >= 2 {
         if let Some(context) = &invocation.processing_context {
             context.validate()?;
         }
         request["processing_context"] = serde_json::to_value(&invocation.processing_context)
             .map_err(|error| protocol(format!("cannot encode processing context: {error}")))?;
     }
+    if let Some(extension) = &invocation.extension {
+        request["extension"] = serde_json::to_value(extension)
+            .map_err(|error| protocol(format!("cannot encode runtime extension: {error}")))?;
+    }
     write_frame(stdin, &request, limit).await?;
-    let response = next_control(frames, version, logs).await?;
+    let mut expected_id = 1_u64;
+    let response = loop {
+        let response = next_control(frames, version, logs).await?;
+        if response.get("type").and_then(Value::as_str) != Some("runtime_request") {
+            break response;
+        }
+        let handler = dispatch
+            .handler
+            .filter(|_| version == 3)
+            .ok_or_else(|| protocol("runtime request outside interactive execution"))?;
+        let frame: RequestFrame = serde_json::from_value(response)
+            .map_err(|error| protocol(format!("invalid runtime request: {error}")))?;
+        if frame.v != version
+            || frame.kind != "runtime_request"
+            || frame.event_id != event.id()
+            || frame.attempt_id != event.attempt_id()
+            || frame.id != expected_id
+        {
+            return Err(protocol(
+                "runtime request protocol, invocation identity, or sequence mismatch",
+            ));
+        }
+        let request = RuntimeRequest {
+            id: frame.id,
+            operation: frame.operation,
+            payload: frame.payload,
+        };
+        request
+            .validate()
+            .map_err(|error| protocol(format!("invalid runtime request: {error}")))?;
+        dispatch.control.check()?;
+        // Exactly one decoded request and callback are held at a time. The
+        // surrounding guard cancels this await and retires the process on a
+        // deadline or lost caller; no late acknowledgement reaches warm reuse.
+        let reply = handler.handle(request, dispatch.control.clone()).await?;
+        dispatch.control.check()?;
+        if reply.id != expected_id {
+            return Err(protocol("runtime reply ID does not match its request"));
+        }
+        validate_runtime_payload(&reply.result, RUNTIME_REQUEST_MAX_BYTES)
+            .map_err(|error| protocol(format!("invalid runtime reply: {error}")))?;
+        write_frame(
+            stdin,
+            &json!({ "v": version, "type": "runtime_reply",
+            "event_id": event.id(), "attempt_id": event.attempt_id(),
+            "id": reply.id, "result": reply.result }),
+            limit,
+        )
+        .await?;
+        expected_id = expected_id
+            .checked_add(1)
+            .ok_or_else(|| protocol("runtime request sequence exhausted"))?;
+        tokio::task::yield_now().await;
+    };
     if response.get("v").and_then(Value::as_u64) != Some(u64::from(version))
         || response.get("type").and_then(Value::as_str) != Some("result")
         || response.get("event_id").and_then(Value::as_str) != Some(event.id())
@@ -567,8 +687,12 @@ async fn invoke(
                 .get("output")
                 .cloned()
                 .ok_or_else(|| protocol("success result lacks output"))?;
-            validate_wire_value(&output)
-                .map_err(|error| protocol(format!("invalid program output: {error}")))?;
+            if dispatch.handler.is_some() {
+                validate_runtime_payload(&output, limit)?;
+            } else {
+                validate_wire_value(&output)
+                    .map_err(|error| protocol(format!("invalid program output: {error}")))?;
+            }
             Ok(ProgramOutcome::Success { output })
         }
         Some("error") => {
@@ -588,6 +712,21 @@ async fn invoke(
                 kind: kind.to_owned(),
                 message: message.to_owned(),
             })
+        }
+        Some("runtime_error") if version == 3 && dispatch.handler.is_some() => {
+            let error = response
+                .get("error")
+                .ok_or_else(|| protocol("runtime error result lacks error"))?;
+            let kind = error
+                .get("kind")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| protocol("runtime error result lacks kind"))?;
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .ok_or_else(|| protocol("runtime error result lacks message"))?;
+            Err(Error::new(ErrorKind::Runtime, format!("{kind}: {message}")))
         }
         _ => Err(protocol("unknown program result status")),
     }

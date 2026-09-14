@@ -78,3 +78,9 @@ The packaging and handler lifecycle use the same broad separation as AWS Lambda:
 Explicit child ownership and reaping follow Tokio's process semantics: a dropped handle does not itself establish confirmed cleanup. [Tokio Child documentation](https://docs.rs/tokio/latest/tokio/process/struct.Child.html).
 
 Blocking operations cannot be cancelled by dropping their async waiter; the retained preparation design follows [Tokio blocking-task semantics](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html). Persistent signal subscriptions follow [Tokio Unix signal semantics](https://docs.rs/tokio/latest/tokio/signal/unix/fn.signal.html).
+
+## Workflow coordination
+
+The orchestration API adds optional `WorkflowStore` and `WorkflowService` ports. The application service resolves program descriptors outside transactions and applies bounded durable completion work through the store. The PostgreSQL adapter owns atomic workflow checkpoint, child registration, wait, and scheduling obligations. The subprocess adapter understands a generic versioned runtime extension/request protocol; it has no dependency on orchestration or a database SDK. Worker delivery binds its callback to the acquired activation lease.
+
+Interactive activations use the existing consumer reservation and process pool. Their completed local results are acknowledged durably during execution, and a distributed wait releases the invocation. See [workflow contracts, recovery and limits](workflows.md).

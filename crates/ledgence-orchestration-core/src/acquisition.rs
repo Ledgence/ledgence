@@ -150,6 +150,12 @@ pub fn acquire(
         "time":timestamp(now)?, "datacontenttype":"application/json",
         "ldgtenantid":task.input.tenant_id,"ldgnamespace":task.input.namespace,"ldgrunid":task.run_id,
         "ldgtaskid":task.task_id,"ldgattemptid":ids.attempt_id,"ldgattemptno":number,"data":task.input.data});
+    if let Some(id) = &task.workflow_id {
+        event["ldgworkflowid"] = Value::String(id.clone());
+    }
+    if let Some(id) = &task.workflow_activation_id {
+        event["ldgactivationid"] = Value::String(id.clone());
+    }
     if let Some(trace) = &ids.trace {
         insert_trace(&mut event, trace);
     }
@@ -214,6 +220,7 @@ fn assigned(
     AcquireReply::Assigned {
         sequence,
         assignment: Box::new(Assignment {
+            workflow_activation_id: task.workflow_activation_id.clone(),
             descriptor: attempt.descriptor.clone(),
             event: attempt.event.clone(),
             lease: attempt.lease.clone(),

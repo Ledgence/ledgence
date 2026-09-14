@@ -128,3 +128,44 @@ The census reads the same PostgreSQL database every few seconds and scans measur
 For a useful comparison, preserve the same release build settings, hardware, PostgreSQL durability/configuration, worker N, program/package, payload, rate/burst profile, census interval, and telemetry settings. Repeat runs and retain unfavorable results. Compare both acceptance and completion rates, latency tails, backlog, resource use, WAL and storage growth. For a local SQS-compatible comparison, include broker request counts, batching, and latency, and identify the ElasticMQ version and deployment. Qualifying AWS capacity or behavior requires a separate experiment against AWS SQS.
 
 Long-duration qualification remains a separate exercise: representative application runtimes and payloads, sustained peaks, retries and recovery, realistic retained history, storage growth, and resource headroom. The first product target is five million executions/day with representative bursts, not a claim already established by this tool.
+
+
+## Workflow placement measurements
+
+`tools/check-workflows.py` exercises checkpoint recovery and compares concurrent
+local I/O with explicitly distributed tasks on a disposable PostgreSQL database:
+
+```sh
+python tools/check-workflows.py --self-test
+python tools/check-workflows.py --binaries target/debug --psql /path/to/psql \
+  --evidence /absolute/path/to/new-workflow-evidence-directory
+python tools/check-workflows.py --endpoint http://127.0.0.1:9324 \
+  --binaries target/debug --psql /path/to/psql \
+  --evidence /absolute/path/to/new-workflow-elasticmq-evidence-directory
+```
+
+Provide `LEDGENCE_POSTGRES_URL`, a supported `LEDGENCE_PYTHON`, and the Python
+client's dependencies. Supplied binaries must include the SQS feature for the
+ElasticMQ mode. The harness imports the client from the checkout; the separate
+installed-client gate verifies wheel packaging. It creates and drops a unique
+database and, in ElasticMQ mode, a unique local queue. It restarts only its owned
+orchestrator/worker processes, without restarting PostgreSQL. Evidence remains
+outside the repository.
+
+Use `--scenario placement --placement-iterations 10` for ten paired samples.
+The fixture performs 100 loopback HTTP reads with a 30 ms server delay and a
+17-byte response, using worker concurrency 1. Local mode overlaps those reads
+inside one activation and commits 100 local records; distributed mode creates
+100 separate task executions in batches of 50. It deliberately compares
+placement choices with different execution parallelism, not equal-concurrency
+queue throughput. Alternating order reduces simple warmup/order bias.
+
+Evidence records client elapsed time, durable submission-to-terminal elapsed
+time, task/attempt/activation/local-record/history counts, payload size, and
+server-wide WAL deltas. Client elapsed time includes one-second result polling.
+WAL deltas may include maintenance and other databases, so they are not isolated
+per-workflow write costs. Build mode, machine, database configuration, competing
+load, and warm-process replacement affect these results. These bounded paired
+measurements do not establish sustained throughput, tail latency, or billion-
+execution scale. Use the arrival-based task harness and representative long runs
+for separate capacity qualification.

@@ -13,6 +13,9 @@ RESPONSE_LIMIT = 16 * 1024 * 1024
 STATUS_LIMIT = 16 * 1024
 TASK_PAGE_LIMIT = 2 * 1024 * 1024
 MAX_DEPTH = 64
+# Registered controller results allow 96 metadata containers plus HTTP wrappers.
+# Endpoint parsers still enforce each application value's independent depth64.
+MAX_RESPONSE_DEPTH = 108
 # Milliseconds through the last instant with a four-digit RFC3339 year.
 MAX_TIMESTAMP = 253402300799999
 
@@ -155,7 +158,7 @@ def decode(raw: bytes, limit: int = RESPONSE_LIMIT):
     try:
         value = json.loads(raw.decode("utf-8", errors="strict"), object_pairs_hook=_pairs,
                            parse_int=_int, parse_float=_float, parse_constant=_constant)
-        validate(value, limit, max_depth=MAX_DEPTH + 12)
+        validate(value, limit, max_depth=MAX_RESPONSE_DEPTH)
         return value
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise ProtocolError("response is not valid Ledgence JSON") from exc

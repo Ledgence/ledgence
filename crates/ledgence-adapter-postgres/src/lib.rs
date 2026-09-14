@@ -13,6 +13,7 @@ mod notifications;
 mod persistence;
 mod storage;
 mod transaction;
+mod workflow;
 
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};

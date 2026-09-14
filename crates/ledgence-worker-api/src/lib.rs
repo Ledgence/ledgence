@@ -8,7 +8,7 @@ pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;
 pub use execution::{
     ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult, Phase,
-    RuntimeInvocation,
+    RuntimeExtension, RuntimeInvocation, RuntimeReply, RuntimeRequest,
 };
 mod invocation;
 mod json;
@@ -16,8 +16,9 @@ pub use json::decode_json;
 mod wire;
 pub use invocation::InvocationIdentity;
 pub use wire::{
-    APPLICATION_INPUT_MAX_BYTES, DEFAULT_RUNTIME_FRAME_MAX_BYTES, MAX_WIRE_VALUE_DEPTH,
-    validate_wire_value,
+    APPLICATION_INPUT_MAX_BYTES, DEFAULT_RUNTIME_FRAME_MAX_BYTES, MAX_RUNTIME_VALUE_DEPTH,
+    MAX_WIRE_VALUE_DEPTH, RUNTIME_EXTENSION_MAX_BYTES, RUNTIME_REQUEST_MAX_BYTES,
+    validate_runtime_payload, validate_wire_value,
 };
 
 use iri_string::types::{UriAbsoluteStr, UriReferenceStr};
@@ -179,7 +180,7 @@ impl ProgramManifest {
         self.program.validate()?;
         if self.schema_version != 1
             || self.runtime.kind != "python"
-            || !matches!(self.runtime.protocol, 1 | 2)
+            || !matches!(self.runtime.protocol, 1..=3)
         {
             return Err(Error::new(
                 ErrorKind::Incompatible,
@@ -324,6 +325,25 @@ impl CloudEvent {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "ldgattemptno must be a positive signed 32-bit integer",
+            ));
+        }
+        for key in ["ldgworkflowid", "ldgactivationid"] {
+            if let Some(id) = context_string(object, key)?
+                && (id.is_empty() || id.len() > 128)
+            {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("{key} must contain 1..=128 bytes"),
+                ));
+            }
+        }
+        if let Some(activation) = context_string(object, "ldgactivationid")?
+            && (!object.contains_key("ldgworkflowid")
+                || Some(activation) != object.get("ldgtaskid").and_then(Value::as_str))
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "workflow activation requires its workflow ID and matching task ID",
             ));
         }
         let source = context_string(object, "source")?.expect("required source checked");
@@ -684,6 +704,18 @@ pub trait ExecutionRuntime: Send + Sync {
         control: RunControl,
     ) -> PortFuture<'a, StartOutcome>;
 }
+/// Invocation-scoped callback. Implementations bind authority outside the child payload.
+/// Dropping this future may leave a remote write uncertain; handlers must fence
+/// stale attempts and make repeated operations idempotent. A successful reply
+/// must acknowledge the requested operation before execution may continue.
+pub trait RuntimeRequestHandler: Send + Sync {
+    fn handle<'a>(
+        &'a self,
+        request: RuntimeRequest,
+        control: RunControl,
+    ) -> PortFuture<'a, RuntimeReply>;
+}
+
 pub trait ExecutionSession: Send {
     fn pid(&self) -> u32;
     /// Runtime/protocol errors require retiring the session; business Failure may be reused.
@@ -694,6 +726,23 @@ pub trait ExecutionSession: Send {
         invocation: RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome>;
+    /// Opt-in execution with intermediate request/reply exchanges. Unsupported
+    /// runtimes reject this explicitly without executing the program. The same
+    /// process ownership and cleanup obligations as `execute` apply; callback
+    /// failure, cancellation, or an uncertain exchange must retire the session.
+    fn execute_with_requests<'a>(
+        &'a mut self,
+        _invocation: RuntimeInvocation,
+        _control: RunControl,
+        _handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async {
+            Err(Error::new(
+                ErrorKind::Incompatible,
+                "runtime does not support interactive execution",
+            ))
+        })
+    }
     /// Resolves successfully only once the process group is stopped and child reaped.
     /// Calls must be retryable after cancellation or failure, retaining confirmed
     /// cleanup progress and the artifact pin until cleanup is complete.

@@ -28,8 +28,8 @@ asyncio.run(main())
 ```
 
 The caller owns its event loop. Keep one client open across calls and use it on
-that loop. Programs remain ordinary synchronous Python handlers receiving the
-complete CloudEvent, executed by the Rust worker. The client neither uploads
+that loop. Programs receive the complete CloudEvent and execute in the Rust worker.
+Protocol v3 programs can use synchronous or asynchronous Python handlers. The client neither uploads
 packages nor imports handlers. It is separate from the dependency-free
 `ledgence_worker` runtime helper and does not package that helper or CPython.
 
@@ -58,6 +58,43 @@ physical cleanup. Check `result.outcome.quiescence` when cleanup evidence matter
 `result()` returns a succeeded task's output even when quiescence is unconfirmed.
 Cancellation outcomes have no deciding attempt or output. The status's
 `latest_attempt_id` is only a diagnostic reference to earlier work.
+
+## Workflow references and observations
+
+A workflow starts a published controller program that returns explicit checkpoint
+decisions. Use the same submission arguments with `client.workflows`:
+
+```python
+workflow = await client.workflows.submit(
+    program="checkpoint-workflow", version="1.0.0", queue="billing",
+    data={"invoice_id": "INV-1042"}, idempotency_key="workflow:INV-1042",
+    correlation_key="INV-1042",
+)
+print(workflow.id)
+output = await workflow.result(timeout=60)
+```
+
+Save the workflow ID and reconnect with `client.workflows.handle(workflow_id)`.
+`status()` returns `WorkflowStatus`; `outcome()` returns `WorkflowResult` with
+`.outcome=None` while work is pending. `wait()` returns the terminal result;
+`result()` returns successful JSON or raises `WorkflowFailed` / `WorkflowCancelled`.
+`cancel()` returns the acknowledged `WorkflowStatus`, which can be `cancelling`
+while active work drains. Failure and cancellation remain nonterminal in the
+`failing` and `cancelling` states.
+
+`WorkflowWaitTimeout` is also a `WaitTimeout`. It retains `.workflow`, `.last_status`
+and `.last_error`; observation timeout never cancels or resubmits the workflow.
+Observe the saved handle again to continue waiting. There is no persistent client
+subscription or webhook registration API in this slice.
+
+For an uncertain submission, `SubmissionUncertain.submission` retains a frozen
+`WorkflowSubmission` from `client.workflows.prepare(...)`. Resend that command
+explicitly to the workflow endpoint with the same idempotency key. Task and workflow
+commands are distinct types to prevent accidentally replaying one as the other.
+`WorkflowCancellationUncertain` similarly retains the workflow for reconciliation.
+
+Controller authoring and durability semantics are described in
+[`docs/workflows.md`](../../docs/workflows.md).
 
 ## Finding tasks
 
