@@ -125,6 +125,77 @@ async fn sdk_receive_network_failure_remains_retryable_on_the_same_sequence() {
     source.finish_session(&command.worker_session_id);
 }
 
+#[tokio::test]
+async fn sdk_full_driver_deadline_delete_outage_does_not_block_durable_handoff() {
+    let mut received = false;
+    let fixture = Fixture::responding(move |target| match target {
+        "AmazonSQS.GetQueueAttributes" => Response::Json(attributes()),
+        "AmazonSQS.ReceiveMessage" if !received => {
+            received = true;
+            Response::Json(json!({"Messages":[{
+                "Body":serde_json::to_string(&PublishedDispatch {
+                    dispatch: DispatchRef {
+                        scope: scope(), queue: "invoices".into(),
+                        task_id: "task_1".into(), generation: 1,
+                    },
+                    publication_id: "publication_1".into(),
+                }).unwrap(),
+                "ReceiptHandle":"receipt_1"
+            }]}))
+        }
+        "AmazonSQS.ReceiveMessage" => Response::Json(json!({"Messages":[]})),
+        // Hold every delete connection open without replying. Other requests
+        // remain available, so only acknowledgment is failing throughout.
+        "AmazonSQS.DeleteMessageBatch" => Response::Hold,
+        other => panic!("unexpected SDK request: {other}"),
+    });
+    let mut options = SqsOptions::new("us-east-1", format!("{}/queue", fixture.endpoint));
+    options.endpoint_url = Some(fixture.endpoint.clone());
+    options.local_credentials = true;
+    options.operation_timeout = Duration::from_secs(30);
+    let queue = Arc::new(SqsQueue::connect(options).await.unwrap());
+    let (worker, counts) = setup(1);
+    let service = Service::new(1);
+    let source = Arc::new(BrokerAcquisitionSource::new(queue, service.clone()).unwrap());
+    let mut config = DeliveryConfig::new(scope(), "invoices");
+    config.acquire_wait = Duration::ZERO;
+    assert_eq!(config.request_timeout, Duration::from_secs(30));
+    let mut handle = DeliveryDriver::new(worker, service.clone(), config)
+        .unwrap()
+        .with_acquisition_source(source)
+        .start();
+    tokio::time::timeout(Duration::from_secs(35), async {
+        while service.accepted_count() != 1 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("a full-budget delete outage must not withhold a durable claim forever");
+    assert!(handle.shutdown(WAIT).await.unwrap().finished);
+    assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fixture
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|target| *target == "AmazonSQS.DeleteMessageBatch")
+            .count(),
+        1
+    );
+    let commands = service.broker_commands.lock().unwrap();
+    assert_eq!(commands.len(), 2);
+    assert_eq!(commands[0], commands[1]);
+    assert_eq!(counts.peak.load(Ordering::SeqCst), 1);
+    assert_eq!(service.state.lock().unwrap().capacity_violations, 0);
+}
+
+enum Response {
+    Json(Value),
+    Close,
+    Hold,
+}
+
 struct Fixture {
     endpoint: String,
     requests: Arc<Mutex<Vec<String>>>,
@@ -133,6 +204,14 @@ struct Fixture {
 }
 impl Fixture {
     fn new(responses: Vec<Option<Value>>) -> Self {
+        let mut responses = responses.into_iter();
+        Self::responding(move |_| match responses.next().flatten() {
+            Some(value) => Response::Json(value),
+            None => Response::Close,
+        })
+    }
+
+    fn responding(mut respond: impl FnMut(&str) -> Response + Send + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
@@ -141,7 +220,7 @@ impl Fixture {
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
         let handle = thread::spawn(move || {
-            let mut responses = responses.into_iter();
+            let mut held = Vec::new();
             while !stopped.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((mut socket, _)) => {
@@ -152,16 +231,23 @@ impl Fixture {
                         socket
                             .set_write_timeout(Some(Duration::from_secs(2)))
                             .unwrap();
-                        capture.lock().unwrap().push(read_request(&mut socket));
-                        if let Some(Some(response)) = responses.next() {
-                            let bytes = serde_json::to_vec(&response).unwrap();
-                            let header = format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: application/x-amz-json-1.0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                                bytes.len()
-                            );
-                            let _ = socket.write_all(header.as_bytes());
-                            let _ = socket.write_all(&bytes);
-                        }
+                        let target = read_request(&mut socket);
+                        capture.lock().unwrap().push(target.clone());
+                        let response = match respond(&target) {
+                            Response::Json(value) => value,
+                            Response::Close => continue,
+                            Response::Hold => {
+                                held.push(socket);
+                                continue;
+                            }
+                        };
+                        let bytes = serde_json::to_vec(&response).unwrap();
+                        let header = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/x-amz-json-1.0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            bytes.len()
+                        );
+                        let _ = socket.write_all(header.as_bytes());
+                        let _ = socket.write_all(&bytes);
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(2));

@@ -32,6 +32,17 @@ pub trait AcquisitionSource: Send + Sync {
         command: &'a AcquireCommand,
         options: AcquireOptions,
     ) -> ContractFuture<'a, SourceReply>;
+    /// Resolve an acquisition during shutdown. The default keeps reconciling
+    /// through `acquire`, since an uncertain exchange may have committed a claim.
+    /// A source may return Idle only when no claim can have started and any
+    /// already-issued transport receive has finished or reached its deadline.
+    fn drain<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, SourceReply> {
+        self.acquire(command, options)
+    }
     /// Called only after every consumer has stopped. No new claims may start;
     /// task state remains responsible for recovery of lost session authority.
     fn finish_session(&self, _worker_session_id: &str) {}
@@ -89,6 +100,9 @@ struct Pending {
     claim_started: bool,
     /// Durable handoff was observed, whether or not the caller received our reply.
     completed: bool,
+    /// Retained before awaiting acknowledgment, including cancellation or panic.
+    /// A later reconciliation refreshes the claim but cannot be held by delete again.
+    ack_attempted: bool,
 }
 impl BrokerAcquisitionSource {
     pub fn new(queue: Arc<dyn AckQueue>, service: Arc<dyn TaskService>) -> Result<Self> {
@@ -142,6 +156,7 @@ impl BrokerAcquisitionSource {
         &self,
         command: &AcquireCommand,
         options: AcquireOptions,
+        draining: bool,
     ) -> Result<SourceReply> {
         options.validate()?;
         let slot = self.slot(command)?;
@@ -175,6 +190,15 @@ impl BrokerAcquisitionSource {
         {
             return Ok(SourceReply::Stopped { error });
         }
+        if draining
+            && slot.receiving.is_none()
+            && !slot
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.claim_started)
+        {
+            return Ok(SourceReply::Idle);
+        }
         if slot.pending.is_none() {
             if slot.receiving.is_none() {
                 let queue = self.queue.clone();
@@ -192,6 +216,11 @@ impl BrokerAcquisitionSource {
                 }
                 result => result?,
             };
+            if draining {
+                // No task claim has started. Leave any returned records
+                // unacknowledged for broker redelivery and durable intent repair.
+                return Ok(SourceReply::Idle);
+            }
             if deliveries.len() > 1 {
                 return Ok(self.stop("broker returned more records than the reserved capacity"));
             }
@@ -223,6 +252,7 @@ impl BrokerAcquisitionSource {
                 receipt: delivery.receipt,
                 claim_started: false,
                 completed: false,
+                ack_attempted: false,
             });
         }
         let pending = slot.pending.as_mut().expect("selected record retained");
@@ -232,23 +262,29 @@ impl BrokerAcquisitionSource {
         let reply = self.service.claim_dispatch(&pending.command).await?;
         reply.validate_reply_against(&pending.command)?;
         pending.completed = true;
-        let receipts = [pending.receipt.clone()];
-        match self.queue.acknowledge(&receipts, options.deadline).await {
-            Ok(results)
-                if results.len() == 1
-                    && results[0].receipt == pending.receipt
-                    && results[0].confirmed => {}
-            Ok(_) => tracing::warn!(
-                task_id = %pending.command.dispatch.task_id,
-                publication_id = %pending.record.publication_id,
-                "broker acknowledgment unconfirmed after durable handoff"
-            ),
-            Err(error) => tracing::warn!(
-                task_id = %pending.command.dispatch.task_id,
-                publication_id = %pending.record.publication_id,
-                error = %error,
-                "broker acknowledgment failed after durable handoff"
-            ),
+        if !pending.ack_attempted {
+            // Save before constructing or polling adapter I/O. If this await
+            // consumes the acquisition deadline, the next call must refresh
+            // authority and return without repeating a full-budget delete.
+            pending.ack_attempted = true;
+            let receipts = [pending.receipt.clone()];
+            match self.queue.acknowledge(&receipts, options.deadline).await {
+                Ok(results)
+                    if results.len() == 1
+                        && results[0].receipt == pending.receipt
+                        && results[0].confirmed => {}
+                Ok(_) => tracing::warn!(
+                    task_id = %pending.command.dispatch.task_id,
+                    publication_id = %pending.record.publication_id,
+                    "broker acknowledgment unconfirmed after durable handoff"
+                ),
+                Err(error) => tracing::warn!(
+                    task_id = %pending.command.dispatch.task_id,
+                    publication_id = %pending.record.publication_id,
+                    error = %error,
+                    "broker acknowledgment failed after durable handoff"
+                ),
+            }
         }
         // An acknowledgment outage must not prevent execution of a task whose
         // recovery is already durable. Redelivery is reconciled by task identity.
@@ -298,7 +334,15 @@ impl AcquisitionSource for BrokerAcquisitionSource {
         command: &'a AcquireCommand,
         options: AcquireOptions,
     ) -> ContractFuture<'a, SourceReply> {
-        Box::pin(self.acquire_once(command, options))
+        Box::pin(self.acquire_once(command, options, false))
+    }
+
+    fn drain<'a>(
+        &'a self,
+        command: &'a AcquireCommand,
+        options: AcquireOptions,
+    ) -> ContractFuture<'a, SourceReply> {
+        Box::pin(self.acquire_once(command, options, true))
     }
 
     fn finish_session(&self, worker_session_id: &str) {

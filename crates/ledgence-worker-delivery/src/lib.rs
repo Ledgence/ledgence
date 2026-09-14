@@ -507,7 +507,8 @@ impl Context {
             let cycle_started = Instant::now();
             let reply = loop {
                 let started = Instant::now();
-                let max_wait = if self.shared.stopping() {
+                let draining = self.shared.stopping();
+                let max_wait = if draining {
                     Duration::ZERO
                 } else {
                     self.config.acquire_wait
@@ -516,12 +517,16 @@ impl Context {
                     .expect("validated acquisition timing");
                 let result = {
                     let request = exchange(self.config.request_timeout, || {
-                        self.source.acquire(&command, options)
+                        if draining {
+                            self.source.drain(&command, options)
+                        } else {
+                            self.source.acquire(&command, options)
+                        }
                     });
                     tokio::pin!(request);
                     tokio::select! {
                         result = &mut request => Some(result),
-                        _ = self.shared.stopped(), if !max_wait.is_zero() => {
+                        _ = self.shared.stopped(), if !draining => {
                             // Reconcile immediately with the same sequence. Dropping
                             // this future cannot prove that no claim committed.
                             None

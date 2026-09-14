@@ -44,29 +44,37 @@ impl PostgresStore {
         let row = sqlx::query("SELECT *,trunc(sequence)::text AS sequence_text FROM consumer_cursors WHERE session_id=$1 AND consumer_id=$2 FOR UPDATE")
             .bind(&session.id).bind(consumer).fetch_one(&mut *tx).await?;
         let cursor = codec::cursor(&row, &session)?;
-        // A competing identical claim may have committed while the cursor lock
-        // was acquired. Restart under a fresh snapshot to replay its receipt.
-        if cursor
+        // A competing claim may have committed after the first receipt lookup,
+        // and its client may already have advanced the cursor. Recheck under
+        // cursor serialization before rejecting any consumed sequence; fresh
+        // claims need no additional receipt query.
+        if let Some(cursor) = cursor
             .as_ref()
-            .is_some_and(|c| c.command.sequence == acquire.sequence)
+            .filter(|c| c.command.sequence >= acquire.sequence)
         {
             let receipt: Option<Vec<u8>> = sqlx::query_scalar("SELECT reply_bytes FROM dispatch_claim_receipts WHERE session_id=$1 AND consumer_id=$2 AND sequence=($3::text)::ldg_u64")
                 .bind(&session.id).bind(consumer).bind(acquire.sequence.to_string()).fetch_optional(&mut *tx).await?;
-            let Some(bytes) = receipt else {
-                return Err(ContractError::Conflict.into());
-            };
-            let mut saved: ClaimReply = decode_unique_json(&bytes, DISPATCH_MAX_BYTES)
-                .map_err(|_| ContractError::Unavailable("invalid stored claim receipt".into()))?;
-            if saved.command != *command {
+            if let Some(bytes) = receipt {
+                let mut saved: ClaimReply = decode_unique_json(&bytes, DISPATCH_MAX_BYTES)
+                    .map_err(|_| {
+                        ContractError::Unavailable("invalid stored claim receipt".into())
+                    })?;
+                if saved.command != *command {
+                    return Err(ContractError::Conflict.into());
+                }
+                saved.validate_reply_against(command)?;
+                if matches!(saved.disposition, ClaimDisposition::Claimed { .. }) {
+                    self.refresh_claim_replay(&mut tx, command, &mut saved)
+                        .await?;
+                }
+                tx.commit().await?;
+                return Ok(saved);
+            }
+            if cursor.command.sequence == acquire.sequence {
                 return Err(ContractError::Conflict.into());
             }
-            saved.validate_reply_against(command)?;
-            if matches!(saved.disposition, ClaimDisposition::Claimed { .. }) {
-                self.refresh_claim_replay(&mut tx, command, &mut saved)
-                    .await?;
-            }
-            tx.commit().await?;
-            return Ok(saved);
+            // An older operation without a receipt follows the existing core
+            // validation, including session expiry and ObsoleteOperation.
         }
         let mut previous = match cursor.as_ref().and_then(|c| c.assignment.as_ref()) {
             Some(reference) => Some(db::previous(&mut tx, &acquire.scope, reference).await?),

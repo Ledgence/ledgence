@@ -27,6 +27,7 @@ import uuid
 
 from http_acceptance.harness import eventually
 from http_acceptance.sqs import SqsDeployment
+from http_acceptance.sqs_startup import failed_startup_preserves_integrated_delivery
 from http_acceptance.scenarios import (
     cancellation_and_failures, warm_cache_and_cli, worker_crash_recovery,
 )
@@ -174,7 +175,7 @@ def main():
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--binaries", type=Path)
     parser.add_argument("--evidence", type=Path)
-    parser.add_argument("--scenario", action="append", choices=["duplicates", "warm", "retry", "crash", "obligations"])
+    parser.add_argument("--scenario", action="append", choices=["duplicates", "warm", "retry", "crash", "obligations", "startup"])
     args = parser.parse_args()
     if args.endpoint:
         parsed = urllib.parse.urlsplit(args.endpoint)
@@ -245,6 +246,9 @@ def main():
             ("retry", lambda: cancellation_and_failures(deployment)),
             ("crash", lambda: worker_crash_recovery(deployment)),
             ("obligations", lambda: completed_obligations(deployment)),
+            # This isolated namespace intentionally creates integrated tasks;
+            # run it after the external-only task binding assertions above.
+            ("startup", lambda: failed_startup_preserves_integrated_delivery(deployment)),
         ]
         results = []
         for name, scenario in cases:

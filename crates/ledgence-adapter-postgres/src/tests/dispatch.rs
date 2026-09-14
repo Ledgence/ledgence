@@ -381,6 +381,209 @@ async fn historical_claim_receipt_survives_cursor_advance_without_returning_new_
     db.finish().await;
 }
 
+/// Pause a duplicate after its first receipt lookup misses, then let the primary
+/// client complete that operation and any subsequent work before resuming it.
+async fn delayed_claim_replay<F, Fut>(
+    db: &TestDb,
+    original: &ClaimCommand,
+    duplicate: &ClaimCommand,
+    after_primary: F,
+) -> Result<ClaimReply>
+where
+    F: FnOnce(ClaimReply) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    let replay_store = PostgresStore::connect(
+        &db.url,
+        PostgresOptions {
+            max_connections: 1,
+            ..PostgresOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+    // This fixture owns a single connection, so only the duplicate enters the
+    // trigger's advisory-lock barrier. The production store remains unmodified.
+    let duplicate_pid: i32 = sqlx::query_scalar(
+        "SELECT pg_backend_pid() FROM set_config('ledgence.test_claim_replay','true',false)",
+    )
+    .fetch_one(&replay_store.pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE FUNCTION pause_duplicate_cursor_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF current_setting('ledgence.test_claim_replay', true) = 'true' THEN PERFORM pg_advisory_xact_lock(48112977); END IF; RETURN NEW; END $$; CREATE TRIGGER pause_duplicate_cursor_insert BEFORE INSERT ON consumer_cursors FOR EACH ROW EXECUTE FUNCTION pause_duplicate_cursor_insert();")
+        .execute(&db.store.pool).await.unwrap();
+    let mut task_blocker = db.store.pool.begin().await.unwrap();
+    sqlx::query("SELECT task_id FROM tasks WHERE task_id=$1 FOR NO KEY UPDATE")
+        .bind(&original.dispatch.task_id)
+        .fetch_one(&mut *task_blocker)
+        .await
+        .unwrap();
+    let mut duplicate_blocker = db.store.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(48112977)")
+        .execute(&mut *duplicate_blocker)
+        .await
+        .unwrap();
+    let mut primary = db.store.claim_dispatch(original);
+    tokio::select! {
+        result = &mut primary => panic!("primary crossed held task lock: {result:?}"),
+        _ = wait_for_lock_waiter(&db.store) => {}
+    }
+    let mut replay = replay_store.claim_dispatch(duplicate);
+    tokio::select! {
+        result = &mut replay => panic!("duplicate crossed held replay barrier: {result:?}"),
+        _ = bounded(async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock' AND wait_event='advisory')")
+                    .bind(duplicate_pid).fetch_one(&db.store.pool).await.unwrap();
+                if waiting {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }) => {}
+    }
+    task_blocker.rollback().await.unwrap();
+    let primary = bounded(primary).await.unwrap();
+    bounded(after_primary(primary)).await;
+    duplicate_blocker.rollback().await.unwrap();
+    let result = bounded(replay).await;
+    replay_store.close().await;
+    sqlx::raw_sql("DROP TRIGGER pause_duplicate_cursor_insert ON consumer_cursors; DROP FUNCTION pause_duplicate_cursor_insert();")
+        .execute(&db.store.pool).await.unwrap();
+    result
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn delayed_nonauthority_claim_replay_survives_ordered_cursor_advance() {
+    for mismatched_target in [false, true] {
+        let db = external_db().await;
+        let terminal = submit(&db.store, "terminal").await;
+        let next = submit(&db.store, "next").await;
+        db.store.cancel(&scope(), &terminal.task_id).await.unwrap();
+        let session = db.store.open_session(&scope(), "python", 1).await.unwrap();
+        db.store
+            .claim_dispatch(&claim(&terminal, 1, &session, 1))
+            .await
+            .unwrap();
+        let original = claim(&terminal, 1, &session, 2);
+        let duplicate = if mismatched_target {
+            claim(&next, 1, &session, 2)
+        } else {
+            original.clone()
+        };
+        let replay = delayed_claim_replay(&db, &original, &duplicate, |primary| {
+            assert!(matches!(
+                primary.disposition,
+                ClaimDisposition::TerminalOrSuperseded
+            ));
+            async {
+                // The primary issues sequence 3 only after sequence 2 succeeds.
+                claimed_assignment(
+                    db.store
+                        .claim_dispatch(&claim(&next, 1, &session, 3))
+                        .await
+                        .unwrap(),
+                );
+            }
+        })
+        .await;
+        if mismatched_target {
+            assert!(matches!(replay, Err(ContractError::Conflict)), "{replay:?}");
+        } else {
+            assert!(
+                matches!(
+                    replay,
+                    Ok(ClaimReply {
+                        disposition: ClaimDisposition::TerminalOrSuperseded,
+                        ..
+                    })
+                ),
+                "the exact historical receipt must not acquire sequence 3's authority: {replay:?}"
+            );
+        }
+        assert!(matches!(
+            db.store
+                .claim_dispatch(&original)
+                .await
+                .unwrap()
+                .disposition,
+            ClaimDisposition::TerminalOrSuperseded
+        ));
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM attempts),(SELECT count(*) FROM dispatch_claim_receipts)",
+        )
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (1, 3));
+        db.finish().await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn delayed_owned_claim_replay_refreshes_authority_and_fences_cursor_advance() {
+    for advance_cursor in [false, true] {
+        let db = external_db().await;
+        let terminal = submit(&db.store, "terminal").await;
+        let target = submit(&db.store, "target").await;
+        let next = submit(&db.store, "next").await;
+        db.store.cancel(&scope(), &terminal.task_id).await.unwrap();
+        let session = db.store.open_session(&scope(), "python", 1).await.unwrap();
+        db.store
+            .claim_dispatch(&claim(&terminal, 1, &session, 1))
+            .await
+            .unwrap();
+        let original = claim(&target, 1, &session, 2);
+        let mut first = None;
+        let replay = delayed_claim_replay(&db, &original, &original, |primary| async {
+            let assigned = claimed_assignment(primary);
+            if advance_cursor {
+                db.store
+                    .settle(&completed(&assigned, Quiescence::Confirmed, json!(true)))
+                    .await
+                    .unwrap();
+                claimed_assignment(
+                    db.store
+                        .claim_dispatch(&claim(&next, 1, &session, 3))
+                        .await
+                        .unwrap(),
+                );
+            } else {
+                let mut connection = db.store.pool.acquire().await.unwrap();
+                let mut tx = connection.begin().await.unwrap();
+                shorten_lease(&mut tx, &assigned, 10_000).await;
+                tx.commit().await.unwrap();
+            }
+            first = Some(assigned);
+        })
+        .await
+        .unwrap();
+        let first = first.unwrap();
+        if advance_cursor {
+            assert!(
+                matches!(replay.disposition, ClaimDisposition::Claimed { reply: AcquireReply::OwnershipLost { assignment, sequence: 2 } } if assignment.task_id == target.task_id && assignment.attempt_id == first.lease.owner.attempt_id)
+            );
+        } else {
+            let refreshed = claimed_assignment(replay);
+            assert_eq!(refreshed.lease.owner, first.lease.owner);
+            assert_eq!(refreshed.event, first.event);
+            assert!(refreshed.authority.remaining_ms > 0);
+            assert!(refreshed.authority.remaining_ms <= 10_000);
+            assert!(refreshed.authority.remaining_ms < first.authority.remaining_ms);
+        }
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM attempts),(SELECT count(*) FROM dispatch_claim_receipts)",
+        )
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, if advance_cursor { (2, 3) } else { (1, 2) });
+        db.finish().await;
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn claim_receipt_failure_rolls_back_attempt_cursor_history_and_intent_invalidation() {
@@ -787,6 +990,46 @@ async fn integrated_acquisition_replay_survives_external_route_activation() {
         db.store.acquire(&acquire_command(&worker, 0, 2)).await,
         Err(ContractError::ExternalDispatchRequired)
     ));
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn missing_claim_receipts_preserve_obsolete_and_current_cross_mode_errors() {
+    let db = TestDb::new().await;
+    let session = db.store.open_session(&scope(), "python", 1).await.unwrap();
+    for sequence in [1, 2] {
+        assert!(matches!(
+            db.store
+                .acquire(&acquire_command(&session, 0, sequence))
+                .await
+                .unwrap(),
+            AcquireReply::Empty { sequence: actual } if actual == sequence
+        ));
+    }
+    db.store.configure_route(&route()).await.unwrap();
+    let task = submit(&db.store, "external_after_integration").await;
+    assert!(matches!(
+        db.store.claim_dispatch(&claim(&task, 1, &session, 1)).await,
+        Err(ContractError::ObsoleteOperation)
+    ));
+    assert!(matches!(
+        db.store.claim_dispatch(&claim(&task, 1, &session, 2)).await,
+        Err(ContractError::Conflict)
+    ));
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM attempts),(SELECT count(*) FROM dispatch_claim_receipts)",
+    )
+    .fetch_one(&db.store.pool)
+    .await
+    .unwrap();
+    assert_eq!(counts, (0, 0));
+    claimed_assignment(
+        db.store
+            .claim_dispatch(&claim(&task, 1, &session, 3))
+            .await
+            .unwrap(),
+    );
     db.finish().await;
 }
 
