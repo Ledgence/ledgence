@@ -57,11 +57,16 @@ def duration(value, name: str, maximum: float | None = None) -> float:
 
 def validate(value, limit: int, *, max_depth: int = MAX_DEPTH) -> None:
     """Bound traversal as well as the eventual bytes, accepting plain JSON types."""
+    _validate(value, limit, max_depth=max_depth)
+
+
+def _validate(value, limit: int, *, max_depth: int, authoritative: bool = False) -> int:
     remaining = limit
+    float_slack = 0
     ancestors: set[int] = set()
 
     def visit(item, depth):
-        nonlocal remaining
+        nonlocal remaining, float_slack
         remaining -= 1
         if remaining < 0:
             raise InputError("JSON value exceeds its byte limit")
@@ -80,6 +85,14 @@ def validate(value, limit: int, *, max_depth: int = MAX_DEPTH) -> None:
         elif kind is float:
             if not math.isfinite(item):
                 raise InputError("JSON floating-point numbers must be finite")
+            if authoritative:
+                # Rust's finite float token uses at least three bytes. CPython
+                # may use longer text for the same value (1e-08 versus 1e-8).
+                # Bound each accepted token's possible expansion separately.
+                width = len(repr(item))
+                if width > 32:
+                    raise InputError("unsupported floating-point representation")
+                float_slack += max(0, width - 3)
         elif kind in (dict, list, tuple):
             if depth >= max_depth:
                 raise InputError("JSON value exceeds its container depth limit")
@@ -105,11 +118,28 @@ def validate(value, limit: int, *, max_depth: int = MAX_DEPTH) -> None:
             raise InputError("JSON value exceeds its byte limit")
 
     visit(value, 0)
+    return float_slack
+
+
+def validate_authoritative(value, limit: int, *, max_depth: int = MAX_DEPTH) -> None:
+    """Check accepted Rust JSON without rejecting Python float text expansion.
+
+    Transport bounds the response bytes before decoding. Original numeric tokens
+    are no longer available here, so only inbound observations receive a bounded
+    per-float allowance. Structural, string, finite-number and depth checks remain
+    unchanged. Authored commands must continue to use strict encode().
+    """
+    slack = _validate(value, limit, max_depth=max_depth, authoritative=True)
+    for _ in _encoded_chunks(value, limit + slack):
+        pass
 
 
 def encode(value, limit: int = CONTROL_LIMIT, *, max_depth: int = MAX_DEPTH + 8) -> bytes:
     validate(value, limit, max_depth=max_depth)
-    chunks: list[bytes] = []
+    return b"".join(_encoded_chunks(value, limit))
+
+
+def _encoded_chunks(value, limit: int):
     length = 0
     encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     for part in encoder.iterencode(value):
@@ -117,8 +147,7 @@ def encode(value, limit: int = CONTROL_LIMIT, *, max_depth: int = MAX_DEPTH + 8)
         length += len(chunk)
         if length > limit:
             raise InputError("encoded JSON exceeds its byte limit")
-        chunks.append(chunk)
-    return b"".join(chunks)
+        yield chunk
 
 
 def _pairs(pairs):

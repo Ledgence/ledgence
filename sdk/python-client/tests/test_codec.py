@@ -59,6 +59,45 @@ class CodecTests(unittest.TestCase):
         with self.assertRaises(InputError):
             codec.encode("\x00", 7)
 
+    def test_authoritative_float_accounting_keeps_other_json_bounds(self):
+        # Rust emits 1e-8; Python emits 1e-08. The allowance is inbound only.
+        raw = b"[1e-8,1e-8]"
+        value = codec.decode(raw)
+        codec.validate_authoritative(value, len(raw))
+        with self.assertRaises(InputError):
+            codec.encode(value, len(raw))
+        nested = None
+        for _ in range(65): nested = [nested]
+        cycle = []; cycle.append(cycle)
+        for bad in (nested, cycle, [float("nan")], [float("inf")], [1 << 64],
+                    {1: None}, [object()], "\ud800", "x" * 1024,
+                    {"float": 1e-8, "padding": "x" * 1024}, [1e-8] * 1024):
+            with self.subTest(kind=type(bad)), self.assertRaises(InputError):
+                codec.validate_authoritative(bad, 1024)
+        # Escaping and punctuation still count, even when traversal fits.
+        with self.assertRaises(InputError):
+            codec.validate_authoritative("\x00", 7)
+        with self.assertRaises(InputError):
+            codec.validate_authoritative([1e-8] * 256, 1024)
+        codec.validate_authoritative("a" * 1022, 1024)
+        with self.assertRaises(InputError):
+            codec.validate_authoritative("a" * 1023, 1024)
+
+    def test_task_result_accepts_rust_float_boundary_without_widening_commands(self):
+        limit = 8 * 1024 * 1024
+        value = result(output={"numbers": [1e-8] * 512, "padding": ""})
+        # Fixed parity vector; no float-looking strings occur in this fixture.
+        def wire_outcome():
+            return json.dumps(value["outcome"], separators=(",", ":")).replace(
+                "1e-08", "1e-8").encode()
+        value["outcome"]["output"]["padding"] = "x" * (limit - len(wire_outcome()))
+        self.assertEqual(len(wire_outcome()), limit)
+        output = value["outcome"]["output"]
+        with self.assertRaises(InputError): codec.encode(value["outcome"], limit)
+        with self.assertRaises(InputError): codec.encode(output, limit)
+        parsed = parse_result(value, Scope("tenant", "tests"), "task")
+        self.assertEqual(parsed.outcome.output, output)
+
     def test_identifier_policy_preserves_business_correlation(self):
         client = AsyncClient("http://localhost:8080", tenant="t", namespace="n")
         args = dict(program="echo", version="1", queue="q", data=None, idempotency_key="k")

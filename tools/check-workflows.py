@@ -31,6 +31,7 @@ import uuid
 
 from http_acceptance.harness import Deployment, Process, eventually, exchange
 from http_acceptance.sqs import SqsDeployment
+from workflow_acceptance import owned_scenarios
 
 
 FIXTURE = r'''
@@ -125,7 +126,7 @@ from urllib.request import urlopen
 def handle(event):
     data = event['data']
     with open(data['marker'], 'a', encoding='utf-8') as stream:
-        stream.write(json.dumps(dict(tag=data['tag'],kind='child',pid=os.getpid(),task=event['ldgtaskid'],workflow=event.get('ldgworkflowid'),index=data['index']))+'\n')
+        stream.write(json.dumps(dict(tag=data['tag'],kind='child',pid=os.getpid(),task=event['ldgtaskid'],attempt_id=event['ldgattemptid'],workflow=event.get('ldgworkflowid'),index=data['index']))+'\n')
     parent = os.getppid()
     deadline = time.monotonic() + 150
     while data.get('gate') and not Path(data['gate']).exists():
@@ -518,6 +519,8 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
             interpretation='Paired end-to-end functional measurements: local I/O overlaps, distributed tasks execute serially at N=1. elapsed_seconds includes 1-second client observation polling; workflow_committed_elapsed_ms uses server submission/terminal timestamps. Server-wide WAL deltas may include other databases and maintenance; these are not isolated workflow write costs or production throughput/tail benchmarks.'))
         await asyncio.to_thread(worker.stop)
 
+    await owned_scenarios.run(d,delay,names,record,records,snapshot)
+
 
 def trace_rows(capture):
     return [json.loads(line) for line in capture.stdout_path.read_text().splitlines(keepends=True)
@@ -591,6 +594,8 @@ def artifact_metadata(root, binaries, python, d):
     sources.update(root.glob('sdk/python/ledgence_worker/*.py'))
     sources.update(root.glob('sdk/python-client/src/**/*.py'))
     sources.update(root.glob('examples/checkpoint-workflow/**/*.py'))
+    sources.update(root.glob('examples/owned-subworkflows/**/*.py'))
+    sources.update(root.glob('tools/workflow_acceptance/*.py'))
     sources.update(root.glob('tools/http_acceptance/*.py'))
     sources.update(root/name for name in ('Cargo.toml','Cargo.lock','tools/check-workflows.py','tools/check-sqs.py'))
     fingerprints = {str(path.relative_to(root)):sha256(path) for path in sorted(sources)}
@@ -629,6 +634,8 @@ def self_test(root):
     compile(FIXTURE,'workflow_fixture.py','exec')
     boundary_event()
     compile(CHILD,'child_fixture.py','exec')
+    for fixture in [root/'tools/workflow_acceptance/owned_program.py', root/'examples/owned-subworkflows/program.py']:
+        compile(fixture.read_text(),str(fixture),'exec')
     compile((root/'examples/checkpoint-workflow/child/program.py').read_text(),'example_child.py','exec')
     delay = DelayServer()
     async def fetch_all():
@@ -650,15 +657,15 @@ def main():
     parser.add_argument('--psql',default='psql')
     parser.add_argument('--binaries',type=Path)
     parser.add_argument('--evidence',type=Path)
-    parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; requires the events scenario')
+    parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; requires events or owned-tree scenario')
     parser.add_argument('--placement-iterations',type=int,default=3,help='paired local/distributed timing iterations (1..10; default 3)')
-    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement'])
+    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS])
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if args.self_test:
         return self_test(root)
-    if args.capture and (not args.capture.is_file() or (args.scenario and 'events' not in args.scenario)):
-        parser.error('--capture requires an existing executable and the events scenario')
+    if args.capture and (not args.capture.is_file() or (args.scenario and not {'events','owned-tree'}.intersection(args.scenario))):
+        parser.error('--capture requires an existing executable and events or owned-tree scenario')
     if not 1 <= args.placement_iterations <= 10:
         parser.error('--placement-iterations must be 1..10')
     if args.endpoint:
@@ -729,6 +736,9 @@ def main():
             'workflow-controller':publish(deployment,'workflow-controller',fetch+'\n'+FIXTURE),
             'workflow-io':publish(deployment,'workflow-io',CHILD),
             'workflow-pages':publish(deployment,'workflow-pages',controller),
+            'workflow-example':publish(deployment,'workflow-example',controller),
+            'owned-example':publish(deployment,'owned-example',(root/'examples/owned-subworkflows/program.py').read_text()),
+            'owned-controller':publish(deployment,'owned-controller',(root/'tools/workflow_acceptance/owned_program.py').read_text()),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
         migration = subprocess.run([str(binaries/'ledgence-orchestrator'),'migrate'],env=deployment.environment,capture_output=True,timeout=40)
@@ -738,14 +748,16 @@ def main():
         provenance = artifact_metadata(root,binaries,python,deployment)
         provenance.update(mode='elasticmq' if args.endpoint else 'integrated',database=database,queue_url=queue_url,real_aws=False,published_programs=packages)
         (directory/'resources.json').write_text(json.dumps(provenance,indent=2)+'\n')
-        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement'],record,args.placement_iterations,capture))
-        if capture:
+        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS],record,args.placement_iterations,capture))
+        if capture and any(row['scenario']=='events' for row in results):
             # Workers have drained their exporters, but the server must remain
             # available while durable attempt snapshots are checked.
             eventually(lambda: len([span for span in trace_rows(capture)
                 if span['name']=='ledgence.workflow.event.accept']) >= 3,
                 description='final event reconciliation span export')
             record('event-traces',verify_event_traces(deployment,capture,results))
+        if capture and any(row['scenario']=='owned-tree' for row in results):
+            record('owned-traces',owned_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
         deployment.server.stop()
         succeeded = True
         print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}',flush=True)

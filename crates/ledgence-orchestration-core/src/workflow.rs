@@ -36,14 +36,14 @@ pub struct WorkflowDecisionPlan {
     pub disposition: WorkflowDisposition,
 }
 
-/// Plan one accepted controller decision. `unfinished_owned_tasks` must be an
-/// authoritative observation under the workflow lock, including tasks from all
+/// Plan one accepted controller decision. `unfinished_owned_children` must be an
+/// authoritative observation under the workflow lock, including tasks and owned workflows from all
 /// prior continuations. A retry of already applied work uses its stored receipt
 /// before invoking this planner; stale unaccepted decisions never grant changes.
 pub fn plan_workflow_decision(
     current: &WorkflowSnapshot,
     decision: &WorkflowDecision,
-    unfinished_owned_tasks: bool,
+    unfinished_owned_children: bool,
 ) -> Result<WorkflowDecisionPlan> {
     decision.validate()?;
     current.validate()?;
@@ -96,9 +96,9 @@ pub fn plan_workflow_decision(
             WorkflowDisposition::Continue,
         ),
         WorkflowAction::Complete { output } => {
-            if unfinished_owned_tasks {
+            if unfinished_owned_children {
                 return Err(ContractError::InvalidInput(
-                    "workflow cannot complete with unfinished owned tasks".into(),
+                    "workflow cannot complete with unfinished owned children".into(),
                 ));
             }
             (
@@ -128,6 +128,8 @@ mod tests {
     use serde_json::json;
     fn current() -> WorkflowSnapshot {
         WorkflowSnapshot {
+            parent_workflow_id: None,
+            root_workflow_id: None,
             workflow_id: "wf_1".into(),
             scope: Scope {
                 tenant_id: "t".into(),

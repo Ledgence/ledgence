@@ -17,6 +17,8 @@ impl Context {
         &self,
         owner: LeaseOwner,
         expected_workflow: &str,
+        expected_parent: Option<&str>,
+        expected_root: Option<&str>,
         control: &RunControl,
     ) -> ledgence_worker_api::Result<WorkflowRuntime> {
         let service = self.workflows.clone().ok_or_else(|| {
@@ -29,6 +31,8 @@ impl Context {
             service.as_ref(),
             &owner,
             expected_workflow,
+            expected_parent,
+            expected_root,
             &self.config,
             control,
         )
@@ -60,6 +64,8 @@ async fn fetch_context(
     service: &dyn WorkflowService,
     owner: &LeaseOwner,
     expected_workflow: &str,
+    expected_parent: Option<&str>,
+    expected_root: Option<&str>,
     config: &DeliveryConfig,
     control: &RunControl,
 ) -> ledgence_worker_api::Result<WorkflowActivationContext> {
@@ -82,7 +88,11 @@ async fn fetch_context(
     };
     control.check()?;
     context.validate().map_err(runtime_error)?;
-    if context.activation_id != owner.task_id || context.workflow_id != expected_workflow {
+    if context.activation_id != owner.task_id
+        || context.workflow_id != expected_workflow
+        || context.parent_workflow_id.as_deref() != expected_parent
+        || context.root_workflow_id.as_deref() != expected_root
+    {
         return Err(Error::new(
             ErrorKind::Protocol,
             "activation context identity mismatch",

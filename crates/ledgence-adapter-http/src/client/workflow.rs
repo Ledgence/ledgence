@@ -16,7 +16,11 @@ impl WorkflowService for HttpTaskService {
                 command,
                 SUBMISSION_MAX_BYTES,
                 move |reply: &WorkflowSnapshot| {
-                    if reply.scope != scope || reply.correlation_key != correlation {
+                    if reply.scope != scope
+                        || reply.correlation_key != correlation
+                        || reply.parent_workflow_id.is_some()
+                        || reply.root_workflow_id.is_some()
+                    {
                         return Err(unavailable(
                             "workflow submission response identity mismatch",
                         ));

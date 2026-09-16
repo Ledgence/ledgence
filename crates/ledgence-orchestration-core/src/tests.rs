@@ -1185,3 +1185,39 @@ fn workflow_decision_envelopes_preserve_application_depth_without_widening_ordin
         report.context.identity.activation_id = Some(report.context.identity.task_id.clone());
     }
 }
+
+#[test]
+fn nested_workflow_ancestry_is_bound_to_each_attempt_and_its_report() {
+    let mut task = queued();
+    task.workflow_id = Some("child".into());
+    task.parent_workflow_id = Some("parent".into());
+    task.root_workflow_id = Some("root".into());
+    let current = claim_task(task);
+    assert_eq!(
+        current.attempt.event.value()["ldgparentworkflowid"],
+        "parent"
+    );
+    assert_eq!(current.attempt.event.value()["ldgrootworkflowid"], "root");
+    let command = success(&current.attempt, Quiescence::Confirmed);
+    let accepted = settle(&current.task, &current.attempt, &command, NOW + 1).unwrap();
+    task_result(&accepted.task, accepted.attempt.as_ref()).unwrap();
+    for field in ["parent", "root", "workflow"] {
+        let mut changed = current.task.clone();
+        match field {
+            "parent" => changed.parent_workflow_id = Some("other".into()),
+            "root" => changed.root_workflow_id = Some("other".into()),
+            _ => changed.workflow_id = Some("other".into()),
+        }
+        assert!(settle(&changed, &current.attempt, &command, NOW + 1).is_err());
+        assert!(task_status(&changed, Some(&current.attempt)).is_err());
+    }
+    let mut changed = command;
+    let AttemptReport::Completed(ref mut report) = changed.report else {
+        unreachable!()
+    };
+    report.context.identity.parent_workflow_id = Some("other".into());
+    assert_eq!(
+        settle(&current.task, &current.attempt, &changed, NOW + 1).unwrap_err(),
+        ContractError::Conflict
+    );
+}

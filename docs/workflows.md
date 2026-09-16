@@ -12,8 +12,9 @@ This first workflow slice provides durable local steps, distributed child tasks,
 sealed all-terminal waits, explicit continuations, workflow results and
 cancellation. [External events and durable timers](workflow-events.md) add
 one-shot callback waits and persisted deadlines to the same checkpoint model.
-Subworkflows, administrative redrive, automatic code upgrades, and large externalized
-checkpoint/result payloads are later capabilities.
+[Owned subworkflows](subworkflows.md) add nested workflow composition and
+parent/child lifecycle coordination. Administrative redrive, automatic code
+upgrades, and large externalized checkpoint/result payloads are later capabilities.
 
 ## Application model
 
@@ -71,6 +72,7 @@ Execution choices have different recovery behavior:
 | Ordinary Python call | Current invocation | May repeat with its continuation |
 | `await ctx.local(key, function, **inputs)` | Current invocation/package | Individual acknowledged local result |
 | `ctx.task(key, ...)` | Independently admitted child task | Child task with its own attempts and leases |
+| `ctx.workflow(key, ...)` | Independently scheduled owned workflow | Child workflow with its own checkpoints and terminal outcome |
 
 `ctx.task` stages a command. It does not launch the child before the returned
 checkpoint decision is accepted. `ctx.continue_(continuation=..., state=...)`
@@ -88,7 +90,7 @@ its original task and package digest; changing its binding conflicts. Include an
 explicit iteration identifier in keys when a loop should create new work.
 
 `ctx.complete(output)` cannot discard staged launches or finish while an owned
-child is still nonterminal. `ctx.fail(kind, message)` is an intentional workflow
+task or workflow child is still nonterminal. `ctx.fail(kind, message)` is an intentional workflow
 decision. Unexpected controller exceptions, runtime failures and timeouts use
 the activation task's retry policy instead. Exhausted activation retries fail
 the workflow and drain its owned tasks.

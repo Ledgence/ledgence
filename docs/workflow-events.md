@@ -168,5 +168,7 @@ wait processing retries remain durable. Workflows may use integrated delivery or
 the SQS-compatible adapter; the broker carries execution references, not timer
 state. Local SQS-compatible validation uses ElasticMQ.
 
-Inbound events resume workflows. Outbound completion notifications, subworkflows,
-and general event streams remain separate capabilities.
+Inbound events resume workflows. [Owned subworkflows](subworkflows.md) can use
+these waits independently and report their terminal outcome to their parent.
+Outbound completion notifications and general event streams remain separate
+capabilities.

@@ -232,6 +232,29 @@ class WorkflowClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ProtocolError):
             parse_workflow_result(completed(output=[nested]), self.client.scope, "workflow")
 
+    async def test_root_and_nested_results_accept_rust_float_boundary_over_http(self):
+        from ledgence.client import codec
+        limit = 256 * 1024
+        count = (limit - 1) // 5
+        output = b"[" + b",".join([b"1e-8"] * count) + b"]"
+        self.assertLessEqual(len(output), limit)
+        expected = [1e-8] * count
+        with self.assertRaises(InputError): codec.encode(expected, limit)
+        for metadata in ({}, {"parent_workflow_id": "parent", "root_workflow_id": "root"}):
+            current = snapshot("succeeded", **metadata)
+            async def handle(request, body):
+                if request.path.endswith("/status"):
+                    return response(current)
+                body = (b'{"workflow":' + json.dumps(current).encode()
+                        + b',"outcome":{"kind":"succeeded","output":' + output + b'}}')
+                return web.Response(body=body, content_type="application/json")
+            self.callback = handle
+            with self.subTest(metadata=metadata):
+                received = await self.client.workflows.handle("workflow").result(timeout=5)
+                self.assertEqual(received, expected)
+        self.assertEqual(len(self.requests), 4)
+        self.assertTrue(all(request[0] == "GET" for request in self.requests))
+
     async def test_task_observations_link_to_workflow_and_allow_controller_envelopes(self):
         from ledgence.client.models import parse_status, parse_result
         from support import status, result
@@ -285,3 +308,83 @@ class WorkflowClientTests(unittest.IsolatedAsyncioTestCase):
         waiting.cancel()
         with self.assertRaises(asyncio.CancelledError): await waiting
         self.assertTrue(all(r[0] == "GET" for r in self.requests))
+
+    async def test_lineage_preserves_legacy_roots_and_owned_child_identities(self):
+        for metadata in ({}, {"parent_workflow_id": None, "root_workflow_id": None}):
+            status = parse_workflow_status(snapshot(**metadata), self.client.scope, "workflow")
+            self.assertIsNone(status.parent_workflow_id)
+            self.assertEqual(status.root_workflow_id, "workflow")
+        for parent, root in (("root", "root"), ("parent", "root")):
+            status = parse_workflow_status(snapshot(parent_workflow_id=parent,
+                                           root_workflow_id=root), self.client.scope, "workflow")
+            self.assertEqual((status.parent_workflow_id, status.root_workflow_id), (parent, root))
+            with self.assertRaises(AttributeError): status.parent_workflow_id = "changed"
+        for parent, root in ((None, "root"), ("parent", None), ("workflow", "root"),
+                             ("parent", "workflow"), ("", "root"), ("parent", "x" * 129),
+                             (1, "root"), ("parent", "bad\nroot")):
+            with self.subTest(parent=parent, root=root), self.assertRaises(ProtocolError):
+                parse_workflow_status(snapshot(parent_workflow_id=parent, root_workflow_id=root),
+                                      self.client.scope, "workflow")
+
+    async def test_root_submission_cannot_resolve_to_an_owned_child(self):
+        async def handle(request, body):
+            return response(snapshot(parent_workflow_id="parent", root_workflow_id="root"))
+        self.callback = handle
+        with self.assertRaises(SubmissionUncertain) as raised:
+            await self.client.workflows.submit(**self.args())
+        self.assertIsInstance(raised.exception.cause, ProtocolError)
+        self.assertEqual(len(self.requests), 1)
+
+    async def test_nested_result_and_independent_cancel_use_the_child_identity(self):
+        metadata = dict(parent_workflow_id="parent", root_workflow_id="root")
+        async def handle(request, body):
+            if request.path.endswith("/cancel"):
+                self.assertEqual(json.loads(body), {"scope": SCOPE, "workflow_id": "workflow"})
+                return response(snapshot("cancelling", **metadata))
+            self.assertEqual(dict(request.query), {"tenant_id": SCOPE["tenant_id"],
+                             "namespace": SCOPE["namespace"], "workflow_id": "workflow"})
+            if request.path.endswith("/status"):
+                return response(snapshot("succeeded", **metadata))
+            value = completed(output={"nested": True})
+            value["workflow"].update(metadata)
+            return response(value)
+        self.callback = handle
+        handle = self.client.workflows.handle("workflow")
+        self.assertEqual(await handle.result(timeout=1), {"nested": True})
+        status = await handle.cancel()
+        self.assertEqual(status.state, "cancelling")
+        self.assertEqual(status.parent_workflow_id, "parent")
+        self.assertEqual(status.root_workflow_id, "root")
+
+    async def test_wait_rejects_changed_parent_root_and_root_to_child_transitions(self):
+        cases = [({}, {"parent_workflow_id": "parent", "root_workflow_id": "root"}),
+                 ({"parent_workflow_id": "parent", "root_workflow_id": "root"}, {}),
+                 ({"parent_workflow_id": "parent", "root_workflow_id": "root"},
+                  {"parent_workflow_id": "other", "root_workflow_id": "root"}),
+                 ({"parent_workflow_id": "parent", "root_workflow_id": "root"},
+                  {"parent_workflow_id": "parent", "root_workflow_id": "other"})]
+        for first, second in cases:
+            count = 0
+            async def handle(request, body):
+                nonlocal count
+                self.assertTrue(request.path.endswith("/status"))
+                count += 1
+                return response(snapshot("waiting", **(first if count == 1 else second)))
+            self.callback = handle
+            with self.subTest(first=first, second=second), self.assertRaises(ProtocolError):
+                await self.client.workflows.handle("workflow").wait(timeout=2)
+            self.assertEqual(count, 2)
+        self.assertTrue(all(request[0] == "GET" for request in self.requests))
+
+    async def test_wait_rejects_changed_lineage_in_terminal_result(self):
+        async def handle(request, body):
+            if request.path.endswith("/status"):
+                return response(snapshot("succeeded", parent_workflow_id="parent",
+                                         root_workflow_id="root"))
+            value = completed()
+            value["workflow"].update(parent_workflow_id="other", root_workflow_id="root")
+            return response(value)
+        self.callback = handle
+        with self.assertRaises(ProtocolError):
+            await self.client.workflows.handle("workflow").wait(timeout=1)
+        self.assertEqual(len(self.requests), 2)

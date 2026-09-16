@@ -103,7 +103,8 @@ class InboundWorkflowTests(unittest.IsolatedAsyncioTestCase):
         wake = {'kind': 'timer', 'key': 'timer', 'deadline': 1}
         combined = full_array(lambda value: {'inputs': {'child': {
             'task_id': 'child-task', 'state': 'succeeded', 'outcome': {
-                'kind': 'succeeded', 'output': value}}}, 'wake': wake}, MAX_DECISION_BYTES)
+                'kind': 'succeeded', 'attempt_id': 'attempt', 'quiescence': 'confirmed',
+                'execution_may_have_started': True, 'output': value}}}, 'wake': wake}, MAX_DECISION_BYTES)
         with self.assertRaises(WorkflowError): _encode(combined, MAX_DECISION_BYTES, 96)
         context = self.context(**combined)
         self.assertEqual(context.inputs, combined['inputs'])

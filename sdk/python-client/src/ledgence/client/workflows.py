@@ -60,6 +60,8 @@ class Workflows:
             status = parse_workflow_status(raw, self._client.scope)
             if status.correlation_key != correlation:
                 raise ProtocolError("workflow submission response changed correlation")
+            if status.parent_workflow_id is not None:
+                raise ProtocolError("workflow submission returned an owned child")
             return status
 
         try:
@@ -134,6 +136,8 @@ class WorkflowHandle:
                         status.revision < last_status.revision
                         or status.submitted_at != last_status.submitted_at
                         or status.correlation_key != last_status.correlation_key
+                        or status.parent_workflow_id != last_status.parent_workflow_id
+                        or status.root_workflow_id != last_status.root_workflow_id
                     ):
                         raise ProtocolError("workflow metadata regressed between observations")
                     last_status = status

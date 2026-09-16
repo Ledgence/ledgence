@@ -45,7 +45,11 @@ impl ResponseValue for TaskSnapshot {
     fn validate_values(&self) -> Result<()> {
         self.input.validate()?;
         self.descriptor.validate()?;
-        Ok(())
+        validate_workflow_lineage(
+            self.workflow_id.as_deref(),
+            self.parent_workflow_id.as_deref(),
+            self.root_workflow_id.as_deref(),
+        )
     }
 }
 impl ResponseValue for ClaimReply {

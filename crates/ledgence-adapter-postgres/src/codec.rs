@@ -195,6 +195,8 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
     }
     let task = TaskSnapshot {
         workflow_id: get(row, "workflow_id")?,
+        parent_workflow_id: get(row, "parent_workflow_id")?,
+        root_workflow_id: get(row, "root_workflow_id")?,
         workflow_activation_id: get(row, "workflow_activation_id")?,
         task_id: identifier(row, "task_id", 128)?,
         run_id: identifier(row, "run_id", 128)?,
@@ -210,9 +212,14 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
         attempt_count: count(row, "attempt_count")?,
         cancel_requested_at: optional_time(row, "cancel_requested_at_ms")?,
     };
-    for id in [&task.workflow_id, &task.workflow_activation_id]
-        .into_iter()
-        .flatten()
+    for id in [
+        &task.workflow_id,
+        &task.workflow_activation_id,
+        &task.parent_workflow_id,
+        &task.root_workflow_id,
+    ]
+    .into_iter()
+    .flatten()
     {
         validate_text(id, 128).map_err(|_| corrupt("workflow identity"))?;
     }
@@ -222,6 +229,18 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
         .is_some_and(|id| id != &task.task_id || task.workflow_id.is_none())
     {
         return Err(corrupt("workflow activation identity"));
+    }
+    if task.parent_workflow_id.is_some() != task.root_workflow_id.is_some()
+        || task
+            .parent_workflow_id
+            .as_ref()
+            .is_some_and(|id| task.workflow_id.is_none() || Some(id) == task.workflow_id.as_ref())
+        || task
+            .root_workflow_id
+            .as_ref()
+            .is_some_and(|id| Some(id) == task.workflow_id.as_ref())
+    {
+        return Err(corrupt("task workflow lineage"));
     }
     if let Some(id) = &task.current_attempt_id {
         validate_text(id, 128).map_err(|_| corrupt("current attempt identity"))?;

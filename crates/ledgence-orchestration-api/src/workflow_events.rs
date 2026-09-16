@@ -379,7 +379,7 @@ mod tests {
         }
         context.inputs.insert(
             "large".into(),
-            WorkflowChildResult {
+            WorkflowChildResult::Task(WorkflowTaskResult {
                 task_id: "child_1".into(),
                 state: TaskState::Succeeded,
                 outcome: TaskOutcome::Succeeded {
@@ -388,7 +388,7 @@ mod tests {
                     execution_may_have_started: true,
                     quiescence: Quiescence::Confirmed,
                 },
-            },
+            }),
         );
         context.wake = None;
         context.validate().unwrap();

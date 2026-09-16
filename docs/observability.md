@@ -120,9 +120,14 @@ logs add `ledgence.workflow.id` and `ledgence.activation.id` when applicable;
 protocol 3 Python log records retain the same workflow identity across forwarding.
 Normal warm reuse clears the previous invocation's context.
 
-Workflow children and later activations currently retain the workflow's accepted
-submission origin for invocation creation. The first slice does not export a
-dedicated span per durable local step or reconstruct an uninterrupted span through
-a suspended wait. Existing per-attempt trace carriers and durable workflow/task
+New ordinary child tasks and owned subworkflows inherit the spawning activation's
+accepted processing trace, falling back to the workflow's submission origin when
+processing tracing is unavailable. Replayed child bindings retain their original
+carrier. Later activations of a workflow retain that workflow's accepted submission
+origin. Nested attempt-processing and activation spans add
+`ledgence.workflow.parent.id` and `ledgence.workflow.root.id`; their protocol 3
+program logs retain the same paired ancestry. External event resumes keep their
+separate producer links. Ledgence does not export a dedicated span per durable
+local step or reconstruct an uninterrupted span through a suspended wait. Existing per-attempt trace carriers and durable workflow/task
 IDs provide correlation; traces remain optional, lossy observations. Durable
 workflow state, checkpoints, and result records establish execution outcomes.

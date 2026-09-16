@@ -136,9 +136,13 @@ impl ApplicationService {
         &self,
         work: &WorkflowWork,
     ) -> Result<Vec<ResolvedWorkflowChild>> {
-        if !work.activation {
+        let WorkflowWorkSource::TaskTerminal {
+            task_id,
+            activation: true,
+        } = &work.source
+        else {
             return Ok(Vec::new());
-        }
+        };
         let outcome = work
             .outcome
             .as_ref()
@@ -147,7 +151,7 @@ impl ApplicationService {
             return Ok(Vec::new());
         };
         let decision = WorkflowDecision::decode(output)?;
-        if decision.activation_id != work.task_id {
+        if decision.activation_id != *task_id {
             return Err(ContractError::Conflict);
         }
         if work.resolved_children.len() > WORKFLOW_MAX_COMMANDS {
@@ -171,7 +175,10 @@ impl ApplicationService {
                 ContractError::Unavailable("invalid registered workflow child descriptor".into())
             })?;
             if registered
-                .insert(binding.key.clone(), binding.descriptor.clone())
+                .insert(
+                    binding.key.clone(),
+                    (binding.kind, binding.descriptor.clone()),
+                )
                 .is_some()
             {
                 return Err(ContractError::Unavailable(
@@ -183,8 +190,8 @@ impl ApplicationService {
         let mut resolved = Vec::with_capacity(decision.commands().len());
         for command in decision.commands() {
             let program_key = (command.program.id.clone(), command.program.version.clone());
-            let descriptor = if let Some(descriptor) = registered.get(&command.key) {
-                if descriptor.program != command.program {
+            let descriptor = if let Some((kind, descriptor)) = registered.get(&command.key) {
+                if *kind != command.kind || descriptor.program != command.program {
                     return Err(ContractError::Conflict);
                 }
                 descriptor.clone()
@@ -196,6 +203,7 @@ impl ApplicationService {
                 descriptor
             };
             resolved.push(ResolvedWorkflowChild {
+                kind: command.kind,
                 key: command.key.clone(),
                 descriptor,
             });
@@ -251,19 +259,20 @@ impl WorkflowService for ApplicationService {
             validate_submission(command)?;
             let store = self.workflows()?;
             if let Some(accepted) = store.replay_workflow_submission(command).await? {
-                return Ok(accepted);
+                return validate_workflow_submission_reply(command, accepted);
             }
             let resolved = self.resolve_workflow_program(&command.input.program).await;
             let descriptor = match resolved {
                 Ok(descriptor) => descriptor,
                 Err(error) => {
                     return match store.replay_workflow_submission(command).await? {
-                        Some(accepted) => Ok(accepted),
+                        Some(accepted) => validate_workflow_submission_reply(command, accepted),
                         None => Err(error),
                     };
                 }
             };
-            store.accept_resolved_workflow(command, &descriptor).await
+            let accepted = store.accept_resolved_workflow(command, &descriptor).await?;
+            validate_workflow_submission_reply(command, accepted)
         })
     }
     fn workflow_status<'a>(
@@ -332,4 +341,26 @@ fn application_failure(kind: &str, error: &ContractError) -> ApplicationError {
         kind: kind.into(),
         message,
     }
+}
+
+// Submission can already have committed. Invalid adapter replies are uncertain,
+// never definitive rejections or permission to adopt an owned child as a root.
+pub(super) fn validate_workflow_submission_reply(
+    command: &SubmitCommand,
+    accepted: WorkflowSnapshot,
+) -> Result<WorkflowSnapshot> {
+    accepted
+        .validate()
+        .map_err(|_| ContractError::Unavailable("invalid workflow submission reply".into()))?;
+    if accepted.scope.tenant_id != command.input.tenant_id
+        || accepted.scope.namespace != command.input.namespace
+        || accepted.correlation_key != command.input.correlation_key
+        || accepted.parent_workflow_id.is_some()
+        || accepted.root_workflow_id.is_some()
+    {
+        return Err(ContractError::Unavailable(
+            "workflow submission reply identity mismatch".into(),
+        ));
+    }
+    Ok(accepted)
 }

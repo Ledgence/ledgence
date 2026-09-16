@@ -52,3 +52,9 @@ Program results follow the same numeric range, require string object keys and Un
 ## Workflow identity
 
 Workflow activation and child task events additionally contain `ldgworkflowid`, identifying their workflow execution. Controller events also contain `ldgactivationid`, equal to their stable controller task ID across attempts. Existing `ldgrunid` remains the per-task run identity; workflow support does not reinterpret it. These optional identifiers remain outside application-owned `data` and propagate into execution reports and tracing. Checkpoint state and local journals use the separate [workflow runtime context](workflows.md).
+
+Nested owned workflows additionally carry paired `ldgparentworkflowid` and
+`ldgrootworkflowid` on their controller and ordinary child-task events. Roots
+omit both. `ldgworkflowid` identifies the owning workflow, not its parent or
+root. The pair cannot name the owning workflow as its own ancestor. See
+[owned subworkflow identity and compatibility](subworkflows.md).

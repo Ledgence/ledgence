@@ -65,6 +65,8 @@ pub fn submit(
         return Err(ContractError::Conflict);
     }
     let task = TaskSnapshot {
+        parent_workflow_id: None,
+        root_workflow_id: None,
         workflow_id: None,
         workflow_activation_id: None,
         task_id: task_id.into(),
@@ -203,6 +205,11 @@ fn unchanged<R>(task: &TaskSnapshot, attempt: Option<&AttemptSnapshot>, reply: R
 }
 
 fn validate_attempt(task: &TaskSnapshot, attempt: &AttemptSnapshot) -> Result<()> {
+    validate_workflow_lineage(
+        task.workflow_id.as_deref(),
+        task.parent_workflow_id.as_deref(),
+        task.root_workflow_id.as_deref(),
+    )?;
     let owner = &attempt.lease.owner;
     if owner.scope != task.scope()
         || owner.task_id != task.task_id
@@ -214,6 +221,12 @@ fn validate_attempt(task: &TaskSnapshot, attempt: &AttemptSnapshot) -> Result<()
         || attempt.event.value()["ldgrunid"].as_str() != Some(&task.run_id)
         || attempt.event.tenant_id() != task.input.tenant_id
         || attempt.event.namespace() != task.input.namespace
+        || attempt.event.value()["ldgworkflowid"].as_str() != task.workflow_id.as_deref()
+        || attempt.event.value()["ldgactivationid"].as_str()
+            != task.workflow_activation_id.as_deref()
+        || attempt.event.value()["ldgparentworkflowid"].as_str()
+            != task.parent_workflow_id.as_deref()
+        || attempt.event.value()["ldgrootworkflowid"].as_str() != task.root_workflow_id.as_deref()
         || attempt.descriptor != task.descriptor
     {
         return Err(invalid("attempt snapshot does not belong to task"));
