@@ -186,7 +186,7 @@ async fn external_wait_ignores_child_completion_and_preserves_pending_child_inpu
         .unwrap();
     assert!(context.wake.is_none());
     assert_eq!(
-        context.inputs["compute"].task_id,
+        task_input_id(&context.inputs["compute"]),
         child_task.lease.owner.task_id
     );
     db.finish().await;
@@ -222,7 +222,7 @@ async fn timed_event_uses_acceptance_deadline_despite_delayed_coordinator() {
         .await
         .unwrap();
     let work = one_work(&db.store).await;
-    assert!(!work.activation);
+    assert_eq!(work.source, WorkflowWorkSource::Wait);
     assert!(work.outcome.is_none());
     assert_eq!(
         db.store

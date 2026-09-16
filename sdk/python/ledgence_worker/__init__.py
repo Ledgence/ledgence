@@ -28,6 +28,8 @@ class InvocationContext:
     processing_context: Optional[TraceContext] = None
     workflow_id: Optional[str] = None
     activation_id: Optional[str] = None
+    parent_workflow_id: Optional[str] = None
+    root_workflow_id: Optional[str] = None
 
 
 _invocation: ContextVar[Optional[InvocationContext]] = ContextVar(

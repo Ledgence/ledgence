@@ -53,6 +53,7 @@ fn local(assigned: &Assignment, key: &str) -> LocalResultCommand {
 }
 fn child(key: &str) -> WorkflowTaskCommand {
     WorkflowTaskCommand {
+        kind: WorkflowChildKind::Task,
         key: key.into(),
         program: descriptor().program,
         queue: "children".into(),
@@ -63,6 +64,7 @@ fn child(key: &str) -> WorkflowTaskCommand {
 }
 fn resolved(key: &str) -> ResolvedWorkflowChild {
     ResolvedWorkflowChild {
+        kind: WorkflowChildKind::Task,
         key: key.into(),
         descriptor: descriptor(),
     }
@@ -316,7 +318,7 @@ async fn durable_locals_child_suspend_resume_and_terminal_quiescence() {
     assert_eq!(context.continuation, "finish");
     assert_eq!(context.state, json!({"sum": 7}));
     assert_eq!(
-        context.inputs["issue"].task_id,
+        task_input_id(&context.inputs["issue"]),
         child_task.lease.owner.task_id
     );
     assert!(context.local_steps.is_empty());
@@ -434,7 +436,7 @@ async fn continue_preserves_child_receipts_and_completion_before_suspend() {
         .await
         .unwrap();
     assert_eq!(
-        context.inputs["issue"].task_id,
+        task_input_id(&context.inputs["issue"]),
         child_task.lease.owner.task_id
     );
     // Explicitly awaiting the same completed child again is allowed even after its input was consumed.
@@ -452,13 +454,13 @@ async fn continue_preserves_child_receipts_and_completion_before_suspend() {
     )
     .await;
     let fourth = acquire(&db.store, "python").await;
+    let fourth_context = db
+        .store
+        .activation_context(&fourth.lease.owner)
+        .await
+        .unwrap();
     assert_eq!(
-        db.store
-            .activation_context(&fourth.lease.owner)
-            .await
-            .unwrap()
-            .inputs["issue"]
-            .task_id,
+        task_input_id(&fourth_context.inputs["issue"]),
         child_task.lease.owner.task_id
     );
     let child_count: i64 = sqlx::query_scalar(
@@ -1158,3 +1160,12 @@ async fn child_completion_and_local_receipt_do_not_hydrate_unneeded_payloads() {
 
 #[path = "event_tests.rs"]
 mod events;
+
+fn task_input_id(input: &WorkflowChildResult) -> &str {
+    match input {
+        WorkflowChildResult::Task(task) => &task.task_id,
+        _ => panic!("expected task input"),
+    }
+}
+#[path = "owned_tests.rs"]
+mod owned;

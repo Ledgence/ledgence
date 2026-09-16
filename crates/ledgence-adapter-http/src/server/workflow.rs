@@ -53,6 +53,8 @@ pub(super) async fn post(
             if reply.scope.tenant_id != command.input.tenant_id
                 || reply.scope.namespace != command.input.namespace
                 || reply.correlation_key != command.input.correlation_key
+                || reply.parent_workflow_id.is_some()
+                || reply.root_workflow_id.is_some()
             {
                 return Err(unavailable("workflow submission response identity mismatch").into());
             }

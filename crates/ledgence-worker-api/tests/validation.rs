@@ -316,6 +316,8 @@ fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
     value["tracestate"] = "vendor=state".into();
     value["ldgworkflowid"] = "workflow-1".into();
     value["ldgactivationid"] = "task-1".into();
+    value["ldgparentworkflowid"] = "parent-1".into();
+    value["ldgrootworkflowid"] = "root-1".into();
     value["data"] = json!({"source": "do not read this", "ldgrunid": "wrong"});
     let identity = InvocationIdentity::from(&CloudEvent::new(value).unwrap());
     let serialized = serde_json::to_value(&identity).unwrap();
@@ -325,6 +327,8 @@ fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
     assert_eq!(serialized["run_id"], "run-1");
     assert_eq!(serialized["workflow_id"], "workflow-1");
     assert_eq!(serialized["activation_id"], "task-1");
+    assert_eq!(serialized["parent_workflow_id"], "parent-1");
+    assert_eq!(serialized["root_workflow_id"], "root-1");
     assert_eq!(serialized["event_id"], "invocation-1");
     assert_eq!(serialized["task_id"], "task-1");
     assert_eq!(serialized["attempt_id"], "attempt-1");
@@ -338,6 +342,8 @@ fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
     assert!(untraced.get("tracestate").is_none());
     assert!(untraced.get("workflow_id").is_none());
     assert!(untraced.get("activation_id").is_none());
+    assert!(untraced.get("parent_workflow_id").is_none());
+    assert!(untraced.get("root_workflow_id").is_none());
 }
 
 #[test]
@@ -466,4 +472,27 @@ fn workflow_context_ids_are_optional_but_have_consistent_identity_when_present()
     assert!(CloudEvent::new(bad).is_err());
     value.as_object_mut().unwrap().remove("ldgworkflowid");
     assert!(CloudEvent::new(value).is_err());
+}
+
+#[test]
+fn nested_invocations_reject_partial_or_self_ancestry() {
+    for (workflow, parent, root) in [
+        (None, Some("parent"), Some("root")),
+        (Some("child"), None, Some("root")),
+        (Some("child"), Some("parent"), None),
+        (Some("child"), Some("child"), Some("root")),
+        (Some("child"), Some("parent"), Some("child")),
+    ] {
+        let mut value = event();
+        for (key, id) in [
+            ("ldgworkflowid", workflow),
+            ("ldgparentworkflowid", parent),
+            ("ldgrootworkflowid", root),
+        ] {
+            if let Some(id) = id {
+                value[key] = json!(id);
+            }
+        }
+        assert!(CloudEvent::new(value).is_err());
+    }
 }

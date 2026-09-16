@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 /// Correlation copied from the validated envelope, never from user-owned data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvocationIdentity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_workflow_id: Option<String>,
     pub source: String,
     pub event_id: String,
     pub tenant_id: String,
@@ -25,6 +29,16 @@ pub struct InvocationIdentity {
 impl From<&CloudEvent> for InvocationIdentity {
     fn from(event: &CloudEvent) -> Self {
         Self {
+            parent_workflow_id: event
+                .value()
+                .get("ldgparentworkflowid")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            root_workflow_id: event
+                .value()
+                .get("ldgrootworkflowid")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
             source: event.string("source").to_owned(),
             event_id: event.id().to_owned(),
             tenant_id: event.tenant_id().to_owned(),

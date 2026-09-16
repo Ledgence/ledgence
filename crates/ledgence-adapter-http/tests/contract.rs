@@ -212,6 +212,8 @@ fn task(data: Value) -> TaskSnapshot {
     TaskSnapshot {
         workflow_id: None,
         workflow_activation_id: None,
+        parent_workflow_id: None,
+        root_workflow_id: None,
         task_id: "..".into(),
         run_id: "run".into(),
         idempotency_key: submit.idempotency_key,

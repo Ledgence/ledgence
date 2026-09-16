@@ -46,6 +46,8 @@ impl WorkflowService for Mock {
 fn snapshot() -> WorkflowSnapshot {
     WorkflowSnapshot {
         workflow_id: "workflow +%/é".into(),
+        parent_workflow_id: None,
+        root_workflow_id: None,
         scope: scope(),
         state: WorkflowState::Running,
         revision: 0,
@@ -59,6 +61,8 @@ fn context() -> WorkflowActivationContext {
     WorkflowActivationContext {
         v: 1,
         workflow_id: snapshot().workflow_id,
+        parent_workflow_id: None,
+        root_workflow_id: None,
         activation_id: owner().task_id,
         revision: 0,
         continuation: "start".into(),
@@ -315,3 +319,6 @@ async fn malformed_post_mutation_workflow_replies_remain_uncertain() {
 
 #[path = "workflow_events.rs"]
 mod events;
+
+#[path = "workflow_children.rs"]
+mod children;

@@ -37,6 +37,8 @@ struct LogInvocation {
     namespace: String,
     run_id: String,
     workflow_id: Option<String>,
+    parent_workflow_id: Option<String>,
+    root_workflow_id: Option<String>,
     activation_id: Option<String>,
     task_id: String,
     attempt_no: i32,
@@ -90,6 +92,8 @@ impl LogForwarder {
                     namespace = identity.map(|v| v.namespace.as_str()),
                     run_id = identity.map(|v| v.run_id.as_str()),
                     workflow_id = identity.and_then(|v| v.workflow_id.as_deref()),
+                    parent_workflow_id = identity.and_then(|v| v.parent_workflow_id.as_deref()),
+                    root_workflow_id = identity.and_then(|v| v.root_workflow_id.as_deref()),
                     activation_id = identity.and_then(|v| v.activation_id.as_deref()),
                     task_id = identity.map(|v| v.task_id.as_str()),
                     attempt_id = identity.map(|v| v.attempt_id.as_str()),
@@ -153,7 +157,12 @@ fn validated(value: &Value, version: u32) -> Option<LogRecord> {
     if let Some(identity) = &record.invocation {
         // Reuse envelope identity validation without reading user data or looking
         // up whichever invocation happens to be active when this record arrives.
-        if version == 2 && (identity.workflow_id.is_some() || identity.activation_id.is_some()) {
+        if version == 2
+            && (identity.workflow_id.is_some()
+                || identity.activation_id.is_some()
+                || identity.parent_workflow_id.is_some()
+                || identity.root_workflow_id.is_some())
+        {
             return None;
         }
         let mut event = json!({"specversion": "1.0", "type": "ledgence.log",
@@ -166,6 +175,8 @@ fn validated(value: &Value, version: u32) -> Option<LogRecord> {
         for (key, value) in [
             ("ldgworkflowid", &identity.workflow_id),
             ("ldgactivationid", &identity.activation_id),
+            ("ldgparentworkflowid", &identity.parent_workflow_id),
+            ("ldgrootworkflowid", &identity.root_workflow_id),
         ] {
             if let Some(value) = value {
                 if value.is_empty() || value.len() > 128 {

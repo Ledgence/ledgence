@@ -70,7 +70,11 @@ worker tracing is disabled. It never replaces the event's origin `traceparent`.
 `current_invocation()` provides `event_id`, `attempt_id`, `source`, `tenant_id`,
 `namespace`, `run_id`, `task_id`, `attempt_no`, and the optional frozen W3C
 `processing_context`. Optional `workflow_id` and `activation_id` come from envelope
-extensions, without inserting platform fields into user data. Context is reset on
+extensions. Nested workflow invocations also expose `parent_workflow_id` and
+`root_workflow_id`; root workflow invocations expose a null parent and their own
+workflow ID as the root. Ordinary tasks outside workflows have neither. Protocol 3
+logs include the paired ancestor IDs only for nested workflows, preserving older
+root log shapes. These identifiers never enter user data. Context is reset on
 success, business exception, and invalid
 output. No invocation context is written to process-global environment variables.
 
@@ -156,7 +160,7 @@ returns only after the Rust owner acknowledges durable storage of the result.
 Calls sharing an activation-local key and the same callable/input reuse the result.
 The callable does application work and may make ordinary nested Python calls.
 It cannot call workflow control APIs, start another journaled local step, or stage
-distributed tasks; the controller does those after awaiting its result. Otherwise
+distributed tasks or subworkflows; the controller does those after awaiting its result. Otherwise
 replaying the cached result would skip those workflow operations. This boundary
 also applies through asynchronous child tasks and `asyncio.to_thread`.
 Pass all changing inputs explicitly: closure variables and process memory are not
@@ -182,6 +186,35 @@ for an existing key conflicts. `ctx.suspend(continuation=..., state=..., until=[
 waits until all listed children are terminal; the next activation can read
 `ctx.get_result(ref_or_key)` for successful output or inspect `ctx.inputs` for
 failures. String keys can also refer to children from earlier activations.
+
+`ctx.workflow(key, program=..., version=..., queue=..., data=...)` stages an owned
+subworkflow with the same retry and attempt-timeout options as `ctx.task`. Both
+methods return references that are not awaitable. Return a checkpoint to dispatch
+work, mixing both reference kinds in `until` when needed:
+
+```python
+child = ctx.workflow("invoice-flow", program="invoice-flow", version="1.0.0",
+                     queue="billing", data=event["data"])
+summary = ctx.task("summary", program="summary", version="1.0.0",
+                   queue="billing", data=event["data"])
+return ctx.suspend(continuation="collect", state=None, until=[child, summary])
+```
+
+Tasks and workflows share the parent-wide key namespace. Reusing a key with a
+different kind conflicts, as does changing its program, input, or scheduling
+options. A child workflow wakes the parent only when the whole child workflow is
+terminal. A completed controller activation by itself does not resolve the wait.
+On resume, use the original string keys with `ctx.get_result(...)`, or inspect
+`ctx.inputs[key]`: task results retain `task_id`, while workflow results have
+`kind="workflow"` and `workflow_id`. Failed or cancelled children are inspectable
+outcomes, and `get_result` raises for them.
+
+Parent cancellation or failure drains owned descendants before becoming terminal.
+Completion with unfinished children is rejected. A decision can stage at most 64
+combined child commands and wait on at most 64 children. Each parent may have at
+most 64 live subworkflows; nested depth is capped at 16 (root depth is zero).
+See [`docs/subworkflows.md`](../../docs/subworkflows.md) for the lifecycle,
+lineage, limits, and upgrade requirements.
 
 External events and durable timers also use explicit checkpoint decisions:
 

@@ -63,6 +63,12 @@ pub enum AttemptState {
 /// Transaction-loaded scheduling record. Inputs and the descriptor are immutable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSnapshot {
+    /// Present together only for a nested owned workflow; roots omit both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_workflow_id: Option<String>,
+
     /// Workflow execution identity, distinct from the existing per-task run ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow_id: Option<String>,

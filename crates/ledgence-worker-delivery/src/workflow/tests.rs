@@ -102,6 +102,8 @@ fn config() -> DeliveryConfig {
 }
 fn context() -> WorkflowActivationContext {
     WorkflowActivationContext {
+        parent_workflow_id: None,
+        root_workflow_id: None,
         v: 1,
         workflow_id: "workflow".into(),
         activation_id: owner().task_id,
@@ -137,13 +139,15 @@ async fn bounded<T>(future: impl Future<Output = T>) -> T {
 
 #[tokio::test]
 async fn wrong_workflow_activation_or_context_version_is_rejected_before_runtime_use() {
-    for field in ["workflow", "activation", "version"] {
+    for field in ["workflow", "activation", "version", "lineage"] {
         let (service, mut contexts, mut commits) = fixture();
         let pending = tokio::spawn(async move {
             fetch_context(
                 service.as_ref(),
                 &owner(),
                 "workflow",
+                None,
+                None,
                 &config(),
                 &RunControl::new(Duration::from_secs(1)),
             )
@@ -155,6 +159,10 @@ async fn wrong_workflow_activation_or_context_version_is_rejected_before_runtime
         match field {
             "workflow" => value.workflow_id = "wrong".into(),
             "activation" => value.activation_id = "wrong".into(),
+            "lineage" => {
+                value.parent_workflow_id = Some("parent".into());
+                value.root_workflow_id = Some("root".into());
+            }
             _ => value.v = 2,
         }
         reply.send(Ok(value)).unwrap();
@@ -174,6 +182,8 @@ async fn transient_context_fetch_reuses_exact_owner_and_frozen_reply() {
             service.as_ref(),
             &owner(),
             "workflow",
+            None,
+            None,
             &config(),
             &RunControl::new(Duration::from_secs(1)),
         )

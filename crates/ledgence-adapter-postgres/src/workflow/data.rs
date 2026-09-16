@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) struct RunRecord {
     pub snapshot: WorkflowSnapshot,
+    pub nesting_depth: u32,
     pub submission: SubmitCommand,
     pub controller: ProgramDescriptor,
     pub continuation: String,
@@ -36,6 +37,8 @@ pub(super) fn status_record(row: &PgRow) -> StoreResult<WorkflowSnapshot> {
 fn snapshot_record(row: &PgRow) -> StoreResult<WorkflowSnapshot> {
     Ok(WorkflowSnapshot {
         workflow_id: row.try_get("workflow_id")?,
+        parent_workflow_id: row.try_get("parent_workflow_id")?,
+        root_workflow_id: row.try_get("root_workflow_id")?,
         scope: Scope {
             tenant_id: row.try_get("tenant_id")?,
             namespace: row.try_get("namespace")?,
@@ -107,8 +110,25 @@ pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
     if !consistent {
         return Err(corrupt("workflow outcome").into());
     }
+    // During creation the run precedes its first activation in this transaction,
+    // so full public snapshot validation applies only after it is scheduled.
+    let snapshot = snapshot_record(row)?;
+    validate_workflow_lineage(
+        Some(&snapshot.workflow_id),
+        snapshot.parent_workflow_id.as_deref(),
+        snapshot.root_workflow_id.as_deref(),
+    )
+    .map_err(|_| corrupt("workflow lineage"))?;
+    let nesting_depth = u32::try_from(row.try_get::<i32, _>("nesting_depth")?)
+        .map_err(|_| corrupt("nesting depth"))?;
+    if nesting_depth > WORKFLOW_MAX_DEPTH
+        || (nesting_depth == 0) != snapshot.parent_workflow_id.is_none()
+    {
+        return Err(corrupt("nesting depth and lineage").into());
+    }
     Ok(RunRecord {
-        snapshot: snapshot_record(row)?,
+        snapshot,
+        nesting_depth,
         submission,
         controller,
         continuation: row.try_get("continuation")?,
@@ -138,9 +158,9 @@ pub(super) async fn load_run(
         validate_text(key, 255)?;
     }
     let sql = if locked {
-        "SELECT *,trunc(revision)::text AS revision_text FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND (($3::text IS NOT NULL AND workflow_id=$3) OR ($3::text IS NULL AND idempotency_key=$4)) FOR NO KEY UPDATE"
+        "SELECT *,trunc(revision)::text AS revision_text FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND (($3::text IS NOT NULL AND workflow_id=$3) OR ($3::text IS NULL AND idempotency_key=$4 AND parent_workflow_id IS NULL)) FOR NO KEY UPDATE"
     } else {
-        "SELECT *,trunc(revision)::text AS revision_text FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND (($3::text IS NOT NULL AND workflow_id=$3) OR ($3::text IS NULL AND idempotency_key=$4))"
+        "SELECT *,trunc(revision)::text AS revision_text FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND (($3::text IS NOT NULL AND workflow_id=$3) OR ($3::text IS NULL AND idempotency_key=$4 AND parent_workflow_id IS NULL))"
     };
     let row = sqlx::query(sql)
         .bind(&scope.tenant_id)
@@ -174,7 +194,10 @@ pub(super) async fn save_run(connection: &mut PgConnection, run: &RunRecord) -> 
         .bind(&run.snapshot.workflow_id).bind(codec::label(&run.snapshot.state)?).bind(run.snapshot.revision.to_string())
         .bind(&run.continuation).bind(codec::encode(&run.checkpoint)?).bind(&run.snapshot.activation_id).bind(&run.wait_activation)
         .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key)
-        .execute(connection).await?;
+        .execute(&mut *connection).await?;
+    if run.snapshot.state.is_terminal() && run.snapshot.parent_workflow_id.is_some() {
+        owned::terminal_obligation(connection, &run.snapshot).await?;
+    }
     Ok(())
 }
 pub(super) async fn record_history(
@@ -196,7 +219,7 @@ pub(super) async fn insert_task(
     command: &SubmitCommand,
     descriptor: &ProgramDescriptor,
     task_id: &str,
-    workflow_id: &str,
+    workflow: &WorkflowSnapshot,
     activation: bool,
     now: u64,
 ) -> StoreResult<TaskSnapshot> {
@@ -204,13 +227,15 @@ pub(super) async fn insert_task(
     let run_id = db::id(connection, "run").await?;
     let mut transition = core::submit(command, descriptor, task_id, &run_id, now)?;
     transition.task.workflow_activation_id = activation.then(|| task_id.to_owned());
-    transition.task.workflow_id = Some(workflow_id.to_owned());
+    transition.task.workflow_id = Some(workflow.workflow_id.clone());
+    transition.task.parent_workflow_id = workflow.parent_workflow_id.clone();
+    transition.task.root_workflow_id = workflow.root_workflow_id.clone();
     let task = &transition.task;
-    sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count,dispatch_destination,workflow_activation_id,workflow_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$11,0,$12,$13,$14)")
+    sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count,dispatch_destination,workflow_activation_id,workflow_id,parent_workflow_id,root_workflow_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$11,0,$12,$13,$14,$15,$16)")
         .bind(&task.task_id).bind(&task.run_id).bind(&task.input.tenant_id).bind(&task.input.namespace).bind(&task.input.queue)
         .bind(&task.idempotency_key).bind(&task.input.correlation_key).bind(codec::encode(&task.input)?).bind(codec::encode(&task.descriptor)?)
         .bind(task.origin_trace.as_ref().map(codec::encode).transpose()?).bind(codec::ms(now)?).bind(destination.as_deref())
-        .bind(&task.workflow_activation_id).bind(&task.workflow_id).execute(&mut *connection).await?;
+        .bind(&task.workflow_activation_id).bind(&task.workflow_id).bind(&task.parent_workflow_id).bind(&task.root_workflow_id).execute(&mut *connection).await?;
     db::history(connection, &transition.history).await?;
     if destination.is_some() {
         crate::dispatch_intents::sync_intent(connection, task_id).await?;
@@ -228,6 +253,8 @@ pub(super) async fn schedule_activation(
     let context = WorkflowActivationContext {
         v: WORKFLOW_VERSION,
         workflow_id: run.snapshot.workflow_id.clone(),
+        parent_workflow_id: run.snapshot.parent_workflow_id.clone(),
+        root_workflow_id: run.snapshot.root_workflow_id.clone(),
         activation_id: task_id.clone(),
         revision: run.snapshot.revision,
         continuation: run.continuation.clone(),
@@ -244,7 +271,7 @@ pub(super) async fn schedule_activation(
         &command,
         &run.controller,
         &task_id,
-        &run.snapshot.workflow_id,
+        &run.snapshot,
         true,
         now,
     )
@@ -286,6 +313,15 @@ pub(super) async fn task_result(
     scope: &Scope,
     id: &str,
 ) -> StoreResult<TaskResult> {
+    Ok(task_result_with_trace(connection, scope, id).await?.0)
+}
+/// Reuse the already decoded terminal settlement when propagating the spawning
+/// activation's processing context. No second large report decode is needed.
+pub(super) async fn task_result_with_trace(
+    connection: &mut PgConnection,
+    scope: &Scope,
+    id: &str,
+) -> StoreResult<(TaskResult, Option<TraceContext>)> {
     let row = sqlx::query(include_str!("../../queries/task_result.sql"))
         .bind(&scope.tenant_id)
         .bind(&scope.namespace)
@@ -299,7 +335,12 @@ pub(super) async fn task_result(
     } else {
         Some(codec::attempt_prefixed(&row, &task, "a_")?)
     };
-    Ok(core::task_result(&task, attempt.as_ref())?)
+    let result = core::task_result(&task, attempt.as_ref())?;
+    let trace = attempt
+        .as_ref()
+        .and_then(|attempt| attempt.settlement.as_ref())
+        .and_then(|accepted| accepted.command.processing_trace.clone());
+    Ok((result, trace))
 }
 pub(super) async fn enqueue_drain(
     connection: &mut PgConnection,

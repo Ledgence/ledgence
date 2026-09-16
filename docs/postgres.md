@@ -135,6 +135,21 @@ live authority.
 Compact status and local-result authority reads exclude application payloads.
 Child completion notifications do not load result bodies until a continuation
 needs them. All-terminal waits use bounded membership; cancellation drains up to
-16 owned tasks per transaction. The adapter retains history and journal records;
+16 owned items per transaction, sharing the budget between task cancellation and
+subworkflow cancellation obligations. The adapter retains history and journal records;
 workflow retention deletion and sharding are not implemented. See
 [workflow semantics and bounds](workflows.md).
+
+Migration `20260917000000_owned_workflows.sql` adds immutable parent/root lineage,
+`owned_workflow_links`, and workflow-terminal/cancel-owned work variants. Root
+submission idempotency remains scoped to top-level runs. Owned children use their
+parent's shared task/workflow key namespace. Parent checkpoint acceptance creates
+new child runs and their first activation/dispatch obligations atomically.
+
+A child's terminal transaction marks its direct ownership link and records a
+compact parent obligation. Parent cancellation schedules bounded durable work for
+children; it does not hold a parent run lock while acquiring a child run lock.
+Each child drains its own descendants before becoming terminal. The parent can
+therefore wait for direct-child terminal markers without scanning or locking the
+whole tree. See [owned subworkflows](subworkflows.md) for bounds and migration
+compatibility; retention still requires preserving the new relationships.

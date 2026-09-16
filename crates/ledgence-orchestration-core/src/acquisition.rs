@@ -145,6 +145,11 @@ pub fn acquire(
     let expires_at = add_time(now, LEASE_DURATION_MS)?
         .min(authority_deadline)
         .min(session.expires_at);
+    validate_workflow_lineage(
+        task.workflow_id.as_deref(),
+        task.parent_workflow_id.as_deref(),
+        task.root_workflow_id.as_deref(),
+    )?;
     let mut event = json!({"specversion":"1.0","id":ids.event_id,"source":"urn:ledgence:orchestrator",
         "type":"com.ledgence.task.invocation.requested.v1", "subject":format!("tasks/{}",task.task_id),
         "time":timestamp(now)?, "datacontenttype":"application/json",
@@ -152,6 +157,12 @@ pub fn acquire(
         "ldgtaskid":task.task_id,"ldgattemptid":ids.attempt_id,"ldgattemptno":number,"data":task.input.data});
     if let Some(id) = &task.workflow_id {
         event["ldgworkflowid"] = Value::String(id.clone());
+    }
+    if let Some(id) = &task.parent_workflow_id {
+        event["ldgparentworkflowid"] = Value::String(id.clone());
+    }
+    if let Some(id) = &task.root_workflow_id {
+        event["ldgrootworkflowid"] = Value::String(id.clone());
     }
     if let Some(id) = &task.workflow_activation_id {
         event["ldgactivationid"] = Value::String(id.clone());

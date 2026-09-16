@@ -6,6 +6,12 @@ use ledgence_worker_api::ProgramOutcome;
 /// Project validated records selected from the same durable snapshot.
 /// `latest` must be generation `task.attempt_count`, including for queued retries.
 pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Result<TaskStatus> {
+    validate_workflow_lineage(
+        task.workflow_id.as_deref(),
+        task.parent_workflow_id.as_deref(),
+        task.root_workflow_id.as_deref(),
+    )
+    .map_err(|_| corrupt())?;
     let status = TaskStatus {
         scope: task.scope(),
         task_id: task.task_id.clone(),

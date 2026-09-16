@@ -302,8 +302,10 @@ def parse_result(raw, scope: Scope, task_id: str) -> TaskResult:
             return TaskResult(task, None)
         if type(outcome) is not dict or outcome.get("kind") != task.state.value:
             raise InputError("outcome contradicts task state")
-        codec.encode(outcome, 8 * 1024 * 1024,
-                     max_depth=104 if task.workflow_activation_id is not None else codec.MAX_DEPTH + 8)
+        codec.validate_authoritative(
+            outcome, 8 * 1024 * 1024,
+            max_depth=104 if task.workflow_activation_id is not None else codec.MAX_DEPTH + 8,
+        )
         if task.state == TaskState.CANCELLED:
             codec.fields(outcome, {"kind"})
             return TaskResult(task, Cancelled())
@@ -320,8 +322,8 @@ def parse_result(raw, scope: Scope, task_id: str) -> TaskResult:
             if not started:
                 raise InputError("success requires execution-start evidence")
             output_depth = 96 if task.workflow_activation_id is not None else codec.MAX_DEPTH
-            codec.validate(outcome["output"], 8 * 1024 * 1024, max_depth=output_depth)
-            codec.encode(outcome["output"], 8 * 1024 * 1024, max_depth=output_depth)
+            codec.validate_authoritative(outcome["output"], 8 * 1024 * 1024,
+                                         max_depth=output_depth)
             value = Succeeded(outcome["attempt_id"], quiescence, started, outcome["output"])
         else:
             failure = _failure(outcome["failure"])

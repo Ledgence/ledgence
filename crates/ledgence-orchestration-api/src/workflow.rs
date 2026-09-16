@@ -65,19 +65,16 @@ impl LocalStepRecord {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorkflowChildResult {
-    pub task_id: String,
-    pub state: TaskState,
-    pub outcome: TaskOutcome,
-}
-
 /// Frozen activation inputs and checkpoint, plus the current committed journal.
 /// New child completions do not mutate the frozen input batch or revision.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowActivationContext {
+    /// Present together only for a nested owned workflow; roots omit both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_workflow_id: Option<String>,
     pub v: u8,
     pub workflow_id: String,
     pub activation_id: String,
@@ -95,7 +92,11 @@ pub struct WorkflowActivationContext {
 impl WorkflowActivationContext {
     pub fn validate(&self) -> Result<()> {
         version(self.v)?;
-        validate_text(&self.workflow_id, 128)?;
+        validate_workflow_lineage(
+            Some(&self.workflow_id),
+            self.parent_workflow_id.as_deref(),
+            self.root_workflow_id.as_deref(),
+        )?;
         validate_text(&self.activation_id, 128)?;
         validate_text(&self.continuation, 128)?;
         checkpoint(&self.state)?;
@@ -106,30 +107,7 @@ impl WorkflowActivationContext {
         }
         for (key, child) in &self.inputs {
             validate_text(key, 128)?;
-            validate_text(&child.task_id, 128)?;
-            if let TaskOutcome::Succeeded {
-                output,
-                attempt_id,
-                execution_may_have_started,
-                ..
-            } = &child.outcome
-            {
-                validate_wire_value(output)?;
-                validate_text(attempt_id, 128)?;
-                if !execution_may_have_started {
-                    return Err(invalid("inconsistent successful workflow input"));
-                }
-            }
-            if !matches!(
-                (&child.state, &child.outcome),
-                (TaskState::Succeeded, TaskOutcome::Succeeded { .. })
-                    | (TaskState::Failed, TaskOutcome::Failed { .. })
-                    | (TaskState::Cancelled, TaskOutcome::Cancelled {})
-            ) {
-                return Err(invalid(
-                    "workflow input is not a consistent terminal result",
-                ));
-            }
+            child.validate()?;
         }
         if let Some(wake) = &self.wake {
             wake.validate()?;
@@ -167,7 +145,9 @@ impl WorkflowActivationContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct WorkflowTaskCommand {
+pub struct WorkflowChildCommand {
+    #[serde(default, skip_serializing_if = "WorkflowChildKind::is_task")]
+    pub kind: WorkflowChildKind,
     pub key: String,
     pub program: ProgramRef,
     pub queue: String,
@@ -181,7 +161,10 @@ pub struct WorkflowTaskCommand {
 const fn attempt_timeout() -> u64 {
     300_000
 }
-impl WorkflowTaskCommand {
+/// Compatibility name for the original task-only command contract.
+pub type WorkflowTaskCommand = WorkflowChildCommand;
+
+impl WorkflowChildCommand {
     pub fn submission(&self, scope: &Scope, correlation_key: Option<String>) -> SubmitTask {
         SubmitTask {
             tenant_id: scope.tenant_id.clone(),
@@ -223,20 +206,20 @@ pub enum WorkflowAction {
     Wait {
         state: Value,
         continuation: String,
-        commands: Vec<WorkflowTaskCommand>,
+        commands: Vec<WorkflowChildCommand>,
         wait: WorkflowWait,
     },
     Suspend {
         state: Value,
         continuation: String,
-        commands: Vec<WorkflowTaskCommand>,
+        commands: Vec<WorkflowChildCommand>,
         /// Sealed all-terminal membership. Empty membership is immediately ready.
         until: Vec<String>,
     },
     Continue {
         state: Value,
         continuation: String,
-        commands: Vec<WorkflowTaskCommand>,
+        commands: Vec<WorkflowChildCommand>,
     },
     Complete {
         output: Value,
@@ -315,7 +298,7 @@ impl WorkflowDecision {
         }
         bounded(self, WORKFLOW_DECISION_MAX_BYTES, "workflow decision")
     }
-    pub fn commands(&self) -> &[WorkflowTaskCommand] {
+    pub fn commands(&self) -> &[WorkflowChildCommand] {
         match &self.action {
             WorkflowAction::Wait { commands, .. }
             | WorkflowAction::Suspend { commands, .. }
@@ -327,7 +310,7 @@ impl WorkflowDecision {
 fn validate_continuation(
     state: &Value,
     continuation: &str,
-    commands: &[WorkflowTaskCommand],
+    commands: &[WorkflowChildCommand],
 ) -> Result<()> {
     checkpoint(state)?;
     validate_text(continuation, 128)?;
@@ -392,6 +375,11 @@ impl WorkflowState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowSnapshot {
+    /// Present together only for a nested owned workflow; roots omit both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_workflow_id: Option<String>,
     pub workflow_id: String,
     pub scope: Scope,
     pub state: WorkflowState,
@@ -404,7 +392,7 @@ pub struct WorkflowSnapshot {
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub correlation_key: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowOutcome {
     Succeeded {
@@ -441,8 +429,7 @@ pub struct WorkflowWork {
     pub id: String,
     pub token: String,
     pub workflow_id: String,
-    pub task_id: String,
-    pub activation: bool,
+    pub source: WorkflowWorkSource,
     /// Only controller outcomes are loaded here. Child completion notifications
     /// stay compact; their payloads are read once a continuation needs them.
     pub outcome: Option<TaskOutcome>,
@@ -451,6 +438,7 @@ pub struct WorkflowWork {
 }
 #[derive(Debug, Clone)]
 pub struct ResolvedWorkflowChild {
+    pub kind: WorkflowChildKind,
     pub key: String,
     pub descriptor: ProgramDescriptor,
 }
@@ -458,6 +446,7 @@ pub struct ResolvedWorkflowChild {
 pub struct WorkflowProgress {
     pub processed: u32,
     pub activations_scheduled: u32,
+    /// Newly registered ordinary tasks and owned workflow runs, combined.
     pub children_scheduled: u32,
 }
 
@@ -584,7 +573,11 @@ pub trait WorkflowService: Send + Sync {
 impl WorkflowSnapshot {
     pub fn validate(&self) -> Result<()> {
         self.scope.validate()?;
-        validate_text(&self.workflow_id, 128)?;
+        validate_workflow_lineage(
+            Some(&self.workflow_id),
+            self.parent_workflow_id.as_deref(),
+            self.root_workflow_id.as_deref(),
+        )?;
         if let Some(id) = &self.activation_id {
             validate_text(id, 128)?;
         }
@@ -678,7 +671,7 @@ mod tests {
         for _ in 0..64 {
             output = json!([output]);
         }
-        let child = WorkflowChildResult {
+        let child = WorkflowChildResult::Task(WorkflowTaskResult {
             task_id: "child".into(),
             state: TaskState::Succeeded,
             outcome: TaskOutcome::Succeeded {
@@ -687,8 +680,10 @@ mod tests {
                 execution_may_have_started: true,
                 output,
             },
-        };
+        });
         let mut context = WorkflowActivationContext {
+            parent_workflow_id: None,
+            root_workflow_id: None,
             v: 1,
             workflow_id: "workflow".into(),
             activation_id: "activation".into(),
@@ -700,9 +695,10 @@ mod tests {
             wake: None,
         };
         context.validate().unwrap();
-        let TaskOutcome::Succeeded { output, .. } =
-            &mut context.inputs.get_mut("child").unwrap().outcome
-        else {
+        let WorkflowChildResult::Task(child) = context.inputs.get_mut("child").unwrap() else {
+            unreachable!()
+        };
+        let TaskOutcome::Succeeded { output, .. } = &mut child.outcome else {
             unreachable!()
         };
         *output = json!([output.take()]);

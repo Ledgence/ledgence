@@ -79,6 +79,12 @@ class WorkflowStatus:
     submitted_at: int
     terminal_at: int | None
     correlation_key: str | None
+    parent_workflow_id: str | None = None
+    root_workflow_id: str | None = None
+
+    def __post_init__(self):
+        if self.root_workflow_id is None:
+            object.__setattr__(self, "root_workflow_id", self.workflow_id)
 
 
 @dataclass(frozen=True)
@@ -105,11 +111,16 @@ class WorkflowResult:
 
 
 def _status(raw, scope, workflow_id):
-    codec.fields(raw, set(WorkflowStatus.__dataclass_fields__))
+    lineage = {"parent_workflow_id", "root_workflow_id"}
+    codec.fields(raw, set(WorkflowStatus.__dataclass_fields__) - lineage, lineage)
     actual_scope = _scope(raw["scope"])
     actual_id = codec.text(raw["workflow_id"], "workflow_id")
     if actual_scope != scope or (workflow_id is not None and actual_id != workflow_id):
         raise InputError("workflow identity does not match the request")
+    parent = _optional_text(raw.get("parent_workflow_id"), "parent_workflow_id")
+    root = _optional_text(raw.get("root_workflow_id"), "root_workflow_id")
+    if (parent is None) != (root is None) or actual_id in (parent, root):
+        raise InputError("invalid workflow lineage")
     state = WorkflowState(raw["state"])
     activation = _optional_text(raw["activation_id"], "activation_id")
     terminal = _optional_time(raw["terminal_at"], "terminal_at")
@@ -123,7 +134,7 @@ def _status(raw, scope, workflow_id):
         actual_id, actual_scope, state,
         codec.integer(raw["revision"], "revision", 0, (1 << 64) - 1), activation, submitted,
         terminal, _optional_text(raw["correlation_key"], "correlation_key", 512,
-                                 empty=True, noncharacters=True),
+                                 empty=True, noncharacters=True), parent, root,
     )
 
 
@@ -147,8 +158,7 @@ def parse_workflow_result(raw, scope: Scope, workflow_id: str) -> WorkflowResult
             raise InputError("outcome contradicts workflow state")
         if status.state == WorkflowState.SUCCEEDED:
             codec.fields(outcome, {"kind", "output"})
-            codec.validate(outcome["output"], 256 * 1024)
-            codec.encode(outcome["output"], 256 * 1024, max_depth=codec.MAX_DEPTH)
+            codec.validate_authoritative(outcome["output"], 256 * 1024)
             value = WorkflowSucceeded(outcome["output"])
         elif status.state == WorkflowState.FAILED:
             codec.fields(outcome, {"kind", "error"})

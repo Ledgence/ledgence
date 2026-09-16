@@ -7,6 +7,7 @@ const DRAIN_BATCH: i64 = 16;
 
 struct WorkRow {
     kind: String,
+    task_id: String,
     failures: u32,
     created_at: u64,
 }
@@ -34,13 +35,14 @@ impl PostgresStore {
                 tenant_id: row_scope.try_get("tenant_id")?,
                 namespace: row_scope.try_get("namespace")?,
             };
-            let terminal = row.try_get::<String, _>("kind")? == "terminal";
-            let activation = if !terminal {
-                false
-            } else {
-                sqlx::query_scalar("SELECT is_activation FROM workflow_task_links WHERE workflow_id=$1 AND task_id=$2")
-                    .bind(&workflow_id).bind(&task_id).fetch_one(&mut *tx).await?
-            };
+            let source = work_source(&mut tx, &row).await?;
+            let activation = matches!(
+                source,
+                WorkflowWorkSource::TaskTerminal {
+                    activation: true,
+                    ..
+                }
+            );
             let outcome = if activation {
                 Some(
                     task_result(&mut tx, &scope, &task_id)
@@ -58,11 +60,16 @@ impl PostgresStore {
             {
                 let keys: Vec<_> = decision.commands().iter().map(|c| c.key.clone()).collect();
                 if !keys.is_empty() {
-                    let accepted = sqlx::query("SELECT l.command_key,t.descriptor_bytes FROM workflow_task_links l JOIN tasks t USING(task_id) WHERE l.workflow_id=$1 AND NOT l.is_activation AND l.command_key=ANY($2)")
+                    let accepted = sqlx::query("SELECT l.command_key,t.descriptor_bytes,'task' AS child_kind FROM workflow_task_links l JOIN tasks t USING(task_id) WHERE l.workflow_id=$1 AND NOT l.is_activation AND l.command_key=ANY($2) UNION ALL SELECT l.command_key,w.controller_bytes AS descriptor_bytes,'workflow' AS child_kind FROM owned_workflow_links l JOIN workflow_runs w ON w.workflow_id=l.child_workflow_id WHERE l.parent_workflow_id=$1 AND l.command_key=ANY($2)")
                         .bind(&workflow_id).bind(&keys).fetch_all(&mut *tx).await?;
                     for child in accepted {
                         resolved_children.push(ResolvedWorkflowChild {
                             key: child.try_get("command_key")?,
+                            kind: if child.try_get::<String, _>("child_kind")? == "task" {
+                                WorkflowChildKind::Task
+                            } else {
+                                WorkflowChildKind::Workflow
+                            },
                             descriptor: codec::decode(
                                 &child.try_get::<Vec<u8>, _>("descriptor_bytes")?,
                             )?,
@@ -74,8 +81,7 @@ impl PostgresStore {
                 id: row.try_get("id")?,
                 token: row.try_get("lease_token")?,
                 workflow_id,
-                task_id,
-                activation,
+                source,
                 outcome,
                 resolved_children,
             });
@@ -96,7 +102,7 @@ impl PostgresStore {
             tx.commit().await?;
             return Ok(WorkflowProgress::default());
         };
-        let now = db::now(&mut tx).await?;
+        let mut now = db::now(&mut tx).await?;
         let mut progress = WorkflowProgress {
             processed: 1,
             ..WorkflowProgress::default()
@@ -114,6 +120,17 @@ impl PostgresStore {
             )
             .await?;
             drain(&mut tx, &mut run, &work.id, now).await?;
+        } else if row.kind == "cancel_owned" {
+            let mut run = load_run(
+                &mut tx,
+                &snapshot.scope,
+                Some(&snapshot.workflow_id),
+                None,
+                false,
+            )
+            .await?;
+            owned::cancel_owned(&mut tx, &mut run, now).await?;
+            finish_work(&mut tx, &work.id, now).await?;
         } else if matches!(
             snapshot.state,
             WorkflowState::Failing | WorkflowState::Cancelling
@@ -130,7 +147,7 @@ impl PostgresStore {
             finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "wait" {
             let applied =
-                external::apply_external_wait(&mut tx, &snapshot, &work.task_id, now).await?;
+                external::apply_external_wait(&mut tx, &snapshot, &row.task_id, now).await?;
             if let Some(task) = applied.task {
                 wakes.push(task);
                 progress.activations_scheduled += 1;
@@ -142,8 +159,14 @@ impl PostgresStore {
                 finish_work(&mut tx, &work.id, now).await?;
             }
         } else {
-            let (is_activation, terminal): (bool, bool) = sqlx::query_as("SELECT is_activation,terminal FROM workflow_task_links WHERE workflow_id=$1 AND task_id=$2")
-                .bind(&work.workflow_id).bind(&work.task_id).fetch_one(&mut *tx).await?;
+            let (is_activation, terminal): (bool, bool) =
+                if let WorkflowWorkSource::WorkflowTerminal { workflow_id: child } = &work.source {
+                    (false, sqlx::query_scalar("SELECT terminal FROM owned_workflow_links WHERE parent_workflow_id=$1 AND child_workflow_id=$2")
+                    .bind(&work.workflow_id).bind(child).fetch_one(&mut *tx).await?)
+                } else {
+                    sqlx::query_as("SELECT is_activation,terminal FROM workflow_task_links WHERE workflow_id=$1 AND task_id=$2")
+                    .bind(&work.workflow_id).bind(&row.task_id).fetch_one(&mut *tx).await?
+                };
             if !terminal {
                 return Err(corrupt("unfinished source task").into());
             }
@@ -156,7 +179,8 @@ impl PostgresStore {
                     false,
                 )
                 .await?;
-                let result = task_result(&mut tx, &run.snapshot.scope, &work.task_id).await?;
+                let (result, processing_trace) =
+                    task_result_with_trace(&mut tx, &run.snapshot.scope, &row.task_id).await?;
                 let outcome = result
                     .outcome
                     .ok_or_else(|| corrupt("unfinished source task"))?;
@@ -164,13 +188,13 @@ impl PostgresStore {
                     TaskOutcome::Succeeded { output, .. } => {
                         let decision = WorkflowDecision::decode(&output)?;
                         let revision: String = sqlx::query_scalar("SELECT trunc(revision)::text FROM workflow_activations WHERE activation_id=$1")
-                            .bind(&work.task_id).fetch_one(&mut *tx).await?;
-                        if decision.activation_id != work.task_id
+                            .bind(&row.task_id).fetch_one(&mut *tx).await?;
+                        if decision.activation_id != row.task_id
                             || decision.revision != codec::u64_text(&revision)?
                         {
                             return Err(ContractError::Conflict.into());
                         }
-                        if run.snapshot.activation_id.as_deref() != Some(&work.task_id)
+                        if run.snapshot.activation_id.as_deref() != Some(&row.task_id)
                             || decision.revision != run.snapshot.revision
                         {
                             return Err(corrupt(
@@ -178,18 +202,20 @@ impl PostgresStore {
                             )
                             .into());
                         }
-                        apply_decision(
+                        let applied = apply_decision(
                             &mut tx,
                             &mut run,
                             &decision,
                             resolved,
+                            processing_trace.as_ref(),
                             now,
                             &mut progress,
-                            &mut wakes,
                         )
                         .await?;
+                        wakes.extend(applied.wakes);
+                        now = applied.at;
                         sqlx::query("UPDATE workflow_activations SET applied_at_ms=$2 WHERE activation_id=$1")
-                            .bind(&work.task_id).bind(codec::ms(now)?).execute(&mut *tx).await?;
+                            .bind(&row.task_id).bind(codec::ms(now)?).execute(&mut *tx).await?;
                     }
                     TaskOutcome::Failed { failure, .. } => {
                         let error = match failure {
@@ -237,6 +263,9 @@ impl PostgresStore {
                         false,
                     )
                     .await?;
+                    // A child can commit after the initial clock sample without
+                    // taking this parent's lock. Timestamp after observing the join.
+                    now = db::now(&mut tx).await?;
                     wakes.push(schedule_activation(&mut tx, &mut run, inputs, None, now).await?);
                     progress.activations_scheduled += 1;
                     record_history(
@@ -270,7 +299,9 @@ impl PostgresStore {
             return Ok(());
         };
         let now = db::now(&mut tx).await?;
-        if row.kind == "terminal" && now.saturating_sub(row.created_at) >= APPLICATION_DEADLINE_MS {
+        if matches!(row.kind.as_str(), "terminal" | "workflow_terminal")
+            && now.saturating_sub(row.created_at) >= APPLICATION_DEADLINE_MS
+        {
             fail_run(
                 &mut tx,
                 &mut run,
@@ -305,13 +336,13 @@ impl PostgresStore {
             tx.commit().await?;
             return Ok(());
         };
-        if row.kind == "drain" {
-            return Err(corrupt("drain cannot be permanently rejected").into());
+        if matches!(row.kind.as_str(), "drain" | "cancel_owned") {
+            return Err(corrupt("cancellation work cannot be permanently rejected").into());
         }
         let now = db::now(&mut tx).await?;
         fail_run(&mut tx, &mut run, error, now).await?;
         sqlx::query("UPDATE workflow_activations SET applied_at_ms=$2,error_bytes=$3 WHERE activation_id=$1 AND applied_at_ms IS NULL")
-            .bind(&work.task_id).bind(codec::ms(now)?).bind(codec::encode(error)?).execute(&mut *tx).await?;
+            .bind(&row.task_id).bind(codec::ms(now)?).bind(codec::encode(error)?).execute(&mut *tx).await?;
         finish_work(&mut tx, &work.id, now).await?;
         tx.commit().await?;
         Ok(())
@@ -323,7 +354,7 @@ async fn load_work_snapshot(
     id: &str,
 ) -> StoreResult<WorkflowSnapshot> {
     validate_text(id, 128)?;
-    let row = sqlx::query("SELECT workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE workflow_id=$1 FOR NO KEY UPDATE")
+    let row = sqlx::query("SELECT workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE workflow_id=$1 FOR NO KEY UPDATE")
         .bind(id).fetch_optional(connection).await?.ok_or(ContractError::NotFound)?;
     status_record(&row)
 }
@@ -354,7 +385,7 @@ async fn lock_work(
         .await?
         .ok_or(ContractError::NotFound)?;
     if row.try_get::<String, _>("workflow_id")? != work.workflow_id
-        || row.try_get::<String, _>("task_id")? != work.task_id
+        || work_source(connection, &row).await? != work.source
     {
         return Err(ContractError::Conflict.into());
     }
@@ -370,6 +401,7 @@ async fn lock_work(
     }
     Ok(Some(WorkRow {
         kind: row.try_get("kind")?,
+        task_id: row.try_get("task_id")?,
         failures: u32::try_from(row.try_get::<i64, _>("failures")?)
             .map_err(|_| corrupt("work retry count"))?,
         created_at: u64::try_from(row.try_get::<i64, _>("created_at_ms")?)
@@ -381,18 +413,23 @@ async fn finish_work(connection: &mut PgConnection, id: &str, now: u64) -> Store
         .bind(id).bind(codec::ms(now)?).execute(connection).await?;
     Ok(())
 }
-async fn apply_decision(
+pub(super) struct AppliedDecision {
+    pub wakes: Vec<TaskSnapshot>,
+    pub at: u64,
+}
+
+pub(super) async fn apply_decision(
     connection: &mut PgConnection,
     run: &mut RunRecord,
     decision: &WorkflowDecision,
     resolved: &[ResolvedWorkflowChild],
+    processing_trace: Option<&TraceContext>,
     now: u64,
     progress: &mut WorkflowProgress,
-    wakes: &mut Vec<TaskSnapshot>,
-) -> StoreResult<()> {
+) -> StoreResult<AppliedDecision> {
+    let mut wakes = Vec::new();
     let unfinished = if matches!(decision.action, WorkflowAction::Complete { .. }) {
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_task_links WHERE workflow_id=$1 AND NOT terminal)")
-            .bind(&run.snapshot.workflow_id).fetch_one(&mut *connection).await?
+        owned::unfinished(connection, &run.snapshot.workflow_id).await?
     } else {
         false
     };
@@ -400,7 +437,7 @@ async fn apply_decision(
     let mut descriptors = BTreeMap::new();
     for child in resolved {
         child.descriptor.validate().map_err(ContractError::from)?;
-        if descriptors.insert(&child.key, &child.descriptor).is_some() {
+        if descriptors.insert(&child.key, child).is_some() {
             return Err(ContractError::Conflict.into());
         }
     }
@@ -408,11 +445,22 @@ async fn apply_decision(
     if descriptors.keys().any(|key| !expected.contains(key)) {
         return Err(ContractError::Conflict.into());
     }
+    // Pin causality to the accepted spawning activation, while retaining the
+    // workflow's original submission carrier for its own future activations.
+    let origin_trace = processing_trace.or(run.submission.origin_trace.as_ref());
     for command in decision.commands() {
-        let existing: Option<String> = sqlx::query_scalar("SELECT task_id FROM workflow_task_links WHERE workflow_id=$1 AND NOT is_activation AND command_key=$2")
+        let existing_task: Option<String> = sqlx::query_scalar("SELECT task_id FROM workflow_task_links WHERE workflow_id=$1 AND NOT is_activation AND command_key=$2")
+            .bind(&run.snapshot.workflow_id).bind(&command.key).fetch_optional(&mut *connection).await?;
+        let existing_workflow: Option<Vec<u8>> = sqlx::query_scalar("SELECT w.submission_bytes FROM owned_workflow_links l JOIN workflow_runs w ON w.workflow_id=l.child_workflow_id WHERE l.parent_workflow_id=$1 AND l.command_key=$2")
             .bind(&run.snapshot.workflow_id).bind(&command.key).fetch_optional(&mut *connection).await?;
         let input = command.submission(&run.snapshot.scope, run.snapshot.correlation_key.clone());
-        if let Some(task_id) = existing {
+        if existing_task.is_some() && existing_workflow.is_some() {
+            return Err(corrupt("ambiguous owned child key").into());
+        }
+        if let Some(task_id) = existing_task {
+            if command.kind != WorkflowChildKind::Task {
+                return Err(ContractError::Conflict.into());
+            }
             let task = db::load_task(connection, &run.snapshot.scope, &task_id, false).await?;
             if !task
                 .input
@@ -423,37 +471,65 @@ async fn apply_decision(
             }
             continue;
         }
-        let descriptor = descriptors
+        if let Some(bytes) = existing_workflow {
+            if command.kind != WorkflowChildKind::Workflow {
+                return Err(ContractError::Conflict.into());
+            }
+            let submission: SubmitCommand = codec::decode(&bytes)?;
+            if !submission
+                .input
+                .semantically_matches(&input)
+                .map_err(ContractError::from)?
+            {
+                return Err(ContractError::Conflict.into());
+            }
+            continue;
+        }
+        let resolved = descriptors
             .get(&command.key)
             .ok_or_else(|| invalid("missing resolved child binding"))?;
-        if descriptor.program != command.program {
+        if resolved.kind != command.kind || resolved.descriptor.program != command.program {
             return Err(ContractError::Conflict.into());
         }
-        let id = db::id(connection, "task").await?;
-        let submit = SubmitCommand {
-            input,
-            idempotency_key: format!("workflow:{}:{id}", run.snapshot.workflow_id),
-            origin_trace: run.submission.origin_trace.clone(),
+        let task = if command.kind == WorkflowChildKind::Workflow {
+            owned::create_child(
+                connection,
+                run,
+                &decision.activation_id,
+                command,
+                &resolved.descriptor,
+                origin_trace,
+                now,
+            )
+            .await?
+        } else {
+            let id = db::id(connection, "task").await?;
+            let submit = SubmitCommand {
+                input,
+                idempotency_key: format!("workflow:{}:{id}", run.snapshot.workflow_id),
+                origin_trace: origin_trace.cloned(),
+            };
+            let task = insert_task(
+                connection,
+                &submit,
+                &resolved.descriptor,
+                &id,
+                &run.snapshot,
+                false,
+                now,
+            )
+            .await?;
+            link_task(
+                connection,
+                &id,
+                &run.snapshot.workflow_id,
+                &decision.activation_id,
+                false,
+                &command.key,
+            )
+            .await?;
+            task
         };
-        let task = insert_task(
-            connection,
-            &submit,
-            descriptor,
-            &id,
-            &run.snapshot.workflow_id,
-            false,
-            now,
-        )
-        .await?;
-        link_task(
-            connection,
-            &id,
-            &run.snapshot.workflow_id,
-            &decision.activation_id,
-            false,
-            &command.key,
-        )
-        .await?;
         wakes.push(task);
         progress.children_scheduled += 1;
     }
@@ -463,18 +539,47 @@ async fn apply_decision(
             .fetch_one(&mut *connection)
             .await?;
     let context: WorkflowActivationContext = codec::decode(&context_bytes)?;
-    let consumed: Vec<_> = context
+    context
+        .validate()
+        .map_err(|_| corrupt("activation context"))?;
+    if context.workflow_id != run.snapshot.workflow_id
+        || context.activation_id != decision.activation_id
+        || context.revision != decision.revision
+        || context.parent_workflow_id != run.snapshot.parent_workflow_id
+        || context.root_workflow_id != run.snapshot.root_workflow_id
+    {
+        return Err(corrupt("activation context identity").into());
+    }
+    let consumed_tasks: Vec<_> = context
         .inputs
         .values()
-        .map(|input| input.task_id.clone())
+        .filter_map(|input| match input {
+            WorkflowChildResult::Task(child) => Some(child.task_id.clone()),
+            _ => None,
+        })
         .collect();
-    sqlx::query("UPDATE workflow_task_links SET consumed=true WHERE workflow_id=$1 AND NOT is_activation AND task_id=ANY($2)")
-        .bind(&run.snapshot.workflow_id).bind(consumed).execute(&mut *connection).await?;
+    let consumed_workflows: Vec<_> = context
+        .inputs
+        .values()
+        .filter_map(|input| match input {
+            WorkflowChildResult::Workflow(child) => Some(child.workflow_id.clone()),
+            _ => None,
+        })
+        .collect();
+    if !consumed_tasks.is_empty() {
+        sqlx::query("UPDATE workflow_task_links SET consumed=true WHERE workflow_id=$1 AND NOT is_activation AND task_id=ANY($2)")
+            .bind(&run.snapshot.workflow_id).bind(consumed_tasks).execute(&mut *connection).await?;
+    }
+    if !consumed_workflows.is_empty() {
+        sqlx::query("UPDATE owned_workflow_links SET consumed=true WHERE parent_workflow_id=$1 AND child_workflow_id=ANY($2)")
+            .bind(&run.snapshot.workflow_id).bind(consumed_workflows).execute(&mut *connection).await?;
+    }
     run.snapshot.revision = plan.revision;
     if let Some(checkpoint) = plan.checkpoint {
         run.checkpoint = checkpoint.state;
         run.continuation = checkpoint.continuation;
     }
+    let mut applied_at = now;
     match plan.disposition {
         core::WorkflowDisposition::Wait { members } => {
             run.snapshot.state = WorkflowState::Waiting;
@@ -483,7 +588,8 @@ async fn apply_decision(
             run.wait_keys = members;
             save_run(connection, run).await?;
             if let Some(inputs) = wait_inputs(connection, &run.snapshot, &run.wait_keys).await? {
-                wakes.push(schedule_activation(connection, run, inputs, None, now).await?);
+                applied_at = db::now(connection).await?;
+                wakes.push(schedule_activation(connection, run, inputs, None, applied_at).await?);
                 progress.activations_scheduled += 1;
             }
         }
@@ -503,13 +609,19 @@ async fn apply_decision(
         }
         core::WorkflowDisposition::Continue => {
             let inputs = pending_inputs(connection, run).await?;
-            wakes.push(schedule_activation(connection, run, inputs, None, now).await?);
+            if !inputs.is_empty() {
+                applied_at = db::now(connection).await?;
+            }
+            wakes.push(schedule_activation(connection, run, inputs, None, applied_at).await?);
             progress.activations_scheduled += 1;
         }
         core::WorkflowDisposition::Complete { output } => {
-            external::close_external_wait(connection, run, now).await?;
+            // Owned children can finish after the coordinator's initial time
+            // sample without locking this parent. Timestamp the observed join.
+            applied_at = db::now(connection).await?;
+            external::close_external_wait(connection, run, applied_at).await?;
             run.snapshot.state = WorkflowState::Succeeded;
-            run.snapshot.terminal_at = Some(now);
+            run.snapshot.terminal_at = Some(applied_at);
             run.snapshot.activation_id = None;
             run.outcome = Some(WorkflowOutcome::Succeeded { output });
             run.wait_activation = None;
@@ -523,43 +635,53 @@ async fn apply_decision(
         connection,
         &run.snapshot.workflow_id,
         Some(&decision.activation_id),
-        now,
+        applied_at,
         "decision_applied",
     )
     .await?;
-    Ok(())
+    Ok(AppliedDecision {
+        wakes,
+        at: applied_at,
+    })
+}
+async fn child_input(
+    connection: &mut PgConnection,
+    scope: &Scope,
+    row: &PgRow,
+) -> StoreResult<WorkflowChildResult> {
+    let id: String = row.try_get("child_id")?;
+    if row.try_get::<bool, _>("is_workflow")? {
+        return owned::result(connection, scope, &id).await;
+    }
+    let result = task_result(connection, scope, &id).await?;
+    Ok(WorkflowChildResult::Task(WorkflowTaskResult {
+        task_id: id,
+        state: result.task.state,
+        outcome: result
+            .outcome
+            .ok_or_else(|| corrupt("unfinished child input"))?,
+    }))
 }
 async fn wait_inputs(
     connection: &mut PgConnection,
     snapshot: &WorkflowSnapshot,
     keys: &[String],
 ) -> StoreResult<Option<BTreeMap<String, WorkflowChildResult>>> {
-    let rows = sqlx::query("SELECT l.command_key,l.task_id,t.state FROM workflow_task_links l JOIN tasks t USING(task_id) WHERE l.workflow_id=$1 AND NOT l.is_activation AND l.command_key=ANY($2)")
+    let rows = sqlx::query("SELECT command_key,task_id AS child_id,terminal,false AS is_workflow FROM workflow_task_links WHERE workflow_id=$1 AND NOT is_activation AND command_key=ANY($2) UNION ALL SELECT command_key,child_workflow_id AS child_id,terminal,true AS is_workflow FROM owned_workflow_links WHERE parent_workflow_id=$1 AND command_key=ANY($2)")
         .bind(&snapshot.workflow_id).bind(keys).fetch_all(&mut *connection).await?;
     if rows.len() != keys.len() {
         return Err(invalid("wait references an unknown child key").into());
     }
-    if rows.iter().any(|row| {
-        matches!(
-            row.try_get::<String, _>("state").as_deref(),
-            Ok("queued" | "active")
-        )
-    }) {
-        return Ok(None);
+    for row in &rows {
+        if !row.try_get::<bool, _>("terminal")? {
+            return Ok(None);
+        }
     }
     let mut inputs = BTreeMap::new();
     for row in rows {
-        let task_id: String = row.try_get("task_id")?;
-        let result = task_result(connection, &snapshot.scope, &task_id).await?;
         inputs.insert(
             row.try_get("command_key")?,
-            WorkflowChildResult {
-                task_id,
-                state: result.task.state,
-                outcome: result
-                    .outcome
-                    .ok_or_else(|| corrupt("wait terminal input"))?,
-            },
+            child_input(connection, &snapshot.scope, &row).await?,
         );
     }
     Ok(Some(inputs))
@@ -568,21 +690,13 @@ async fn pending_inputs(
     connection: &mut PgConnection,
     run: &RunRecord,
 ) -> StoreResult<BTreeMap<String, WorkflowChildResult>> {
-    let rows = sqlx::query("SELECT l.command_key,l.task_id FROM workflow_task_links l JOIN tasks t USING(task_id) WHERE l.workflow_id=$1 AND NOT l.is_activation AND NOT l.consumed AND l.terminal ORDER BY t.terminal_at_ms,l.task_id LIMIT 64")
+    let rows = sqlx::query("SELECT * FROM (SELECT l.command_key,l.task_id AS child_id,false AS is_workflow,t.terminal_at_ms FROM workflow_task_links l JOIN tasks t USING(task_id) WHERE l.workflow_id=$1 AND NOT l.is_activation AND NOT l.consumed AND l.terminal UNION ALL SELECT l.command_key,l.child_workflow_id AS child_id,true AS is_workflow,w.terminal_at_ms FROM owned_workflow_links l JOIN workflow_runs w ON w.workflow_id=l.child_workflow_id WHERE l.parent_workflow_id=$1 AND l.terminal AND NOT l.consumed) children ORDER BY terminal_at_ms,child_id LIMIT 64")
         .bind(&run.snapshot.workflow_id).fetch_all(&mut *connection).await?;
     let mut inputs = BTreeMap::new();
     for row in rows {
-        let task_id: String = row.try_get("task_id")?;
-        let result = task_result(connection, &run.snapshot.scope, &task_id).await?;
         inputs.insert(
             row.try_get("command_key")?,
-            WorkflowChildResult {
-                task_id,
-                state: result.task.state,
-                outcome: result
-                    .outcome
-                    .ok_or_else(|| corrupt("pending terminal input"))?,
-            },
+            child_input(connection, &run.snapshot.scope, &row).await?,
         );
     }
     Ok(inputs)
@@ -633,6 +747,7 @@ async fn drain(
     }
     let ids: Vec<String> = sqlx::query_scalar("SELECT t.task_id FROM workflow_task_links l JOIN tasks t USING(task_id) WHERE l.workflow_id=$1 AND NOT l.terminal AND t.cancel_requested_at_ms IS NULL ORDER BY t.task_id LIMIT $2")
         .bind(&run.snapshot.workflow_id).bind(DRAIN_BATCH).fetch_all(&mut *connection).await?;
+    let remaining = DRAIN_BATCH - ids.len() as i64;
     for id in ids {
         let task = db::load_task(connection, &run.snapshot.scope, &id, true).await?;
         let attempt = if let Some(id) = &task.current_attempt_id {
@@ -643,16 +758,15 @@ async fn drain(
         let transition = core::cancel(&task, attempt.as_ref(), db::now(connection).await?)?;
         db::apply(connection, &transition).await?;
     }
-    let unfinished: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM workflow_task_links WHERE workflow_id=$1 AND NOT terminal)",
-    )
-    .bind(&run.snapshot.workflow_id)
-    .fetch_one(&mut *connection)
-    .await?;
+    owned::enqueue_cancellations(connection, &run.snapshot.workflow_id, remaining, now).await?;
+    let unfinished = owned::unfinished(connection, &run.snapshot.workflow_id).await?;
     if unfinished {
         sqlx::query("UPDATE workflow_work SET available_at_ms=$2,lease_token=NULL,lease_until_ms=NULL WHERE id=$1")
             .bind(work_id).bind(codec::ms(now + 1_000)?).execute(connection).await?;
     } else {
+        // Cancelling tasks may have committed later timestamps than this drain's
+        // initial sample. Finalize after the observed owned terminal boundary.
+        let now = db::now(connection).await?;
         run.snapshot.state = if run.snapshot.state == WorkflowState::Cancelling {
             WorkflowState::Cancelled
         } else {
@@ -675,4 +789,34 @@ async fn drain(
         finish_work(connection, work_id, now).await?;
     }
     Ok(())
+}
+
+async fn work_source(
+    connection: &mut PgConnection,
+    row: &PgRow,
+) -> StoreResult<WorkflowWorkSource> {
+    Ok(match row.try_get::<String, _>("kind")?.as_str() {
+        "terminal" => {
+            let task_id: String = row.try_get("task_id")?;
+            let workflow_id: String = row.try_get("workflow_id")?;
+            let activation: bool = sqlx::query_scalar(
+                "SELECT is_activation FROM workflow_task_links WHERE workflow_id=$1 AND task_id=$2",
+            )
+            .bind(workflow_id)
+            .bind(&task_id)
+            .fetch_one(connection)
+            .await?;
+            WorkflowWorkSource::TaskTerminal {
+                task_id,
+                activation,
+            }
+        }
+        "workflow_terminal" => WorkflowWorkSource::WorkflowTerminal {
+            workflow_id: row.try_get("child_workflow_id")?,
+        },
+        "drain" => WorkflowWorkSource::Drain,
+        "cancel_owned" => WorkflowWorkSource::CancelOwned,
+        "wait" => WorkflowWorkSource::Wait,
+        _ => return Err(corrupt("workflow work source").into()),
+    })
 }

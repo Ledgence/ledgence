@@ -82,6 +82,19 @@ Save the workflow ID and reconnect with `client.workflows.handle(workflow_id)`.
 while active work drains. Failure and cancellation remain nonterminal in the
 `failing` and `cancelling` states.
 
+Each owned subworkflow has its own workflow ID. Reconnect to that ID with the same
+`client.workflows.handle(...)` API to inspect its status/result, send an event, or
+cancel it independently. `WorkflowStatus.parent_workflow_id` is null for roots;
+`root_workflow_id` is the root's own ID for a root and the ancestor root ID for a
+nested workflow. These fields are immutable across observations. A terminal child
+controller task does not imply that its workflow is complete.
+
+The public `submit()` endpoint starts root workflows. Controllers create owned
+children using the worker helper's `ctx.workflow(...)`. Parent cancellation and
+failure drain the owned tree before reaching a terminal status. See
+[`docs/subworkflows.md`](../../docs/subworkflows.md) for composition and result
+semantics.
+
 `WorkflowWaitTimeout` is also a `WaitTimeout`. It retains `.workflow`, `.last_status`
 and `.last_error`; observation timeout never cancels or resubmits the workflow.
 Observe the saved handle again to continue waiting. There is no persistent client

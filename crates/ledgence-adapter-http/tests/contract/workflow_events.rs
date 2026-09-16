@@ -205,6 +205,11 @@ async fn event_origin_is_linked_without_replacing_transport_parent_or_event_payl
     let bridge = Arc::new(EventTraceBridge::default());
     use tracing::instrument::WithSubscriber;
     use tracing_subscriber::prelude::*;
+    // Keep both traced and untraced dispatchers registered. Otherwise tracing's
+    // single-dispatch fast path may let a concurrent untraced HTTP test cache
+    // `never` when it first encounters the shared server callsite. This test
+    // uses a scoped subscriber and must not mutate the process global default.
+    let _untraced = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     let dispatch = tracing::Dispatch::new(
         tracing_subscriber::registry().with(EnteredSpans(bridge.entered.clone())),
     );

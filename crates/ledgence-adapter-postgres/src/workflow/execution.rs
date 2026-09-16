@@ -15,6 +15,8 @@ impl PostgresStore {
         if context.workflow_id != workflow.workflow_id
             || context.activation_id != owner.task_id
             || context.revision != workflow.revision
+            || context.parent_workflow_id != workflow.parent_workflow_id
+            || context.root_workflow_id != workflow.root_workflow_id
         {
             return Err(corrupt("activation context identity").into());
         }
@@ -109,7 +111,7 @@ async fn lock_activation(
     .fetch_optional(&mut *connection)
     .await?
     .ok_or(ContractError::OwnershipLost)?;
-    let row = sqlx::query("SELECT workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
+    let row = sqlx::query("SELECT workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
         .bind(&owner.scope.tenant_id).bind(&owner.scope.namespace).bind(&workflow_id).fetch_optional(&mut *connection).await?.ok_or(ContractError::NotFound)?;
     let workflow = status_record(&row)?;
     // Only authority metadata is read: local receipts must not decode or transfer

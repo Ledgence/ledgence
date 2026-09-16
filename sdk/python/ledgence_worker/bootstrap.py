@@ -195,6 +195,8 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
         run_id=event.get("ldgrunid"), task_id=event.get("ldgtaskid"),
         attempt_no=event.get("ldgattemptno"), processing_context=processing_context,
         workflow_id=event.get("ldgworkflowid"), activation_id=event.get("ldgactivationid"),
+        parent_workflow_id=event.get("ldgparentworkflowid"),
+        root_workflow_id=event.get("ldgrootworkflowid", event.get("ldgworkflowid")),
     ))
     try:
         with _activate(processing_context):
@@ -240,7 +242,9 @@ async def _invoke_async(handler, event, envelope, limit, extension, rpc):
             context = WorkflowContext(extension["payload"], rpc)
             if (context.activation_id != event.get("ldgtaskid")
                     or context.activation_id != event.get("ldgactivationid")
-                    or context.workflow_id != event.get("ldgworkflowid")):
+                    or context.workflow_id != event.get("ldgworkflowid")
+                    or context.parent_workflow_id != event.get("ldgparentworkflowid")
+                    or context.root_workflow_id != event.get("ldgrootworkflowid", event.get("ldgworkflowid"))):
                 raise ProtocolError("workflow activation context does not match the event identity")
             token = _workflow.set(context)
         output = handler(event)

@@ -11,17 +11,37 @@ use tokio::{
     net::{TcpListener, TcpStream},
     process::Child,
     sync::oneshot,
+    task::JoinSet,
 };
 
-async fn read_request(socket: &mut TcpStream) -> (String, Value) {
+type Request = (String, Value);
+
+async fn read_request(socket: &mut TcpStream) -> Request {
+    read_request_or_closed(socket)
+        .await
+        .expect("complete fixture request")
+}
+
+async fn read_request_or_closed(socket: &mut TcpStream) -> Option<Request> {
     let mut bytes = Vec::new();
     let end = loop {
         if let Some(index) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
             break index + 4;
         }
         let mut buffer = [0; 4096];
-        let count = socket.read(&mut buffer).await.unwrap();
-        assert_ne!(count, 0);
+        let count = match socket.read(&mut buffer).await {
+            Ok(0) => return None,
+            Ok(count) => count,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ) =>
+            {
+                return None;
+            }
+            Err(error) => panic!("fixture request read failed: {error}"),
+        };
         bytes.extend_from_slice(&buffer[..count]);
     };
     let header = String::from_utf8(bytes[..end].to_vec()).unwrap();
@@ -35,25 +55,61 @@ async fn read_request(socket: &mut TcpStream) -> (String, Value) {
         .unwrap();
     while bytes.len() < end + size {
         let mut buffer = [0; 4096];
-        let count = socket.read(&mut buffer).await.unwrap();
-        assert_ne!(count, 0);
+        let count = match socket.read(&mut buffer).await {
+            Ok(0) => return None,
+            Ok(count) => count,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ) =>
+            {
+                return None;
+            }
+            Err(error) => panic!("fixture request read failed: {error}"),
+        };
         bytes.extend_from_slice(&buffer[..count]);
     }
-    (
+    Some((
         header.lines().next().unwrap().into(),
         serde_json::from_slice(&bytes[end..end + size]).unwrap(),
-    )
+    ))
+}
+
+async fn next_request(
+    listener: &TcpListener,
+    readers: &mut JoinSet<(TcpStream, Option<Request>)>,
+) -> (TcpStream, Request) {
+    loop {
+        tokio::select! {
+            accepted = listener.accept() => {
+                let (mut socket, _) = accepted.unwrap();
+                readers.spawn(async move {
+                    let request = read_request_or_closed(&mut socket).await;
+                    (socket, request)
+                });
+            }
+            completed = readers.join_next(), if !readers.is_empty() => {
+                let (socket, request) = completed.unwrap().unwrap();
+                if let Some(request) = request { return (socket, request); }
+            }
+        }
+    }
 }
 
 async fn reply(socket: &mut TcpStream, body: Value) {
+    try_reply(socket, body).await.unwrap();
+}
+
+async fn try_reply(socket: &mut TcpStream, body: Value) -> std::io::Result<()> {
     let body = body.to_string();
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nRequest-Id: req-connect\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
-    socket.write_all(header.as_bytes()).await.unwrap();
-    socket.write_all(body.as_bytes()).await.unwrap();
-    socket.shutdown().await.unwrap();
+    socket.write_all(header.as_bytes()).await?;
+    socket.write_all(body.as_bytes()).await?;
+    socket.shutdown().await
 }
 
 fn spawn_worker(directory: &Path, server: &str, concurrency: &str) -> Child {
@@ -96,7 +152,11 @@ fn signal(child: &Child, value: Signal) {
 }
 
 async fn register(socket: &mut TcpStream, concurrency: u32) {
-    let (route, body) = read_request(socket).await;
+    let request = read_request(socket).await;
+    register_request(socket, request, concurrency).await;
+}
+
+async fn register_request(socket: &mut TcpStream, (route, body): Request, concurrency: u32) {
     assert_eq!(route, "POST /v1/worker-sessions HTTP/1.1");
     assert_eq!(
         body,
@@ -110,25 +170,49 @@ async fn connected_worker_registers_exact_concurrency_and_drains_on_first_signal
     let directory = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let server = format!("http://{}", listener.local_addr().unwrap());
+    // A cancelled client exchange can leave an idle or partial TCP request.
+    // Keep one open throughout the test: it must not serialize registration,
+    // acquisition, or reconciliation behind its unfinished HTTP body.
+    let mut partial = TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    partial
+        .write_all(b"POST /v1/acquisitions HTTP/1.1\r\n")
+        .await
+        .unwrap();
     let (ready, acquired) = oneshot::channel();
     let transport = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        register(&mut socket, 3).await;
+        let mut readers = JoinSet::new();
+        let (mut socket, request) = next_request(&listener, &mut readers).await;
+        register_request(&mut socket, request, 3).await;
         let mut consumers = HashSet::new();
         let mut ready = Some(ready);
         loop {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let (route, body) = read_request(&mut socket).await;
+            let (mut socket, (route, body)) = next_request(&listener, &mut readers).await;
             assert_eq!(route, "POST /v1/acquisitions HTTP/1.1");
             assert_eq!(body["worker_session_id"], "session-connect");
             let consumer = body["consumer_id"].as_u64().unwrap();
             assert!(consumer < 3);
             consumers.insert(consumer);
-            reply(
+            if let Err(error) = try_reply(
                 &mut socket,
                 json!({"disposition":"empty", "sequence":body["sequence"]}),
             )
-            .await;
+            .await
+            {
+                // Shutdown may cancel an earlier exchange while its exact
+                // sequence is reconciled over another connection.
+                assert!(
+                    matches!(
+                        error.kind(),
+                        std::io::ErrorKind::BrokenPipe
+                            | std::io::ErrorKind::ConnectionReset
+                            | std::io::ErrorKind::ConnectionAborted
+                            | std::io::ErrorKind::NotConnected
+                    ),
+                    "{error}"
+                );
+            }
             if consumers.len() == 3
                 && let Some(ready) = ready.take()
             {
@@ -152,6 +236,7 @@ async fn connected_worker_registers_exact_concurrency_and_drains_on_first_signal
     assert_eq!(report["delivery"]["finished"], true);
     assert_eq!(report["delivery"]["settled_attempts"], 0);
     assert!(!String::from_utf8_lossy(&output.stderr).contains("forced exit"));
+    drop(partial);
     transport.abort();
     let _ = transport.await;
 }

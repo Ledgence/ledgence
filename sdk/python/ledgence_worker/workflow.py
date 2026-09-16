@@ -295,6 +295,11 @@ class TaskRef:
         self._context = context
 
 
+class WorkflowRef(TaskRef):
+    """An owned child workflow key, distinct from its controller tasks."""
+    __slots__ = ()
+
+
 class _LocalResult:
     def __init__(self, task, observed_failures):
         self._task = task
@@ -321,10 +326,22 @@ class WorkflowContext:
     def __init__(self, payload, rpc):
         payload = _freeze(payload, MAX_CONTEXT_BYTES, 96, authoritative=True)
         _fields(payload, {"v", "workflow_id", "activation_id", "revision", "continuation",
-                          "state", "inputs", "local_steps"}, {"wake"})
+                          "state", "inputs", "local_steps"},
+                {"wake", "parent_workflow_id", "root_workflow_id"})
         if type(payload["v"]) is not int or payload["v"] != 1:
             raise WorkflowError("unsupported workflow activation version")
         self.workflow_id = _text(payload["workflow_id"], "workflow_id")
+        parent = payload.get("parent_workflow_id")
+        root = payload.get("root_workflow_id")
+        if (parent is None) != (root is None):
+            raise WorkflowError("workflow lineage must contain both parent and root")
+        if parent is not None:
+            _text(parent, "parent_workflow_id")
+            _text(root, "root_workflow_id")
+            if self.workflow_id in (parent, root):
+                raise WorkflowError("workflow lineage cannot refer to itself")
+        self.parent_workflow_id = parent
+        self.root_workflow_id = self.workflow_id if root is None else root
         self.activation_id = _text(payload["activation_id"], "activation_id")
         self.revision = _integer(payload["revision"], "revision")
         self.continuation = _text(payload["continuation"], "continuation")
@@ -340,10 +357,7 @@ class WorkflowContext:
         _encode(combined, MAX_DECISION_BYTES, 96, authoritative=True)
         for key, item in self._inputs.items():
             _text(key, "input key")
-            _fields(item, {"task_id", "state", "outcome"})
-            _text(item["task_id"], "task_id")
-            if item["state"] not in ("queued", "active", "succeeded", "failed", "cancelled"):
-                raise WorkflowError("invalid child task state")
+            self._validate_child(item)
         records = payload["local_steps"]
         if type(records) is not list or len(records) > MAX_STEPS:
             raise WorkflowError("too many local step records")
@@ -375,6 +389,80 @@ class WorkflowContext:
     def wake(self):
         """Return the event, timeout, or timer that resumed this activation."""
         return _freeze(self._wake, MAX_DECISION_BYTES, 96, authoritative=True)
+
+    @staticmethod
+    def _validate_child(item):
+        if type(item) is not dict:
+            raise WorkflowError("invalid child result")
+        workflow = item.get("kind") == "workflow"
+        if workflow:
+            _fields(item, {"kind", "workflow_id", "state", "outcome"})
+            _text(item["workflow_id"], "child workflow_id")
+        else:
+            _fields(item, {"task_id", "state", "outcome"})
+            _text(item["task_id"], "child task_id")
+        state, outcome = item["state"], item["outcome"]
+        if (state not in ("succeeded", "failed", "cancelled")
+                or type(outcome) is not dict or outcome.get("kind") != state):
+            raise WorkflowError("child result must have a consistent terminal outcome")
+        if state == "cancelled":
+            _fields(outcome, {"kind"})
+            return
+        if workflow:
+            _fields(outcome, {"kind", "output" if state == "succeeded" else "error"})
+            if state == "succeeded":
+                _encode(outcome["output"], MAX_DECISION_BYTES, authoritative=True)
+            else:
+                WorkflowContext._validate_error(outcome["error"], application=True)
+            return
+        _fields(outcome, {"kind", "attempt_id", "quiescence", "execution_may_have_started",
+                          "output" if state == "succeeded" else "failure"})
+        _text(outcome["attempt_id"], "child attempt_id")
+        if (outcome["quiescence"] not in ("confirmed", "unconfirmed")
+                or type(outcome["execution_may_have_started"]) is not bool):
+            raise WorkflowError("invalid child execution evidence")
+        if state == "succeeded":
+            if not outcome["execution_may_have_started"]:
+                raise WorkflowError("successful child requires execution-start evidence")
+            _encode(outcome["output"], MAX_DECISION_BYTES, authoritative=True)
+            return
+        failure = outcome["failure"]
+        if type(failure) is not dict:
+            raise WorkflowError("invalid child failure")
+        kind = failure.get("kind")
+        if kind == "application":
+            if not outcome["execution_may_have_started"]:
+                raise WorkflowError("application failure requires execution-start evidence")
+            _fields(failure, {"kind", "error"})
+            WorkflowContext._validate_error(failure["error"])
+        elif kind == "execution":
+            _fields(failure, {"kind", "error", "phase", "cleanup_error"})
+            WorkflowContext._validate_error(failure["error"], worker=True)
+            if failure["cleanup_error"] is not None:
+                WorkflowContext._validate_error(failure["cleanup_error"], worker=True)
+            if failure["phase"] not in ("admission", "preparation", "startup", "execution", "cleanup"):
+                raise WorkflowError("invalid child failure phase")
+        elif kind == "attempt_lost":
+            if outcome["quiescence"] != "unconfirmed":
+                raise WorkflowError("lost attempt requires unconfirmed quiescence")
+            _fields(failure, {"kind"})
+        else:
+            raise WorkflowError("invalid child failure kind")
+
+    @staticmethod
+    def _validate_error(error, *, application=False, worker=False):
+        _fields(error, {"kind", "message"})
+        if type(error["kind"]) is not str or type(error["message"]) is not str:
+            raise WorkflowError("invalid child error")
+        if application:
+            _text(error["kind"], "workflow error kind")
+            if len(error["message"].encode("utf-8")) > 4096:
+                raise WorkflowError("workflow error message exceeds its byte limit")
+        if worker and error["kind"] not in (
+            "invalid_input", "not_found", "integrity", "incompatible", "unavailable",
+            "cancelled", "timed_out", "runtime", "protocol", "io", "capacity",
+        ):
+            raise WorkflowError("invalid worker error kind")
 
     @staticmethod
     def _validate_wake(wake):
@@ -511,6 +599,24 @@ class WorkflowContext:
         Reusing a key reuses the original child only if its binding is identical.
         Include an iteration suffix when a loop should create another child.
         """
+        return self._child("task", key, program=program, version=version, queue=queue,
+                           data=data, retry_policy=retry_policy,
+                           attempt_timeout_ms=attempt_timeout_ms)
+
+    def workflow(self, key, *, program, version, queue, data, retry_policy=None,
+                 attempt_timeout_ms=300000):
+        """Stage an owned subworkflow; await its terminal outcome with suspend.
+
+        Task and workflow keys share a parent-wide namespace. A child retains
+        its own workflow identity and activation retries. Parent cancellation
+        or failure drains the owned tree; child failure is an inspectable result.
+        """
+        return self._child("workflow", key, program=program, version=version, queue=queue,
+                           data=data, retry_policy=retry_policy,
+                           attempt_timeout_ms=attempt_timeout_ms)
+
+    def _child(self, kind, key, *, program, version, queue, data, retry_policy,
+               attempt_timeout_ms):
         self._active()
         _text(key, "child key")
         for name, value in (("program", program), ("version", version)):
@@ -526,16 +632,19 @@ class WorkflowContext:
         command = {"key": key, "program": {"id": program, "version": version}, "queue": queue,
                    "data": _freeze(data, MAX_DECISION_BYTES), "retry_policy": policy,
                    "attempt_timeout_ms": attempt_timeout_ms}
+        reference = WorkflowRef if kind == "workflow" else TaskRef
+        if kind == "workflow":
+            command["kind"] = "workflow"
         for previous in self._commands:
             if previous["key"] == key:
                 if _encode(previous, MAX_DECISION_BYTES, 96) != _encode(command, MAX_DECISION_BYTES, 96):
                     raise WorkflowError("child key reused with a different binding")
-                return TaskRef(key, self)
+                return reference(key, self)
         if len(self._commands) >= MAX_COMMANDS:
-            raise WorkflowError("too many staged child tasks")
+            raise WorkflowError("too many staged children")
         _encode([*self._commands, command], MAX_DECISION_BYTES, 96)
         self._commands.append(command)
-        return TaskRef(key, self)
+        return reference(key, self)
 
     def _key(self, ref):
         if isinstance(ref, TaskRef):
@@ -551,6 +660,8 @@ class WorkflowContext:
         item = self._inputs.get(key)
         if item is None:
             raise WorkflowError("child result is absent from this activation")
+        if isinstance(ref, TaskRef) and ((isinstance(ref, WorkflowRef)) != (item.get("kind") == "workflow")):
+            raise WorkflowError("child reference kind does not match the result")
         outcome = item["outcome"]
         if (item["state"] != "succeeded" or type(outcome) is not dict
                 or outcome.get("kind") != "succeeded" or "output" not in outcome):

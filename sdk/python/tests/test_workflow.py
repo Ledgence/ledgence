@@ -189,7 +189,9 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_resumed_context_exposes_child_results_without_mutable_aliases(self):
         context = self.context(payload(continuation="collect", state={"round": 1}, inputs={
             "child": {"task_id": "task-1", "state": "succeeded",
-                      "outcome": {"kind": "succeeded", "output": {"amount": 3}}}}))
+                      "outcome": {"kind": "succeeded", "attempt_id": "attempt-1",
+                                  "quiescence": "confirmed", "execution_may_have_started": True,
+                                  "output": {"amount": 3}}}}))
         state, inputs, result = context.state, context.inputs, context.get_result("child")
         state["round"] = 4
         inputs["child"]["state"] = "failed"
@@ -235,6 +237,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         operations = [
             lambda: context.local("nested", lambda: None),
             lambda: context.task("child", program="echo", version="1", queue="queue", data=None),
+            lambda: context.workflow("nested", program="echo", version="1", queue="queue", data=None),
             lambda: context.complete(None),
             lambda: context.suspend(continuation="next", state=None),
             lambda: context.continue_(continuation="next", state=None),

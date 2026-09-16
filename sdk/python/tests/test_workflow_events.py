@@ -110,8 +110,12 @@ class WorkflowEventTests(unittest.IsolatedAsyncioTestCase):
                      {"kind": "timeout", "key": "key", "deadline": None},
                      {"kind": "timer", "key": "key", "deadline": 1, "event": event()}):
             with self.assertRaises(WorkflowError): self.context(wake=wake)
-        child = {"task_id": "child", "state": "succeeded", "outcome": {"kind": "succeeded", "output": "x" * (MAX_DECISION_BYTES - 140)}}
+        child = {"task_id": "child", "state": "succeeded", "outcome": {
+            "kind": "succeeded", "attempt_id": "attempt", "quiescence": "confirmed",
+            "execution_may_have_started": True, "output": ""}}
         inputs = {"child": child}
+        overhead = len(_encode(inputs, MAX_DECISION_BYTES, 96))
+        child["outcome"]["output"] = "x" * (MAX_DECISION_BYTES - overhead)
         self.context(inputs=inputs)
         with self.assertRaises(WorkflowError): self.context(inputs=inputs, wake=good)
         nested = None

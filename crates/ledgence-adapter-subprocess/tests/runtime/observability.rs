@@ -306,6 +306,8 @@ async fn v3_program_logs_preserve_workflow_scope_and_clear_it_on_reuse() {
     let mut scoped = event("workflow").into_value();
     scoped["ldgworkflowid"] = json!("workflow-1");
     scoped["ldgactivationid"] = scoped["ldgtaskid"].clone();
+    scoped["ldgparentworkflowid"] = json!("parent-1");
+    scoped["ldgrootworkflowid"] = json!("root-1");
     session
         .execute(CloudEvent::new(scoped).unwrap().into(), control())
         .await
@@ -327,7 +329,11 @@ async fn v3_program_logs_preserve_workflow_scope_and_clear_it_on_reuse() {
         .collect();
     assert_eq!(logs.len(), 2, "{text}");
     assert_eq!(logs[0]["fields"]["workflow_id"], "workflow-1");
+    assert_eq!(logs[0]["fields"]["parent_workflow_id"], "parent-1");
+    assert_eq!(logs[0]["fields"]["root_workflow_id"], "root-1");
     assert_eq!(logs[0]["fields"]["activation_id"], "task-a");
     assert!(logs[1]["fields"].get("workflow_id").is_none());
+    assert!(logs[1]["fields"].get("parent_workflow_id").is_none());
+    assert!(logs[1]["fields"].get("root_workflow_id").is_none());
     assert!(logs[1]["fields"].get("activation_id").is_none());
 }

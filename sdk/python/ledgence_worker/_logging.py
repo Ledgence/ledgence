@@ -67,6 +67,9 @@ def _snapshot(record):
             frame["invocation"].update({key: getattr(invocation, key) for key in
                                         ("workflow_id", "activation_id")
                                         if getattr(invocation, key) is not None})
+            if invocation.parent_workflow_id is not None:
+                frame["invocation"].update(parent_workflow_id=invocation.parent_workflow_id,
+                                           root_workflow_id=invocation.root_workflow_id)
     active = _active_ids()
     if active is None and _api is None and invocation is not None:
         carrier = invocation.processing_context

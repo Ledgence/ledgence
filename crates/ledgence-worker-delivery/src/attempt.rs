@@ -17,6 +17,8 @@ impl Context {
         let span = tracing::info_span!("ledgence.attempt.process", otel.kind = "consumer",
             ledgence.tenant.id = %event.tenant_id(), ledgence.namespace = %event.namespace(),
             ledgence.workflow.id = event.value()["ldgworkflowid"].as_str(),
+            ledgence.workflow.parent.id = event.value()["ldgparentworkflowid"].as_str(),
+            ledgence.workflow.root.id = event.value()["ldgrootworkflowid"].as_str(),
             ledgence.activation.id = event.value()["ldgactivationid"].as_str(),
             ledgence.run.id = %event.value()["ldgrunid"].as_str().expect("validated run ID"), ledgence.task.id = %owner.task_id,
             ledgence.attempt.id = %owner.attempt_id, ledgence.attempt.number = i64::from(owner.generation),
@@ -81,6 +83,8 @@ impl Context {
                             request.event.value()["ldgworkflowid"]
                                 .as_str()
                                 .expect("validated workflow assignment"),
+                            request.event.value()["ldgparentworkflowid"].as_str(),
+                            request.event.value()["ldgrootworkflowid"].as_str(),
                             &control,
                         )
                         .await
@@ -91,6 +95,8 @@ impl Context {
                             // processing trace and original invocation remain stable.
                             let span = tracing::info_span!("ledgence.workflow.activation",
                                 ledgence.workflow.id = request.event.value()["ldgworkflowid"].as_str(),
+                                ledgence.workflow.parent.id = request.event.value()["ldgparentworkflowid"].as_str(),
+                                ledgence.workflow.root.id = request.event.value()["ldgrootworkflowid"].as_str(),
                                 ledgence.activation.id = %activation_id,
                                 ledgence.workflow.wake = runtime.extension.payload["wake"]["kind"].as_str(),
                                 cloudevents.event_id = runtime.extension.payload["wake"]["event"]["id"].as_str(),

@@ -408,7 +408,12 @@ impl CloudEvent {
                 "ldgattemptno must be a positive signed 32-bit integer",
             ));
         }
-        for key in ["ldgworkflowid", "ldgactivationid"] {
+        for key in [
+            "ldgworkflowid",
+            "ldgactivationid",
+            "ldgparentworkflowid",
+            "ldgrootworkflowid",
+        ] {
             if let Some(id) = context_string(object, key)?
                 && (id.is_empty() || id.len() > 128)
             {
@@ -426,6 +431,21 @@ impl CloudEvent {
                 ErrorKind::InvalidInput,
                 "workflow activation requires its workflow ID and matching task ID",
             ));
+        }
+        match (
+            context_string(object, "ldgworkflowid")?,
+            context_string(object, "ldgparentworkflowid")?,
+            context_string(object, "ldgrootworkflowid")?,
+        ) {
+            (_, None, None) => {}
+            (Some(workflow), Some(parent), Some(root))
+                if workflow != parent && workflow != root => {}
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "nested workflow requires paired parent/root IDs distinct from itself",
+                ));
+            }
         }
         Ok(Self(value))
     }
