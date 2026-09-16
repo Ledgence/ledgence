@@ -176,8 +176,8 @@ def _text(value, field):
 
 def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
             extension=None, rpc=None):
-    from ledgence_worker import InvocationContext, _invocation
-    from ledgence_worker.otel import _activate
+    from ledgence.worker import InvocationContext, _invocation
+    from ledgence.worker.otel import _activate
 
     envelope = {
         "v": version,
@@ -229,7 +229,7 @@ def _invoke_output(handler, event, envelope, limit):
 
 async def _invoke_async(handler, event, envelope, limit, extension, rpc):
     import asyncio
-    from ledgence_worker.workflow import SCHEMA, WorkflowContext, _workflow
+    from ledgence.worker.workflow import SCHEMA, WorkflowContext, _workflow
 
     context = None
     token = None
@@ -320,7 +320,7 @@ class _RuntimeRpc:
 
 
 def _processing_context(value):
-    from ledgence_worker import TraceContext
+    from ledgence.worker import TraceContext
 
     if value is None:
         return None
@@ -390,8 +390,10 @@ def main():
 
     # -I -S omits implicit project/site imports. Load the helper first, then add
     # the exact prepared artifact root for application code and vendored deps.
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    import ledgence_worker
+    # The shared ledgence namespace can then discover ledgence.client in that
+    # artifact; the already-loaded worker subpackage keeps its own helper path.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import ledgence.worker
     if args.protocol_version >= 3:
         # Load runtime dependencies before application imports, preserving the
         # original preloaded-module surface for synchronous v1/v2 packages.
@@ -399,8 +401,8 @@ def main():
 
     writer = None
     if args.protocol_version >= 2:
-        from ledgence_worker._protocol import ProtocolWriter
-        from ledgence_worker import _logging
+        from ledgence.worker._protocol import ProtocolWriter
+        from ledgence.worker import _logging
 
         writer = ProtocolWriter(protocol, args.max_output_bytes)
         writer.protocol_version = args.protocol_version
@@ -429,7 +431,7 @@ def main():
             # Acknowledge while still alive. The parent owns group termination
             # and reaping; exiting here would race Darwin's zombie-only killpg.
             if args.protocol_version >= 2:
-                ledgence_worker._shutdown()
+                ledgence.worker._shutdown()
             write({"v": args.protocol_version, "type": "closing"}, closing=True)
             # EOF also permits exit if the parent disappears before signaling.
             while sys.stdin.buffer.read(4096):

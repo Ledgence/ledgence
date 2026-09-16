@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 import test_workflow
-from ledgence_worker.workflow import (
+from ledgence.worker.workflow import (
     MAX_DECISION_BYTES, MAX_EVENT_BYTES, MAX_WAIT_MS, WorkflowContext, WorkflowError,
     _encode,
 )
@@ -168,7 +168,7 @@ class WorkflowWaitProtocolTests(unittest.TestCase):
             self.assertEqual(frames[-1]["output"], {"kind": "wait", "wait": message["event"]["data"]})
 
     def test_wait_decision_ends_invocation_and_wake_does_not_leak_on_reuse(self):
-        source = '''from ledgence_worker.workflow import workflow_context
+        source = '''from ledgence.worker.workflow import workflow_context
 def handle(event):
     ctx = workflow_context()
     if event["id"] == "evt-1":

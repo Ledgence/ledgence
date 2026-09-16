@@ -69,7 +69,7 @@ class SqsDeployment(Deployment):
             "--tenant", self.scope["tenant_id"], "--namespace", self.scope["namespace"],
             "--queue", self.queue, "--store", self.artifacts.url,
             "--cache", str(self.directory / cache), "--python", self.python,
-            "--runner", str(self.root / "sdk/python/ledgence_worker/bootstrap.py"),
+            "--runner", str(self.root / "sdk/python/ledgence/worker/bootstrap.py"),
             "--concurrency", str(concurrency), "--delivery-config", str(self.delivery_config),
         ]
         process = Process(args, self.directory, f"worker-{self.counter}", self.environment)

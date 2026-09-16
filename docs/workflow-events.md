@@ -12,7 +12,7 @@ in [checkpoint workflows](workflows.md).
 These are explicit continuation decisions, not Python coroutine suspension:
 
 ```python
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker.workflow import workflow_context
 
 async def handle(event):
     ctx = workflow_context()

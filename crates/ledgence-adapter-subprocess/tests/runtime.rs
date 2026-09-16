@@ -32,7 +32,7 @@ fn interpreter() -> (PathBuf, String) {
 }
 
 fn runner() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sdk/python/ledgence_worker/bootstrap.py")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sdk/python/ledgence/worker/bootstrap.py")
 }
 
 fn fixture(source: &str) -> (TempDir, PreparedArtifact, SubprocessRuntime) {
@@ -113,7 +113,7 @@ async fn eventually_gone(pid: u32) {
 #[tokio::test]
 async fn reuses_process_preserves_full_event_and_isolates_invocation_context() {
     let (_dir, artifact, runtime) = fixture(
-        "import os, contextvars\nfrom ledgence_worker import current_invocation\nstate = contextvars.ContextVar('state', default='clean')\ndef handle(event):\n    previous = state.get()\n    state.set('dirty')\n    return {'pid': os.getpid(), 'event': event, 'attempt': current_invocation().attempt_id, 'previous': previous}\n",
+        "import os, contextvars\nfrom ledgence.worker import current_invocation\nstate = contextvars.ContextVar('state', default='clean')\ndef handle(event):\n    previous = state.get()\n    state.set('dirty')\n    return {'pid': os.getpid(), 'event': event, 'attempt': current_invocation().attempt_id, 'previous': previous}\n",
     );
     let mut session = ready(runtime.start(artifact, control()).await);
     let pid = session.pid();

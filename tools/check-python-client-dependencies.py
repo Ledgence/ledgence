@@ -207,7 +207,7 @@ def check_pyproject():
     require(project["project"]["dependencies"] == project_requirements("runtime"), "runtime requirements drift")
     require(project["project"].get("optional-dependencies") == {"otel": project_requirements("otel")}, "optional requirements drift")
     require(project["build-system"] == {"requires": ["flit_core==3.12.0"], "build-backend": "flit_core.buildapi"}, "build graph drift")
-    require(project["tool"]["flit"]["module"]["name"] == "ledgence", "public module identity drift")
+    require(project["tool"]["flit"]["module"]["name"] == "ledgence.client", "public module identity drift")
 
 
 def is_legal(name):

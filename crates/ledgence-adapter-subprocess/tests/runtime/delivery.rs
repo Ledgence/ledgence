@@ -249,7 +249,7 @@ async fn default_result_frame_boundary_settles_and_one_byte_over_is_bounded_fail
     // Only the returned string's ASCII bytes vary, giving exact +0/+1 cases.
     let source = format!(
         r#"import json
-from ledgence_worker.bootstrap import DEFAULT_RUNTIME_FRAME_MAX_BYTES
+from ledgence.worker.bootstrap import DEFAULT_RUNTIME_FRAME_MAX_BYTES
 assert DEFAULT_RUNTIME_FRAME_MAX_BYTES == {DEFAULT_RUNTIME_FRAME_MAX_BYTES}
 def handle(event):
     response = {{'v': 1, 'type': 'result', 'event_id': event['id'],

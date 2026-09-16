@@ -53,7 +53,7 @@ Leave the orchestrator running. In separate terminals, reuse the printed absolut
 ./target/debug/ledgence-worker connect \
   --server http://127.0.0.1:8080 --tenant acme --namespace demo --queue workflows \
   --store "$workflow_demo/store" --cache "$workflow_demo/cache" \
-  --python "$LEDGENCE_PYTHON" --runner "$PWD/sdk/python/ledgence_worker/bootstrap.py" \
+  --python "$LEDGENCE_PYTHON" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
   --concurrency 1
 ```
 

@@ -2,9 +2,15 @@
 
 `SubprocessRuntime::new(python, runner)` implements the portable worker runtime
 port using Tokio. `python` selects the separately installed host interpreter;
-`runner` locates `sdk/python/ledgence_worker/bootstrap.py`. Keep the bootstrap and
-the complete sibling `ledgence_worker` helper module directory together. `LEDGENCE_PYTHON` selects the interpreter for
-integration tests. The worker CLI selects its interpreter with `--python`.
+`runner` locates `sdk/python/ledgence/worker/bootstrap.py`. Deploy the complete
+`ledgence/worker/` helper directory beneath a Python import root, preserving its
+parent `ledgence/` namespace directory. Do not add `ledgence/__init__.py`: the
+client and worker contribute separate packages to this shared namespace. For
+example, a deployment may use `/opt/ledgence/python/ledgence/worker/bootstrap.py`
+as its runner. The bootstrap makes `/opt/ledgence/python` available to the isolated
+interpreter. The client SDK and its HTTP dependencies are not required by the
+worker helper. `LEDGENCE_PYTHON` selects the interpreter for integration tests;
+the worker CLI selects its interpreter with `--python`.
 
 Each session starts CPython with `-I -S -B`, imports the manifest's synchronous
 `module:function` handler from the prepared artifact, and waits for a bounded
@@ -104,7 +110,9 @@ The interpreter must be CPython 3.11 or newer. Lifecycle integration tests need
 permission to inspect their child processes and signal their process groups.
 
 
-Protocol 1 remains compatible with existing immutable packages. Protocol 2 adds
+Runtime protocol 1 remains supported. The Python import migration described in
+[program packages](../../docs/program-packages.md) applies independently of the
+selected protocol. Protocol 2 adds
 `RuntimeInvocation.processing_context`, a W3C execution carrier outside the
 unchanged event, and multiplexes bounded structured log frames with results.
 The manifest selects the protocol before startup; mismatches fail readiness.

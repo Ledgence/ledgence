@@ -25,7 +25,7 @@ synchronous programs retain their existing behavior, including as distributed
 children of a workflow.
 
 ```python
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker.workflow import workflow_context
 
 async def handle(event):
     ctx = workflow_context()

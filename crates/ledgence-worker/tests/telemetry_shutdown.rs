@@ -71,7 +71,7 @@ impl Fixture {
         ])
         .await;
         let runner = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../sdk/python/ledgence_worker/bootstrap.py");
+            .join("../../sdk/python/ledgence/worker/bootstrap.py");
         let child = Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
             .arg("run")
             .arg("--tasks")

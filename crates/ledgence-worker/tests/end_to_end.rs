@@ -58,7 +58,7 @@ impl Fixture {
         let store = temp.path().join("store");
         let cache = temp.path().join("cache");
         let runner = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../sdk/python/ledgence_worker/bootstrap.py");
+            .join("../../sdk/python/ledgence/worker/bootstrap.py");
         Self {
             _temp: temp,
             example,

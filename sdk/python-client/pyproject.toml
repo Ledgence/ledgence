@@ -28,7 +28,7 @@ dependencies = [
 otel = ["opentelemetry-api==1.44.0", "typing-extensions==4.16.0"]
 
 [tool.flit.module]
-name = "ledgence"
+name = "ledgence.client"
 
 [tool.flit.sdist]
 include = ["tests/", "third_party/"]

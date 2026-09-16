@@ -10,7 +10,7 @@ import unittest
 import test_bootstrap
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ledgence_worker.workflow import (
+from ledgence.worker.workflow import (
     SCHEMA, MAX_STATE_BYTES, WorkflowContext, WorkflowError, workflow_context,
 )
 
@@ -268,7 +268,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(context._validate_decision(fresh)["commands"]), 1)
 
     async def test_oversized_values_reject_before_large_serialization_allocations(self):
-        from ledgence_worker.workflow import _encode
+        from ledgence.worker.workflow import _encode
         value = {"blob": "x" * (8 * 1024 * 1024)}
         tracemalloc.start()
         try:
@@ -322,8 +322,8 @@ class WorkflowProtocolTests(unittest.TestCase):
         first["event"].update(ldgworkflowid="workflow-1", ldgactivationid="activation-1")
         self.ordinary(second)
         source = '''import asyncio, os
-from ledgence_worker import current_invocation
-from ledgence_worker.workflow import workflow_context, WorkflowError
+from ledgence.worker import current_invocation
+from ledgence.worker.workflow import workflow_context, WorkflowError
 async def local(value):
     await asyncio.sleep(.001)
     return {"value": value}
@@ -368,7 +368,7 @@ async def handle(event):
     def test_preloaded_local_step_does_not_execute_or_emit_commit(self):
         activation = payload(local_steps=[{"key": "read", "callable": "program:local",
                                            "input": {"value": 3}, "output": 42}])
-        source = '''from ledgence_worker.workflow import workflow_context
+        source = '''from ledgence.worker.workflow import workflow_context
 async def local(value): raise AssertionError("committed operation executed again")
 async def handle(event):
     ctx = workflow_context()
@@ -380,7 +380,7 @@ async def handle(event):
         self.assertEqual(frames[-1]["output"]["output"], 42)
 
     def test_unobserved_local_failure_is_not_a_successful_checkpoint(self):
-        source = """from ledgence_worker.workflow import workflow_context
+        source = """from ledgence.worker.workflow import workflow_context
 async def fail(): raise ValueError("local failed")
 async def handle(event):
     ctx = workflow_context()
@@ -397,7 +397,7 @@ async def handle(event):
         self.assertEqual(frames[2]["status"], "success")
 
     def test_local_callable_cannot_commit_hidden_child_work_before_a_retry(self):
-        source = """from ledgence_worker.workflow import workflow_context
+        source = """from ledgence.worker.workflow import workflow_context
 async def local():
     workflow_context().task("hidden", program="echo", version="1", queue="queue", data=None)
     return "must never be committed"
@@ -413,7 +413,7 @@ async def handle(event):
                          ["runtime_error", "runtime_error"])
 
     def test_unexpected_error_is_runtime_error_but_explicit_fail_is_success(self):
-        source = '''from ledgence_worker.workflow import workflow_context
+        source = '''from ledgence.worker.workflow import workflow_context
 def handle(event):
     if event["id"] == "evt-1": raise ValueError("retry me")
     return workflow_context().fail("rejected", "business outcome")
@@ -425,7 +425,7 @@ def handle(event):
         self.assertEqual(frames[2]["output"]["kind"], "fail")
 
     def test_mismatched_commit_reply_prevents_checkpoint_success(self):
-        source = '''from ledgence_worker.workflow import workflow_context
+        source = '''from ledgence.worker.workflow import workflow_context
 async def handle(event):
     ctx = workflow_context()
     try: await ctx.local("read", lambda: 3)
@@ -444,7 +444,7 @@ async def handle(event):
         invocation = self.invocation()
         self.ordinary(invocation)
         source = '''import asyncio
-from ledgence_worker import get_logger
+from ledgence.worker import get_logger
 async def handle(event):
     get_logger("program").info("v3 log")
     await asyncio.sleep(.03)
@@ -461,7 +461,7 @@ async def handle(event):
 
     def test_v3_logs_include_workflow_identity_without_changing_v2_records(self):
         source = """import time
-from ledgence_worker import get_logger
+from ledgence.worker import get_logger
 def handle(event):
     get_logger("program").info("correlated")
     time.sleep(.03)
