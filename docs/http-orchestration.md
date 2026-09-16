@@ -31,7 +31,7 @@ Keep the server running. In another terminal, use the same absolute `demo_dir` p
   --tenant tenant_example --namespace demo --queue python-demo \
   --store "$demo_dir/store" --cache "$demo_dir/cache" \
   --python "$LEDGENCE_PYTHON" \
-  --runner "$PWD/sdk/python/ledgence_worker/bootstrap.py" --concurrency 2
+  --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" --concurrency 2
 ```
 
 In a third terminal, save this complete submission as `submit.json`:

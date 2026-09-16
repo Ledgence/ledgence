@@ -116,7 +116,7 @@ fn spawn_worker(directory: &Path, server: &str, concurrency: &str) -> Child {
     let store = directory.join("store");
     std::fs::create_dir_all(&store).unwrap();
     let runner =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/python/ledgence_worker/bootstrap.py");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/python/ledgence/worker/bootstrap.py");
     tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
         .args([
             "connect",

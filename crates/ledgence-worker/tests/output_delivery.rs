@@ -122,7 +122,7 @@ def handle(event):
 
     fn spawn(&self, concurrency: &str, timeout_ms: &str, logs: bool) -> RunningWorker {
         let runner = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../sdk/python/ledgence_worker/bootstrap.py");
+            .join("../../sdk/python/ledgence/worker/bootstrap.py");
         let mut child = Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
             .args(["run", "--tasks"])
             .arg(self.example.join("tasks.json"))

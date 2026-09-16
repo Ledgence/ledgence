@@ -6,7 +6,7 @@ local-step journals, event/timer waits, and terminal result. Its parent can wait
 for it using the same explicit continuation model as ordinary child tasks.
 
 ```python
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker.workflow import workflow_context
 
 async def handle(event):
     ctx = workflow_context()

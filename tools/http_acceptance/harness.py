@@ -239,7 +239,7 @@ PROGRAM = '''import json, os, time
 from pathlib import Path
 from prepared_dependency import VALUE
 
-from ledgence_worker import get_logger
+from ledgence.worker import get_logger
 log = get_logger('acceptance')
 
 def handle(event):
@@ -345,7 +345,7 @@ class Deployment:
                 server or self.server_url, "--tenant", self.scope["tenant_id"], "--namespace",
                 self.scope["namespace"], "--queue", self.queue, "--store", self.artifacts.url,
                 "--cache", str(self.directory / cache), "--python", self.python,
-                "--runner", str(self.root / "sdk/python/ledgence_worker/bootstrap.py"),
+                "--runner", str(self.root / "sdk/python/ledgence/worker/bootstrap.py"),
                 "--concurrency", str(concurrency)]
         process = Process(args, self.directory, f"worker-{self.counter}", self.environment)
         self.processes.append(process)

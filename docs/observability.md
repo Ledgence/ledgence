@@ -77,10 +77,10 @@ Measured `ledgence.duration_ms` fields use local monotonic clocks. SDK span time
 
 ## Python programs
 
-Use protocol v2 or v3 packages for the separate processing carrier and structured logging. Existing immutable v1 packages remain executable. See the [Python helper](../sdk/python/README.md) and [package protocol](program-packages.md).
+Use protocol v2 or v3 packages for the separate processing carrier and structured logging. Runtime protocol v1 remains supported; the [Python import migration](program-packages.md#python-import-namespace) applies independently of the selected protocol. See the [Python helper](../sdk/python/README.md) and [package protocol](program-packages.md).
 
 ```python
-from ledgence_worker import get_logger
+from ledgence.worker import get_logger
 
 log = get_logger(__name__)
 
@@ -90,7 +90,7 @@ def handle(event):
     return {"invoice_id": invoice["invoice_id"], "accepted": True}
 ```
 
-The default helper uses only the Python standard library. Applications may explicitly call `ledgence_worker.otel.enable_context()` with a separately supplied OTel API/provider. This attaches E for custom child spans and detaches it after the handler. It does not install a provider or bundle a network exporter. With no processing carrier, it starts from an empty OTel context. Optional provider shutdown callbacks execute before closing acknowledgment within the worker's existing process shutdown grace.
+The default helper uses only the Python standard library. Applications may explicitly call `ledgence.worker.otel.enable_context()` with a separately supplied OTel API/provider. This attaches E for custom child spans and detaches it after the handler. It does not install a provider or bundle a network exporter. With no processing carrier, it starts from an empty OTel context. Optional provider shutdown callbacks execute before closing acknowledgment within the worker's existing process shutdown grace.
 
 ## Bounds and failure behavior
 

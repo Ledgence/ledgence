@@ -14,9 +14,9 @@ import unittest
 import test_bootstrap
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ledgence_worker import InvocationContext, TraceContext, _invocation, get_logger
-from ledgence_worker import _logging
-from ledgence_worker._protocol import MAX_LOG_BYTES, MAX_LOG_RECORDS, ProtocolWriter
+from ledgence.worker import InvocationContext, TraceContext, _invocation, get_logger
+from ledgence.worker import _logging
+from ledgence.worker._protocol import MAX_LOG_BYTES, MAX_LOG_RECORDS, ProtocolWriter
 
 TRACE = "00-4bf92f3577b34da6a3ce929d0e0e4736-0123456789abcdef-01"
 
@@ -38,7 +38,7 @@ class V2Tests(unittest.TestCase):
         result, frames = self.launch(
             "import contextvars, os, sys\n"
             "from dataclasses import asdict\n"
-            "from ledgence_worker import current_invocation\n"
+            "from ledgence.worker import current_invocation\n"
             "state = contextvars.ContextVar('state', default='clean')\n"
             "def handle(event):\n"
             "    old = state.get()\n"
@@ -77,7 +77,7 @@ class V2Tests(unittest.TestCase):
 
     def test_logs_never_change_business_result_and_control_frames_are_complete(self):
         result, frames = self.launch(
-            "import threading, time\nfrom ledgence_worker import get_logger\n"
+            "import threading, time\nfrom ledgence.worker import get_logger\n"
             "log = get_logger('example')\n"
             "log.info('before handler')\n"
             "def flood():\n"
@@ -106,7 +106,7 @@ class V2Tests(unittest.TestCase):
         message = self.invocation()
         message["event"]["ldgtaskid"] = "t" * 3000
         result, frames = self.launch(
-            "from ledgence_worker import get_logger\n"
+            "from ledgence.worker import get_logger\n"
             "def handle(event): get_logger('example').info('hello'); return 42\n",
             [message, {"v": 2, "type": "shutdown"}], protocol=2, output_limit=512)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -115,7 +115,7 @@ class V2Tests(unittest.TestCase):
 
     def test_shutdown_callback_runs_once_before_ack(self):
         result, frames = self.launch(
-            "from ledgence_worker import register_shutdown\n"
+            "from ledgence.worker import register_shutdown\n"
             "def closing(): print('provider shutdown')\n"
             "register_shutdown(closing)\nregister_shutdown(closing)\n"
             "def handle(event): return 42\n",
@@ -131,8 +131,8 @@ class V2Tests(unittest.TestCase):
         first, second, third = self.invocation(), self.invocation("2", None), self.invocation("3")
         result, frames = self.launch(
             "import time\n"
-            "from ledgence_worker import get_logger\n"
-            "from ledgence_worker.otel import enable_context\n"
+            "from ledgence.worker import get_logger\n"
+            "from ledgence.worker.otel import enable_context\n"
             "from opentelemetry import trace\n"
             "from opentelemetry.sdk.trace import TracerProvider\n"
             "from opentelemetry.sdk.trace.export import SimpleSpanProcessor\n"
@@ -171,7 +171,7 @@ class V2Tests(unittest.TestCase):
                          "set reviewed API/SDK-only package directory for optional OTel tests")
     def test_api_only_activation_does_not_install_a_provider_or_inherit_origin(self):
         result, frames = self.launch(
-            "import sys\nfrom ledgence_worker.otel import enable_context\n"
+            "import sys\nfrom ledgence.worker.otel import enable_context\n"
             "from opentelemetry import trace\nenable_context()\n"
             "def handle(event):\n"
             "    active = trace.get_current_span().get_span_context()\n"

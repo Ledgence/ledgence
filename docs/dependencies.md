@@ -130,7 +130,7 @@ The additional alternatives in some declared OR expressions do not require selec
 
 ## Python task client
 
-The separate `ledgence-client` distribution provides `ledgence.client`. Its required transport is pinned to `aiohttp==3.14.3` without extras. The standard-library-only `ledgence_worker` helper does not acquire this dependency. Optional tracing imports `opentelemetry-api==1.44.0`; providers and exporters remain application choices.
+The separate `ledgence-client` distribution provides `ledgence.client`. Its required transport is pinned to `aiohttp==3.14.3` without extras. The standard-library-only `ledgence.worker` helper does not acquire this dependency. Optional tracing imports `opentelemetry-api==1.44.0`; providers and exporters remain application choices.
 
 The reviewed runtime pins aiohappyeyeballs 2.7.1, aiosignal 1.4.0, attrs 26.1.0, frozenlist 1.8.0, idna 3.19, multidict 6.8.0, propcache 0.5.2, yarl 1.24.5, and typing_extensions 4.16.0 where interpreter markers require it. Runtime closure is ten packages on Python 3.11–3.12 and nine on 3.13–3.14. The optional OTel graph consists of the API plus typing_extensions on every supported interpreter. The build graph is flit_core 3.12.0; tests add no third-party framework beyond the separately locked runtime. The checker invokes the PEP 517 backend directly, so no extra build frontend is installed.
 

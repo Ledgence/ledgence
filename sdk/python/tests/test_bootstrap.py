@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 
-BOOTSTRAP = Path(__file__).resolve().parents[1] / "ledgence_worker" / "bootstrap.py"
+BOOTSTRAP = Path(__file__).resolve().parents[1] / "ledgence" / "worker" / "bootstrap.py"
 
 
 class BootstrapTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class BootstrapTests(unittest.TestCase):
         second = self.invocation("evt-2", "attempt-2")
         result, frames = self.launch(
             "import contextvars, os\n"
-            "from ledgence_worker import current_invocation\n"
+            "from ledgence.worker import current_invocation\n"
             "state = contextvars.ContextVar('state', default='clean')\n"
             "def handle(event):\n"
             "    previous = state.get()\n"
@@ -77,6 +77,59 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(frames[2]["output"]["attempt"], "attempt-2")
         self.assertIn(b"python log", result.stderr)
         self.assertIn(b"native log", result.stderr)
+
+    def test_worker_namespace_coexists_with_artifact_portions(self):
+        source = """import sys
+import ledgence
+import ledgence.worker
+from ledgence.worker import current_invocation, get_logger
+from ledgence.worker.workflow import WorkflowError, workflow_context
+from ledgence.extension import VALUE
+log = get_logger(__name__)
+def handle(event):
+    log.info('shared namespace invocation')
+    try:
+        workflow_context()
+    except WorkflowError:
+        pass
+    else:
+        raise AssertionError('ordinary task has a workflow context')
+    return {
+        'value': VALUE,
+        'attempt': current_invocation().attempt_id,
+        'helper': ledgence.worker.__file__,
+        'namespace': ledgence.__spec__.origin is None,
+        'client_loaded': 'ledgence.client' in sys.modules,
+        'http_loaded': 'aiohttp' in sys.modules,
+        'otel_loaded': 'opentelemetry' in sys.modules,
+    }
+"""
+        for protocol in (1, 2, 3):
+            with self.subTest(protocol=protocol):
+                messages = [self.invocation(), self.invocation('evt-2', 'attempt-2')]
+                for message in messages:
+                    message['v'] = protocol
+                    if protocol >= 2:
+                        message['processing_context'] = None
+                messages.append({'v': protocol, 'type': 'shutdown'})
+                result, frames = self.launch(source, messages, protocol=protocol, files={
+                    'ledgence/extension.py': 'VALUE = 42\n',
+                    'ledgence/worker/__init__.py': "raise AssertionError('wrong helper')\n",
+                    'ledgence/worker/_logging.py': "raise AssertionError('wrong logger')\n",
+                })
+                self.assertEqual(result.returncode, 0, result.stderr)
+                results = [frame for frame in frames if frame['type'] == 'result']
+                self.assertTrue(all(frame['status'] == 'success' for frame in results),
+                                (results, result.stderr))
+                outputs = [frame['output'] for frame in results]
+                self.assertEqual(len(outputs), 2)
+                for output, attempt in zip(outputs, ('attempt-1', 'attempt-2')):
+                    self.assertEqual(output, {
+                        'value': 42, 'attempt': attempt,
+                        'helper': str(BOOTSTRAP.parent / '__init__.py'),
+                        'namespace': True, 'client_loaded': False,
+                        'http_loaded': False, 'otel_loaded': False,
+                    })
 
     def test_business_error_keeps_session_usable(self):
         result, frames = self.launch(
@@ -118,11 +171,13 @@ class BootstrapTests(unittest.TestCase):
         self.assertNotIn(b"was never awaited", result.stderr)
 
     def test_handler_cannot_resolve_to_a_preloaded_module(self):
-        for function in ("handle", "dumps"):
-            with self.subTest(function=function):
+        for module, handler in (("json.py", "json:handle"), ("json.py", "json:dumps"),
+                                ("ledgence/program.py", "ledgence.program:handle")):
+            with self.subTest(handler=handler):
+                function = handler.split(":")[1]
                 result, frames = self.launch(
                     "def " + function + "(event): return 'UPLOADED HANDLER'\n",
-                    [self.invocation()], module="json.py", handler="json:" + function,
+                    [self.invocation()], module=module, handler=handler,
                 )
                 self.assertEqual(result.returncode, 70)
                 self.assertEqual(frames, [])

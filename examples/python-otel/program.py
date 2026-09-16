@@ -1,7 +1,7 @@
 """Optional application spans with a local in-memory exporter (MIT)."""
 
-from ledgence_worker import current_invocation, get_logger, register_shutdown
-from ledgence_worker.otel import enable_context
+from ledgence.worker import current_invocation, get_logger, register_shutdown
+from ledgence.worker.otel import enable_context
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor

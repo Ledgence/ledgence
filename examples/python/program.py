@@ -1,7 +1,7 @@
 """An ordinary synchronous Python program invoked by Ledgence (MIT)."""
 
 import os
-from ledgence_worker import current_invocation, get_logger
+from ledgence.worker import current_invocation, get_logger
 
 log = get_logger(__name__)
 

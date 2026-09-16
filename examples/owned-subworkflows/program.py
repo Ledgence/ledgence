@@ -1,5 +1,5 @@
 """Join a page-processing subworkflow and an ordinary task at concurrency one."""
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker.workflow import workflow_context
 
 
 async def handle(event):

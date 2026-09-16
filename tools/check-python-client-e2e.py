@@ -45,7 +45,7 @@ async def scenarios(d, record):
 
     location = Path(package.__file__).resolve()
     assert not location.is_relative_to(d.root), "client must come from the installed wheel"
-    assert "ledgence_worker" not in sys.modules, "caller client must not import runtime helper"
+    assert "ledgence.worker" not in sys.modules, "caller client must not import runtime helper"
     options = dict(tenant=d.scope["tenant_id"], namespace=d.scope["namespace"])
     proxy = d.proxy()
     settlement_lost = proxy.lose_once("/v1/settlements")

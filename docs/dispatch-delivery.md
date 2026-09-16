@@ -178,7 +178,7 @@ Add the same configuration file to the two HTTP quickstart commands:
   --tenant tenant_example --namespace demo --queue python-demo \
   --store "$demo_dir/store" --cache "$demo_dir/cache" \
   --python "$LEDGENCE_PYTHON" \
-  --runner "$PWD/sdk/python/ledgence_worker/bootstrap.py" --concurrency 2 \
+  --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" --concurrency 2 \
   --delivery-config "$PWD/examples/delivery-sqs-local.json"
 ```
 

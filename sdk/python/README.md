@@ -1,17 +1,30 @@
 # Ledgence Python helper
 
 MIT-licensed, standard-library-only program support. The Rust worker starts the
-configured CPython executable with `-I -S -B` and this directory's bootstrap. Python
+configured CPython executable with `-I -S -B` and `ledgence/worker/bootstrap.py`. Python
 is a separately installed runtime; Ledgence does not embed or download CPython.
 Programs declare an exact supported Python major/minor (at least 3.11), with code
 and vendored dependencies in their immutable artifact directory.
 
-The worker supplies the `ledgence_worker` context helper alongside the runner;
+The worker supplies the `ledgence.worker` context helper alongside the runner;
 applications do not need to vendor that helper. Application dependencies belong
 in the program artifact. The bootstrap loads its own helper first, then adds the
 absolute artifact directory to Python's import path. Bytecode generation is
 explicitly disabled, so ordinary imports do not add `__pycache__` directories to
 an artifact even when filesystem permissions would allow it.
+
+`ledgence` is a native Python namespace package; it has no `__init__.py`.
+Keep the complete `ledgence/worker` directory and its `ledgence` parent together
+when distributing the runner. The separately installed `ledgence-client` SDK
+provides `ledgence.client` in the same namespace without adding client dependencies
+to the worker helper. A program using the client must include that SDK and its
+prepared dependencies in its artifact, just like any other application dependency.
+Do not add a root `ledgence/__init__.py` to either component or the artifact.
+
+Before the MVP release, the public helper import changed from `ledgence_worker`
+to `ledgence.worker`. Update existing program imports and publish a new immutable
+program version/digest. The old import and runner path are not aliases; protocol
+versions 1, 2, and 3 retain their wire behavior.
 
 The worker sets a separate temporary working directory for each session. Relative
 writes go there and persist across that session's invocations. Confirmed session
@@ -22,7 +35,7 @@ lifecycle management and does not change OS access permissions.
 Expose a callable as `module:function`; protocols 1/2 require a synchronous
 handler, while protocol 3 also supports `async def`. Its module and package
 parents must originate inside the artifact. Names already loaded by the bootstrap
-(such as `json`, `os`, and `ledgence_worker`) cannot be handler modules; conflicts
+(such as `json`, `os`, `ledgence`, and `ledgence.worker`) cannot be handler modules; conflicts
 are rejected before readiness. Use an application-specific module name. Regular
 and namespace packages are supported, and application code may still import the
 standard library normally.
@@ -79,7 +92,7 @@ success, business exception, and invalid
 output. No invocation context is written to process-global environment variables.
 
 ```python
-from ledgence_worker import current_invocation, get_logger
+from ledgence.worker import current_invocation, get_logger
 
 log = get_logger(__name__)
 
@@ -113,7 +126,7 @@ optional records. Telemetry is best effort and may be lost on shutdown or crash.
 ## Optional OpenTelemetry API bridge
 
 Programs may vendor `opentelemetry-api` and call
-`from ledgence_worker.otel import enable_context; enable_context()` once at module
+`from ledgence.worker.otel import enable_context; enable_context()` once at module
 initialization. The bridge activates only the invocation's processing carrier
 using the fixed W3C propagator, and attaches an empty context when it is null.
 It resets the OTel context in `finally`. It neither installs a provider nor creates
@@ -149,7 +162,7 @@ real programs; nothing is installed at execution time.
 
 ## Explicit checkpoint workflows (protocol 3)
 
-Workflow programs use `from ledgence_worker.workflow import workflow_context` and
+Workflow programs use `from ledgence.worker.workflow import workflow_context` and
 return `ctx.suspend(...)`, `ctx.continue_(...)`, `ctx.wait_event(...)`,
 `ctx.sleep(...)`, `ctx.complete(output)`, or `ctx.fail(kind, message)`. `ctx.continuation` starts as `"start"`; `ctx.state` is
 explicit JSON state and `ctx.inputs` is the frozen batch of child outcomes.
@@ -219,7 +232,7 @@ lineage, limits, and upgrade requirements.
 External events and durable timers also use explicit checkpoint decisions:
 
 ```python
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker.workflow import workflow_context
 
 def handle(event):
     ctx = workflow_context()

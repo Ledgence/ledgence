@@ -38,7 +38,7 @@ FIXTURE = r'''
 import asyncio, hashlib, json, os, time
 from pathlib import Path
 from urllib.request import urlopen
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker.workflow import workflow_context
 
 def mark(marker, tag, kind, **fields):
     with open(marker, 'a', encoding='utf-8') as stream:
@@ -591,7 +591,7 @@ def artifact_metadata(root, binaries, python, d):
     sources.update(root.glob('crates/*/migrations/*.sql'))
     sources.update(root.glob('crates/*/queries/*.sql'))
     sources.update(root.glob('rust-toolchain.toml'))
-    sources.update(root.glob('sdk/python/ledgence_worker/*.py'))
+    sources.update(root.glob('sdk/python/ledgence/worker/*.py'))
     sources.update(root.glob('sdk/python-client/src/**/*.py'))
     sources.update(root.glob('examples/checkpoint-workflow/**/*.py'))
     sources.update(root.glob('examples/owned-subworkflows/**/*.py'))

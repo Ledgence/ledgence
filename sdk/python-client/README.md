@@ -31,7 +31,11 @@ The caller owns its event loop. Keep one client open across calls and use it on
 that loop. Programs receive the complete CloudEvent and execute in the Rust worker.
 Protocol v3 programs can use synchronous or asynchronous Python handlers. The client neither uploads
 packages nor imports handlers. It is separate from the dependency-free
-`ledgence_worker` runtime helper and does not package that helper or CPython.
+`ledgence.worker` runtime helper and does not package that helper or CPython.
+Both use the native `ledgence` namespace: neither distribution owns a root
+`ledgence/__init__.py`, and the client keeps its typing marker in `ledgence/client/`.
+Programs use `from ledgence.worker.workflow import workflow_context`; the old
+`ledgence_worker` imports must be updated before using this pre-MVP revision.
 
 ## Task references and observations
 

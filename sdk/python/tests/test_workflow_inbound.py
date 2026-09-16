@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 import test_workflow
-from ledgence_worker.workflow import (
+from ledgence.worker.workflow import (
     MAX_CONTEXT_BYTES, MAX_DECISION_BYTES, MAX_EVENT_BYTES, MAX_RECORD_BYTES,
     MAX_RECORDS_BYTES, MAX_STATE_BYTES, WorkflowContext, WorkflowError, _encode, _freeze,
 )

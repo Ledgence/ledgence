@@ -27,7 +27,7 @@ cargo run --locked -p ledgence-worker -- run \
   --tasks "$demo_dir/example/tasks.json" \
   --store "$demo_dir/store" --cache "$demo_dir/cache" \
   --python "$LEDGENCE_PYTHON" \
-  --runner "$PWD/sdk/python/ledgence_worker/bootstrap.py" \
+  --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
   --concurrency 1
 ```
 
@@ -40,6 +40,14 @@ def handle(event):
     invoice = event["data"]
     return {"invoice_id": invoice["invoice_id"], "accepted": True}
 ```
+
+All public Python imports share the `ledgence` namespace: use
+`from ledgence.client import AsyncClient` in callers,
+`from ledgence.worker import current_invocation, get_logger` in programs, and
+`from ledgence.worker.workflow import workflow_context` in workflows. The client
+SDK and worker helper remain separate components. Existing programs using the
+pre-MVP `ledgence_worker` imports must update and republish their packages; see
+[the import migration](docs/program-packages.md#python-import-namespace).
 
 The handler receives the complete event. Ledgence validates the envelope and preserves the logical JSON value of `data` within the [documented numeric precision](docs/events.md), including application-defined business identifiers and nested structures. The worker does not install application dependencies during execution.
 

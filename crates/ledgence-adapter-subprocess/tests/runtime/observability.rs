@@ -19,7 +19,7 @@ async fn v2_preserves_origin_and_carries_execution_context_across_reuse_and_fail
     let (_dir, artifact, runtime) = v2_fixture(
         r#"import os
 from dataclasses import asdict
-from ledgence_worker import current_invocation
+from ledgence.worker import current_invocation
 def handle(event):
     if event['id'] == 'failure': raise ValueError('expected')
     if event['id'] == 'invalid': return object()
@@ -70,7 +70,7 @@ def handle(event):
 async fn v2_idle_log_flood_keeps_session_reusable_and_close_fair() {
     let (_dir, artifact, runtime) = v2_fixture(
         r#"import threading, time
-from ledgence_worker import get_logger
+from ledgence.worker import get_logger
 log = get_logger('background')
 stop = threading.Event()
 def flood():
@@ -160,7 +160,7 @@ async fn v2_helper_mismatch_fails_readiness_before_handler_and_callbacks_are_bou
     }
     let (_dir, artifact, runtime) = v2_fixture(
         r#"import time
-from ledgence_worker import register_shutdown
+from ledgence.worker import register_shutdown
 register_shutdown(lambda: time.sleep(60))
 def handle(event): return 42
 "#,
@@ -212,7 +212,7 @@ async fn v2_late_log_carries_creation_identity_while_another_invocation_runs() {
     let _subscriber = tracing::subscriber::set_default(subscriber);
     let (_dir, artifact, runtime) = v2_fixture(
         r#"import contextvars, threading, time
-from ledgence_worker import get_logger, _logging
+from ledgence.worker import get_logger, _logging
 log = get_logger('late')
 release, finished = threading.Event(), threading.Event()
 def later():
@@ -292,7 +292,7 @@ async fn v3_program_logs_preserve_workflow_scope_and_clear_it_on_reuse() {
     let _other_dispatch = tracing::Dispatch::new(tracing_subscriber::registry());
     let _subscriber = tracing::subscriber::set_default(subscriber);
     let (_dir, artifact, runtime) = fixture(
-        "from ledgence_worker import get_logger\ndef handle(event):\n    get_logger('workflow').info('workflow scope')\n    return 42\n",
+        "from ledgence.worker import get_logger\ndef handle(event):\n    get_logger('workflow').info('workflow scope')\n    return 42\n",
     );
     let mut manifest = artifact.manifest().clone();
     manifest.runtime.protocol = 3;

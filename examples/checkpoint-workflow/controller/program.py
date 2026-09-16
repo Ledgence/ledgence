@@ -2,7 +2,7 @@
 import asyncio
 from urllib.parse import urlsplit
 
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker.workflow import workflow_context
 
 
 async def fetch(url):

@@ -5,7 +5,7 @@ import unittest
 
 import test_workflow
 import test_workflow_inbound
-from ledgence_worker.workflow import (
+from ledgence.worker.workflow import (
     MAX_COMMANDS, MAX_DECISION_BYTES, TaskRef, WorkflowContext, WorkflowError, WorkflowRef,
     _encode,
 )
@@ -213,8 +213,8 @@ class SubworkflowProtocolTests(unittest.TestCase):
         root, plain = self.invocation("2"), self.invocation("3")
         self.ordinary(plain)
         source = """import os, time
-from ledgence_worker import current_invocation, get_logger
-from ledgence_worker.workflow import workflow_context
+from ledgence.worker import current_invocation, get_logger
+from ledgence.worker.workflow import workflow_context
 async def handle(event):
     invocation = current_invocation()
     result = {"parent": invocation.parent_workflow_id, "root": invocation.root_workflow_id,
@@ -256,7 +256,7 @@ async def handle(event):
             self.assertNotIn(b"controller ran", process.stderr)
 
     def test_local_step_cannot_hide_subworkflow_command_on_replay(self):
-        source = """from ledgence_worker.workflow import workflow_context
+        source = """from ledgence.worker.workflow import workflow_context
 async def hidden():
     workflow_context().workflow("hidden", program="child", version="1", queue="q", data=None)
 async def handle(event):

@@ -130,7 +130,7 @@ impl Package {
             Arc::new(SubprocessRuntime::new(
                 self.python.clone(),
                 PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../sdk/python/ledgence_worker/bootstrap.py"),
+                    .join("../../sdk/python/ledgence/worker/bootstrap.py"),
             )),
         )
         .unwrap()
