@@ -15,7 +15,7 @@ fn sync_directory(path: &Path) -> std::io::Result<()> {
 }
 fn failed_rename(plan: &mut ArchivePlan, stage: &Path, _: &Path) -> Result<()> {
     plan.extract(&stage.join("content"))?;
-    make_readonly(stage, true)?;
+    prepare_cache_wrapper(stage)?;
     sync_directory(stage)?;
     Err(std::io::Error::other("injected publication rename failure").into())
 }
