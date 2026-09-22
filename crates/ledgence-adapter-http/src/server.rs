@@ -173,6 +173,9 @@ fn invalid(message: &str) -> ContractError {
 }
 
 async fn handle(State(server): State<Server>, request: Request) -> Response {
+    let metric = ledgence_worker_api::metrics::MetricTimer::start(
+        ledgence_worker_api::metrics::Metric::HttpDuration,
+    );
     let start = Instant::now();
     let deadline = start + Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS);
     let request_id = format!(
@@ -273,6 +276,11 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 }
             }
         };
+        metric.finish(match status {
+            500.. => ledgence_worker_api::metrics::MetricOutcome::ServerError,
+            400.. => ledgence_worker_api::metrics::MetricOutcome::ClientError,
+            _ => ledgence_worker_api::metrics::MetricOutcome::Ok,
+        });
         let span = tracing::Span::current();
         span.record("http.response.status_code", i64::from(status));
         span.record(

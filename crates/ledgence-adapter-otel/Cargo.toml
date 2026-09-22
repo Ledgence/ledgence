@@ -8,9 +8,9 @@ repository.workspace = true
 
 [dependencies]
 ledgence-worker-api.workspace = true
-opentelemetry.workspace = true
-opentelemetry_sdk.workspace = true
-opentelemetry-otlp.workspace = true
+opentelemetry = { workspace = true, features = ["metrics"] }
+opentelemetry_sdk = { workspace = true, features = ["metrics"] }
+opentelemetry-otlp = { workspace = true, features = ["metrics"] }
 opentelemetry-http = { version = "=0.32.0", default-features = false }
 async-trait = { version = "=0.1.92", default-features = false }
 tracing-opentelemetry.workspace = true
@@ -20,7 +20,7 @@ tracing-subscriber.workspace = true
 serde_json.workspace = true
 
 prost = { version = "=0.14.4", default-features = false }
-opentelemetry-proto = { version = "=0.32.0", default-features = false, features = ["gen-tonic-messages", "trace"] }
+opentelemetry-proto = { version = "=0.32.0", default-features = false, features = ["gen-tonic-messages", "trace", "metrics"] }
 
 [dev-dependencies]
 tokio.workspace = true

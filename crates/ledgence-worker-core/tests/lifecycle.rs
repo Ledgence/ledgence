@@ -1790,3 +1790,6 @@ async fn startup_panic_closes_the_start_span_with_error_and_duration() {
     })
     .await;
 }
+
+#[path = "lifecycle/metrics.rs"]
+mod metrics;

@@ -109,6 +109,8 @@ impl Drop for ConsumerReservation {
 }
 
 pub(super) struct ConsumerOwnership {
+    // Observe release before making the permit available to another thread.
+    _metric: MetricGuard,
     _permit: OwnedSemaphorePermit,
     pub external: AtomicBool,
     pub cancelled: AtomicBool,
@@ -182,7 +184,10 @@ impl ConsumerOwnership {
 }
 
 pub(super) enum ConsumerPermit {
-    Direct { _permit: OwnedSemaphorePermit },
+    Direct {
+        _metric: MetricGuard,
+        _permit: OwnedSemaphorePermit,
+    },
     Reserved(Arc<ConsumerOwnership>),
 }
 
@@ -236,6 +241,7 @@ impl Worker {
         }
         let ownership = Arc::new(ConsumerOwnership {
             _permit: permit,
+            _metric: MetricGuard::consumer(),
             external: AtomicBool::new(true),
             cancelled: AtomicBool::new(false),
             execution: StdMutex::new(ReservationExecution::default()),

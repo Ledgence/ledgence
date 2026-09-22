@@ -243,6 +243,14 @@ impl PostgresStore {
             }
         }
         tx.commit().await?;
+        for lease in &leases {
+            if let Some(activated) = lease.subscription.activated_at {
+                Metric::CallbackAge.record(
+                    now.saturating_sub(activated) as f64 / 1000.0,
+                    MetricOutcome::None,
+                );
+            }
+        }
         Ok(leases)
     }
 

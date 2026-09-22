@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, fmt};
 #[derive(Clone, Debug)]
 pub struct Config {
     pub(crate) endpoint: Option<String>,
+    pub(crate) metrics_endpoint: Option<String>,
     pub(crate) service_name: String,
     pub(crate) service_version: String,
     pub(crate) instance_id: String,
@@ -38,6 +39,8 @@ impl Config {
         let vars: BTreeMap<_, _> = variables.into_iter().collect();
         let allowed = [
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
             "OTEL_EXPORTER_OTLP_PROTOCOL",
             "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
             "OTEL_SERVICE_NAME",
@@ -54,6 +57,7 @@ impl Config {
         for key in [
             "OTEL_EXPORTER_OTLP_PROTOCOL",
             "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+            "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
         ] {
             if vars.get(key).is_some_and(|v| v != "http/protobuf") {
                 return Err(ConfigError(format!("{key} must be http/protobuf")));
@@ -69,12 +73,10 @@ impl Config {
             }
         };
         let endpoint = vars.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").cloned();
-        if let Some(endpoint) = &endpoint {
-            let url = reqwest::Url::parse(endpoint).map_err(|_| {
-                ConfigError(
-                    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must be an absolute HTTP(S) URL".into(),
-                )
-            })?;
+        let metrics_endpoint = vars.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT").cloned();
+        for endpoint in endpoint.iter().chain(metrics_endpoint.iter()) {
+            let url = reqwest::Url::parse(endpoint)
+                .map_err(|_| ConfigError("OTLP endpoint must be an absolute HTTP(S) URL".into()))?;
             if !["http", "https"].contains(&url.scheme())
                 || url.host_str().is_none()
                 || url.fragment().is_some()
@@ -82,7 +84,7 @@ impl Config {
                 || url.password().is_some()
                 || endpoint.len() > 2048
             {
-                return Err(ConfigError("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must be an HTTP(S) URL without user information or fragment (at most 2048 bytes)".into()));
+                return Err(ConfigError("OTLP endpoint must be an HTTP(S) URL without user information or fragment (at most 2048 bytes)".into()));
             }
         }
         let sampler = vars
@@ -140,6 +142,7 @@ impl Config {
         bounded(service_version, "service version")?;
         Ok(Self {
             endpoint: if disabled { None } else { endpoint },
+            metrics_endpoint: if disabled { None } else { metrics_endpoint },
             service_name: service_name.into(),
             service_version: service_version.into(),
             instance_id,
@@ -149,7 +152,7 @@ impl Config {
     }
 
     pub fn enabled(&self) -> bool {
-        self.endpoint.is_some()
+        self.endpoint.is_some() || self.metrics_endpoint.is_some()
     }
 }
 
