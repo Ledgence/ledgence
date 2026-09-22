@@ -21,6 +21,8 @@ from .workflow_models import (
 
 if TYPE_CHECKING:
     from .client import AsyncClient
+    from .completion_models import CompletionSubscribeCommand
+    from .completions import CompletionSubscriptionHandle
 
 
 class Workflows:
@@ -213,6 +215,18 @@ class WorkflowHandle:
             raise WorkflowEventUncertain(command, exc) from exc
         except TransportError as exc:
             raise WorkflowEventUncertain(command, exc) from exc
+
+    def prepare_subscribe(self, *, destination: str, idempotency_key: str) -> CompletionSubscribeCommand:
+        """Freeze notification registration for this workflow's terminal outcome."""
+        from .completions import prepare_subscription
+        return prepare_subscription(self, "workflow", destination=destination,
+                                    idempotency_key=idempotency_key)
+
+    async def subscribe(self, command: CompletionSubscribeCommand | None = None,
+                        **kwargs) -> CompletionSubscriptionHandle:
+        """Register durable delivery to a destination; this does not wait for completion."""
+        from .completions import subscribe_handle
+        return await subscribe_handle(self, "workflow", command, **kwargs)
 
     async def cancel(self) -> WorkflowStatus:
         deadline = asyncio.get_running_loop().time() + self._client.request_timeout

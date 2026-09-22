@@ -5,6 +5,7 @@
 //! database time, and commit. No database implementation is selected here.
 
 mod acquisition;
+mod completion;
 mod workflow;
 pub use acquisition::AcquisitionStatistics;
 
@@ -22,6 +23,7 @@ use tracing::Instrument;
 pub struct ApplicationService {
     store: Arc<dyn TaskStore>,
     workflows: Option<Arc<dyn WorkflowStore>>,
+    completions: Option<Arc<dyn CompletionStore>>,
     programs: Arc<dyn ProgramStore>,
     acquisition: Arc<acquisition::Coordinator>,
     claims_stopped: Arc<AtomicBool>,
@@ -32,6 +34,7 @@ impl ApplicationService {
         Self {
             store,
             workflows: None,
+            completions: None,
             programs,
             acquisition: acquisition::Coordinator::new(),
             claims_stopped: Arc::new(AtomicBool::new(false)),

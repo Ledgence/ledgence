@@ -5,6 +5,8 @@
 
 #[cfg(feature = "client")]
 mod client;
+#[cfg(feature = "completion")]
+pub mod completion;
 #[cfg(feature = "client")]
 mod response;
 #[cfg(feature = "client")]

@@ -195,8 +195,16 @@ pub(super) async fn save_run(connection: &mut PgConnection, run: &RunRecord) -> 
         .bind(&run.continuation).bind(codec::encode(&run.checkpoint)?).bind(&run.snapshot.activation_id).bind(&run.wait_activation)
         .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key)
         .execute(&mut *connection).await?;
-    if run.snapshot.state.is_terminal() && run.snapshot.parent_workflow_id.is_some() {
-        owned::terminal_obligation(connection, &run.snapshot).await?;
+    if run.snapshot.state.is_terminal() {
+        if run.snapshot.parent_workflow_id.is_some() {
+            owned::terminal_obligation(connection, &run.snapshot).await?;
+        }
+        crate::completion::workflow_terminal(
+            connection,
+            &run.snapshot,
+            run.submission.origin_trace.as_ref(),
+        )
+        .await?;
     }
     Ok(())
 }

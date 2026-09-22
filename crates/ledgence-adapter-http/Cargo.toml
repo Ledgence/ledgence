@@ -9,6 +9,7 @@ repository.workspace = true
 [features]
 default = []
 client = ["dep:reqwest"]
+completion = ["dep:reqwest"]
 server = ["dep:axum", "dep:http-body-util"]
 
 [dependencies]

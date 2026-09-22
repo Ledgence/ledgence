@@ -1,3 +1,4 @@
+mod completion;
 use super::*;
 use ledgence_worker_api::{
     Digest, Error, ErrorKind, ExecutionContext, ExecutionFailure, ExecutionReport,

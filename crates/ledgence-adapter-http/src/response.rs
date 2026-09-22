@@ -136,3 +136,10 @@ impl ResponseValue for WorkflowEventReceipt {
         self.validate()
     }
 }
+
+impl ResponseValue for CompletionSubscription {
+    const MAX_BYTES: usize = COMPLETION_STATUS_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}

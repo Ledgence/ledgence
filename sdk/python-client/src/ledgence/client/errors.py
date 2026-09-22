@@ -147,3 +147,21 @@ class WorkflowEventUncertain(LedgenceError):
         super().__init__("workflow event acceptance is uncertain", request_id=cause.request_id)
         self.command = command
         self.cause = cause
+
+
+class CompletionSubscriptionUncertain(LedgenceError):
+    """Subscription acceptance is uncertain; resend the same frozen command."""
+
+    def __init__(self, command, cause: TransportError):
+        super().__init__("completion subscription acceptance is uncertain", request_id=cause.request_id)
+        self.command = command
+        self.cause = cause
+
+
+class CompletionRetryUncertain(LedgenceError):
+    """Redelivery acceptance is uncertain; reconcile the same exhausted generation."""
+
+    def __init__(self, command, cause: TransportError):
+        super().__init__("completion retry acceptance is uncertain", request_id=cause.request_id)
+        self.command = command
+        self.cause = cause

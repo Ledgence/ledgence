@@ -192,6 +192,16 @@ jobs:
             --evidence "$RUNNER_TEMP/ledgence-client-e2e-evidence"
 
 
+      - name: Check durable completion callbacks and sender recovery
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-completions.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --evidence "$RUNNER_TEMP/ledgence-completion-evidence"
+
+
       - name: Check workflow checkpoints and recovery with integrated and ElasticMQ delivery
         env:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}

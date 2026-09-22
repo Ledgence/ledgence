@@ -15,7 +15,7 @@ sqs = ["dep:ledgence-adapter-sqs"]
 [dependencies]
 ledgence-adapter-sqs = { workspace = true, optional = true }
 ledgence-adapter-otel = { workspace = true, optional = true }
-ledgence-adapter-http = { workspace = true, features = ["server"] }
+ledgence-adapter-http = { workspace = true, features = ["server", "completion"] }
 ledgence-adapter-artifact.workspace = true
 ledgence-adapter-postgres.workspace = true
 ledgence-orchestration-api.workspace = true

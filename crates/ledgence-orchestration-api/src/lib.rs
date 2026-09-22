@@ -7,6 +7,7 @@
 pub use ledgence_worker_api::TraceContext;
 
 mod acquisition;
+mod completion;
 mod delivery;
 mod discovery;
 mod dispatch;
@@ -17,6 +18,7 @@ mod workflow;
 mod workflow_children;
 mod workflow_events;
 pub use acquisition::*;
+pub use completion::*;
 pub use delivery::*;
 pub use discovery::*;
 pub use dispatch::*;

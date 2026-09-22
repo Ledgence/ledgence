@@ -4,6 +4,7 @@
 //! connection failure during commit must be reconciled with the same command.
 
 mod codec;
+mod completion;
 mod delivery;
 mod discovery;
 mod dispatch_claim;

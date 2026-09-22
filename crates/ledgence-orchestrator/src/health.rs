@@ -21,6 +21,7 @@ struct Progress {
     failure: Option<&'static str>,
     publication: Option<ComponentProgress>,
     workflow: Option<ComponentProgress>,
+    completion: Option<ComponentProgress>,
 }
 
 #[derive(Default)]
@@ -87,6 +88,21 @@ impl Health {
         }
     }
 
+    pub fn require_completions(&self) {
+        self.progress().completion = Some(ComponentProgress::default());
+    }
+    pub fn completion_success(&self) {
+        if let Some(progress) = &mut self.progress().completion {
+            progress.last_success = Some(Instant::now());
+            progress.failure = None;
+        }
+    }
+    pub fn completion_failure(&self, reason: &'static str) {
+        if let Some(progress) = &mut self.progress().completion {
+            progress.failure = Some(reason);
+        }
+    }
+
     pub fn stop(&self) {
         self.stopping.store(true, Ordering::Release);
     }
@@ -132,6 +148,16 @@ impl Health {
             match workflow.last_success.map(|at| at.elapsed()) {
                 None => reasons.push("workflow_pending"),
                 Some(age) if age > self.freshness => reasons.push("workflow_stale"),
+                _ => {}
+            }
+        }
+        if let Some(completion) = &progress.completion {
+            if let Some(reason) = completion.failure {
+                reasons.push(reason);
+            }
+            match completion.last_success.map(|at| at.elapsed()) {
+                None => reasons.push("completion_pending"),
+                Some(age) if age > self.freshness => reasons.push("completion_stale"),
                 _ => {}
             }
         }

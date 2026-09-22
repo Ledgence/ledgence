@@ -2,6 +2,7 @@
 
 mod application;
 mod command;
+mod completion;
 mod health;
 mod logging;
 #[cfg(feature = "sqs")]
@@ -225,6 +226,7 @@ async fn dispatch(
                 bind,
                 store: programs,
                 delivery_config,
+                completion_config,
             } => {
                 prepare_and_serve(
                     store.clone(),
@@ -233,7 +235,7 @@ async fn dispatch(
                     stopped,
                     trace,
                     &url,
-                    delivery_config,
+                    (delivery_config, completion_config),
                 )
                 .await
             }
@@ -253,8 +255,9 @@ async fn prepare_and_serve(
     stopped: watch::Receiver<bool>,
     trace: Arc<dyn TraceBridge>,
     database_url: &str,
-    delivery_config: Option<std::path::PathBuf>,
+    config_paths: (Option<std::path::PathBuf>, Option<std::path::PathBuf>),
 ) -> Result<(), String> {
+    let (delivery_config, completion_config) = config_paths;
     store
         .verify_schema()
         .await
@@ -263,6 +266,30 @@ async fn prepare_and_serve(
         .check_connection()
         .await
         .map_err(|error| error.to_string())?;
+    let completion_destinations = match completion_config {
+        Some(path) => {
+            let config = tokio::task::spawn_blocking(move || {
+                ledgence_adapter_http::completion::CompletionConfig::load(&path)
+            })
+            .await
+            .map_err(|_| "completion configuration loading failed".to_owned())?
+            .map_err(|error| error.to_string())?;
+            let mut destinations = Vec::with_capacity(config.destinations.len());
+            for configured in config.destinations {
+                let binding = configured.destination.clone();
+                let sender =
+                    ledgence_adapter_http::completion::HttpCompletionSender::new(configured)
+                        .map_err(|error| error.to_string())?
+                        .with_trace_bridge(trace.clone());
+                destinations.push(completion::Destination {
+                    binding,
+                    sender: Arc::new(sender),
+                });
+            }
+            destinations
+        }
+        None => Vec::new(),
+    };
     #[cfg(feature = "sqs")]
     let broker = match delivery_config {
         Some(path) => {
@@ -317,8 +344,11 @@ async fn prepare_and_serve(
     let health = Health::new(config.freshness());
     health.prerequisites_ready();
     let store = Arc::new(store);
-    let service =
-        Arc::new(ApplicationService::new(store.clone(), programs).with_workflows(store.clone()));
+    let service = Arc::new(
+        ApplicationService::new(store.clone(), programs)
+            .with_workflows(store.clone())
+            .with_completions(store.clone()),
+    );
     store.set_acquisition_wake(service.acquisition_wake());
     let notifications = if notifications_enabled()? {
         let url = std::env::var("LEDGENCE_POSTGRES_NOTIFICATION_URL")
@@ -338,6 +368,13 @@ async fn prepare_and_serve(
         if *stopped.borrow() {
             return Ok(());
         }
+        for destination in &completion_destinations {
+            use ledgence_orchestration_api::CompletionStore;
+            store
+                .configure_completion_destination(&destination.binding)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
         #[cfg(feature = "sqs")]
         if let Some((_, route)) = &broker {
             use ledgence_orchestration_api::DispatchIntentStore;
@@ -351,7 +388,8 @@ async fn prepare_and_serve(
         if *stopped.borrow() {
             return Ok(());
         }
-        let router = ledgence_adapter_http::server::router_with_workflows(
+        let router = ledgence_adapter_http::server::router_with_completions(
+            service.clone(),
             service.clone(),
             service.clone(),
             health.stopping.clone(),
@@ -383,6 +421,24 @@ async fn prepare_and_serve(
         });
         #[cfg(not(feature = "sqs"))]
         let publisher = None;
+        let completion_task = if completion_destinations.is_empty() {
+            None
+        } else {
+            health.require_completions();
+            let (stop, stopped) = watch::channel(false);
+            Some(BackgroundTask {
+                task: tokio::spawn(
+                    completion::run(
+                        store.clone(),
+                        completion_destinations,
+                        health.clone(),
+                        stopped,
+                    )
+                    .with_current_subscriber(),
+                ),
+                stop,
+            })
+        };
         health.require_workflows();
         let (workflow_stop, workflow_stopped) = watch::channel(false);
         let workflow_task = Some(BackgroundTask {
@@ -404,6 +460,7 @@ async fn prepare_and_serve(
                 scanner,
                 publisher,
                 workflow: workflow_task,
+                completion: completion_task,
             },
             health,
             stopped,
@@ -450,6 +507,7 @@ struct BackgroundTasks {
     scanner: JoinHandle<ledgence_orchestration_api::Result<()>>,
     publisher: Option<BackgroundTask>,
     workflow: Option<BackgroundTask>,
+    completion: Option<BackgroundTask>,
 }
 
 async fn supervise(
@@ -465,16 +523,27 @@ async fn supervise(
         mut scanner,
         mut publisher,
         mut workflow,
+        mut completion,
     } = background;
     let mut http_finished = false;
     let mut scanner_finished = false;
     let mut publisher_finished = false;
     let mut workflow_finished = false;
+    let mut completion_finished = false;
     let mut failure = tokio::select! {
         _ = stop_requested(stopped) => None,
         finished = &mut http => {
             http_finished = true;
             Some(format!("HTTP server stopped unexpectedly: {finished:?}"))
+        }
+        finished = async {
+            match &mut completion {
+                Some(dispatcher) => (&mut dispatcher.task).await,
+                None => std::future::pending().await,
+            }
+        } => {
+            completion_finished = true;
+            Some(format!("completion supervisor stopped unexpectedly: {finished:?}"))
         }
         finished = &mut scanner => {
             scanner_finished = true;
@@ -513,6 +582,9 @@ async fn supervise(
     // Recovery continues while already accepted requests drain. Once no HTTP
     // operation remains, stop scanning between bounded batches before DB close.
     let _ = recovery_stop.send(true);
+    if let Some(dispatcher) = &completion {
+        let _ = dispatcher.stop.send(true);
+    }
     if let Some(coordinator) = &workflow {
         let _ = coordinator.stop.send(true);
     }
@@ -544,6 +616,16 @@ async fn supervise(
             Ok(Ok(())) => {}
             result => {
                 failure.get_or_insert_with(|| format!("workflow drain failed: {result:?}"));
+            }
+        }
+    }
+    if let Some(dispatcher) = &mut completion
+        && !completion_finished
+    {
+        match observe_drain(&mut dispatcher.task, "completion delivery").await {
+            Ok(Ok(())) => {}
+            result => {
+                failure.get_or_insert_with(|| format!("completion drain failed: {result:?}"));
             }
         }
     }
@@ -622,6 +704,7 @@ mod tests {
             http,
             BackgroundTasks {
                 workflow: None,
+                completion: None,
                 scanner,
                 publisher: None,
             },
@@ -674,6 +757,7 @@ mod tests {
             http,
             BackgroundTasks {
                 workflow: None,
+                completion: None,
                 scanner,
                 publisher: None,
             },
@@ -743,6 +827,7 @@ mod publication_supervision_tests {
                 scanner,
                 publisher,
                 workflow: None,
+                completion: None,
             },
             health,
             stopped,
@@ -796,6 +881,7 @@ mod publication_supervision_tests {
                     scanner,
                     publisher,
                     workflow: None,
+                    completion: None,
                 },
                 health,
                 stopped,
@@ -808,6 +894,112 @@ mod publication_supervision_tests {
                 result
                     .unwrap_err()
                     .contains("publication supervisor stopped unexpectedly")
+            );
+            assert!(observed.stopping.load(std::sync::atomic::Ordering::Acquire));
+        }
+    }
+}
+
+#[cfg(test)]
+mod completion_supervision_tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    #[tokio::test(start_paused = true)]
+    async fn completion_dispatch_continues_through_http_drain_and_retains_current_sends() {
+        let health = Health::new(Duration::from_secs(40));
+        let (stop, stopped) = watch::channel(false);
+        let (http_stop, mut http_stopped) = watch::channel(false);
+        let (recovery_stop, recovery_stopped) = watch::channel(false);
+        let (completion_stop, mut completion_stopped) = watch::channel(false);
+        let (http_finish, http_finished) = oneshot::channel();
+        let (completion_finish, completion_finished) = oneshot::channel();
+        let http = tokio::spawn(async move {
+            http_finished.await.unwrap();
+            Ok(())
+        });
+        let scanner = tokio::spawn(async move {
+            stop_requested(recovery_stopped).await;
+            Ok(())
+        });
+        let task = tokio::spawn(supervise(
+            http,
+            BackgroundTasks {
+                scanner,
+                publisher: None,
+                workflow: None,
+                completion: Some(BackgroundTask {
+                    stop: completion_stop,
+                    task: tokio::spawn(async move {
+                        completion_finished.await.unwrap();
+                        Ok(())
+                    }),
+                }),
+            },
+            health,
+            stopped,
+            http_stop,
+            recovery_stop,
+            || {},
+        ));
+        stop.send(true).unwrap();
+        http_stopped.changed().await.unwrap();
+        assert!(!*completion_stopped.borrow());
+        tokio::time::advance(Duration::from_secs(36)).await;
+        assert!(!task.is_finished());
+        assert!(!*completion_stopped.borrow());
+        http_finish.send(()).unwrap();
+        completion_stopped.changed().await.unwrap();
+        assert!(*completion_stopped.borrow());
+        assert!(!task.is_finished());
+        completion_finish.send(()).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn completion_dispatch_failure_and_panic_drain_other_components() {
+        for panic in [false, true] {
+            let health = Health::new(Duration::from_secs(40));
+            let observed = health.clone();
+            let (_stop, stopped) = watch::channel(false);
+            let (http_stop, http_stopped) = watch::channel(false);
+            let (recovery_stop, recovery_stopped) = watch::channel(false);
+            let (completion_stop, _completion_stopped) = watch::channel(false);
+            let http = tokio::spawn(async move {
+                stop_requested(http_stopped).await;
+                Ok(())
+            });
+            let scanner = tokio::spawn(async move {
+                stop_requested(recovery_stopped).await;
+                Ok(())
+            });
+            let result = supervise(
+                http,
+                BackgroundTasks {
+                    scanner,
+                    publisher: None,
+                    workflow: None,
+                    completion: Some(BackgroundTask {
+                        stop: completion_stop,
+                        task: tokio::spawn(async move {
+                            assert!(!panic, "controlled completion supervisor panic");
+                            Err(ledgence_orchestration_api::ContractError::InvalidInput(
+                                "controlled failure".into(),
+                            ))
+                        }),
+                    }),
+                },
+                health,
+                stopped,
+                http_stop,
+                recovery_stop,
+                || {},
+            )
+            .await;
+            assert!(
+                result
+                    .unwrap_err()
+                    .contains("completion supervisor stopped unexpectedly")
             );
             assert!(observed.stopping.load(std::sync::atomic::Ordering::Acquire));
         }
