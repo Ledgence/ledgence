@@ -164,7 +164,7 @@ A newly allocated invocation receives a producer span parented to the accepted s
 
 Publication spans record `not_committed` before COMMIT, `commit_unconfirmed` while its acknowledgment is unresolved, and `committed` only after acknowledgment. A recognized transaction rollback or deferred-constraint rejection of COMMIT records `rolled_back`; connection, shutdown, and unfamiliar server failures retain uncertainty. A lost acknowledgment can therefore accompany a committed event without falsely claiming certainty. Recovery emits its own scan and committed-expiry observations; it does not fabricate completion for a dead worker.
 
-Use durable task/run/attempt IDs and the optional submission `correlation_key` for application correlation; trace span IDs and per-exchange request IDs are not business parent IDs. Tracing is off by default. `HttpTaskService::with_trace_bridge`, `server::router_with_observability`, and `PostgresStore::with_trace_bridge` let a Rust host supply the optional context bridge while keeping exporter types outside portable contracts. Metrics export remains later work.
+Use durable task/run/attempt IDs and the optional submission `correlation_key` for application correlation; trace span IDs and per-exchange request IDs are not business parent IDs. Tracing is off by default. `HttpTaskService::with_trace_bridge`, `server::router_with_observability`, and `PostgresStore::with_trace_bridge` let a Rust host supply the optional context bridge while keeping exporter types outside portable contracts. Bounded [operational metrics](metrics.md) can be enabled independently through OTLP/HTTP export and are off by default.
 
 ## Recovery, readiness, and shutdown
 

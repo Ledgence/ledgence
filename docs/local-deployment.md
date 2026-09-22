@@ -74,6 +74,45 @@ and persists its small record before acknowledging. Its 256-event capacity is a
 demo limit; it returns 503 when full. [Callback semantics](completion-notifications.md)
 explain retry exhaustion, redelivery and production receiver responsibilities.
 
+## Run the installed Python client example
+
+After starting the stack and publishing its programs, install the candidate SDK
+wheel in a host virtual environment. Use host CPython 3.11–3.14; this interpreter
+runs the client, while programs execute using the separately declared interpreter
+inside the worker container. Set `client_wheel` to the actual wheel from your
+extracted candidate's `python-client/` directory. No registry publication is assumed.
+
+```sh
+client_wheel=/absolute/path/to/candidate/python-client/ledgence_client-0.1.0-py3-none-any.whl
+python3 -m venv /tmp/ledgence-compose-client
+/tmp/ledgence-compose-client/bin/python -m pip install "$client_wheel"
+/tmp/ledgence-compose-client/bin/python -I -B examples/local-compose-client.py --server http://127.0.0.1:8080
+```
+
+Run the last command from the source checkout or extracted candidate, both of
+which include the companion. The source checkout supplies the Compose files and
+program publication step. To build an SDK wheel locally with the reviewed package
+gates instead, follow [candidate packaging](releasing.md). Installation resolves
+the wheel's pinned dependencies; an offline installation needs a separately
+prepared reviewed wheelhouse.
+
+The companion uses `from ledgence.client import AsyncClient` for every task,
+workflow and completion operation. It runs two invoice tasks and verifies exact
+outputs and warm process reuse, then executes the published workflow's four local
+I/O steps and distributed summary task. It registers task/workflow subscriptions
+only after completion, then observes their persisted `delivered` statuses and
+reference-only CloudEvents. Every result and delivery wait has a 90-second bound;
+the complete example has a 300-second bound. A timeout or uncertain submission
+fails the example without retrying execution. Keep concurrency at one and avoid
+concurrent example traffic for the reuse assertion. `--server` also supports the
+ElasticMQ project's loopback API port.
+
+Its JSON output records the actual installed SDK version, module paths and
+hashes. Editable installs and source-shadowed imports are rejected. The receiver
+stays private on the Compose network; the qualification gate below additionally
+compares its persisted events with the complete SDK-observed events, including
+both `source` and `id`, before and after container recreation.
+
 ## ElasticMQ instead of integrated acquisition
 
 Use a separate Compose project and port so its durable logical queue route does
@@ -142,12 +181,18 @@ data. It does not remove unrelated projects or images.
 
 ```sh
 python3 tools/check-deployment.py --backend both --evidence /tmp/ledgence-compose-evidence
+
+# Add the host interpreter containing the installed client wheel to qualify both paths.
+python3 tools/check-deployment.py --backend both --client-python /tmp/ledgence-compose-client/bin/python --evidence /tmp/ledgence-compose-sdk-evidence
 ```
 
 The gate owns random project/image names, ephemeral loopback ports and disposable
 volumes. It builds a real Linux image, runs both complete demos, recreates the
 containers without deleting volumes, verifies retained workflow/callback state,
-runs the demo again and cleans up only its own projects. Evidence records the
+runs the demo again and cleans up only its own projects. With `--client-python`,
+it additionally runs the installed-SDK companion on both deployments before and
+after recreation and verifies its retained workflow/callback state and receiver
+events. Evidence records the actual installed SDK provenance and the
 actual image ID, source label, OS and architecture. A configured architecture is
 not a claim that it was executed; consult the result for the candidate being
 released.
