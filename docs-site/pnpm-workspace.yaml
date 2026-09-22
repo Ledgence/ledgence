@@ -1,0 +1,5 @@
+nodeLinker: hoisted
+ignoreScripts: true
+# Keep npm and pnpm on the same reviewed transitive version.
+overrides:
+  undici: 8.10.2

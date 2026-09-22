@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.astro/
+public/notices/
+.playwright-cli/
+output/
+src/generated/
+public/source.json
+public/llms.txt
+public/markdown/
