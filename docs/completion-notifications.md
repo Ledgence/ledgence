@@ -246,8 +246,9 @@ Tracing remains optional and is not the durable delivery record.
 
 This milestone does not introduce a general event stream, subscription
 cancellation/deletion, per-destination rate policies, signatures, arbitrary
-headers, or result retention deletion. Retention must later preserve active
-subscriptions, pending/retry work, and the documented reconciliation lifetime.
+headers, or archival. [Retention maintenance](retention.md) now preserves active
+subscriptions, pending/retry work, and at least 90 days after the latest terminal
+delivery activity; expired subscription IDs and manual retries return `NotFound`.
 Exactly-once receiver business effects and production throughput are not implied
 by local functional tests.
 

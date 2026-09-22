@@ -35,6 +35,7 @@ pub(super) fn status_record(row: &PgRow) -> StoreResult<WorkflowSnapshot> {
     Ok(snapshot)
 }
 fn snapshot_record(row: &PgRow) -> StoreResult<WorkflowSnapshot> {
+    codec::visible(row)?;
     Ok(WorkflowSnapshot {
         workflow_id: row.try_get("workflow_id")?,
         parent_workflow_id: row.try_get("parent_workflow_id")?,
@@ -61,6 +62,7 @@ fn snapshot_record(row: &PgRow) -> StoreResult<WorkflowSnapshot> {
     })
 }
 pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
+    codec::visible(row)?;
     let submission: SubmitCommand = codec::decode(&row.try_get::<Vec<u8>, _>("submission_bytes")?)?;
     let controller: ProgramDescriptor =
         codec::decode(&row.try_get::<Vec<u8>, _>("controller_bytes")?)?;

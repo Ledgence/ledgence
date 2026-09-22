@@ -25,7 +25,7 @@ impl WorkflowStore for PostgresStore {
         Box::pin(self.run(move || async move {
             scope.validate()?;
             validate_text(key, 255)?;
-            let row = sqlx::query("SELECT workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND idempotency_key=$3 AND parent_workflow_id IS NULL")
+            let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND idempotency_key=$3 AND parent_workflow_id IS NULL")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(key).fetch_optional(&self.pool).await?;
             row.as_ref().map(status_record).transpose()
         }))
@@ -84,7 +84,7 @@ impl WorkflowStore for PostgresStore {
         Box::pin(self.run(move || async move {
             scope.validate()?;
             validate_text(id, 128)?;
-            let row = sqlx::query("SELECT workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3")
+            let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(id).fetch_optional(&self.pool).await?.ok_or(ContractError::NotFound)?;
             status_record(&row)
         }))
@@ -98,7 +98,7 @@ impl WorkflowStore for PostgresStore {
         Box::pin(self.run(move || async move {
             scope.validate()?;
             validate_text(id, 128)?;
-            let row = sqlx::query("SELECT workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key,CASE WHEN terminal_at_ms IS NOT NULL THEN outcome_bytes ELSE NULL END AS outcome_bytes FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3")
+            let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key,CASE WHEN terminal_at_ms IS NOT NULL THEN outcome_bytes ELSE NULL END AS outcome_bytes FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(id).fetch_optional(&self.pool).await?.ok_or(ContractError::NotFound)?;
             let result = WorkflowResult { workflow: status_record(&row)?, outcome: row.try_get::<Option<Vec<u8>>, _>("outcome_bytes")?.map(|b| codec::decode(&b)).transpose()? };
             result.validate().map_err(|_| corrupt("result"))?;

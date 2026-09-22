@@ -8,6 +8,7 @@ mod logging;
 #[cfg(feature = "sqs")]
 mod publication;
 mod recovery;
+mod retention;
 mod telemetry;
 mod workflow;
 
@@ -222,6 +223,12 @@ async fn dispatch(
                 }
                 result
             }
+            Command::Retain {
+                scope,
+                policy,
+                batches,
+                apply,
+            } => retention::run(&store, &scope, &policy, batches, apply, stopped).await,
             Command::Serve {
                 bind,
                 store: programs,

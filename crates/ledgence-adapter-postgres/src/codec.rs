@@ -125,6 +125,7 @@ fn identifier(row: &impl Record, column: &str, maximum: usize) -> Result<String>
 
 /// Decode compact indexed metadata only; no application byte payload is selected.
 pub(crate) fn status(row: &PgRow) -> Result<TaskStatus> {
+    visible(row)?;
     let status = TaskStatus {
         workflow_id: get(row, "workflow_id")?,
         workflow_activation_id: get(row, "workflow_activation_id")?,
@@ -174,6 +175,7 @@ pub(crate) fn status(row: &PgRow) -> Result<TaskStatus> {
 }
 
 pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
+    visible(row)?;
     let command = SubmitCommand {
         idempotency_key: identifier(row, "idempotency_key", 255)?,
         input: decode(&get::<Vec<u8>>(row, "input_bytes")?)?,
@@ -438,6 +440,14 @@ pub(crate) fn history(row: &PgRow) -> Result<RecordedHistoryEvent> {
             reason: enum_value(get(row, "reason")?)?,
         },
     })
+}
+
+/// An expired execution is unavailable as a whole while bounded cleanup runs.
+pub(crate) fn visible(row: &PgRow) -> Result<()> {
+    if get::<Option<i64>>(row, "retiring_at_ms")?.is_some() {
+        return Err(ContractError::NotFound);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

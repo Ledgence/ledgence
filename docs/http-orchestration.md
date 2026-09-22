@@ -2,7 +2,7 @@
 
 Ledgence provides three Rust executables: `ledgence-orchestrator` serves the durable task/workflow APIs and runs expiry and workflow recovery, `ledgence-worker connect` executes assignments, and `ledgence` submits and inspects tasks. PostgreSQL 18 stores orchestration state. Program packages remain in a separate filesystem or HTTPS store and are downloaded into each worker's verified cache on demand.
 
-This version supports bounded HTTP/JSON long polling. Workers request up to 20 seconds of waiting, with optional PostgreSQL notifications and periodic queue checks. Immediate acquisition remains available with `--acquire-wait-ms 0`. gRPC, a package upload API, and retention deletion remain later work. Optional tracing uses the OTLP HTTP/protobuf exporter; acquisition semantics remain independent of telemetry availability. The API is versioned under `/v1` but has no stable-release compatibility promise yet.
+This version supports bounded HTTP/JSON long polling. Workers request up to 20 seconds of waiting, with optional PostgreSQL notifications and periodic queue checks. Immediate acquisition remains available with `--acquire-wait-ms 0`. gRPC and a package upload API remain later work. [Retention maintenance](retention.md) is an explicit scoped operator command. Optional tracing uses the OTLP HTTP/protobuf exporter; acquisition semantics remain independent of telemetry availability. The API is versioned under `/v1` but has no stable-release compatibility promise yet.
 
 ## Run a task
 

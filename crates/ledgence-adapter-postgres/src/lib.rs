@@ -12,6 +12,7 @@ mod dispatch_intents;
 mod migration;
 mod notifications;
 mod persistence;
+mod retention;
 mod storage;
 mod transaction;
 mod workflow;

@@ -2,7 +2,7 @@
 
 Ledgence provides a Rust application service and an initial PostgreSQL 18 storage adapter. Together they implement durable single-task submission, acquisition, lease renewal, settlement, cancellation, history, and expiry recovery. They call the existing lifecycle core inside database transactions and return mutation success only after commit.
 
-The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; retention deletion remains later work. These tests do not establish exactly-once external business effects or database failover guarantees.
+The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
 ## Using the adapter
 
@@ -57,7 +57,7 @@ The supplied HTTP orchestrator runs a supervised loop with one-second cadence, b
 
 The shortlist uses database statement time as a fixed index range cutoff. Each locked candidate is then rechecked against fresh database wall time before its expiry transition.
 
-Retention deletion is not implemented: records and submission deduplication can remain beyond the proposed ninety-day terminal period. Current cursor reconciliation requires complete referenced snapshots, so deleting payloads or resetting cursors early is incorrect. The next retention implementation must preserve that behavior explicitly.
+[Retention maintenance](retention.md) is opt-in, scoped, and preserves at least ninety days of terminal history plus all current cursor snapshots and unfinished obligations. Its preview is read-only; `--apply` accepts irreversible retirement and resumes physical deletion in bounded pages.
 
 ## Verification
 
@@ -105,7 +105,7 @@ Workers claim a specific task under its consumer cursor, session and task locks;
 
 Publication batches use `FOR UPDATE SKIP LOCKED` over due intents. Publisher transactions lock intents without taking task locks, preserving the task-then-intent order of lifecycle changes. Ordinary renewals and integrated task transitions do not maintain external intents. Empty external receives perform no PostgreSQL acquisition or cursor update. This separates transport work; it does not eliminate the database writes required for durable ownership, results and history.
 
-Retention remains unimplemented for targeted-claim receipts as well as existing task records. Do not delete receipts, referenced attempts or session cursors independently. See [dispatch contracts and supported backends](dispatch-delivery.md) and [performance measurement](performance.md); local conformance checks are not an AWS capacity or day-long endurance qualification.
+[Retention maintenance](retention.md) collects targeted-claim receipts together with their expired target while preserving current cursors and live sequence fences. Do not delete receipts, referenced attempts or session cursors independently. See [dispatch contracts and supported backends](dispatch-delivery.md) and [performance measurement](performance.md); local conformance checks are not an AWS capacity or day-long endurance qualification.
 
 
 ## Workflow persistence
@@ -137,7 +137,7 @@ Child completion notifications do not load result bodies until a continuation
 needs them. All-terminal waits use bounded membership; cancellation drains up to
 16 owned items per transaction, sharing the budget between task cancellation and
 subworkflow cancellation obligations. The adapter retains history and journal records;
-workflow retention deletion and sharding are not implemented. See
+workflow retention is available through [bounded maintenance](retention.md); sharding is not implemented. See
 [workflow semantics and bounds](workflows.md).
 
 Migration `20260917000000_owned_workflows.sql` adds immutable parent/root lineage,
@@ -152,4 +152,4 @@ children; it does not hold a parent run lock while acquiring a child run lock.
 Each child drains its own descendants before becoming terminal. The parent can
 therefore wait for direct-child terminal markers without scanning or locking the
 whole tree. See [owned subworkflows](subworkflows.md) for bounds and migration
-compatibility; retention still requires preserving the new relationships.
+compatibility; [retention](retention.md) preserves active trees and collects expired runs leaf-first.
