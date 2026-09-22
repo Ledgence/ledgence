@@ -44,3 +44,31 @@ pub(crate) fn executable_bits(metadata: &fs::Metadata) -> u32 {
         0
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{io::Write, os::unix::fs::PermissionsExt};
+
+    #[test]
+    fn immutable_materialization_can_be_synced() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("content");
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("program.py");
+        let mut file = File::create_new(&path).unwrap();
+        file.write_all(b"pass\n").unwrap();
+        file.sync_all().expect("sync writable program file");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        file.sync_all()
+            .expect("sync read-only program through its original handle");
+        File::open(&directory)
+            .unwrap()
+            .sync_all()
+            .expect("sync writable content directory");
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
+        let synced = File::open(&directory).unwrap().sync_all();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        synced.expect("sync read-only content directory");
+    }
+}
