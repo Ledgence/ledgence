@@ -1,15 +1,16 @@
 """Bounded regressions for the local HTTP acceptance fixtures; no database needed."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 import http.client
 import http.server
 from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import urllib.parse
 
 from http_acceptance.harness import ArtifactServer
+from http_acceptance.longpoll import released_transactions
 
 
 class ArtifactServerTests(unittest.TestCase):
@@ -69,6 +70,35 @@ class ArtifactServerTests(unittest.TestCase):
                 finally:
                     accepting.set()
                     fixture.close()
+
+
+class LongPollObservationTests(unittest.TestCase):
+    def test_unrelated_transient_transaction_clears_while_acquisitions_stay_pending(self):
+        requests = [Future() for _ in range(16)]
+        database = Mock()
+        database.sql.side_effect = ["1", "0"]
+        released_transactions(database, requests, timeout=1)
+        self.assertTrue(all(not request.done() for request in requests))
+
+    def test_retained_transaction_fails_before_acquisition_deadlines(self):
+        requests = [Future() for _ in range(16)]
+        database = Mock()
+        database.sql.return_value = "1"
+        with self.assertRaisesRegex(AssertionError, "release transactions.*last idle transaction count: 1"):
+            released_transactions(database, requests, timeout=0.01)
+        self.assertTrue(all(not request.done() for request in requests))
+
+    def test_completed_acquisition_cannot_supply_a_false_release_observation(self):
+        requests = [Future() for _ in range(16)]
+        database = Mock()
+
+        def expired(_statement):
+            requests[0].set_result({"disposition": "empty", "sequence": 1})
+            return "0"
+
+        database.sql.side_effect = expired
+        with self.assertRaisesRegex(AssertionError, "acquisition completed during transaction-release observation"):
+            released_transactions(database, requests, timeout=1)
 
 
 if __name__ == '__main__':
