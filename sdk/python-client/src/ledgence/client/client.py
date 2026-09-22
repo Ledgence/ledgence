@@ -36,11 +36,13 @@ class AsyncClient:
                  request_timeout: float = 30.0):
         from .tasks import Tasks
         from .workflows import Workflows
+        from .completions import Completions
         self._base_url = _endpoint(base_url)
         self._scope = Scope(tenant, namespace)
         self._request_timeout = codec.duration(request_timeout, "request_timeout", 30.0)
         self.tasks = Tasks(self)
         self.workflows = Workflows(self)
+        self.completions = Completions(self)
         self._transport: _Transport | None = None
         self._closed = False
 

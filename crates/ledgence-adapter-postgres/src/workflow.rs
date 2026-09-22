@@ -206,3 +206,13 @@ pub(crate) async fn terminal_obligation(
         .bind(&task.task_id).bind(at).execute(connection).await?;
     Ok(())
 }
+
+/// Serialize completion subscriptions with workflow terminalization.
+pub(crate) async fn lock_completion_context(
+    connection: &mut PgConnection,
+    scope: &Scope,
+    id: &str,
+) -> StoreResult<(WorkflowSnapshot, Option<TraceContext>)> {
+    let run = load_run(connection, scope, Some(id), None, true).await?;
+    Ok((run.snapshot, run.submission.origin_trace))
+}

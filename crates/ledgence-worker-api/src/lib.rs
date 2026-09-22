@@ -249,6 +249,26 @@ impl ProgramManifest {
 /// Context and trace attributes retain their original representation; `data` is
 /// user-owned JSON. Callers separately enforce their payload size/depth limits.
 pub fn validate_json_cloudevent(value: &Value) -> Result<()> {
+    validate_cloudevent_context(value)?;
+    let object = value.as_object().expect("validated CloudEvent object");
+    if !object.contains_key("data") || object.contains_key("data_base64") {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "this profile requires user-owned JSON data",
+        ));
+    }
+    if object.get("datacontenttype").and_then(Value::as_str) != Some("application/json") {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "datacontenttype must be application/json",
+        ));
+    }
+    Ok(())
+}
+
+/// Validate CloudEvents context attributes and W3C carriers independently of data.
+/// A concrete profile must separately constrain data presence, encoding, and size.
+pub fn validate_cloudevent_context(value: &Value) -> Result<()> {
     let object = value
         .as_object()
         .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "CloudEvent must be an object"))?;
@@ -332,18 +352,6 @@ pub fn validate_json_cloudevent(value: &Value) -> Result<()> {
                 "time must be an RFC 3339 timestamp",
             )
         })?;
-    }
-    if !object.contains_key("data") || object.contains_key("data_base64") {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "this profile requires user-owned JSON data",
-        ));
-    }
-    if object.get("datacontenttype").and_then(Value::as_str) != Some("application/json") {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "datacontenttype must be application/json",
-        ));
     }
     if let Some(trace) = object.get("traceparent") {
         let Some(trace) = trace.as_str() else {

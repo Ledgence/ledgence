@@ -14,6 +14,7 @@ TLS_PACKAGES = {"rustls", "tokio-rustls", "hyper-rustls", "ring", "aws-lc-rs",
 SELECTIONS = (
     (None, set(), {"reqwest", "axum", "axum-core", "matchit", "http-body-util"} | TLS_PACKAGES),
     ("client", {"reqwest"}, {"axum", "axum-core", "matchit"}),
+    ("completion", {"reqwest"}, {"axum", "axum-core", "matchit"}),
     ("server", {"axum", "axum-core", "http-body-util"}, {"reqwest"} | TLS_PACKAGES),
 )
 

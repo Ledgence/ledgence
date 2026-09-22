@@ -101,8 +101,8 @@ semantics.
 
 `WorkflowWaitTimeout` is also a `WaitTimeout`. It retains `.workflow`, `.last_status`
 and `.last_error`; observation timeout never cancels or resubmits the workflow.
-Observe the saved handle again to continue waiting. There is no persistent client
-subscription or webhook registration API in this slice.
+Observe the saved handle again to continue waiting. For durable external notification
+without keeping the client running, register a completion subscription below.
 
 For an uncertain submission, `SubmissionUncertain.submission` retains a frozen
 `WorkflowSubmission` from `client.workflows.prepare(...)`. Resend that command
@@ -112,6 +112,82 @@ commands are distinct types to prevent accidentally replaying one as the other.
 
 Controller authoring and durability semantics are described in
 [`docs/workflows.md`](../../docs/workflows.md).
+
+## Durable completion subscriptions
+
+Register notification delivery to an operator-configured destination alias:
+
+```python
+from ledgence.client import CompletionSubscriptionUncertain
+
+command = task.prepare_subscribe(
+    destination="billing-results", idempotency_key="invoice-completion",
+)
+try:
+    subscription = await task.subscribe(command)
+except CompletionSubscriptionUncertain as uncertain:
+    # Persist this command and reconcile under your application's retry policy.
+    saved_command = uncertain.command.to_dict()
+    raise
+
+print(subscription.id)
+print((await subscription.status()).state)
+```
+
+`await task.subscribe(destination="billing-results", idempotency_key="invoice-completion")`
+is the convenience form; `workflow.prepare_subscribe()` and `workflow.subscribe()`
+use the same contract. The workflow form observes the complete workflow, including
+owned-child draining, rather than a controller activation. `client.completions.prepare()`
+accepts an explicit `CompletionTarget("task", task_id)` or
+`CompletionTarget("workflow", workflow_id)`. `client.completions.subscribe(command)`
+reconciles either prepared command.
+
+Registration is one HTTP operation, not a background listener in Python. After its
+durable acceptance the caller can disconnect. Registration also works after the
+execution finishes. The guarantee begins when registration commits: submitting
+work and registering its subscription are separate operations. Save the task or
+workflow identity and retry registration if the client stops between these calls.
+The idempotency key is scoped to the execution; changing its destination conflicts.
+
+Save the subscription ID and reconnect with
+`client.completions.handle(subscription_id)`. `status()` returns a bounded
+`CompletionSubscription` with its immutable command, delivery state, generation,
+attempt counters, timestamps, last failure, and nullable completion CloudEvent.
+States are `waiting`, `pending`, `delivering`, `retrying`, `delivered`, and `exhausted`.
+`waiting` means the execution is still nonterminal; `delivered` confirms receiver
+acceptance, not completion of business effects at the receiver.
+
+For explicit redelivery after exhaustion:
+
+```python
+from ledgence.client import CompletionRetryUncertain
+
+status = await subscription.status()
+if status.state == "exhausted":
+    command = subscription.prepare_retry(expected_generation=status.generation)
+    try:
+        status = await subscription.retry(command)
+    except CompletionRetryUncertain as uncertain:
+        saved_command = uncertain.command.to_dict()
+        raise
+```
+
+`await subscription.retry(expected_generation=status.generation)` is the convenience
+form. Reuse the same prepared command when acceptance is uncertain. Repeating an
+accepted retry observes the current generation without rearming delivery again;
+it never reruns the task or workflow. Like other mutations, the SDK does not retry
+subscription or redelivery requests automatically. Caller cancellation remains
+`asyncio.CancelledError`; prepare and persist commands before awaiting if they must
+survive that cancellation.
+
+The initial notification is a reference-only CloudEvent. Execution IDs, terminal
+state, business correlation, result reference, and trace context live in its
+envelope; it has no `data` field and does not copy user output. Fetch the result
+through the existing scoped task/workflow API. Receivers must deduplicate using
+`(source, id)` and durably accept a notification before acknowledging it. Notification
+retries and explicit redelivery preserve the event identity. See
+[completion notifications](../../docs/completion-notifications.md) for delivery
+semantics, destination configuration, limits, and receiver behavior.
 
 ## Finding tasks
 

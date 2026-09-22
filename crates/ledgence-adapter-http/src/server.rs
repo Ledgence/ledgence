@@ -1,6 +1,7 @@
 //! Axum composition boundary. Application and persistence remain behind
 //! [`TaskService`]; readiness and database lifecycle belong to the executable.
 
+mod completion;
 mod workflow;
 
 use crate::{RESPONSE_MAX_BYTES, wire::*};
@@ -30,6 +31,7 @@ use tracing::Instrument;
 struct Server {
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
+    completions: Option<Arc<dyn CompletionService>>,
     stopping: Arc<AtomicBool>,
     blocking: Arc<Semaphore>,
     request_prefix: Arc<str>,
@@ -59,7 +61,7 @@ pub fn router_with_observability(
     stopping: Arc<AtomicBool>,
     trace_bridge: Arc<dyn TraceBridge>,
 ) -> Router {
-    build_router(service, None, stopping, trace_bridge)
+    build_router(service, None, None, stopping, trace_bridge)
 }
 
 /// Add independently supplied workflow operations to the task transport.
@@ -69,18 +71,37 @@ pub fn router_with_workflows(
     stopping: Arc<AtomicBool>,
     trace_bridge: Arc<dyn TraceBridge>,
 ) -> Router {
-    build_router(service, Some(workflows), stopping, trace_bridge)
+    build_router(service, Some(workflows), None, stopping, trace_bridge)
+}
+
+/// Add durable external completion subscriptions to task and workflow operations.
+pub fn router_with_completions(
+    service: Arc<dyn TaskService>,
+    workflows: Arc<dyn WorkflowService>,
+    completions: Arc<dyn CompletionService>,
+    stopping: Arc<AtomicBool>,
+    trace_bridge: Arc<dyn TraceBridge>,
+) -> Router {
+    build_router(
+        service,
+        Some(workflows),
+        Some(completions),
+        stopping,
+        trace_bridge,
+    )
 }
 
 fn build_router(
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
+    completions: Option<Arc<dyn CompletionService>>,
     stopping: Arc<AtomicBool>,
     trace_bridge: Arc<dyn TraceBridge>,
 ) -> Router {
     let state = Server {
         service,
         workflows,
+        completions,
         stopping,
         blocking: Arc::new(Semaphore::new(4)),
         request_prefix: format!(
@@ -104,6 +125,9 @@ fn build_router(
 }
 
 const ROUTES: &[(&str, &str)] = &[
+    ("/v1/completion-subscriptions", "POST"),
+    ("/v1/completion-subscriptions/status", "GET"),
+    ("/v1/completion-subscriptions/retry", "POST"),
     ("/v1/workflows", "POST"),
     ("/v1/workflows/status", "GET"),
     ("/v1/workflows/result", "GET"),
@@ -178,6 +202,9 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         ledgence.attempt.id = tracing::field::Empty,
         ledgence.attempt.number = tracing::field::Empty,
         ledgence.dispatch.generation = tracing::field::Empty,
+        ledgence.completion.subscription.id = tracing::field::Empty,
+        ledgence.completion.destination = tracing::field::Empty,
+        ledgence.completion.generation = tracing::field::Empty,
         ledgence.worker.session.id = tracing::field::Empty,
         ledgence.consumer.id = tracing::field::Empty,
         ledgence.program.id = tracing::field::Empty,
@@ -468,6 +495,9 @@ async fn dispatch(
                 })
                 .await;
         }
+        if path == "/v1/completion-subscriptions/status" {
+            return completion::get(server, scope, fields["subscription_id"].clone()).await;
+        }
         if path.starts_with("/v1/workflows/") {
             return workflow::get(server, path, scope, fields["workflow_id"].clone()).await;
         }
@@ -573,6 +603,9 @@ async fn dispatch(
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
         "/v1/workflows/events" => WORKFLOW_EVENT_COMMAND_MAX_BYTES,
+        "/v1/completion-subscriptions" | "/v1/completion-subscriptions/retry" => {
+            COMPLETION_COMMAND_MAX_BYTES
+        }
         _ => SUBMISSION_MAX_BYTES,
     };
     let bytes = to_bytes(body, maximum)
@@ -592,6 +625,9 @@ async fn dispatch(
             }
         })?
         .to_vec();
+    if path.starts_with("/v1/completion-subscriptions") {
+        return completion::post(server, path, bytes).await;
+    }
     if path.starts_with("/v1/workflows") {
         return workflow::post(server, path, bytes, maximum).await;
     }
@@ -833,7 +869,9 @@ fn query_fields(raw: &str, route: &str) -> Result<BTreeMap<String, String>> {
     {
         return Err(invalid("query exceeds supported length"));
     }
-    let identity = if route.starts_with("/v1/workflows/") {
+    let identity = if route == "/v1/completion-subscriptions/status" {
+        "subscription_id"
+    } else if route.starts_with("/v1/workflows/") {
         "workflow_id"
     } else {
         "task_id"

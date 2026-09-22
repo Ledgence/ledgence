@@ -102,10 +102,9 @@ def _valid_event_leap_second(year, month, day, hour, minute, offset_minutes):
     return -9999 <= year <= 9999 and day == calendar.monthrange(year, month)[1]
 
 
-def validate_event(value):
+def _validate_event_context(value):
     # Keep this portable common profile aligned with worker-api's borrowed
     # CloudEvent validator. Execution identity requirements do not apply here.
-    codec.encode(value, EVENT_LIMIT, max_depth=96)
     if type(value) is not dict:
         raise InputError("CloudEvent must be an object")
     for name, item in value.items():
@@ -119,13 +118,11 @@ def validate_event(value):
                 raise InputError("invalid CloudEvent context string")
         elif type(item) is not bool and (type(item) is not int or not -(1 << 31) <= item < (1 << 31)):
             raise InputError("invalid CloudEvent context value")
-    if value.get("specversion") != "1.0" or value.get("datacontenttype") != "application/json" or "data" not in value:
-        raise InputError("CloudEvent requires version1.0 and JSON data")
+    if value.get("specversion") != "1.0":
+        raise InputError("CloudEvent requires version1.0")
     for name in ("id", "source", "type"):
         if type(value.get(name)) is not str or not value[name]:
             raise InputError(f"CloudEvent requires nonempty {name}")
-    if len(value["id"].encode("utf-8")) > 128 or len(value["source"].encode("utf-8")) > 2048:
-        raise InputError("CloudEvent id/source exceed their UTF-8 byte limits")
     _validate_event_uri(value["source"])
     for name in ("subject", "dataschema", "time"):
         if name in value and (type(value[name]) is not str or not value[name]):
@@ -147,5 +144,15 @@ def validate_event(value):
         if second == 60 and not _valid_event_leap_second(year, month, day, hour, minute, offset):
             raise InputError("CloudEvent leap second must be the final UTC second of a month")
     _validate_event_trace(value)
+    return value
+
+
+def validate_event(value):
+    codec.encode(value, EVENT_LIMIT, max_depth=96)
+    _validate_event_context(value)
+    if value.get("datacontenttype") != "application/json" or "data" not in value:
+        raise InputError("CloudEvent requires JSON data")
+    if len(value["id"].encode("utf-8")) > 128 or len(value["source"].encode("utf-8")) > 2048:
+        raise InputError("CloudEvent id/source exceed their UTF-8 byte limits")
     codec.encode(value["data"], EVENT_LIMIT, max_depth=64)
     return value

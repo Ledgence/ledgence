@@ -1,4 +1,5 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
+mod completion;
 mod workflow;
 
 use ledgence_orchestration_api::*;

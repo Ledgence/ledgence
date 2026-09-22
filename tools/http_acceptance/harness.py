@@ -295,7 +295,7 @@ class Deployment:
         )
         return json.loads(result.stdout) if result.stdout.strip() else None
 
-    def publish(self, name, version, startup_gate=None, program_source=PROGRAM):
+    def publish(self, name, version, startup_gate=None, program_source=PROGRAM, runtime_protocol=None):
         directory = self.directory / f"package-{name}-{version}"
         info = self.command("ledgence-worker", ["example", "--directory", str(directory),
                                                "--python", self.python])
@@ -303,6 +303,8 @@ class Deployment:
         manifest_path = package / "ledgence-program.json"
         manifest = json.loads(manifest_path.read_text())
         manifest["program"] = {"id": name, "version": version}
+        if runtime_protocol is not None:
+            manifest["runtime"]["protocol"] = runtime_protocol
         manifest_path.write_text(json.dumps(manifest))
         program = program_source
         if startup_gate is not None:
@@ -318,8 +320,10 @@ class Deployment:
     def start_server(self, port=None):
         port = port or self.server_port
         self.counter += 1
+        extra = (["--completion-config", str(self.completion_config)]
+                 if getattr(self, "completion_config", None) else [])
         process = Process([str(self.binaries / "ledgence-orchestrator"), "serve", "--bind",
-                           f"127.0.0.1:{port}", "--store", self.artifacts.url],
+                           f"127.0.0.1:{port}", "--store", self.artifacts.url] + extra,
                           self.directory, f"server-{self.counter}", self.environment)
         self.processes.append(process)
         base = f"http://127.0.0.1:{port}"

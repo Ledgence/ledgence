@@ -145,6 +145,7 @@ pub(crate) async fn apply<R>(
         )
     }) {
         crate::workflow::terminal_obligation(connection, t).await?;
+        crate::completion::task_terminal(connection, t).await?;
     }
     Ok(())
 }

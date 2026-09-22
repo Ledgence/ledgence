@@ -1,3 +1,4 @@
+mod completion;
 mod workflow;
 
 use super::*;

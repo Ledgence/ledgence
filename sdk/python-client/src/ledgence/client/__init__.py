@@ -36,3 +36,16 @@ __all__ += [
     "WorkflowCancelled", "WorkflowWaitTimeout", "WorkflowCancellationUncertain",
     "WorkflowEventCommand", "WorkflowEventReceipt", "WorkflowEventUncertain",
 ]
+
+from .completion_models import (
+    CompletionRetryCommand, CompletionState, CompletionSubscribeCommand,
+    CompletionSubscription, CompletionTarget,
+)
+from .completions import CompletionSubscriptionHandle
+from .errors import CompletionRetryUncertain, CompletionSubscriptionUncertain
+
+__all__ += [
+    "CompletionTarget", "CompletionState", "CompletionSubscribeCommand", "CompletionRetryCommand",
+    "CompletionSubscription", "CompletionSubscriptionHandle", "CompletionSubscriptionUncertain",
+    "CompletionRetryUncertain",
+]

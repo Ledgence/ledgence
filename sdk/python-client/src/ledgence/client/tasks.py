@@ -20,6 +20,8 @@ from .models import (
 
 if TYPE_CHECKING:
     from .client import AsyncClient
+    from .completion_models import CompletionSubscribeCommand
+    from .completions import CompletionSubscriptionHandle
 
 _UNSET = object()
 
@@ -284,6 +286,18 @@ class TaskHandle:
         if isinstance(result.outcome, Cancelled):
             raise TaskCancelled(result)
         raise ProtocolError("terminal task has no outcome")
+
+    def prepare_subscribe(self, *, destination: str, idempotency_key: str) -> CompletionSubscribeCommand:
+        """Freeze notification registration for this task's terminal outcome."""
+        from .completions import prepare_subscription
+        return prepare_subscription(self, "task", destination=destination,
+                                    idempotency_key=idempotency_key)
+
+    async def subscribe(self, command: CompletionSubscribeCommand | None = None,
+                        **kwargs) -> CompletionSubscriptionHandle:
+        """Register durable delivery to a destination; this does not wait for completion."""
+        from .completions import subscribe_handle
+        return await subscribe_handle(self, "task", command, **kwargs)
 
     async def cancel(self) -> TaskState:
         deadline = asyncio.get_running_loop().time() + self._client.request_timeout
