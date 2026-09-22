@@ -1,0 +1,81 @@
+name: ledgence-local
+x-runtime: &runtime
+  image: ${LEDGENCE_LOCAL_IMAGE:-ledgence:local}
+  build:
+    context: ../..
+    dockerfile: deploy/local/Dockerfile
+    args:
+      SOURCE_REVISION: ${LEDGENCE_SOURCE_REVISION:-unrecorded}
+  init: true
+  stop_grace_period: 65s
+  environment: &environment
+    DATABASE_URL: postgres://ledgence:ledgence-local-only@postgres:5432/ledgence
+    RUST_LOG: info
+services:
+  postgres:
+    image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    environment:
+      POSTGRES_USER: ledgence
+      POSTGRES_PASSWORD: ledgence-local-only
+      POSTGRES_DB: ledgence
+    volumes: [postgres:/var/lib/postgresql]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U ledgence -d ledgence]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  migrate:
+    <<: *runtime
+    command: [ledgence-orchestrator, migrate]
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+  receiver:
+    <<: *runtime
+    command: [python3, /opt/ledgence/local/receiver.py]
+    volumes: [callbacks:/demo-state]
+    healthcheck:
+      test: [CMD, python3, /opt/ledgence/local/ready.py, "http://127.0.0.1:8091/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  orchestrator:
+    <<: *runtime
+    command: [ledgence-orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json]
+    ports: ["127.0.0.1:${LEDGENCE_HTTP_PORT:-8080}:8080"]
+    volumes: [programs:/programs:ro]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      receiver: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python3, /opt/ledgence/local/ready.py, "http://127.0.0.1:8080/health/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  worker:
+    <<: *runtime
+    command: [ledgence-worker, connect, --server, "http://orchestrator:8080", --tenant, acme, --namespace, demo, --queue, demo, --store, /programs, --cache, /cache, --python, /usr/local/bin/python3, --runner, /opt/ledgence/runtime/ledgence/worker/bootstrap.py, --concurrency, "${LEDGENCE_CONCURRENCY:-1}"]
+    volumes: [programs:/programs:ro, cache:/cache]
+    depends_on:
+      orchestrator: {condition: service_healthy}
+    restart: unless-stopped
+  publish:
+    <<: *runtime
+    profiles: [tools]
+    command: [python3, /opt/ledgence/local/publish.py]
+    volumes: [programs:/programs]
+  demo:
+    <<: *runtime
+    profiles: [tools]
+    command: [python3, /opt/ledgence/local/demo.py]
+    depends_on:
+      orchestrator: {condition: service_healthy}
+      worker: {condition: service_started}
+volumes:
+  postgres:
+  programs:
+  cache:
+  callbacks:

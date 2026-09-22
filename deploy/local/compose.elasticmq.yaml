@@ -1,0 +1,28 @@
+# Use a distinct Compose project for this delivery backend; a queue's durable
+# route cannot be switched while work exists.
+services:
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+    restart: unless-stopped
+  broker-ready:
+    image: ${LEDGENCE_LOCAL_IMAGE:-ledgence:local}
+    command: [python3, /opt/ledgence/local/broker-ready.py]
+    depends_on:
+      elasticmq: {condition: service_started}
+    restart: "no"
+  orchestrator:
+    command: [ledgence-orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --delivery-config, /opt/ledgence/local/delivery.json]
+    environment:
+      AWS_ACCESS_KEY_ID: ledgence-local
+      AWS_SECRET_ACCESS_KEY: ledgence-local
+      AWS_EC2_METADATA_DISABLED: "true"
+    depends_on:
+      broker-ready: {condition: service_completed_successfully}
+  worker:
+    command: [ledgence-worker, connect, --server, "http://orchestrator:8080", --tenant, acme, --namespace, demo, --queue, demo, --store, /programs, --cache, /cache, --python, /usr/local/bin/python3, --runner, /opt/ledgence/runtime/ledgence/worker/bootstrap.py, --concurrency, "${LEDGENCE_CONCURRENCY:-1}", --delivery-config, /opt/ledgence/local/delivery.json]
+    environment:
+      AWS_ACCESS_KEY_ID: ledgence-local
+      AWS_SECRET_ACCESS_KEY: ledgence-local
+      AWS_EC2_METADATA_DISABLED: "true"
