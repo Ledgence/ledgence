@@ -8,6 +8,8 @@ Run `ledgence-orchestrator` for the PostgreSQL-backed HTTP task service, `ledgen
 
 [Checkpoint workflows](docs/workflows.md), [external events/timers](docs/workflow-events.md), and [owned subworkflows](docs/subworkflows.md) combine concurrent durable local Python steps with explicitly distributed tasks. A workflow checkpoints and releases its invocation while waiting, then resumes an explicit continuation from persisted state. The Python client exposes these operations through `client.workflows`. Optional [durable completion callbacks](docs/completion-notifications.md) notify configured HTTP receivers when tasks or workflows finish, with persisted retries and delivery status.
 
+Optional [retention maintenance](docs/retention.md) previews and collects expired execution history in bounded, resumable batches. It requires an explicit tenant and namespace, preserves the minimum 90-day terminal window, and protects active workflows, current worker cursors, and unfinished callbacks.
+
 ## Try it
 
 Requirements: Rust through rustup, CPython 3.11 or newer, and Linux or macOS on x86_64 or aarch64. The repository pins its Rust toolchain. A program declares the exact Python major/minor and OS/architecture it targets; the worker supplies that interpreter. The examples below use `python3.12`.

@@ -59,7 +59,7 @@ python -m pip install ./sdk/python-client
 
 Its import is `from ledgence.client import AsyncClient`. Program packages are published separately; installing the client does not start a worker or upload a program.
 
-See the [Python client](../sdk/python-client/README.md) for asynchronous submission, bounded waiting, typed task errors, and reconciliation of uncertain mutations. Detailed invocation IDs, traces, process IDs, and settlement receipts remain available through [attempt inspection](http-orchestration.md). Use [task discovery](task-discovery.md) to find tasks by state, queue, submission time, or business correlation. No result retention policy change or stable-release compatibility guarantee is introduced.
+See the [Python client](../sdk/python-client/README.md) for asynchronous submission, bounded waiting, typed task errors, and reconciliation of uncertain mutations. Detailed invocation IDs, traces, process IDs, and settlement receipts remain available through [attempt inspection](http-orchestration.md). Use [task discovery](task-discovery.md) to find tasks by state, queue, submission time, or business correlation. Results follow the explicit [retention contract](retention.md): at least 90 days after terminal state, extended by live cursor references and unfinished completion obligations. Retired IDs return `NotFound`; there is no stable-release compatibility guarantee yet.
 
 
 Tasks owned by a workflow expose optional `workflow_id` and

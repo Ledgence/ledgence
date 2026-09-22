@@ -105,7 +105,7 @@ Workers claim a specific task under its consumer cursor, session and task locks;
 
 Publication batches use `FOR UPDATE SKIP LOCKED` over due intents. Publisher transactions lock intents without taking task locks, preserving the task-then-intent order of lifecycle changes. Ordinary renewals and integrated task transitions do not maintain external intents. Empty external receives perform no PostgreSQL acquisition or cursor update. This separates transport work; it does not eliminate the database writes required for durable ownership, results and history.
 
-Retention remains unimplemented for targeted-claim receipts as well as existing task records. Do not delete receipts, referenced attempts or session cursors independently. See [dispatch contracts and supported backends](dispatch-delivery.md) and [performance measurement](performance.md); local conformance checks are not an AWS capacity or day-long endurance qualification.
+[Retention maintenance](retention.md) collects targeted-claim receipts together with their expired target while preserving current cursors and live sequence fences. Do not delete receipts, referenced attempts or session cursors independently. See [dispatch contracts and supported backends](dispatch-delivery.md) and [performance measurement](performance.md); local conformance checks are not an AWS capacity or day-long endurance qualification.
 
 
 ## Workflow persistence
