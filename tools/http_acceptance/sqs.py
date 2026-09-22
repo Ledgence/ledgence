@@ -38,10 +38,12 @@ class SqsDeployment(Deployment):
     def start_server(self, port=None):
         port = port or self.server_port
         self.counter += 1
+        extra = (["--completion-config", str(self.completion_config)]
+                 if getattr(self, "completion_config", None) else [])
         process = Process([
             str(self.binaries / "ledgence-orchestrator"), "serve", "--bind", f"127.0.0.1:{port}",
             "--store", self.artifacts.url, "--delivery-config", str(self.delivery_config),
-        ], self.directory, f"server-{self.counter}", self.environment)
+        ] + extra, self.directory, f"server-{self.counter}", self.environment)
         self.processes.append(process)
         base = f"http://127.0.0.1:{port}"
 

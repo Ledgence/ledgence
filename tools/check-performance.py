@@ -113,11 +113,22 @@ def validate(args):
         raise ValueError(f'offered arrivals exceed {MAX_TASKS} cap')
     if count * (args.payload_bytes + 1024) > MAX_INPUT_BYTES:
         raise ValueError('estimated aggregate submission input exceeds 2 GiB cap')
+    if args.metrics_endpoint:
+        validate_metrics_endpoint(args.metrics_endpoint)
     if args.delivery_config and not args.disposable_queue:
         raise ValueError('--delivery-config requires --disposable-queue for a fresh, dedicated test queue')
     if args.disposable_queue and not args.delivery_config:
         raise ValueError('--disposable-queue requires --delivery-config')
     return count
+
+
+def validate_metrics_endpoint(value):
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ValueError('metrics endpoint must be absolute HTTP(S) without credentials or fragment')
+    if any(ord(char) <= 32 or ord(char) == 127 for char in value):
+        raise ValueError('metrics endpoint contains whitespace or control characters')
+    _ = parsed.port
 
 
 def inspect_delivery_config(path):
@@ -475,6 +486,7 @@ def make_parser():
                         help='confirm the configured queue is fresh, empty, dedicated, and disposable')
     parser.add_argument('--pg-stat-statements', action='store_true',
                         help='create extension in the owned DB and record bounded query counter deltas')
+    parser.add_argument('--metrics-endpoint', help='explicit OTLP HTTP/protobuf metrics endpoint; inherited OTEL configuration is ignored')
     parser.add_argument('--psql', default='psql')
     parser.add_argument('--binaries', type=Path, help='prebuilt binaries; --profile describes their build')
     parser.add_argument('--profile', choices=['debug', 'release'], default='release')
@@ -574,6 +586,8 @@ def main():
         deployment.environment = {key: value for key, value in deployment.environment.items()
                                   if not key.startswith(('OTEL_', 'LEDGENCE_POSTGRES_NOTIFICATION'))}
         deployment.environment['RUST_LOG'] = 'warn'
+        if args.metrics_endpoint:
+            deployment.environment['OTEL_EXPORTER_OTLP_METRICS_ENDPOINT'] = args.metrics_endpoint
         deployment.publish('performance', '1.0.0', program_source=PROGRAM)
         stage = 'migration'
         with (directory / 'migration.stdout').open('wb') as out, (directory / 'migration.stderr').open('wb') as err:
@@ -709,6 +723,12 @@ def main():
 
 
 class SelfTests(unittest.TestCase):
+    def test_metrics_endpoint_is_explicit_and_rejects_hidden_credentials(self):
+        for value in ('file:///tmp/metrics', 'http://user:secret@localhost/metrics', 'http://localhost/#fragment', 'http://localhost:bad/metrics', 'http://localhost/line\nfeed'):
+            with self.assertRaises(ValueError):
+                validate_metrics_endpoint(value)
+        validate_metrics_endpoint('http://127.0.0.1:4318/v1/metrics')
+
     def test_rate_and_burst_have_no_extra_boundary_arrivals(self):
         args = make_parser().parse_args(['--rate', '2', '--duration', '4', '--burst-at', '1',
                                          '--burst-duration', '1', '--burst-multiplier', '2'])
