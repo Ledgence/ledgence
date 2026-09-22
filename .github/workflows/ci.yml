@@ -60,6 +60,8 @@ jobs:
         run: cargo test --workspace --doc --all-features --locked
       - name: Build Rust documentation
         run: cargo doc --workspace --all-features --no-deps --locked
+      - name: Test the local HTTP fixtures
+        run: python tools/check-http-fixtures.py
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
