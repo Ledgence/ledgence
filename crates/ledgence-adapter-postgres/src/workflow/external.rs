@@ -14,9 +14,10 @@ impl PostgresStore {
         // Read only coordination metadata, not the workflow's program, input or
         // checkpoint. This lock linearizes acceptance with wait installation,
         // winner selection, cancellation and other senders for this workflow.
-        let row = sqlx::query("SELECT state,external_wait_key,wait_activation_id,pending_event_count,pending_event_bytes FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
+        let row = sqlx::query("SELECT state,external_wait_key,wait_activation_id,pending_event_count,pending_event_bytes,retiring_at_ms FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
             .bind(&command.scope.tenant_id).bind(&command.scope.namespace).bind(&command.workflow_id)
             .fetch_optional(&mut *tx).await?.ok_or(ContractError::NotFound)?;
+        codec::visible(&row)?;
         let previous = sqlx::query("SELECT event_key,event_source,event_id,event_bytes,accepted_at_ms FROM workflow_events WHERE workflow_id=$1 AND (event_key=$2 OR (event_source=$3 AND event_id=$4))")
             .bind(&command.workflow_id).bind(&command.key).bind(command.event.source()).bind(command.event.id())
             .fetch_all(&mut *tx).await?;

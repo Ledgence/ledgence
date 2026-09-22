@@ -354,7 +354,7 @@ async fn load_work_snapshot(
     id: &str,
 ) -> StoreResult<WorkflowSnapshot> {
     validate_text(id, 128)?;
-    let row = sqlx::query("SELECT workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE workflow_id=$1 FOR NO KEY UPDATE")
+    let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE workflow_id=$1 FOR NO KEY UPDATE")
         .bind(id).fetch_optional(connection).await?.ok_or(ContractError::NotFound)?;
     status_record(&row)
 }

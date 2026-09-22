@@ -142,8 +142,8 @@ The original event is limited to 64 KiB, and the HTTP event command to 70 KiB.
 Event IDs and wait keys use at most 128 UTF-8 bytes; sources use at most 2048.
 The pending inbox permits at most 128 events and 256 KiB of encoded events per
 workflow. Capacity pressure rejects new acceptance; existing receipts still
-reconcile. Consumed receipts are retained for deduplication. This feature does
-not add retention deletion; operational retention remains separate work.
+reconcile. Consumed receipts are retained for deduplication. [Bounded retention maintenance](retention.md) keeps those receipts throughout the
+active lifetime and retained terminal window, then expires the run as a whole.
 
 Frozen child inputs and the optional wake share a 256 KiB budget. The whole
 activation context remains bounded at 640 KiB, including its existing checkpoint

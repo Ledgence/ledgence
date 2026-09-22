@@ -3,7 +3,7 @@
 use crate::*;
 use sqlx::{Postgres, QueryBuilder};
 
-const STATUS_COLUMNS: &str = "t.tenant_id,t.namespace,t.task_id,t.run_id,t.queue,t.correlation_key,\
+const STATUS_COLUMNS: &str = "t.retiring_at_ms,t.tenant_id,t.namespace,t.task_id,t.run_id,t.queue,t.correlation_key,\
     t.workflow_id,t.workflow_activation_id,t.state,t.attempt_count,t.current_attempt_id,t.submitted_at_ms,\
     t.available_at_ms,t.terminal_at_ms,t.cancel_requested_at_ms,t.next_expiry_ms";
 
@@ -20,7 +20,7 @@ pub(super) fn query(
     sql.push(STATUS_COLUMNS)
         .push(",a.attempt_id AS latest_attempt_id,a.state AS latest_attempt_state FROM (SELECT ")
         .push(STATUS_COLUMNS)
-        .push(" FROM tasks t WHERE t.tenant_id=")
+        .push(" FROM tasks t WHERE t.retiring_at_ms IS NULL AND t.tenant_id=")
         .push_bind(&scope.tenant_id)
         .push(" AND t.namespace=")
         .push_bind(&scope.namespace);
