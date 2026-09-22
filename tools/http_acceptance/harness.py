@@ -113,7 +113,12 @@ class ArtifactServer:
             def log_message(self, *_):
                 pass
 
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        class Server(http.server.ThreadingHTTPServer):
+            # Cold concurrent submissions and worker fetches must not overflow
+            # the standard library's five-connection accept queue.
+            request_queue_size = 256
+
+        self.server = Server(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.url = f"http://127.0.0.1:{self.server.server_port}"
