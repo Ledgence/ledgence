@@ -352,6 +352,12 @@ async fn cancellation_retires_and_reaps_before_returning() {
     assert_eq!(error.kind, ErrorKind::Cancelled);
     #[cfg(unix)]
     assert!(!running(pid));
+    assert!(
+        session
+            .execute(event("again").into(), control())
+            .await
+            .is_err()
+    );
     session.close().await.unwrap();
 }
 
@@ -371,6 +377,12 @@ async fn dropping_execute_future_cleans_up_even_with_session_still_owned() {
     );
     #[cfg(unix)]
     eventually_gone(pid).await;
+    assert!(
+        session
+            .execute(event("again").into(), control())
+            .await
+            .is_err()
+    );
     session.close().await.unwrap();
 }
 

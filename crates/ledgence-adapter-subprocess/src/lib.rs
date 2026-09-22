@@ -9,6 +9,8 @@ use ledgence_worker_api::{
     RuntimeInvocation, RuntimeRequest, RuntimeRequestHandler, StartOutcome,
     validate_runtime_payload, validate_wire_value,
 };
+#[cfg(test)]
+mod guard_tests;
 mod logs;
 
 use logs::LogForwarder;
@@ -528,24 +530,47 @@ async fn guarded<T, F: Future<Output = Result<T>>>(
     local_timeout: Option<Duration>,
 ) -> Result<T> {
     control.check()?;
-    tokio::select! {
-        biased;
-        _ = reply.closed() => Err(Error::new(ErrorKind::Cancelled, "caller dropped subprocess operation; execution may have started")),
-        error = stop_signal(control, local_timeout) => Err(error),
-        result = operation => result,
-    }
-}
-
-async fn stop_signal(control: &RunControl, local_timeout: Option<Duration>) -> Error {
     let deadline = local_timeout
         .map(|timeout| (Instant::now() + timeout).min(control.deadline()))
         .unwrap_or(control.deadline());
+    let caller_dropped = || {
+        Error::new(
+            ErrorKind::Cancelled,
+            "caller dropped subprocess operation; execution may have started",
+        )
+    };
+    tokio::select! {
+        biased;
+        _ = reply.closed() => Err(caller_dropped()),
+        error = stop_signal(control, deadline) => Err(error),
+        result = operation => {
+            // A synchronous poll (including final frame decoding) can cross a
+            // deadline or cancellation without allowing the stop branch to run.
+            // Reject that completion before the actor permits session reuse.
+            if reply.is_closed() {
+                return Err(caller_dropped());
+            }
+            check_stop(control, deadline)?;
+            result
+        },
+    }
+}
+
+fn check_stop(control: &RunControl, deadline: Instant) -> Result<()> {
+    control.check()?;
+    if Instant::now() >= deadline {
+        return Err(Error::new(
+            ErrorKind::TimedOut,
+            "subprocess startup deadline expired",
+        ));
+    }
+    Ok(())
+}
+
+async fn stop_signal(control: &RunControl, deadline: Instant) -> Error {
     loop {
-        if let Err(error) = control.check() {
+        if let Err(error) = check_stop(control, deadline) {
             return error;
-        }
-        if Instant::now() >= deadline {
-            return Error::new(ErrorKind::TimedOut, "subprocess startup deadline expired");
         }
         tokio::time::sleep(
             Duration::from_millis(10).min(deadline.saturating_duration_since(Instant::now())),
