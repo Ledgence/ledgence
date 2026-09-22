@@ -13,6 +13,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import traceback
 import urllib.parse
 import uuid
 
@@ -86,7 +87,39 @@ def main():
         succeeded = True
         return 0
     except (AssertionError, OSError, RuntimeError, subprocess.SubprocessError) as error:
-        print(f"HTTP acceptance failed: {error}", file=sys.stderr)
+        def diagnostic_text(value):
+            text = str(value)
+            # SQL subprocess errors include argv. Keep fixture URLs useful while
+            # redacting caller-supplied PostgreSQL credentials from diagnostics.
+            for url in (parent_url, database_url):
+                address = urllib.parse.urlsplit(url)
+                if "@" in address.netloc or address.query:
+                    host = address.netloc.rsplit("@", 1)[-1]
+                    redacted = urllib.parse.urlunsplit(address._replace(
+                        netloc="REDACTED@" + host if "@" in address.netloc else host,
+                        query="REDACTED" if address.query else ""))
+                    text = text.replace(url, redacted)
+            return text
+
+        failure = diagnostic_text(traceback.format_exc())
+        print(diagnostic_text(f"HTTP acceptance failed: {type(error).__name__}: {error}"), file=sys.stderr)
+        print(failure, file=sys.stderr, end="")
+        try:
+            (directory / "failure-traceback.txt").write_text(failure)
+        except OSError as diagnostic_error:
+            print(diagnostic_text(f"Could not save failure traceback: {diagnostic_error}"), file=sys.stderr)
+        # These are fixture-owned subprocess logs, not request headers or the
+        # caller's environment. Keep CI output bounded and retain the full files.
+        for process in deployment.processes[-3:] if deployment else []:
+            print(f"Fixture {process.label} exit={process.process.poll()}", file=sys.stderr)
+            for log in (process.stdout_path, process.stderr_path):
+                print(f"--- {log.name} (last 20 lines, up to 6000 characters) ---", file=sys.stderr)
+                try:
+                    lines = log.read_text(errors="replace").splitlines()[-20:]
+                except OSError as diagnostic_error:
+                    print(diagnostic_text(f"Could not read fixture log: {diagnostic_error}"), file=sys.stderr)
+                else:
+                    print(diagnostic_text("\n".join(lines))[-6000:], file=sys.stderr)
         print(f"Evidence: {directory}", file=sys.stderr)
         return 1
     finally:

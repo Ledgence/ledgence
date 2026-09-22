@@ -128,26 +128,60 @@ def longpoll_fallback_and_listener_startup_failure(d):
     return f"periodic-only and unavailable listener remain ready; external submissions picked up in {details}s"
 
 
+def released_transactions(d, requests, timeout=3):
+    """Observe a parked cohort without confusing a transient probe with a leak."""
+    count = None
+
+    def released():
+        nonlocal count
+        assert all(not request.done() for request in requests), "acquisition completed during transaction-release observation"
+        count = d.sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                      "AND application_name='ledgence' AND state='idle in transaction'")
+        assert all(not request.done() for request in requests), "acquisition completed during transaction-release observation"
+        return count == "0"
+
+    try:
+        eventually(released, timeout=timeout, description="all parked acquisitions to release transactions")
+    except AssertionError as error:
+        raise AssertionError(f"{error}; last idle transaction count: {count}") from error
+
+
 def longpoll_many_sleepers_release_connections_and_drain(d):
+    auxiliary_query = ("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                       "AND application_name='ledgence-wake'")
+    # The original server's publisher connects lazily; a selected scenario may
+    # start with only its listener, while earlier scenarios warm both connections.
+    auxiliary_before = d.sql(auxiliary_query)
     with servers(d, count=1) as ((server, base),), ThreadPoolExecutor(max_workers=16) as pool:
         opened = session(d, base, 16)
+        started = time.monotonic()
         requests = [pool.submit(poll, base, acquisition(d, opened, consumer=i)) for i in range(16)]
         waiting(server, opened, 16)
-        assert d.sql(f"SELECT count(*) FROM consumer_cursors WHERE session_id='{opened['id']}'") == "0"
-        assert d.sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
-                     "AND application_name='ledgence' AND state='idle in transaction'") == "0"
+        cursors = d.sql(f"SELECT count(*) FROM consumer_cursors WHERE session_id='{opened['id']}'")
+        assert cursors == "0", f"parked acquisitions persisted {cursors} consumer cursors"
+        # A new periodic probe or the independent expiry scanner can briefly be
+        # between SQL statements after the Pending barrier. A persistent held
+        # transaction must still fail while every acquisition remains parked.
+        released_transactions(d, requests)
         extension = exchange(base, "POST", "/v1/worker-sessions/extend", {"worker_session_id": opened["id"]})
         assert extension[0] == 200, extension
+        assert all(not request.done() for request in requests), "acquisition completed before shutdown"
+        # Reserve the full shutdown allowance before the earliest possible 20s
+        # poll deadline, so deadline expiry cannot masquerade as signal wakeup.
+        assert time.monotonic() - started < 12, "transaction observation exhausted the shutdown test budget"
         began = time.monotonic()
         server.process.send_signal(signal.SIGTERM)
         replies = [request.result(timeout=8) for request in requests]
         assert all(reply == {"disposition": "empty", "sequence": 1} for reply in replies), replies
-        assert server.process.wait(timeout=8) == 0
+        code = server.process.wait(timeout=8)
+        assert code == 0, f"long-poll server exited with {code} during graceful shutdown"
         assert time.monotonic() - began < 8, "accepted idle waits did not wake into finalization"
-        assert d.sql(f"SELECT count(*) FROM consumer_cursors WHERE session_id='{opened['id']}' AND sequence=1") == "16"
+        finalized = d.sql(f"SELECT count(*) FROM consumer_cursors WHERE session_id='{opened['id']}' AND sequence=1")
+        assert finalized == "16", f"shutdown finalized {finalized} of 16 consumer cursors"
         # Owned listener/publisher connections have closed before process exit.
-        assert d.sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
-                     "AND application_name='ledgence-wake'") == "2", "only the original scenario server's auxiliary pair should remain"
+        auxiliary_after = d.sql(auxiliary_query)
+        assert auxiliary_after == auxiliary_before, (f"auxiliary connections after shutdown: {auxiliary_after}; "
+                                                    f"original server baseline: {auxiliary_before}")
     return "16 sleepers hold no transaction; control progresses; first signal finalizes all cursors and closes auxiliary connections"
 
 
