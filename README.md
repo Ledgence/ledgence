@@ -10,6 +10,10 @@ Run `ledgence-orchestrator` for the PostgreSQL-backed HTTP task service, `ledgen
 
 Optional [retention maintenance](docs/retention.md) previews and collects expired execution history in bounded, resumable batches. It requires an explicit tenant and namespace, preserves the minimum 90-day terminal window, and protects active workflows, current worker cursors, and unfinished callbacks.
 
+## Documentation
+
+The [documentation website](docs-site/README.md) organizes guided tutorials, how-to guides, reference, and concepts using Diátaxis. Its content and static site live in `docs-site/`; local preview and publishing instructions are in that directory. The detailed contracts in `docs/` remain available as documentation coverage expands.
+
 ## Try it
 
 For a complete self-hosted stack with explicit migrations, durable state, dynamic

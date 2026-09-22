@@ -1,0 +1,14 @@
+---
+// SPDX-License-Identifier: MIT
+import Default from '@astrojs/starlight/components/Footer.astro';
+import source from '../generated/source.json';
+---
+<Default><slot /></Default>
+<div class="ld-docs-footer">
+  <span>Development docs · Source {source.revision.slice(0, 12)} · APIs are evolving.</span>
+  <nav aria-label="Project links">
+    <a href="https://ledgence.com">Ledgence</a>
+    <a href="/notices/index.html">Licenses &amp; notices</a>
+    <a href="/llms.txt">Markdown index</a>
+  </nav>
+</div>
