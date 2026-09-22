@@ -153,6 +153,9 @@ impl FileArtifactCache {
                 ));
             }
             plan.verify(&item.path().join("content"))?;
+            if prepare_cache_wrapper(&item.path())? {
+                File::open(item.path())?.sync_all()?;
+            }
             let bytes = entry_size(&descriptor, plan.expanded_bytes, descriptor_bytes)?;
             state.bytes = state
                 .bytes
@@ -526,6 +529,29 @@ fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>> {
     }
     read_bounded(&mut file, limit)
 }
+// Earlier caches also made their wrapper read-only. Normalize it after
+// verification and under exclusive ownership, before eviction can rename it.
+// Program content permissions and immutable file bytes remain unchanged.
+fn prepare_cache_wrapper(path: &Path) -> Result<bool> {
+    let permissions = fs::metadata(path)?.permissions();
+    #[cfg(unix)]
+    let desired = {
+        use std::os::unix::fs::PermissionsExt;
+        (permissions.mode() & 0o7777 != 0o700).then(|| fs::Permissions::from_mode(0o700))
+    };
+    #[cfg(not(unix))]
+    let desired = permissions.readonly().then(|| {
+        let mut writable = permissions;
+        writable.set_readonly(false);
+        writable
+    });
+    if let Some(desired) = desired {
+        fs::set_permissions(path, desired)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
 fn write_immutable(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = File::create_new(path)?;
     file.write_all(bytes)?;
@@ -541,7 +567,10 @@ fn entry_size(descriptor: &ProgramDescriptor, expanded: u64, metadata: u64) -> R
 }
 fn finish_stage(plan: &mut ArchivePlan, stage: &Path, final_path: &Path) -> Result<()> {
     plan.extract(&stage.join("content"))?;
-    make_readonly(stage, true)?;
+    // Keep the private wrapper owner-writable: macOS can reject renaming a
+    // read-only directory. The program content and metadata files are already
+    // read-only; only the wrapper itself needs owner write permission.
+    prepare_cache_wrapper(stage)?;
     File::open(stage)?.sync_all()?;
     fs::rename(stage, final_path)?;
     Ok(())
@@ -560,6 +589,9 @@ impl Drop for Stage {
 
 #[cfg(test)]
 mod staging_tests;
+
+#[cfg(all(test, unix))]
+mod permissions_tests;
 
 #[cfg(test)]
 mod tests {

@@ -40,8 +40,6 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
-      - name: Diagnose artifact materialization compatibility
-        run: cargo test --locked -p ledgence-adapter-artifact --lib
       - name: Check crate boundaries
         run: python tools/check-boundaries.py
       - name: Check Rust formatting
