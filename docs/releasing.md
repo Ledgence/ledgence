@@ -1,4 +1,4 @@
-# Release candidates
+# Release bundles
 
 A candidate is a reviewable artifact built from a clean committed source tree.
 Creating it does not tag the repository, promote `develop` to `main`, push changes,
@@ -92,3 +92,46 @@ stable version. The tooling deliberately provides no automated publishing or
 `main` promotion. Required legal notices do not require users to open-source
 their applications. See [dependency policy](dependencies.md) and
 [local image distribution boundaries](local-deployment.md#qualification-and-distribution-boundary).
+
+## Prepare a stable bundle offline
+
+After selecting a candidate whose required qualification gates have passed, use
+`tools/release/promote.py` to prepare a stable archive from its exact bytes. This
+operation does not rebuild binaries or Python distributions, change Git, create a
+tag, access a registry, or publish anything. The version must already match the
+Rust workspace and Python client versions in the candidate's original source.
+
+Provide a clean local release checkout and an explicit existing ref identifying
+its HEAD. The release commit must contain the candidate build commit and have the
+identical Git tree. A source-equivalent release merge commit may differ from the
+original build commit; both identities remain in the resulting provenance. The
+tool does not create that merge or decide whether a candidate is qualified.
+
+```sh
+python3 tools/release/promote.py \
+  --archive /path/to/selected-candidate.tar.gz \
+  --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
+  --repository /path/to/clean-release-checkout \
+  --release-ref refs/heads/release-preparation \
+  --version 0.1.0 --output /tmp/ledgence-stable
+```
+
+Take the expected SHA256 from the selected candidate's retained outer checksum
+file. The output directory must be new and outside both checkouts. The tool checks
+that digest, the original normalized archive modes, and every internal checksum
+before repackaging. It changes only the
+bundle README, `provenance.json`, and internal `SHA256SUMS`; it adds the unchanged
+original `candidate-provenance.json` and `promotion-payload-sha256.json`. All other
+files, including executables, wheel, sdist, helper, documentation and legal files,
+must keep identical bytes and modes. The stable archive uses a version/target root
+without an `rc.N` suffix and receives its own outer checksum.
+
+The actual stable archive is extracted and smoke-tested again. Original build
+provenance stays intact, while promotion provenance records the release commit,
+source tree, original candidate digest and preserved payload inventory. This is
+an artifact preparation step; the intended `v0.1.0` tag, `main` promotion and public
+release remain separate decisions and operations. Preserve the candidate and its
+qualification reports alongside the new archive.
+
+Run the promotion regression tests with
+`python3 -m unittest discover -s tools/release -p 'test_*.py' -v`.

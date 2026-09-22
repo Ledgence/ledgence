@@ -38,6 +38,8 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python }}
+      - name: Test offline release promotion
+        run: python -m unittest discover -s tools/release -p 'test_*.py' -v
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
       - name: Check crate boundaries
