@@ -104,6 +104,8 @@ def main():
         shutil.copytree(ROOT / "sdk/python/ledgence", stage / "runtime/ledgence",
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         shutil.copytree(ROOT / "docs", stage / "docs")
+        (stage / "examples").mkdir()
+        shutil.copyfile(ROOT / "examples/local-compose-client.py", stage / "examples/local-compose-client.py")
         shutil.copyfile(ROOT / "LICENSE", stage / "LICENSE")
         shutil.copyfile(ROOT / "Cargo.lock", stage / "Cargo.lock")
         collect(stage / "legal", target)
@@ -114,7 +116,7 @@ def main():
         if args.offline:
             sdk.append("--offline")
         command(sdk, env=env)
-        (stage / "README.md").write_text(f"# {label}\n\nThis is a release candidate assembled from commit {commit}, not a stable release. Embedded Rust and Python package versions remain {version}.\n\nUse bin/ledgence-orchestrator, bin/ledgence-worker and bin/ledgence. Supply a compatible host CPython 3.11–3.14 and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. Native binaries target {target}; they require host system libraries and do not include CPython, PostgreSQL or a broker. The client wheel and sdist are in python-client/; installing the wheel resolves the reviewed pinned dependencies. See docs/local-deployment.md and docs/releasing.md.\n\nKeep LICENSE and legal/ with redistributed binaries; Python distributions carry their own retained legal files. Third-party software retains its original licenses.\n")
+        (stage / "README.md").write_text(f"# {label}\n\nThis is a release candidate assembled from commit {commit}, not a stable release. Embedded Rust and Python package versions remain {version}.\n\nUse bin/ledgence-orchestrator, bin/ledgence-worker and bin/ledgence. Supply a compatible host CPython 3.11–3.14 and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. Native binaries target {target}; they require host system libraries and do not include CPython, PostgreSQL or a broker. The client wheel and sdist are in python-client/; installing the wheel resolves the reviewed pinned dependencies. See docs/local-deployment.md and docs/releasing.md. The installed-SDK Compose companion is examples/local-compose-client.py; start and publish its programs from the matching source checkout first.\n\nKeep LICENSE and legal/ with redistributed binaries; Python distributions carry their own retained legal files. Third-party software retains its original licenses.\n")
         # Captures dependency/toolchain identity, not a claim of byte-identical compilation.
         linker = ["otool", "-L"] if sys.platform == "darwin" else ["ldd"]
         linked = {name: read(*linker, str(stage / "bin" / name)) for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator")}

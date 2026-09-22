@@ -40,6 +40,7 @@ The archive contains:
 - `bin/ledgence`, `bin/ledgence-orchestrator`, `bin/ledgence-worker`;
 - `runtime/ledgence/worker/`, preserving the native Python namespace;
 - `python-client/` with the tested wheel and source distribution;
+- `examples/local-compose-client.py`, an installed-SDK companion for the published local Compose programs;
 - documentation, Ledgence's MIT license and complete retained third-party legal material;
 - the Cargo lock, target/toolchain/build provenance, installed-client evidence,
   and a checksum inventory for every included file.
