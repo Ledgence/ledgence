@@ -30,7 +30,10 @@ protective references and is not a promise that it will be removed.
 | `--batches` | 100 | 1–100000 bounded transactions per invocation |
 
 One transaction examines or advances one target/session; discovery and physical
-collection alternate. A page removes at most `batch-size` history/receipt rows.
+collection alternate. A newly retired small task may be fully collected in the
+same transaction. Its history, receipts and attempts share one `batch-size` row
+budget across tables; larger ledgers resume in later transactions. Workflow and
+session collection remove at most `batch-size` dependent rows per page.
 Admission may additionally remove the existing bounded set of at most 16 terminal
 subscriptions; final collection removes at most three identity/link records.
 Progress logs report examined/retired records, deleted rows/executions/sessions,
@@ -89,6 +92,11 @@ therefore covers active lifetime and the retained terminal window; it is not
 permanent business idempotency. Applications that need permanent protection must
 record their effect key in the business system.
 
+Historical broker claim receipts may still replay a handled acknowledgment or
+`OwnershipLost` while their physical receipt remains, even after the target is
+hidden. Such a receipt cannot reconstruct execution authority without its live,
+unchanged cursor, and a current cursor prevents target retirement.
+
 Old consumer sequences cannot become new assignments. For a live consumer whose
 historical broker receipt expired, replay returns `Conflict`/`ObsoleteOperation`;
 an expired removed session returns `UnknownSession`. A broker record for a deleted
@@ -102,10 +110,15 @@ Cleanup uses identity-prefixed indexes, keyset scans, a small per-scope coordina
 row, and target row locks. Cooperating collectors serialize within a scope and
 independent scopes can proceed concurrently. There are no unbounded cascading
 transactions, graph walks, `OFFSET` scans, per-wait processes, or extra writes on
-normal execution paths. Index maintenance and compact retirement metadata still
-have a storage/write cost; this feature makes no throughput claim.
+normal execution paths. Sparse workflow journals use a durable activation keyset
+position: each visit probes at most `batch-size` activations and deletes at most
+that many results. A completed journal phase is persisted, so retained empty
+activation ledgers are never rescanned on later collection visits. Index maintenance
+and compact retirement metadata still have a storage/write cost; this feature makes
+no throughput claim.
 
-Migration `20260923000000_retention.sql` adds marker columns and indexes. Index
+Migration `20260923000000_retention.sql` adds marker/cursor columns and indexes,
+and replaces discovery indexes with partial indexes over visible tasks. Index
 creation may take time and block writes on an existing large deployment: run the
 explicit migration in a planned maintenance window with an appropriate budget.
 The serving binary still verifies the exact schema before starting.
@@ -125,3 +138,7 @@ collectors, cursor/active-attempt protection, historical claim/event receipts,
 late subscriptions, redelivery races, and owned workflow/local-journal cleanup.
 A regression verifies that a pending root callback keeps an identical public
 root status/result and still delivers after expired descendants are removed.
+Query-plan regressions measure actual rows/probes for sparse and drained 200,000-row
+activation ledgers and task discovery with a 20,000-row retirement backlog. An
+opt-in completed-task fixture reports cleanup throughput and empty-lane overhead;
+its timing is diagnostic, not a production capacity guarantee.

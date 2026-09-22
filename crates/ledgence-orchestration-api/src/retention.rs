@@ -12,6 +12,8 @@ pub const MAX_RETENTION_BATCH: u32 = 256;
 #[serde(deny_unknown_fields)]
 pub struct RetentionPolicy {
     pub retain_for_ms: u64,
+    /// Dependent-row work budget, not an execution count. Small task ledgers
+    /// may share this budget across tables within their single-target transaction.
     pub batch_size: u32,
 }
 impl Default for RetentionPolicy {

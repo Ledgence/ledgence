@@ -842,3 +842,176 @@ async fn age_selection_uses_scoped_range_indexes_even_when_no_old_rows_remain() 
     assert!(preview.task_candidates.is_empty());
     db.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn journal_pages_resume_after_rollback_and_reopen_without_skipping_results() {
+    let db = TestDb::new().await;
+    let run = db
+        .store
+        .accept_resolved_workflow(&command(), &descriptor())
+        .await
+        .unwrap();
+    let assigned = workflow_assignment(&db.store, "python").await;
+    workflow_decision(
+        &db.store,
+        &assigned,
+        WorkflowAction::Complete {
+            output: json!({"done":true}),
+        },
+        &[],
+    )
+    .await;
+    // A live cursor keeps the activation/task row, independently of journal cleanup.
+    sqlx::query("UPDATE workflow_runs SET submitted_at_ms=1,terminal_at_ms=2 WHERE workflow_id=$1")
+        .bind(&run.workflow_id)
+        .execute(&db.store.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms) SELECT activation_id,'extra_'||n,record_bytes,attempt_id,accepted_at_ms FROM workflow_local_results CROSS JOIN generate_series(1,6) n").execute(&db.store.pool).await.unwrap();
+    rounds(&db.store, 6, 2).await;
+    let mut tx = db.store.pool.begin().await.unwrap();
+    let mut progress = RetentionProgress::default();
+    assert!(
+        collect_workflow_journals(&mut tx, &run.workflow_id, 2, &mut progress)
+            .await
+            .unwrap()
+    );
+    assert_eq!(progress.deleted_rows, 2);
+    tx.rollback().await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM workflow_local_results")
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 7);
+    let reopened = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
+    let mut connection = reopened.pool.acquire().await.unwrap();
+    for expected in [2, 2, 2, 1, 0] {
+        let mut progress = RetentionProgress::default();
+        assert!(
+            collect_workflow_journals(&mut connection, &run.workflow_id, 2, &mut progress)
+                .await
+                .unwrap()
+        );
+        assert_eq!(progress.deleted_rows, expected);
+    }
+    assert!(
+        !collect_workflow_journals(
+            &mut connection,
+            &run.workflow_id,
+            2,
+            &mut RetentionProgress::default()
+        )
+        .await
+        .unwrap()
+    );
+    let cursor: Option<String> = sqlx::query_scalar(
+        "SELECT trunc(retention_activation_after_revision)::text FROM workflow_runs WHERE workflow_id=$1",
+    )
+    .bind(&run.workflow_id)
+    .fetch_one(&mut *connection)
+    .await
+    .unwrap();
+    assert_eq!(cursor, None);
+    let activations: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM workflow_activations WHERE workflow_id=$1")
+            .bind(&run.workflow_id)
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+    assert_eq!(
+        activations, 1,
+        "the cursor still protects its task and activation"
+    );
+    drop(connection);
+    reopened.close().await;
+    let reopened = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
+    let mut connection = reopened.pool.acquire().await.unwrap();
+    assert!(
+        !collect_workflow_journals(
+            &mut connection,
+            &run.workflow_id,
+            2,
+            &mut RetentionProgress::default()
+        )
+        .await
+        .unwrap()
+    );
+    drop(connection);
+    reopened.close().await;
+    db.finish().await;
+}
+
+mod bounds;
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn task_collection_shares_one_row_budget_across_callback_history_and_receipt_tables() {
+    let db = TestDb::new().await;
+    let (task, session, assigned) = claimed(&db.store).await;
+    db.store
+        .renew(&RenewCommand {
+            owner: assigned.lease.owner.clone(),
+            sequence: 1,
+            intent: RenewIntent::Dispatch,
+        })
+        .await
+        .unwrap();
+    db.store
+        .settle(&completed(
+            &assigned,
+            Quiescence::Confirmed,
+            json!({"done":true}),
+        ))
+        .await
+        .unwrap();
+    db.store
+        .acquire(&acquire_command(&session, 0, 2))
+        .await
+        .unwrap();
+    age_task(&db.store, &task.task_id).await;
+    destination(&db.store).await;
+    let subscription = subscribe(&db.store, &task.task_id).await;
+    exhaust(&db.store, &subscription.subscription_id, true).await;
+    let policy = RetentionPolicy {
+        batch_size: 3,
+        ..Default::default()
+    };
+    let first = db
+        .store
+        .retain_batch(&scope(), &policy, deadline())
+        .await
+        .unwrap();
+    assert_eq!(first.retired, 1);
+    assert_eq!(
+        first.deleted_rows, 3,
+        "one callback plus two history rows spend one shared budget"
+    );
+    assert!(exists(&db.store, &task.task_id).await);
+    let mut deleted = first.deleted_rows;
+    for _ in 0..100 {
+        let page = db
+            .store
+            .retain_batch(&scope(), &policy, deadline())
+            .await
+            .unwrap();
+        assert!(
+            page.deleted_rows <= 3,
+            "small ledgers must not each receive a fresh row budget"
+        );
+        deleted += page.deleted_rows;
+        if page.deleted_executions == 1 {
+            break;
+        }
+    }
+    assert!(!exists(&db.store, &task.task_id).await);
+    assert!(
+        deleted > 3,
+        "fixture crosses history, settlement, attempt and task pages"
+    );
+    db.finish().await;
+}

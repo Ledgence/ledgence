@@ -88,6 +88,9 @@ impl PostgresStore {
                         collect_task(&mut tx, &id, policy.batch_size, &mut progress).await?;
                     } else {
                         retire_task(&mut tx, &id, cutoff, now, &mut progress).await?;
+                        if progress.retired > 0 && progress.deleted_rows < policy.batch_size {
+                            collect_task(&mut tx, &id, policy.batch_size, &mut progress).await?;
+                        }
                     }
                 }
                 "workflow" => {
@@ -272,8 +275,8 @@ async fn retire_workflow(
     Ok(())
 }
 
-/// Each call deletes at most one bounded page from one dependent table, or the
-/// final constant-size identity records after all dependent pages are gone.
+/// A single shared row budget amortizes small task ledgers within one target
+/// transaction. Large ledgers remain paged; no second target is ever locked.
 async fn collect_task(
     connection: &mut PgConnection,
     id: &str,
@@ -286,16 +289,25 @@ async fn collect_task(
         "DELETE FROM accepted_settlements WHERE attempt_id IN (SELECT s.attempt_id FROM accepted_settlements s JOIN attempts a ON a.attempt_id=s.attempt_id WHERE a.task_id=$1 LIMIT $2)",
         "DELETE FROM attempts WHERE attempt_id IN (SELECT attempt_id FROM attempts WHERE task_id=$1 LIMIT $2)",
     ] {
+        let remaining = limit.saturating_sub(progress.deleted_rows);
+        if remaining == 0 {
+            return Ok(());
+        }
         let removed = sqlx::query(sql)
             .bind(id)
-            .bind(i64::from(limit))
+            .bind(i64::from(remaining))
             .execute(&mut *connection)
             .await?
             .rows_affected();
-        if removed > 0 {
-            progress.deleted_rows = removed as u32;
+        progress.deleted_rows += removed as u32;
+        if removed == u64::from(remaining) {
             return Ok(());
         }
+    }
+    // Allow the existing constant-size identity exception for batch sizes below
+    // three, but never add it to a page that has spent its dependent-row budget.
+    if progress.deleted_rows > 0 && limit.saturating_sub(progress.deleted_rows) < 3 {
+        return Ok(());
     }
     // At admission all external references were absent. Only this run's terminal
     // task link and its own activation can remain, and neither is mutable now.
@@ -328,7 +340,6 @@ async fn collect_workflow(
         "DELETE FROM workflow_history WHERE ctid IN (SELECT ctid FROM workflow_history WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_events WHERE ctid IN (SELECT ctid FROM workflow_events WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_waits WHERE ctid IN (SELECT ctid FROM workflow_waits WHERE workflow_id=$1 LIMIT $2)",
-        "DELETE FROM workflow_local_results WHERE ctid IN (SELECT r.ctid FROM workflow_local_results r JOIN workflow_activations a ON a.activation_id=r.activation_id WHERE a.workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE child_workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",
     ] {
@@ -342,6 +353,9 @@ async fn collect_workflow(
             progress.deleted_rows = removed as u32;
             return Ok(());
         }
+    }
+    if collect_workflow_journals(connection, id, limit, progress).await? {
+        return Ok(());
     }
     progress.deleted_rows +=
         sqlx::query("DELETE FROM owned_workflow_links WHERE child_workflow_id=$1")
@@ -363,6 +377,67 @@ async fn collect_workflow(
         .rows_affected() as u32;
     progress.deleted_executions = 1;
     Ok(())
+}
+
+const ACTIVATION_PAGE_SQL: &str = "SELECT activation_id,trunc(revision)::text AS revision_text FROM workflow_activations WHERE workflow_id=$1 AND revision>($2::text)::numeric ORDER BY revision LIMIT $3";
+const JOURNAL_PAGE_SQL: &str = "DELETE FROM workflow_local_results WHERE ctid IN (SELECT r.ctid FROM unnest($1::text[]) a(activation_id) CROSS JOIN LATERAL (SELECT ctid FROM workflow_local_results WHERE activation_id=a.activation_id LIMIT $2) r LIMIT $2)";
+
+/// Bound probes as well as deletions: an arbitrarily sparse activation ledger
+/// must not be restarted from its first activation for every result page. The
+/// existing (workflow_id,revision) unique index supports the durable seek.
+/// A retired run cannot add activations or journals; concurrent task collection
+/// can only remove already-drained activations, which cannot invalidate the seek.
+async fn collect_workflow_journals(
+    connection: &mut PgConnection,
+    id: &str,
+    limit: u32,
+    progress: &mut RetentionProgress,
+) -> StoreResult<bool> {
+    let after: Option<String> = sqlx::query_scalar(
+        "SELECT trunc(retention_activation_after_revision)::text FROM workflow_runs WHERE workflow_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&mut *connection)
+    .await?;
+    let Some(after) = after else {
+        return Ok(false);
+    };
+    let page: Vec<(String, String)> = sqlx::query_as(ACTIVATION_PAGE_SQL)
+        .bind(id)
+        .bind(after)
+        .bind(i64::from(limit))
+        .fetch_all(&mut *connection)
+        .await?;
+    let Some((_, last)) = page.last() else {
+        sqlx::query(
+            "UPDATE workflow_runs SET retention_activation_after_revision=NULL WHERE workflow_id=$1",
+        )
+        .bind(id)
+        .execute(connection)
+        .await?;
+        return Ok(false);
+    };
+    let activations: Vec<&str> = page.iter().map(|(id, _)| id.as_str()).collect();
+    let removed = sqlx::query(JOURNAL_PAGE_SQL)
+        .bind(&activations)
+        .bind(i64::from(limit))
+        .execute(&mut *connection)
+        .await?
+        .rows_affected();
+    if removed == 0 {
+        // Advance only when the whole bounded activation page is drained. A
+        // crash rolls back the deletes and position together; populated pages
+        // are retried until empty without probing outside this bounded range.
+        sqlx::query(
+            "UPDATE workflow_runs SET retention_activation_after_revision=($2::text)::numeric WHERE workflow_id=$1",
+        )
+        .bind(id)
+        .bind(last)
+        .execute(connection)
+        .await?;
+    }
+    progress.deleted_rows = removed as u32;
+    Ok(true)
 }
 
 async fn collect_session(

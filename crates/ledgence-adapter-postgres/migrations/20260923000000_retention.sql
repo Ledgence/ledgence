@@ -3,6 +3,9 @@
 ALTER TABLE tasks ADD COLUMN retiring_at_ms bigint CHECK (retiring_at_ms >= 0);
 ALTER TABLE tasks ADD CONSTRAINT tasks_retiring_terminal CHECK (retiring_at_ms IS NULL OR terminal_at_ms IS NOT NULL);
 ALTER TABLE workflow_runs ADD COLUMN retiring_at_ms bigint CHECK (retiring_at_ms >= 0);
+-- Keyset position for a bounded activation journal scan; NULL means drained.
+-- Constant default requires no payload backfill and no normal execution writes.
+ALTER TABLE workflow_runs ADD COLUMN retention_activation_after_revision numeric DEFAULT -1 CHECK (retention_activation_after_revision BETWEEN -1 AND 18446744073709551615 AND retention_activation_after_revision=trunc(retention_activation_after_revision));
 ALTER TABLE workflow_runs ADD CONSTRAINT workflows_retiring_terminal CHECK (retiring_at_ms IS NULL OR terminal_at_ms IS NOT NULL);
 CREATE INDEX tasks_retention ON tasks(tenant_id,namespace,terminal_at_ms,task_id) WHERE terminal_at_ms IS NOT NULL AND retiring_at_ms IS NULL;
 CREATE INDEX tasks_retiring ON tasks(tenant_id,namespace,retiring_at_ms,task_id) WHERE retiring_at_ms IS NOT NULL;
@@ -42,3 +45,19 @@ CREATE TABLE retention_turn (
     lane smallint NOT NULL CHECK(lane BETWEEN 0 AND 2),
     PRIMARY KEY(tenant_id,namespace)
 );
+
+-- Public discovery skips retired targets even while physical cleanup is pending.
+-- Rebuild only visibility access paths; submission-key uniqueness is unchanged.
+DROP INDEX tasks_discovery;
+DROP INDEX tasks_discovery_state;
+DROP INDEX tasks_discovery_queue;
+DROP INDEX tasks_discovery_correlation;
+CREATE INDEX tasks_discovery ON tasks
+    (tenant_id,namespace,submitted_at_ms DESC,task_id DESC) WHERE retiring_at_ms IS NULL;
+CREATE INDEX tasks_discovery_state ON tasks
+    (tenant_id,namespace,state,submitted_at_ms DESC,task_id DESC) WHERE retiring_at_ms IS NULL;
+CREATE INDEX tasks_discovery_queue ON tasks
+    (tenant_id,namespace,queue,submitted_at_ms DESC,task_id DESC) WHERE retiring_at_ms IS NULL;
+CREATE INDEX tasks_discovery_correlation ON tasks
+    (tenant_id,namespace,correlation_key,submitted_at_ms DESC,task_id DESC)
+    WHERE correlation_key IS NOT NULL AND retiring_at_ms IS NULL;
