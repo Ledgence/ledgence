@@ -131,6 +131,7 @@ impl PostgresStore {
         });
         let operation_span = producer.clone().unwrap_or_else(tracing::Span::none);
         async {
+            let claimed_at = db::now(&mut tx).await?;
             let transition = core::acquire(
                 core::Acquisition {
                     session: Some(&session),
@@ -140,7 +141,7 @@ impl PostgresStore {
                     ids: ids.as_ref(),
                 },
                 command,
-                db::now(&mut tx).await?,
+                claimed_at,
             )?;
             if let Some(changes) = &transition.changes {
                 let attempt = changes.attempt.as_ref().ok_or_else(|| {
@@ -180,6 +181,9 @@ impl PostgresStore {
                 }
             }
             committed?;
+            if let Some(candidate) = &candidate {
+                Metric::QueueAge.record(claimed_at.saturating_sub(candidate.available_at) as f64 / 1000.0, MetricOutcome::Integrated);
+            }
             self.acquisition_wake.publish(AcquisitionHint::AcquisitionCompleted(command.into()));
             Ok(AcquisitionProbe::Completed {
                 reply: transition.reply,

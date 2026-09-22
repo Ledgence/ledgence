@@ -112,6 +112,7 @@ impl PostgresStore {
             false
         };
         let mut producer = None;
+        let mut queue_age = None;
         let (transition, disposition) =
             match core::classify_dispatch(&task, &command.dispatch, now, future)? {
                 core::DispatchDecision::Handled(disposition) => {
@@ -157,6 +158,8 @@ impl PostgresStore {
                         .trace_bridge
                         .context(&span)
                         .or_else(|| task.origin_trace.clone());
+                    let claimed_at = db::now(&mut tx).await?;
+                    queue_age = Some(claimed_at.saturating_sub(task.available_at));
                     let transition = core::acquire(
                         core::Acquisition {
                             session: Some(&session),
@@ -166,7 +169,7 @@ impl PostgresStore {
                             ids: Some(&ids),
                         },
                         acquire,
-                        db::now(&mut tx).await?,
+                        claimed_at,
                     )?;
                     let disposition = ClaimDisposition::Claimed {
                         reply: transition.reply.clone(),
@@ -223,6 +226,9 @@ impl PostgresStore {
             span.record("ledgence.publication.outcome", "commit_unconfirmed");
         }
         tx.commit().await?;
+        if let Some(age) = queue_age {
+            Metric::QueueAge.record(age as f64 / 1000.0, MetricOutcome::External);
+        }
         if let Some(span) = &producer {
             span.record("ledgence.publication.outcome", "committed");
             span.record("otel.status_code", "OK");

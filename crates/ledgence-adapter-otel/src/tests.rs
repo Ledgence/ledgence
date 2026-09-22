@@ -33,6 +33,9 @@ fn memory(ratio: f64) -> (Telemetry, Memory) {
         Telemetry {
             provider: Some(provider),
             state: Arc::default(),
+            metrics: None,
+            metric_layer: None,
+            metric_state: Arc::default(),
         },
         exported,
     )
@@ -603,3 +606,5 @@ fn completed_span_accounting_has_a_conservative_128_kib_budget() {
     );
     assert!(span_budget * processor::QUEUE_SPANS <= 128 * 1024 * 1024);
 }
+
+mod metrics;

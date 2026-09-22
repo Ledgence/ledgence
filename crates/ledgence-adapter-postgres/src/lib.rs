@@ -17,6 +17,7 @@ mod transaction;
 mod workflow;
 
 use ledgence_orchestration_api::*;
+use ledgence_worker_api::metrics::{Metric, MetricOutcome, MetricTimer};
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
 pub use migration::MigrationOptions;
 pub use notifications::{AcquisitionNotificationStatistics, AcquisitionNotifications};
@@ -202,8 +203,10 @@ impl PostgresStore {
         F: FnMut() -> Fut,
         Fut: Future<Output = StoreResult<T>>,
     {
+        let metric = MetricTimer::start(Metric::DatabaseDuration);
         let deadline = deadline.min(Instant::now() + self.operation_timeout);
         if deadline <= Instant::now() {
+            metric.finish(MetricOutcome::Failed);
             return Err(ContractError::Unavailable(
                 "database operation budget exhausted".into(),
             ));
@@ -213,6 +216,7 @@ impl PostgresStore {
                 match operation().await {
                     Ok(value) => return Ok(value),
                     Err(StoreError::Database(error)) if retry < 2 && retryable(&error) => {
+                        Metric::DatabaseRetry.record(1.0, MetricOutcome::None);
                         tokio::time::sleep(Duration::from_millis(10 * (retry + 1))).await;
                     }
                     Err(error) => return Err(error.into_contract()),
@@ -220,13 +224,19 @@ impl PostgresStore {
             }
             unreachable!("retry loop always returns")
         };
-        tokio::time::timeout_at(deadline.into(), work)
+        let result = tokio::time::timeout_at(deadline.into(), work)
             .await
             .unwrap_or_else(|_| {
                 Err(ContractError::Unavailable(
                     "database operation timed out; reconcile using the same command".into(),
                 ))
-            })
+            });
+        metric.finish(if result.is_ok() {
+            MetricOutcome::Ok
+        } else {
+            MetricOutcome::Failed
+        });
+        result
     }
 }
 
@@ -314,3 +324,6 @@ mod discovery_db_tests;
 
 #[cfg(test)]
 mod migration_db_tests;
+
+#[cfg(test)]
+mod metrics_db_tests;

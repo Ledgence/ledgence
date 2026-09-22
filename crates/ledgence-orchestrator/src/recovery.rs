@@ -2,6 +2,7 @@ use crate::health::Health;
 use ledgence_orchestration_api::{
     CONTROL_REQUEST_TIMEOUT_MS, ContractError, MAX_RECOVERY_BATCH, RecoveryStore, Result,
 };
+use ledgence_worker_api::metrics::{Metric, MetricOutcome, MetricTimer};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
 
@@ -48,14 +49,22 @@ pub async fn run(
             if *stop.borrow() {
                 return Ok(());
             }
+            let metric = MetricTimer::start(Metric::RecoveryDuration);
             let scan = tokio::time::timeout(
                 config.operation_timeout,
                 store.expire_batch(MAX_RECOVERY_BATCH),
             )
             .await;
+            metric.finish(if matches!(&scan, Ok(Ok(_))) {
+                MetricOutcome::Ok
+            } else {
+                MetricOutcome::Failed
+            });
             match scan {
                 Ok(Ok(progress)) => {
                     health.recovery_success();
+                    Metric::RecoveryExpired
+                        .record(f64::from(progress.expired), MetricOutcome::None);
                     backoff = config.interval;
                     if progress.expired > 0 {
                         tracing::info!(

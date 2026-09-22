@@ -2,6 +2,7 @@
 
 use crate::health::Health;
 use ledgence_orchestration_api::*;
+use ledgence_worker_api::metrics::{Metric, MetricOutcome, MetricTimer};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::{sync::watch, task::JoinSet, time::Instant};
 use tracing::instrument::WithSubscriber;
@@ -219,6 +220,7 @@ async fn deliver_one(
     lease: &CompletionLease,
     deadline: Instant,
 ) -> CompletionDeliveryResult {
+    let metric = MetricTimer::start(Metric::CallbackDuration);
     let deadline = deadline.min(Instant::now() + Duration::from_secs(10));
     let result =
         tokio::time::timeout_at(deadline, sender.deliver(lease, deadline.into_std())).await;
@@ -241,6 +243,10 @@ async fn deliver_one(
             retry_after_ms: None,
         };
     }
+    metric.finish(match &result.outcome {
+        CompletionDeliveryOutcome::Confirmed => MetricOutcome::Ok,
+        CompletionDeliveryOutcome::Retry { .. } => MetricOutcome::Retry,
+    });
     result
 }
 

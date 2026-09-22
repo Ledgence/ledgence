@@ -1,4 +1,4 @@
-//! Optional Rust trace export and correlated JSON logging.
+//! Optional Rust trace/metrics export and correlated JSON logging.
 //!
 //! Construct before an async runtime. Install the returned subscriber at the
 //! executable boundary, carry its dispatch into owned threads, and call
@@ -8,6 +8,7 @@ mod bridge;
 mod client;
 mod config;
 mod logs;
+mod metrics;
 mod processor;
 
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
@@ -27,6 +28,8 @@ use tracing_subscriber::{
 
 pub use bridge::OtelTraceBridge;
 pub use config::{Config, ConfigError};
+pub use metrics::MetricsStatistics;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 pub use processor::Statistics;
 
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -36,6 +39,9 @@ pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 pub struct Telemetry {
     provider: Option<SdkTracerProvider>,
     state: Arc<processor::State>,
+    metrics: Option<SdkMeterProvider>,
+    metric_layer: Option<metrics::MetricsLayer>,
+    metric_state: Arc<metrics::State>,
 }
 impl Telemetry {
     pub fn from_env(service_name: &str, service_version: &str) -> Result<Self, ConfigError> {
@@ -44,6 +50,23 @@ impl Telemetry {
     /// Construct before starting the application async runtime.
     pub fn new(config: Config) -> Result<Self, ConfigError> {
         let state = Arc::new(processor::State::default());
+        let metric_state = Arc::new(metrics::State::default());
+        let mut attributes = vec![
+            KeyValue::new("service.name", config.service_name.clone()),
+            KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new("service.instance.id", config.instance_id.clone()),
+        ];
+        if let Some(environment) = &config.environment {
+            attributes.push(KeyValue::new(
+                "deployment.environment.name",
+                environment.clone(),
+            ));
+        }
+        let resource = Resource::builder_empty()
+            .with_attributes(attributes)
+            .build();
+        let metrics = metrics::build(&config, resource, metric_state.clone(), state.clone())?;
+        let metric_layer = metrics.as_ref().map(metrics::MetricsLayer::new);
         let provider = match &config.endpoint {
             None => None,
             Some(endpoint) => {
@@ -63,6 +86,7 @@ impl Telemetry {
                     .with_http_client(client::BoundedHttp {
                         client,
                         state: state.clone(),
+                        metric_state: None,
                     })
                     .build()
                     .map_err(|_| {
@@ -111,7 +135,13 @@ impl Telemetry {
                 )
             }
         };
-        Ok(Self { provider, state })
+        Ok(Self {
+            provider,
+            state,
+            metrics,
+            metric_layer,
+            metric_state,
+        })
     }
     pub fn bridge(&self) -> Arc<dyn TraceBridge> {
         if self.provider.is_some() {
@@ -121,7 +151,13 @@ impl Telemetry {
         }
     }
     pub fn enabled(&self) -> bool {
-        self.provider.is_some()
+        self.provider.is_some() || self.metrics.is_some()
+    }
+    pub fn metrics_enabled(&self) -> bool {
+        self.metrics.is_some()
+    }
+    pub fn metrics_statistics(&self) -> MetricsStatistics {
+        self.metric_state.statistics()
     }
     pub fn statistics(&self) -> Statistics {
         self.state.statistics()
@@ -153,13 +189,24 @@ impl Telemetry {
                 }))
         });
         let log_filter = logs.and(filter_fn(|metadata| {
-            !metadata.target().starts_with("opentelemetry")
+            metadata.target() != ledgence_worker_api::metrics::METRIC_TARGET
+                && !metadata.target().starts_with("opentelemetry")
                 && !metadata.target().starts_with("tracing_opentelemetry")
         }));
         let dispatch = Arc::new(std::sync::OnceLock::new());
+        let metrics_enabled = self.metrics_enabled();
         tracing_subscriber::registry()
+            .with(filter_fn(move |metadata| {
+                metrics_enabled || metadata.target() != ledgence_worker_api::metrics::METRIC_TARGET
+            }))
             .with(otel)
-            .with(logs::CaptureDispatch(dispatch.clone()))
+            .with(self.metric_layer.clone().map(|layer| {
+                layer.with_filter(filter_fn(|metadata| {
+                    metadata.is_event()
+                        && metadata.target() == ledgence_worker_api::metrics::METRIC_TARGET
+                }))
+            }))
+            .with(logs::CaptureDispatch(dispatch.clone()).with_filter(filter_fn(|_| false)))
             .with(
                 tracing_subscriber::fmt::layer()
                     .event_format(logs::CorrelatedJson(
@@ -174,27 +221,36 @@ impl Telemetry {
     /// Best-effort total bounded drain. Run on a dedicated OS thread, not in a
     /// Tokio task or spawn_blocking job whose runtime destructor could then wait.
     pub fn shutdown(mut self) -> Result<(), ShutdownError> {
-        let result = self.provider.take().map_or(Ok(()), |provider| {
-            shutdown_provider(provider, SHUTDOWN_TIMEOUT)
-        });
+        let result =
+            shutdown_providers(self.provider.take(), self.metrics.take(), SHUTDOWN_TIMEOUT);
         let stats = self.statistics();
         if stats != Statistics::default() {
             tracing::warn!(target: "ledgence::telemetry", parent: None, queue_dropped_spans = stats.queue_dropped_spans, failed_batches = stats.failed_batches, failed_spans = stats.failed_spans, rejected_spans = stats.rejected_spans, collector_warnings = stats.collector_warnings, "trace delivery finished with telemetry loss");
+        }
+        let metric_stats = self.metrics_statistics();
+        if metric_stats != MetricsStatistics::default() {
+            tracing::warn!(target:"ledgence::telemetry", parent:None, failed_exports=metric_stats.failed_exports, rejected_points=metric_stats.rejected_points, collector_warnings=metric_stats.collector_warnings, "metrics delivery finished with telemetry loss");
         }
         result
     }
 }
 impl Drop for Telemetry {
     fn drop(&mut self) {
-        if let Some(provider) = self.provider.take() {
+        if self.provider.is_some() || self.metrics.is_some() {
             // Keep provider destruction off the application runtime, including
             // explicit force, startup errors and cancelled shutdown observers.
-            let provider = std::mem::ManuallyDrop::new(provider);
+            let providers =
+                std::mem::ManuallyDrop::new((self.provider.take(), self.metrics.take()));
             let _ = std::thread::Builder::new()
                 .name("ledgence-telemetry-abandon".into())
                 .spawn(move || {
-                    let provider = std::mem::ManuallyDrop::into_inner(provider);
-                    let _ = provider.shutdown_with_timeout(Duration::ZERO);
+                    let (provider, metrics) = std::mem::ManuallyDrop::into_inner(providers);
+                    if let Some(provider) = provider {
+                        let _ = provider.shutdown_with_timeout(Duration::ZERO);
+                    }
+                    if let Some(metrics) = metrics {
+                        let _ = metrics.shutdown_with_timeout(Duration::ZERO);
+                    }
                 });
             // If OS thread creation fails, intentionally retain the provider.
             // Dropping its blocking runtime on the caller would break force.
@@ -202,20 +258,40 @@ impl Drop for Telemetry {
     }
 }
 
+#[cfg(test)]
 fn shutdown_provider(provider: SdkTracerProvider, timeout: Duration) -> Result<(), ShutdownError> {
+    shutdown_providers(Some(provider), None, timeout)
+}
+
+fn shutdown_providers(
+    provider: Option<SdkTracerProvider>,
+    metrics: Option<SdkMeterProvider>,
+    timeout: Duration,
+) -> Result<(), ShutdownError> {
+    if provider.is_none() && metrics.is_none() {
+        return Ok(());
+    }
     let started = std::time::Instant::now();
     let (sent, received) = std::sync::mpsc::sync_channel(1);
-    let provider = std::mem::ManuallyDrop::new(provider);
+    let providers = std::mem::ManuallyDrop::new((provider, metrics));
     std::thread::Builder::new()
         .name("ledgence-telemetry-shutdown".into())
         .spawn(move || {
-            let provider = std::mem::ManuallyDrop::into_inner(provider);
-            let result = provider
-                .shutdown_with_timeout(timeout.saturating_sub(started.elapsed()))
-                .map_err(|error| ShutdownError(error.to_string()));
-            // SDK shutdown can acknowledge before its exporter is destroyed.
-            // Observe both SDK shutdown and destruction within the outer budget.
+            let (provider, metrics) = std::mem::ManuallyDrop::into_inner(providers);
+            let trace_result = provider.as_ref().map_or(Ok(()), |provider| {
+                provider
+                    .shutdown_with_timeout(timeout.saturating_sub(started.elapsed()))
+                    .map_err(|error| ShutdownError(error.to_string()))
+            });
+            let metric_result = metrics.as_ref().map_or(Ok(()), |metrics| {
+                metrics
+                    .shutdown_with_timeout(timeout.saturating_sub(started.elapsed()))
+                    .map_err(|error| ShutdownError(error.to_string()))
+            });
+            // Include destruction of blocking exporter clients in the outer budget.
             drop(provider);
+            drop(metrics);
+            let result = trace_result.and(metric_result);
             let _ = sent.send(result);
         })
         .map_err(|_| {

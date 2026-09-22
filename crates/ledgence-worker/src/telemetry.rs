@@ -29,11 +29,19 @@ impl Telemetry {
         #[cfg(not(feature = "otel"))]
         {
             let _ = service;
-            if std::env::var_os("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").is_some() {
+            if std::env::var_os("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").is_some()
+                || std::env::var_os("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT").is_some()
+            {
                 return Err("this executable was built without the otel feature".into());
             }
             tracing_subscriber::fmt()
-                .with_env_filter(filter)
+                .with_env_filter(
+                    filter.add_directive(
+                        "ledgence::metrics=off"
+                            .parse()
+                            .expect("static metrics filter"),
+                    ),
+                )
                 .with_writer(writer)
                 .json()
                 .init();
@@ -69,10 +77,12 @@ impl Telemetry {
                     .await
                     .is_err()
                 {
-                    tracing::warn!("telemetry drain deadline reached; abandoning optional spans");
+                    tracing::warn!(
+                        "telemetry drain deadline reached; abandoning optional telemetry"
+                    );
                 }
             } else {
-                tracing::warn!("could not start telemetry drain; abandoning optional spans");
+                tracing::warn!("could not start telemetry drain; abandoning optional telemetry");
             }
         }
     }

@@ -3,6 +3,7 @@
 //! This first milestone models preparation and reusable execution. It does not
 //! implement distributed attempt leases or durable orchestration settlement.
 
+pub mod metrics;
 mod trace;
 pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;

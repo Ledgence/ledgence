@@ -1,6 +1,6 @@
-# Optional trace adapter
+# Optional telemetry adapter
 
-This crate provides a W3C context bridge, JSON log correlation, and bounded OTLP HTTP/protobuf trace export. It does not install a global provider or subscriber. Executable composition owns enablement and shutdown; execution contracts expose only `ledgence_worker_api::TraceContext` and `TraceBridge`.
+This crate provides a W3C context bridge, JSON log correlation, and bounded OTLP HTTP/protobuf trace and operational metrics export. It does not install a global provider or subscriber. Executable composition owns enablement and shutdown; execution contracts expose only `ledgence_worker_api::TraceContext` and `TraceBridge`.
 
 Construct `Telemetry::from_env(service_name, version)` before starting an async runtime. Install `telemetry.subscriber(existing_bounded_log_writer, log_filter)` and inject `telemetry.bridge()` into adapters and services. The `RUST_LOG` filter applies to logs independently from exported Ledgence spans. Diagnostic spans with target `ledgence::context` retain logging context without generating extra OTel operations. Their children should set explicit phase parents before entering or reading the span. `otel.kind` and `otel.status_code` fields follow the pinned tracing bridge's case-insensitive names.
 
@@ -10,6 +10,8 @@ Supported environment settings:
 
 | Setting | Behavior |
 | --- | --- |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Independently enables metrics; full absolute HTTP(S) URL including `/v1/metrics`. Ten-second cumulative collection. |
+| `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | If supplied, must be `http/protobuf`. |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Enables tracing; absolute HTTP(S) URL, including the traces path. No default collector. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | If supplied, must be `http/protobuf`. |
 | `OTEL_SERVICE_NAME` | Overrides executable service name. |
@@ -31,3 +33,7 @@ After application cleanup, move `Telemetry` to a dedicated OS thread and call it
 ## Local wire capture
 
 Build the acceptance receiver with `cargo build -p ledgence-adapter-otel --example otlp-capture --locked`, then run `target/debug/examples/otlp-capture 127.0.0.1:4318`. It prints its endpoint to stderr and decoded span JSON lines to stdout. Port 0 selects an available ephemeral port. Point worker/orchestrator trace endpoints at its `/v1/traces` path. The fixture verifies actual HTTP/protobuf bytes and parent IDs without a hosted service. It is a bounded verification receiver, not an upstream OpenTelemetry Collector or production telemetry backend.
+
+## Operational metrics
+
+See [metrics and exact counting semantics](../../docs/metrics.md). The fixed-vocabulary Ledgence event carrier is consumed by a separate optional aggregation layer, independent from log filters and span sampling. No vendor SDK enters worker or orchestration contracts. Metrics have a dedicated periodic exporter thread and bounded response handling. Both providers share the outer shutdown deadline; metrics failures are available through `metrics_statistics()`. The local capture fixture also prints `OTLP_CAPTURE_METRICS_ENDPOINT` and emits decoded metric JSON lines with `signal: "metrics"`.

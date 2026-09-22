@@ -1,6 +1,6 @@
 # Observability
 
-Ledgence exports optional platform traces through OTLP/HTTP with protobuf and writes correlated JSON logs to stderr. The endpoint belongs to the operator; no hosted account is required. Task, attempt, lease, and settlement records remain authoritative when traces are unsampled, dropped, or unavailable.
+Ledgence exports optional platform traces and [operational metrics](metrics.md) through OTLP/HTTP with protobuf and writes correlated JSON logs to stderr. The endpoint belongs to the operator; no hosted account is required. Task, attempt, lease, and settlement records remain authoritative when traces are unsampled, dropped, or unavailable.
 
 ## Enable tracing
 
@@ -25,9 +25,9 @@ This is the full endpoint, including its path; Ledgence does not append `/v1/tra
 | `OTEL_TRACES_SAMPLER_ARG` | Finite root ratio from 0 to 1, default 1; must be 1 for `parentbased_always_on`. |
 | `RUST_LOG` | Controls diagnostic logs independently; `error` does not disable trace creation or propagation. |
 
-Unknown `OTEL_` settings, unsupported protocols, and invalid configuration fail startup clearly. An unavailable collector after startup does not change task outcomes or existing contexts. This first adapter does not support exporter authentication headers, custom certificates, metrics export, or OTLP log export. Use an operator-managed collector for routing and backend credentials.
+Unknown `OTEL_` settings, unsupported protocols, and invalid configuration fail startup clearly. An unavailable collector after startup does not change task outcomes or existing contexts. This first adapter does not support exporter authentication headers, custom certificates, or OTLP log export. Use an operator-managed collector for routing and backend credentials.
 
-To compile an executable without any OpenTelemetry dependency, use `cargo build -p ledgence-worker --no-default-features --locked` (likewise for `ledgence-orchestrator` or `ledgence-cli`). Such a build rejects a configured traces endpoint. `tools/check-otel-features.py` checks all three dependency graphs and compilation paths.
+To compile an executable without any OpenTelemetry dependency, use `cargo build -p ledgence-worker --no-default-features --locked` (likewise for `ledgence-orchestrator` or `ledgence-cli`). Such a build rejects a configured traces or metrics endpoint. `tools/check-otel-features.py` checks all three dependency graphs and compilation paths.
 
 ## Identity and causal relationships
 

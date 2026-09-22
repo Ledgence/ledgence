@@ -7,6 +7,7 @@ use std::io::Read;
 pub(crate) struct BoundedHttp {
     pub client: reqwest::blocking::Client,
     pub state: std::sync::Arc<crate::processor::State>,
+    pub metric_state: Option<std::sync::Arc<crate::metrics::State>>,
 }
 const RESPONSE_BYTES: u64 = 64 * 1024;
 #[async_trait::async_trait]
@@ -34,12 +35,22 @@ impl HttpClient for BoundedHttp {
         }
         if status.is_success() {
             use prost::Message;
-            let acknowledgement = opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceResponse::decode(body.as_slice())?;
-            if let Some(partial) = acknowledgement.partial_success {
-                self.state.partial_success(
-                    partial.rejected_spans.max(0) as u64,
-                    !partial.error_message.is_empty(),
-                );
+            if let Some(state) = &self.metric_state {
+                let acknowledgement = opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceResponse::decode(body.as_slice())?;
+                if let Some(partial) = acknowledgement.partial_success {
+                    state.partial(
+                        partial.rejected_data_points.max(0) as u64,
+                        !partial.error_message.is_empty(),
+                    );
+                }
+            } else {
+                let acknowledgement = opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceResponse::decode(body.as_slice())?;
+                if let Some(partial) = acknowledgement.partial_success {
+                    self.state.partial_success(
+                        partial.rejected_spans.max(0) as u64,
+                        !partial.error_message.is_empty(),
+                    );
+                }
             }
         }
         let mut reply = Response::builder().status(status).body(Bytes::from(body))?;

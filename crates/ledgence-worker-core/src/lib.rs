@@ -3,6 +3,8 @@
 //! The caller supplies an immutable descriptor already bound to its logical task.
 //! Distributed leases and settlement belong to the separate delivery driver.
 
+use ledgence_worker_api::metrics::MetricGuard;
+use ledgence_worker_api::metrics::{Metric, MetricOutcome, MetricTimer};
 use ledgence_worker_api::*;
 // Keep existing worker-core imports source-compatible while adapters can depend
 // on portable contracts without importing the execution implementation.
@@ -426,12 +428,16 @@ impl Worker {
                     _ = tokio::time::sleep(Duration::from_millis(10)) => {}
                 }
             };
-            ownership.permit = Some(ConsumerPermit::Direct { _permit: permit });
+            ownership.permit = Some(ConsumerPermit::Direct {
+                _permit: permit,
+                _metric: MetricGuard::consumer(),
+            });
         }
         ownership.stage = InvocationStage::Preparation;
         tracing::info!(phase = "preparation", "preparing invocation");
         let prepare_span = operation_span("prepare");
         self.trace.set_parent(&prepare_span, processing);
+        let prepare_metric = MetricTimer::start(Metric::PreparationDuration);
         let artifact = observe(
             prepare_span,
             self.prepare(
@@ -445,8 +451,14 @@ impl Worker {
                     .and_then(ConsumerPermit::reservation),
             ),
         )
-        .await
-        .map_err(|error| failure(error, Phase::Preparation, false, context))?;
+        .await;
+        prepare_metric.finish(if artifact.is_ok() {
+            MetricOutcome::Ok
+        } else {
+            MetricOutcome::Failed
+        });
+        let artifact =
+            artifact.map_err(|error| failure(error, Phase::Preparation, false, context))?;
         control
             .check()
             .map_err(|error| failure(error, Phase::Preparation, false, context))?;
@@ -485,6 +497,14 @@ impl Worker {
             )
             .await
             .map_err(|error| failure(error, Phase::Startup, false, context))?;
+        Metric::ProcessSelection.record(
+            1.0,
+            if reused {
+                MetricOutcome::Reused
+            } else {
+                MetricOutcome::Started
+            },
+        );
         // Keep this owner outside every adapter future. A panicking poll only
         // unwinds a borrow of the session; retirement still has its real handle.
         ownership.session = Some(Idle {
@@ -534,6 +554,8 @@ impl Worker {
             extension: interactive.as_ref().map(|value| value.extension.clone()),
         };
         let execution_started = Instant::now();
+        let execution_metric = MetricTimer::start(Metric::ExecutionDuration);
+        let executing = MetricGuard::execution();
         let outcome = match catch_panic(async {
             let session = &mut ownership
                 .session
@@ -558,6 +580,7 @@ impl Worker {
                 Err(error)
             }
         };
+        drop(executing);
         execution_span.record("ledgence.duration_ms", elapsed_ms(execution_started));
         let outcome_name = match &outcome {
             Ok(ProgramOutcome::Success { .. }) => "success",
@@ -567,6 +590,11 @@ impl Worker {
                 "runtime_error"
             }
         };
+        execution_metric.finish(match outcome_name {
+            "success" => MetricOutcome::Ok,
+            "failure" => MetricOutcome::Failed,
+            _ => MetricOutcome::RuntimeError,
+        });
         execution_span.record("ledgence.outcome", outcome_name);
         if outcome_name != "success" {
             execution_span.record("otel.status_code", "ERROR");
@@ -632,6 +660,14 @@ impl Worker {
             catch_panic(async { self.inner.cache.lookup(descriptor).await }).await,
             &context.identity,
         )?;
+        Metric::CacheLookup.record(
+            1.0,
+            if cached.is_some() {
+                MetricOutcome::Hit
+            } else {
+                MetricOutcome::Miss
+            },
+        );
         if let Some(hit) = cached {
             tracing::Span::current().record("ledgence.cache.hit", true);
             tracing::debug!(phase = "preparation", cache_hit = true, "artifact ready");

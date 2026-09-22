@@ -88,3 +88,5 @@ Ledgence-owned code is [MIT licensed](LICENSE). Your applications and programs c
 ## Durable orchestration storage
 
 The Rust application service and PostgreSQL 18 adapter implement transactional task submission, attempts, leases, result acceptance, cancellation, inspection, and expiry recovery. See [PostgreSQL setup and guarantees](docs/postgres.md). The HTTP executable schedules recovery and exposes readiness; embedding applications can also supply the service directly to the [delivery driver](docs/worker-delivery.md). The driver depends on the portable `TaskService` interface and does not depend on PostgreSQL or a particular transport.
+
+Operational metrics are available through the optional OTLP adapter; see [metrics configuration and counting semantics](docs/metrics.md).
