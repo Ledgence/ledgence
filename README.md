@@ -10,6 +10,10 @@ Run `ledgence-orchestrator` for the PostgreSQL-backed HTTP task service, `ledgen
 
 ## Try it
 
+For a complete self-hosted stack with explicit migrations, durable state, dynamic
+program publication, workflows and callbacks, use the [local Compose deployment](docs/local-deployment.md).
+The [candidate packaging procedure](docs/releasing.md) produces reviewable native artifacts without publishing them.
+
 Requirements: Rust through rustup, CPython 3.11 or newer, and Linux or macOS on x86_64 or aarch64. The repository pins its Rust toolchain. A program declares the exact Python major/minor and OS/architecture it targets; the worker supplies that interpreter. The examples below use `python3.12`.
 
 From the repository root:

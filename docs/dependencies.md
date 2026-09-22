@@ -49,7 +49,7 @@ A clean advisory result means no matching published advisory was found in the da
 
 ## Python and release contents
 
-The Python runner uses the standard library and executes against a host-provided CPython interpreter (3.11 or newer, with 3.11–3.14 configured in CI). Ledgence does not bundle or embed that interpreter in this foundation. Python's own license and incorporated components remain separate from Ledgence's MIT license. Bundling Python in a future distribution requires reviewing and carrying the notices for the particular interpreter build. See [Python 3.12 licensing](https://docs.python.org/3.12/license.html).
+The Python runner uses the standard library and executes against a host-provided CPython interpreter (3.11 or newer, with 3.11–3.14 configured in CI). Native candidate bundles do not bundle or embed that interpreter. The locally built Compose image supplies an explicitly pinned CPython image as an external runtime; it retains that image's interpreter and operating-system notices. Python's own license and incorporated components remain separate from Ledgence's MIT license. Bundling Python in a future distribution requires reviewing and carrying the notices for the particular interpreter build. See [Python 3.12 licensing](https://docs.python.org/3.12/license.html).
 
 Uploaded application packages have their own dependency and licensing responsibilities. Executing a program does not relicense it under MIT, and a successful Rust dependency check does not audit the program's dependencies.
 
@@ -180,3 +180,9 @@ changes. Rustls offers Apache-2.0, ISC, or MIT; Ledgence retains its MIT alterna
 in [the versioned notice](../legal/third-party/rustls-0.23.45-LICENSE-MIT).
 The published archive checksum is recorded in `Cargo.lock`.
 [Upstream release](https://github.com/rustls/rustls/releases/tag/v/0.23.45).
+
+## Candidate notice collection and local image runtime
+
+`tools/release/notices.py` inventories the target-selected normal/build graph of the three executable packages with all features, retains exact legal files (including nested native-code license directories), records crate archive checksums from Cargo.lock, and includes the pinned Rust distribution's COPYRIGHT-library.html, COPYRIGHT.html and license directory. Missing legal material fails collection; version-specific files already reviewed under legal/third-party can fill omissions in published archives. Development-only and other-target dependencies are not described as linked into the candidate. The full cargo-deny gate still checks the broader selected workspace graph.
+
+The local Dockerfile pins the official Rust 1.98.1/bookworm and CPython 3.14/bookworm image indexes. CPython's full supplied license and Debian's package inventory are retained alongside their original base-image notices. Debian utilities and system libraries can have copyleft or source-availability distribution obligations separate from Ledgence's library dependency policy. This is a locally built operator runtime, not an approval to redistribute an OCI image without satisfying those obligations. No image is published by the candidate tooling. Native bundles continue to use externally supplied CPython/system libraries. See [local deployment](local-deployment.md) and [candidate contents](releasing.md).

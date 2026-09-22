@@ -247,6 +247,7 @@ def main():
     parser.add_argument("--wheelhouse", type=Path, help="reuse downloaded reviewed artifacts")
     parser.add_argument("--offline", action="store_true", help="require wheelhouse artifacts already present")
     parser.add_argument("--venv-dir", type=Path, help="retain a NEW installed environment for end-to-end acceptance")
+    parser.add_argument("--dist-dir", type=Path, help="retain tested wheel and sdist in a NEW directory")
     parser.add_argument("--evidence", type=Path, help="write a machine-readable local execution record")
     args = parser.parse_args()
     inventory = deps.check_inventory(json.loads((deps.LEGAL / "inventory.json").read_text()))
@@ -255,6 +256,9 @@ def main():
     if args.venv_dir:
         args.venv_dir = args.venv_dir.resolve()
         deps.require(not args.venv_dir.exists(), "--venv-dir must not already exist")
+    if args.dist_dir:
+        args.dist_dir = args.dist_dir.resolve()
+        deps.require(not args.dist_dir.exists(), "--dist-dir must not already exist")
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
     env.pop("PYTHONHOME", None)
@@ -317,6 +321,10 @@ def main():
                                "installed base graph and tests outside checkout", "installed optional OTel graph and tests outside checkout"],
                     "retained_python": str(runtime_python) if args.venv_dir else None,
                     "hosted_ci": "not claimed by this local run"}
+        if args.dist_dir:
+            args.dist_dir.mkdir(parents=True)
+            shutil.copyfile(wheel, args.dist_dir / wheel.name)
+            shutil.copyfile(sdist, args.dist_dir / sdist.name)
         if args.evidence:
             args.evidence.parent.mkdir(parents=True, exist_ok=True)
             args.evidence.write_text(json.dumps(evidence, indent=2) + "\n")

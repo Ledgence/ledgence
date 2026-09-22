@@ -1,0 +1,1 @@
+{"destinations":[{"scope":{"tenant_id":"acme","namespace":"demo"},"destination":"demo-callback","url":"http://receiver:8091/completion"}]}
