@@ -86,7 +86,7 @@ If every submitter is occupied, an arrival is counted as `dropped_capacity`. If 
 | Census interval | 1–60 seconds, default 5 |
 | Submission response | At most 1 MiB |
 
-The input estimate is an admission cap for this fixture, not measured database/WAL usage. The database, history, logs, and evidence still grow with total tasks. They are bounded by the experiment's caps, not by a steady-state retention policy. Request timeouts are socket waits; the owned HTTP server also retains its normal exchange deadline. SQL observations have explicit connection, statement, lock, and process timeouts. No telemetry exports are enabled, and the owned services log at `warn` to avoid tracing/export volume distorting this baseline.
+The input estimate is an admission cap for this fixture, not measured database/WAL usage. The database, history, logs, and evidence still grow with total tasks. They are bounded by the experiment's caps, not by a steady-state retention policy. Request timeouts are socket waits; the owned HTTP server also retains its normal exchange deadline. SQL observations have explicit connection, statement, lock, and process timeouts. Inherited `OTEL_` configuration is removed and the owned services log at `warn`. Exports are disabled by default; `--metrics-endpoint http://127.0.0.1:4318/v1/metrics` explicitly enables only OTLP metrics for paired measurements. Run a collector separately and verify its received points; this harness measures execution and does not itself attest to successful telemetry delivery.
 
 ## What is measured
 
@@ -169,3 +169,62 @@ load, and warm-process replacement affect these results. These bounded paired
 measurements do not establish sustained throughput, tail latency, or billion-
 execution scale. Use the arrival-based task harness and representative long runs
 for separate capacity qualification.
+
+
+## Mixed task and workflow soak
+
+`tools/check-mvp-soak.py` exercises an installed Python client against fresh owned
+services. Six repeating cases cover ordinary tasks, a retryable first-attempt
+process loss, acknowledged local async steps, distributed tasks plus an owned
+subworkflow, durable timers, and external events. Every seventh root execution
+gets a completion subscription, so both tasks and each workflow case receive
+callbacks. Repeated identical submissions must keep their execution identity.
+Every returned value and callback is verified against its accepted identity, and
+the final database census must exactly match all expected tasks, attempts,
+workflows, local results, and subscriptions. Business exceptions remain terminal;
+the retry fixture deliberately terminates its process to exercise process recovery.
+
+Use release binaries from the same reviewed source and the Python interpreter
+in an environment containing the installed client wheel:
+
+```sh
+/path/to/client-venv/bin/python tools/check-mvp-soak.py --self-test
+/path/to/client-venv/bin/python tools/check-mvp-soak.py \
+  --disposable-postgres --psql /path/to/psql \
+  --binaries /absolute/path/to/release-binaries \
+  --duration 900 --clients 16 --workers 2 --concurrency 8 \
+  --evidence /absolute/path/to/new-soak-evidence
+```
+
+`LEDGENCE_POSTGRES_URL` and `LEDGENCE_PYTHON` have the same meaning as above.
+The database must be disposable. The harness creates and drops its own uniquely
+named database, owns its HTTP receiver/processes, and preserves evidence on
+failure. Supply `--delivery-config` and `--disposable-queue` for a separate fresh
+ElasticMQ queue using the same rules as the arrival-rate experiment.
+`--metrics-endpoint` has the same explicit opt-in behavior.
+
+The default is a 15-minute **closed-loop** stability experiment: 16 client lanes
+submit new work only after their previous result/callback finishes. It therefore
+does not measure sustained offered-rate capacity. Two workers each have their
+own single `N=8` concurrency setting. The harness samples process-family RSS and
+subprocess counts, requires every workload case to execute, verifies graceful
+shutdown, and fails if a worker exceeds N observed subprocesses. Default resource
+gates are 2 GiB combined service RSS and 128 MiB growth between mature early/late
+median samples. These are configurable test bounds, not production memory SLOs.
+Sampling can miss brief peaks; it complements the runtime's ownership tests.
+
+The duration is capped at one hour, clients at 64, workers at four, N at 32 per
+worker, input padding at 16 KiB, and root operations at 100,000. Hitting the
+operation cap ends arrivals early and produces `passed_bounded_mixed_run` rather than
+`passed_bounded_soak`. At least six mature resource samples are required for
+disjoint memory-growth observation windows; an undersized run fails that gate. Each operation
+has a separate bounded completion deadline. Database/history and evidence grow
+with completed work; PostgreSQL/broker memory and OS page cache are outside the
+process RSS observation. Retention, restart/fault recovery, and exporter outages
+have separate correctness gates. Compare fresh release builds on the same
+hardware and retain unsuccessful runs alongside successful evidence.
+
+The separate arrival-rate and soak models follow the distinction documented in
+[Grafana's arrival-rate executor](https://grafana.com/docs/k6/latest/using-k6/scenarios/executors/constant-arrival-rate/)
+and [load-test guidance](https://grafana.com/docs/k6/latest/testing-guides/api-load-testing/).
+Ledgence's harness uses Python's standard library; k6 is a research reference.
