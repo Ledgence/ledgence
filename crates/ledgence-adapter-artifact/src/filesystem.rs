@@ -67,8 +67,22 @@ mod tests {
             .sync_all()
             .expect("sync writable content directory");
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
-        let synced = File::open(&directory).unwrap().sync_all();
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
-        synced.expect("sync read-only content directory");
+        File::open(&directory)
+            .unwrap()
+            .sync_all()
+            .expect("sync read-only content directory");
+        let published = root.path().join("published");
+        let renamed = fs::rename(&directory, &published);
+        let cleanup = if renamed.is_ok() {
+            &published
+        } else {
+            &directory
+        };
+        fs::set_permissions(cleanup, fs::Permissions::from_mode(0o700)).unwrap();
+        renamed.expect("rename read-only content directory");
+        File::open(root.path())
+            .unwrap()
+            .sync_all()
+            .expect("sync publication parent");
     }
 }
