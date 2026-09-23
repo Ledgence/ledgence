@@ -7,6 +7,7 @@ import asyncio
 from .errors import ProtocolError, RequestTimeout, ServiceError, Unavailable
 
 from .models import TraceContext
+from ._version import __version__
 
 _api = None
 
@@ -69,7 +70,7 @@ def _exchange(method: str, operation: str, *, deadline: float | None = None):
     span = None
     try:
         trace, propagator = _api
-        tracer = trace.get_tracer("ledgence.client", "0.1.0")
+        tracer = trace.get_tracer("ledgence.client", __version__)
         manager = tracer.start_as_current_span(
             f"ledgence.http.{operation}", kind=trace.SpanKind.CLIENT,
             attributes={"http.request.method": method, "ledgence.operation": operation},

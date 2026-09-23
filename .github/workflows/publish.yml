@@ -1,0 +1,247 @@
+name: Registry packages
+
+on:
+  # Package inputs and their quality gates run qualification without uploading.
+  # Registry writes require an explicit tagged workflow_dispatch.
+  push:
+    paths:
+      - '.github/workflows/publish.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/docs.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'LICENSE'
+      - 'crates/ledgence-worker-api/**'
+      - 'crates/ledgence-orchestration-api/**'
+      - 'sdk/python-client/**'
+      - 'sdk/python/**'
+      - 'tests/fixtures/json-values.json'
+      - 'tools/check-python-client*.py'
+      - 'tools/release/registry.py'
+      - 'tools/release/test_registry.py'
+      - 'tools/check-rust-packages.py'
+      - 'tools/test_rust_packages.py'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish qualified packages (requires the matching annotated tag on main)
+        type: boolean
+        default: false
+      registry:
+        description: Registry to publish after all gates pass
+        type: choice
+        options: [both, pypi, crates]
+        default: both
+      crates_auth:
+        description: crates.io authentication (bootstrap only for the first publication)
+        type: choice
+        options: [trusted, bootstrap]
+        default: trusted
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: Validate package release source
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Require consistent versions and qualified release identity
+        id: source
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          args=()
+          if [[ "$PUBLISH" == true ]]; then args+=(--publish); fi
+          version=$(python tools/release/registry.py source "${args[@]}")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  quality:
+    needs: source
+    uses: ./.github/workflows/ci.yml
+
+  documentation:
+    needs: source
+    uses: ./.github/workflows/docs.yml
+
+  python-package:
+    name: Qualify Python registry artifacts
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Build and test the distributions outside checkout
+        run: |
+          python tools/check-python-client-dependencies.py
+          python tools/check-python-client.py \
+            --dist-dir "$RUNNER_TEMP/python-package/dist" \
+            --evidence "$RUNNER_TEMP/python-package/evidence.json"
+      - name: Retain exact tested Python distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: python-registry-package
+          path: ${{ runner.temp }}/python-package/
+          if-no-files-found: error
+          retention-days: 30
+
+  rust-packages:
+    name: Qualify Rust registry artifacts
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - run: rustup show active-toolchain
+      - name: Verify extracted crate builds and retained licenses
+        run: python tools/check-rust-packages.py --output "$RUNNER_TEMP/rust-packages"
+      - name: Retain qualified Rust archives
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-registry-packages
+          path: |
+            ${{ runner.temp }}/rust-packages/dist/
+            ${{ runner.temp }}/rust-packages/evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+  pypi:
+    name: Publish and verify PyPI installation
+    needs: [source, quality, documentation, python-package, rust-packages]
+    if: inputs.publish && (inputs.registry == 'both' || inputs.registry == 'pypi')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ledgence-client/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - run: python tools/release/registry.py source --publish
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: python-registry-package
+          path: ${{ runner.temp }}/python-package
+      - name: Reconcile any files from an interrupted publication
+        id: pending
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          python tools/release/registry.py prepare --kind pypi --version "$VERSION" \
+            --dist "$RUNNER_TEMP/python-package/dist" \
+            --output "$GITHUB_WORKSPACE/registry-upload" --github-output "$GITHUB_OUTPUT"
+      - name: Publish the remaining qualified wheel and sdist
+        if: steps.pending.outputs.upload == 'true'
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: registry-upload/
+          attestations: true
+          skip-existing: false
+      - name: Verify registry bytes and a fresh installation
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          python tools/release/registry.py verify --kind pypi --version "$VERSION" \
+            --dist "$RUNNER_TEMP/python-package/dist"
+          python tools/release/registry.py install --kind pypi --version "$VERSION"
+
+  crates:
+    name: Publish and verify crates.io installation
+    needs: [source, quality, documentation, python-package, rust-packages]
+    if: inputs.publish && (inputs.registry == 'both' || inputs.registry == 'crates')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/ledgence-worker-api
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - run: rustup show active-toolchain
+      - run: python tools/release/registry.py source --publish
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-registry-packages
+          path: ${{ runner.temp }}/qualified-rust
+      - name: Reverify exactly the qualified crate bytes before authentication
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          python tools/check-rust-packages.py --output "$RUNNER_TEMP/publish-rust"
+          python tools/release/registry.py compare --kind crates --version "$VERSION" \
+            --first "$RUNNER_TEMP/qualified-rust/dist" --second "$RUNNER_TEMP/publish-rust/dist"
+      - name: Reconcile any crates from an interrupted publication
+        id: pending
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          python tools/release/registry.py prepare --kind crates --version "$VERSION" \
+            --dist "$RUNNER_TEMP/publish-rust/dist" \
+            --output "$RUNNER_TEMP/missing-rust" --github-output "$GITHUB_OUTPUT"
+      - name: Obtain a short-lived crates.io token
+        if: inputs.crates_auth == 'trusted' && steps.pending.outputs.upload == 'true'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
+      - name: Publish remaining crates through Cargo with extracted-package verification
+        if: steps.pending.outputs.upload == 'true'
+        env:
+          PACKAGES: ${{ steps.pending.outputs.packages }}
+          CARGO_REGISTRY_TOKEN: ${{ inputs.crates_auth == 'bootstrap' && secrets.CARGO_REGISTRY_BOOTSTRAP_TOKEN || steps.auth.outputs.token }}
+        run: |
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo "Missing crates.io credential; configure trusted publishing or the one-time bootstrap secret." >&2
+            exit 1
+          fi
+          read -r -a packages <<< "$PACKAGES"
+          args=()
+          for package in "${packages[@]}"; do args+=(-p "$package"); done
+          cargo publish --locked --all-features "${args[@]}" \
+            --target-dir "$RUNNER_TEMP/publish-rust/target"
+      - name: Verify registry bytes and a fresh Cargo consumer
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          python tools/release/registry.py verify --kind crates --version "$VERSION" \
+            --dist "$RUNNER_TEMP/publish-rust/dist"
+          python tools/release/registry.py install --kind crates --version "$VERSION" \
+            --dist "$RUNNER_TEMP/publish-rust/dist"

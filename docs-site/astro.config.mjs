@@ -33,6 +33,7 @@ export default defineConfig({
       { label: 'Reference', items: [
         { label: 'Workflow context', slug: 'reference/workflow-context' },
         { label: 'Python client', slug: 'reference/python-client' },
+        { label: 'Registry packages', link: 'https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md' },
       ] },
       { label: 'Concepts', items: [
         { label: 'Execution model', slug: 'concepts/execution-model' },

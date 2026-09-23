@@ -83,7 +83,7 @@ inside the worker container. Set `client_wheel` to the actual wheel from your
 extracted candidate's `python-client/` directory. No registry publication is assumed.
 
 ```sh
-client_wheel=/absolute/path/to/candidate/python-client/ledgence_client-0.1.0-py3-none-any.whl
+client_wheel=/absolute/path/to/candidate/python-client/ledgence_client-0.1.1-py3-none-any.whl
 python3 -m venv /tmp/ledgence-compose-client
 /tmp/ledgence-compose-client/bin/python -m pip install "$client_wheel"
 /tmp/ledgence-compose-client/bin/python -I -B examples/local-compose-client.py --server http://127.0.0.1:8080

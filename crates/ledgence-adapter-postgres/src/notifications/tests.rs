@@ -96,6 +96,69 @@ async fn until(mut ready: impl FnMut() -> bool) {
     .expect("notification state did not converge");
 }
 
+// Closing the client pool completes local ownership cleanup. PostgreSQL's
+// Terminate message has no acknowledgement, so its backend can remain visible
+// briefly after the client socket has closed. Observe that independent boundary
+// without relaxing the manager's shutdown deadline or accepting a persistent leak.
+async fn wait_for_notification_backends_to_close(
+    pool: &sqlx::PgPool,
+    timeout: Duration,
+) -> std::result::Result<(), String> {
+    let started = Instant::now();
+    let mut backends = Vec::new();
+    let result = tokio::time::timeout(timeout, async {
+        loop {
+            backends = sqlx::query_as::<_, (i32, Option<String>, Option<String>, Option<String>)>(
+                "SELECT pid, state, wait_event_type, wait_event FROM pg_stat_activity \
+                 WHERE datname=current_database() AND application_name='ledgence-wake' \
+                 ORDER BY pid",
+            )
+            .fetch_all(pool)
+            .await
+            .map_err(|error| format!("could not inspect notification backends: {error}"))?;
+            if backends.is_empty() {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    result.unwrap_or_else(|_| {
+        Err(format!(
+            "notification backends did not close within {timeout:?} (elapsed {:?}); \
+             last (pid, state, wait_event_type, wait_event): {backends:?}",
+            started.elapsed(),
+        ))
+    })
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn backend_shutdown_observation_rejects_a_connection_that_remains_open() {
+    use sqlx::{ConnectOptions, Connection};
+    let db = crate::tests::TestDb::new().await;
+    let options: sqlx::postgres::PgConnectOptions = db.url.parse().unwrap();
+    let mut held = options
+        .application_name("ledgence-wake")
+        .connect()
+        .await
+        .unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut held)
+        .await
+        .unwrap();
+    let error = wait_for_notification_backends_to_close(&db.store.pool, Duration::from_secs(2))
+        .await
+        .expect_err("an open notification backend must not pass shutdown observation");
+    assert!(error.contains(&pid.to_string()), "{error}");
+    assert!(error.contains("idle"), "{error}");
+    held.close().await.unwrap();
+    wait_for_notification_backends_to_close(&db.store.pool, Duration::from_secs(8))
+        .await
+        .unwrap();
+    db.finish().await;
+}
+
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn cross_replica_hints_reconnect_and_close_without_using_the_query_pool() {
@@ -225,8 +288,9 @@ async fn cross_replica_hints_reconnect_and_close_without_using_the_query_pool() 
     let (left, right) = tokio::join!(first.shutdown(), second.shutdown());
     assert!(!left.listener_connected && !right.listener_connected);
     assert!(started.elapsed() < Duration::from_secs(4));
-    let connections:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name='ledgence-wake'").fetch_one(&db.store.pool).await.unwrap();
-    assert_eq!(connections, 0);
+    wait_for_notification_backends_to_close(&db.store.pool, Duration::from_secs(8))
+        .await
+        .unwrap();
     other.close().await;
     db.finish().await;
 }
