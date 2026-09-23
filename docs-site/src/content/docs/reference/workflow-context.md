@@ -133,4 +133,4 @@ Bounds use compact encoded JSON, not Python object memory size. The server's JSO
 
 Application JSON supports at most 64 nested containers, finite numbers, and string object keys. Use application-controlled storage references for payloads larger than the inline limits.
 
-**Source:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/develop/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/develop/docs/subworkflows.md)
+**Source:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.1.1/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.1.1/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.1.1/docs/subworkflows.md)

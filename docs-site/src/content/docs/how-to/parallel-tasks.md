@@ -72,7 +72,7 @@ For example, submit the controller with:
 }
 ```
 
-After packaging and publication, submit it through `client.workflows.submit(...)` using your controller's program ID and version. See the [Python client reference](/reference/python-client) for the submission fields and the [package contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md) for publication.
+After packaging and publication, submit it through `client.workflows.submit(...)` using your controller's program ID and version. See the [Python client reference](/reference/python-client) for the submission fields and the [package contract](https://github.com/Ledgence/ledgence/blob/v0.1.1/docs/program-packages.md) for publication.
 
 ## Handle every terminal outcome
 
@@ -88,4 +88,4 @@ A checkpoint can stage at most 64 combined task/subworkflow commands and wait fo
 
 Child keys belong to the whole workflow. Reuse a key only for the same child binding; use an iteration suffix such as `summary:round-2:0` when a loop should create new work.
 
-**Related:** [Workflow context reference](/reference/workflow-context) · [Checkpoint contracts](https://github.com/Ledgence/ledgence/blob/develop/docs/workflows.md)
+**Related:** [Workflow context reference](/reference/workflow-context) · [Checkpoint contracts](https://github.com/Ledgence/ledgence/blob/v0.1.1/docs/workflows.md)

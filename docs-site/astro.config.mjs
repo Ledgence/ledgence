@@ -27,13 +27,14 @@ export default defineConfig({
         { label: 'Your first workflow', slug: 'tutorials/first-workflow' },
       ] },
       { label: 'How-to guides', items: [
+        { label: 'Install the native release', slug: 'how-to/install-native' },
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
       ] },
       { label: 'Reference', items: [
         { label: 'Workflow context', slug: 'reference/workflow-context' },
         { label: 'Python client', slug: 'reference/python-client' },
-        { label: 'Registry packages', link: 'https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md' },
+        { label: 'Releases & packages', slug: 'reference/releases' },
       ] },
       { label: 'Concepts', items: [
         { label: 'Execution model', slug: 'concepts/execution-model' },

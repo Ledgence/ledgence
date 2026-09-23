@@ -76,3 +76,13 @@ h2,h3 { letter-spacing:-.025em; }
 .ld-doc-card span { margin:0; }
 .ld-doc-card-title { display:flex; justify-content:space-between; gap:12px; color:var(--sl-color-white); font-size:1rem; font-weight:500; }
 @media(max-width:32rem) { .ld-doc-grid { grid-template-columns:1fr; } }
+
+/* Release context stays compact; the guided tutorial remains the primary action. */
+.ld-release-link { display:inline-flex; align-items:center; gap:12px; flex-wrap:wrap; color:var(--sl-color-gray-2); text-decoration:none; font-size:.8125rem; min-height:44px; }
+.ld-release-link > span:first-child { color:var(--sl-color-white); background:var(--sl-color-gray-6); padding:4px 9px; border-radius:6px; font-size:.75rem; font-weight:500; }
+.ld-release-link:hover { color:var(--sl-color-white); }
+.ld-start-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 22px; }
+.ld-start-actions > * { margin:0; }
+.ld-install-link { display:inline-flex; align-items:center; gap:10px; min-height:44px; font-size:.8125rem; color:var(--sl-color-gray-2); text-decoration:none; }
+.ld-install-link:hover { color:var(--sl-color-white); text-decoration:underline; }
+@media(max-width:30rem) { .ld-install-link { justify-content:center; width:100%; } }

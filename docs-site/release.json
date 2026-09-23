@@ -1,0 +1,12 @@
+{
+  "series": "0.1",
+  "sourceRef": "v0.1.1",
+  "sourceRevision": "57085da963e8c5bfa0b2fe6ad70e7e3d23cf73be",
+  "nativeVersion": "0.1.0",
+  "clientVersion": "0.1.1",
+  "rustApiVersion": "0.1.1",
+  "nativeTargets": [
+    "aarch64-apple-darwin"
+  ],
+  "verifiedOn": "2026-09-23"
+}

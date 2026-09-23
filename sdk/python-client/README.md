@@ -8,11 +8,18 @@ arm64. Public APIs may evolve before version 1.0.
 
 ## Installation
 
-Install a published version from PyPI:
+Install the published **0.1.1** client from [PyPI](https://pypi.org/project/ledgence-client/0.1.1/)
+inside a virtual environment:
 
 ```sh
-python -m pip install ledgence-client
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install "ledgence-client==0.1.1"
 ```
+
+Use Python 3.11 or newer. The native Ledgence bundle and registry packages have
+separate release versions; see the [release reference](https://docs.ledgence.com/reference/releases).
+Pin your client version and review release notes before upgrading.
 
 For a locally qualified build, install its wheel:
 
@@ -21,10 +28,14 @@ python -m pip install /path/to/ledgence_client-0.1.1-py3-none-any.whl
 ```
 
 The client connects to an existing Ledgence service. Follow the
-[local deployment guide](https://github.com/Ledgence/ledgence/blob/main/docs/local-deployment.md)
-to start a service and publish a program before running the example.
+[local tutorial](https://docs.ledgence.com/tutorials/run-locally) to start one and
+publish the example programs. The [client reference](https://docs.ledgence.com/reference/python-client)
+provides a shorter guide to everyday operations; the contracts below cover their
+behavior in detail.
 
 ## Submit a task
+
+After running the local tutorial's program publication step:
 
 ```python
 import asyncio
@@ -32,10 +43,10 @@ from ledgence.client import AsyncClient
 
 async def main():
     async with AsyncClient(
-        "http://localhost:8080", tenant="acme", namespace="billing"
+        "http://127.0.0.1:8080", tenant="acme", namespace="demo"
     ) as client:
         task = await client.tasks.submit(
-            program="invoice-issuer", version="1.0.0", queue="billing",
+            program="invoice-issuer", version="1.0.0", queue="demo",
             data={"invoice_id": "INV-1042"},
             idempotency_key="issue:INV-1042",
             correlation_key="INV-1042",
