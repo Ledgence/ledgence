@@ -82,8 +82,8 @@ These accounts serve release maintenance. Self-hosted users need no vendor accou
 ## Controlled publication
 
 The manual **Registry packages** workflow, `.github/workflows/publish.yml`,
-defaults to qualification only. Changes to its workflow or registry tooling also
-trigger qualification on push. It runs the complete CI and documentation
+defaults to qualification only. Changes to package sources, manifests, helpers
+or publishing gates also trigger qualification on push. It runs the complete CI and documentation
 workflows plus both package gates. Publisher jobs wait for all those jobs to
 succeed. Actions are pinned to commit revisions.
 

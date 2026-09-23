@@ -1,11 +1,23 @@
 name: Registry packages
 
 on:
-  # Publishing automation changes run the complete qualification graph without
-  # uploading. Registry writes require an explicit tagged workflow_dispatch.
+  # Package inputs and their quality gates run qualification without uploading.
+  # Registry writes require an explicit tagged workflow_dispatch.
   push:
     paths:
       - '.github/workflows/publish.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/docs.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'LICENSE'
+      - 'crates/ledgence-worker-api/**'
+      - 'crates/ledgence-orchestration-api/**'
+      - 'sdk/python-client/**'
+      - 'sdk/python/**'
+      - 'tests/fixtures/json-values.json'
+      - 'tools/check-python-client*.py'
       - 'tools/release/registry.py'
       - 'tools/release/test_registry.py'
       - 'tools/check-rust-packages.py'
