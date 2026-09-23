@@ -4,14 +4,16 @@ description: Learn to run agents, coordinate workflows, and understand the detai
 tableOfContents: false
 ---
 
-<p class="ld-home-intro">From your first task to a working workflow. Learn by doing, solve a specific problem, or find the exact detail you need.</p>
+<p class="ld-home-intro">Run your first agent, coordinate a workflow, and learn how Ledgence fits your infrastructure.</p>
+
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.1</span> Public releases are here <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
-    <span class="ld-eyebrow">Start on your machine</span>
+    <span class="ld-eyebrow">A working system, on your machine</span>
     <h2>See Ledgence run.</h2>
-    <p>Start a local stack, publish the example agents, and follow their work through to a result. No vendor account required.</p>
-    <a class="ld-start-link" href="/tutorials/run-locally">Run Ledgence locally <span aria-hidden="true">↗</span></a>
+    <p>Start a local stack, run the example agents, and follow their work through to a result. No vendor account required.</p>
+    <div class="ld-start-actions"><a class="ld-start-link" href="/tutorials/run-locally">Run Ledgence locally <span aria-hidden="true">↗</span></a><a class="ld-install-link" href="/how-to/install-native">Install native binaries <span aria-hidden="true">→</span></a></div>
   </div>
   <div class="ld-worker-card" aria-label="Illustration of a worker with six process slots">
     <span>Your worker</span>
@@ -34,4 +36,4 @@ Your **agent** is application code. You publish that code and its prepared depen
 
 Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
 
-<p class="ld-home-status">These docs describe the development branch. Start with the local, trusted-code deployment; public APIs and release compatibility are still evolving.</p>
+<p class="ld-home-status">These guides cover the 0.1 release series. Run code you trust on infrastructure you control. Public APIs may change before 1.0; check the <a href="/reference/releases">release reference</a> when upgrading.</p>

@@ -44,8 +44,8 @@ runtime's concurrency defaults to **one** for the demo's reuse assertion; set
 particular acceptance example at one slot.
 
 The public API is `http://127.0.0.1:8080`. Set `LEDGENCE_HTTP_PORT` before `up` to
-choose another host port. Install `sdk/python-client` in a virtual environment
-(or install its candidate wheel), then use:
+choose another host port. Install the published client in a Python 3.11+ virtual
+environment with `python -m pip install "ledgence-client==0.1.1"`, then use:
 
 ```python
 import asyncio
@@ -76,25 +76,29 @@ explain retry exhaustion, redelivery and production receiver responsibilities.
 
 ## Run the installed Python client example
 
-After starting the stack and publishing its programs, install the candidate SDK
-wheel in a host virtual environment. Use host CPython 3.11–3.14; this interpreter
-runs the client, while programs execute using the separately declared interpreter
-inside the worker container. Set `client_wheel` to the actual wheel from your
-extracted candidate's `python-client/` directory. No registry publication is assumed.
+After starting the stack and publishing its programs, install the published
+**0.1.1** client in a host virtual environment. Use host CPython 3.11–3.14; this
+interpreter runs the client, while programs execute using the separately declared
+interpreter inside the worker container.
 
 ```sh
-client_wheel=/absolute/path/to/candidate/python-client/ledgence_client-0.1.1-py3-none-any.whl
 python3 -m venv /tmp/ledgence-compose-client
-/tmp/ledgence-compose-client/bin/python -m pip install "$client_wheel"
+/tmp/ledgence-compose-client/bin/python -m pip install "ledgence-client==0.1.1"
 /tmp/ledgence-compose-client/bin/python -I -B examples/local-compose-client.py --server http://127.0.0.1:8080
 ```
 
-Run the last command from the source checkout or extracted candidate, both of
-which include the companion. The source checkout supplies the Compose files and
-program publication step. To build an SDK wheel locally with the reviewed package
-gates instead, follow [candidate packaging](releasing.md). Installation resolves
-the wheel's pinned dependencies; an offline installation needs a separately
-prepared reviewed wheelhouse.
+Run the companion from the source checkout after the Compose setup above. The
+[guided tutorial](https://docs.ledgence.com/tutorials/run-locally) pins that checkout
+to the public `v0.1.1` source tag. See the
+[release reference](https://docs.ledgence.com/reference/releases) for available
+native bundles and registry versions; these are released separately.
+
+For local package qualification, install the wheel produced by the
+[package gate](registry-packages.md#qualification) in place of the PyPI command.
+A native bundle also includes a wheel and this companion example; use its actual
+wheel version and keep the source checkout for Compose files and program
+publication. Installation resolves the package's pinned dependencies; offline
+installation needs a separately prepared reviewed wheelhouse.
 
 The companion uses `from ledgence.client import AsyncClient` for every task,
 workflow and completion operation. It runs two invoice tasks and verifies exact

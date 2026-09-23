@@ -13,16 +13,16 @@ For this tutorial, also install CPython 3.11 or newer on your host. The commands
 
 ## 1. Prepare the client
 
-Create a virtual environment outside the checkout and install the client from this source tree:
+Create a virtual environment outside the checkout and install the published Python client matching the tutorial's source version:
 
 ```sh
 python3 --version
 export LEDGENCE_TUTORIAL_DIR="$(mktemp -d)"
 python3 -m venv "$LEDGENCE_TUTORIAL_DIR/client"
-"$LEDGENCE_TUTORIAL_DIR/client/bin/python" -m pip install ./sdk/python-client
+"$LEDGENCE_TUTORIAL_DIR/client/bin/python" -m pip install "ledgence-client==0.1.1"
 ```
 
-The SDK talks to the local API. It does not upload packages or execute the workflow in this client process.
+The SDK talks to the local API. It does not upload packages or execute the workflow in this client process. The example programs use version `1.0.0`; that is their application version, separate from Ledgence 0.1.1.
 
 ## 2. Submit the workflow
 
@@ -130,4 +130,4 @@ The 60-second timeout limits how long the client observes the result. It does no
 
 You have now followed a complete checkpoint: local results, a distributed child, a saved continuation, and a final output. Read [Checkpoints and recovery](/concepts/checkpoints-and-recovery) to see what happens when an activation stops unexpectedly.
 
-**Source:** [Controller and summary example](https://github.com/Ledgence/ledgence/tree/develop/examples/checkpoint-workflow) · [Python client](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md)
+**Source:** [Controller and summary example](https://github.com/Ledgence/ledgence/tree/v0.1.1/examples/checkpoint-workflow) · [Python client](https://github.com/Ledgence/ledgence/blob/v0.1.1/sdk/python-client/README.md)

@@ -4,6 +4,8 @@ Portable Rust contracts for Ledgence task orchestration and worker delivery:
 submission, acquisition and leases, durable settlement, observation, completion
 callbacks, retention, and resumable workflows with child tasks and events.
 
+Available on [crates.io](https://crates.io/crates/ledgence-orchestration-api/0.1.1) at **0.1.1**.
+
 ```toml
 [dependencies]
 ledgence-orchestration-api = "0.1.1"
@@ -23,9 +25,11 @@ or worker implementation; those components remain in the Ledgence source
 repository and release bundles.
 
 Requires Rust 1.98 or newer. The pre-1.0 API may change between minor versions.
-See the [API documentation](https://docs.rs/ledgence-orchestration-api),
+See the [API documentation](https://docs.rs/ledgence-orchestration-api/0.1.1),
 [delivery contract](https://github.com/Ledgence/ledgence/blob/main/docs/delivery-contract.md)
-and [source repository](https://github.com/Ledgence/ledgence).
+and [release reference](https://docs.ledgence.com/reference/releases).
+The [source repository](https://github.com/Ledgence/ledgence) contains the
+implementations and integration examples.
 
 Ledgence-owned code is MIT licensed; the included LICENSE contains the notice.
 This source crate does not bundle third-party dependency sources. Cargo obtains
