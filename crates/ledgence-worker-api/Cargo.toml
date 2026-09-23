@@ -1,0 +1,18 @@
+[package]
+name = "ledgence-worker-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Portable contracts for Ledgence worker adapters"
+
+[dependencies]
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+iri-string = { version = "0.7.14", default-features = false }
+time = { version = "0.3.55", default-features = false, features = ["parsing"] }
+
+[lints]
+workspace = true

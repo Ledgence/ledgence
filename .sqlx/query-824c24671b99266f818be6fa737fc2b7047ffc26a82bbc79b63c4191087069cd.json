@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO worker_sessions(session_id,tenant_id,namespace,queue,concurrency,expires_at_ms) VALUES($1,$2,$3,$4,$5,$6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "824c24671b99266f818be6fa737fc2b7047ffc26a82bbc79b63c4191087069cd"
+}

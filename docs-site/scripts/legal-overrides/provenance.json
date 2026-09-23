@@ -1,0 +1,13 @@
+[
+  {
+    "packages": [
+      "pagefind@1.5.2",
+      "@pagefind/default-ui@1.5.2"
+    ],
+    "license": "MIT",
+    "file": "pagefind-1.5.2-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/Pagefind/pagefind/bf17396721be637cc67c8ed7ead1dc7b8ac43d96/LICENSE",
+    "sha256": "4736929bfded122bd969f0621a0d917484b126d981270d68a63ed42cb55503d5",
+    "reason": "The matching release root license covers the browser UI and search code. The default-ui archive omits it; the CLI archive includes a different wrapper notice, which is retained too."
+  }
+]

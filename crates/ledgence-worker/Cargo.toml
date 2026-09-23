@@ -1,0 +1,42 @@
+[package]
+name = "ledgence-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ledgence worker executable and composition"
+
+[features]
+default = ["otel"]
+otel = ["dep:ledgence-adapter-otel"]
+sqs = ["dep:ledgence-adapter-sqs"]
+
+[dependencies]
+ledgence-adapter-sqs = { workspace = true, optional = true }
+ledgence-adapter-otel = { workspace = true, optional = true }
+ledgence-worker-api.workspace = true
+ledgence-worker-core.workspace = true
+ledgence-adapter-artifact.workspace = true
+ledgence-adapter-subprocess.workspace = true
+ledgence-adapter-http = { workspace = true, features = ["client"] }
+ledgence-orchestration-api.workspace = true
+ledgence-worker-delivery.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+sha2.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["fs"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "=0.31.3", features = ["signal", "process"] }
+
+[lints]
+workspace = true

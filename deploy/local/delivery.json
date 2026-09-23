@@ -1,0 +1,18 @@
+{
+  "route": {
+    "scope": {
+      "tenant_id": "acme",
+      "namespace": "demo"
+    },
+    "queue": "demo",
+    "destination": "demo-sqs"
+  },
+  "sqs": {
+    "region": "us-east-1",
+    "queue_url": "http://elasticmq:9324/000000000000/ledgence",
+    "endpoint_url": "http://elasticmq:9324",
+    "local_credentials": false,
+    "operation_timeout_ms": 5000,
+    "visibility_timeout_seconds": 60
+  }
+}

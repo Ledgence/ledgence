@@ -1,0 +1,31 @@
+[package]
+name = "ledgence-adapter-postgres"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ledgence-orchestration-api.workspace = true
+ledgence-orchestration-core.workspace = true
+ledgence-worker-api.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+axum.workspace = true
+ledgence-adapter-http = { workspace = true, features = ["client", "server"] }
+ledgence-adapter-artifact.workspace = true
+ledgence-adapter-subprocess.workspace = true
+ledgence-orchestration-service.workspace = true
+ledgence-worker-core.workspace = true
+ledgence-worker-delivery.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

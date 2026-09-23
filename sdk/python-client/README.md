@@ -1,0 +1,406 @@
+# Ledgence Python client
+
+An MIT-licensed, asynchronous client for submitting and observing existing
+Ledgence programs. Python 3.11–3.14 is the configured test matrix. The package is
+`ledgence-client`; its public import is `ledgence.client`. This is an initial
+version without a stable-release compatibility promise or a published-registry
+claim. Install the locally built wheel; building and testing instructions follow.
+
+```python
+import asyncio
+from ledgence.client import AsyncClient
+
+async def main():
+    async with AsyncClient(
+        "http://localhost:8080", tenant="acme", namespace="billing"
+    ) as client:
+        task = await client.tasks.submit(
+            program="invoice-issuer", version="1.0.0", queue="billing",
+            data={"invoice_id": "INV-1042"},
+            idempotency_key="issue:INV-1042",
+            correlation_key="INV-1042",
+        )
+        print(task.id)
+        output = await task.result(timeout=60)
+        print(output)
+
+asyncio.run(main())
+```
+
+The caller owns its event loop. Keep one client open across calls and use it on
+that loop. Programs receive the complete CloudEvent and execute in the Rust worker.
+Protocol v3 programs can use synchronous or asynchronous Python handlers. The client neither uploads
+packages nor imports handlers. It is separate from the dependency-free
+`ledgence.worker` runtime helper and does not package that helper or CPython.
+Both use the native `ledgence` namespace: neither distribution owns a root
+`ledgence/__init__.py`, and the client keeps its typing marker in `ledgence/client/`.
+Programs use `from ledgence.worker.workflow import workflow_context`; the old
+`ledgence_worker` imports must be updated before using this pre-MVP revision.
+
+## Task references and observations
+
+Save the task ID, tenant, namespace and server location to reconnect. Constructing
+`client.tasks.handle(task_id)` makes no network call. Handles retain their scoped
+client; use a new client's handle after that client's lifetime ends.
+
+| Operation | Result |
+| --- | --- |
+| `await task.status()` | Compact `TaskStatus` with scheduling and attempt metadata |
+| `await task.outcome()` | `TaskResult`; `.outcome` is `None` exactly while queued/active |
+| `await task.wait(timeout=60)` | Full terminal `TaskResult`, including failures/cancellation as values |
+| `await task.result(timeout=60)` | User JSON output, or `TaskFailed` / `TaskCancelled` |
+| `await task.cancel()` | Actual acknowledged `TaskState`; it can still be `active` |
+
+States and outcome kinds compare naturally to strings. Successful JSON `null`
+returns Python `None`; it is distinct from a pending `TaskResult.outcome`.
+Failures retain structured application, execution or lost-attempt details. They
+never instantiate arbitrary remote exception classes. `TaskFailed.result` and
+`TaskCancelled.result` retain the full observation.
+
+Logical success does not imply exactly-once external effects or confirmed
+physical cleanup. Check `result.outcome.quiescence` when cleanup evidence matters;
+`result()` returns a succeeded task's output even when quiescence is unconfirmed.
+Cancellation outcomes have no deciding attempt or output. The status's
+`latest_attempt_id` is only a diagnostic reference to earlier work.
+
+## Workflow references and observations
+
+A workflow starts a published controller program that returns explicit checkpoint
+decisions. Use the same submission arguments with `client.workflows`:
+
+```python
+workflow = await client.workflows.submit(
+    program="checkpoint-workflow", version="1.0.0", queue="billing",
+    data={"invoice_id": "INV-1042"}, idempotency_key="workflow:INV-1042",
+    correlation_key="INV-1042",
+)
+print(workflow.id)
+output = await workflow.result(timeout=60)
+```
+
+Save the workflow ID and reconnect with `client.workflows.handle(workflow_id)`.
+`status()` returns `WorkflowStatus`; `outcome()` returns `WorkflowResult` with
+`.outcome=None` while work is pending. `wait()` returns the terminal result;
+`result()` returns successful JSON or raises `WorkflowFailed` / `WorkflowCancelled`.
+`cancel()` returns the acknowledged `WorkflowStatus`, which can be `cancelling`
+while active work drains. Failure and cancellation remain nonterminal in the
+`failing` and `cancelling` states.
+
+Each owned subworkflow has its own workflow ID. Reconnect to that ID with the same
+`client.workflows.handle(...)` API to inspect its status/result, send an event, or
+cancel it independently. `WorkflowStatus.parent_workflow_id` is null for roots;
+`root_workflow_id` is the root's own ID for a root and the ancestor root ID for a
+nested workflow. These fields are immutable across observations. A terminal child
+controller task does not imply that its workflow is complete.
+
+The public `submit()` endpoint starts root workflows. Controllers create owned
+children using the worker helper's `ctx.workflow(...)`. Parent cancellation and
+failure drain the owned tree before reaching a terminal status. See
+[`docs/subworkflows.md`](../../docs/subworkflows.md) for composition and result
+semantics.
+
+`WorkflowWaitTimeout` is also a `WaitTimeout`. It retains `.workflow`, `.last_status`
+and `.last_error`; observation timeout never cancels or resubmits the workflow.
+Observe the saved handle again to continue waiting. For durable external notification
+without keeping the client running, register a completion subscription below.
+
+For an uncertain submission, `SubmissionUncertain.submission` retains a frozen
+`WorkflowSubmission` from `client.workflows.prepare(...)`. Resend that command
+explicitly to the workflow endpoint with the same idempotency key. Task and workflow
+commands are distinct types to prevent accidentally replaying one as the other.
+`WorkflowCancellationUncertain` similarly retains the workflow for reconciliation.
+
+Controller authoring and durability semantics are described in
+[`docs/workflows.md`](../../docs/workflows.md).
+
+## Durable completion subscriptions
+
+Register notification delivery to an operator-configured destination alias:
+
+```python
+from ledgence.client import CompletionSubscriptionUncertain
+
+command = task.prepare_subscribe(
+    destination="billing-results", idempotency_key="invoice-completion",
+)
+try:
+    subscription = await task.subscribe(command)
+except CompletionSubscriptionUncertain as uncertain:
+    # Persist this command and reconcile under your application's retry policy.
+    saved_command = uncertain.command.to_dict()
+    raise
+
+print(subscription.id)
+print((await subscription.status()).state)
+```
+
+`await task.subscribe(destination="billing-results", idempotency_key="invoice-completion")`
+is the convenience form; `workflow.prepare_subscribe()` and `workflow.subscribe()`
+use the same contract. The workflow form observes the complete workflow, including
+owned-child draining, rather than a controller activation. `client.completions.prepare()`
+accepts an explicit `CompletionTarget("task", task_id)` or
+`CompletionTarget("workflow", workflow_id)`. `client.completions.subscribe(command)`
+reconciles either prepared command.
+
+Registration is one HTTP operation, not a background listener in Python. After its
+durable acceptance the caller can disconnect. Registration also works after the
+execution finishes. The guarantee begins when registration commits: submitting
+work and registering its subscription are separate operations. Save the task or
+workflow identity and retry registration if the client stops between these calls.
+The idempotency key is scoped to the execution; changing its destination conflicts.
+
+Save the subscription ID and reconnect with
+`client.completions.handle(subscription_id)`. `status()` returns a bounded
+`CompletionSubscription` with its immutable command, delivery state, generation,
+attempt counters, timestamps, last failure, and nullable completion CloudEvent.
+States are `waiting`, `pending`, `delivering`, `retrying`, `delivered`, and `exhausted`.
+`waiting` means the execution is still nonterminal; `delivered` confirms receiver
+acceptance, not completion of business effects at the receiver.
+
+For explicit redelivery after exhaustion:
+
+```python
+from ledgence.client import CompletionRetryUncertain
+
+status = await subscription.status()
+if status.state == "exhausted":
+    command = subscription.prepare_retry(expected_generation=status.generation)
+    try:
+        status = await subscription.retry(command)
+    except CompletionRetryUncertain as uncertain:
+        saved_command = uncertain.command.to_dict()
+        raise
+```
+
+`await subscription.retry(expected_generation=status.generation)` is the convenience
+form. Reuse the same prepared command when acceptance is uncertain. Repeating an
+accepted retry observes the current generation without rearming delivery again;
+it never reruns the task or workflow. Like other mutations, the SDK does not retry
+subscription or redelivery requests automatically. Caller cancellation remains
+`asyncio.CancelledError`; prepare and persist commands before awaiting if they must
+survive that cancellation.
+
+The initial notification is a reference-only CloudEvent. Execution IDs, terminal
+state, business correlation, result reference, and trace context live in its
+envelope; it has no `data` field and does not copy user output. Fetch the result
+through the existing scoped task/workflow API. Receivers must deduplicate using
+`(source, id)` and durably accept a notification before acknowledging it. Notification
+retries and explicit redelivery preserve the event identity. See
+[completion notifications](../../docs/completion-notifications.md) for delivery
+semantics, destination configuration, limits, and receiver behavior.
+
+## Finding tasks
+
+```python
+page = await client.tasks.list(
+    state="failed", correlation_key="INV-1042", limit=50,
+)
+for task in page.items:
+    print(task.task_id, task.state, task.latest_attempt_id)
+if page.next_cursor is not None:
+    page = await client.tasks.list(
+        state="failed", correlation_key="INV-1042", limit=50,
+        cursor=page.next_cursor,
+    )
+```
+
+`list()` returns one immutable `TaskPage` containing a tuple of compact
+`TaskStatus` observations and a nullable `next_cursor`. Each call has the client's
+existing request deadline. It does not fetch results or automatically traverse
+more pages. Filters always apply inside the client's tenant and namespace.
+
+Optional `state` accepts one state string or `TaskState`; `queue` and
+`correlation_key` match exactly. An omitted correlation filter matches any key;
+`correlation_key=""` matches only an explicitly empty key. `submitted_from` is
+inclusive and `submitted_until` exclusive, in Unix epoch milliseconds from zero
+through `253402300799999`. If both are present, `submitted_from` must be smaller.
+`limit` defaults to 50 and must be an integer from 1 through 100.
+
+Tasks are ordered by immutable `(submitted_at, task_id)`, descending. Treat the
+cursor as opaque, repeat the same filters and use it with the same scope; changing
+the page limit is allowed. A null cursor ends this traversal. Each page reads
+committed state when queried. Multiple pages are not a frozen snapshot: tasks may
+change state or become visible between requests, and concurrent changes can make
+matching tasks enter or leave the remaining traversal. Start again without a
+cursor to refresh. Use a task handle's status or result for subsequent observation.
+
+## External workflow events
+
+Send the complete original CloudEvent to a one-shot wait key:
+
+```python
+from ledgence.client import WorkflowEventUncertain
+
+workflow = client.workflows.handle(saved_workflow_id)
+command = workflow.prepare_event("approval:1", event={
+    "specversion": "1.0", "id": "approval-1042", "source": "/billing/approvals",
+    "type": "invoice.approved", "datacontenttype": "application/json",
+    "data": {"invoice_id": "INV-1042", "approved": True},
+})
+try:
+    receipt = await workflow.send_event(command)
+except WorkflowEventUncertain as error:
+    # Application policy decides when to resend these unchanged bytes.
+    saved_command = error.command.to_dict()
+    raise
+```
+
+`await workflow.send_event(key="approval:1", event=original_event)` is the
+convenience form. Preparation freezes the endpoint, scope, workflow, key and full
+event; it generates no event ID and changes no CloudEvent fields. Store the
+prepared command before an await when caller cancellation may require later
+reconciliation. `to_dict()` returns an independent JSON copy. After a caller
+restart, reconnect to the same endpoint/scope/workflow and call
+`prepare_event(saved_command["key"], event=saved_command["event"])`.
+
+`WorkflowEventReceipt` contains `scope`, `workflow_id`, `key`, `event_id`,
+`event_source`, `accepted_at` (Unix milliseconds), and `already_accepted`.
+Acceptance means durable storage, not that the workflow already consumed the
+event. An event may arrive before the controller registers its wait. Source and
+ID identify an event within the workflow run, and each wait key accepts one event.
+Resending an identical command returns its receipt, including after workflow
+completion. Changed bindings raise `Conflict`; closed/late events produce
+`ServiceError` with `code="obsolete_operation"`.
+
+Event POSTs never automatically retry. An uncertain response raises
+`WorkflowEventUncertain` with `.command`, `.cause`, and an optional `.request_id`.
+Explicitly resend `.command` to reconcile. `asyncio.CancelledError` still
+propagates; cancellation does not prove that acceptance failed. Known
+pre-dispatch deadline expiration remains `RequestTimeout(dispatched=False)`.
+
+Events use the common CloudEvents JSON profile: version1.0; nonempty `id`,
+`source`, and `type`; `datacontenttype="application/json"`; and a required `data`
+field (which may be null). Optional time/subject/schema/tracing and scalar context
+extensions are validated. Execution IDs are not required; forwarded context
+fields remain intact. Complete encoded events are capped at 64 KiB, commands at
+70 KiB, and application data at depth64. Preparation uses the strict Python-encoded size, so a float-format boundary may
+be rejected conservatively even if the Rust encoding would fit. Wait keys are one-shot for the whole run;
+use new iteration keys when the controller waits again.
+
+External event IDs are limited to 128 UTF-8 bytes and sources to 2,048 UTF-8
+bytes, in addition to the complete event budget. Sources must be valid URI
+references; encode non-ASCII URI characters with percent escapes.
+
+## Submission uncertainty
+
+An explicit idempotency key is required. Optional `RetryPolicy`,
+`attempt_timeout_ms`, `correlation_key` and `origin_trace` map to the existing
+server fields; omitted scheduling settings retain server defaults.
+
+```python
+from ledgence.client import SubmissionUncertain
+
+submission = client.tasks.prepare(
+    program="invoice-issuer", version="1.0.0", queue="billing",
+    data={"invoice_id": "INV-1042"}, idempotency_key="issue:INV-1042",
+)
+try:
+    task = await client.tasks.submit(submission)
+except SubmissionUncertain as error:
+    # The application chooses when to retry this same immutable command.
+    saved_command = error.submission.to_dict()
+    raise
+```
+
+`prepare()` is synchronous and local. It freezes the endpoint, scope, command and
+origin context (including absence) before transmission; later changes to the
+caller's data cannot change it. `to_dict()` returns an independent copy suitable
+for application-owned persistence. Reconstruct with the same key and semantic
+input after a caller restart. Sending a prepared submission through a different
+endpoint or scope is rejected locally.
+
+POST submission and cancellation have no automatic retries. A lost, malformed or
+unavailable response—including a valid server `503 unavailable`—may follow a
+commit. `SubmissionUncertain` retains the frozen command; `CancellationUncertain`
+retains `.task`. Both expose `.cause` and any server `.request_id`. Definitive
+`NotFound`, `Conflict` and `ServiceError` reject this exchange; they cannot prove
+that another concurrent exchange with the same key never committed.
+
+Cancelling a Python await propagates `asyncio.CancelledError` and never sends
+remote cancellation. If submission was in flight, use the prepared command or
+original stable key/input to reconcile; cancellation does not prove rejection.
+Closing the client likewise does not cancel remote tasks.
+
+## Deadlines and ownership
+
+`request_timeout` defaults to 30 seconds and must be positive, finite and at most
+30. `wait`/`result` have a separate positive finite observation timeout, default
+60; there is no unbounded or zero mode. They poll compact status at most once per
+second after each observation, then fetch the result within the same observation
+budget. Transient read failures are retried during that budget. Protocol errors
+and definitive rejections are immediate. A request deadline includes admission,
+network/body transfer, decoding and validation. Convenience submission includes
+local preparation too; an already prepared command was encoded before its later
+exchange budget begins.
+
+`RequestTimeout.dispatched` says whether network dispatch began. Known
+pre-dispatch expiration is not mutation uncertainty. `WaitTimeout` contains
+`.task`, optional `.last_status`, and optional `.last_error`; it never means task
+failure, absence or cancellation. The SDK checks deadlines before each logical
+exchange and after decoding, rejecting late success.
+
+The client admits at most eight active HTTP exchanges and two codec jobs.
+Caller-created concurrent requests wait for admission within their own deadlines. Waiting tasks sleep outside network admission. A timed-out codec
+waiter does not free its job's slot while the work is still running. Client close
+cancels owned exchanges and joins remaining codec work. If the close await itself
+is cancelled, the owned close continues; call `await client.close()` again to join
+it. CPU validation and Python's GIL are cooperative, so this is not a hard
+real-time deadline or a promise to forcibly terminate native calls.
+
+The explicitly selected threaded resolver uses the host's DNS behavior. One
+connector coalesces same-host resolution while cancelled waiters detach; an
+already running OS DNS call may continue, and event-loop/default-executor
+shutdown can wait for it. The selected aiohttp release may transparently retry a
+GET connection failure once under the same timer. POST is excluded. This SDK
+does not alter private retry flags or pretend every GET is one wire request.
+
+TLS uses the host Python SSL context and trust roots. Redirects and compressed
+responses are rejected; system proxy configuration is not implicitly adopted.
+No vendor service or account is required. Error responses are capped at 64 KiB,
+status responses at 16 KiB, task pages at 2 MiB, and other responses at the
+existing 16 MiB bound.
+Client I/O admission does not alter worker execution concurrency.
+
+## JSON and optional tracing
+
+User data stays user-owned JSON. The client preserves signed i64/unsigned u64
+integers, finite binary64, integer/float distinction, negative floating zero,
+Unicode scalar strings and escaped U+0000. Objects require string keys; tuples
+normalize to arrays. Data has the existing 1 MiB compact JSON/64-container-depth
+limit. Results retain current server/report limits. Oversized integers, nonfinite
+numbers, Decimal/custom objects, cycles, lone surrogates and duplicate response
+keys are rejected. Encode exact decimal quantities or larger identifiers as
+strings. No Pydantic coercion, pickle or arbitrary remote Python objects are used.
+
+```python
+from ledgence.client.otel import enable_context
+
+enable_context()  # Requires the optional opentelemetry-api dependency.
+```
+
+The application owns any OTel provider/exporter. Context capture and HTTP client
+spans are explicitly enabled; the base client imports no OTel dependency.
+Preparation snapshots the application's active valid context once; an explicit
+`TraceContext` wins and explicit `origin_trace=None` freezes absence. Replaying a
+prepared submission does not replace that durable context, while later transport
+spans use the currently active context. No input, output or idempotency key is
+recorded as a span attribute. Task/run/event/attempt IDs and per-exchange request
+IDs remain distinct from tracing IDs.
+
+## Local verification
+
+The repository's `tools/check-python-client.py` builds and tests the
+installed wheel in isolation, using the reviewed dependency inventory. See its
+`--help` for supported environments. Source tests also run with:
+
+```sh
+PYTHONPATH=sdk/python-client/src python -m unittest discover -s sdk/python-client/tests -v
+```
+
+The selected interpreter must already have the pinned dependencies. Optional
+trace tests run when the reviewed OTel API is installed; no exporter is used.
+`LEDGENCE_JSON_FIXTURES` can select the shared Rust/Python JSON fixture file when
+tests are copied outside the checkout. Dependency versions, wheel/source hashes,
+licenses and notices are retained under `third_party`; normal wheel installation
+pins the reviewed runtime closure. The gate verifies those pins and distributed
+legal files. No dependencies are downloaded during program execution.

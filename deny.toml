@@ -1,0 +1,45 @@
+# Keep this policy in step with docs/dependencies.md and the locked build graph.
+[graph]
+all-features = true
+exclude-dev = false
+exclude-unpublished = false
+
+[advisories]
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+ignore = []
+unused-ignored-advisory = "deny"
+maximum-db-staleness = "P7D"
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "Unicode-3.0"]
+include-dev = true
+include-build = true
+confidence-threshold = 0.95
+unused-allowed-license = "warn"
+unused-license-exception = "deny"
+exceptions = [
+    # Reviewed permissive hash implementation used by SQLx. Preserve its notice.
+    { crate = "foldhash@0.2.0", allow = ["Zlib"] },
+    # Certificate data used by rustls-platform-verifier on its WASM target path.
+    # Sharing the data requires carrying the agreement text; see docs/dependencies.md.
+    { crate = "webpki-root-certs@1.0.9", allow = ["CDLA-Permissive-2.0"] },
+]
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    { crate = "pyo3", reason = "The Python adapter uses a replaceable subprocess protocol, not an embedded interpreter." },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+required-git-spec = "rev"

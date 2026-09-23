@@ -1,0 +1,26 @@
+{
+  "name": "ledgence-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "node scripts/check-content.mjs && node scripts/licenses.mjs && ASTRO_TELEMETRY_DISABLED=1 astro dev --host 127.0.0.1 --port 5180",
+    "build": "node scripts/check-content.mjs && node scripts/licenses.mjs && ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/check-build.mjs",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --host 127.0.0.1 --port 5180",
+    "licenses": "node scripts/licenses.mjs",
+    "check": "node scripts/check-content.mjs",
+    "test": "node --test scripts/*.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.42.2",
+    "@fontsource/inter": "5.3.0",
+    "astro": "7.3.3"
+  },
+  "overrides": {
+    "undici": "8.10.2"
+  }
+}

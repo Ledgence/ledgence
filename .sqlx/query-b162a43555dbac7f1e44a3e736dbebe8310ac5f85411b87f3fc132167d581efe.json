@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tasks SET history_sequence=history_sequence+1 WHERE task_id=$1 RETURNING trunc(history_sequence)::text AS \"sequence!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sequence!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b162a43555dbac7f1e44a3e736dbebe8310ac5f85411b87f3fc132167d581efe"
+}

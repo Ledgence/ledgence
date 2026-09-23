@@ -1,0 +1,27 @@
+[package]
+name = "ledgence-adapter-subprocess"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ledgence-worker-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tempfile.workspace = true
+time.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["signal", "process"] }
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+ledgence-orchestration-api.workspace = true
+ledgence-orchestration-core.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tasks SET state=$2,available_at_ms=$3,terminal_at_ms=$4,current_attempt_id=$5,attempt_count=$6,cancel_requested_at_ms=$7,next_expiry_ms=(SELECT LEAST(expires_at_ms,authority_deadline_ms) FROM attempts WHERE attempt_id=$5 AND task_id=$1) WHERE task_id=$1 RETURNING dispatch_destination",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dispatch_destination",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "dispatch_destination"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "269d1c25dc77a262ce9af5120ce2b1c7f9f7ba22dbaa781839d133f8bc0026ce"
+}

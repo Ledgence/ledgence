@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_sessions SET expires_at_ms=$2 WHERE session_id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bf0f178b1531136ec784c3fbc70266b32b658edaa0255e5154d99fad12073f93"
+}

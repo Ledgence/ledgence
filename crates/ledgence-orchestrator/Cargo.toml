@@ -1,0 +1,41 @@
+[package]
+name = "ledgence-orchestrator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ledgence HTTP orchestration service and recovery supervisor"
+
+[features]
+default = ["otel"]
+otel = ["dep:ledgence-adapter-otel"]
+sqs = ["dep:ledgence-adapter-sqs"]
+
+[dependencies]
+ledgence-adapter-sqs = { workspace = true, optional = true }
+ledgence-adapter-otel = { workspace = true, optional = true }
+ledgence-adapter-http = { workspace = true, features = ["server", "completion"] }
+ledgence-adapter-artifact.workspace = true
+ledgence-adapter-postgres.workspace = true
+ledgence-orchestration-api.workspace = true
+ledgence-orchestration-service.workspace = true
+ledgence-worker-api.workspace = true
+axum.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["fs"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "=0.31.3", features = ["signal", "process"] }
+
+[lints]
+workspace = true

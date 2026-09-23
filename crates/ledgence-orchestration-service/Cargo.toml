@@ -1,0 +1,22 @@
+[package]
+name = "ledgence-orchestration-service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Application service for durable Ledgence task orchestration"
+
+[dependencies]
+ledgence-orchestration-api.workspace = true
+ledgence-orchestration-core.workspace = true
+ledgence-worker-api.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true

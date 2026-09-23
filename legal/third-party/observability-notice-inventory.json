@@ -1,0 +1,310 @@
+[
+  {
+    "package": "anyhow",
+    "version": "1.0.104",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/anyhow-1.0.104-LICENSE-APACHE",
+    "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+  },
+  {
+    "package": "anyhow",
+    "version": "1.0.104",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/anyhow-1.0.104-LICENSE-MIT",
+    "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+  },
+  {
+    "package": "async-trait",
+    "version": "0.1.92",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/async-trait-0.1.92-LICENSE-APACHE",
+    "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+  },
+  {
+    "package": "async-trait",
+    "version": "0.1.92",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/async-trait-0.1.92-LICENSE-MIT",
+    "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+  },
+  {
+    "package": "futures-macro",
+    "version": "0.3.34",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/futures-macro-0.3.34-LICENSE-APACHE",
+    "sha256": "275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427"
+  },
+  {
+    "package": "futures-macro",
+    "version": "0.3.34",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/futures-macro-0.3.34-LICENSE-MIT",
+    "sha256": "6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd"
+  },
+  {
+    "package": "getrandom",
+    "version": "0.3.4",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/getrandom-0.3.4-LICENSE-APACHE",
+    "sha256": "aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf"
+  },
+  {
+    "package": "getrandom",
+    "version": "0.3.4",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/getrandom-0.3.4-LICENSE-MIT",
+    "sha256": "29e9fe5074bd27e0e5d5d110394fbbcd841baee2651a3c4b4560a632702cede4"
+  },
+  {
+    "package": "itertools",
+    "version": "0.14.0",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/itertools-0.14.0-LICENSE-APACHE",
+    "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+  },
+  {
+    "package": "itertools",
+    "version": "0.14.0",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/itertools-0.14.0-LICENSE-MIT",
+    "sha256": "7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545"
+  },
+  {
+    "package": "opentelemetry",
+    "version": "0.32.0",
+    "source": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-rust/ec289cb3c6f8260951699c51df968560943c1451/LICENSE",
+    "saved": "legal/third-party/opentelemetry-0.32.0-LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "package": "opentelemetry-http",
+    "version": "0.32.0",
+    "source": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-rust/ec289cb3c6f8260951699c51df968560943c1451/LICENSE",
+    "saved": "legal/third-party/opentelemetry-http-0.32.0-LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "package": "opentelemetry-otlp",
+    "version": "0.32.0",
+    "source": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-rust/ec289cb3c6f8260951699c51df968560943c1451/LICENSE",
+    "saved": "legal/third-party/opentelemetry-otlp-0.32.0-LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "package": "opentelemetry-proto",
+    "version": "0.32.0",
+    "source": "published crate: src/proto/opentelemetry-proto/LICENSE",
+    "saved": "legal/third-party/opentelemetry-proto-0.32.0-LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "package": "opentelemetry_sdk",
+    "version": "0.32.1",
+    "source": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-rust/284a37d93b3856e1975c2807ba3af1421ebd9b52/LICENSE",
+    "saved": "legal/third-party/opentelemetry_sdk-0.32.1-LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "package": "portable-atomic",
+    "version": "1.15.0",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/portable-atomic-1.15.0-LICENSE-APACHE",
+    "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+  },
+  {
+    "package": "portable-atomic",
+    "version": "1.15.0",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/portable-atomic-1.15.0-LICENSE-MIT",
+    "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+  },
+  {
+    "package": "ppv-lite86",
+    "version": "0.2.21",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/ppv-lite86-0.2.21-LICENSE-APACHE",
+    "sha256": "0218327e7a480793ffdd4eb792379a9709e5c135c7ba267f709d6f6d4d70af0a"
+  },
+  {
+    "package": "ppv-lite86",
+    "version": "0.2.21",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/ppv-lite86-0.2.21-LICENSE-MIT",
+    "sha256": "4cada0bd02ea3692eee6f16400d86c6508bbd3bafb2b65fed0419f36d4f83e8f"
+  },
+  {
+    "package": "prost",
+    "version": "0.14.4",
+    "source": "published crate: LICENSE",
+    "saved": "legal/third-party/prost-0.14.4-LICENSE",
+    "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+  },
+  {
+    "package": "prost-derive",
+    "version": "0.14.4",
+    "source": "published crate: LICENSE",
+    "saved": "legal/third-party/prost-derive-0.14.4-LICENSE",
+    "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+  },
+  {
+    "package": "rand",
+    "version": "0.9.5",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/rand-0.9.5-LICENSE-APACHE",
+    "sha256": "35242e7a83f69875e6edeff02291e688c97caafe2f8902e4e19b49d3e78b4cab"
+  },
+  {
+    "package": "rand",
+    "version": "0.9.5",
+    "source": "published crate: COPYRIGHT",
+    "saved": "legal/third-party/rand-0.9.5-COPYRIGHT",
+    "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
+  },
+  {
+    "package": "rand",
+    "version": "0.9.5",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/rand-0.9.5-LICENSE-MIT",
+    "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
+  },
+  {
+    "package": "rand_chacha",
+    "version": "0.9.0",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/rand_chacha-0.9.0-LICENSE-APACHE",
+    "sha256": "35242e7a83f69875e6edeff02291e688c97caafe2f8902e4e19b49d3e78b4cab"
+  },
+  {
+    "package": "rand_chacha",
+    "version": "0.9.0",
+    "source": "published crate: COPYRIGHT",
+    "saved": "legal/third-party/rand_chacha-0.9.0-COPYRIGHT",
+    "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
+  },
+  {
+    "package": "rand_chacha",
+    "version": "0.9.0",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/rand_chacha-0.9.0-LICENSE-MIT",
+    "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
+  },
+  {
+    "package": "rand_core",
+    "version": "0.9.5",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/rand_core-0.9.5-LICENSE-APACHE",
+    "sha256": "6df43f6f4b5d4587f3d8d71e45532c688fd168afa5fe89d571cb32fa09c4ef51"
+  },
+  {
+    "package": "rand_core",
+    "version": "0.9.5",
+    "source": "published crate: COPYRIGHT",
+    "saved": "legal/third-party/rand_core-0.9.5-COPYRIGHT",
+    "sha256": "90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5"
+  },
+  {
+    "package": "rand_core",
+    "version": "0.9.5",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/rand_core-0.9.5-LICENSE-MIT",
+    "sha256": "209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b"
+  },
+  {
+    "package": "tracing-opentelemetry",
+    "version": "0.33.0",
+    "source": "published crate: LICENSE",
+    "saved": "legal/third-party/tracing-opentelemetry-0.33.0-LICENSE",
+    "sha256": "898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1"
+  },
+  {
+    "package": "wasip2",
+    "version": "1.0.4+wasi-0.2.12",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/wasip2-1.0.4+wasi-0.2.12-LICENSE-APACHE",
+    "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+  },
+  {
+    "package": "wasip2",
+    "version": "1.0.4+wasi-0.2.12",
+    "source": "published crate: LICENSE-Apache-2.0_WITH_LLVM-exception",
+    "saved": "legal/third-party/wasip2-1.0.4+wasi-0.2.12-LICENSE-Apache-2.0_WITH_LLVM-exception",
+    "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+  },
+  {
+    "package": "wasip2",
+    "version": "1.0.4+wasi-0.2.12",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/wasip2-1.0.4+wasi-0.2.12-LICENSE-MIT",
+    "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+  },
+  {
+    "package": "wit-bindgen",
+    "version": "0.57.1",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/wit-bindgen-0.57.1-LICENSE-APACHE",
+    "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+  },
+  {
+    "package": "wit-bindgen",
+    "version": "0.57.1",
+    "source": "published crate: LICENSE-Apache-2.0_WITH_LLVM-exception",
+    "saved": "legal/third-party/wit-bindgen-0.57.1-LICENSE-Apache-2.0_WITH_LLVM-exception",
+    "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+  },
+  {
+    "package": "wit-bindgen",
+    "version": "0.57.1",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/wit-bindgen-0.57.1-LICENSE-MIT",
+    "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+  },
+  {
+    "package": "zerocopy",
+    "version": "0.8.57",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/zerocopy-0.8.57-LICENSE-APACHE",
+    "sha256": "9d185ac6703c4b0453974c0d85e9eee43e6941009296bb1f5eb0b54e2329e9f3"
+  },
+  {
+    "package": "zerocopy",
+    "version": "0.8.57",
+    "source": "published crate: LICENSE-BSD",
+    "saved": "legal/third-party/zerocopy-0.8.57-LICENSE-BSD",
+    "sha256": "83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32"
+  },
+  {
+    "package": "zerocopy",
+    "version": "0.8.57",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/zerocopy-0.8.57-LICENSE-MIT",
+    "sha256": "1a2f5c12ddc934d58956aa5dbdd3255fe55fd957633ab7d0d39e4f0daa73f7df"
+  },
+  {
+    "package": "zerocopy-derive",
+    "version": "0.8.57",
+    "source": "published crate: LICENSE-APACHE",
+    "saved": "legal/third-party/zerocopy-derive-0.8.57-LICENSE-APACHE",
+    "sha256": "9d185ac6703c4b0453974c0d85e9eee43e6941009296bb1f5eb0b54e2329e9f3"
+  },
+  {
+    "package": "zerocopy-derive",
+    "version": "0.8.57",
+    "source": "published crate: LICENSE-BSD",
+    "saved": "legal/third-party/zerocopy-derive-0.8.57-LICENSE-BSD",
+    "sha256": "83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32"
+  },
+  {
+    "package": "zerocopy-derive",
+    "version": "0.8.57",
+    "source": "published crate: LICENSE-MIT",
+    "saved": "legal/third-party/zerocopy-derive-0.8.57-LICENSE-MIT",
+    "sha256": "1a2f5c12ddc934d58956aa5dbdd3255fe55fd957633ab7d0d39e4f0daa73f7df"
+  },
+  {
+    "package": "r-efi",
+    "version": "5.3.0",
+    "source": "published crate: AUTHORS",
+    "saved": "legal/third-party/r-efi-5.3.0-AUTHORS",
+    "sha256": "ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7"
+  }
+]

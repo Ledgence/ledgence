@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS \"now!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "now!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "111b8111f9a68339e14a732b5ade77bf2b125c8dbe09bd062e41d351787059f0"
+}
