@@ -42,10 +42,25 @@ export function checkStaticArtifact(directory, file) {
   }
 }
 
+export function checkMarkdownExports(directory) {
+  const index = readFileSync(join(directory, 'llms.txt'), 'utf8');
+  const links = [...index.matchAll(/^- \[[^\]]+\]\(([^)]+)\):/gm)].map(match => match[1]);
+  if (links.length === 0) throw new Error('Markdown index has no exported pages');
+  for (const href of links) {
+    const url = new URL(href);
+    if (url.origin !== 'https://docs.ledgence.com' || !url.pathname.startsWith('/markdown/') || !url.pathname.endsWith('.md')) {
+      throw new Error(`Unexpected Markdown index target: ${href}`);
+    }
+    resolveLocalLink(directory, 'llms.txt', href);
+  }
+  return links.length;
+}
+
 export function checkBuild(directory) {
   for (const file of ['index.html', '404.html', 'llms.txt', 'source.json', 'notices/LEDGENCE-LICENSE.txt', 'notices/manifest.json']) {
     if (!existsSync(join(directory, file))) throw new Error(`Missing build output: ${file}`);
   }
+  const markdownPages = checkMarkdownExports(directory);
   const files = filesUnder(directory);
   for (const file of files) checkStaticArtifact(directory, file);
   const htmlFiles = files.filter(file => file.endsWith('.html'));
@@ -62,6 +77,6 @@ export function checkBuild(directory) {
     }
   }
   if (!files.some(path => path.includes('/pagefind/') && path.endsWith('.js'))) throw new Error('Missing static search index');
-  console.log(`Checked ${htmlFiles.length} HTML pages, internal links, anchors, assets, notices, and search.`);
+  console.log(`Checked ${htmlFiles.length} HTML pages, ${markdownPages} indexed Markdown exports, internal links, anchors, assets, notices, and search.`);
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) checkBuild(join(root, 'dist'));

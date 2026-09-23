@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from aiohttp import web
-from ledgence.client import AsyncClient, TraceContext
+from ledgence.client import AsyncClient, TraceContext, __version__
 from ledgence.client import otel
 from support import response, submitted
 
@@ -97,9 +97,12 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
                 with trace.use_span(span, end_on_exit=True): yield span
         with self.active("a"):
             frozen = self.client.tasks.prepare(**self.args())
-        with patch.object(trace, "get_tracer", return_value=Tracer()):
+        with patch.object(trace, "get_tracer", return_value=Tracer()) as get_tracer:
             for digit in ("b", "c"):
                 with self.active(digit): await self.client.tasks.submit(frozen)
+        self.assertEqual(get_tracer.call_count, 2)
+        for call in get_tracer.call_args_list:
+            self.assertEqual(call.args, ("ledgence.client", __version__))
         self.assertEqual(len(spans), 2)
         for index, digit in enumerate(("b", "c")):
             body, headers = self.received[index]

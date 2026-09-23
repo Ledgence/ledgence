@@ -28,9 +28,9 @@ import uuid
 
 from http_acceptance.harness import Deployment
 from http_acceptance.sqs import SqsDeployment
-from mvp_acceptance.observations import CENSUS, resources, summarize, process_tree
-from mvp_acceptance.programs import MODES, PROGRAM, expected_counts
-from mvp_acceptance.receiver import Receiver
+from workload_acceptance.observations import CENSUS, resources, summarize, process_tree
+from workload_acceptance.programs import MODES, PROGRAM, expected_counts
+from workload_acceptance.receiver import Receiver
 
 PERFORMANCE = runpy.run_path(str(Path(__file__).with_name('check-performance.py')))
 MAX_OPERATIONS = 100_000
@@ -145,7 +145,7 @@ async def exercise(deployment, receiver, args, directory, report):
                 subscription = await handle.subscribe(destination='soak', idempotency_key='result')
             if mode == 'event':
                 await handle.send_event(key='finish', event=dict(specversion='1.0', id=f'event-{index}',
-                    source='urn:ledgence:mvp-soak', type='soak.finish.v1', datacontenttype='application/json',
+                    source='urn:ledgence:workload-soak', type='soak.finish.v1', datacontenttype='application/json',
                     data=dict(index=index)))
             output = await handle.result(timeout=args.operation_timeout)
             assert output == dict(index=index, mode=mode), output
@@ -229,7 +229,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries.resolve()
     hashes = {name: PERFORMANCE['digest'](binaries / name) for name in ('ledgence', 'ledgence-worker', 'ledgence-orchestrator')}
-    directory = args.evidence or Path(tempfile.mkdtemp(prefix='ledgence-mvp-soak-'))
+    directory = args.evidence or Path(tempfile.mkdtemp(prefix='ledgence-workload-soak-'))
     if args.evidence:
         directory.mkdir(parents=True, exist_ok=False)
     directory = directory.resolve()

@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 description = "Ledgence capacity, preparation, and execution coordination"
 
 [dependencies]

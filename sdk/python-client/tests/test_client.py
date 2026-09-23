@@ -342,34 +342,103 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(time.monotonic() - start, .15)
 
     async def test_codec_jobs_remain_bounded_after_waiter_timeout(self):
-        client = await self.open_client(request_timeout=.04)
+        client = await self.open_client()
+        jobs = client._transport._codec
+        loop = asyncio.get_running_loop()
         release = threading.Event()
         lock = threading.Lock()
+        started = asyncio.Event()
+        close_started = asyncio.Event()
+        admissions = asyncio.Queue()
+        timeouts = {}
         starts = 0
-        original = transport._decode_response
+        requests = []
+        original_decode = transport._decode_response
+        original_timeout = asyncio.timeout_at
+        original_run, original_close = jobs.run, jobs.close
+
         def blocked(*args):
             nonlocal starts
-            with lock: starts += 1
-            release.wait(2)
-            return original(*args)
-        try:
-            with patch.object(transport, "_decode_response", blocked):
-                replies = await asyncio.gather(*[client.tasks.handle("task").outcome() for _ in range(12)],
-                                                return_exceptions=True)
-                self.assertTrue(all(isinstance(reply, RequestTimeout) for reply in replies))
+            with lock:
+                starts += 1
+                if starts == 2:
+                    loop.call_soon_threadsafe(started.set)
+            release.wait()
+            return original_decode(*args)
+
+        def controlled_timeout(deadline):
+            operation = asyncio.current_task()
+            if operation not in client._transport._operations or operation in timeouts:
+                return original_timeout(deadline)
+            # Exercise real timeout cancellation/mapping after the decoder has
+            # started; HTTP and thread startup are not part of this assertion.
+            timeout = original_timeout(None)
+            timeouts[operation] = timeout
+            return timeout
+
+        async def observed_run(function):
+            admissions.put_nowait(asyncio.current_task())
+            return await original_run(function)
+
+        async def observed_close():
+            close_started.set()
+            await original_close()
+
+        def assert_owned_jobs():
+            with lock:
                 self.assertEqual(starts, 2)
-                self.assertEqual(len(client._transport._codec._pending), 2)
+            self.assertEqual(len(jobs._pending), 2)
+
+        async def timed_out(request):
+            with self.assertRaises(RequestTimeout) as caught:
+                await asyncio.wait_for(request, 5)
+            self.assertTrue(caught.exception.dispatched)
+
+        with patch.object(transport, "_decode_response", blocked), \
+                patch.object(transport.asyncio, "timeout_at", controlled_timeout), \
+                patch.object(jobs, "run", observed_run), \
+                patch.object(jobs, "close", observed_close):
+            try:
+                requests = [asyncio.create_task(client.tasks.handle("task").outcome()) for _ in range(2)]
+                await asyncio.wait_for(started.wait(), 5)
+                for _ in range(2):
+                    operation = await asyncio.wait_for(admissions.get(), 5)
+                    timeouts[operation].reschedule(loop.time())
+                for request in requests:
+                    await timed_out(request)
+                assert_owned_jobs()
+
+                # Later HTTP responses reach codec admission, but timed-out
+                # waiters must not free the two still-running jobs' slots.
+                for _ in range(10):
+                    request = asyncio.create_task(client.tasks.handle("task").outcome())
+                    requests.append(request)
+                    operation = await asyncio.wait_for(admissions.get(), 5)
+                    assert_owned_jobs()
+                    timeouts[operation].reschedule(loop.time())
+                    await timed_out(request)
+                    assert_owned_jobs()
+                self.assertEqual(len(self.requests), 12)
+
                 closing = asyncio.create_task(client.close())
-                await asyncio.sleep(.01)
+                await asyncio.wait_for(close_started.wait(), 5)
                 self.assertFalse(closing.done())
+                assert_owned_jobs()
                 closing.cancel()
-                with self.assertRaises(asyncio.CancelledError): await closing
+                with self.assertRaises(asyncio.CancelledError):
+                    await closing
                 self.assertFalse(client._transport._close_task.done())
+                assert_owned_jobs()
                 release.set()
-                await asyncio.wait_for(client.close(), 1)
-        finally:
-            release.set()
-        self.assertEqual(len(client._transport._codec._pending), 0)
+                await asyncio.wait_for(client.close(), 5)
+            finally:
+                release.set()
+                for request in requests:
+                    if not request.done():
+                        request.cancel()
+                await asyncio.gather(*requests, return_exceptions=True)
+                await asyncio.wait_for(client.close(), 5)
+        self.assertEqual(len(jobs._pending), 0)
 
     async def test_dns_is_coalesced_after_repeated_cancelled_waits(self):
         client = AsyncClient("http://test.invalid:9", tenant="tenant", namespace="tests", request_timeout=.005)

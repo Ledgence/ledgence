@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import venv
 import zipfile
 
@@ -45,6 +46,7 @@ def install(python, wheelhouse, group, cwd, env, target=None):
 
 
 def verify_distribution(path, inventory):
+    project = tomllib.loads((CLIENT / "pyproject.toml").read_text())["project"]
     expected = {"third_party/" + r["path"]: deps.legal_path(r).read_bytes()
                 for p in inventory["packages"] for a in [p["source"], *p["artifacts"]]
                 for r in a["license_files"].values()}
@@ -56,7 +58,15 @@ def verify_distribution(path, inventory):
             metadata_name = next(n for n in names if n.endswith(".dist-info/METADATA"))
             metadata = email.message_from_bytes(archive.read(metadata_name))
             deps.require(metadata["Name"] == "ledgence-client" and metadata["License-Expression"] == "MIT", "wheel identity/license mismatch")
+            deps.require(metadata["Version"] == project["version"], "wheel version differs from project metadata")
             deps.require(metadata["Requires-Python"] == ">=3.11", "wheel Python requirement drift")
+            deps.require(metadata["Description-Content-Type"] == "text/markdown", "wheel README format differs")
+            # Flit appends a separator newline after the README payload.
+            deps.require(metadata.get_payload(decode=True).decode("utf-8").rstrip("\n") == (CLIENT / "README.md").read_text().rstrip("\n"),
+                         "wheel README differs from the reviewed public documentation")
+            deps.require(set(metadata.get_all("Project-URL", [])) == {
+                f"{label}, {url}" for label, url in project["urls"].items()
+            }, "wheel project links differ from project metadata")
             requirements = metadata.get_all("Requires-Dist", [])
             expected_requirements = deps.project_requirements("runtime") + [r + '; extra == "otel"' for r in deps.project_requirements("otel")]
             normalize = lambda r: r.replace(" ", "").replace("'", '"')
@@ -70,13 +80,17 @@ def verify_distribution(path, inventory):
                                  for n in names), "client wheel owns files outside its namespace portion")
             deps.require(not any(n.startswith(("ledgence_worker/", "aiohttp/", "opentelemetry/")) for n in names), "client wheel bundles unrelated package code")
     else:
+        expected["tests/json-values.json"] = (ROOT / "tests/fixtures/json-values.json").read_bytes()
         expected["third_party/inventory.json"] = (deps.LEGAL / "inventory.json").read_bytes()
         for group in deps.GROUPS:
             expected[f"third_party/{group}-requirements.txt"] = (deps.LEGAL / f"{group}-requirements.txt").read_bytes()
         with tarfile.open(path) as archive:
             files = {m.name.split("/", 1)[1]: archive.extractfile(m).read() for m in archive if m.isfile()}
+            metadata = email.message_from_bytes(files["PKG-INFO"])
+            deps.require(metadata["Name"] == project["name"] and metadata["Version"] == project["version"],
+                         "sdist identity/version differs from project metadata")
             for name, content in expected.items():
-                deps.require(files.get(name) == content, f"sdist omits legal/lock material: {name}")
+                deps.require(files.get(name) == content, f"sdist omits or changes required legal/lock/test material: {name}")
             deps.require("src/ledgence/client/__init__.py" in files, "sdist client package missing")
             deps.require("src/ledgence/client/py.typed" in files, "sdist client typing marker missing")
             deps.require(not any(n.startswith("src/ledgence/") and not n.startswith("src/ledgence/client/")
@@ -89,7 +103,7 @@ def check_environment(python, cwd, env, inventory, target, otel):
         names |= deps.closure(inventory, "otel", target)
     expected = {p["name"]: p["version"] for p in inventory["packages"] if p["name"] in names}
     code = '''import importlib.metadata as m, json, pathlib, re, sys
-from ledgence.client import AsyncClient
+from ledgence.client import AsyncClient, __version__
 import ledgence.client
 import importlib.util
 if ledgence.__spec__.origin is not None:raise SystemExit("ledgence must be a native namespace")
@@ -97,6 +111,7 @@ if importlib.util.find_spec("ledgence.worker") is not None:raise SystemExit("cli
 expected=json.loads(sys.argv[1])
 actual={re.sub(r"[-_.]+", "-", d.metadata["Name"]).lower():d.version for d in m.distributions()}
 client=m.version("ledgence-client")
+if __version__ != client:raise SystemExit(f"public version {__version__} differs from installed metadata {client}")
 actual.pop("ledgence-client")
 # ensurepip is part of the selected host interpreter, not a shipped SDK dependency.
 for tool in ("pip", "setuptools"):actual.pop(tool,None)
@@ -262,16 +277,13 @@ def main():
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
     env.pop("PYTHONHOME", None)
+    env.pop("LEDGENCE_JSON_FIXTURES", None)
     env.update(PYTHONDONTWRITEBYTECODE="1", PIP_DISABLE_PIP_VERSION_CHECK="1", PIP_CONFIG_FILE=os.devnull,
                SOURCE_DATE_EPOCH="1789257600")
     with tempfile.TemporaryDirectory(prefix="ledgence-python-client-") as directory:
         temporary = Path(directory).resolve()
         wheelhouse = args.wheelhouse.resolve() if args.wheelhouse else temporary / "wheelhouse"
         deps.download(inventory, wheelhouse, [target], list(deps.GROUPS), offline=args.offline)
-        shared_fixture = ROOT / "tests/fixtures/json-values.json"
-        fixture = temporary / "json-values.json"
-        shutil.copy2(shared_fixture, fixture)
-        env["LEDGENCE_JSON_FIXTURES"] = str(fixture)
         build_dir = temporary / "build-env"
         runtime_dir = args.venv_dir or temporary / "runtime-env"
         # The reviewed targets are POSIX. Keep standalone interpreter loader
@@ -314,7 +326,9 @@ def main():
         evidence = {"target": target, "python": sys.version, "platform": sys.platform,
                     "sdist": {"filename": sdist.name, "sha256": deps.digest(sdist.read_bytes())},
                     "wheel": {"filename": wheel.name, "sha256": deps.digest(wheel.read_bytes())},
-                    "checks": ["reviewed artifact hashes and legal bytes", "sdist legal contents", "wheel rebuilt from sdist",
+                    "checks": ["reviewed artifact hashes and legal bytes", "sdist legal contents",
+                               "sdist bundled JSON corpus matches authoritative Rust/Python fixtures", "wheel rebuilt from sdist",
+                               "distribution/public versions and public README metadata",
                                "wheel legal contents", "native namespace and subpackage typing marker in wheel/sdist",
                                "separate installed client and relocated helper in both import orders",
                                "vendored client and relocated helper under isolated protocols 1/2/3",

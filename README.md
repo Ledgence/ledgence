@@ -56,7 +56,7 @@ All public Python imports share the `ledgence` namespace: use
 `from ledgence.worker import current_invocation, get_logger` in programs, and
 `from ledgence.worker.workflow import workflow_context` in workflows. The client
 SDK and worker helper remain separate components. Existing programs using the
-pre-MVP `ledgence_worker` imports must update and republish their packages; see
+legacy `ledgence_worker` imports must update and republish their packages; see
 [the import migration](docs/program-packages.md#python-import-namespace).
 
 The handler receives the complete event. Ledgence validates the envelope and preserves the logical JSON value of `data` within the [documented numeric precision](docs/events.md), including application-defined business identifiers and nested structures. The worker does not install application dependencies during execution.

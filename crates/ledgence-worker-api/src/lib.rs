@@ -1,7 +1,13 @@
 //! Portable, vendor-independent worker contracts.
 //!
-//! This first milestone models preparation and reusable execution. It does not
-//! implement distributed attempt leases or durable orchestration settlement.
+//! Program identity, immutable artifact preparation, reusable execution sessions,
+//! CloudEvents, monotonic deadlines, runtime requests, metrics and tracing form
+//! the adapter boundary. Implementations must retain process and artifact
+//! ownership until cleanup is confirmed. This crate supplies contracts, not a
+//! worker runtime, program store, process sandbox or durable orchestration service.
+//!
+//! See the [program package contract](https://github.com/Ledgence/ledgence/blob/main/docs/program-packages.md)
+//! and [worker delivery contract](https://github.com/Ledgence/ledgence/blob/main/docs/worker-delivery.md).
 
 pub mod metrics;
 mod trace;

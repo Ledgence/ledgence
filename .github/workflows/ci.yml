@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -42,6 +43,8 @@ jobs:
         run: python -m unittest discover -s tools/release -p 'test_*.py' -v
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Test Rust source-package qualification gates
+        run: python -m unittest discover -s tools -p 'test_rust_packages.py' -v
       - name: Check crate boundaries
         run: python tools/check-boundaries.py
       - name: Check Rust formatting
@@ -67,7 +70,7 @@ jobs:
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
-        run: python tools/check-mvp-soak.py --self-test
+        run: python tools/check-workload-soak.py --self-test
       - name: Test the Python runner
         run: python -m unittest discover -s sdk/python/tests -v
       - name: Test optional Python trace context

@@ -13,7 +13,7 @@ from support import result, status
 class CodecTests(unittest.TestCase):
     def test_shared_rust_python_fixtures(self):
         path = Path(os.environ.get("LEDGENCE_JSON_FIXTURES", str(
-            Path(__file__).resolve().parents[3] / "tests/fixtures/json-values.json")))
+            Path(__file__).with_name("json-values.json"))))
         values = json.loads(path.read_text())
         kinds = {type(None): "null", bool: "bool", int: "integer", float: "float",
                  str: "string", dict: "object", list: "array"}

@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = ["crates-io"]
+readme = "README.md"
+documentation = "https://docs.rs/ledgence-orchestration-api"
+keywords = ["orchestration", "workflow", "worker", "cloudevents"]
+categories = ["asynchronous"]
+include = ["src/**/*.rs", "tests/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 description = "Portable task delivery and orchestration contracts"
 
 [dependencies]

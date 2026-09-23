@@ -1,10 +1,30 @@
 # Ledgence Python client
 
-An MIT-licensed, asynchronous client for submitting and observing existing
-Ledgence programs. Python 3.11–3.14 is the configured test matrix. The package is
-`ledgence-client`; its public import is `ledgence.client`. This is an initial
-version without a stable-release compatibility promise or a published-registry
-claim. Install the locally built wheel; building and testing instructions follow.
+An MIT-licensed, asynchronous Python client for submitting tasks and workflows,
+observing execution, and registering durable completion notifications with a
+self-hosted Ledgence service. The distribution is `ledgence-client`; its public
+import is `ledgence.client`. Python 3.11–3.14 is tested on Linux x86_64 and macOS
+arm64. Public APIs may evolve before version 1.0.
+
+## Installation
+
+Install a published version from PyPI:
+
+```sh
+python -m pip install ledgence-client
+```
+
+For a locally qualified build, install its wheel:
+
+```sh
+python -m pip install /path/to/ledgence_client-0.1.1-py3-none-any.whl
+```
+
+The client connects to an existing Ledgence service. Follow the
+[local deployment guide](https://github.com/Ledgence/ledgence/blob/main/docs/local-deployment.md)
+to start a service and publish a program before running the example.
+
+## Submit a task
 
 ```python
 import asyncio
@@ -35,7 +55,7 @@ packages nor imports handlers. It is separate from the dependency-free
 Both use the native `ledgence` namespace: neither distribution owns a root
 `ledgence/__init__.py`, and the client keeps its typing marker in `ledgence/client/`.
 Programs use `from ledgence.worker.workflow import workflow_context`; the old
-`ledgence_worker` imports must be updated before using this pre-MVP revision.
+`ledgence_worker` imports must be updated before running on current workers.
 
 ## Task references and observations
 
@@ -96,7 +116,7 @@ controller task does not imply that its workflow is complete.
 The public `submit()` endpoint starts root workflows. Controllers create owned
 children using the worker helper's `ctx.workflow(...)`. Parent cancellation and
 failure drain the owned tree before reaching a terminal status. See
-[`docs/subworkflows.md`](../../docs/subworkflows.md) for composition and result
+[`docs/subworkflows.md`](https://github.com/Ledgence/ledgence/blob/main/docs/subworkflows.md) for composition and result
 semantics.
 
 `WorkflowWaitTimeout` is also a `WaitTimeout`. It retains `.workflow`, `.last_status`
@@ -111,7 +131,7 @@ commands are distinct types to prevent accidentally replaying one as the other.
 `WorkflowCancellationUncertain` similarly retains the workflow for reconciliation.
 
 Controller authoring and durability semantics are described in
-[`docs/workflows.md`](../../docs/workflows.md).
+[`docs/workflows.md`](https://github.com/Ledgence/ledgence/blob/main/docs/workflows.md).
 
 ## Durable completion subscriptions
 
@@ -186,7 +206,7 @@ envelope; it has no `data` field and does not copy user output. Fetch the result
 through the existing scoped task/workflow API. Receivers must deduplicate using
 `(source, id)` and durably accept a notification before acknowledging it. Notification
 retries and explicit redelivery preserve the event identity. See
-[completion notifications](../../docs/completion-notifications.md) for delivery
+[completion notifications](https://github.com/Ledgence/ledgence/blob/main/docs/completion-notifications.md) for delivery
 semantics, destination configuration, limits, and receiver behavior.
 
 ## Finding tasks
@@ -389,9 +409,17 @@ IDs remain distinct from tracing IDs.
 
 ## Local verification
 
-The repository's `tools/check-python-client.py` builds and tests the
-installed wheel in isolation, using the reviewed dependency inventory. See its
-`--help` for supported environments. Source tests also run with:
+The repository's [package verification gate](https://github.com/Ledgence/ledgence/blob/main/tools/check-python-client.py)
+builds a source distribution, rebuilds its wheel, and tests the installed client
+outside the checkout using the reviewed dependency inventory. Run it from the
+repository root to retain the verified distributions:
+
+```sh
+python tools/check-python-client.py --dist-dir /path/to/new-dist-directory
+```
+
+See its `--help` for offline wheelhouse and retained-environment options. Source
+tests also run from the repository root with:
 
 ```sh
 PYTHONPATH=sdk/python-client/src python -m unittest discover -s sdk/python-client/tests -v
@@ -399,8 +427,11 @@ PYTHONPATH=sdk/python-client/src python -m unittest discover -s sdk/python-clien
 
 The selected interpreter must already have the pinned dependencies. Optional
 trace tests run when the reviewed OTel API is installed; no exporter is used.
-`LEDGENCE_JSON_FIXTURES` can select the shared Rust/Python JSON fixture file when
-tests are copied outside the checkout. Dependency versions, wheel/source hashes,
+The source distribution includes its tests and JSON fixture corpus. After
+installing the package and dependencies, run `python -m unittest discover -s tests -v`
+from its extracted directory. `LEDGENCE_JSON_FIXTURES` can explicitly select an
+alternative JSON corpus; the repository gate checks the bundled corpus against
+the shared Rust/Python fixtures. Dependency versions, wheel/source hashes,
 licenses and notices are retained under `third_party`; normal wheel installation
 pins the reviewed runtime closure. The gate verifies those pins and distributed
 legal files. No dependencies are downloaded during program execution.

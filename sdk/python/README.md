@@ -21,8 +21,8 @@ to the worker helper. A program using the client must include that SDK and its
 prepared dependencies in its artifact, just like any other application dependency.
 Do not add a root `ledgence/__init__.py` to either component or the artifact.
 
-Before the MVP release, the public helper import changed from `ledgence_worker`
-to `ledgence.worker`. Update existing program imports and publish a new immutable
+The public helper import is `ledgence.worker`, replacing the legacy
+`ledgence_worker` path. Update existing program imports and publish a new immutable
 program version/digest. The old import and runner path are not aliases; protocol
 versions 1, 2, and 3 retain their wire behavior.
 
