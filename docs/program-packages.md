@@ -54,7 +54,7 @@ require the client SDK or its HTTP dependencies. The shared `ledgence` root is a
 native namespace package: vendored packages contributing to it must not include
 `ledgence/__init__.py`.
 
-The pre-MVP `ledgence_worker` import path has been removed. Programs using that
+The legacy `ledgence_worker` import path has been removed. Programs using that
 path must update their imports and publish a new immutable program version and
 digest before running on an updated worker. Updating the worker does not rewrite
 existing artifacts. Artifacts bundling an earlier client SDK with a regular

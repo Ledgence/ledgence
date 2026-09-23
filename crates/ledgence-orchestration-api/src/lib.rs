@@ -1,8 +1,12 @@
-//! Portable contracts for one-task orchestration and worker delivery.
+//! Portable contracts for task orchestration, resumable workflows and worker delivery.
 //!
-//! These types describe transactional operations; they provide no persistence
-//! or transport by themselves. Adapters must apply the full operation before
-//! acknowledging it. See `docs/delivery-contract.md` for replay and retention.
+//! Submission, leases, durable settlement, completion callbacks, workflow events,
+//! child tasks and retention describe transactional operations. They provide no
+//! persistence or transport by themselves. Adapters must apply the full operation
+//! before acknowledging it and preserve replay and ownership semantics.
+//!
+//! See the [delivery contract](https://github.com/Ledgence/ledgence/blob/main/docs/delivery-contract.md)
+//! and [workflow contract](https://github.com/Ledgence/ledgence/blob/main/docs/workflows.md).
 
 pub use ledgence_worker_api::TraceContext;
 

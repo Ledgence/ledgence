@@ -26,6 +26,26 @@ export function pageMetadata(text, path) {
   return { title: title.replace(/^['"]|['"]$/g, ''), description: description.replace(/^['"]|['"]$/g, ''), body };
 }
 
+export function writeMarkdownExports(directory, pages, revision) {
+  mkdirSync(directory, { recursive: true });
+  rmSync(join(directory, 'markdown'), { recursive: true, force: true });
+  const exported = pages.filter(page => page.path.endsWith('.md'));
+  for (const page of exported) {
+    const target = join(directory, 'markdown', page.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, `# ${page.title}\n\n${page.description}\n\n${page.body}`);
+  }
+  const list = ['# Ledgence documentation', '', '> Development documentation for Ledgence, an open-source agent and workflow orchestration platform.', '', `Product source revision: ${revision}. Public APIs are evolving.`, ''];
+  for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {
+    list.push(`## ${section === 'how-to' ? 'How-to guides' : section[0].toUpperCase() + section.slice(1)}`, '');
+    for (const page of exported.filter(page => page.slug.startsWith(`${section}/`))) {
+      list.push(`- [${page.title}](https://docs.ledgence.com/markdown/${page.path}): ${page.description}`);
+    }
+    list.push('');
+  }
+  writeFileSync(join(directory, 'llms.txt'), list.join('\n'));
+}
+
 export function prepareContent() {
   const files = contentFiles(source);
   const pages = files.map(file => {
@@ -41,22 +61,7 @@ export function prepareContent() {
   mkdirSync(join(root, 'public'), { recursive: true });
   writeFileSync(join(root, 'src/generated/source.json'), JSON.stringify(sourceInfo, null, 2) + '\n');
   writeFileSync(join(root, 'public/source.json'), JSON.stringify(sourceInfo, null, 2) + '\n');
-  rmSync(join(root, 'public/markdown'), { recursive: true, force: true });
-  for (const page of pages.filter(page => page.path.endsWith('.md'))) {
-    const target = join(root, 'public/markdown', page.path);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, `# ${page.title}\n\n${page.description}\n\n${page.body}`);
-  }
-  const list = ['# Ledgence documentation', '', '> Development documentation for Ledgence, an open-source agent and workflow orchestration platform.', '', `Product source revision: ${revision}. Public APIs are evolving.`, ''];
-  for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {
-    list.push(`## ${section === 'how-to' ? 'How-to guides' : section[0].toUpperCase() + section.slice(1)}`, '');
-    rmSync(join(root, 'public/markdown'), { recursive: true, force: true });
-  for (const page of pages.filter(page => page.slug.startsWith(`${section}/`))) {
-      list.push(`- [${page.title}](https://docs.ledgence.com/markdown/${page.path}): ${page.description}`);
-    }
-    list.push('');
-  }
-  writeFileSync(join(root, 'public/llms.txt'), list.join('\n'));
+  writeMarkdownExports(join(root, 'public'), pages, revision);
   console.log(`Validated ${pages.length} documentation pages; generated Markdown and source metadata.`);
   return pages;
 }

@@ -1,4 +1,5 @@
 """Asynchronous task orchestration client for Ledgence (MIT)."""
+from ._version import __version__
 from .client import AsyncClient
 from .errors import (
     CancellationUncertain, ClientClosed, Conflict, InputError, LedgenceError, NotFound,
@@ -13,7 +14,7 @@ from .models import (
 from .tasks import TaskHandle
 
 __all__ = [
-    "AsyncClient", "TaskHandle", "Submission", "Scope", "RetryPolicy", "TraceContext",
+    "__version__", "AsyncClient", "TaskHandle", "Submission", "Scope", "RetryPolicy", "TraceContext",
     "TaskState", "TaskStatus", "TaskPage", "TaskResult", "Quiescence", "Succeeded", "Failed", "Cancelled",
     "ApplicationFailure", "ExecutionFailure", "AttemptLost", "ErrorDetail", "LedgenceError",
     "InputError", "NotFound", "Conflict", "ServiceError", "TransportError", "ProtocolError",

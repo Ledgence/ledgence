@@ -173,7 +173,7 @@ for separate capacity qualification.
 
 ## Mixed task and workflow soak
 
-`tools/check-mvp-soak.py` exercises an installed Python client against fresh owned
+`tools/check-workload-soak.py` exercises an installed Python client against fresh owned
 services. Six repeating cases cover ordinary tasks, a retryable first-attempt
 process loss, acknowledged local async steps, distributed tasks plus an owned
 subworkflow, durable timers, and external events. Every seventh root execution
@@ -188,8 +188,8 @@ Use release binaries from the same reviewed source and the Python interpreter
 in an environment containing the installed client wheel:
 
 ```sh
-/path/to/client-venv/bin/python tools/check-mvp-soak.py --self-test
-/path/to/client-venv/bin/python tools/check-mvp-soak.py \
+/path/to/client-venv/bin/python tools/check-workload-soak.py --self-test
+/path/to/client-venv/bin/python tools/check-workload-soak.py \
   --disposable-postgres --psql /path/to/psql \
   --binaries /absolute/path/to/release-binaries \
   --duration 900 --clients 16 --workers 2 --concurrency 8 \

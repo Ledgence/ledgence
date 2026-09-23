@@ -4,8 +4,8 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "ledgence-client"
-version = "0.1.0"
-description = "An asynchronous Python client for Ledgence tasks"
+version = "0.1.1"
+description = "An asynchronous Python client for Ledgence tasks, workflows, and completion notifications"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -23,6 +23,13 @@ dependencies = [
   'typing-extensions==4.16.0; python_version < "3.13"',
   "yarl==1.24.5",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Ledgence/ledgence"
+Documentation = "https://github.com/Ledgence/ledgence/blob/main/sdk/python-client/README.md"
+Repository = "https://github.com/Ledgence/ledgence"
+Issues = "https://github.com/Ledgence/ledgence/issues"
+Changelog = "https://github.com/Ledgence/ledgence/releases"
 
 [project.optional-dependencies]
 otel = ["opentelemetry-api==1.44.0", "typing-extensions==4.16.0"]

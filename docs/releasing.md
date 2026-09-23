@@ -88,9 +88,9 @@ Check that:
   platform/runtime contract as the candidate.
 
 Only an explicitly selected, validated candidate should later be promoted to a
-stable version. The tooling deliberately provides no automated publishing or
-`main` promotion. Required legal notices do not require users to open-source
-their applications. See [dependency policy](dependencies.md) and
+stable version. The bundle tooling does not publish or promote `main`. Registry
+packages use the separate gated [registry release workflow](registry-packages.md).
+Required legal notices do not require users to open-source their applications. See [dependency policy](dependencies.md) and
 [local image distribution boundaries](local-deployment.md#qualification-and-distribution-boundary).
 
 ## Prepare a stable bundle offline
@@ -113,7 +113,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.1.0 --output /tmp/ledgence-stable
+  --version 0.1.1 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -129,7 +129,7 @@ without an `rc.N` suffix and receives its own outer checksum.
 The actual stable archive is extracted and smoke-tested again. Original build
 provenance stays intact, while promotion provenance records the release commit,
 source tree, original candidate digest and preserved payload inventory. This is
-an artifact preparation step; the intended `v0.1.0` tag, `main` promotion and public
+an artifact preparation step; the matching version tag, `main` promotion and public
 release remain separate decisions and operations. Preserve the candidate and its
 qualification reports alongside the new archive.
 
