@@ -14,6 +14,8 @@ use tokio::sync::{Mutex, Semaphore};
 
 #[path = "lifecycle/interactive.rs"]
 mod interactive;
+#[path = "lifecycle/observation.rs"]
+mod observation;
 
 #[derive(Default)]
 struct Counts {

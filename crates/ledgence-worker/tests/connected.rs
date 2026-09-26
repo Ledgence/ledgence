@@ -90,8 +90,24 @@ async fn next_request(
                 });
             }
             completed = readers.join_next(), if !readers.is_empty() => {
-                let (socket, request) = completed.unwrap().unwrap();
-                if let Some(request) = request { return (socket, request); }
+                let (mut socket, request) = completed.unwrap().unwrap();
+                if let Some((route, body)) = request {
+                    if route == "POST /v1/worker-observations HTTP/1.1" {
+                        let observation: ledgence_orchestration_api::console::WorkerObservationCommand =
+                            serde_json::from_value(body.clone()).unwrap();
+                        observation.validate().unwrap();
+                        assert_eq!(observation.worker_session_id, "session-connect");
+                        // Observation exchanges can be cancelled independently
+                        // while the test retains an execution-control request.
+                        let _ = try_reply(&mut socket, json!({
+                            "worker_session_id": body["worker_session_id"],
+                            "sequence": body["sequence"], "received_at": 1234,
+                            "already_received": false,
+                        })).await;
+                        continue;
+                    }
+                    return (socket, (route, body));
+                }
             }
         }
     }
@@ -250,8 +266,8 @@ async fn repeated_shutdown_wait_retains_unknown_acquisition_until_explicit_secon
     let transport = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         register(&mut socket, 1).await;
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let (route, _) = read_request(&mut socket).await;
+        let mut readers = JoinSet::new();
+        let (socket, (route, _)) = next_request(&listener, &mut readers).await;
         assert_eq!(route, "POST /v1/acquisitions HTTP/1.1");
         ready.send(()).unwrap();
         // Keep an actual response pending. The remote operation could have
@@ -389,8 +405,8 @@ async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait
     let transport = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         register(&mut socket, 1).await;
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let (route, body) = read_request(&mut socket).await;
+        let mut readers = JoinSet::new();
+        let (mut socket, (route, body)) = next_request(&listener, &mut readers).await;
         assert_eq!(route, "POST /v1/acquisitions HTTP/1.1");
         assert_eq!(body["wait_ms"], 20_000);
         // The clock for the new attempt starts only after this actual HTTP wait.
@@ -420,8 +436,7 @@ async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait
         }})).await;
         let mut settled = Some(settled);
         loop {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let (route, body) = read_request(&mut socket).await;
+            let (mut socket, (route, body)) = next_request(&listener, &mut readers).await;
             match route.as_str() {
                 "POST /v1/renewals HTTP/1.1" => {
                     assert_eq!(body["owner"], owner);

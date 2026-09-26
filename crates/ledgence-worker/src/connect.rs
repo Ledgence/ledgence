@@ -26,6 +26,7 @@ pub struct ConnectOptions {
     concurrency: usize,
     acquire_wait: Duration,
     delivery_config: Option<PathBuf>,
+    display_name: Option<String>,
 }
 
 impl ConnectOptions {
@@ -56,6 +57,7 @@ impl ConnectOptions {
             concurrency: number(options.remove("--concurrency"), 4, "concurrency")?,
             acquire_wait: Duration::from_millis(acquire_wait_ms),
             delivery_config: options.remove("--delivery-config").map(PathBuf::from),
+            display_name: options.remove("--display-name"),
         };
         check_empty(options)?;
         #[cfg(not(feature = "sqs"))]
@@ -66,6 +68,9 @@ impl ConnectOptions {
         }
         config.scope.validate().map_err(contract_error)?;
         validate_text(&config.queue, 128).map_err(contract_error)?;
+        if let Some(name) = &config.display_name {
+            validate_text(name, 128).map_err(contract_error)?;
+        }
         if config.concurrency > 1024 {
             return Err(input("concurrency must be at most 1024"));
         }
@@ -86,6 +91,14 @@ pub async fn run(
             .with_trace_bridge(trace.clone()),
     );
     let broker_source = prepare_broker(&config, client.clone(), signals, interrupted).await?;
+    // Reporting has its own bounded JSON executor and connection pool, so a slow
+    // observation exchange cannot consume execution-control admission.
+    let observation_client = Arc::new(
+        HttpTaskService::with_timeout(&config.server, Duration::from_secs(2))
+            .map_err(contract_error)?
+            .with_trace_bridge(trace.clone()),
+    );
+    let display_name = config.display_name.clone();
     let mut delivery_config = DeliveryConfig::new(config.scope, config.queue);
     delivery_config.acquire_wait = config.acquire_wait;
     // Retain blocking disk preparation while still observing both signals.
@@ -117,7 +130,9 @@ pub async fn run(
     }
     let mut driver = DeliveryDriver::new(worker, client.clone(), delivery_config)
         .map_err(contract_error)?
-        .with_workflows(client);
+        .with_workflows(client)
+        .with_observation_publisher(observation_client, display_name)
+        .map_err(contract_error)?;
     if let Some(source) = broker_source {
         driver = driver.with_acquisition_source(source);
     }
@@ -323,6 +338,29 @@ mod tests {
                 ConnectOptions::parse(options(Some(invalid))).is_err(),
                 "accepted {invalid}"
             );
+        }
+    }
+    #[test]
+    fn display_name_is_optional_explicit_and_bounded() {
+        assert!(
+            ConnectOptions::parse(options(None))
+                .unwrap()
+                .display_name
+                .is_none()
+        );
+        let mut named = options(None);
+        named.insert("--display-name".into(), "Billing worker".into());
+        assert_eq!(
+            ConnectOptions::parse(named)
+                .unwrap()
+                .display_name
+                .as_deref(),
+            Some("Billing worker")
+        );
+        for invalid in [String::new(), "x".repeat(129), "bad\nname".into()] {
+            let mut supplied = options(None);
+            supplied.insert("--display-name".into(), invalid);
+            assert!(ConnectOptions::parse(supplied).is_err());
         }
     }
     #[test]
