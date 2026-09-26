@@ -40,13 +40,14 @@ def run_browser_command(command, root, environment, directory):
             if code:
                 raise subprocess.CalledProcessError(code, command)
         finally:
+            # Clean children even when their launcher already exited. This
+            # group belongs exclusively to this invocation; never discover or
+            # terminate browser processes belonging to another task.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             if process.poll() is None:
-                # This group was created by this invocation; never discover or
-                # terminate browser processes belonging to another task.
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
                 process.wait(timeout=10)
 
 

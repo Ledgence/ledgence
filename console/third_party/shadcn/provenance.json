@@ -1,0 +1,38 @@
+{
+  "source_commit": "98a1fe67b439324ddc857f47fbdce056600a4329",
+  "license": "MIT",
+  "license_sha256": "1564074e13439397221ffd522e2e504d56561994a23d371aa5e3ad43e4f5423f",
+  "files": [
+    {
+      "source": "https://raw.githubusercontent.com/shadcn-ui/ui/98a1fe67b439324ddc857f47fbdce056600a4329/apps/v4/registry/new-york-v4/ui/button.tsx",
+      "sha256": "79dd6f75f8136394442202d6b8b922fb269eaad0a5dba579397c9d5b41f893bb",
+      "local": "src/components/ui/button.tsx"
+    },
+    {
+      "source": "https://raw.githubusercontent.com/shadcn-ui/ui/98a1fe67b439324ddc857f47fbdce056600a4329/apps/v4/registry/new-york-v4/ui/input.tsx",
+      "sha256": "0c9457181f6ddc80969bcf854e92c362903a55b6e889fbef3fd85343ecc4af5b",
+      "local": "src/components/ui/input.tsx"
+    },
+    {
+      "source": "https://raw.githubusercontent.com/shadcn-ui/ui/98a1fe67b439324ddc857f47fbdce056600a4329/apps/v4/registry/new-york-v4/ui/card.tsx",
+      "sha256": "ef8305b12c3112dab42a4708b41b1ebcc042fa5ab4c20f039da8d45b09ed5059",
+      "local": "src/components/ui/card.tsx"
+    },
+    {
+      "source": "https://raw.githubusercontent.com/shadcn-ui/ui/98a1fe67b439324ddc857f47fbdce056600a4329/apps/v4/registry/new-york-v4/ui/dialog.tsx",
+      "sha256": "2ade6074e5fad0a4eb171ead44c43d3301a3c83d186d7236fb1fdbea80ee556b",
+      "local": "src/components/ui/dialog.tsx"
+    },
+    {
+      "source": "https://raw.githubusercontent.com/shadcn-ui/ui/98a1fe67b439324ddc857f47fbdce056600a4329/apps/v4/registry/new-york-v4/ui/table.tsx",
+      "sha256": "bd1a9fc83a5a2149e504038e274bb7e5a0351af59f6896df52ac4d5b439695ac",
+      "local": "src/components/ui/table.tsx"
+    },
+    {
+      "source": "https://raw.githubusercontent.com/shadcn-ui/ui/98a1fe67b439324ddc857f47fbdce056600a4329/apps/v4/registry/new-york-v4/ui/skeleton.tsx",
+      "sha256": "f51ce0fcd31e5c31437382e80ea0af94b4fc3d64221d27091d36824546780a43",
+      "local": "src/components/ui/skeleton.tsx"
+    }
+  ],
+  "changes": "Replace Tailwind and class utility dependencies with Ledgence CSS; import individual Radix Dialog; native Button without asChild; static reduced-motion skeleton; retain semantic structure."
+}

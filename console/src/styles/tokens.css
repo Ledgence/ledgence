@@ -1,0 +1,67 @@
+/* SPDX-License-Identifier: MIT */
+:root {
+  color-scheme: light dark;
+  --bg: #fff;
+  --side: #f7f8fa;
+  --well: #f3f4f6;
+  --ink: #20252e;
+  --muted: #606b79;
+  --line: #dce0e7;
+  --hover: #eef0f4;
+  --primary: #20252e;
+  --on-primary: #fff;
+  --success: #386649;
+  --waiting: #795626;
+  --failure: #a33f48;
+  --focus: #516cbd;
+  --radius: 10px;
+  --motion: 150ms;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #15171c;
+  --side: #111318;
+  --well: #1e222a;
+  --ink: #edf0f5;
+  --muted: #aab3c1;
+  --line: #303743;
+  --hover: #242933;
+  --primary: #edf0f5;
+  --on-primary: #171a20;
+  --success: #a0c4ae;
+  --waiting: #d5bd92;
+  --failure: #e4a0a8;
+  --focus: #a9bdfa;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #15171c;
+    --side: #111318;
+    --well: #1e222a;
+    --ink: #edf0f5;
+    --muted: #aab3c1;
+    --line: #303743;
+    --hover: #242933;
+    --primary: #edf0f5;
+    --on-primary: #171a20;
+    --success: #a0c4ae;
+    --waiting: #d5bd92;
+    --failure: #e4a0a8;
+    --focus: #a9bdfa;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}
