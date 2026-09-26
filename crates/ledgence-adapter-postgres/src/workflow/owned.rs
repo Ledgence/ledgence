@@ -37,13 +37,16 @@ pub(super) async fn create_child(
         .root_workflow_id
         .as_deref()
         .unwrap_or(&parent.snapshot.workflow_id);
-    sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms,correlation_key,parent_workflow_id,root_workflow_id,nesting_depth) VALUES($1,$2,$3,$4,$5,$6,'running','start',$7,$8,$9,$10,$11,$12)")
+    sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms,correlation_key,parent_workflow_id,root_workflow_id,nesting_depth,queue) VALUES($1,$2,$3,$4,$5,$6,'running','start',$7,$8,$9,$10,$11,$12,$13)")
         .bind(&id).bind(&submission.input.tenant_id).bind(&submission.input.namespace).bind(&submission.idempotency_key)
         .bind(codec::encode(&submission)?).bind(codec::encode(descriptor)?).bind(codec::encode(&Value::Null)?).bind(codec::ms(now)?)
-        .bind(&submission.input.correlation_key).bind(&parent.snapshot.workflow_id).bind(root).bind((parent.nesting_depth + 1) as i32)
+        .bind(&submission.input.correlation_key).bind(&parent.snapshot.workflow_id).bind(root).bind((parent.nesting_depth + 1) as i32).bind(&submission.input.queue)
         .execute(&mut *connection).await?;
-    sqlx::query("INSERT INTO owned_workflow_links(parent_workflow_id,command_key,child_workflow_id,creating_activation_id) VALUES($1,$2,$3,$4)")
-        .bind(&parent.snapshot.workflow_id).bind(&command.key).bind(&id).bind(activation).execute(&mut *connection).await?;
+    let inserted = sqlx::query("INSERT INTO owned_workflow_links(parent_workflow_id,command_key,child_workflow_id,creating_activation_id,creating_revision) SELECT $1,$2,$3,$4,revision FROM workflow_activations WHERE activation_id=$4 AND workflow_id=$1")
+        .bind(&parent.snapshot.workflow_id).bind(&command.key).bind(&id).bind(activation).execute(&mut *connection).await?.rows_affected();
+    if inserted != 1 {
+        return Err(corrupt("missing owned creating activation").into());
+    }
     let mut child = load_run(connection, &parent.snapshot.scope, Some(&id), None, false).await?;
     let task = schedule_activation(connection, &mut child, BTreeMap::new(), None, now).await?;
     record_history(connection, &id, Some(&task.task_id), now, "started_owned").await?;

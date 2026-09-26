@@ -16,6 +16,10 @@ pub async fn run(
         .verify_schema()
         .await
         .map_err(|error| error.to_string())?;
+    store
+        .load_instance_binding()
+        .await
+        .map_err(|error| error.to_string())?;
     if !apply {
         let preview = store
             .retention_preview(scope, policy, Instant::now() + Duration::from_secs(30))

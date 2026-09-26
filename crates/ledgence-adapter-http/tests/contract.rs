@@ -1,5 +1,11 @@
 #![cfg(all(feature = "client", feature = "server"))]
 
+#[path = "contract/instance.rs"]
+mod instance;
+
+#[path = "contract/console.rs"]
+mod console;
+
 #[path = "contract/completion.rs"]
 mod completion;
 

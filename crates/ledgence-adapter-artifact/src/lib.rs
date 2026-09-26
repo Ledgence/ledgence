@@ -80,3 +80,15 @@ impl ArtifactLimits {
         Ok(())
     }
 }
+
+/// Verify an immutable program archive for explicit catalog registration. This
+/// checks the descriptor, manifest, paths, expansion and every member checksum,
+/// without extraction, execution or a host-target compatibility requirement.
+/// CPU-bound verification belongs on the caller's bounded blocking executor.
+pub fn verify_program_package(
+    bytes: Vec<u8>,
+    descriptor: &ProgramDescriptor,
+    limits: &ArtifactLimits,
+) -> ledgence_worker_api::Result<ledgence_worker_api::ProgramManifest> {
+    archive::verify_package(bytes, descriptor, limits).map_err(Into::into)
+}

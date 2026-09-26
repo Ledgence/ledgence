@@ -1,3 +1,16 @@
+# Frontend tooling is confined to this build stage. Only verified static files
+# and their retained third-party notices enter the CPython runtime image.
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS console-builder
+WORKDIR /src/console
+RUN corepack enable && corepack prepare pnpm@11.27.1 --activate
+COPY console/package.json console/pnpm-lock.yaml console/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile --ignore-scripts
+COPY console ./
+COPY LICENSE /src/LICENSE
+ARG SOURCE_REVISION
+ARG SOURCE_DIRTY
+RUN LEDGENCE_SOURCE_REVISION="$SOURCE_REVISION" LEDGENCE_SOURCE_DIRTY="$SOURCE_DIRTY" pnpm build
+
 # Locally built development/RC image. Base operating-system components retain
 # their own licenses; this Dockerfile is not an OCI redistribution approval.
 FROM python:3.14-slim-bookworm@sha256:82bc3c539b8813ada9d68c63b40158fa002f7f33de9bf3312a3dfdc0620dff56 AS python-runtime
@@ -23,6 +36,7 @@ LABEL org.opencontainers.image.title="Ledgence local candidate" \
 WORKDIR /opt/ledgence
 COPY --from=builder /src/target/release/ledgence /src/target/release/ledgence-worker /src/target/release/ledgence-orchestrator /usr/local/bin/
 COPY --from=builder /legal /opt/ledgence/legal
+COPY --from=console-builder /src/console/dist /opt/ledgence/console
 COPY sdk/python/ledgence /opt/ledgence/runtime/ledgence
 COPY deploy/local /opt/ledgence/local
 COPY examples/checkpoint-workflow /opt/ledgence/examples/checkpoint-workflow

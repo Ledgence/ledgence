@@ -101,6 +101,8 @@ def inspect_archive(archive, root, name, version, source_commit, allow_dirty):
     source = root / 'crates' / name
     expected = {str(p.relative_to(source)): p.read_bytes() for folder in ('src', 'tests')
                 for p in (source / folder).rglob('*.rs')}
+    expected.update({str(p.relative_to(source)): p.read_bytes()
+                     for p in (source / 'tests/fixtures').glob('*.json')})
     expected.update({p: (source / p).read_bytes() for p in ('README.md', 'LICENSE')})
     expected['Cargo.toml.orig'] = (source / 'Cargo.toml').read_bytes()
     require(set(contents) == set(expected) | {'Cargo.toml', 'Cargo.lock', '.cargo_vcs_info.json'},

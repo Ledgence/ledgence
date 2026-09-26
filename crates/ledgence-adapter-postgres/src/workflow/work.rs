@@ -35,6 +35,7 @@ impl PostgresStore {
                 tenant_id: row_scope.try_get("tenant_id")?,
                 namespace: row_scope.try_get("namespace")?,
             };
+            self.require_scope(&scope)?;
             let source = work_source(&mut tx, &row).await?;
             let activation = matches!(
                 source,
@@ -98,6 +99,7 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let snapshot = load_work_snapshot(&mut tx, &work.workflow_id).await?;
+        self.require_scope(&snapshot.scope)?;
         let Some(row) = lock_work(&mut tx, work).await? else {
             tx.commit().await?;
             return Ok(WorkflowProgress::default());
@@ -294,6 +296,7 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let mut run = load_work_run(&mut tx, &work.workflow_id, true).await?;
+        self.require_scope(&run.snapshot.scope)?;
         let Some(row) = lock_work(&mut tx, work).await? else {
             tx.commit().await?;
             return Ok(());
@@ -332,6 +335,7 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let mut run = load_work_run(&mut tx, &work.workflow_id, true).await?;
+        self.require_scope(&run.snapshot.scope)?;
         let Some(row) = lock_work(&mut tx, work).await? else {
             tx.commit().await?;
             return Ok(());

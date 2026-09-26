@@ -35,6 +35,7 @@ impl DispatchIntentStore for PostgresStore {
 impl PostgresStore {
     async fn configure_route_once(&self, route: &DispatchRoute) -> StoreResult<()> {
         route.validate()?;
+        self.require_scope(&route.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         sqlx::query("INSERT INTO dispatch_routes(tenant_id,namespace,queue) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
@@ -84,6 +85,18 @@ impl PostgresStore {
         }
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
+        if self.instance_scope.get().is_some() {
+            let row =
+                sqlx::query("SELECT tenant_id,namespace FROM dispatch_routes WHERE destination=$1")
+                    .bind(destination)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or(ContractError::NotFound)?;
+            self.require_scope(&Scope {
+                tenant_id: row.try_get("tenant_id")?,
+                namespace: row.try_get("namespace")?,
+            })?;
+        }
         let now = db::now(&mut tx).await?;
         let now_ms = codec::ms(now)?;
         let until =
@@ -117,6 +130,7 @@ impl PostgresStore {
                 lease_token: row.try_get("lease_token")?,
             };
             lease.validate()?;
+            self.require_scope(&lease.record.dispatch.scope)?;
             leases.push(lease);
         }
         tx.commit().await?;
@@ -136,6 +150,7 @@ impl PostgresStore {
         let mut identities = std::collections::HashSet::new();
         for item in completions {
             item.validate()?;
+            self.require_scope(&item.dispatch.scope)?;
             if !identities.insert((
                 &item.dispatch.task_id,
                 &item.publication_id,

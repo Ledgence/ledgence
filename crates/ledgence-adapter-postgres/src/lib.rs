@@ -3,18 +3,24 @@
 //! Migrations are explicit. Successful mutations commit before returning; a
 //! connection failure during commit must be reconciled with the same command.
 
+mod catalog;
 mod codec;
 mod completion;
+mod console;
 mod delivery;
 mod discovery;
 mod dispatch_claim;
 mod dispatch_intents;
+mod instance;
+#[cfg(test)]
+mod instance_db_tests;
 mod migration;
 mod notifications;
 mod persistence;
 mod retention;
 mod storage;
 mod transaction;
+mod worker_observations;
 mod workflow;
 
 use ledgence_orchestration_api::*;
@@ -55,6 +61,7 @@ impl Default for PostgresOptions {
 #[derive(Clone)]
 pub struct PostgresStore {
     pool: PgPool,
+    instance_scope: Arc<std::sync::OnceLock<Scope>>,
     operation_timeout: Duration,
     trace_bridge: Arc<dyn TraceBridge>,
     acquisition_wake: Arc<notifications::WakeDispatch>,
@@ -95,12 +102,18 @@ impl PostgresStore {
                 "this adapter supports PostgreSQL 18".into(),
             ));
         }
-        Ok(Self {
+        let store = Self {
             pool,
+            instance_scope: Arc::new(std::sync::OnceLock::new()),
             operation_timeout: options.operation_timeout,
             trace_bridge: Arc::new(NoopTraceBridge),
             acquisition_wake: Arc::new(notifications::WakeDispatch::default()),
-        })
+        };
+        if let Err(error) = store.load_instance_binding().await {
+            store.close().await;
+            return Err(error);
+        }
+        Ok(store)
     }
 
     /// Instrument genuinely new invocation allocations. Durable replays retain
@@ -328,3 +341,6 @@ mod migration_db_tests;
 
 #[cfg(test)]
 mod metrics_db_tests;
+
+#[cfg(test)]
+mod catalog_tests;

@@ -1785,5 +1785,8 @@ async fn malformed_initial_dispatch_stops_execution_and_reconciles_exact_sent_co
 #[path = "delivery/broker.rs"]
 mod broker;
 
+#[path = "delivery/observations.rs"]
+mod observations;
+
 #[path = "delivery/sqs.rs"]
 mod sqs;

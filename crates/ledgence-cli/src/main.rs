@@ -29,12 +29,19 @@ fn main() -> ExitCode {
         Ok(command) => command,
         Err(error) => return diagnose(error, None),
     };
-    let Command::Task { server, operation } = command else {
-        return if std::io::stdout().write_all(HELP.as_bytes()).is_ok() {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::FAILURE
-        };
+    let (server, operation) = match command {
+        Command::Task { server, operation } => (server, RunOperation::Task(operation)),
+        Command::Program {
+            server,
+            registration,
+        } => (server, RunOperation::Program(registration)),
+        Command::Help => {
+            return if std::io::stdout().write_all(HELP.as_bytes()).is_ok() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
+        }
     };
     let mut logs = match logging::Logs::stderr() {
         Ok(logs) => logs,
@@ -75,9 +82,14 @@ fn main() -> ExitCode {
     result
 }
 
+enum RunOperation {
+    Task(Operation),
+    Program(ledgence_orchestration_api::console::RegisterProgram),
+}
+
 fn run_task(
     server: &str,
-    operation: Operation,
+    operation: RunOperation,
     trace: Arc<dyn ledgence_worker_api::TraceBridge>,
     sink: &logging::Sink,
 ) -> ExitCode {
@@ -106,7 +118,12 @@ fn run_task(
             );
         }
     };
-    let result = runtime.block_on(execute(&client, operation));
+    let result = runtime.block_on(async {
+        match operation {
+            RunOperation::Task(operation) => execute(&client, operation).await,
+            RunOperation::Program(command) => encode(client.register_program(&command).await?),
+        }
+    });
     let request_id = request_id
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

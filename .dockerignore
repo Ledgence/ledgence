@@ -5,3 +5,12 @@ target
 **/*.pyc
 .venv
 release-artifacts
+
+console/node_modules
+console/dist
+console/test-results
+console/playwright-report
+docs-site/node_modules
+docs-site/dist
+console/.vitest-attachments
+console/public/notices

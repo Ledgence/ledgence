@@ -15,18 +15,25 @@ additional Python artifact and execution qualification before this combined
 bundle can be produced. A pure Python client wheel alone does not demonstrate
 compatibility of its native transitive dependencies on an untested target.
 
-After the quality gates pass and the source is committed:
+After the quality gates pass and the source is committed, explicitly build
+Console with its pinned toolchain. The prepared dist must name that exact clean
+commit, version, toolchain and lock hash. Packaging never downloads Node or starts
+an implicit frontend install. Supply `LEDGENCE_POSTGRES_URL` for the disposable
+relocated Console database gate (and `LEDGENCE_PSQL` if psql is a wrapper):
 
 ```sh
-python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc
+pnpm --dir console build
+python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc --console-dist console/dist
 ```
 
 For a prepopulated reviewed wheelhouse and Cargo cache:
 
 ```sh
 python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc-offline \
-  --wheelhouse /path/to/reviewed/wheelhouse --offline
+  --wheelhouse /path/to/reviewed/wheelhouse --offline --console-dist /path/to/prepared/console-dist
 ```
+
+Use `--headless` instead of `--console-dist` to explicitly omit web assets. A headless bundle makes no Console distribution claim. Offline mode requires the prepared, reviewed static build as well as Cargo/Python caches; it never silently fetches frontend dependencies.
 
 The output directory must be new and outside checkout. The tool builds optimized
 binaries with `--locked`, packages the worker helper, rebuilds the SDK wheel from
@@ -38,6 +45,7 @@ process. It rejects a changed or dirty source tree before finalizing.
 The archive contains:
 
 - `bin/ledgence`, `bin/ledgence-orchestrator`, `bin/ledgence-worker`;
+- `console/` containing verified static assets, manifest and retained notices (unless explicitly headless);
 - `runtime/ledgence/worker/`, preserving the native Python namespace;
 - `python-client/` with the tested wheel and source distribution;
 - `examples/local-compose-client.py`, an installed-SDK companion for the published local Compose programs;
@@ -46,7 +54,7 @@ The archive contains:
   and a checksum inventory for every included file.
 
 The actual archive is extracted, its complete file inventory and checksums verified,
-and its relocated binaries/helper executed again before the tool reports success.
+and its relocated binaries/helper executed again before the tool reports success. A Console bundle additionally starts its extracted orchestrator against a uniquely created disposable PostgreSQL database and verifies all assets, notices, deep links and actual Console APIs.
 You can repeat this check with `python3 tools/release/verify.py --archive ARCHIVE`.
 
 The release directory has an outer `SHA256SUMS` for the archive. After extracting,
@@ -122,7 +130,7 @@ that digest, the original normalized archive modes, and every internal checksum
 before repackaging. It changes only the
 bundle README, `provenance.json`, and internal `SHA256SUMS`; it adds the unchanged
 original `candidate-provenance.json` and `promotion-payload-sha256.json`. All other
-files, including executables, wheel, sdist, helper, documentation and legal files,
+files, including Console assets/manifest/notices, executables, wheel, sdist, helper, documentation and legal files,
 must keep identical bytes and modes. The stable archive uses a version/target root
 without an `rc.N` suffix and receives its own outer checksum.
 

@@ -13,23 +13,26 @@ expose this configuration as a public multi-tenant service.
 
 ## Start and run the example
 
-Install Docker Engine or Docker Desktop with Compose v2 supporting `up --wait`.
+Install Docker Engine or Docker Desktop with Compose v2.23.1 or newer, supporting `up --wait` and inline configs.
 Use a Linux container platform (`linux/amd64` or `linux/arm64`). The build uses
 pinned image digests, Rust 1.98.1, the committed Cargo lock, and CPython 3.14.
-The initial build needs access to the image registry and crates.io. Rust and
+A separate pinned Node 24.21.0/pnpm 11.27.1 build stage produces the static Console. Node and node_modules are excluded from the runtime. The initial build needs access to the image registry, npm and crates.io. Rust and
 Python do not need to be installed on the host for this example.
 
 From the repository root:
 
 ```sh
 export LEDGENCE_SOURCE_REVISION="$(git rev-parse HEAD)"
+export LEDGENCE_SOURCE_DIRTY="$(test -z "$(git status --porcelain)" && echo false || echo true)"
 docker compose -f deploy/local/compose.yaml build
 docker compose -f deploy/local/compose.yaml up -d --wait --wait-timeout 120
 docker compose -f deploy/local/compose.yaml run --rm --no-deps publish
 docker compose -f deploy/local/compose.yaml run --rm --no-deps demo
 ```
 
-The example publishes three platform-correct immutable program packages. It
+Open [Console](http://127.0.0.1:8080/console/) after startup. Its server-owned instance config binds this demo to the existing `acme/demo` compatibility scope. Legacy workers/SDK requests must match; the browser has no scope selector.
+
+The example publishes and then explicitly registers three platform-correct immutable program packages. Registration failures leave the immutable artifact intact; repeat publish/registration to reconcile. It
 submits two invoice tasks, checks that their healthy Python process is reused,
 then runs a checkpoint workflow with four concurrent local I/O steps and a
 distributed summary task. The workflow releases the single worker slot while
@@ -43,7 +46,7 @@ runtime's concurrency defaults to **one** for the demo's reuse assertion; set
 `LEDGENCE_CONCURRENCY` before startup for ordinary operation, but run this
 particular acceptance example at one slot.
 
-The public API is `http://127.0.0.1:8080`. Set `LEDGENCE_HTTP_PORT` before `up` to
+The public API is `http://127.0.0.1:8080`; Console is under `/console/`. Set `LEDGENCE_HTTP_PORT` before `up` to
 choose another host port. Install the published client in a Python 3.11+ virtual
 environment with `python -m pip install "ledgence-client==0.1.1"`, then use:
 

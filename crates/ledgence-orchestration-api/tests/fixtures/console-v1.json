@@ -1,0 +1,593 @@
+{
+  "activations": {
+    "items": [
+      {
+        "activation_id": "task_controller_1",
+        "applied_at": 1790409600000,
+        "error": null,
+        "revision": "9007199254740993",
+        "state": "succeeded",
+        "task_id": "task_controller_1",
+        "workflow_id": "wf_invoice_1042"
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "attempt_detail": {
+    "application_error": null,
+    "attempt": {
+      "attempt_id": "att_invoice_1",
+      "claimed_at": 1790409600000,
+      "consumer_id": 0,
+      "dispatch_authorized_at": 1790409600001,
+      "execution_may_have_started": true,
+      "finished_at": 1790409600100,
+      "generation": 1,
+      "quiescence": "confirmed",
+      "state": "succeeded",
+      "task_id": "task_invoice_1042",
+      "worker_session_id": "ws_demo"
+    },
+    "cleanup_error": null,
+    "descriptor": {
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "program": {
+        "id": "invoice-issuer",
+        "version": "release-a"
+      },
+      "size": "4096"
+    },
+    "error": null,
+    "observed_at": 1790409600100,
+    "phase": null,
+    "process_id": 1042,
+    "process_instance_id": null,
+    "reused_process": false,
+    "worker_elapsed_ms": "100"
+  },
+  "attempts": {
+    "items": [
+      {
+        "attempt_id": "att_invoice_1",
+        "claimed_at": 1790409600000,
+        "consumer_id": 0,
+        "dispatch_authorized_at": 1790409600001,
+        "execution_may_have_started": true,
+        "finished_at": 1790409600100,
+        "generation": 1,
+        "quiescence": "confirmed",
+        "state": "succeeded",
+        "task_id": "task_invoice_1042",
+        "worker_session_id": "ws_demo"
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600100
+  },
+  "children": {
+    "items": [
+      {
+        "command_key": "issue",
+        "consumed": false,
+        "creating_activation_id": "task_controller_1",
+        "creating_revision": "9007199254740993",
+        "kind": "task",
+        "target_id": "task_child_1",
+        "task_state": "queued",
+        "workflow_id": "wf_invoice_1042",
+        "workflow_state": null
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "config": {
+    "capabilities": {
+      "executions": true,
+      "programs": true,
+      "workers": true,
+      "workflows": true
+    },
+    "contract_version": 1,
+    "instance_id": "instance_demo",
+    "instance_name": "Ledgence",
+    "limits": {
+      "default_page_size": 50,
+      "input_max_bytes": 1048576,
+      "max_detailed_worker_slots": 1024,
+      "max_page_size": 100,
+      "max_visible_workflow_nodes": 100,
+      "metadata_max_bytes": 2097152,
+      "submission_max_bytes": 2097152
+    },
+    "polling": {
+      "active_task_ms": 2000,
+      "catalog_stale_ms": 60000,
+      "lists_ms": 5000,
+      "waiting_workflow_ms": 5000,
+      "worker_fresh_ms": 15000,
+      "worker_recent_ms": 60000,
+      "workers_ms": 5000
+    },
+    "server_version": "0.1.1",
+    "suggested_queues": [
+      "billing"
+    ]
+  },
+  "contract_version": 1,
+  "local_steps": {
+    "items": [
+      {
+        "accepted_at": 1790409600000,
+        "activation_id": "task_controller_1",
+        "attempt_id": "att_controller_1",
+        "callable": "billing.lookup",
+        "step_key": "lookup",
+        "workflow_id": "wf_invoice_1042"
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "null_result": {
+    "observed_at": 1790409600100,
+    "outcome": {
+      "attempt_id": "att_invoice_1",
+      "execution_may_have_started": true,
+      "kind": "succeeded",
+      "output": null,
+      "quiescence": "confirmed"
+    },
+    "task": {
+      "attempt_count": 1,
+      "available_at": 1790409600000,
+      "cancel_requested_at": null,
+      "correlation_key": "INV-1042",
+      "current_attempt_id": null,
+      "latest_attempt_id": "att_invoice_1",
+      "queue": "billing",
+      "run_id": "run_invoice_1042",
+      "state": "succeeded",
+      "submitted_at": 1790409600000,
+      "task_id": "task_invoice_1042",
+      "terminal_at": 1790409600100,
+      "workflow_activation_id": null,
+      "workflow_id": null
+    }
+  },
+  "numeric_payload": {
+    "float": 1.0,
+    "integer": 1,
+    "large": 9007199254740993,
+    "maximum": 18446744073709551615,
+    "negative_zero": -0.0,
+    "nested": [
+      -9223372036854775808
+    ]
+  },
+  "pending_result": {
+    "observed_at": 1790409600000,
+    "outcome": null,
+    "task": {
+      "attempt_count": 0,
+      "available_at": 1790409600000,
+      "cancel_requested_at": null,
+      "correlation_key": "INV-1042",
+      "current_attempt_id": null,
+      "latest_attempt_id": null,
+      "queue": "billing",
+      "run_id": "run_invoice_1042",
+      "state": "queued",
+      "submitted_at": 1790409600000,
+      "task_id": "task_invoice_1042",
+      "terminal_at": null,
+      "workflow_activation_id": null,
+      "workflow_id": null
+    }
+  },
+  "program_detail": {
+    "observed_at": 1790409600000,
+    "version": {
+      "descriptor": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "invoice-issuer",
+          "version": "release-a"
+        },
+        "size": "4096"
+      },
+      "manifest": {
+        "handler": "app:handle",
+        "platform": {
+          "arch": "x86_64",
+          "os": "linux"
+        },
+        "program": {
+          "id": "invoice-issuer",
+          "version": "release-a"
+        },
+        "runtime": {
+          "kind": "python",
+          "protocol": 1,
+          "python": "3.12"
+        },
+        "schema_version": 1
+      },
+      "metadata": {
+        "description": "Issue an invoice from the supplied event.",
+        "display_name": "Invoice issuer",
+        "kind": "task"
+      },
+      "provenance": "configured_program_store",
+      "registered_at": 1790409600000
+    }
+  },
+  "program_receipt": {
+    "already_registered": false,
+    "metadata_updated": false,
+    "version": {
+      "descriptor": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "invoice-issuer",
+          "version": "release-a"
+        },
+        "size": "4096"
+      },
+      "manifest": {
+        "handler": "app:handle",
+        "platform": {
+          "arch": "x86_64",
+          "os": "linux"
+        },
+        "program": {
+          "id": "invoice-issuer",
+          "version": "release-a"
+        },
+        "runtime": {
+          "kind": "python",
+          "protocol": 1,
+          "python": "3.12"
+        },
+        "schema_version": 1
+      },
+      "metadata": {
+        "description": "Issue an invoice from the supplied event.",
+        "display_name": "Invoice issuer",
+        "kind": "task"
+      },
+      "provenance": "configured_program_store",
+      "registered_at": 1790409600000
+    }
+  },
+  "program_versions": {
+    "items": [
+      {
+        "descriptor": {
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "program": {
+            "id": "invoice-issuer",
+            "version": "release-a"
+          },
+          "size": "4096"
+        },
+        "manifest": {
+          "handler": "app:handle",
+          "platform": {
+            "arch": "x86_64",
+            "os": "linux"
+          },
+          "program": {
+            "id": "invoice-issuer",
+            "version": "release-a"
+          },
+          "runtime": {
+            "kind": "python",
+            "protocol": 1,
+            "python": "3.12"
+          },
+          "schema_version": 1
+        },
+        "metadata": {
+          "description": "Issue an invoice from the supplied event.",
+          "display_name": "Invoice issuer",
+          "kind": "task"
+        },
+        "provenance": "configured_program_store",
+        "registered_at": 1790409600000
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "programs": {
+    "items": [
+      {
+        "last_registered_at": 1790409600000,
+        "metadata": {
+          "description": "Issue an invoice from the supplied event.",
+          "display_name": "Invoice issuer",
+          "kind": "task"
+        },
+        "program_id": "invoice-issuer",
+        "registered_versions": "1"
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "task_detail": {
+    "attempt_count": 0,
+    "available_at": 1790409600000,
+    "cancel_requested_at": null,
+    "current_attempt_id": null,
+    "descriptor": {
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "program": {
+        "id": "invoice-issuer",
+        "version": "release-a"
+      },
+      "size": "4096"
+    },
+    "idempotency_key": "issue:INV-1042",
+    "input": {
+      "attempt_timeout_ms": 300000,
+      "correlation_key": "INV-1042",
+      "data": {
+        "float": 1.0,
+        "integer": 1,
+        "large": 9007199254740993,
+        "maximum": 18446744073709551615,
+        "negative_zero": -0.0,
+        "nested": [
+          -9223372036854775808
+        ]
+      },
+      "program": {
+        "id": "invoice-issuer",
+        "version": "release-a"
+      },
+      "queue": "billing",
+      "retry_policy": {
+        "max_attempts": 3,
+        "retry_delay_ms": 5000
+      }
+    },
+    "observed_at": 1790409600000,
+    "origin_trace": null,
+    "parent_workflow_id": null,
+    "root_workflow_id": null,
+    "run_id": "run_invoice_1042",
+    "state": "queued",
+    "submitted_at": 1790409600000,
+    "task_id": "task_invoice_1042",
+    "terminal_at": null,
+    "workflow_activation_id": null,
+    "workflow_id": null
+  },
+  "task_status": {
+    "observed_at": 1790409600000,
+    "task": {
+      "attempt_count": 0,
+      "available_at": 1790409600000,
+      "cancel_requested_at": null,
+      "correlation_key": "INV-1042",
+      "current_attempt_id": null,
+      "latest_attempt_id": null,
+      "queue": "billing",
+      "run_id": "run_invoice_1042",
+      "state": "queued",
+      "submitted_at": 1790409600000,
+      "task_id": "task_invoice_1042",
+      "terminal_at": null,
+      "workflow_activation_id": null,
+      "workflow_id": null
+    }
+  },
+  "tasks": {
+    "items": [
+      {
+        "descriptor": {
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "program": {
+            "id": "invoice-issuer",
+            "version": "release-a"
+          },
+          "size": "4096"
+        },
+        "task": {
+          "attempt_count": 0,
+          "available_at": 1790409600000,
+          "cancel_requested_at": null,
+          "correlation_key": "INV-1042",
+          "current_attempt_id": null,
+          "latest_attempt_id": null,
+          "queue": "billing",
+          "run_id": "run_invoice_1042",
+          "state": "queued",
+          "submitted_at": 1790409600000,
+          "task_id": "task_invoice_1042",
+          "terminal_at": null,
+          "workflow_activation_id": null,
+          "workflow_id": null
+        }
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "waits": {
+    "child_wait": {
+      "activation_id": "task_controller_1",
+      "command_keys": [
+        "issue"
+      ]
+    },
+    "page": {
+      "items": [],
+      "next_cursor": null,
+      "observed_at": 1790409600000
+    },
+    "revision": "9007199254740993"
+  },
+  "worker_detail": {
+    "slots": {
+      "items": [
+        {
+          "attempt_id": null,
+          "consumer_id": null,
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "link_diagnostic": null,
+          "process_id": 1042,
+          "process_instance_id": "process_1",
+          "program": {
+            "id": "invoice-issuer",
+            "version": "release-a"
+          },
+          "slot_id": 0,
+          "state": "warm",
+          "task_id": null
+        },
+        {
+          "attempt_id": null,
+          "consumer_id": null,
+          "digest": null,
+          "link_diagnostic": null,
+          "process_id": null,
+          "process_instance_id": null,
+          "program": null,
+          "slot_id": 1,
+          "state": "empty",
+          "task_id": null
+        }
+      ],
+      "next_cursor": null,
+      "observed_at": 1790409600000
+    },
+    "worker": {
+      "accepting": true,
+      "active_consumers": 0,
+      "capacity": 2,
+      "detail_state": "available",
+      "display_name": "Local Python worker",
+      "freshness": "fresh",
+      "occupied_process_slots": 1,
+      "queue": "billing",
+      "received_at": 1790409600000,
+      "session_expired": false,
+      "session_expires_at": 1790496000000,
+      "snapshot_sequence": "9007199254740993",
+      "worker_session_id": "ws_demo"
+    }
+  },
+  "workers": {
+    "items": [
+      {
+        "accepting": true,
+        "active_consumers": 0,
+        "capacity": 2,
+        "detail_state": "available",
+        "display_name": "Local Python worker",
+        "freshness": "fresh",
+        "occupied_process_slots": 1,
+        "queue": "billing",
+        "received_at": 1790409600000,
+        "session_expired": false,
+        "session_expires_at": 1790496000000,
+        "snapshot_sequence": "9007199254740993",
+        "worker_session_id": "ws_demo"
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "workflow_detail": {
+    "child_wait": {
+      "activation_id": "task_controller_1",
+      "command_keys": [
+        "issue"
+      ]
+    },
+    "continuation": "after_invoice",
+    "external_wait_key": null,
+    "observed_at": 1790409600000,
+    "summary": {
+      "controller": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "invoice-issuer",
+          "version": "release-a"
+        },
+        "size": "4096"
+      },
+      "queue": "billing",
+      "workflow": {
+        "activation_id": null,
+        "correlation_key": "INV-1042",
+        "parent_workflow_id": null,
+        "revision": "9007199254740993",
+        "root_workflow_id": null,
+        "state": "waiting",
+        "submitted_at": 1790409600000,
+        "terminal_at": null,
+        "workflow_id": "wf_invoice_1042"
+      }
+    }
+  },
+  "workflow_history": {
+    "items": [
+      {
+        "activation_id": "task_controller_1",
+        "at": 1790409600000,
+        "reason": "waiting",
+        "sequence": "9007199254740993",
+        "workflow_id": "wf_invoice_1042"
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  },
+  "workflow_status": {
+    "observed_at": 1790409600000,
+    "workflow": {
+      "activation_id": null,
+      "correlation_key": "INV-1042",
+      "parent_workflow_id": null,
+      "revision": "9007199254740993",
+      "root_workflow_id": null,
+      "state": "waiting",
+      "submitted_at": 1790409600000,
+      "terminal_at": null,
+      "workflow_id": "wf_invoice_1042"
+    }
+  },
+  "workflows": {
+    "items": [
+      {
+        "controller": {
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "program": {
+            "id": "invoice-issuer",
+            "version": "release-a"
+          },
+          "size": "4096"
+        },
+        "queue": "billing",
+        "workflow": {
+          "activation_id": null,
+          "correlation_key": "INV-1042",
+          "parent_workflow_id": null,
+          "revision": "9007199254740993",
+          "root_workflow_id": null,
+          "state": "waiting",
+          "submitted_at": 1790409600000,
+          "terminal_at": null,
+          "workflow_id": "wf_invoice_1042"
+        }
+      }
+    ],
+    "next_cursor": null,
+    "observed_at": 1790409600000
+  }
+}

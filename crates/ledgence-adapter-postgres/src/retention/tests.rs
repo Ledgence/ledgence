@@ -868,7 +868,7 @@ async fn journal_pages_resume_after_rollback_and_reopen_without_skipping_results
         .execute(&db.store.pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms) SELECT activation_id,'extra_'||n,record_bytes,attempt_id,accepted_at_ms FROM workflow_local_results CROSS JOIN generate_series(1,6) n").execute(&db.store.pool).await.unwrap();
+    sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable) SELECT activation_id,'extra_'||n,record_bytes,attempt_id,accepted_at_ms,callable FROM workflow_local_results CROSS JOIN generate_series(1,6) n").execute(&db.store.pool).await.unwrap();
     rounds(&db.store, 6, 2).await;
     let mut tx = db.store.pool.begin().await.unwrap();
     let mut progress = RetentionProgress::default();

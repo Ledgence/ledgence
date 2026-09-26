@@ -9,6 +9,7 @@ impl PostgresStore {
     ) -> StoreResult<WorkflowEventReceipt> {
         command.validate()?;
         let bytes = codec::encode(&command.event)?;
+        self.require_scope(&command.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         // Read only coordination metadata, not the workflow's program, input or

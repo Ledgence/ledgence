@@ -8,7 +8,7 @@ impl PostgresStore {
         command: &AcquireCommand,
         finish_empty: bool,
     ) -> StoreResult<AcquisitionProbe> {
-        command.scope.validate()?;
+        self.require_scope(&command.scope)?;
         validate_text(&command.worker_session_id, 128)?;
         validate_text(&command.queue, 128)?;
         let mut connection = self.transaction_connection().await?;
@@ -196,7 +196,7 @@ impl PostgresStore {
 
     pub(crate) async fn renew_once(&self, command: &RenewCommand) -> StoreResult<Authority> {
         let owner = &command.owner;
-        owner.scope.validate()?;
+        self.require_scope(&owner.scope)?;
         validate_text(&owner.worker_session_id, 128)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
@@ -228,7 +228,7 @@ impl PostgresStore {
 
     pub(crate) async fn settle_once(&self, command: &SettleCommand) -> StoreResult<SettleReply> {
         let owner = &command.owner;
-        owner.scope.validate()?;
+        self.require_scope(&owner.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let task = db::load_task(&mut tx, &owner.scope, &owner.task_id, true).await?;
@@ -251,6 +251,7 @@ impl PostgresStore {
             .await?
             .ok_or(ContractError::UnknownSession)?;
         let session = codec::session(&row)?;
+        self.require_session_scope(&session.scope)?;
         if db::now(tx).await? >= session.expires_at {
             return Err(ContractError::SessionExpired.into());
         }
@@ -271,6 +272,7 @@ impl PostgresStore {
             return Ok(false);
         };
         let task = codec::task(&row)?;
+        self.require_scope(&task.scope())?;
         let id = task
             .current_attempt_id
             .as_ref()

@@ -13,7 +13,7 @@ services:
       elasticmq: {condition: service_started}
     restart: "no"
   orchestrator:
-    command: [ledgence-orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --delivery-config, /opt/ledgence/local/delivery.json]
+    command: [ledgence-orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --delivery-config, /opt/ledgence/local/delivery.json, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console]
     environment:
       AWS_ACCESS_KEY_ID: ledgence-local
       AWS_SECRET_ACCESS_KEY: ledgence-local

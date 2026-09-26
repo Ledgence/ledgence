@@ -6,6 +6,7 @@
 //! on service expiry/retry; this driver has no local durable recovery journal.
 
 mod attempt;
+mod observations;
 mod renewal;
 mod source;
 mod workflow;
@@ -145,6 +146,7 @@ pub struct DeliveryDriver {
     workflows: Option<Arc<dyn WorkflowService>>,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
+    observations: Option<observations::ObservationReporting>,
 }
 impl DeliveryDriver {
     pub fn new(
@@ -164,7 +166,24 @@ impl DeliveryDriver {
             service,
             workflows: None,
             config,
+            observations: None,
         })
+    }
+    /// Attach optional best-effort reporting without changing execution authority.
+    /// The publisher should have independent transport resource limits.
+    pub fn with_observation_publisher(
+        mut self,
+        publisher: Arc<dyn ledgence_orchestration_api::console::WorkerObservationPublisher>,
+        display_name: Option<String>,
+    ) -> Result<Self> {
+        if let Some(name) = &display_name {
+            validate_text(name, 128)?;
+        }
+        self.observations = Some(observations::ObservationReporting {
+            publisher,
+            display_name,
+        });
+        Ok(self)
     }
     /// Supply the optional workflow control port used only by marked activations.
     pub fn with_workflows(mut self, service: Arc<dyn WorkflowService>) -> Self {
@@ -207,6 +226,7 @@ impl DeliveryDriver {
     }
     async fn run(self, shared: Arc<Shared>) {
         let session = self.open(&shared).await;
+        let mut reporting = None;
         let mut consumers = Vec::new();
         let maintenance_done = Arc::new(AtomicBool::new(false));
         let mut maintenance = None;
@@ -233,6 +253,9 @@ impl DeliveryDriver {
             }
         });
         if let Some(session) = session {
+            if let Some(observations) = self.observations {
+                reporting = Some(observations.start(self.worker.clone(), session.clone()));
+            }
             shared
                 .status
                 .lock()
@@ -313,6 +336,8 @@ impl DeliveryDriver {
         if !cleanup_finished {
             cleanup.await;
         }
+        // Signals a final attempt without waiting on observation network I/O.
+        drop(reporting);
     }
     async fn open(&self, shared: &Shared) -> Option<WorkerSession> {
         while !shared.stopping() {

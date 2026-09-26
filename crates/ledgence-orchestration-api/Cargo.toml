@@ -10,7 +10,7 @@ readme = "README.md"
 documentation = "https://docs.rs/ledgence-orchestration-api"
 keywords = ["orchestration", "workflow", "worker", "cloudevents"]
 categories = ["asynchronous"]
-include = ["src/**/*.rs", "tests/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "tests/**/*.rs", "tests/fixtures/*.json", "Cargo.toml", "README.md", "LICENSE"]
 description = "Portable task delivery and orchestration contracts"
 
 [dependencies]
