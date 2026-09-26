@@ -1,0 +1,188 @@
+use ledgence_orchestration_api::{console::*, *};
+use serde_json::{Value, json};
+#[allow(dead_code)]
+#[path = "support/console_fixtures.rs"]
+mod fixture;
+
+fn scope() -> Scope {
+    Scope {
+        tenant_id: "acme".into(),
+        namespace: "billing".into(),
+    }
+}
+#[test]
+fn committed_fixtures_are_serialized_from_rust_contracts() {
+    let actual = serde_json::to_string_pretty(&fixture::fixtures()).unwrap() + "\n";
+    assert_eq!(
+        actual,
+        include_str!("fixtures/console-v1.json"),
+        "regenerate with cargo run -p ledgence-orchestration-api --example console-fixtures -- --write"
+    );
+    let data = fixture::fixtures();
+    let page: ConsolePage<ConsoleTaskSummary> =
+        serde_json::from_value(data["tasks"].clone()).unwrap();
+    let query = ConsoleQuery::Tasks {
+        filters: TaskFilters::default(),
+        page: ConsolePagination::default(),
+    };
+    ConsoleQueryReply::Tasks(page)
+        .validate(&scope(), &query)
+        .unwrap();
+    assert!(data["pending_result"]["outcome"].is_null());
+    assert_eq!(data["null_result"]["outcome"]["kind"], "succeeded");
+    assert!(data["null_result"]["outcome"]["output"].is_null());
+}
+#[test]
+fn unsigned_wire_values_are_canonical_strings() {
+    assert_eq!(
+        serde_json::to_string(&ConsoleU64(u64::MAX)).unwrap(),
+        "\"18446744073709551615\""
+    );
+    for invalid in [
+        r#"0"#,
+        r#""01""#,
+        r#""+1""#,
+        r#""-1""#,
+        r#""1.0""#,
+        r#""18446744073709551616""#,
+    ] {
+        assert!(
+            serde_json::from_str::<ConsoleU64>(invalid).is_err(),
+            "{invalid}"
+        );
+    }
+}
+#[test]
+fn cursor_binds_scope_endpoint_parent_filters_and_position_type() {
+    let page = ConsolePagination {
+        limit: 1,
+        cursor: None,
+    };
+    let query = ConsoleQuery::Attempts {
+        task_id: "task_a".into(),
+        page: page.clone(),
+    };
+    let binding = query.binding(&scope()).unwrap();
+    let position = vec![
+        ConsoleKey::Number(ConsoleU64(7)),
+        ConsoleKey::Text("attempt_7".into()),
+    ];
+    let cursor = page.next_cursor(&binding, &position).unwrap();
+    let page = ConsolePagination {
+        limit: 100,
+        cursor: Some(cursor),
+    };
+    assert_eq!(page.validate(&binding).unwrap(), Some(position));
+    let mut changed = binding.clone();
+    changed.scope.namespace = "other".into();
+    assert!(page.validate(&changed).is_err());
+    changed = binding.clone();
+    changed.endpoint = "workflows/activations";
+    assert!(page.validate(&changed).is_err());
+    changed = binding.clone();
+    changed.parent = vec!["task_b".into()];
+    assert!(page.validate(&changed).is_err());
+    changed = binding.clone();
+    changed.filters = json!({"state":"queued"});
+    assert!(page.validate(&changed).is_err());
+    changed = binding;
+    changed.numeric_keys = vec![false, false];
+    assert!(page.validate(&changed).is_err());
+}
+#[test]
+fn invalid_adapter_order_filter_parent_and_variant_are_rejected() {
+    let data = fixture::fixtures();
+    let page: ConsolePage<ConsoleTaskSummary> =
+        serde_json::from_value(data["tasks"].clone()).unwrap();
+    let query = ConsoleQuery::Tasks {
+        filters: TaskFilters {
+            queue: Some("wrong".into()),
+            ..Default::default()
+        },
+        page: ConsolePagination::default(),
+    };
+    assert!(
+        ConsoleQueryReply::Tasks(page.clone())
+            .validate(&scope(), &query)
+            .is_err()
+    );
+    let query = ConsoleQuery::Tasks {
+        filters: TaskFilters::default(),
+        page: ConsolePagination::default(),
+    };
+    let mut duplicate = page.clone();
+    duplicate.items.push(page.items[0].clone());
+    assert!(
+        ConsoleQueryReply::Tasks(duplicate)
+            .validate(&scope(), &query)
+            .is_err()
+    );
+    let query = ConsoleQuery::Workflows {
+        filters: ConsoleWorkflowFilters::default(),
+        page: ConsolePagination::default(),
+    };
+    assert!(
+        ConsoleQueryReply::Tasks(page)
+            .validate(&scope(), &query)
+            .is_err()
+    );
+}
+#[test]
+fn submission_rejects_browser_binding_and_preserves_numeric_categories() {
+    let data = fixture::fixtures()["numeric_payload"].clone();
+    let mut body = json!({"program":{"id":"invoice-issuer","version":"release-a"},"queue":"billing","data":data});
+    let parsed: ConsoleSubmitTask =
+        decode_unique_json(&serde_json::to_vec(&body).unwrap(), SUBMISSION_MAX_BYTES).unwrap();
+    let input = parsed.into_submission(&scope()).unwrap();
+    let encoded = serde_json::to_string(&input.data).unwrap();
+    assert!(encoded.contains("9007199254740993"));
+    assert!(encoded.contains("18446744073709551615"));
+    assert!(encoded.contains("-0.0"));
+    body["scope"] = json!({"tenant_id":"another","namespace":"other"});
+    assert!(
+        decode_unique_json::<ConsoleSubmitTask>(
+            &serde_json::to_vec(&body).unwrap(),
+            SUBMISSION_MAX_BYTES
+        )
+        .is_err()
+    );
+}
+#[test]
+fn fixture_metadata_contains_no_authority_or_payload_fields() {
+    fn walk(value: &Value) {
+        match value {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    assert!(
+                        ![
+                            "scope",
+                            "tenant_id",
+                            "namespace",
+                            "owner",
+                            "lease_id",
+                            "input",
+                            "data",
+                            "output",
+                            "checkpoint",
+                            "argv",
+                            "env"
+                        ]
+                        .contains(&key.as_str()),
+                        "forbidden {key}"
+                    );
+                    walk(value)
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    walk(item)
+                }
+            }
+            _ => (),
+        }
+    }
+    let data = fixture::fixtures();
+    for key in ["config", "tasks", "workflows"] {
+        walk(&data[key]);
+    }
+}

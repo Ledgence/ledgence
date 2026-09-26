@@ -18,6 +18,11 @@ pub use execution::{
     RuntimeExtension, RuntimeInvocation, RuntimeReply, RuntimeRequest,
 };
 mod invocation;
+mod observation;
+pub use observation::{
+    InvocationObservation, ProcessSlotState, SlotObservation, WORKER_OBSERVATION_MAX_SLOTS,
+    WorkerObservationDetailState, WorkerObservationScope, WorkerObservationSnapshot,
+};
 mod json;
 pub use json::decode_json;
 mod wire;

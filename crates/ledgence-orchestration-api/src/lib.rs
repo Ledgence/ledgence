@@ -12,8 +12,11 @@ pub use ledgence_worker_api::TraceContext;
 
 mod acquisition;
 mod completion;
+pub mod console;
 mod delivery;
 mod discovery;
+pub mod instance;
+pub use instance::*;
 mod dispatch;
 mod observation;
 mod retention;
