@@ -20,7 +20,7 @@ pnpm build
 pnpm preview
 ```
 
-The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors and assets. `release.json` records the verified public source tag, product revision, native target and independently published package versions. `public/source.json` keeps that product revision separate from the documentation checkout revision. The reader-facing site covers the 0.1 release series; the native bundle is 0.1.0 for macOS Apple Silicon, while registry packages and source examples are 0.1.1. Before deployment, verify those public artifacts and the examples again when changing versions. A public release does not imply a stable 1.0 API.
+The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors and assets. `release.json` records the verified public source tag, product revision, native target and independently published package versions. `public/source.json` keeps that product revision separate from the documentation checkout revision. Release guides cover the 0.1 series: the native bundle is 0.1.0 for macOS Apple Silicon, while registry packages and release-source examples are 0.1.1. Console pages separately describe the current source implementation, which is not included in those published artifacts. `source-features.json` records the separately verified Console source revision; generated provenance uses the `release-and-source` channel. Keep current-source feature provenance separate from release metadata. Before deployment, verify those public artifacts and the examples again when changing versions. A public release does not imply a stable 1.0 API.
 
 ## Authoring
 
@@ -28,7 +28,7 @@ Edit `src/content/docs/`. Every page needs a `title` and `description`. Begin bo
 
 The site provides Diátaxis learning paths and release installation guidance. Existing `../docs/` contracts remain the detailed source for features outside those paths. Move and link material deliberately as coverage grows; never present code snippets as runnable unless prerequisites and package publication are described.
 
-Code examples must follow the checked-in SDK and examples. Only advertise verified registry versions and native targets. Do not imply a hosted dashboard, exactly-once effects, or public multi-tenant isolation. Review the local trusted-code boundary where relevant.
+Code examples must follow the checked-in SDK and examples. Only advertise verified registry versions and native targets. The self-hosted Console serves one instance and has no tenant administration or scope selectors. Describe the retained CLI/SDK fields as a fixed compatibility binding. Do not imply a vendor-hosted dashboard, exactly-once effects, or public multi-tenant isolation. Review the local trusted-code boundary where relevant.
 
 `astro.config.mjs` owns sidebar labels and clean URL routing. `src/styles/docs.css` adapts the neutral Ledgence palette. Search is entirely static; no vendor account, external search service or runtime server is required. System light/dark appearance, keyboard search, mobile navigation, heading links and copyable code are supplied by Starlight.
 

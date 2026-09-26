@@ -6,6 +6,11 @@ small example callback receiver. Programs are published into a shared program
 store after startup and fetched into the worker's persistent verified cache.
 There is no required vendor account or hosted service.
 
+This guide describes the current source implementation, including Console. The
+published `v0.1.1` source tag and `0.1.0` native bundle predate Console. Follow
+[Explore Ledgence Console](https://docs.ledgence.com/tutorials/use-console) from a
+checkout containing `console/` for the browser-guided setup.
+
 This is a local, operator-trusted-code deployment. The API is bound to host
 loopback. Database credentials are fixed nonsecret demo values, the internal
 network uses HTTP, and the example receiver is deliberately bounded. Do not
@@ -91,8 +96,9 @@ python3 -m venv /tmp/ledgence-compose-client
 ```
 
 Run the companion from the source checkout after the Compose setup above. The
-[guided tutorial](https://docs.ledgence.com/tutorials/run-locally) pins that checkout
-to the public `v0.1.1` source tag. See the
+[Console tutorial](https://docs.ledgence.com/tutorials/use-console) follows this
+current-source stack. The separate [release tutorial](https://docs.ledgence.com/tutorials/run-locally)
+pins the older public `v0.1.1` tag and does not include Console. See the
 [release reference](https://docs.ledgence.com/reference/releases) for available
 native bundles and registry versions; these are released separately.
 

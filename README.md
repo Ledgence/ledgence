@@ -9,11 +9,14 @@ Self-host without a required vendor account.
 
 [Documentation](https://docs.ledgence.com) ·
 [Quickstart](https://docs.ledgence.com/tutorials/run-locally) ·
+[Console guide](https://docs.ledgence.com/tutorials/use-console) ·
 [Releases](https://github.com/Ledgence/ledgence/releases) ·
 [Python client](https://pypi.org/project/ledgence-client/)
 
 ## Get started
 
+- **Explore Console from current source:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
+  to inspect executions, workflows, registered agents, and worker process slots in your browser.
 - **Run the complete stack:** follow the [local tutorial](https://docs.ledgence.com/tutorials/run-locally)
   to start PostgreSQL, the orchestrator, a worker, and example programs with Docker Compose.
 - **Try the native worker:** [install the macOS Apple Silicon bundle](https://docs.ledgence.com/how-to/install-native)
@@ -27,6 +30,10 @@ and Rust API crates are published separately at **0.1.1**. See the
 artifacts, requirements, and version guidance. Before 1.0, public APIs may evolve;
 pin the versions you use and review release notes before upgrading.
 
+Console is implemented in the current source tree and is not included in the
+published `v0.1.1` source tag or native `v0.1.0` bundle. Its tutorial uses a checkout
+containing `console/` and the updated Compose configuration.
+
 ## What you can build
 
 - **Run tasks on reusable workers.** Workers fetch and verify immutable program
@@ -39,6 +46,10 @@ pin the versions you use and review release notes before upgrading.
   tasks with the CLI or Python client. PostgreSQL stores task ownership, attempts,
   leases, and results; optional completion callbacks retain their delivery state
   and retry after failures.
+- **Operate one self-hosted instance.** Console serves from the Rust orchestrator:
+  follow recorded workflow relationships, inspect task attempts and results,
+  register immutable agent versions, and explore actual worker process observations.
+  There is no tenant management or required frontend hosting service.
 - **Choose optional integrations.** Use HTTP worker delivery or SQS Standard /
   ElasticMQ transport. Export OpenTelemetry traces and metrics, and write
   correlated Python logs to stderr. PostgreSQL remains the task authority in
@@ -57,6 +68,10 @@ guides, reference, and concepts. Start with a tutorial, then use the detailed
 contracts for [programs](docs/program-packages.md), [HTTP orchestration](docs/http-orchestration.md),
 [workflows](docs/workflows.md), [events and timers](docs/workflow-events.md),
 [subworkflows](docs/subworkflows.md), and [completion callbacks](docs/completion-notifications.md).
+
+Console documentation covers [operation](https://docs.ledgence.com/reference/console),
+[agent registration](https://docs.ledgence.com/how-to/register-agent), and
+[the single-instance model](https://docs.ledgence.com/concepts/self-hosted-console).
 
 Operational guides cover [worker delivery](docs/worker-delivery.md),
 [queue transport](docs/dispatch-delivery.md), [observability](docs/observability.md),
@@ -153,4 +168,16 @@ Operational metrics are available through the optional OTLP adapter; see [metric
 
 ## Self-hosted Console
 
-[Ledgence Console](docs/console.md) provides Executions, Workflows, Agents and Workers from the instance's actual stored state and worker observations. Run the [local deployment](docs/local-deployment.md) and open `http://127.0.0.1:8080/console/`. Static assets are served by Rust; Node is only a separate frontend build tool. [Instance binding](docs/self-hosted-instance.md), [query contracts](docs/console-query-model.md) and [worker observation](docs/worker-observations.md) describe the operational boundaries.
+[Ledgence Console](docs/console.md) provides Executions, Workflows, Agents, and
+Workers from durable records and server-received process observations. Build the
+[local deployment](docs/local-deployment.md) from a checkout containing Console,
+publish and register its examples, then open `http://127.0.0.1:8080/console/`. The
+[guided tutorial](https://docs.ledgence.com/tutorials/use-console) follows real work
+through all four sections.
+
+Static assets are served by Rust; Node is only a separate frontend build tool.
+One server-owned instance binding replaces browser scope selection. Existing
+SDK, CLI, and worker scope fields must match that binding; they do not introduce
+multi-tenant administration. [Instance binding](docs/self-hosted-instance.md),
+[query contracts](docs/console-query-model.md), and
+[worker observations](docs/worker-observations.md) describe the operational boundaries.

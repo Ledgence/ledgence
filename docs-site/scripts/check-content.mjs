@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const source = join(root, 'src/content/docs');
 const release = JSON.parse(readFileSync(join(root, 'release.json'), 'utf8'));
+const sourceFeatures = JSON.parse(readFileSync(join(root, 'source-features.json'), 'utf8'));
 export function contentFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const path = join(directory, entry.name);
@@ -36,7 +37,7 @@ export function writeMarkdownExports(directory, pages, revision) {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, `# ${page.title}\n\n${page.description}\n\n${page.body}`);
   }
-  const list = ['# Ledgence documentation', '', `> Documentation for the Ledgence ${release.series} release series: open-source agent and workflow orchestration.`, '', `Product source: ${release.sourceRef} (${release.sourceRevision}). Documentation checkout: ${revision}.`, '', `Native bundle: ${release.nativeVersion} (macOS Apple Silicon). Python client: ${release.clientVersion}. Rust API crates: ${release.rustApiVersion}.`, 'Public APIs may change before 1.0. See the release reference for installation choices and supported scope.', ''];
+  const list = ['# Ledgence documentation', '', `> Documentation for the Ledgence ${release.series} release series and explicitly marked current-source features: open-source agent and workflow orchestration.`, '', `Released product source: ${release.sourceRef} (${release.sourceRevision}). Documentation checkout: ${revision}.`, '', `Native bundle: ${release.nativeVersion} (macOS Apple Silicon). Python client: ${release.clientVersion}. Rust API crates: ${release.rustApiVersion}.`, `Console source: ${sourceFeatures.console.sourceRef} (${sourceFeatures.console.sourceRevision}), verified ${sourceFeatures.console.verifiedOn}. Availability: current source checkout; not included in the published ${release.sourceRef} source or ${release.nativeVersion} native bundle. See https://docs.ledgence.com${sourceFeatures.console.guide}.`, '', 'Public APIs may change before 1.0. See the release reference for installation choices and supported scope.', ''];
   for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {
     list.push(`## ${section === 'how-to' ? 'How-to guides' : section[0].toUpperCase() + section.slice(1)}`, '');
     for (const page of exported.filter(page => page.slug.startsWith(`${section}/`))) {
@@ -59,7 +60,7 @@ export function prepareContent() {
   const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   const sourceInfo = {
     revision: release.sourceRevision, ref: release.sourceRef, documentationRevision: revision,
-    channel: 'release', series: release.series, nativeVersion: release.nativeVersion,
+    channel: 'release-and-source', sourceFeatures, series: release.series, nativeVersion: release.nativeVersion,
     clientVersion: release.clientVersion, rustApiVersion: release.rustApiVersion,
     nativeTargets: release.nativeTargets, verifiedOn: release.verifiedOn,
     repository: 'https://github.com/Ledgence/ledgence',
