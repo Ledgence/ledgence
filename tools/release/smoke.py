@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from console_bundle import smoke as console_smoke
 
 
 def main():
@@ -37,6 +38,7 @@ def main():
         assert reports[1]["report"]["reused_process"] is True, reports
         for report in reports:
             assert report["report"]["outcome"]["status"] == "success", report
+        console_smoke(bundle, temporary / "store", temporary)
     print("Relocated binaries, dynamic publication/cache, helper and warm process reuse passed")
 
 

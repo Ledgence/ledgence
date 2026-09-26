@@ -32,3 +32,10 @@ with tempfile.TemporaryDirectory(prefix="ledgence-publish-") as temporary:
         else:
             (package / "program.py").write_text(TASK)
         subprocess.run(["ledgence-worker", "publish", "--source", package, "--store", "/programs"], check=True)
+
+        # Artifact publication is immutable and precedes catalog registration.
+        # A failed registration leaves a valid artifact; rerun this command to
+        # reconcile it instead of deleting or rolling back the program store.
+        subprocess.run(["ledgence", "program", "register", "--server", "http://orchestrator:8080",
+                        "--program", name, "--version", "1.0.0", "--kind",
+                        "workflow" if name == "workflow-example" else "task"], check=True)

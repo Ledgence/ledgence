@@ -115,6 +115,22 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain"), "")
         self.verifier.assert_called_once()
 
+    def test_console_bytes_and_notices_survive_offline_promotion(self):
+        from test_console_bundle import distribution
+        distribution(self.stage / 'console', self.source)
+        provenance = json.loads(self.provenance_bytes)
+        provenance['console'] = {'mode': 'static', 'manifest_sha256': checksum(self.stage / 'console/console-manifest.json')}
+        self.provenance_bytes = (json.dumps(provenance, indent=2) + '\n').encode()
+        (self.stage / 'provenance.json').write_bytes(self.provenance_bytes)
+        originals = {str(p.relative_to(self.stage)): p.read_bytes() for p in (self.stage / 'console').rglob('*') if p.is_file()}
+        self.manifest()
+        self.rearchive()
+        result = self.run_promotion()
+        stable = extract_archive(Path(result['archive']), self.root / 'console-result')
+        verify_files(stable)
+        for name, data in originals.items():
+            self.assertEqual((stable / name).read_bytes(), data)
+
     def test_rejects_wrong_outer_checksum_without_output(self):
         with self.archive.open("ab") as stream:
             stream.write(b"tampered")

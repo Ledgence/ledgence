@@ -150,3 +150,7 @@ Ledgence-owned code is [MIT licensed](LICENSE). Your applications and programs c
 The Rust application service and PostgreSQL 18 adapter implement transactional task submission, attempts, leases, result acceptance, cancellation, inspection, and expiry recovery. See [PostgreSQL setup and guarantees](docs/postgres.md). The HTTP executable schedules recovery and exposes readiness; embedding applications can also supply the service directly to the [delivery driver](docs/worker-delivery.md). The driver depends on the portable `TaskService` interface and does not depend on PostgreSQL or a particular transport.
 
 Operational metrics are available through the optional OTLP adapter; see [metrics configuration and counting semantics](docs/metrics.md).
+
+## Self-hosted Console
+
+[Ledgence Console](docs/console.md) provides Executions, Workflows, Agents and Workers from the instance's actual stored state and worker observations. Run the [local deployment](docs/local-deployment.md) and open `http://127.0.0.1:8080/console/`. Static assets are served by Rust; Node is only a separate frontend build tool. [Instance binding](docs/self-hosted-instance.md), [query contracts](docs/console-query-model.md) and [worker observation](docs/worker-observations.md) describe the operational boundaries.
