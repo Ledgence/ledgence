@@ -5,7 +5,10 @@
 //! database time, and commit. No database implementation is selected here.
 
 mod acquisition;
+pub mod catalog;
 mod completion;
+pub mod console;
+pub mod worker_observations;
 mod workflow;
 pub use acquisition::AcquisitionStatistics;
 
@@ -24,6 +27,10 @@ pub struct ApplicationService {
     store: Arc<dyn TaskStore>,
     workflows: Option<Arc<dyn WorkflowStore>>,
     completions: Option<Arc<dyn CompletionStore>>,
+    catalog: Option<(
+        Scope,
+        Arc<dyn ledgence_orchestration_api::console::ProgramCatalogStore>,
+    )>,
     programs: Arc<dyn ProgramStore>,
     acquisition: Arc<acquisition::Coordinator>,
     claims_stopped: Arc<AtomicBool>,
@@ -35,10 +42,63 @@ impl ApplicationService {
             store,
             workflows: None,
             completions: None,
+            catalog: None,
             programs,
             acquisition: acquisition::Coordinator::new(),
             claims_stopped: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Enforce immutable registered references for one installation. Use the
+    /// same scope/store binding as workflow coordination. Accepted submissions
+    /// and persisted child bindings remain authoritative on idempotent replay.
+    pub fn with_program_catalog(
+        mut self,
+        scope: Scope,
+        catalog: Arc<dyn ledgence_orchestration_api::console::ProgramCatalogStore>,
+    ) -> Result<Self> {
+        scope.validate()?;
+        self.catalog = Some((scope, catalog));
+        Ok(self)
+    }
+    fn require_catalog_scope(&self, command: &SubmitCommand) -> Result<()> {
+        if self.catalog.as_ref().is_some_and(|(scope, _)| {
+            scope.tenant_id != command.input.tenant_id || scope.namespace != command.input.namespace
+        }) {
+            return Err(ContractError::NotFound);
+        }
+        Ok(())
+    }
+    async fn check_catalog_descriptor(
+        &self,
+        descriptor: &ledgence_worker_api::ProgramDescriptor,
+    ) -> Result<()> {
+        let Some((scope, catalog)) = &self.catalog else {
+            return Ok(());
+        };
+        let query = ledgence_orchestration_api::console::ProgramCatalogQuery::Inspect(
+            descriptor.program.clone(),
+        );
+        let reply = match catalog.query_programs(scope, &query).await {
+            Ok(reply) => reply,
+            Err(ContractError::NotFound) => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        reply.validate(scope, &query)?;
+        let ledgence_orchestration_api::console::ProgramCatalogReply::Inspect(registered) = reply
+        else {
+            return Err(ContractError::Unavailable(
+                "catalog returned a different query response".into(),
+            ));
+        };
+        if registered.version.descriptor
+            != ledgence_orchestration_api::console::ConsoleProgramDescriptor::from(
+                descriptor.clone(),
+            )
+        {
+            return Err(ContractError::Conflict);
+        }
+        Ok(())
     }
 
     /// Adapter wake sink; hints are advisory and contain no cached authority.
@@ -129,6 +189,7 @@ impl TaskService for ApplicationService {
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
+            self.require_catalog_scope(command)?;
             let span = tracing::info_span!(
                 "ledgence.task.submit",
                 otel.kind = "internal",
@@ -177,6 +238,14 @@ impl TaskService for ApplicationService {
                         };
                     }
                 };
+                if let Err(error) = self.check_catalog_descriptor(&descriptor).await {
+                    // A concurrent accepted binding wins over a later catalog
+                    // failure exactly as it does over a failed store resolver.
+                    return match self.accepted_submission(command).await? {
+                        Some(accepted) => Ok(accepted),
+                        None => Err(error),
+                    };
+                }
                 self.store
                     .accept_resolved_submission(command, &descriptor)
                     .await

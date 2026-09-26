@@ -66,6 +66,7 @@ impl PostgresStore {
         scope: &Scope,
         request: &TaskListQuery,
     ) -> StoreResult<TaskPage> {
+        self.require_scope(scope)?;
         let position = request.validate(scope)?;
         let rows = query(scope, request, position.as_ref())
             .build()

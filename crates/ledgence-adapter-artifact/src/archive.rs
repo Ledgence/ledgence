@@ -162,6 +162,28 @@ pub(crate) fn inspect_for_publication(
     })
 }
 
+/// Validate every member without materializing or executing the package.
+pub(crate) fn verify_package(
+    bytes: Vec<u8>,
+    descriptor: &ProgramDescriptor,
+    limits: &ArtifactLimits,
+) -> Result<ProgramManifest> {
+    limits.validate()?;
+    let mut plan = inspect_for_publication(bytes, descriptor, limits)?;
+    for (index, member) in plan.members.iter().enumerate() {
+        let mut entry = plan.archive.by_index(index)?;
+        // Reading to EOF verifies the CRC as well as declared expansion. Take
+        // one extra byte so a false size cannot silently truncate verification.
+        let copied = io::copy(&mut (&mut entry).take(member.size + 1), &mut io::sink())?;
+        if copied != member.size {
+            return Err(AdapterError::Invalid(
+                "ZIP member size differs from header".into(),
+            ));
+        }
+    }
+    Ok(plan.manifest)
+}
+
 impl ArchivePlan {
     pub fn extract(&mut self, root: &Path) -> Result<()> {
         self.extract_with_create(root, |path| File::create_new(path))

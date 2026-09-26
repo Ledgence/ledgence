@@ -6,6 +6,7 @@ pub(super) async fn get(
     scope: Scope,
     id: String,
 ) -> std::result::Result<Vec<u8>, Failure> {
+    server.require_scope(&scope)?;
     validate_text(&id, 128)?;
     record_scope(&scope);
     tracing::Span::current().record("ledgence.workflow.id", &id);
@@ -45,6 +46,7 @@ pub(super) async fn post(
             let command = server
                 .blocking(move || SubmitCommand::decode(&bytes).map_err(Into::into))
                 .await?;
+            server.require_submission_scope(&command)?;
             record_scope(&Scope {
                 tenant_id: command.input.tenant_id.clone(),
                 namespace: command.input.namespace.clone(),
@@ -69,6 +71,7 @@ pub(super) async fn post(
                     Ok(command)
                 })
                 .await?;
+            server.require_scope(&command.scope)?;
             record_scope(&command.scope);
             let span = tracing::Span::current();
             span.record("ledgence.workflow.id", &command.workflow_id);
@@ -104,7 +107,7 @@ pub(super) async fn post(
         }
         "/v1/workflows/cancel" => {
             let command: WorkflowReference = server.decode(bytes, maximum).await?;
-            command.scope.validate()?;
+            server.require_scope(&command.scope)?;
             validate_text(&command.workflow_id, 128)?;
             let reply = service
                 .cancel_workflow(&command.scope, &command.workflow_id)
@@ -114,6 +117,7 @@ pub(super) async fn post(
         }
         "/v1/workflows/activations/context" => {
             let owner: LeaseOwner = server.decode(bytes, maximum).await?;
+            server.require_scope(&owner.scope)?;
             log_owner(&owner)?;
             let reply = service.activation_context(&owner).await?;
             if reply.activation_id != owner.task_id {
@@ -141,6 +145,7 @@ pub(super) async fn post(
                     Ok(command)
                 })
                 .await?;
+            server.require_scope(&command.owner.scope)?;
             log_owner(&command.owner)?;
             let reply = service.record_local_result(&command).await?;
             if reply.key != command.record.key {

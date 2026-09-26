@@ -5,6 +5,7 @@ pub(super) async fn get(
     scope: Scope,
     subscription_id: String,
 ) -> std::result::Result<Vec<u8>, Failure> {
+    server.require_scope(&scope)?;
     validate_text(&subscription_id, 128)?;
     record_scope(&scope);
     tracing::Span::current().record("ledgence.completion.subscription.id", &subscription_id);
@@ -26,6 +27,7 @@ pub(super) async fn post(
             let command: CompletionSubscribeCommand =
                 server.decode(bytes, COMPLETION_COMMAND_MAX_BYTES).await?;
             command.validate()?;
+            server.require_scope(&command.scope)?;
             record_command(&command);
             let reply = service.subscribe_completion(&command).await?;
             if !reply.matches(&command) {
@@ -39,6 +41,7 @@ pub(super) async fn post(
             let command: CompletionRetryCommand =
                 server.decode(bytes, COMPLETION_COMMAND_MAX_BYTES).await?;
             command.validate()?;
+            server.require_scope(&command.scope)?;
             record_scope(&command.scope);
             tracing::Span::current().record(
                 "ledgence.completion.subscription.id",

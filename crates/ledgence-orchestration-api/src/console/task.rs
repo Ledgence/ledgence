@@ -166,6 +166,62 @@ pub struct ConsoleTaskDetail {
     pub observed_at: Timestamp,
 }
 impl ConsoleTaskDetail {
+    /// Validate only facts present in the snapshot; the last allocated attempt
+    /// is deliberately not inferred from the currently active attempt.
+    pub fn validate(&self) -> Result<()> {
+        self.input.clone().into_submission(&Scope {
+            tenant_id: "console-validation".into(),
+            namespace: "console-validation".into(),
+        })?;
+        self.descriptor.validate()?;
+        validate_text(&self.task_id, 128)?;
+        validate_text(&self.run_id, 128)?;
+        validate_text(&self.idempotency_key, 255)?;
+        validate_workflow_lineage(
+            self.workflow_id.as_deref(),
+            self.parent_workflow_id.as_deref(),
+            self.root_workflow_id.as_deref(),
+        )?;
+        if let Some(trace) = &self.origin_trace {
+            trace.validate()?;
+        }
+        if let Some(id) = &self.current_attempt_id {
+            validate_text(id, 128)?;
+        }
+        if let Some(id) = &self.workflow_activation_id {
+            validate_text(id, 128)?;
+            if self.workflow_id.is_none() || id != &self.task_id {
+                return Err(inconsistent("inconsistent workflow activation identity"));
+            }
+        }
+        if self.descriptor.program != self.input.program
+            || self.attempt_count > self.input.retry_policy.max_attempts
+            || (self.state == TaskState::Active) != self.current_attempt_id.is_some()
+            || (matches!(
+                self.state,
+                TaskState::Active | TaskState::Succeeded | TaskState::Failed
+            ) && self.attempt_count == 0)
+            || self.state.is_terminal() != self.terminal_at.is_some()
+            || (self.state == TaskState::Cancelled && self.cancel_requested_at.is_none())
+            || (self.cancel_requested_at.is_some()
+                && !matches!(self.state, TaskState::Active | TaskState::Cancelled))
+        {
+            return Err(inconsistent("inconsistent task detail"));
+        }
+        for at in [
+            Some(self.submitted_at),
+            Some(self.available_at),
+            self.terminal_at,
+            self.cancel_requested_at,
+            Some(self.observed_at),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            timestamp(at)?;
+        }
+        metadata_size(self)
+    }
     pub fn from_snapshot(v: TaskSnapshot, observed_at: Timestamp) -> Self {
         Self {
             task_id: v.task_id,

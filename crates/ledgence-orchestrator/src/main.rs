@@ -3,7 +3,9 @@
 mod application;
 mod command;
 mod completion;
+mod console;
 mod health;
+mod instance;
 mod logging;
 #[cfg(feature = "sqs")]
 mod publication;
@@ -234,6 +236,8 @@ async fn dispatch(
                 store: programs,
                 delivery_config,
                 completion_config,
+                instance_config,
+                console_dir,
             } => {
                 prepare_and_serve(
                     store.clone(),
@@ -242,7 +246,12 @@ async fn dispatch(
                     stopped,
                     trace,
                     &url,
-                    (delivery_config, completion_config),
+                    ServePaths {
+                        delivery_config,
+                        completion_config,
+                        instance_config,
+                        console_dir,
+                    },
                 )
                 .await
             }
@@ -255,6 +264,13 @@ async fn dispatch(
     result
 }
 
+struct ServePaths {
+    delivery_config: Option<std::path::PathBuf>,
+    completion_config: Option<std::path::PathBuf>,
+    instance_config: Option<std::path::PathBuf>,
+    console_dir: Option<std::path::PathBuf>,
+}
+
 async fn prepare_and_serve(
     store: PostgresStore,
     bind: std::net::SocketAddr,
@@ -262,9 +278,14 @@ async fn prepare_and_serve(
     stopped: watch::Receiver<bool>,
     trace: Arc<dyn TraceBridge>,
     database_url: &str,
-    config_paths: (Option<std::path::PathBuf>, Option<std::path::PathBuf>),
+    paths: ServePaths,
 ) -> Result<(), String> {
-    let (delivery_config, completion_config) = config_paths;
+    let ServePaths {
+        delivery_config,
+        completion_config,
+        instance_config: instance_config_path,
+        console_dir,
+    } = paths;
     store
         .verify_schema()
         .await
@@ -273,6 +294,29 @@ async fn prepare_and_serve(
         .check_connection()
         .await
         .map_err(|error| error.to_string())?;
+    let instance_config = instance::load_optional(instance_config_path).await?;
+    // Headless starts perform the same durable binding check. Never start an
+    // unbound coordinator on a previously bound database by omitting a flag.
+    let instance_context = store
+        .initialize_instance(instance_config.as_ref())
+        .await
+        .map_err(|error| error.to_string())?;
+    let console_assets = match console_dir {
+        Some(directory) => {
+            if instance_config.is_none() {
+                return Err("--console-dir requires --instance-config".into());
+            }
+            Some(
+                tokio::task::spawn_blocking(move || {
+                    ledgence_adapter_http::server::assets::ConsoleAssets::load(&directory)
+                })
+                .await
+                .map_err(|_| "Console assets loading failed".to_owned())?
+                .map_err(|error| error.to_string())?,
+            )
+        }
+        None => None,
+    };
     let completion_destinations = match completion_config {
         Some(path) => {
             let config = tokio::task::spawn_blocking(move || {
@@ -284,6 +328,11 @@ async fn prepare_and_serve(
             let mut destinations = Vec::with_capacity(config.destinations.len());
             for configured in config.destinations {
                 let binding = configured.destination.clone();
+                if let Some(context) = &instance_context {
+                    context
+                        .require_scope(&binding.scope)
+                        .map_err(|error| error.to_string())?;
+                }
                 let sender =
                     ledgence_adapter_http::completion::HttpCompletionSender::new(configured)
                         .map_err(|error| error.to_string())?
@@ -308,6 +357,11 @@ async fn prepare_and_serve(
             .map_err(|error| error.to_string())?;
             if *stopped.borrow() {
                 return Ok(());
+            }
+            if let Some(context) = &instance_context {
+                context
+                    .require_scope(&config.route.scope)
+                    .map_err(|error| error.to_string())?;
             }
             // Validate external capabilities without changing durable routing.
             let queue = Arc::new(
@@ -351,11 +405,20 @@ async fn prepare_and_serve(
     let health = Health::new(config.freshness());
     health.prerequisites_ready();
     let store = Arc::new(store);
-    let service = Arc::new(
-        ApplicationService::new(store.clone(), programs)
-            .with_workflows(store.clone())
-            .with_completions(store.clone()),
-    );
+    let service = ApplicationService::new(store.clone(), programs.clone())
+        .with_workflows(store.clone())
+        .with_completions(store.clone());
+    let service = if let Some(context) = &instance_context {
+        service
+            .with_program_catalog(context.scope.clone(), store.clone())
+            .map_err(|error| error.to_string())?
+    } else {
+        service
+    };
+    let service = Arc::new(service);
+    let console_services = instance_config
+        .map(|config| console::services(store.clone(), programs, config, address))
+        .transpose()?;
     store.set_acquisition_wake(service.acquisition_wake());
     let notifications = if notifications_enabled()? {
         let url = std::env::var("LEDGENCE_POSTGRES_NOTIFICATION_URL")
@@ -395,14 +458,30 @@ async fn prepare_and_serve(
         if *stopped.borrow() {
             return Ok(());
         }
-        let router = ledgence_adapter_http::server::router_with_completions(
-            service.clone(),
-            service.clone(),
-            service.clone(),
-            health.stopping.clone(),
-            trace,
-        )
+        let router = match console_services {
+            Some(console) => ledgence_adapter_http::server::router_with_console(
+                service.clone(),
+                service.clone(),
+                service.clone(),
+                console,
+                health.stopping.clone(),
+                trace,
+            )
+            .map_err(|error| error.to_string())?,
+            None => ledgence_adapter_http::server::router_with_completions(
+                service.clone(),
+                service.clone(),
+                service.clone(),
+                health.stopping.clone(),
+                trace,
+            ),
+        }
         .merge(health.router());
+        let router = if let Some(assets) = console_assets {
+            router.merge(assets.router())
+        } else {
+            router
+        };
         let (http_stop, http_stopped) = watch::channel(false);
         let (recovery_stop, recovery_stopped) = watch::channel(false);
         let http = tokio::spawn(

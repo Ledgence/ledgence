@@ -228,6 +228,7 @@ impl ApplicationService {
                 "program store resolved a different workflow program".into(),
             ));
         }
+        self.check_catalog_descriptor(&descriptor).await?;
         Ok(descriptor)
     }
 }
@@ -257,6 +258,7 @@ impl WorkflowService for ApplicationService {
     ) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
+            self.require_catalog_scope(command)?;
             let store = self.workflows()?;
             if let Some(accepted) = store.replay_workflow_submission(command).await? {
                 return validate_workflow_submission_reply(command, accepted);

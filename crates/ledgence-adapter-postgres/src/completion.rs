@@ -25,7 +25,7 @@ impl CompletionStore for PostgresStore {
         id: &'a str,
     ) -> ContractFuture<'a, CompletionSubscription> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(id, 128)?;
             let row = sqlx::query("SELECT * FROM completion_subscriptions WHERE tenant_id=$1 AND namespace=$2 AND subscription_id=$3")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(id)
@@ -67,6 +67,7 @@ impl PostgresStore {
         destination: &CompletionDestination,
     ) -> StoreResult<()> {
         destination.validate()?;
+        self.require_scope(&destination.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         sqlx::query("INSERT INTO completion_destinations(tenant_id,namespace,destination,binding) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
@@ -83,6 +84,7 @@ impl PostgresStore {
         command: &CompletionSubscribeCommand,
     ) -> StoreResult<CompletionSubscription> {
         command.validate()?;
+        self.require_scope(&command.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         // Serialize registration with terminalization, including registrations
@@ -177,6 +179,7 @@ impl PostgresStore {
         command: &CompletionRetryCommand,
     ) -> StoreResult<CompletionSubscription> {
         command.validate()?;
+        self.require_scope(&command.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let row = sqlx::query("SELECT * FROM completion_subscriptions WHERE tenant_id=$1 AND namespace=$2 AND subscription_id=$3 FOR UPDATE")
@@ -212,6 +215,7 @@ impl PostgresStore {
                 ContractError::InvalidInput("completion batch must be 1..=16".into()).into(),
             );
         }
+        self.require_scope(&destination.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         check_destination(&mut tx, destination).await?;
@@ -288,6 +292,10 @@ impl PostgresStore {
             let Some(row) = row else {
                 continue;
             };
+            self.require_scope(&Scope {
+                tenant_id: row.try_get("tenant_id")?,
+                namespace: row.try_get("namespace")?,
+            })?;
             let now = db::now(&mut tx).await?;
             if row.try_get::<String, _>("state")? != "delivering"
                 || row.try_get::<i64, _>("generation")? != i64::from(result.generation)

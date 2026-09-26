@@ -8,9 +8,25 @@ impl PostgresStore {
         command: &ClaimCommand,
     ) -> StoreResult<ClaimReply> {
         command.validate()?;
+        self.require_scope(&command.dispatch.scope)?;
+        self.require_scope(&command.acquisition.scope)?;
         let acquire = &command.acquisition;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
+        if self.instance_scope.get().is_some() {
+            // Membership is immutable; this does not require current liveness,
+            // so durable receipts still replay after session expiry.
+            let row =
+                sqlx::query("SELECT tenant_id,namespace FROM worker_sessions WHERE session_id=$1")
+                    .bind(&acquire.worker_session_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or(ContractError::UnknownSession)?;
+            self.require_session_scope(&Scope {
+                tenant_id: row.try_get("tenant_id")?,
+                namespace: row.try_get("namespace")?,
+            })?;
+        }
         // Immutable receipt lookup precedes generic cursor replay. A sequence
         // used for another dispatch can never acknowledge this received record.
         if let Some(bytes) = sqlx::query_scalar::<_, Vec<u8>>("SELECT reply_bytes FROM dispatch_claim_receipts WHERE session_id=$1 AND consumer_id=$2 AND sequence=($3::text)::ldg_u64")
@@ -253,6 +269,7 @@ impl PostgresStore {
             return Ok(());
         };
         let session = codec::session(&row)?;
+        self.require_session_scope(&session.scope)?;
         if session.expires_at <= db::now(tx).await? {
             return Ok(());
         }
