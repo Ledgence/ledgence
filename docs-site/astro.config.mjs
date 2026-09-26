@@ -23,20 +23,24 @@ export default defineConfig({
     sidebar: [
       { label: 'Welcome', link: '/' },
       { label: 'Tutorials', items: [
+        { label: 'Explore Console', slug: 'tutorials/use-console' },
         { label: 'Run Ledgence locally', slug: 'tutorials/run-locally' },
         { label: 'Your first workflow', slug: 'tutorials/first-workflow' },
       ] },
       { label: 'How-to guides', items: [
+        { label: 'Register an agent', slug: 'how-to/register-agent' },
         { label: 'Install the native release', slug: 'how-to/install-native' },
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
       ] },
       { label: 'Reference', items: [
+        { label: 'Console', slug: 'reference/console' },
         { label: 'Workflow context', slug: 'reference/workflow-context' },
         { label: 'Python client', slug: 'reference/python-client' },
         { label: 'Releases & packages', slug: 'reference/releases' },
       ] },
       { label: 'Concepts', items: [
+        { label: 'One self-hosted instance', slug: 'concepts/self-hosted-console' },
         { label: 'Execution model', slug: 'concepts/execution-model' },
         { label: 'Checkpoints & recovery', slug: 'concepts/checkpoints-and-recovery' },
       ] },

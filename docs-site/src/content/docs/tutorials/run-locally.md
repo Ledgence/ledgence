@@ -5,6 +5,8 @@ description: Start a local stack, publish its example agents, and observe real t
 
 Run a complete Ledgence 0.1.1 stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator, a worker, and a small callback receiver.
 
+This published source version does not include Console. To operate the current source implementation in a browser, follow [Explore Ledgence Console](/tutorials/use-console) from a checkout that includes it.
+
 Allow extra time for the first image build. You do not need a hosted account, Rust, or Python installed on your computer for this tutorial.
 
 ## Before you start

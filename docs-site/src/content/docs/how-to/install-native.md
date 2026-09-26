@@ -5,7 +5,7 @@ description: Download and verify the macOS Apple silicon release, then run the b
 
 Install Ledgence's prebuilt tools on a Mac with Apple silicon. This guide uses the published **0.1.0 native bundle**; source and registry packages are separately available at 0.1.1. See [Releases and packages](/reference/releases) for the exact versions.
 
-For a complete stack on Linux or macOS, follow [Run Ledgence locally](/tutorials/run-locally). That tutorial builds the 0.1.1 source with Docker Compose.
+For a complete stack on Linux or macOS, follow [Run Ledgence locally](/tutorials/run-locally). That tutorial builds the 0.1.1 source with Docker Compose. Neither published version includes Console; use [Explore Ledgence Console](/tutorials/use-console) for the current source implementation.
 
 ## Before you start
 

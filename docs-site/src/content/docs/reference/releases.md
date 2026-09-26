@@ -19,6 +19,12 @@ The source distribution includes the platform code, local Compose deployment, ex
 
 The `v0.1.1` tag does not include a downloadable native bundle. The published native target is `aarch64-apple-darwin`; use the [source-based Compose tutorial](/tutorials/run-locally) on Linux or macOS. Compose builds an image locally; these instructions do not depend on a published Ledgence container image.
 
+## Console in the current source tree
+
+The self-hosted Console is implemented after the releases listed above. It is not included in the `v0.1.1` source tag or the native `0.1.0` archive. Do not use those artifacts for a Console setup.
+
+[Explore Ledgence Console](/tutorials/use-console) starts from an existing source checkout containing `console/` and the updated Compose deployment. The [Console reference](/reference/console) covers the operator interface, single-instance configuration, and matching asset requirements. These source features do not change the independently published client or crate versions above.
+
 ## Native tools
 
 The 0.1.0 archive contains three executables:
@@ -59,7 +65,7 @@ These are libraries, not `cargo install` packages. Implementation crates and ser
 
 ## Version and operating scope
 
-The tutorials and API references on this site describe source and client version **0.1.1**, except where a page explicitly targets the native **0.1.0** release. Example programs with version `1.0.0` use their own application version; that number is separate from the Ledgence platform version.
+The release tutorials and client references describe source and client version **0.1.1**, except where a page explicitly targets the native **0.1.0** release. Console pages explicitly target the newer current source implementation. Example programs with version `1.0.0` use their own application version; that number is separate from the Ledgence platform version.
 
 The 0.1 API can evolve. Pin the versions you use and review release changes before upgrading. Use matching platform components and explicit database migrations, and preserve a tested backup before changing a durable deployment.
 
