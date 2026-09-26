@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
+import * as dto from "../../src/api/resources";
+import {
+  keyboardDialog,
+  reducedMotionDialog,
+  touchNavigation,
+  doubledLayout,
+} from "../interaction-checks";
 const raw = readFileSync(
   new URL(
     "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v1.json",
@@ -316,4 +323,155 @@ test("correlation validation counts UTF-8 bytes before submission", async ({
     "Correlation key must be at most 512 UTF-8 bytes.",
   );
   expect(submissions).toBe(0);
+});
+
+test("workflow status labels remain intact at desktop width", async ({
+  page,
+}) => {
+  await mount(page);
+  const workflows = dto.workflowPage(fixture("workflows"));
+  const first = workflows.items[0];
+  if (!first) throw new Error("Workflow fixture required");
+  workflows.items = ["cancelled", "succeeded"].map((state, index) => ({
+    ...first,
+    workflow: {
+      ...first.workflow,
+      workflow_id: `wf_layout_${index}`,
+      state: state as "cancelled" | "succeeded",
+    },
+  }));
+  await page.route("**/v1/console/workflows?**", (route) =>
+    route.fulfill({ status: 200, headers, body: stringifyUserJson(workflows) }),
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/console/workflows");
+  const labels = page.locator('td[data-label="Status"] .status');
+  await expect(labels).toHaveCount(2);
+  for (const label of await labels.all()) {
+    expect(
+      await label.evaluate((element) => element.getBoundingClientRect().height),
+    ).toBeLessThan(25);
+  }
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("keyboard Tab traverses the modal and Escape restores the trigger", async ({
+  page,
+}) => {
+  await mount(page);
+  await page.goto("/console/agents");
+  await keyboardDialog(page);
+});
+
+test("reduced motion preserves navigation and dialog interaction", async ({
+  page,
+}) => {
+  await mount(page);
+  await page.goto("/console/agents");
+  await reducedMotionDialog(page);
+});
+
+test("touch input activates navigation and a modal at 375px", async ({
+  browser,
+  baseURL,
+}) => {
+  if (!baseURL) throw new Error("The test server base URL is required.");
+  const context = await browser.newContext({
+    baseURL,
+    hasTouch: true,
+    viewport: { width: 375, height: 812 },
+  });
+  try {
+    const page = await context.newPage();
+    await mount(page);
+    await page.goto("/console/agents");
+    await touchNavigation(page);
+  } finally {
+    await context.close();
+  }
+});
+
+test("200 percent CSS layout scaling preserves controls and bounded content", async ({
+  page,
+}) => {
+  await mount(page);
+  await doubledLayout(page);
+});
+
+test("accepted cancellation stays pending until an observed terminal state", async ({
+  page,
+}) => {
+  await mount(page);
+  const observed = dto.observedTask(fixture("task_status"));
+  observed.task.state = "active";
+  observed.task.terminal_at = null;
+  observed.task.cancel_requested_at = null;
+  let accepted = false;
+  let terminal = false;
+  let reads = 0;
+  await page.route("**/v1/console/tasks/status?**", async (route) => {
+    reads++;
+    await route.fulfill({
+      status: 200,
+      headers,
+      body: stringifyUserJson({
+        ...observed,
+        task: {
+          ...observed.task,
+          state: terminal ? "cancelled" : "active",
+          cancel_requested_at: accepted ? observed.observed_at : null,
+          terminal_at: terminal ? observed.observed_at : null,
+        },
+      }),
+    });
+  });
+  await page.route("**/v1/console/tasks/cancel", async (route) => {
+    accepted = true;
+    await route.fulfill({
+      status: 200,
+      headers,
+      body: stringifyUserJson({
+        task_id: observed.task.task_id,
+        state: "active",
+        observed_at: observed.observed_at,
+      }),
+    });
+  });
+  await page.goto(`/console/executions/${observed.task.task_id}`);
+  await page
+    .getByRole("button", { name: "Cancel execution", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Request cancellation", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByText("Cancellation requested; awaiting final state", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".summary-line .status")).toHaveText("active");
+  await expect(
+    page.getByRole("heading", { name: "Execution cancelled" }),
+  ).toHaveCount(0);
+  const pendingRead = reads;
+  terminal = true;
+  // Refocus triggers the real query lifecycle; the backend response controls the state.
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect
+    .poll(() => reads, { timeout: 15000 })
+    .toBeGreaterThan(pendingRead);
+  await expect(page.locator(".summary-line .status")).toHaveText("cancelled");
+  await expect(
+    page.getByText("Cancellation requested; awaiting final state", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Cancel execution", exact: true }),
+  ).toHaveCount(0);
 });

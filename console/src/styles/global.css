@@ -593,7 +593,8 @@ a {
   align-items: center;
   gap: 7px;
   text-transform: capitalize;
-  white-space: normal;
+  white-space: nowrap;
+  overflow-wrap: normal;
   font-size: 13px;
 }
 .status svg {

@@ -68,8 +68,14 @@ round-trips and responsive layouts. A separate ten-minute WebKit session keeps
 real polling active, exercises an offline/reconnect interval and checks continued
 navigation without reloading. Controlled component tests separately verify hidden
 polling, permanent-error stops and cancellation of replaced filters.
-Running it without an explicit Console URL
-fails; it never silently falls back to mocks.
+Interaction checks exercise real keyboard traversal, modal focus retention/return,
+reduced-motion navigation and touch taps. macOS WebKit uses its native Option-Tab
+shortcut for full-item navigation, with plain Tab also checked between fields.
+Scaling coverage applies CSS `zoom: 2` to the root, verifies doubled rendered text,
+and checks controls/reflow at 1280px and a constrained 640px viewport. This tests
+layout scaling; it does not claim browser-chrome zoom or physical-device coverage.
+Running it without an explicit Console URL fails; it never silently falls back to
+mocks.
 
 ## Contracts and behavior
 

@@ -8,6 +8,12 @@ import {
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import * as dto from "../../src/api/resources";
 import { decodeConfig } from "../../src/api/codecs";
+import {
+  keyboardDialog,
+  reducedMotionDialog,
+  touchNavigation,
+  doubledLayout,
+} from "../interaction-checks";
 async function get<T>(
   request: APIRequestContext,
   path: string,
@@ -310,4 +316,36 @@ test("WebKit remains usable through ten minutes of real polling and reconnect", 
     }),
     contentType: "application/json",
   });
+});
+
+test("real interface supports keyboard, reduced motion, touch and 200 percent layout scaling", async ({
+  page,
+  browser,
+  baseURL,
+}, info) => {
+  const errors = noRuntimeErrors(page);
+  await page.goto("/console/agents");
+  await keyboardDialog(page);
+  await reducedMotionDialog(page);
+  await doubledLayout(page);
+  await page.screenshot({
+    path: info.outputPath("layout-scale-200-percent-640px.png"),
+    animations: "disabled",
+  });
+  if (!baseURL) throw new Error("The test server base URL is required.");
+  const touch = await browser.newContext({
+    baseURL,
+    hasTouch: true,
+    viewport: { width: 375, height: 812 },
+  });
+  try {
+    const touchPage = await touch.newPage();
+    const touchErrors = noRuntimeErrors(touchPage);
+    await touchPage.goto("/console/agents");
+    await touchNavigation(touchPage);
+    expect(touchErrors).toEqual([]);
+  } finally {
+    await touch.close();
+  }
+  expect(errors).toEqual([]);
 });
