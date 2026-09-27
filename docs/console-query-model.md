@@ -2,7 +2,7 @@
 
 Console metadata reads use a dedicated `ConsoleQueryStore` port. They never acquire tasks, renew leases, expire attempts or wake workflows. The application fixes the installation scope; the browser cannot supply it. Existing task and workflow responses are unchanged.
 
-Each response is assembled inside a short PostgreSQL repeatable-read, read-only transaction. A response is coherent at that read; subsequent pages may reflect later committed state. Pages use an opaque cursor bound to the endpoint, installation scope, parent IDs, filters and persisted position. Limits default to 50 and cannot exceed 100. No query computes a total count or uses offset pagination.
+Each response is assembled inside a short PostgreSQL repeatable-read, read-only transaction. A response is coherent at that read; subsequent pages may reflect later committed state. Pages use an opaque cursor bound to the endpoint, installation scope, parent IDs, filters and persisted position. Limits default to 50 and cannot exceed 100. Catalog pages may return fewer items to stay within the 2 MiB metadata response limit; follow `next_cursor` whenever it is present, even on a short page. No query computes a total count or uses offset pagination.
 
 Task discovery first selects a bounded metadata page, then loads its program descriptors in one batch. Attempt lists select authority-free fields and real claimed/dispatch timestamps from the durable history. Only explicit attempt inspection reads the bounded accepted settlement to project process and failure metadata; it returns neither output nor reusable lease authority. Legacy reports do not contain a stable process instance ID, so this field remains absent unless actually recorded by a supported protocol.
 

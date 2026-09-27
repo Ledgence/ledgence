@@ -4,6 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsolePagination {
+    /// Maximum items; a response may stop earlier to fit its metadata byte bound.
     #[serde(default = "default_limit")]
     pub limit: u32,
     pub cursor: Option<String>,
@@ -183,7 +184,7 @@ impl<T: ConsoleRecord> ConsolePage<T> {
             previous = Some(position);
         }
         if let Some(cursor) = &self.next_cursor
-            && (self.items.len() != page.limit as usize
+            && (self.items.is_empty()
                 || Some(page.decode(binding, cursor).map_err(|_| error())?) != previous)
         {
             return Err(error());

@@ -512,7 +512,9 @@ function RegisterProgram({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!command.mutation.isPending) setOpen(next);
+        if (command.mutation.isPending) return;
+        if (next && command.mutation.isSuccess) command.reset();
+        setOpen(next);
       }}
     >
       <DialogTrigger asChild>

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useInstance } from "../app/instance";
 import { useResource, usePagination } from "../api/hooks";
+import { useTerminalRefresh } from "../api/terminal-refresh";
 import * as dto from "../api/resources";
 import { useCommand, freezeCommand } from "../api/commands";
 import { parseUserJson } from "../api/json";
@@ -359,6 +360,18 @@ function RecordedWork({
         active && !children.cursor ? config.polling.waiting_workflow_ms : false,
     },
   );
+  useTerminalRefresh(
+    active,
+    [workflowId, activations.cursor, Math.min(activations.limit, max)],
+    aq,
+    !activations.cursor,
+  );
+  useTerminalRefresh(
+    active,
+    [workflowId, children.cursor, Math.min(children.limit, max)],
+    cq,
+    !children.cursor,
+  );
   const [showCompleted, setShowCompleted] = useState(false);
   const visibleChildren = (cq.data?.items ?? []).filter(
     (c) =>
@@ -522,6 +535,12 @@ function Waits({
         active && !paging.cursor ? config.polling.waiting_workflow_ms : false,
     },
   );
+  useTerminalRefresh(
+    active,
+    [workflowId, paging.cursor, paging.limit],
+    query,
+    !paging.cursor,
+  );
   return (
     <>
       {query.isPending && <LoadingState />}
@@ -599,6 +618,7 @@ function LocalSteps({
   currentActivation: string | null;
 }) {
   const [params, set] = useSearchParams();
+  const location = useLocation();
   const activation = params.get("activation") ?? currentActivation;
   const paging = usePagination();
   const query = useResource(
@@ -625,7 +645,7 @@ function LocalSteps({
             next.set("activation", id);
             next.delete("cursor");
             next.delete("previous");
-            set(next);
+            set(next, { state: location.state });
           }
         }}
       >

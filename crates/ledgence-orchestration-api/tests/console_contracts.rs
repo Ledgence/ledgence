@@ -186,3 +186,79 @@ fn fixture_metadata_contains_no_authority_or_payload_fields() {
         walk(&data[key]);
     }
 }
+
+#[test]
+fn display_metadata_encoded_bound_preserves_all_text_budgets() {
+    let maximum = ProgramDisplayMetadata {
+        display_name: Some("\\".repeat(128)),
+        description: Some("\t\n\\\"".repeat(1024)),
+        kind: ConsoleProgramKind::Unspecified,
+    };
+    maximum.validate().unwrap();
+    assert_eq!(PROGRAM_DISPLAY_METADATA_MAX_BYTES, 8505);
+    assert_eq!(
+        serde_json::to_vec(&maximum).unwrap().len(),
+        PROGRAM_DISPLAY_METADATA_MAX_BYTES
+    );
+    for name in ["\\", "\"", "a", "é", "雪", "🦀"] {
+        for description in ["\t", "\n", "\\", "\"", "a", "é", "雪", "🦀"] {
+            for kind in [
+                ConsoleProgramKind::Task,
+                ConsoleProgramKind::Workflow,
+                ConsoleProgramKind::Unspecified,
+            ] {
+                let value = ProgramDisplayMetadata {
+                    display_name: Some(name.repeat(128 / name.len())),
+                    description: Some(description.repeat(4096 / description.len())),
+                    kind,
+                };
+                value.validate().unwrap();
+                assert!(
+                    serde_json::to_vec(&value).unwrap().len() <= PROGRAM_DISPLAY_METADATA_MAX_BYTES
+                );
+            }
+        }
+    }
+    let mut too_long = maximum.clone();
+    too_long.display_name.as_mut().unwrap().push('a');
+    assert!(too_long.validate().is_err());
+    let mut too_long = maximum;
+    too_long.description.as_mut().unwrap().push('a');
+    assert!(too_long.validate().is_err());
+}
+
+#[test]
+fn short_pages_continue_from_last_item_but_empty_or_mismatched_cursors_are_rejected() {
+    let request = ConsolePagination {
+        limit: 100,
+        cursor: None,
+    };
+    let query = ProgramCatalogQuery::Programs(request.clone());
+    let binding = query.binding(&scope()).unwrap();
+    let mut reply: ConsolePage<ConsoleProgramSummary> =
+        serde_json::from_value(fixture::fixtures()["programs"].clone()).unwrap();
+    assert_eq!(reply.items.len(), 1);
+    let cursor = request
+        .next_cursor(&binding, &reply.items[0].position())
+        .unwrap();
+    reply.next_cursor = Some(cursor.clone());
+    reply.validate(&request, &binding).unwrap();
+    let mut empty = reply.clone();
+    empty.items.clear();
+    assert!(empty.validate(&request, &binding).is_err());
+    let mut mismatched = reply.clone();
+    mismatched.next_cursor = Some(
+        request
+            .next_cursor(&binding, &vec![ConsoleKey::Text("other".into())])
+            .unwrap(),
+    );
+    assert!(mismatched.validate(&request, &binding).is_err());
+    let resumed = ConsolePagination {
+        cursor: Some(cursor),
+        ..request
+    };
+    assert!(
+        reply.validate(&resumed, &binding).is_err(),
+        "continuation must advance past the previous page"
+    );
+}

@@ -231,6 +231,7 @@ export function Tabs({
   current: string;
 }) {
   const [params, set] = useSearchParams();
+  const location = useLocation();
   return (
     <nav className="tabs" aria-label="Detail views">
       {values.map((value) => (
@@ -244,7 +245,7 @@ export function Tabs({
             for (const key of [...p.keys()])
               if (key.endsWith("cursor") || key.endsWith("previous"))
                 p.delete(key);
-            set(p, { preventScrollReset: true });
+            set(p, { preventScrollReset: true, state: location.state });
           }}
         >
           {value}
