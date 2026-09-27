@@ -198,7 +198,7 @@ export function WorkflowDetailPage() {
         actions={
           detail &&
           !dto.terminal(detail.summary.workflow.state) && (
-            <CancelWorkflow workflowId={workflowId} />
+            <CancelWorkflow key={workflowId} workflowId={workflowId} />
           )
         }
       />
@@ -568,7 +568,10 @@ function Waits({
           )}
           <div className="card-grid">
             {query.data.page.items.map((wait) => (
-              <article className="card" key={wait.wait_key}>
+              <article
+                className="card"
+                key={JSON.stringify([workflowId, wait.wait_key])}
+              >
                 <h3>{wait.kind === "event" ? "External event" : "Timer"}</h3>
                 <CopyText value={wait.wait_key} />
                 <Status value={wait.closed_at === null ? "open" : "closed"} />
@@ -881,7 +884,7 @@ function SendEvent({
       command.send(
         freezeCommand(
           { workflow_id: workflowId, key: waitKey, event },
-          `${waitKey} | ${event.source} | ${event.id}`,
+          `${workflowId} | ${waitKey} | ${event.source} | ${event.id}`,
         ),
       );
       setValidation("");

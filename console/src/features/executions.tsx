@@ -201,7 +201,9 @@ export function ExecutionDetailPage() {
               >
                 Run again
               </Link>
-              {!dto.terminal(task.state) && <CancelTask taskId={taskId} />}
+              {!dto.terminal(task.state) && (
+                <CancelTask key={taskId} taskId={taskId} />
+              )}
             </>
           )
         }
