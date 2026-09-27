@@ -1,6 +1,11 @@
 use super::*;
 use ledgence_worker_api::ProgramManifest;
 
+/// Maximum compact JSON bytes for all accepted display metadata. The longest
+/// kind and object framing occupy 57 bytes; each accepted byte in the 128-byte
+/// name and 4096-byte description needs at most two JSON bytes when escaped.
+pub const PROGRAM_DISPLAY_METADATA_MAX_BYTES: usize = 57 + 2 * (128 + 4096);
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsoleProgramKind {
@@ -31,7 +36,12 @@ impl ProgramDisplayMetadata {
             return Err(invalid("invalid program description"));
         }
 
-        Ok(())
+        crate::submission::check_encoded_size(
+            self,
+            PROGRAM_DISPLAY_METADATA_MAX_BYTES,
+            "program display metadata",
+        )
+        .map_err(Into::into)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]

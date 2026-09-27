@@ -139,25 +139,54 @@ fn number_key(position: &ConsolePosition, index: usize) -> Result<u64> {
     }
 }
 fn make_page<T: ConsoleRecord>(
-    items: Vec<T>,
+    mut items: Vec<T>,
     more: bool,
     page: &ConsolePagination,
     binding: &ConsoleCursorBinding,
     at: Timestamp,
 ) -> Result<ConsolePage<T>> {
-    let next_cursor = if more {
-        Some(
-            page.next_cursor(
-                binding,
-                &items
-                    .last()
-                    .ok_or_else(|| ContractError::Unavailable("empty catalog continuation".into()))?
-                    .position(),
-            )?,
-        )
-    } else {
-        None
-    };
+    if more && items.is_empty() {
+        return Err(ContractError::Unavailable(
+            "empty catalog continuation".into(),
+        ));
+    }
+    let encoding_error = || ContractError::Unavailable("could not encode catalog page".into());
+    let mut retained = 0;
+    let mut item_bytes = 0;
+    let mut next_cursor = None;
+    for (index, item) in items.iter().enumerate() {
+        let cursor = if more || index + 1 < items.len() {
+            Some(page.next_cursor(binding, &item.position())?)
+        } else {
+            None
+        };
+        // Count each item once and include the exact envelope/cursor for this
+        // prefix. A shortened page must resume after its last retained item.
+        let candidate_bytes = item_bytes
+            + serde_json::to_vec(item)
+                .map_err(|_| encoding_error())?
+                .len()
+            + usize::from(index > 0);
+        let envelope_bytes = serde_json::to_vec(&ConsolePage::<()> {
+            items: Vec::new(),
+            next_cursor: cursor.clone(),
+            observed_at: at,
+        })
+        .map_err(|_| encoding_error())?
+        .len();
+        if candidate_bytes + envelope_bytes > CONSOLE_METADATA_MAX_BYTES {
+            if retained == 0 {
+                return Err(ContractError::Unavailable(
+                    "catalog item exceeds page byte limit".into(),
+                ));
+            }
+            break;
+        }
+        retained = index + 1;
+        item_bytes = candidate_bytes;
+        next_cursor = cursor;
+    }
+    items.truncate(retained);
     let reply = ConsolePage {
         items,
         next_cursor,

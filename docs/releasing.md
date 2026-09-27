@@ -33,7 +33,14 @@ python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc-offl
   --wheelhouse /path/to/reviewed/wheelhouse --offline --console-dist /path/to/prepared/console-dist
 ```
 
-Use `--headless` instead of `--console-dist` to explicitly omit web assets. A headless bundle makes no Console distribution claim. Offline mode requires the prepared, reviewed static build as well as Cargo/Python caches; it never silently fetches frontend dependencies.
+Use `--headless` instead of `--console-dist` to explicitly omit web assets. A
+headless bundle makes no Console distribution claim. The manual Candidate
+packaging workflow validates this headless distribution on Linux and macOS. To
+qualify a bundle containing Console, use the prepared static build and PostgreSQL
+verification described above.
+
+Offline mode requires the prepared, reviewed static build as well as Cargo/Python
+caches; it never silently fetches frontend dependencies.
 
 The output directory must be new and outside checkout. The tool builds optimized
 binaries with `--locked`, packages the worker helper, rebuilds the SDK wheel from

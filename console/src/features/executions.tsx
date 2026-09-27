@@ -1,9 +1,10 @@
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useInstance } from "../app/instance";
 import { useResource, usePagination } from "../api/hooks";
+import { useTerminalRefresh } from "../api/terminal-refresh";
 import * as dto from "../api/resources";
 import { useCommand, freezeCommand } from "../api/commands";
 import { Button } from "../components/ui/button";
@@ -388,6 +389,7 @@ function ExecutionResult({ taskId }: { taskId: string }) {
 }
 function Attempts({ taskId, active }: { taskId: string; active: boolean }) {
   const config = useInstance();
+  const location = useLocation();
   const [params, set] = useSearchParams();
   const paging = usePagination();
   const query = useResource(
@@ -398,6 +400,12 @@ function Attempts({ taskId, active }: { taskId: string; active: boolean }) {
       interval:
         active && !paging.cursor ? config.polling.active_task_ms : false,
     },
+  );
+  useTerminalRefresh(
+    active,
+    [taskId, paging.cursor, paging.limit],
+    query,
+    !paging.cursor,
   );
   const selected = params.get("attempt");
   return (
@@ -429,7 +437,10 @@ function Attempts({ taskId, active }: { taskId: string; active: boolean }) {
                         onClick={() => {
                           const p = new URLSearchParams(params);
                           p.set("attempt", a.attempt_id);
-                          set(p, { preventScrollReset: true });
+                          set(p, {
+                            preventScrollReset: true,
+                            state: location.state,
+                          });
                         }}
                       >
                         {a.attempt_id}

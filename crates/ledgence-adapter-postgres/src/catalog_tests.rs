@@ -373,3 +373,285 @@ async fn registered_catalog_survives_task_retirement_and_progressive_purge() {
     );
     db.finish().await;
 }
+
+fn maximum_metadata() -> ProgramDisplayMetadata {
+    ProgramDisplayMetadata {
+        display_name: Some("\\".repeat(128)),
+        description: Some("\t\n\\\"".repeat(1024)),
+        kind: ConsoleProgramKind::Unspecified,
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn catalog_accepts_maximum_escaped_metadata_for_registration_and_updates() {
+    let db = TestDb::new().await;
+    let scope = scope();
+    let mut command = registration();
+    command.metadata = maximum_metadata();
+    command.validate().unwrap();
+    assert_eq!(
+        codec::encode(&command.metadata).unwrap().len(),
+        PROGRAM_DISPLAY_METADATA_MAX_BYTES
+    );
+    let first = db
+        .store
+        .register_program(&scope, &command, &descriptor(), &manifest())
+        .await
+        .unwrap();
+    assert_eq!(first.version.metadata, command.metadata);
+    let replay = db
+        .store
+        .register_program(&scope, &command, &descriptor(), &manifest())
+        .await
+        .unwrap();
+    assert!(replay.already_registered);
+    assert!(!replay.metadata_updated);
+
+    let mut changed = command.clone();
+    changed.metadata.description = Some("\"".repeat(4096));
+    assert_eq!(
+        db.store
+            .register_program(&scope, &changed, &descriptor(), &manifest())
+            .await
+            .unwrap_err(),
+        ContractError::Conflict
+    );
+    changed.update_metadata = true;
+    let updated = db
+        .store
+        .register_program(&scope, &changed, &descriptor(), &manifest())
+        .await
+        .unwrap();
+    assert!(updated.already_registered && updated.metadata_updated);
+    assert_eq!(updated.version.registered_at, first.version.registered_at);
+    assert_eq!(updated.version.descriptor, first.version.descriptor);
+    assert_eq!(updated.version.manifest, first.version.manifest);
+    assert_eq!(updated.version.metadata, changed.metadata);
+    let ProgramCatalogReply::Programs(page) = db
+        .store
+        .query_programs(
+            &scope,
+            &ProgramCatalogQuery::Programs(ConsolePagination::default()),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("programs")
+    };
+    assert_eq!(page.items[0].metadata, changed.metadata);
+    let ProgramCatalogReply::Inspect(detail) = db
+        .store
+        .query_programs(&scope, &ProgramCatalogQuery::Inspect(command.program))
+        .await
+        .unwrap()
+    else {
+        panic!("inspect")
+    };
+    assert_eq!(detail.version.metadata, changed.metadata);
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn catalog_version_pages_fit_byte_budget_and_traverse_all_versions() {
+    use ledgence_adapter_artifact::{ArtifactLimits, publish_directory, verify_program_package};
+    let db = TestDb::new().await;
+    let fixture = tempfile::tempdir().unwrap();
+    let source = fixture.path().join("source");
+    let artifacts = fixture.path().join("store");
+    std::fs::create_dir(&source).unwrap();
+    let limits = ArtifactLimits::default();
+    let mut references = std::collections::BTreeSet::new();
+    let program_id = "p".repeat(128);
+    for index in 0..101 {
+        let mut command = registration();
+        command.program.id = program_id.clone();
+        command.program.version = format!("v{index:03}{}", "a".repeat(124));
+        command.metadata = maximum_metadata();
+        let mut manifest = manifest();
+        manifest.program = command.program.clone();
+        manifest.handler = "app:".into();
+        let padding = limits.max_manifest_bytes as usize - codec::encode(&manifest).unwrap().len();
+        manifest.handler.push_str(&"h".repeat(padding));
+        manifest.validate().unwrap();
+        let bytes = codec::encode(&manifest).unwrap();
+        assert_eq!(bytes.len(), limits.max_manifest_bytes as usize);
+        std::fs::write(source.join("ledgence-program.json"), bytes).unwrap();
+        std::fs::write(
+            source.join("app.py"),
+            format!("def {}(event):\n    return None\n", &manifest.handler[4..]),
+        )
+        .unwrap();
+        let descriptor = publish_directory(&source, &artifacts, &limits).unwrap();
+        let archive = std::fs::read(
+            artifacts
+                .join("blobs")
+                .join(format!("{}.zip", descriptor.digest.hex())),
+        )
+        .unwrap();
+        let verified = verify_program_package(archive, &descriptor, &limits).unwrap();
+        assert_eq!(verified, manifest);
+        db.store
+            .register_program(&scope(), &command, &descriptor, &verified)
+            .await
+            .unwrap();
+        references.insert(command.program.version);
+    }
+    let mut page = ConsolePagination {
+        limit: 100,
+        cursor: None,
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let mut page_count = 0;
+    loop {
+        let query = ProgramCatalogQuery::Versions {
+            program_id: program_id.clone(),
+            page: page.clone(),
+        };
+        let reply = db.store.query_programs(&scope(), &query).await.unwrap();
+        reply.validate(&scope(), &query).unwrap();
+        let ProgramCatalogReply::Versions(reply) = reply else {
+            panic!("versions")
+        };
+        assert!(codec::encode(&reply).unwrap().len() <= CONSOLE_METADATA_MAX_BYTES);
+        assert!(!reply.items.is_empty());
+        assert!(
+            reply.items.len() < 100,
+            "large manifests must shorten the page"
+        );
+        for item in &reply.items {
+            assert!(
+                seen.insert(item.descriptor.program.version.clone()),
+                "duplicate version across page boundary"
+            );
+            assert_eq!(item.manifest.program, item.descriptor.program);
+            assert_eq!(item.metadata, maximum_metadata());
+        }
+        page_count += 1;
+        assert!(page_count <= 101);
+        let Some(cursor) = reply.next_cursor else {
+            break;
+        };
+        page.cursor = Some(cursor);
+    }
+    assert_eq!(seen, references);
+    assert!(page_count > 2);
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn catalog_metadata_bound_upgrade_preserves_existing_bytes_and_enables_updates() {
+    let db = TestDb::without_migrations().await;
+    let previous = sqlx::migrate::Migrator::with_migrations(
+        MIGRATOR
+            .iter()
+            .filter(|migration| migration.version < 20260926040000)
+            .cloned()
+            .collect(),
+    );
+    db.store
+        .migrate_with_migrator(MigrationOptions::default(), &previous)
+        .await
+        .unwrap();
+    let mut command = registration();
+    let original = db
+        .store
+        .register_program(&scope(), &command, &descriptor(), &manifest())
+        .await
+        .unwrap();
+    let original_bytes: (Vec<u8>, Vec<u8>, Vec<u8>, i64) = sqlx::query_as(
+        "SELECT descriptor_bytes,manifest_bytes,metadata_bytes,registered_at_ms FROM console_program_versions",
+    ).fetch_one(&db.store.pool).await.unwrap();
+    let summary_bytes: Vec<u8> = sqlx::query_scalar("SELECT metadata_bytes FROM console_programs")
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+    command.metadata = maximum_metadata();
+    command.update_metadata = true;
+    assert!(matches!(
+        db.store
+            .register_program(&scope(), &command, &descriptor(), &manifest())
+            .await,
+        Err(ContractError::Unavailable(_))
+    ));
+    db.store.migrate().await.unwrap();
+    db.store.verify_schema().await.unwrap();
+    let migrated_bytes: (Vec<u8>, Vec<u8>, Vec<u8>, i64) = sqlx::query_as(
+        "SELECT descriptor_bytes,manifest_bytes,metadata_bytes,registered_at_ms FROM console_program_versions",
+    ).fetch_one(&db.store.pool).await.unwrap();
+    assert_eq!(migrated_bytes, original_bytes);
+    let migrated_summary: Vec<u8> =
+        sqlx::query_scalar("SELECT metadata_bytes FROM console_programs")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(migrated_summary, summary_bytes);
+    let updated = db
+        .store
+        .register_program(&scope(), &command, &descriptor(), &manifest())
+        .await
+        .unwrap();
+    assert!(updated.already_registered && updated.metadata_updated);
+    assert_eq!(updated.version.metadata, command.metadata);
+    assert_eq!(
+        updated.version.registered_at,
+        original.version.registered_at
+    );
+    assert_eq!(updated.version.descriptor, original.version.descriptor);
+    assert_eq!(updated.version.manifest, original.version.manifest);
+    let updated_bytes: (Vec<u8>, Vec<u8>) =
+        sqlx::query_as("SELECT descriptor_bytes,manifest_bytes FROM console_program_versions")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(updated_bytes, (original_bytes.0, original_bytes.1));
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn catalog_program_pages_keep_100_maximum_metadata_items_and_continue() {
+    let db = TestDb::new().await;
+    let mut references = Vec::new();
+    for index in 0..101 {
+        let mut command = registration();
+        command.program.id = format!("p{index:03}{}", "p".repeat(124));
+        command.program.version = "v".repeat(128);
+        command.metadata = maximum_metadata();
+        let mut descriptor = descriptor();
+        descriptor.program = command.program.clone();
+        let mut manifest = manifest();
+        manifest.program = command.program.clone();
+        db.store
+            .register_program(&scope(), &command, &descriptor, &manifest)
+            .await
+            .unwrap();
+        references.push(command.program.id);
+    }
+    let mut request = ConsolePagination {
+        limit: 100,
+        cursor: None,
+    };
+    let mut seen = Vec::new();
+    for expected_items in [100, 1] {
+        let query = ProgramCatalogQuery::Programs(request.clone());
+        let reply = db.store.query_programs(&scope(), &query).await.unwrap();
+        reply.validate(&scope(), &query).unwrap();
+        let ProgramCatalogReply::Programs(reply) = reply else {
+            panic!("programs")
+        };
+        assert_eq!(reply.items.len(), expected_items);
+        assert!(codec::encode(&reply).unwrap().len() <= CONSOLE_METADATA_MAX_BYTES);
+        assert_eq!(reply.next_cursor.is_some(), expected_items == 100);
+        for item in reply.items {
+            assert_eq!(item.metadata, maximum_metadata());
+            assert_eq!(item.registered_versions, ConsoleU64(1));
+            seen.push(item.program_id);
+        }
+        request.cursor = reply.next_cursor;
+    }
+    assert_eq!(seen, references);
+    db.finish().await;
+}
