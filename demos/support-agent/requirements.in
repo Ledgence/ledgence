@@ -1,0 +1,2 @@
+# Runtime entry point; exact reviewed platform locks accompany this file.
+google-adk==2.10.0

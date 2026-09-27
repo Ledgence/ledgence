@@ -1,5 +1,28 @@
 # Dependency policy
 
+## Optional support-agent demo
+
+The [support-agent demo](../demos/support-agent/README.md) pins Google ADK 2.10.0
+and 47 transitive distributions for CPython 3.13 on macOS arm64 and Linux x86_64.
+This is a separately reviewed application graph, not a dependency of the Rust
+platform or public Python client. Its [inventory and notices](../demos/support-agent/third_party/NOTICE.md)
+record exact wheels, source provenance, bundled native components and legal files.
+Preparation verifies hashes and retains notices in the published application
+package. No optional ADK extras are selected.
+
+This review approves **certifi 2026.7.22 specifically**, under MPL-2.0, for this
+demo. Its unmodified Python and certificate data files are distributed in source
+form and match the recorded upstream source archive. Its license, notices and
+source availability must be preserved; modifying or redistributing that component
+requires complying with its component-scoped MPL terms. This does not require
+disclosure of Ledgence-owned code or an application's separate code, and does not
+change Cargo's allowlist or approve other copyleft dependencies. The other reviewed
+terms and bundled native-code notices are detailed in the demo's inventory.
+
+The demo remains an optional Gemini integration. Core self-hosting and execution
+do not require a Google account. Model-service terms and provider billing are
+separate from open-source dependency licenses.
+
 Ledgence-owned code is MIT-licensed. Applications and programs that use Ledgence may remain proprietary, including commercial and hosted uses. MIT does not require publishing their source or modifications. Copyright and permission notices must remain with copies or substantial portions of MIT-covered software; third-party components retain their own terms. See the [MIT license](https://opensource.org/license/mit).
 
 Dependency choices must preserve this product model: no required commercial service, license key, product branding, advertising credit, or disclosure of users' application/program source. Required legal notices may accompany source and binary distributions in notice files. A license scan is a selection gate, not a replacement for fulfilling the selected licenses.

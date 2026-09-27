@@ -1,0 +1,172 @@
+"""No-network checks of live acceptance control flow and private evidence handling."""
+
+import contextlib
+import copy
+import importlib.util
+import io
+import json
+from pathlib import Path
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+SPEC = importlib.util.spec_from_file_location(
+    "support_demo_check", Path(__file__).resolve().parents[1] / "check.py"
+)
+check = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(check)
+
+
+def draft():
+    return {"ticket_id": "SUP-1042", "classification": "how_to", "model": "gemini-3.8-flash",
+            "model_calls": 2, "tool_calls": 2,
+            "reply": "Un timeout solo limita la observación. No cancela la tarea ni la reenvía "
+                     "automáticamente. La tarea continúa; recupera el resultado con el mismo task_id.",
+            "sources": [{"id": "task-results", "title": "Task status and results",
+                         "location": "docs/task-results.md"}]}
+
+
+class FakeDeployment:
+    def __init__(self, directory, *, changed_receipt=False, repeated_attempt=False, wrong_draft=False):
+        self.evidence = check.Evidence(directory, "test-only-private-key")
+        self.changed_receipt = changed_receipt
+        self.repeated_attempt = repeated_attempt
+        self.wrong_draft = wrong_draft
+        self.server_url = "http://127.0.0.1:12345"
+        self.artifacts = SimpleNamespace(url="http://127.0.0.1:12346")
+        self.server = SimpleNamespace(process=SimpleNamespace(pid=11))
+        self.worker = SimpleNamespace(process=SimpleNamespace(pid=12))
+        self.submissions = self.probes = self.events = self.restarts = self.observed = 0
+        self.finished = False
+        self.token = None
+
+    def workflow_wait(self, workflow_id):
+        return {"workflow_id": workflow_id, "external_wait_key": "approval:1", "continuation": "finish"}
+
+    def task_result(self, task_id):
+        self.observed += 1
+        output = draft() if task_id == "task-draft" else {"probe": "slot-released", "token": self.token}
+        attempts = 2 if self.repeated_attempt and self.finished else 1
+        return {"task": {"task_id": task_id, "state": "succeeded", "attempt_count": attempts},
+                "outcome": {"kind": "succeeded", "output": output}, "observed_at": self.observed}
+
+    def stop_services(self):
+        self.restarts += 1
+
+    def start_server(self):
+        self.server.process.pid += 10
+
+    def start_worker(self):
+        self.worker.process.pid += 10
+
+    def request(self, path, body=None, **query):
+        if path == "/v1/console/workflows":
+            self.submissions += 1
+            return {"workflow": {"workflow_id": "workflow-demo"}}
+        if path.endswith("/children"):
+            return {"items": [{"kind": "task", "command_key": "draft", "target_id": "task-draft"}],
+                    "next_cursor": None}
+        if path.endswith("/waits"):
+            return {"page": {"items": [{"wait_key": "approval:1", "deadline": 1234}], "next_cursor": None}}
+        if path == "/v1/console/tasks":
+            self.probes += 1
+            self.token = body["input"]["data"]["token"]
+            return {"task_id": "task-probe"}
+        if path.endswith("/events"):
+            self.events += 1
+            receipt = {"already_accepted": self.events > 1, "accepted_at": 1,
+                       "workflow_id": body["workflow_id"], "event_id": body["event"]["id"]}
+            if self.changed_receipt and self.events > 1:
+                receipt["accepted_at"] = 2
+            return receipt
+        if path == "/v1/console/workflows/result":
+            self.finished = True
+            output = {"ticket_id": "SUP-1042", "status": "approved", "draft_task_id": "task-draft", "draft": draft()}
+            if self.wrong_draft:
+                output["draft"]["reply"] = "Different reply"
+            return {"workflow": {"state": "succeeded"}, "outcome": {"kind": "succeeded", "output": output}}
+        if path.endswith("/attempts"):
+            return {"items": [{"attempt_id": "attempt-draft"}], "next_cursor": None}
+        raise AssertionError("unexpected endpoint")
+
+
+class AcceptanceRunnerTests(unittest.TestCase):
+    def test_paid_requests_require_explicit_flag_before_configuration_access(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+            check.parser().parse_args(["--directory", "/unused", "--binaries", "/unused", "--evidence", "/unused"])
+        self.assertEqual(error.exception.code, 2)
+        args = check.parser().parse_args(["--directory", "/unused", "--binaries", "/unused",
+                                          "--evidence", "/unused", "--live-gemini"])
+        self.assertTrue(args.live_gemini)
+
+    def test_owned_database_name_replaces_only_the_parent_database(self):
+        name = "ldg_support_demo_" + "a" * 32
+        self.assertEqual(check.database_url("postgres://user:password@127.0.0.1:1234/postgres?sslmode=disable", name),
+                         f"postgres://user:password@127.0.0.1:1234/{name}?sslmode=disable")
+        for parent, database in (("postgres://localhost/postgres?dbname=other", name),
+                                 ("postgres://localhost/postgres?service=other", name),
+                                 ("postgres://localhost/postgres", "user_database"),
+                                 ("https://localhost/postgres", name)):
+            with self.subTest(parent=parent), self.assertRaises(check.CheckFailure):
+                check.database_url(parent, database)
+
+    def test_server_and_admin_environments_exclude_provider_key_and_aliases(self):
+        source = {"PATH": "/usr/bin", "GOOGLE_API_KEY": "secret-test", "GEMINI_API_KEY": "another",
+                  "GOOGLE_APPLICATION_CREDENTIALS": "/private/file", "ALIAS": "prefix-secret-test",
+                  "DATABASE_URL": "postgres://localhost/postgres"}
+        before = dict(source)
+        self.assertEqual(check.server_environment(source, "secret-test"), {
+            "PATH": "/usr/bin", "DATABASE_URL": "postgres://localhost/postgres"})
+        self.assertEqual(source, before)
+
+    def test_logs_and_json_are_redacted_before_retention_and_scan_is_boolean(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = check.Evidence(Path(directory), 'test-"private"-key')
+            evidence.write("result.json", {"unexpected": 'test-"private"-key'})
+            evidence.write_bytes("worker.stderr", b'provider error: test-"private"-key')
+            self.assertTrue(evidence.secret_detected)
+            self.assertTrue(evidence.scan())
+            for path in Path(directory).iterdir():
+                self.assertNotIn(b"private", path.read_bytes())
+                self.assertIn(b"[REDACTED]", path.read_bytes())
+
+    def test_grounded_ticket_check_rejects_cancel_and_resubmit_claims(self):
+        self.assertTrue(all(check.timeout_answer_review_hints(draft()).values()))
+        wrong = draft()
+        wrong["reply"] = "El timeout cancela la tarea; reenvía la solicitud con un nuevo ID."
+        checks = check.timeout_answer_review_hints(wrong)
+        self.assertFalse(checks["does_not_cancel"])
+        self.assertFalse(checks["does_not_resubmit"])
+        self.assertFalse(checks["reuses_identity"])
+
+    def test_scenario_submits_one_draft_one_probe_and_reconciles_one_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            deployment = FakeDeployment(Path(directory))
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = check.scenario(deployment, "gemini-3.8-flash")
+            self.assertEqual((deployment.submissions, deployment.probes, deployment.events, deployment.restarts), (1, 1, 2, 1))
+            self.assertEqual(result["draft_attempt_count"], 1)
+            self.assertNotEqual(result["original_pids"], result["restarted_pids"])
+            summary = json.loads((Path(directory) / "workflow-result.json").read_text())
+            self.assertEqual(summary["outcome"]["output"]["draft"], draft())
+
+    def test_scenario_fails_changed_receipt_attempt_or_draft_without_resubmission(self):
+        for changed in ("changed_receipt", "repeated_attempt", "wrong_draft"):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as directory:
+                deployment = FakeDeployment(Path(directory), **{changed: True})
+                with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(check.CheckFailure):
+                    check.scenario(deployment, "gemini-3.8-flash")
+                self.assertEqual(deployment.submissions, 1)
+
+    def test_prepared_store_link_fallback_does_not_change_original_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, target = Path(directory) / "source", Path(directory) / "target"
+            source.write_bytes(b"immutable package")
+            with patch.object(check.os, "link", side_effect=OSError("different filesystem")):
+                check.link_or_copy(source, target)
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+
+
+if __name__ == "__main__":
+    unittest.main()
