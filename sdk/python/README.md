@@ -103,7 +103,12 @@ def handle(event):
 
 `get_logger` returns a normal `logging.Logger`, adding one Ledgence handler while
 preserving existing handlers and root configuration. An unset logger level becomes
-INFO. User attributes occupy a separate map. A record snapshots correlation and
+INFO. Each `LogRecord` is handled once by Ledgence, including when it propagates
+through parent loggers configured with `get_logger`. Re-dispatching that same
+record does not emit another Ledgence frame; separate logging calls create
+independent records, even when their messages match. Application and root handlers
+continue to receive records according to normal Python logging rules.
+User attributes occupy a separate map. A record snapshots correlation and
 attributes synchronously at emission; intentionally copied old contexts retain
 their original IDs even if a background thread logs during a later invocation.
 Outside an invocation, records carry process identity only unless the application

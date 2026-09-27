@@ -170,7 +170,7 @@ export function AgentDetailPage() {
         actions={
           valid &&
           config.capabilities.programs && (
-            <RegisterProgram programId={programId} />
+            <RegisterProgram key={programId} programId={programId} />
           )
         }
       />
@@ -398,7 +398,11 @@ export function ProgramVersionPage() {
                 >
                   Refresh
                 </Button>
-                <RegisterProgram programId={programId} version={version} />
+                <RegisterProgram
+                  key={JSON.stringify([programId, version])}
+                  programId={programId}
+                  version={version}
+                />
               </div>
             </section>
           )}
