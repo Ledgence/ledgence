@@ -204,6 +204,19 @@ class AgentTests(unittest.TestCase):
                     program.handle(event())
                 self.assertNotIn("private", str(raised.exception))
 
+    def test_only_fixed_runtime_categories_survive_retirement(self):
+        for category, expected in (("mcp", "mcp"), ("private-provider-detail", "runtime"), ([], "runtime")):
+            failure = ValueError("private CLI output")
+            failure.category = category
+            def fail(*args, **kwargs):
+                raise failure
+            fake = SimpleNamespace(run_codex=fail, ERROR_CATEGORIES=frozenset({"runtime", "mcp"}))
+            with self.subTest(category=category), patch.dict(sys.modules, {"codex_runtime": fake}):
+                with self.assertRaises(SystemExit) as raised:
+                    program.handle(event())
+                self.assertIn(f"({expected})", str(raised.exception))
+                self.assertNotIn("private", str(raised.exception))
+
     def test_temporary_directory_cleanup_cannot_downgrade_session_retirement(self):
         create_directory = tempfile.TemporaryDirectory
         class FailingCleanup:

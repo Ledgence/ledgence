@@ -227,6 +227,9 @@ Read `summary.json` and `draft.json` in the evidence directory. On child failure
 `failure-diagnostics.json` preserves outcomes and attempts before cleanup.
 Codex raw transcripts and authentication files are not retained. Diagnostic
 credential-pattern scans do not claim to inspect Codex's credential storage.
+On a CLI failure, worker logs retain a fixed category such as authentication,
+model availability, MCP startup, timeout or event-stream validation. The helper
+then exits so Ledgence can confirm cleanup of its process group.
 
 The cleanup check uses the real Rust worker with a fake Codex executable that
 leaves a child process running when it fails. A second task verifies retirement

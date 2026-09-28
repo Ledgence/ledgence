@@ -20,10 +20,92 @@ MAX_FINAL_BYTES = 24 * 1024
 MAX_EVENTS = 2048
 MCP_SERVER = "ledgence_docs"
 TOOL_NAMES = {"search_docs", "read_doc"}
+ERROR_CATEGORIES = frozenset({
+    "runtime", "configuration", "authentication", "model_unavailable", "quota",
+    "mcp", "network", "provider", "cli_exit", "timeout", "output_limit",
+    "startup", "event_encoding", "event_json", "event_count", "event_shape",
+    "event_order", "event_usage", "event_message", "event_incomplete",
+    "event_type", "item_type", "tool_scope", "tool_failure",
+})
 
 
 class CodexError(ValueError):
     """Fixed, safe diagnostics; never contains CLI output or credential values."""
+
+    def __init__(self, message, *, category="runtime"):
+        super().__init__(message)
+        # Callers may transport only this closed-set value across the worker
+        # boundary, even when an integration accidentally supplies a raw message.
+        self.category = category if isinstance(category, str) and category in ERROR_CATEGORIES else "runtime"
+
+
+def _diagnostic_category(messages, *, default):
+    """Classify recognized failure indicators without returning provider text."""
+    text = "\n".join(messages).lower()
+    if any(marker in text for marker in (
+        "error loading config", "unknown configuration field", "invalid configuration",
+        "unexpected argument", "invalid value for", "invalid output schema",
+    )):
+        return "configuration"
+    if "model" in text and any(marker in text for marker in (
+        "not supported", "not available", "not found", "does not exist",
+        "unavailable", "unsupported", "not have access",
+    )):
+        return "model_unavailable"
+    if any(marker in text for marker in (
+        "not logged in", "authentication failed", "authentication error",
+        "unauthorized", "invalid auth",
+        "login required", "please log in", "token has expired", "refresh token",
+    )) or re.search(r"\b(?:http(?: status)?|status(?: code)?)[:= ]+401\b", text):
+        return "authentication"
+    if any(marker in text for marker in (
+        "rate limit", "rate_limit", "usage limit", "quota", "insufficient credits",
+        "too many requests",
+    )) or re.search(r"\b(?:http(?: status)?|status(?: code)?)[:= ]+429\b", text):
+        return "quota"
+    if any(
+        any(marker in line for marker in ("mcp", "tools/list"))
+        and any(marker in line for marker in (
+            "failed", "error", "timed out", "timeout", "unexpected", "invalid",
+            "unsupported", "could not", "couldn't",
+        ))
+        for line in text.splitlines()
+    ):
+        return "mcp"
+    if any(marker in text for marker in (
+        "connection refused", "connection reset", "connection timed out",
+        "error sending request", "failed to connect", "dns error",
+        "network error", "stream disconnected", "stream closed",
+    )):
+        return "network"
+    if re.search(r"\b(?:http(?: status)?|status(?: code)?)[:= ]+5[0-9]{2}\b", text):
+        return "provider"
+    return default
+
+
+def _failure_category(stdout, stderr):
+    # Only fatal error fields are useful here. Agent messages and MCP documents
+    # can discuss configuration/authentication and must not affect diagnostics.
+    messages = []
+    for line in stdout.splitlines()[:MAX_EVENTS]:
+        try:
+            event = _json_value(line)
+        except (ValueError, UnicodeError, RecursionError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "error":
+            message = event.get("message")
+        elif event.get("type") == "turn.failed" and isinstance(event.get("error"), dict):
+            message = event["error"].get("message")
+        else:
+            continue
+        if isinstance(message, str):
+            messages.append(message)
+    category = _diagnostic_category(messages, default="cli_exit")
+    if category != "cli_exit":
+        return category
+    return _diagnostic_category([stderr.decode("utf-8", errors="replace")], default="cli_exit")
 
 
 def _environment():
@@ -87,7 +169,7 @@ def _collect(command, *, environment, directory, deadline, data=b""):
             while selector.get_map():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise CodexError("Codex exceeded the agent execution budget")
+                    raise CodexError("Codex exceeded the agent execution budget", category="timeout")
                 for key, _ in selector.select(min(remaining, 0.1)):
                     if key.data == "stdin":
                         try:
@@ -107,17 +189,17 @@ def _collect(command, *, environment, directory, deadline, data=b""):
                     target.extend(chunk)
                     maximum = MAX_STDOUT_BYTES if key.data == "stdout" else MAX_STDERR_BYTES
                     if len(target) > maximum:
-                        raise CodexError("Codex output exceeded the demo's size limit")
+                        raise CodexError("Codex output exceeded the demo's size limit", category="output_limit")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise CodexError("Codex exceeded the agent execution budget")
+                raise CodexError("Codex exceeded the agent execution budget", category="timeout")
             try:
                 code = process.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
-                raise CodexError("Codex exceeded the agent execution budget") from None
+                raise CodexError("Codex exceeded the agent execution budget", category="timeout") from None
             return code, bytes(output["stdout"]), bytes(output["stderr"])
     except OSError:
-        raise CodexError("Could not start or communicate with the configured Codex CLI") from None
+        raise CodexError("Could not start or communicate with the configured Codex CLI", category="startup") from None
     finally:
         if process is not None:
             _terminate(process)
@@ -153,6 +235,8 @@ def _parse_events(raw):
             if not isinstance(event, dict):
                 raise ValueError("event object")
             kind = event.get("type")
+            if not isinstance(kind, str):
+                raise ValueError("event object")
             if kind == "thread.started":
                 candidate = event.get("thread_id")
                 if thread_id is not None or not isinstance(candidate, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", candidate):
@@ -190,9 +274,9 @@ def _parse_events(raw):
                 item_type = item.get("type")
                 if item_type == "mcp_tool_call":
                     if item.get("server") != MCP_SERVER or item.get("tool") not in TOOL_NAMES:
-                        raise CodexError("Codex used a tool outside the demo's documentation tools")
+                        raise CodexError("Codex used a tool outside the demo's documentation tools", category="tool_scope")
                     if kind == "item.completed" and item.get("status") != "completed":
-                        raise CodexError("Codex could not complete a documentation tool call")
+                        raise CodexError("Codex could not complete a documentation tool call", category="tool_failure")
                 elif item_type == "agent_message":
                     if kind == "item.completed":
                         value = item.get("text")
@@ -200,9 +284,13 @@ def _parse_events(raw):
                             raise ValueError("message")
                         final = value
                 elif item_type != "reasoning":
-                    raise CodexError("Codex used a tool outside the demo's documentation tools")
+                    raise CodexError("Codex used a tool outside the demo's documentation tools", category="item_type")
             elif kind in {"error", "turn.failed"}:
-                raise CodexError("Codex generation failed; check CLI login, subscription limits and model availability")
+                message = event.get("message") if kind == "error" else event.get("error", {})
+                if isinstance(message, dict):
+                    message = message.get("message")
+                category = _diagnostic_category([message] if isinstance(message, str) else [], default="provider")
+                raise CodexError("Codex reported a failed generation", category=category)
             else:
                 raise ValueError("event type")
         if not completed or not final or usage is None:
@@ -211,7 +299,22 @@ def _parse_events(raw):
     except (ValueError, UnicodeError, RecursionError) as error:
         if isinstance(error, CodexError):
             raise
-        raise CodexError("Codex returned an invalid or incomplete event stream") from None
+        if isinstance(error, UnicodeError):
+            category = "event_encoding"
+        elif isinstance(error, (json.JSONDecodeError, RecursionError)):
+            category = "event_json"
+        else:
+            category = {
+                "duplicate key": "event_json", "non-finite constant": "event_json",
+                "event count": "event_count", "event object": "event_shape",
+                "thread id": "event_shape", "item object": "event_shape",
+                "turn order": "event_order", "item order": "event_order",
+                "usage": "event_usage", "usage counter": "event_usage",
+                "reasoning counter": "event_usage", "cached usage": "event_usage",
+                "message": "event_message", "event type": "event_type",
+                "incomplete turn": "event_incomplete",
+            }.get(str(error), "event_json")
+        raise CodexError("Codex returned an invalid or incomplete event stream", category=category) from None
 
 
 def _settings(tool_server, audit_path, workdir):
@@ -326,12 +429,12 @@ def run_codex(prompt, schema, tool_server, audit_path, workdir, timeout=120.0, *
             "--output-schema", str(schema_path),
             *_settings(server, audit, directory), "-",
         ]
-        code, stdout, _ = _collect(
+        code, stdout, stderr = _collect(
             command, environment=environment, directory=directory,
             deadline=deadline, data=encoded,
         )
         if code:
-            raise CodexError("Codex generation failed; check CLI login, subscription limits and model availability")
+            raise CodexError("Codex CLI exited before completing generation", category=_failure_category(stdout, stderr))
         result = _parse_events(stdout)
         result["cli_version"] = version
         return result

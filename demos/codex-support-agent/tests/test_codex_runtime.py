@@ -33,6 +33,65 @@ def encoded(items):
 
 
 class EventsTests(unittest.TestCase):
+    def test_diagnostic_categories_are_a_closed_set(self):
+        self.assertEqual(runtime.CodexError("private detail").category, "runtime")
+        for category in ["private-secret", None, {}, []]:
+            with self.subTest(category=category):
+                self.assertEqual(runtime.CodexError("private detail", category=category).category, "runtime")
+        for category in runtime.ERROR_CATEGORIES:
+            self.assertEqual(runtime.CodexError("private detail", category=category).category, category)
+
+    def test_cli_failure_categories_are_safe_and_distinct(self):
+        cases = [
+            ("Error loading config.toml: private-secret", "configuration"),
+            ("The model private-secret is not supported when using Codex with a ChatGPT account", "model_unavailable"),
+            ("Authentication failed: private-secret", "authentication"),
+            ("Unexpected status 401: private-secret", "authentication"),
+            ("Unexpected status code: 429 private-secret", "quota"),
+            ("You have hit your usage limit. private-secret", "quota"),
+            ("MCP server ledgence_docs failed: private-secret", "mcp"),
+            ("tools/list returned an invalid response: private-secret", "mcp"),
+            ("error sending request private-secret", "network"),
+            ("Unexpected HTTP status 503: private-secret", "provider"),
+            ("private-secret", "cli_exit"),
+        ]
+        for message, category in cases:
+            with self.subTest(category=category):
+                self.assertEqual(runtime._failure_category(b"", message.encode()), category)
+                self.assertEqual(runtime._failure_category(encoded([{"type": "error", "message": message}]), b""), category)
+                self.assertEqual(runtime._failure_category(encoded([{"type": "turn.failed", "error": {"message": message}}]), b""), category)
+
+    def test_diagnostics_ignore_successful_activity_and_documentation_content(self):
+        values = events()
+        values[4]["item"]["text"] = "Authentication failed: example from a public documentation page"
+        stderr = b"Authentication complete\nMCP server ledgence_docs ready\nAn unrelated operation failed\n"
+        self.assertEqual(runtime._failure_category(encoded(values), stderr), "cli_exit")
+        self.assertEqual(runtime._failure_category(b"private-secret\xff", stderr), "cli_exit")
+        # A structured fatal error wins over potentially unrelated stderr logs.
+        self.assertEqual(runtime._failure_category(encoded([{"type": "error", "message": "model example is not supported"}]), b"MCP server failed"), "model_unavailable")
+
+    def test_parser_categories_distinguish_protocol_from_cli_failure(self):
+        unknown_item = events()
+        unknown_item[2]["item"]["type"] = "private-secret"
+        bad_usage = events()
+        bad_usage[-1]["usage"]["output_tokens"] = -1
+        cases = [
+            (b"\xff", "event_encoding"),
+            (b"not-json private-secret", "event_json"),
+            (b"[]", "event_shape"),
+            (b'{"type":[]}', "event_shape"),
+            (b'{"type":"private-secret"}', "event_type"),
+            (encoded(unknown_item), "item_type"),
+            (encoded(events()[:-1]), "event_incomplete"),
+            (encoded(events()[1:]), "event_order"),
+            (encoded(bad_usage), "event_usage"),
+        ]
+        for raw, category in cases:
+            with self.subTest(category=category), self.assertRaises(runtime.CodexError) as caught:
+                runtime._parse_events(raw)
+            self.assertEqual(caught.exception.category, category)
+            self.assertNotIn("private-secret", str(caught.exception))
+
     def test_success_preserves_real_usage_and_final(self):
         result = runtime._parse_events(encoded(events()))
         self.assertEqual(result["text"], '{"reply":"Ready"}')
@@ -130,7 +189,9 @@ elif fixture["mode"] == "stdout_flood":
 elif fixture["mode"] == "stderr_flood":
     os.write(2, b"private-secret" * (128 * 1024))
 elif fixture["mode"] == "failure":
-    print("private-secret", file=sys.stderr)
+    print(fixture.get("stderr", "private-secret"), file=sys.stderr)
+    for item in fixture.get("failure_events", []):
+        print(json.dumps(item), flush=True)
     raise SystemExit(7)
 else:
     for item in fixture["events"]:
@@ -180,6 +241,17 @@ else:
         with self.assertRaises(runtime.CodexError) as caught:
             self.invoke()
         self.assertNotIn("private-secret", str(caught.exception))
+        self.assertEqual(caught.exception.category, "cli_exit")
+        self.assert_reaped()
+
+    def test_nonzero_exit_reports_only_the_recognized_category(self):
+        self.mode("failure", stderr="INFO authentication complete; private-secret", failure_events=[{"type": "turn.failed", "error": {"message": "MCP server failed: private-secret"}}])
+        with self.assertRaises(runtime.CodexError) as caught:
+            self.invoke()
+        self.assertEqual(caught.exception.category, "mcp")
+        self.assertNotIn("private-secret", str(caught.exception))
+        self.assertNotIn("private-secret", caught.exception.category)
+        self.assertFalse((self.directory / "codex-output-schema.json").exists())
         self.assert_reaped()
 
     def test_output_bounds_both_streams(self):

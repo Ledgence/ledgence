@@ -242,14 +242,17 @@ def validated_output(result, ticket, audit):
 
 
 def _run_codex(*args, **kwargs):
-    from codex_runtime import run_codex
+    import codex_runtime
     try:
-        return run_codex(*args, **kwargs)
-    except Exception:
+        return codex_runtime.run_codex(*args, **kwargs)
+    except Exception as error:
         # The worker must retire this process group after a failed CLI run;
         # returning a normal application error could leave CLI descendants alive
         # while Ledgence reuses the helper for another task.
-        raise SystemExit("Codex execution failed; retiring the worker session") from None
+        category = getattr(error, "category", "runtime")
+        if type(category) is not str or category not in getattr(codex_runtime, "ERROR_CATEGORIES", {"runtime"}):
+            category = "runtime"
+        raise SystemExit(f"Codex execution failed ({category}); retiring the worker session") from None
 
 
 def handle(event):
