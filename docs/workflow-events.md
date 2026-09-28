@@ -12,30 +12,40 @@ in [checkpoint workflows](workflows.md).
 These are explicit continuation decisions, not Python coroutine suspension:
 
 ```python
-from ledgence.worker.workflow import workflow_context
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow
 
-async def handle(event):
-    ctx = workflow_context()
-    if ctx.continuation == "start":
-        return ctx.wait_event(
-            "approval:1",
-            continuation="after_approval",
-            state={"invoice_id": event["data"]["invoice_id"]},
-            timeout_ms=24 * 60 * 60 * 1000,
-        )
-    if ctx.continuation == "after_approval":
-        wake = ctx.wake
-        if wake["kind"] == "timeout":
-            return ctx.fail("approval_expired", "Approval did not arrive in time")
-        return ctx.complete({
-            "invoice_id": ctx.state["invoice_id"],
-            "approval": wake["event"]["data"],
-        })
-    return ctx.fail("unknown_continuation", ctx.continuation)
+class Entry(StrEnum):
+    START = "start"
+    AFTER_APPROVAL = "after_approval"
+
+workflow = Workflow(Entry)
+
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    return ctx.wait_event(
+        "approval:1",
+        continuation=Entry.AFTER_APPROVAL,
+        state={"invoice_id": event["data"]["invoice_id"]},
+        timeout_ms=24 * 60 * 60 * 1000,
+    )
+
+@workflow.entrypoint(Entry.AFTER_APPROVAL)
+def after_approval(event, ctx):
+    wake = ctx.wake
+    if wake["kind"] == "timeout":
+        return ctx.fail("approval_expired", "Approval did not arrive in time")
+    return ctx.complete({
+        "invoice_id": ctx.state["invoice_id"],
+        "approval": wake["event"]["data"],
+    })
+
+handle = workflow.build()
 ```
 
-`return ctx.sleep("backoff:1", 5000, continuation="after_delay", state={})`
-persists a standalone timer. Its next `ctx.wake` is
+A timer workflow can define and register an `Entry.AFTER_DELAY` handler, then
+`return ctx.sleep("backoff:1", 5000, continuation=Entry.AFTER_DELAY, state={})`
+to persist a standalone timer. Its next `ctx.wake` is
 `{"kind":"timer","key":"backoff:1","deadline":...}`. An event timeout uses
 `kind: "timeout"`. A delivered event uses `kind: "event"`, the original full
 `event` envelope, and its authoritative `accepted_at` timestamp. Timestamps are

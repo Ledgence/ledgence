@@ -8,9 +8,11 @@ no workflow invocation, coroutine, worker reservation, or database connection
 remains allocated for that wait. A healthy subprocess may remain in the normal
 warm pool, available for reuse or replacement.
 
-This first workflow slice provides durable local steps, distributed child tasks,
-sealed all-terminal waits, explicit continuations, workflow results and
-cancellation. [External events and durable timers](workflow-events.md) add
+Workflows provide durable local steps, distributed child tasks,
+sealed all-terminal waits, registered entrypoints, workflow results and
+cancellation. [Typed entrypoints and forks](workflow-entrypoints.md) support
+same-package branches that run while the parent continues local work.
+[External events and durable timers](workflow-events.md) add
 one-shot callback waits and persisted deadlines to the same checkpoint model.
 [Owned subworkflows](subworkflows.md) add nested workflow composition and
 parent/child lifecycle coordination. Administrative redrive, automatic code
@@ -25,37 +27,39 @@ synchronous programs retain their existing behavior, including as distributed
 children of a workflow.
 
 ```python
-from ledgence.worker.workflow import workflow_context
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow
 
-async def handle(event):
-    ctx = workflow_context()
-    if ctx.continuation == "start":
-        user_id = event["data"]["user_id"]
-        profile, orders = await ctx.gather(
-            ctx.local("profile", fetch_profile, user_id=user_id),
-            ctx.local("orders", fetch_orders, user_id=user_id),
-        )
-        analysis = ctx.task(
-            "analysis",
-            program="large-analysis",
-            version="1.0.0",
-            queue="analysis",
-            data={"profile": profile, "orders": orders},
-        )
-        return ctx.suspend(
-            continuation="after_analysis",
-            state={"user_id": user_id},
-            until=[analysis],
-        )
-    if ctx.continuation == "after_analysis":
-        outcome = ctx.inputs["analysis"]["outcome"]
-        if outcome["kind"] != "succeeded":
-            return ctx.fail("analysis_failed", "The analysis child did not succeed")
-        return ctx.complete({
-            "user_id": ctx.state["user_id"],
-            "analysis": ctx.get_result("analysis"),
-        })
-    return ctx.fail("unknown_continuation", ctx.continuation)
+class Entry(StrEnum):
+    START = "start"
+    AFTER_ANALYSIS = "after_analysis"
+
+workflow = Workflow(Entry)
+
+@workflow.entrypoint(Entry.START, default=True)
+async def start(event, ctx):
+    user_id = event["data"]["user_id"]
+    profile, orders = await ctx.gather(
+        ctx.local("profile", fetch_profile, user_id=user_id),
+        ctx.local("orders", fetch_orders, user_id=user_id),
+    )
+    analysis = ctx.task(
+        "analysis", program="large-analysis", version="1.0.0", queue="analysis",
+        data={"profile": profile, "orders": orders},
+    )
+    return ctx.suspend(
+        continuation=Entry.AFTER_ANALYSIS, state={"user_id": user_id}, until=[analysis],
+    )
+
+@workflow.entrypoint(Entry.AFTER_ANALYSIS)
+def after_analysis(event, ctx):
+    if ctx.inputs["analysis"]["state"] != "succeeded":
+        return ctx.fail("analysis_failed", "The analysis child did not succeed")
+    return ctx.complete({
+        "user_id": ctx.state["user_id"], "analysis": ctx.get_result("analysis"),
+    })
+
+handle = workflow.build()
 ```
 
 `fetch_profile` and `fetch_orders` are application functions in the same prepared
@@ -73,6 +77,7 @@ Execution choices have different recovery behavior:
 | `await ctx.local(key, function, **inputs)` | Current invocation/package | Individual acknowledged local result |
 | `ctx.task(key, ...)` | Independently admitted child task | Child task with its own attempts and leases |
 | `ctx.workflow(key, ...)` | Independently scheduled owned workflow | Child workflow with its own checkpoints and terminal outcome |
+| `await ctx.fork(key, branches=[...])` | Owned workflows in the parent's exact package | Acknowledged immutable registration, then independent branch checkpoints |
 
 `ctx.task` stages a command. It does not launch the child before the returned
 checkpoint decision is accepted. `ctx.continue_(continuation=..., state=...)`
@@ -170,6 +175,7 @@ the core API contains no SQS or PostgreSQL types.
 | `POST /v1/workflows/cancel` | Request cancellation with `{scope, workflow_id}` |
 | `POST /v1/workflows/activations/context` | Worker read using its exact `LeaseOwner` |
 | `POST /v1/workflows/local-results` | Commit `{owner, record}` for a local step |
+| `POST /v1/workflows/forks` | Commit `{owner, fork, processing_trace?}` without suspending the parent |
 
 GET requests require `tenant_id`, `namespace`, and `workflow_id` query parameters.
 Status/result reads do not acquire execution authority. Waiting in the Python
@@ -205,6 +211,9 @@ The first inline contract enforces these compact JSON bounds:
 | Commands and all-terminal wait members per decision | 64 each |
 | Frozen child inputs per activation | 64 entries / 256 KiB combined |
 | Complete activation context | 640 KiB |
+| One fork request / complete fenced fork command | 128 KiB / 144 KiB |
+| Accepted fork ledger per logical activation | 64 forks / 256 KiB combined |
+| Newly registered children across forks and staged decisions per activation | 64 combined |
 
 Use application-controlled object references for larger payloads. Exceeding an
 inline bound is an error; the system does not silently drop results or wait members.

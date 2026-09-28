@@ -13,10 +13,10 @@ def handle(event):
     return {"invoice_id": event["data"]["invoice_id"], "pid": os.getpid(), "invocation": count}
 """
 with tempfile.TemporaryDirectory(prefix="ledgence-publish-") as temporary:
-    for name, protocol, source in [
-        ("invoice-issuer", 2, None),
-        ("workflow-example", 3, "controller"),
-        ("workflow-summary", 2, "child"),
+    for name, version, protocol, source in [
+        ("invoice-issuer", "1.0.0", 2, None),
+        ("workflow-example", "1.0.1", 3, "controller"),
+        ("workflow-summary", "1.0.0", 2, "child"),
     ]:
         directory = Path(temporary) / name
         subprocess.run(["ledgence-worker", "example", "--directory", directory,
@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="ledgence-publish-") as temporary:
         package = directory / "program"
         manifest = package / "ledgence-program.json"
         value = json.loads(manifest.read_text())
-        value["program"] = {"id": name, "version": "1.0.0"}
+        value["program"] = {"id": name, "version": version}
         value["runtime"]["protocol"] = protocol
         manifest.write_text(json.dumps(value))
         if source:
@@ -37,5 +37,5 @@ with tempfile.TemporaryDirectory(prefix="ledgence-publish-") as temporary:
         # A failed registration leaves a valid artifact; rerun this command to
         # reconcile it instead of deleting or rolling back the program store.
         subprocess.run(["ledgence", "program", "register", "--server", "http://orchestrator:8080",
-                        "--program", name, "--version", "1.0.0", "--kind",
+                        "--program", name, "--version", version, "--kind",
                         "workflow" if name == "workflow-example" else "task"], check=True)

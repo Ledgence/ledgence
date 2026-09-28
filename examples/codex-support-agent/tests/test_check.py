@@ -35,7 +35,7 @@ def publish_fixture(prepared, *, replacement=None):
         content = temporary.read_bytes()
         digest = hashlib.sha256(content).hexdigest()
         temporary.replace(blobs / (digest + ".zip"))
-        descriptor = {"program": {"id": program, "version": "1.0.1" if kind == "workflow" else "1.0.0"},
+        descriptor = {"program": {"id": program, "version": "1.0.2" if kind == "workflow" else "1.0.1"},
                       "digest": "sha256:" + digest, "size": len(content)}
         stored = prepared / "store/programs" / program / descriptor["program"]["version"] / "descriptor.json"
         stored.parent.mkdir(parents=True, exist_ok=True)
@@ -125,8 +125,8 @@ class AcceptanceRunnerTests(unittest.TestCase):
 
     def test_package_versions_match_registration_and_submission(self):
         preparation = check.load("demo_prepare_versions", check.HERE / "prepare.py")
-        self.assertEqual(preparation.VERSIONS, {"agent": "1.0.0", "workflow": "1.0.1"})
-        versions = {"codex-support-agent": "1.0.0", "codex-support-workflow": "1.0.1",
+        self.assertEqual(preparation.VERSIONS, {"agent": "1.0.1", "workflow": "1.0.2"})
+        versions = {"codex-support-agent": "1.0.1", "codex-support-workflow": "1.0.2",
                     "codex-support-demo-slot-probe": "1.0.0"}
         deployment = check.Deployment.__new__(check.Deployment)
         deployment.request = Mock(return_value={"registered": True})
@@ -355,7 +355,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
                         path.parent.mkdir(exist_ok=True)
                         path.write_text("original source")
                 (package / "ledgence-program.json").write_text(json.dumps({
-                    "program": {"id": program, "version": "1.0.1" if kind == "workflow" else "1.0.0"}}))
+                    "program": {"id": program, "version": "1.0.2" if kind == "workflow" else "1.0.1"}}))
                 (package / "LEDGENCE-LICENSE").write_bytes((check.ROOT / "LICENSE").read_bytes())
             descriptors = publish_fixture(prepared)
             with patch.object(check, "HERE", source):
@@ -366,7 +366,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
                     with self.assertRaisesRegex(check.CheckFailure, "prepared source differs"):
                         check.validate_prepared_sources(prepared)
                     path.write_text("original source")
-                stored = prepared / "store/programs/codex-support-agent/1.0.0/descriptor.json"
+                stored = prepared / "store/programs/codex-support-agent/1.0.1/descriptor.json"
                 stored.write_text(json.dumps({**descriptors["agent"], "size": 1}))
                 with self.assertRaisesRegex(check.CheckFailure, "store descriptor"):
                     check.validate_prepared_sources(prepared)
@@ -386,7 +386,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
                     check.validate_prepared_sources(prepared)
                 publish_fixture(prepared)
                 manifest = prepared / "packages/agent/ledgence-program.json"
-                manifest.write_text(json.dumps({"program": {"id": "support-agent", "version": "1.0.1"}}))
+                manifest.write_text(json.dumps({"program": {"id": "support-agent", "version": "1.0.2"}}))
                 with self.assertRaisesRegex(check.CheckFailure, "prepared program identity"):
                     check.validate_prepared_sources(prepared)
 

@@ -178,13 +178,13 @@ class DelayServer:
         self.thread.join(timeout=5)
 
 
-def publish(d, name, source):
+def publish(d, name, source, version='1.0.0'):
     directory = d.directory / ('source-' + name)
     info = d.command('ledgence-worker', ['example', '--directory', str(directory), '--python', d.python])
     package = Path(info['program'])
     manifest_file = package / 'ledgence-program.json'
     manifest = json.loads(manifest_file.read_text())
-    manifest['program'] = {'id': name, 'version': '1.0.0'}
+    manifest['program'] = {'id': name, 'version': version}
     manifest['runtime']['protocol'] = 3
     manifest_file.write_text(json.dumps(manifest))
     (package / 'program.py').write_text(source)
@@ -242,7 +242,7 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
     if 'examples' in names:
         worker = d.start_worker(concurrency=1)
         async with AsyncClient(d.server_url, **options) as client:
-            prepared = client.workflows.prepare(program='workflow-pages',version='1.0.0',queue=d.queue,
+            prepared = client.workflows.prepare(program='workflow-pages',version='1.0.1',queue=d.queue,
                 data={'urls':[delay.url+'?index='+str(index) for index in range(4)],'queue':d.queue},
                 idempotency_key='public-example')
             handle = await client.workflows.submit(prepared)
@@ -732,18 +732,18 @@ def main():
                 if line.startswith('OTLP_CAPTURE_ENDPOINT=')), None), description='workflow trace capture readiness')
             deployment.environment.update(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=line.split('=',1)[1],
                 OTEL_SDK_DISABLED='false',OTEL_TRACES_SAMPLER='parentbased_always_on',OTEL_TRACES_SAMPLER_ARG='1')
-        # Exercise the public example's exact async HTTP helper in the fixture.
+        # Reuse the complete example module and override only its exported handler
+        # with the fault-injection fixture. Do not depend on a handler's source layout.
         controller = (root/'examples/checkpoint-workflow/controller/program.py').read_text()
-        fetch = controller[:controller.index('\n\nasync def handle(event):')]
         packages = {
-            'workflow-controller':publish(deployment,'workflow-controller',fetch+'\n'+FIXTURE),
+            'workflow-controller':publish(deployment,'workflow-controller',controller+'\n'+FIXTURE),
             'workflow-io':publish(deployment,'workflow-io',CHILD),
-            'workflow-pages':publish(deployment,'workflow-pages',controller),
-            'workflow-example':publish(deployment,'workflow-example',controller),
-            'owned-example':publish(deployment,'owned-example',(root/'examples/owned-subworkflows/program.py').read_text()),
+            'workflow-pages':publish(deployment,'workflow-pages',controller,version='1.0.1'),
+            'workflow-example':publish(deployment,'workflow-example',controller,version='1.0.1'),
+            'owned-example':publish(deployment,'owned-example',(root/'examples/owned-subworkflows/program.py').read_text(),version='1.0.1'),
             'owned-controller':publish(deployment,'owned-controller',(root/'tools/workflow_acceptance/owned_program.py').read_text()),
             'fork-controller':publish(deployment,'fork-controller',(root/'tools/workflow_acceptance/fork_program.py').read_text()),
-            'mixed-workflow':publish(deployment,'mixed-workflow',(root/'examples/mixed-workflow/program.py').read_text()),
+            'mixed-workflow':publish(deployment,'mixed-workflow',(root/'examples/mixed-workflow/program.py').read_text(),version='1.0.1'),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
         migration = subprocess.run([str(binaries/'ledgence-orchestrator'),'migrate'],env=deployment.environment,capture_output=True,timeout=40)

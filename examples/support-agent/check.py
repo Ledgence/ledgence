@@ -21,6 +21,7 @@ import tempfile
 import unicodedata
 import urllib.parse
 import uuid
+import zipfile
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -29,6 +30,8 @@ from http_acceptance.harness import ArtifactServer, Process, eventually, exchang
 
 SCOPE = {"tenant_id": "acme", "namespace": "demo"}
 QUEUE = "support-demo"
+PROGRAM_VERSIONS = {"support-agent": "1.0.2", "support-workflow": "1.0.3",
+                    "support-demo-slot-probe": "1.0.1"}
 
 
 def load(name, path):
@@ -108,6 +111,73 @@ def link_or_copy(source, destination):
     return destination
 
 
+def validate_prepared_sources(directory):
+    """A new helper or corpus change requires a newly published package, too."""
+    prepared = json.loads((directory / "prepared.json").read_text())
+    descriptors = prepared.get("packages")
+    require(type(descriptors) is dict and descriptors.keys() == {"agent", "workflow"},
+            "prepared package descriptors are missing")
+    for kind, program in (("agent", "support-agent"), ("workflow", "support-workflow")):
+        source = HERE / kind
+        package = directory / "packages" / kind
+        expected = {path.relative_to(source).as_posix(): path for path in source.rglob("*")
+                    if path.is_file() and "__pycache__" not in path.parts
+                    and path.suffix != ".pyc" and not path.name.startswith(".env")}
+        require("program.py" in expected, "checked demo program source is missing")
+        actual = {path.relative_to(package).as_posix() for path in package.rglob("*")
+                  if path.is_file() and path.name not in ("ledgence-program.json", "LEDGENCE-LICENSE")}
+        # The ADK package also contains the reviewed vendored application graph.
+        # Its owned corpus must be exact, and the store ZIP must match every
+        # staged file, including dependencies and their retained notices.
+        require(set(expected) <= actual, "prepared source files differ from checked source")
+        if kind == "workflow":
+            require(actual == set(expected), "prepared workflow files differ from checked source")
+        require({name for name in actual if name.startswith("corpus/")} ==
+                {name for name in expected if name.startswith("corpus/")},
+                "prepared corpus files differ from checked source")
+        if kind == "agent":
+            for name in ("NOTICE.md", "inventory.json", "SUPPLEMENTAL-LICENSES.txt"):
+                require((package / "third_party" / name).read_bytes() ==
+                        (HERE / "third_party" / name).read_bytes(),
+                        "prepared dependency review differs from checked source")
+        for relative, path in expected.items():
+            require((package / relative).read_bytes() == path.read_bytes(),
+                    "prepared source differs from checked source; prepare fresh packages")
+        manifest = json.loads((package / "ledgence-program.json").read_text())
+        version = PROGRAM_VERSIONS[program]
+        require(manifest.get("program") == {"id": program, "version": version},
+                "prepared program identity differs from this demo version")
+        require((package / "LEDGENCE-LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes(),
+                "prepared package license differs from checked source")
+        descriptor = descriptors[kind]
+        require(type(descriptor) is dict and descriptor.keys() == {"program", "digest", "size"}
+                and descriptor["program"] == manifest["program"], "prepared package descriptor is invalid")
+        digest = descriptor["digest"]
+        require(type(digest) is str and re.fullmatch(r"sha256:[0-9a-f]{64}", digest),
+                "prepared package digest is invalid")
+        require(type(descriptor["size"]) is int and 0 < descriptor["size"] <= 256 * 1024 * 1024,
+                "prepared package size is invalid")
+        stored = directory / "store/programs" / program / version / "descriptor.json"
+        require(json.loads(stored.read_text()) == descriptor, "program store descriptor differs from prepared evidence")
+        blob = directory / "store/blobs" / (digest.removeprefix("sha256:") + ".zip")
+        require(blob.is_file() and not blob.is_symlink() and blob.stat().st_size == descriptor["size"],
+                "program store blob size differs from prepared descriptor")
+        with blob.open("rb") as stream:
+            require("sha256:" + hashlib.file_digest(stream, "sha256").hexdigest() == digest,
+                    "program store blob digest differs from prepared descriptor")
+        packaged = {path.relative_to(package).as_posix(): path for path in package.rglob("*")
+                    if path.is_file()}
+        with zipfile.ZipFile(blob) as archive:
+            entries = archive.infolist()
+            files = {entry.filename: entry for entry in entries if not entry.is_dir()}
+            require(len(entries) <= 4096 and len({entry.filename for entry in entries}) == len(entries)
+                    and files.keys() == packaged.keys(), "program store blob files differ from prepared package")
+            for name, path in packaged.items():
+                content = path.read_bytes()
+                require(files[name].file_size == len(content) and archive.read(name) == content,
+                        "program store blob content differs from checked source")
+
+
 class Deployment:
     def __init__(self, args, scratch, environment, worker_environment, database, evidence):
         self.args, self.scratch, self.evidence = args, scratch, evidence
@@ -140,7 +210,7 @@ class Deployment:
         probe = self.scratch / "probe-package"
         probe.mkdir()
         manifest = json.loads((self.args.directory / "packages/workflow/ledgence-program.json").read_text())
-        manifest["program"] = {"id": "support-demo-slot-probe", "version": "1.0.1"}
+        manifest["program"] = {"id": "support-demo-slot-probe", "version": PROGRAM_VERSIONS["support-demo-slot-probe"]}
         manifest["runtime"]["protocol"] = 1
         manifest["handler"] = "program:handle"
         (probe / "ledgence-program.json").write_text(json.dumps(manifest))
@@ -188,7 +258,7 @@ class Deployment:
         for program, kind in (("support-agent", "task"), ("support-workflow", "workflow"),
                               ("support-demo-slot-probe", "task")):
             receipt = self.request("/v1/console/programs/register", {
-                "program": {"id": program, "version": "1.0.2" if program == "support-workflow" else "1.0.1"},
+                "program": {"id": program, "version": PROGRAM_VERSIONS[program]},
                 "metadata": {"display_name": program, "description": None, "kind": kind},
                 "update_metadata": False,
             })
@@ -324,7 +394,7 @@ class Deployment:
 
 def submission(program, key, data):
     return {"idempotency_key": key, "origin_trace": None, "input": {
-        "program": {"id": program, "version": "1.0.2" if program == "support-workflow" else "1.0.1"}, "queue": QUEUE,
+        "program": {"id": program, "version": PROGRAM_VERSIONS[program]}, "queue": QUEUE,
         "data": data, "retry_policy": {"max_attempts": 1, "retry_delay_ms": 0},
         "attempt_timeout_ms": 60_000,
     }}
@@ -452,9 +522,7 @@ def main(argv=None):
                                                        (args.directory, args.binaries, args.evidence))
         require(not args.evidence.is_relative_to(ROOT), "evidence must stay outside the repository")
         require(not args.evidence.exists(), "evidence directory must be new")
-        for kind in ("agent", "workflow"):
-            require((args.directory / f"packages/{kind}/program.py").read_bytes() ==
-                    (HERE / kind / "program.py").read_bytes(), "prepared program differs from checked source")
+        validate_prepared_sources(args.directory)
         prepared = json.loads((args.directory / "prepared.json").read_text())
         for binary in ("ledgence-worker", "ledgence-orchestrator"):
             require((args.binaries / binary).is_file(), "required binary is missing")

@@ -39,6 +39,13 @@ The controller registers `Entry.START`, `Entry.REVIEW` and `Entry.FINISH` with
 accepted draft and approval. Continuations use enum members, while each durable
 checkpoint keeps its existing string ID and explicit JSON state.
 
+The draft uses `ctx.task(...)` because it runs a separately packaged program.
+`ctx.fork(...)` is for branches in the same pinned workflow package; this linear
+review flow does not need one. The stable `draft` child key reconciles controller
+retries, and `wait_event` checkpoints the accepted reply before releasing the
+worker slot. Neither the provider session nor a Python coroutine is the durable
+checkpoint. See [typed workflow entrypoints](../../docs/workflow-entrypoints.md).
+
 ## Requirements
 
 - Current repository source containing `examples/`, Rust/rustup, and PostgreSQL 18
@@ -69,7 +76,7 @@ python3.13 examples/support-agent/prepare.py --directory "$DEMO_HOME/prepared"
 
 Preparation downloads the exact hash-locked wheels, verifies the legal inventory,
 installs application dependencies into the agent package, and publishes
-`support-agent@1.0.1` and `support-workflow@1.0.2` into a local program store.
+`support-agent@1.0.2` and `support-workflow@1.0.3` into a local program store.
 Workers fetch and cache these immutable packages; they never install dependencies
 while executing a task. The host supplies CPython and Ledgence's worker helper.
 `prepared.json` records artifact digests, package sizes and build provenance.
@@ -121,9 +128,9 @@ In another terminal, export the same `DEMO_HOME` and register the packages:
 ```sh
 export DEMO_HOME="$HOME/.local/share/ledgence-support-demo"
 target/debug/ledgence program register --server http://127.0.0.1:8082 \
-  --program support-agent --version 1.0.1 --kind task
+  --program support-agent --version 1.0.2 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8082 \
-  --program support-workflow --version 1.0.2 --kind workflow
+  --program support-workflow --version 1.0.3 --kind workflow
 ```
 
 ## 3. Supply the credential to the worker
@@ -226,9 +233,11 @@ reconcile. A new submission key creates new work and can call Gemini again.
 - Approval state and its original deadline are durable. The workflow releases
   the worker while waiting. Restarting the worker and orchestrator during that
   wait preserves the accepted draft; resuming does not ask Gemini to recreate it.
-- The four corpus documents are snapshots of real repository documentation.
+- The six corpus documents are snapshots of real repository documentation,
+  including typed workflow entrypoints/forks and the public Python client.
   [`SOURCE.json`](agent/corpus/SOURCE.json) records revision and hashes. Refresh
-  them deliberately and publish a new version when changing the corpus.
+  them deliberately and publish a new version when changing the corpus. These
+  snapshots come from commit `a491c970f69c37673ab053e4696b2361cba47b6d`.
 
 ## Verification
 

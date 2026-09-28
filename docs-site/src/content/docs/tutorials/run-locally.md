@@ -5,7 +5,7 @@ description: Start a local stack, publish its example agents, and observe real t
 
 Run a complete Ledgence 0.1.1 stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator, a worker, and a small callback receiver.
 
-This published source version does not include Console. To operate the current source implementation in a browser, follow [Explore Ledgence Console](/tutorials/use-console) from a checkout that includes it.
+This tutorial uses the examples shipped with the `v0.1.1` source release, with application versions `1.0.0`. That release does not include Console or typed workflow entrypoints. For the current source implementation, follow [Explore Ledgence Console](/tutorials/use-console) and the [typed entrypoints and forks guide](/how-to/fork-workflow-branches).
 
 Allow extra time for the first image build. You do not need a hosted account, Rust, or Python installed on your computer for this tutorial.
 
@@ -68,7 +68,7 @@ The command submits two invoice tasks, runs a workflow, and checks their complet
   "workflow_output": {
     "page_count": 4,
     "summary": {
-      "characters": 80,
+      "characters": 84,
       "pages": 4
     }
   }

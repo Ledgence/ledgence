@@ -9,7 +9,7 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("output", type=Path)
+    parser.add_argument("output", type=Path, help="new package directory; must not already exist")
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         parser.error("Python 3.11 or newer is required")
@@ -17,8 +17,11 @@ def main():
     architecture = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64"}.get(platform.machine())
     if os_name is None or architecture is None:
         parser.error("unsupported host platform")
-    args.output.mkdir(parents=True, exist_ok=True)
-    manifest = {"schema_version": 1, "program": {"id": "mixed-workflow", "version": "1.0.0"},
+    try:
+        args.output.mkdir(parents=True)
+    except FileExistsError:
+        parser.error("output already exists; choose a new directory to avoid packaging stale files")
+    manifest = {"schema_version": 1, "program": {"id": "mixed-workflow", "version": "1.0.1"},
                 "runtime": {"kind": "python", "python": f"{sys.version_info.major}.{sys.version_info.minor}",
                             "protocol": 3}, "handler": "program:handle",
                 "platform": {"os": os_name, "arch": architecture}}

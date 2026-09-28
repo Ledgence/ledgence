@@ -113,7 +113,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["continuation"], "review")
         self.assertEqual(result["until"], ["draft"])
         self.assertEqual(result["commands"], [{
-            "key": "draft", "program": "support-agent", "version": "1.0.1",
+            "key": "draft", "program": "support-agent", "version": "1.0.2",
             "queue": "support-demo", "data": {
                 "ticket_id": "SUP-1042", "question": event["data"]["question"],
                 "model": "gemini-3.8-flash",
@@ -209,6 +209,18 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(reviewed["state"]["draft"], value)
                 finished = run(FakeContext("finish", state=reviewed["state"], wake=approval()))
                 self.assertEqual(finished["output"]["draft"], value)
+
+    def test_new_workflow_and_client_sources_survive_approval(self):
+        for source_id, location in (("workflow-entrypoints", "docs/workflow-entrypoints.md"),
+                                    ("python-client", "sdk/python-client/README.md")):
+            with self.subTest(source=source_id):
+                value = draft(sources=[{"id": source_id, "title": "Bundled documentation", "location": location}])
+                reviewed = run(FakeContext("review", inputs={"draft": child(value)}))
+                self.assertEqual(reviewed["state"]["draft"], value)
+                finished = run(FakeContext("finish", state=reviewed["state"], wake=approval()))
+                self.assertEqual(finished["output"]["draft"], value)
+                value["sources"][0]["location"] = "docs/not-the-recorded-source.md"
+                self.assert_failure(FakeContext("review", inputs={"draft": child(value)}), "invalid_draft")
 
     def test_approval_and_rejection_complete_with_the_exact_accepted_draft(self):
         for approved, status in ((True, "approved"), (False, "rejected")):

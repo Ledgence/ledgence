@@ -85,9 +85,8 @@ def register_packages(d, workflow_gate, record):
     alternate = PROGRAM + "\n_original_handle = handle\ndef handle(event):\n    result = _original_handle(event)\n    return None if event['data'].get('mode') == 'null' else result\n"
     d.publish("alternate", "1.0.0", program_source=alternate)
     controller = (d.root / "examples/checkpoint-workflow/controller/program.py").read_text()
-    fetch = controller[:controller.index("\n\nasync def handle(event):")]
     publish = workflow_gate["publish"]
-    publish(d, "workflow-controller", fetch + "\n" + workflow_gate["FIXTURE"])
+    publish(d, "workflow-controller", controller + "\n" + workflow_gate["FIXTURE"])
     publish(d, "workflow-io", workflow_gate["CHILD"])
     publish(d, "owned-controller", (d.root / "tools/workflow_acceptance/owned_program.py").read_text())
     programs = {"invoice": "task", "alternate": "task", "workflow-io": "task",

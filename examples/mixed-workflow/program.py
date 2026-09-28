@@ -15,23 +15,41 @@ class Entry(StrEnum):
 workflow = Workflow(Entry)
 
 
+def input_values(data):
+    if type(data) is not dict:
+        raise ValueError("data must be an object")
+    values = data.get("values")
+    if (type(values) is not list or not 1 <= len(values) <= 1000
+            or any(type(value) is not int or abs(value) > 1_000_000 for value in values)):
+        raise ValueError("values must contain 1 to 1000 integers between -1000000 and 1000000")
+    return values
+
+
 def summarize(values):
     return {"count": len(values), "sum": sum(values)}
 
 
 @workflow.entrypoint(Entry.MAIN, default=True)
 async def main(event, ctx):
-    data = event["data"]
-    branch_data = {"values": data["values"]}
+    data = event.get("data")
+    try:
+        values = input_values(data)
+    except ValueError as error:
+        return ctx.fail("invalid_input", str(error))
+    queue = data.get("queue")
+    if (type(queue) is not str or not 1 <= len(queue) <= 128
+            or any(ord(char) < 32 or ord(char) >= 127 for char in queue)):
+        return ctx.fail("invalid_input", "queue must contain 1 to 128 printable ASCII characters")
+    branch_data = {"values": values}
     branches = await ctx.fork("calculations:0", branches=[
         ctx.branch("double:0", entrypoint=Entry.DOUBLE,
-                   queue=data["queue"], data=branch_data),
+                   queue=queue, data=branch_data),
         ctx.branch("triple:0", entrypoint=Entry.TRIPLE,
-                   queue=data["queue"], data=branch_data),
+                   queue=queue, data=branch_data),
     ])
     # Registration has committed, so workers can execute both branches while
     # this activation does local work. One worker slot is sufficient to finish.
-    local = await ctx.local("summary", summarize, values=data["values"])
+    local = await ctx.local("summary", summarize, values=values)
     return ctx.join(branches, resume=Entry.COLLECT, state={"local": local})
 
 
@@ -56,8 +74,10 @@ def triple(event, ctx):
 def collect(event, ctx):
     outcomes = ctx.inputs
     for key in ("double:0", "triple:0"):
-        if outcomes[key]["state"] != "succeeded":
-            return ctx.fail("branch_failed", key + " did not succeed")
+        if outcomes[key]["state"] == "failed":
+            return ctx.fail("branch_failed", key + " failed; inspect its terminal outcome")
+        if outcomes[key]["state"] == "cancelled":
+            return ctx.fail("branch_cancelled", key + " was cancelled")
     return ctx.complete({"local": ctx.state["local"],
                          "double": ctx.get_result("double:0"),
                          "triple": ctx.get_result("triple:0")})

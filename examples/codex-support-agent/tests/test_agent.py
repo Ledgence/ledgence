@@ -55,6 +55,16 @@ class AgentTests(unittest.TestCase):
                     program.handle(value)
             runtime.assert_not_called()
 
+    def test_current_workflow_and_client_guides_are_searchable_and_readable(self):
+        docs = program.Documentation()
+        matches = docs.search_docs("typed entrypoints durable forks")["matches"]
+        self.assertIn("workflow-entrypoints", [item["id"] for item in matches])
+        guide = docs.read_doc("workflow-entrypoints")
+        self.assertIn("await ctx.fork(", guide["text"])
+        self.assertIn("ctx.join(", guide["text"])
+        self.assertIn("@workflow.entrypoint", docs.read_doc("workflows")["text"])
+        self.assertIn("WaitTimeout", docs.read_doc("python-client")["text"])
+
     def test_corpus_matches_recorded_source_bytes(self):
         manifest = json.loads((program.CORPUS / "SOURCE.json").read_text())
         self.assertRegex(manifest["source_revision"], r"^[a-f0-9]{40}$")

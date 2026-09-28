@@ -13,7 +13,7 @@ MAX_APPROVAL_TIMEOUT_MS = 86_400_000
 DRAFT_KEY = "draft"
 APPROVAL_KEY = "approval:1"
 SOURCE_LOCATIONS = {name: f"docs/{name}.md" for name in
-                    ("task-results", "workflows", "workflow-events", "program-packages")}
+                    ("task-results", "workflows", "workflow-events", "program-packages", "workflow-entrypoints")}
 SOURCE_LOCATIONS["python-client"] = "sdk/python-client/README.md"
 SOURCE_IDS = set(SOURCE_LOCATIONS)
 
@@ -122,7 +122,7 @@ def start(event, ctx):
     # The fixed key and immutable binding make activation replay idempotent.
     # One child attempt avoids repeating the whole agent and its tool loop.
     child = ctx.task(
-        DRAFT_KEY, program="codex-support-agent", version="1.0.0", queue=queue,
+        DRAFT_KEY, program="codex-support-agent", version="1.0.1", queue=queue,
         data=ticket, retry_policy={"max_attempts": 1, "retry_delay_ms": 0},
         attempt_timeout_ms=180_000,
     )

@@ -37,11 +37,13 @@ docker compose -f deploy/local/compose.yaml run --rm --no-deps demo
 
 Open [Console](http://127.0.0.1:8080/console/) after startup. Its server-owned instance config binds this demo to the existing `acme/demo` compatibility scope. Legacy workers/SDK requests must match; the browser has no scope selector.
 
-The example publishes and then explicitly registers three platform-correct immutable program packages. Registration failures leave the immutable artifact intact; repeat publish/registration to reconcile. It
+The example publishes and then explicitly registers three platform-correct immutable program packages: `invoice-issuer@1.0.0`, `workflow-example@1.0.1`, and `workflow-summary@1.0.0`. Registration failures leave the immutable artifact intact; repeat publish/registration to reconcile. It
 submits two invoice tasks, checks that their healthy Python process is reused,
 then runs a checkpoint workflow with four concurrent local I/O steps and a
 distributed summary task. The workflow releases the single worker slot while
-waiting and resumes from its checkpoint. Finally it checks durable task and
+waiting and resumes at a typed entrypoint from its checkpoint. The controller
+validates input before scheduling work and handles failed or cancelled summary
+tasks explicitly. Finally it checks durable task and
 workflow completion callbacks, registered deliberately after completion.
 
 The printed JSON contains task/workflow/subscription IDs and `passed: true`.
