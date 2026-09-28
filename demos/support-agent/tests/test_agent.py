@@ -8,9 +8,11 @@ import json
 import logging
 import os
 from pathlib import Path
+import socket
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
+import warnings
 
 AGENT = Path(__file__).resolve().parents[1] / "agent" / "program.py"
 spec = importlib.util.spec_from_file_location("support_demo_agent_program", AGENT)
@@ -304,6 +306,146 @@ class AdkRunnerTests(unittest.TestCase):
         self.assertEqual(arguments["http_options"].retry_options.attempts, 1)
         self.assertEqual(arguments["http_options"].timeout, 20000)
         self.assertEqual(arguments["http_options"].base_url, "https://generativelanguage.googleapis.com")
+
+
+class GeminiHttpTests(unittest.TestCase):
+    """Exercise the actual Gemini/GenAI adapter without opening a socket."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from google.adk.models.google_llm import Gemini
+            from google.genai.errors import APIError
+            import httpx
+        except ImportError as error:
+            raise unittest.SkipTest("Install the demo's locked ADK dependencies to run HTTP adapter tests") from error
+        cls.APIError = APIError
+        cls.httpx = httpx
+
+    def run_http(self, responses):
+        requests = []
+        clients = []
+        original_create = program._create_model
+        output = io.StringIO()
+
+        def create(model_name, api_key):
+            model, client = original_create(model_name, api_key)
+            clients.append(client)
+            return model, client
+
+        async def send(client, request, **kwargs):
+            requests.append(request)
+            response = responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            status, body = response
+            return self.httpx.Response(status, request=request, json=body)
+
+        result = error = None
+        with patch.dict(os.environ, {"GOOGLE_API_KEY": "unit-test-placeholder",
+                                    "OTEL_SDK_DISABLED": "true"}, clear=True), \
+                patch.object(program, "_create_model", side_effect=create), \
+                patch.object(self.httpx.AsyncClient, "send", send), \
+                patch.object(socket.socket, "connect", side_effect=AssertionError("Network disabled in offline tests")) as connect, \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(output), \
+                warnings.catch_warnings(record=True):
+            try:
+                result = program.handle(event())
+            except program.AgentError as caught:
+                error = caught
+        connect.assert_not_called()
+        self.assertEqual(len(clients), 1)
+        # These are the real client-owned transports, not fake cleanup methods.
+        self.assertTrue(clients[0]._api_client._httpx_client.is_closed)
+        self.assertTrue(clients[0]._api_client._async_httpx_client.is_closed)
+        self.assertEqual(output.getvalue(), "")
+        for request in requests:
+            self.assertEqual(str(request.url),
+                             "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent")
+            self.assertEqual(request.headers["x-goog-api-key"], "unit-test-placeholder")
+        return result, error, requests
+
+    def test_real_provider_adapter_serializes_tools_and_validates_responses(self):
+        parts = [
+            {"functionCall": {"name": "search_docs", "args": {"query": "task result timeout"}}},
+            {"functionCall": {"name": "read_doc", "args": {"document_id": "task-results"}}},
+            {"text": json.dumps(draft())},
+        ]
+        responses = [
+            (200, {"candidates": [{"content": {"role": "model", "parts": [part]},
+                                   "finishReason": "STOP"}]})
+            for part in parts
+        ]
+        result, error, requests = self.run_http(responses)
+        self.assertIsNone(error)
+        self.assertEqual((result["model_calls"], result["tool_calls"]), (3, 2))
+        self.assertEqual(result["sources"], [program.DOCUMENTS["task-results"]])
+        self.assertEqual(len(requests), 3)
+        bodies = [json.loads(request.content) for request in requests]
+        declarations = bodies[0]["tools"][0]["functionDeclarations"]
+        self.assertEqual({tool["name"] for tool in declarations}, {"search_docs", "read_doc"})
+        self.assertEqual(bodies[0]["generationConfig"]["maxOutputTokens"], 4096)
+        tool_results = [part["functionResponse"]
+                        for content in bodies[-1]["contents"] for part in content["parts"]
+                        if "functionResponse" in part]
+        read = next(value for value in tool_results if value["name"] == "read_doc")
+        self.assertIn("Task status and results", read["response"]["text"])
+
+    def test_provider_http_errors_are_actionable_without_body_or_credential_leaks(self):
+        cases = (
+            (400, "INVALID_ARGUMENT", "request configuration"),
+            (401, "UNAUTHENTICATED", "authentication"),
+            (403, "PERMISSION_DENIED", "permissions"),
+            (404, "NOT_FOUND", "--model"),
+            (429, "RESOURCE_EXHAUSTED", "quota"),
+            (500, "INTERNAL", "internal error"),
+            (502, "UNKNOWN", "gateway failed"),
+            (503, "UNAVAILABLE", "unavailable"),
+            (504, "DEADLINE_EXCEEDED", "timed out upstream"),
+        )
+        for code, status, hint in cases:
+            with self.subTest(code=code):
+                result, error, requests = self.run_http([
+                    (code, {"error": {"code": code, "status": status,
+                                      "message": "unit-test-placeholder raw-provider-body"}}),
+                ])
+                self.assertIsNone(result)
+                self.assertIsInstance(error, program.AgentError)
+                self.assertIn(f"HTTP {code}", str(error))
+                self.assertIn(hint, str(error))
+                self.assertNotIn("unit-test-placeholder", str(error))
+                self.assertNotIn("raw-provider-body", str(error))
+                self.assertTrue(error.__suppress_context__)
+                self.assertEqual(len(requests), 1)
+
+    def test_real_sdk_transport_failures_remain_distinct_and_do_not_retry(self):
+        for cause, hint in (
+            (self.httpx.ReadTimeout("unit-test-placeholder raw-provider-body"), "HTTP request timed out"),
+            (self.httpx.ConnectError("unit-test-placeholder raw-provider-body"), "connection failed"),
+        ):
+            with self.subTest(cause=type(cause).__name__):
+                result, error, requests = self.run_http([cause])
+                self.assertIsNone(result)
+                self.assertIsInstance(error, program.AgentError)
+                self.assertIn(hint, str(error))
+                self.assertNotIn("unit-test-placeholder", str(error))
+                self.assertNotIn("raw-provider-body", str(error))
+                self.assertTrue(error.__suppress_context__)
+                self.assertEqual(len(requests), 1)
+
+    def test_unrecognized_api_codes_use_a_fixed_diagnostic(self):
+        for code in (None, True, "429 raw-provider-body", [], {}, 999):
+            with self.subTest(code_type=type(code).__name__):
+                error = self.APIError(400, {"error": {"message": "unit-test-placeholder raw-provider-body"}})
+                error.code = code
+                self.assertEqual(program._execution_failure(error),
+                                 "Gemini API request failed; no draft was accepted")
+
+    def test_sdk_exception_fields_are_not_treated_as_provider_errors(self):
+        error = RuntimeError("unit-test-placeholder raw-provider-body")
+        error.code = 429
+        self.assertEqual(program._execution_failure(error),
+                         "Agent provider or SDK execution failed; no draft was accepted")
 
 
 if __name__ == "__main__":

@@ -139,6 +139,8 @@ The launcher parses the file as data and passes the key only in the worker
 environment. It uses **one consumer and one process slot**. The worker and its
 operator-trusted programs share that environment; this is not per-program secret
 isolation. The orchestrator, client and Console do not need the key.
+If the key is already exported as `GOOGLE_API_KEY` in the current terminal,
+`--env-file` can be omitted. A credential file is not loaded automatically.
 
 ## 4. Submit, inspect and approve
 
@@ -232,6 +234,16 @@ The live flag permits actual provider usage; this check is not run in ordinary
 CI. CI verifies both target dependency inventories and runs provider-substituted
 unit tests. Retained acceptance evidence excludes the key and redacts process
 logs. Do not publish your own tickets or generated replies without reviewing them.
+
+On failure, the printed `failed_check` describes the failed check. A configuration
+failure can happen before the evidence directory is created. If the workflow
+terminates before approval, `failure-diagnostics.json` retains the workflow and
+child task outcomes and attempts before the temporary database is removed.
+Diagnostics are collected on a best-effort basis; collection failures do not hide
+the original error. Known Gemini API and transport failures use fixed diagnostic
+messages, including HTTP status categories, without provider response bodies.
+For example, HTTP 429 indicates a quota or rate limit; inspect the model quota in
+your Google project before starting another live run.
 
 Stop foreground demo services with Ctrl-C. Remove the dedicated database only
 when you are finished with its results:

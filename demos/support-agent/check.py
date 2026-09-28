@@ -198,14 +198,81 @@ class Deployment:
         result = self.request("/v1/console/workflows/inspect", workflow_id=workflow_id)
         state = result["summary"]["workflow"]["state"]
         if state in ("succeeded", "failed", "cancelled"):
-            self.evidence.write("unexpected-workflow-result.json",
-                                self.request("/v1/console/workflows/result", workflow_id=workflow_id))
+            # The owned database is removed during cleanup. Retain the child
+            # failure now; its parent's draft_failed outcome hides the cause.
+            # Diagnostics must never replace the original acceptance failure.
+            with contextlib.suppress(Exception):
+                self.capture_workflow_failure(workflow_id, result)
             raise CheckFailure("workflow became terminal before approval")
         if state == "waiting" and result["external_wait_key"] == "approval:1":
             require(result["continuation"] == "finish", "wrong approval continuation")
             return result
         require(self.worker.process.poll() is None, "worker exited before approval wait")
         return None
+
+    def capture_workflow_failure(self, workflow_id, inspection):
+        report = {"workflow_inspection": inspection, "tasks": [], "errors": []}
+
+        def fetch(stage, path, **query):
+            try:
+                return self.request(path, **query)
+            except Exception as error:
+                # Exception text may include a provider body, URL or credential.
+                report["errors"].append({"stage": stage, "failure_type": type(error).__name__})
+                return None
+
+        def pages(stage, path, **query):
+            retained, seen, cursor = [], set(), None
+            # A healthy demo has one child and one attempt. Bound collection if
+            # a broken endpoint repeats a cursor or produces unexpected pages.
+            for _ in range(5):
+                fields = dict(query, limit=20)
+                if cursor is not None:
+                    fields["cursor"] = cursor
+                page = fetch(stage, path, **fields)
+                if page is None:
+                    return retained
+                retained.append(page)
+                if not isinstance(page, dict) or not isinstance(page.get("items"), list) or "next_cursor" not in page:
+                    report["errors"].append({"stage": stage, "failure_type": "InvalidPage"})
+                    return retained
+                cursor = page["next_cursor"]
+                if cursor is None:
+                    return retained
+                if not isinstance(cursor, str) or not cursor or cursor in seen:
+                    report["errors"].append({"stage": stage, "failure_type": "InvalidCursor"})
+                    return retained
+                seen.add(cursor)
+            report["errors"].append({"stage": stage, "failure_type": "PageLimitExceeded"})
+            return retained
+
+        try:
+            report["workflow_result"] = fetch("workflow_result", "/v1/console/workflows/result",
+                                               workflow_id=workflow_id)
+            report["children"] = pages("children", "/v1/console/workflows/children", workflow_id=workflow_id)
+            seen_tasks = set()
+            for page in report["children"]:
+                if not isinstance(page, dict) or not isinstance(page.get("items"), list):
+                    continue
+                for child in page["items"]:
+                    if not isinstance(child, dict) or child.get("kind") != "task":
+                        continue
+                    task_id = child.get("target_id")
+                    if not isinstance(task_id, str) or not task_id or task_id in seen_tasks:
+                        continue
+                    if len(seen_tasks) == 20:
+                        report["errors"].append({"stage": "tasks", "failure_type": "TaskLimitExceeded"})
+                        return
+                    seen_tasks.add(task_id)
+                    report["tasks"].append({
+                        "task_id": task_id,
+                        "result": fetch("task_result", "/v1/console/tasks/result", task_id=task_id),
+                        "attempts": pages("task_attempts", "/v1/console/tasks/attempts", task_id=task_id),
+                    })
+        finally:
+            self.evidence.write("failure-diagnostics.json", report)
+            if report.get("workflow_result") is not None:
+                self.evidence.write("unexpected-workflow-result.json", report["workflow_result"])
 
     def task_result(self, task_id):
         result = self.request("/v1/console/tasks/result", task_id=task_id)
@@ -396,7 +463,11 @@ def main(argv=None):
         worker_config = load("support_check_worker", HERE / "run_worker.py")
         if args.env_file is not None:
             require(not args.env_file.resolve().is_relative_to(ROOT), "credential file must be outside the repository")
-        credentials = worker_config.worker_environment(args.env_file)
+        try:
+            credentials = worker_config.worker_environment(args.env_file)
+        except (OSError, ValueError):
+            raise CheckFailure("could not load worker credentials; configure GOOGLE_API_KEY or a valid --env-file "
+                               "and set GOOGLE_GENAI_USE_VERTEXAI=FALSE") from None
         secret = credentials["GOOGLE_API_KEY"]
         require(secret not in args.model, "model configuration must not contain the credential")
         safe_environment = server_environment(os.environ, secret)
@@ -450,10 +521,16 @@ def main(argv=None):
         summary["credential_scan_clean"] = not evidence.secret_detected and evidence.scan()
         summary["passed"] = summary["passed"] and cleanup_ok and summary["credential_scan_clean"]
         evidence.write("summary.json", summary)
-    print(json.dumps({"passed": summary["passed"], "phase": summary["phase"],
-                      "cleanup_complete": cleanup_ok,
-                      "credential_scan_clean": summary.get("credential_scan_clean"),
-                      "failure_type": summary.get("failure_type")}), flush=True)
+    public = {"passed": summary["passed"], "phase": summary["phase"],
+              "cleanup_complete": cleanup_ok,
+              "credential_scan_clean": summary.get("credential_scan_clean"),
+              "failure_type": summary.get("failure_type")}
+    if "failed_check" in summary:
+        public["failed_check"] = summary["failed_check"]
+    if summary.get("failed_check") == "workflow became terminal before approval":
+        public["next_step"] = ("Inspect failure-diagnostics.json in the --evidence directory for the draft task "
+                               "outcome and attempts. Review retained service logs if diagnostics are incomplete.")
+    print(json.dumps(public), flush=True)
     return 0 if summary["passed"] else 1
 
 

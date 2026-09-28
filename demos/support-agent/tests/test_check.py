@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location(
     "support_demo_check", Path(__file__).resolve().parents[1] / "check.py"
@@ -92,6 +92,158 @@ class FakeDeployment:
 
 
 class AcceptanceRunnerTests(unittest.TestCase):
+    def terminal_deployment(self, directory, request):
+        deployment = check.Deployment.__new__(check.Deployment)
+        deployment.evidence = check.Evidence(directory, "test-only-private-key")
+        deployment.request = Mock(side_effect=request)
+        return deployment
+
+    def test_terminal_workflow_retains_child_failure_and_all_attempt_pages_redacted(self):
+        def request(path, **query):
+            if path.endswith("/inspect"):
+                return {"summary": {"workflow": {"state": "failed"}}}
+            if path == "/v1/console/workflows/result":
+                return {"outcome": {"kind": "failed", "error": {"kind": "draft_failed"}}}
+            if path.endswith("/children"):
+                if "cursor" not in query:
+                    return {"items": [], "next_cursor": "children-2"}
+                self.assertEqual(query["cursor"], "children-2")
+                return {"items": [{"kind": "task", "target_id": "task-draft", "command_key": "draft"}],
+                        "next_cursor": None}
+            if path == "/v1/console/tasks/result":
+                self.assertEqual(query["task_id"], "task-draft")
+                return {"outcome": {"kind": "failed", "error": {"message": "provider test-only-private-key"}}}
+            if path.endswith("/attempts"):
+                self.assertEqual(query["task_id"], "task-draft")
+                if "cursor" not in query:
+                    return {"items": [{"attempt_id": "attempt-1"}], "next_cursor": "attempts-2"}
+                self.assertEqual(query["cursor"], "attempts-2")
+                return {"items": [{"attempt_id": "attempt-2"}], "next_cursor": None}
+            raise AssertionError("unexpected endpoint")
+
+        with tempfile.TemporaryDirectory() as directory:
+            deployment = self.terminal_deployment(Path(directory), request)
+            with self.assertRaisesRegex(check.CheckFailure, "workflow became terminal before approval"):
+                deployment.workflow_wait("workflow-demo")
+            report = json.loads((Path(directory) / "failure-diagnostics.json").read_text())
+            self.assertEqual(report["errors"], [])
+            self.assertEqual(len(report["children"]), 2)
+            self.assertEqual(report["tasks"][0]["result"]["outcome"]["error"]["message"], "provider [REDACTED]")
+            self.assertEqual([page["items"][0]["attempt_id"] for page in report["tasks"][0]["attempts"]],
+                             ["attempt-1", "attempt-2"])
+            self.assertEqual(json.loads((Path(directory) / "unexpected-workflow-result.json").read_text()),
+                             report["workflow_result"])
+            self.assertTrue(deployment.evidence.secret_detected)
+            self.assertTrue(deployment.evidence.scan())
+
+    def test_diagnostic_fetch_failures_preserve_original_failure_and_continue_collecting(self):
+        def request(path, **query):
+            if path.endswith("/inspect"):
+                return {"summary": {"workflow": {"state": "failed"}}}
+            if path == "/v1/console/workflows/result" or path == "/v1/console/tasks/result":
+                raise RuntimeError("do not retain provider body or test-only-private-key")
+            if path.endswith("/children"):
+                return {"items": [{"kind": "task", "target_id": "task-draft"}], "next_cursor": None}
+            if path.endswith("/attempts"):
+                return {"items": [{"attempt_id": "attempt-1"}], "next_cursor": None}
+            raise AssertionError("unexpected endpoint")
+
+        with tempfile.TemporaryDirectory() as directory:
+            deployment = self.terminal_deployment(Path(directory), request)
+            with self.assertRaisesRegex(check.CheckFailure, "workflow became terminal before approval"):
+                deployment.workflow_wait("workflow-demo")
+            encoded = (Path(directory) / "failure-diagnostics.json").read_text()
+            self.assertNotIn("provider body", encoded)
+            self.assertNotIn("test-only-private-key", encoded)
+            report = json.loads(encoded)
+            self.assertEqual(report["errors"], [{"stage": "workflow_result", "failure_type": "RuntimeError"},
+                                                 {"stage": "task_result", "failure_type": "RuntimeError"}])
+            self.assertEqual(report["tasks"][0]["attempts"][0]["items"][0]["attempt_id"], "attempt-1")
+
+    def test_broken_diagnostic_pagination_is_bounded_and_retains_partial_evidence(self):
+        for broken in ("repeated", "unbounded", "malformed"):
+            with self.subTest(broken=broken), tempfile.TemporaryDirectory() as directory:
+                page_count = 0
+
+                def request(path, **query):
+                    nonlocal page_count
+                    if path.endswith("/inspect"):
+                        return {"summary": {"workflow": {"state": "failed"}}}
+                    if path.endswith("/result"):
+                        return {"outcome": {"kind": "failed"}}
+                    if path.endswith("/children"):
+                        page_count += 1
+                        if broken == "malformed":
+                            return {"items": None}
+                        return {"items": [], "next_cursor": "same" if broken == "repeated" else str(page_count)}
+                    raise AssertionError("unexpected endpoint")
+
+                deployment = self.terminal_deployment(Path(directory), request)
+                with self.assertRaisesRegex(check.CheckFailure, "workflow became terminal before approval"):
+                    deployment.workflow_wait("workflow-demo")
+                report = json.loads((Path(directory) / "failure-diagnostics.json").read_text())
+                self.assertEqual(page_count, {"repeated": 2, "unbounded": 5, "malformed": 1}[broken])
+                self.assertEqual(len(report["children"]), page_count)
+                self.assertEqual(report["errors"][0]["failure_type"], {
+                    "repeated": "InvalidCursor", "unbounded": "PageLimitExceeded", "malformed": "InvalidPage"}[broken])
+
+    def test_diagnostic_storage_failure_does_not_replace_acceptance_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            deployment = self.terminal_deployment(Path(directory), lambda path, **query: {
+                "summary": {"workflow": {"state": "failed"}}})
+            with patch.object(deployment.evidence, "write", side_effect=OSError("disk full")), \
+                    self.assertRaisesRegex(check.CheckFailure, "workflow became terminal before approval"):
+                deployment.workflow_wait("workflow-demo")
+
+    def test_console_failure_description_is_static_and_provider_exception_text_is_not_printed(self):
+        for error in (check.CheckFailure("workflow became terminal before approval"),
+                      RuntimeError("do not print provider body or test-only-private-key")):
+            with self.subTest(error=type(error).__name__), contextlib.redirect_stdout(io.StringIO()) as output, \
+                    patch.object(check, "require", side_effect=error):
+                status = check.main(["--directory", "/unused", "--binaries", "/unused",
+                                     "--evidence", "/unused", "--live-gemini"])
+                public = json.loads(output.getvalue())
+                self.assertEqual(status, 1)
+                if isinstance(error, check.CheckFailure):
+                    self.assertEqual(public["failed_check"], "workflow became terminal before approval")
+                    self.assertIn("failure-diagnostics.json", public["next_step"])
+                else:
+                    self.assertNotIn("failed_check", public)
+                self.assertNotIn("provider body", output.getvalue())
+                self.assertNotIn("test-only-private-key", output.getvalue())
+
+    def test_credential_configuration_failure_gives_safe_action_before_database_setup(self):
+        for error in (ValueError("private credential file data"), OSError("private credential path")):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                prepared, binaries, evidence = root / "prepared", root / "bin", root / "evidence"
+                for kind in ("agent", "workflow"):
+                    target = prepared / "packages" / kind
+                    target.mkdir(parents=True)
+                    (target / "program.py").write_bytes((check.HERE / kind / "program.py").read_bytes())
+                (prepared / "prepared.json").write_text("{}")
+                binaries.mkdir()
+                for binary in ("ledgence-worker", "ledgence-orchestrator"):
+                    (binaries / binary).touch()
+                configuration = SimpleNamespace(worker_environment=Mock(side_effect=error))
+                with patch.object(check, "load", return_value=configuration), \
+                        patch.object(check.sys, "version_info", (3, 13)), \
+                        patch.dict(check.os.environ, {"DATABASE_URL": "postgres://localhost/unused"}, clear=True), \
+                        patch.object(check.subprocess, "run") as subprocess_run, \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    status = check.main(["--directory", str(prepared), "--binaries", str(binaries),
+                                         "--evidence", str(evidence), "--live-gemini"])
+                public = json.loads(output.getvalue())
+                self.assertEqual(status, 1)
+                self.assertEqual(public["phase"], "configuration")
+                self.assertEqual(public["failure_type"], "CheckFailure")
+                self.assertIn("GOOGLE_API_KEY", public["failed_check"])
+                self.assertIn("--env-file", public["failed_check"])
+                self.assertIn("GOOGLE_GENAI_USE_VERTEXAI=FALSE", public["failed_check"])
+                self.assertNotIn("private credential", output.getvalue())
+                self.assertFalse(evidence.exists())
+                subprocess_run.assert_not_called()
+
     def test_paid_requests_require_explicit_flag_before_configuration_access(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
             check.parser().parse_args(["--directory", "/unused", "--binaries", "/unused", "--evidence", "/unused"])

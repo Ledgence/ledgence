@@ -285,6 +285,38 @@ async def _bounded_run(ticket, api_key):
         return await _run_agent(ticket, api_key)
 
 
+def _execution_failure(error):
+    """Classify failures without returning provider text, bodies, URLs or keys."""
+    fallback = "Agent provider or SDK execution failed; no draft was accepted"
+    try:
+        from google.genai.errors import APIError
+        from httpx import TimeoutException, TransportError
+    except ImportError:
+        return fallback
+    if isinstance(error, APIError):
+        messages = {
+            400: "Gemini rejected the request (HTTP 400); check the model and request configuration",
+            401: "Gemini rejected authentication (HTTP 401); check the worker credential",
+            403: "Gemini denied access (HTTP 403); check the key, project and model permissions",
+            404: "Gemini model or endpoint was not found (HTTP 404); select an available model with --model",
+            429: "Gemini quota or rate limit exceeded (HTTP 429); check the project's model quota before retrying",
+            500: "Gemini returned an internal error (HTTP 500); no draft was accepted",
+            502: "Gemini gateway failed (HTTP 502); no draft was accepted",
+            503: "Gemini is unavailable (HTTP 503); no draft was accepted",
+            504: "Gemini request timed out upstream (HTTP 504); no draft was accepted",
+        }
+        # Only known numeric codes select fixed messages. Never stringify any
+        # other exception field, even for an unexpected response shape.
+        if type(error.code) is int:
+            return messages.get(error.code, "Gemini API request failed; no draft was accepted")
+        return "Gemini API request failed; no draft was accepted"
+    if isinstance(error, TimeoutException):
+        return "Gemini HTTP request timed out; no draft was accepted"
+    if isinstance(error, TransportError):
+        return "Gemini connection failed; check network connectivity and TLS configuration"
+    return fallback
+
+
 def handle(event):
     """Protocol-2 synchronous entrypoint; every invocation owns a fresh loop."""
     ticket = ticket_input(event)
@@ -304,9 +336,9 @@ def handle(event):
         raise
     except TimeoutError:
         raise AgentError("Agent exceeded its 120-second execution budget") from None
-    except Exception:
+    except Exception as error:
         # Provider errors can contain request material. Never expose their text,
         # repr, chained traceback, credentials, or HTTP body in a task failure.
-        raise AgentError("Agent provider or SDK execution failed; no draft was accepted") from None
+        raise AgentError(_execution_failure(error)) from None
     finally:
         logging.disable(previous_logging)
