@@ -88,7 +88,7 @@ impl PostgresStore {
 /// The first membership lookup is immutable and unlocked. All mutable checks
 /// happen after workflow -> task locks, so cancellation and attempt replacement
 /// cannot race a newly acknowledged result into an obsolete continuation.
-struct ActivationAuthority {
+pub(super) struct ActivationAuthority {
     task_state: TaskState,
     current_attempt_id: Option<String>,
     cancellation_requested: bool,
@@ -99,7 +99,7 @@ struct ActivationAuthority {
     execution_deadline: u64,
     execution_may_have_started: bool,
 }
-async fn lock_activation(
+pub(super) async fn lock_activation(
     connection: &mut PgConnection,
     owner: &LeaseOwner,
 ) -> StoreResult<(WorkflowSnapshot, ActivationAuthority)> {
@@ -154,7 +154,7 @@ async fn lock_activation(
         },
     ))
 }
-fn check_live(
+pub(super) fn check_live(
     workflow: &WorkflowSnapshot,
     authority: &ActivationAuthority,
     owner: &LeaseOwner,

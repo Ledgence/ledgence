@@ -1167,5 +1167,7 @@ fn task_input_id(input: &WorkflowChildResult) -> &str {
         _ => panic!("expected task input"),
     }
 }
+#[path = "fork_tests.rs"]
+mod forks;
 #[path = "owned_tests.rs"]
 mod owned;

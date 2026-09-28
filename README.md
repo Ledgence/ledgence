@@ -43,8 +43,10 @@ containing `console/` and the updated Compose configuration.
   packages on demand, cache them locally, and share a bounded pool of Python
   subprocesses across programs. Healthy processes are reused for matching work.
 - **Coordinate durable workflows.** Combine concurrent local Python steps,
-  distributed tasks, and owned subworkflows. Checkpoint state, release the worker
-  while waiting for a task, timer, or external event, then resume explicitly.
+  distributed tasks, and owned subworkflows using
+  [typed entrypoints and durable forks](docs/workflow-entrypoints.md).
+  Checkpoint state, release the worker while waiting for a task, timer, or
+  external event, then resume at a registered handler.
 - **Inspect execution and deliver results.** Submit, discover, cancel, and observe
   tasks with the CLI or Python client. PostgreSQL stores task ownership, attempts,
   leases, and results; optional completion callbacks retain their delivery state
@@ -122,7 +124,8 @@ def handle(event):
 All public Python imports share the `ledgence` namespace: use
 `from ledgence.client import AsyncClient` in callers,
 `from ledgence.worker import current_invocation, get_logger` in programs, and
-`from ledgence.worker.workflow import workflow_context` in workflows. The client
+`from ledgence.worker.workflow import Workflow` for registered workflow handlers
+(`workflow_context` remains available for existing controllers). The client
 SDK and worker helper remain separate components. Existing programs using the
 legacy `ledgence_worker` imports must update and republish their packages; see
 [the import migration](docs/program-packages.md#python-import-namespace).

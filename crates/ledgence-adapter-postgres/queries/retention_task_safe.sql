@@ -4,6 +4,8 @@ SELECT
     AND NOT EXISTS(SELECT 1 FROM dispatch_intents WHERE task_id=$1)
     AND NOT EXISTS(SELECT 1 FROM workflow_work WHERE task_id=$1)
     AND NOT EXISTS(SELECT 1 FROM workflow_local_results r JOIN attempts a ON a.attempt_id=r.attempt_id WHERE a.task_id=$1)
+    AND NOT EXISTS(SELECT 1 FROM workflow_forks f JOIN attempts a ON a.attempt_id=f.accepting_attempt_id WHERE a.task_id=$1)
+    AND NOT EXISTS(SELECT 1 FROM workflow_forks WHERE accepting_activation_id=$1)
     AND NOT EXISTS(SELECT 1 FROM tasks t JOIN workflow_runs w ON w.workflow_id=t.workflow_id WHERE t.task_id=$1 AND w.retiring_at_ms IS NULL)
     AND NOT EXISTS(SELECT 1 FROM workflow_activations a JOIN workflow_task_links l ON l.activation_id=a.activation_id WHERE a.task_id=$1 AND l.task_id<>$1)
     AND NOT EXISTS(SELECT 1 FROM workflow_activations a JOIN workflow_waits w ON w.activation_id=a.activation_id WHERE a.task_id=$1)

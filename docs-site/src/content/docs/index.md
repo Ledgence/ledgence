@@ -36,4 +36,4 @@ Your **agent** is application code. You publish that code and its prepared depen
 
 Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
 
-<p class="ld-home-status">Release tutorials target source 0.1.1 or native 0.1.0. Console guides target the current source implementation; Console is not included in those published artifacts. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>
+<p class="ld-home-status">Release tutorials target source 0.1.1 or native 0.1.0. Console guides and typed workflow entrypoints/forks target the current source implementation; those features are not included in the published artifacts. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>

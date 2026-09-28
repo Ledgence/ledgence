@@ -130,6 +130,13 @@ impl ResponseValue for LocalResultReceipt {
     }
 }
 
+impl ResponseValue for WorkflowForkReceipt {
+    const MAX_BYTES: usize = crate::WORKFLOW_FORK_RECEIPT_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+
 impl ResponseValue for WorkflowEventReceipt {
     const MAX_BYTES: usize = TASK_STATUS_MAX_BYTES;
     fn validate_values(&self) -> Result<()> {

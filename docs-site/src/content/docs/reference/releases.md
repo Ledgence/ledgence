@@ -25,6 +25,12 @@ The self-hosted Console is implemented after the releases listed above. It is no
 
 [Explore Ledgence Console](/tutorials/use-console) starts from an existing source checkout containing `console/` and the updated Compose deployment. The [Console reference](/reference/console) covers the operator interface, single-instance configuration, and matching asset requirements. These source features do not change the independently published client or crate versions above.
 
+## Workflow entrypoints and forks in current source
+
+Typed Python `Workflow` entrypoints and acknowledged `fork` / `join` operations are available in the current source tree. They are not included in the published source tag, native bundle, or API crates listed above. Use a checkout containing `examples/mixed-workflow/`, build matching orchestrator and worker components, and explicitly apply all migrations, including `20260928000000_workflow_forks.sql`. Runtime protocol 3 remains the workflow package contract.
+
+[Mix local work and workflow branches](/how-to/fork-workflow-branches) shows the complete source example, publication, and submission. The [workflow context reference](/reference/workflow-context) marks the new methods and their limits. Public submissions start at a workflow's default entrypoint; branch creation and resume decisions select named handlers. These source features do not change the published distribution versions above.
+
 ## Native tools
 
 The 0.1.0 archive contains three executables:
@@ -65,7 +71,7 @@ These are libraries, not `cargo install` packages. Implementation crates and ser
 
 ## Version and operating scope
 
-The release tutorials and client references describe source and client version **0.1.1**, except where a page explicitly targets the native **0.1.0** release. Console pages explicitly target the newer current source implementation. Example programs with version `1.0.0` use their own application version; that number is separate from the Ledgence platform version.
+The release tutorials and client references describe source and client version **0.1.1**, except where a page explicitly targets the native **0.1.0** release. Console guides and the explicitly marked workflow entrypoint/fork sections target the newer current source implementation. Example programs with version `1.0.0` use their own application version; that number is separate from the Ledgence platform version.
 
 The 0.1 API can evolve. Pin the versions you use and review release changes before upgrading. Use matching platform components and explicit database migrations, and preserve a tested backup before changing a durable deployment.
 

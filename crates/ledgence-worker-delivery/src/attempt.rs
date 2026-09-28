@@ -85,6 +85,7 @@ impl Context {
                                 .expect("validated workflow assignment"),
                             request.event.value()["ldgparentworkflowid"].as_str(),
                             request.event.value()["ldgrootworkflowid"].as_str(),
+                            processing_trace.clone(),
                             &control,
                         )
                         .await

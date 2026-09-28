@@ -10,12 +10,31 @@ type CommitRequest = (
     LocalResultCommand,
     oneshot::Sender<Result<LocalResultReceipt>>,
 );
+type ForkRequest = (
+    WorkflowForkCommand,
+    oneshot::Sender<Result<WorkflowForkReceipt>>,
+);
 
 struct Mock {
     contexts: mpsc::UnboundedSender<ContextRequest>,
     commits: mpsc::UnboundedSender<CommitRequest>,
+    forks: Option<mpsc::UnboundedSender<ForkRequest>>,
 }
 impl WorkflowService for Mock {
+    fn fork_workflow<'a>(
+        &'a self,
+        command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.forks
+                .as_ref()
+                .expect("unexpected fork")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
     fn send_workflow_event<'a>(
         &'a self,
         _: &'a WorkflowEventCommand,
@@ -75,7 +94,11 @@ fn fixture() -> (
     let (contexts, context_requests) = mpsc::unbounded_channel();
     let (commits, commit_requests) = mpsc::unbounded_channel();
     (
-        Arc::new(Mock { contexts, commits }),
+        Arc::new(Mock {
+            contexts,
+            commits,
+            forks: None,
+        }),
         context_requests,
         commit_requests,
     )
@@ -122,15 +145,19 @@ fn request() -> RuntimeRequest {
         payload: json!({"key":"fetch","callable":"program:fetch","input":{"number":1.0},"output":{"ok":true}}),
     }
 }
-fn journal(service: Arc<Mock>) -> LocalJournal {
+fn journal(service: Arc<Mock>) -> WorkflowOperations {
     let config = config();
-    LocalJournal {
+    WorkflowOperations {
         service,
         owner: owner(),
+        processing_trace: None,
         request_timeout: config.request_timeout,
         retry_delay: config.retry_delay,
     }
 }
+
+#[path = "fork_tests.rs"]
+mod forks;
 async fn bounded<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(2), future)
         .await

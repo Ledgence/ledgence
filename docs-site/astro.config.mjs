@@ -31,6 +31,7 @@ export default defineConfig({
         { label: 'Register an agent', slug: 'how-to/register-agent' },
         { label: 'Install the native release', slug: 'how-to/install-native' },
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
+        { label: 'Mix local work and branches', slug: 'how-to/fork-workflow-branches' },
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
       ] },
       { label: 'Reference', items: [

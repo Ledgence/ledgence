@@ -19,8 +19,12 @@ impl Context {
         expected_workflow: &str,
         expected_parent: Option<&str>,
         expected_root: Option<&str>,
+        processing_trace: Option<TraceContext>,
         control: &RunControl,
     ) -> ledgence_worker_api::Result<WorkflowRuntime> {
+        if let Some(trace) = &processing_trace {
+            trace.validate()?;
+        }
         let service = self.workflows.clone().ok_or_else(|| {
             Error::new(
                 ErrorKind::Incompatible,
@@ -43,9 +47,10 @@ impl Context {
         });
         let payload = serde_json::to_value(context)
             .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
-        let handler = Arc::new(LocalJournal {
+        let handler = Arc::new(WorkflowOperations {
             service,
             owner,
+            processing_trace,
             request_timeout: self.config.request_timeout,
             retry_delay: self.config.retry_delay,
         });
@@ -101,13 +106,14 @@ async fn fetch_context(
     Ok(context)
 }
 
-struct LocalJournal {
+struct WorkflowOperations {
     service: Arc<dyn WorkflowService>,
     owner: LeaseOwner,
+    processing_trace: Option<TraceContext>,
     request_timeout: Duration,
     retry_delay: Duration,
 }
-impl RuntimeRequestHandler for LocalJournal {
+impl RuntimeRequestHandler for WorkflowOperations {
     fn handle<'a>(
         &'a self,
         request: RuntimeRequest,
@@ -115,6 +121,9 @@ impl RuntimeRequestHandler for LocalJournal {
     ) -> PortFuture<'a, RuntimeReply> {
         Box::pin(async move {
             request.validate()?;
+            if request.operation == "workflow.fork" {
+                return self.fork(request, control).await;
+            }
             if request.operation != "local_step.commit" {
                 return Err(Error::new(
                     ErrorKind::Protocol,
@@ -158,6 +167,56 @@ impl RuntimeRequestHandler for LocalJournal {
                 }
             }
         })
+    }
+}
+
+impl WorkflowOperations {
+    async fn fork(
+        &self,
+        request: RuntimeRequest,
+        control: RunControl,
+    ) -> ledgence_worker_api::Result<RuntimeReply> {
+        let fork: WorkflowForkRequest = serde_json::from_value(request.payload)
+            .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
+        let command = WorkflowForkCommand {
+            owner: self.owner.clone(),
+            fork,
+            processing_trace: self.processing_trace.clone(),
+        };
+        command.validate().map_err(runtime_error)?;
+        loop {
+            control.check()?;
+            match controlled(
+                &control,
+                self.request_timeout,
+                self.service.fork_workflow(&command),
+            )
+            .await
+            {
+                Ok(receipt) => {
+                    control.check()?;
+                    if receipt.validate().is_err() || !receipt.matches(&command) {
+                        return Err(Error::new(
+                            ErrorKind::Protocol,
+                            "workflow fork receipt identity mismatch",
+                        ));
+                    }
+                    return Ok(RuntimeReply {
+                        id: request.id,
+                        result: json!({
+                            "committed": true,
+                            "key": receipt.key,
+                            "branch_keys": receipt.branch_keys,
+                        }),
+                    });
+                }
+                Err(error) if retryable(&error) => pause(&control, self.retry_delay).await?,
+                Err(error) => {
+                    control.check()?;
+                    return Err(runtime_error(error));
+                }
+            }
+        }
     }
 }
 

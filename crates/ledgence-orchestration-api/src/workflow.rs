@@ -467,6 +467,20 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    /// Atomically register a sealed, same-definition fork and its owned runs.
+    /// New work requires live dispatched activation authority. The original
+    /// accepting owner may reconcile its exact durable receipt after expiry;
+    /// other owners require current live authority. Parent state stays frozen.
+    fn fork_workflow<'a>(
+        &'a self,
+        _command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow forks are unsupported by this adapter".into(),
+            ))
+        })
+    }
     /// Accept a directly addressed, one-shot event after committing its receipt.
     /// Exact source/ID/key/payload replays must reconcile before terminal checks.
     /// Implementations serialize acceptance and wait resolution under workflow
@@ -533,6 +547,16 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    fn fork_workflow<'a>(
+        &'a self,
+        _command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow forks are unsupported by this adapter".into(),
+            ))
+        })
+    }
     /// Accept a directly addressed, one-shot event after committing its receipt.
     /// Exact source/ID/key/payload replays must reconcile before terminal checks.
     /// Implementations serialize acceptance and wait resolution under workflow

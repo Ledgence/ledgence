@@ -136,6 +136,30 @@ pub(super) async fn post(
                 })
                 .await
         }
+        "/v1/workflows/forks" => {
+            let command = server
+                .blocking(move || {
+                    let command: WorkflowForkCommand = decode_unique_json(&bytes, maximum)
+                        .map_err(|_| invalid("malformed JSON command"))?;
+                    command.validate()?;
+                    Ok(command)
+                })
+                .await?;
+            server.require_scope(&command.owner.scope)?;
+            log_owner(&command.owner)?;
+            let reply = service.fork_workflow(&command).await?;
+            if !reply.matches(&command) {
+                return Err(unavailable("workflow fork receipt identity mismatch").into());
+            }
+            server
+                .blocking(move || {
+                    reply
+                        .validate()
+                        .map_err(|_| unavailable("invalid workflow fork receipt"))?;
+                    encode_bounded(&reply, crate::WORKFLOW_FORK_RECEIPT_MAX_BYTES)
+                })
+                .await
+        }
         "/v1/workflows/local-results" => {
             let command = server
                 .blocking(move || {

@@ -11,6 +11,37 @@ pub(super) async fn create_child(
     origin_trace: Option<&TraceContext>,
     now: u64,
 ) -> StoreResult<TaskSnapshot> {
+    create_child_at(
+        connection,
+        parent,
+        activation,
+        command,
+        ChildStart {
+            descriptor,
+            entrypoint: "start",
+            fork_key: None,
+            origin_trace,
+        },
+        now,
+    )
+    .await
+}
+
+pub(super) struct ChildStart<'a> {
+    pub descriptor: &'a ProgramDescriptor,
+    pub entrypoint: &'a str,
+    pub fork_key: Option<&'a str>,
+    pub origin_trace: Option<&'a TraceContext>,
+}
+
+pub(super) async fn create_child_at(
+    connection: &mut PgConnection,
+    parent: &RunRecord,
+    activation: &str,
+    command: &WorkflowChildCommand,
+    start: ChildStart<'_>,
+    now: u64,
+) -> StoreResult<TaskSnapshot> {
     if parent.nesting_depth >= WORKFLOW_MAX_DEPTH {
         return Err(invalid("workflow nesting exceeds supported depth").into());
     }
@@ -30,20 +61,20 @@ pub(super) async fn create_child(
             parent.snapshot.correlation_key.clone(),
         ),
         idempotency_key: format!("owned:{id}"),
-        origin_trace: origin_trace.cloned(),
+        origin_trace: start.origin_trace.cloned(),
     };
     let root = parent
         .snapshot
         .root_workflow_id
         .as_deref()
         .unwrap_or(&parent.snapshot.workflow_id);
-    sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms,correlation_key,parent_workflow_id,root_workflow_id,nesting_depth,queue) VALUES($1,$2,$3,$4,$5,$6,'running','start',$7,$8,$9,$10,$11,$12,$13)")
+    sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms,correlation_key,parent_workflow_id,root_workflow_id,nesting_depth,queue) VALUES($1,$2,$3,$4,$5,$6,'running',$14,$7,$8,$9,$10,$11,$12,$13)")
         .bind(&id).bind(&submission.input.tenant_id).bind(&submission.input.namespace).bind(&submission.idempotency_key)
-        .bind(codec::encode(&submission)?).bind(codec::encode(descriptor)?).bind(codec::encode(&Value::Null)?).bind(codec::ms(now)?)
-        .bind(&submission.input.correlation_key).bind(&parent.snapshot.workflow_id).bind(root).bind((parent.nesting_depth + 1) as i32).bind(&submission.input.queue)
+        .bind(codec::encode(&submission)?).bind(codec::encode(start.descriptor)?).bind(codec::encode(&Value::Null)?).bind(codec::ms(now)?)
+        .bind(&submission.input.correlation_key).bind(&parent.snapshot.workflow_id).bind(root).bind((parent.nesting_depth + 1) as i32).bind(&submission.input.queue).bind(start.entrypoint)
         .execute(&mut *connection).await?;
-    let inserted = sqlx::query("INSERT INTO owned_workflow_links(parent_workflow_id,command_key,child_workflow_id,creating_activation_id,creating_revision) SELECT $1,$2,$3,$4,revision FROM workflow_activations WHERE activation_id=$4 AND workflow_id=$1")
-        .bind(&parent.snapshot.workflow_id).bind(&command.key).bind(&id).bind(activation).execute(&mut *connection).await?.rows_affected();
+    let inserted = sqlx::query("INSERT INTO owned_workflow_links(parent_workflow_id,command_key,child_workflow_id,creating_activation_id,creating_revision,fork_key) SELECT $1,$2,$3,$4,revision,$5 FROM workflow_activations WHERE activation_id=$4 AND workflow_id=$1")
+        .bind(&parent.snapshot.workflow_id).bind(&command.key).bind(&id).bind(activation).bind(start.fork_key).execute(&mut *connection).await?.rows_affected();
     if inserted != 1 {
         return Err(corrupt("missing owned creating activation").into());
     }

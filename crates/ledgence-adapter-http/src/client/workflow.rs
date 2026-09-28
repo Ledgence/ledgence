@@ -144,6 +144,33 @@ impl WorkflowService for HttpTaskService {
             .await
         })
     }
+    fn fork_workflow<'a>(
+        &'a self,
+        command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let key = command.fork.key.clone();
+            let branch_keys: Vec<_> = command
+                .fork
+                .branches
+                .iter()
+                .map(|branch| branch.key.clone())
+                .collect();
+            self.post_validated(
+                "v1/workflows/forks",
+                command,
+                WORKFLOW_FORK_COMMAND_MAX_BYTES,
+                move |reply: &WorkflowForkReceipt| {
+                    if reply.key != key || reply.branch_keys != branch_keys {
+                        return Err(unavailable("workflow fork receipt identity mismatch"));
+                    }
+                    Ok(())
+                },
+            )
+            .await
+        })
+    }
     fn cancel_workflow<'a>(
         &'a self,
         scope: &'a Scope,
