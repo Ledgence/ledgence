@@ -34,6 +34,11 @@ the short model interaction; Ledgence owns the task, accepted result, child
 relationship, approval deadline and continuation. The agent session is transient;
 the explicit JSON checkpoint is what survives a restart.
 
+The controller registers `Entry.START`, `Entry.REVIEW` and `Entry.FINISH` with
+`Workflow`. The default entrypoint stages the draft task; the others validate the
+accepted draft and approval. Continuations use enum members, while each durable
+checkpoint keeps its existing string ID and explicit JSON state.
+
 ## Requirements
 
 - Current repository source containing `demos/`, Rust/rustup, and PostgreSQL 18
@@ -64,7 +69,7 @@ python3.13 demos/support-agent/prepare.py --directory "$DEMO_HOME/prepared"
 
 Preparation downloads the exact hash-locked wheels, verifies the legal inventory,
 installs application dependencies into the agent package, and publishes
-`support-agent@1.0.1` and `support-workflow@1.0.1` into a local program store.
+`support-agent@1.0.1` and `support-workflow@1.0.2` into a local program store.
 Workers fetch and cache these immutable packages; they never install dependencies
 while executing a task. The host supplies CPython and Ledgence's worker helper.
 `prepared.json` records artifact digests, package sizes and build provenance.
@@ -118,7 +123,7 @@ export DEMO_HOME="$HOME/.local/share/ledgence-support-demo"
 target/debug/ledgence program register --server http://127.0.0.1:8082 \
   --program support-agent --version 1.0.1 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8082 \
-  --program support-workflow --version 1.0.1 --kind workflow
+  --program support-workflow --version 1.0.2 --kind workflow
 ```
 
 ## 3. Supply the credential to the worker

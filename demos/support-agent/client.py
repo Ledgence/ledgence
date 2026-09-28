@@ -71,7 +71,7 @@ async def execute(args) -> dict | list | str | None:
             data = read_ticket(args.ticket)
             data.update(queue=args.queue, model=args.model, approval_timeout_ms=args.approval_timeout_ms)
             submission = client.workflows.prepare(
-                program="support-workflow", version="1.0.1", queue=args.queue,
+                program="support-workflow", version="1.0.2", queue=args.queue,
                 data=data, idempotency_key=args.idempotency_key,
                 correlation_key=data["ticket_id"],
                 retry_policy=RetryPolicy(max_attempts=3, retry_delay_ms=1000),

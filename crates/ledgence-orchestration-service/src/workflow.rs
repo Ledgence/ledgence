@@ -234,6 +234,26 @@ impl ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn fork_workflow<'a>(
+        &'a self,
+        command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            // Forks reuse the parent's pinned descriptor inside the store's
+            // transaction; mutable catalogs and program locators play no role.
+            let receipt = self.workflows()?.fork_workflow(command).await?;
+            receipt
+                .validate()
+                .map_err(|_| ContractError::Unavailable("invalid workflow fork receipt".into()))?;
+            if !receipt.matches(command) {
+                return Err(ContractError::Unavailable(
+                    "workflow fork receipt identity mismatch".into(),
+                ));
+            }
+            Ok(receipt)
+        })
+    }
     fn send_workflow_event<'a>(
         &'a self,
         command: &'a WorkflowEventCommand,

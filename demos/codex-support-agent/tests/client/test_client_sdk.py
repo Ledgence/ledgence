@@ -143,7 +143,7 @@ class CompanionSdkTests(unittest.TestCase):
         self.assertEqual(self.requests[0]["route"], "/v1/workflows")
         self.assertEqual(json.loads(self.requests[0]["body"]), {
             "idempotency_key": "support:SUP-1042:1", "input": {
-                **SCOPE, "queue": "codex-support-demo", "program": {"id": "codex-support-workflow", "version": "1.0.0"},
+                **SCOPE, "queue": "codex-support-demo", "program": {"id": "codex-support-workflow", "version": "1.0.1"},
                 "data": {"ticket_id": "SUP-1042", "question": "¿Cómo recupero el resultado?",
                          "queue": "codex-support-demo", "model": "gpt-6-luna", "approval_timeout_ms": 3_600_000},
                 "correlation_key": "SUP-1042", "retry_policy": {"max_attempts": 3, "retry_delay_ms": 1000},

@@ -93,6 +93,23 @@ class FakeDeployment:
 
 
 class AcceptanceRunnerTests(unittest.TestCase):
+
+    def test_package_versions_match_registration_and_submission(self):
+        preparation = check.load("demo_prepare_versions", check.HERE / "prepare.py")
+        self.assertEqual(preparation.VERSIONS, {"agent": "1.0.1", "workflow": "1.0.2"})
+        versions = {"support-agent": "1.0.1", "support-workflow": "1.0.2",
+                    "support-demo-slot-probe": "1.0.1"}
+        deployment = check.Deployment.__new__(check.Deployment)
+        deployment.request = Mock(return_value={"registered": True})
+        deployment.evidence = Mock()
+        deployment.register()
+        registered = {call.args[1]["program"]["id"]: call.args[1]["program"]["version"]
+                      for call in deployment.request.call_args_list}
+        self.assertEqual(registered, versions)
+        for program, version in versions.items():
+            command = check.submission(program, "stable-key", {})
+            self.assertEqual(command["input"]["program"], {"id": program, "version": version})
+
     def terminal_deployment(self, directory, request):
         deployment = check.Deployment.__new__(check.Deployment)
         deployment.evidence = check.Evidence(directory, "test-only-private-key")

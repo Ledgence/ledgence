@@ -3,6 +3,7 @@
 mod data;
 mod execution;
 mod external;
+mod forks;
 mod owned;
 #[cfg(test)]
 mod tests;
@@ -17,6 +18,12 @@ use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::collections::BTreeMap;
 
 impl WorkflowStore for PostgresStore {
+    fn fork_workflow<'a>(
+        &'a self,
+        command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(self.run(move || self.fork_workflow_once(command)))
+    }
     fn lookup_workflow_submission<'a>(
         &'a self,
         scope: &'a Scope,

@@ -1,5 +1,11 @@
 use super::*;
 impl WorkflowService for Mock {
+    fn fork_workflow<'a>(
+        &'a self,
+        command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async move { self.reply("wf_fork", command) })
+    }
     fn submit_workflow<'a>(&'a self, c: &'a SubmitCommand) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(async move { self.reply("wf_submit", c) })
     }
@@ -322,3 +328,6 @@ mod events;
 
 #[path = "workflow_children.rs"]
 mod children;
+
+#[path = "workflow_forks.rs"]
+mod forks;

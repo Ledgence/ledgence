@@ -14,7 +14,7 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-VERSION = "1.0.0"
+VERSIONS = {"agent": "1.0.0", "workflow": "1.0.1"}
 
 
 def target():
@@ -62,7 +62,7 @@ def prepare(directory, binaries):
         shutil.copytree(HERE / kind, package,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".env", ".env.*"))
         shutil.copy2(ROOT / "LICENSE", package / "LEDGENCE-LICENSE")
-        manifest = {"schema_version": 1, "program": {"id": name, "version": VERSION},
+        manifest = {"schema_version": 1, "program": {"id": name, "version": VERSIONS[kind]},
                     "runtime": {"kind": "python", "python": "3.13", "protocol": protocol},
                     "handler": "program:handle",
                     "platform": {"os": operating_system, "arch": architecture}}

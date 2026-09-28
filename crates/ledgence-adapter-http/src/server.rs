@@ -198,6 +198,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("/v1/workflows/events", "POST"),
     ("/v1/workflows/activations/context", "POST"),
     ("/v1/workflows/local-results", "POST"),
+    ("/v1/workflows/forks", "POST"),
     ("/v1/tasks", "GET, POST"),
     ("/v1/tasks/inspect", "GET"),
     ("/v1/tasks/status", "GET"),
@@ -715,6 +716,7 @@ async fn dispatch(
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
         "/v1/workflows/events" => WORKFLOW_EVENT_COMMAND_MAX_BYTES,
+        "/v1/workflows/forks" => WORKFLOW_FORK_COMMAND_MAX_BYTES,
         "/v1/completion-subscriptions" | "/v1/completion-subscriptions/retry" => {
             COMPLETION_COMMAND_MAX_BYTES
         }

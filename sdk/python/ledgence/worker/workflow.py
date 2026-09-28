@@ -10,6 +10,9 @@ import asyncio
 import calendar
 import ipaddress
 from contextvars import ContextVar
+from dataclasses import dataclass
+from enum import StrEnum
+from types import MappingProxyType
 import inspect
 import json
 import math
@@ -23,6 +26,7 @@ MAX_COMMANDS = 64
 MAX_RECORD_BYTES = 128 * 1024
 MAX_RECORDS_BYTES = 256 * 1024
 MAX_DECISION_BYTES = 256 * 1024
+MAX_FORK_BYTES = 128 * 1024
 MAX_STATE_BYTES = 64 * 1024
 MAX_CONTEXT_BYTES = 640 * 1024
 MAX_WAIT_MS = 31_536_000_000
@@ -300,6 +304,95 @@ class WorkflowRef(TaskRef):
     __slots__ = ()
 
 
+class Workflow:
+    """Register explicit, enum-addressed continuations in a prepared package."""
+
+    def __init__(self, entries):
+        if not isinstance(entries, type) or not issubclass(entries, StrEnum):
+            raise WorkflowError("workflow entries must be a StrEnum family")
+        if not entries.__members__ or len(entries.__members__) != len(list(entries)):
+            raise WorkflowError("workflow entries must be nonempty and cannot contain aliases")
+        for entry in entries:
+            _text(entry.value, "entrypoint")
+        self._entries = entries
+        self._handlers = {}
+        self._defaults = []
+        self._built = None
+
+    def entrypoint(self, entry, *, default=False):
+        if self._built is not None:
+            raise WorkflowError("workflow registry is frozen")
+        if type(entry) is not self._entries:
+            raise WorkflowError("entrypoint must belong to this workflow's enum family")
+        if type(default) is not bool:
+            raise WorkflowError("entrypoint default must be a boolean")
+
+        def register(handler):
+            if self._built is not None:
+                raise WorkflowError("workflow registry is frozen")
+            if not callable(handler):
+                raise WorkflowError("entrypoint handler must be callable")
+            if entry.value in self._handlers:
+                raise WorkflowError("duplicate entrypoint handler")
+            self._handlers[entry.value] = handler
+            if default:
+                self._defaults.append(entry)
+            return handler
+        return register
+
+    def build(self):
+        """Freeze registration and return the package's normal event handler."""
+        if self._built is not None:
+            return self._built
+        if set(self._handlers) != {entry.value for entry in self._entries}:
+            raise WorkflowError("every workflow entrypoint requires a handler")
+        if len(self._defaults) != 1:
+            raise WorkflowError("workflow requires exactly one default entrypoint")
+        default = self._defaults[0]
+        if "start" in self._handlers and default.value != "start":
+            raise WorkflowError("the start entrypoint must be the default")
+        handlers = MappingProxyType(dict(self._handlers))
+        entries = self._entries
+
+        async def handle(event):
+            ctx = workflow_context()
+            ctx._active()
+            if ctx._entry_registry is not None:
+                raise WorkflowError("workflow activation already has an entrypoint registry")
+            selected = default.value if ctx.continuation == "start" else ctx.continuation
+            if selected not in handlers:
+                raise WorkflowError("unknown workflow entrypoint: " + selected)
+            ctx._entry_registry = handlers
+            ctx._entry_enum = entries
+            ctx._entrypoint = entries(selected)
+            result = handlers[selected](event, ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+
+        self._built = handle
+        return handle
+
+
+@dataclass(frozen=True, slots=True)
+class BranchSpec:
+    """A frozen same-package child specification; construction performs no work."""
+    _encoded: bytes
+    _context: Any
+
+    @property
+    def key(self):
+        return json.loads(self._encoded)["key"]
+
+
+@dataclass(frozen=True, slots=True)
+class ForkRef:
+    """Acknowledged branch keys, owned by the activation that registered them."""
+    key: str
+    branch_keys: tuple[str, ...]
+    _context: Any
+
+
 class _LocalResult:
     def __init__(self, task, observed_failures):
         self._task = task
@@ -372,10 +465,27 @@ class WorkflowContext:
         self._loop = asyncio.get_running_loop()
         self._commit_lock = asyncio.Lock()
         self._pending = {}
+        self._forks = {}
+        self._fork_branch_keys = {}
+        self._entry_registry = None
+        self._entry_enum = None
+        self._entrypoint = self.continuation
         self._observed_failures = set()
         self._commands = []
         self._closed = False
         self._fatal = None
+
+    @property
+    def entrypoint(self):
+        """The selected enum member, or a legacy context's continuation string."""
+        return self._entrypoint
+
+    def _target(self, value):
+        if self._entry_enum is not None:
+            if type(value) is not self._entry_enum:
+                raise WorkflowError("entrypoint must belong to this workflow's enum family")
+            return value.value
+        return _text(value, "continuation")
 
     @property
     def state(self):
@@ -629,6 +739,8 @@ class WorkflowContext:
         _integer(policy["max_attempts"], "max_attempts", 1, 1000)
         _integer(policy["retry_delay_ms"], "retry_delay_ms", 0, 86400000)
         _integer(attempt_timeout_ms, "attempt_timeout_ms", 60000, 86400000)
+        if key in self._fork_branch_keys:
+            raise WorkflowError("child key already belongs to a fork")
         command = {"key": key, "program": {"id": program, "version": version}, "queue": queue,
                    "data": _freeze(data, MAX_DECISION_BYTES), "retry_policy": policy,
                    "attempt_timeout_ms": attempt_timeout_ms}
@@ -645,6 +757,111 @@ class WorkflowContext:
         _encode([*self._commands, command], MAX_DECISION_BYTES, 96)
         self._commands.append(command)
         return reference(key, self)
+
+    def branch(self, key, *, entrypoint, queue, data, retry_policy=None,
+               attempt_timeout_ms=300000):
+        """Describe an owned branch in this exact package without starting it."""
+        self._active()
+        key = _text(key, "branch key")
+        entrypoint = self._target(entrypoint)
+        _text(queue, "queue")
+        policy = {"max_attempts": 3, "retry_delay_ms": 5000} if retry_policy is None else retry_policy
+        policy = _freeze(policy, 1024)
+        _fields(policy, {"max_attempts", "retry_delay_ms"})
+        _integer(policy["max_attempts"], "max_attempts", 1, 1000)
+        _integer(policy["retry_delay_ms"], "retry_delay_ms", 0, 86400000)
+        _integer(attempt_timeout_ms, "attempt_timeout_ms", 60000, 86400000)
+        value = {"key": key, "entrypoint": entrypoint, "queue": queue,
+                 "data": _freeze(data, MAX_FORK_BYTES), "retry_policy": policy,
+                 "attempt_timeout_ms": attempt_timeout_ms}
+        return BranchSpec(_encode(value, MAX_FORK_BYTES, 96), self)
+
+    def _validate_branch(self, value):
+        _fields(value, {"key", "entrypoint", "queue", "data", "retry_policy", "attempt_timeout_ms"})
+        for field in ("key", "entrypoint", "queue"):
+            _text(value[field], "branch " + field)
+        if self._entry_registry is not None and value["entrypoint"] not in self._entry_registry:
+            raise WorkflowError("unknown workflow entrypoint")
+        policy = value["retry_policy"]
+        _fields(policy, {"max_attempts", "retry_delay_ms"})
+        _integer(policy["max_attempts"], "max_attempts", 1, 1000)
+        _integer(policy["retry_delay_ms"], "retry_delay_ms", 0, 86400000)
+        _integer(value["attempt_timeout_ms"], "attempt_timeout_ms", 60000, 86400000)
+        _encode(value["data"], MAX_FORK_BYTES)
+
+    async def fork(self, key, *, branches):
+        """Await durable child registration, then continue this activation.
+
+        Acknowledgment records scheduling obligations, not child completion.
+        Reusing a workflow-wide key requires exactly the same ordered branches.
+        """
+        self._active()
+        key = _text(key, "fork key")
+        if type(branches) not in (list, tuple) or not 1 <= len(branches) <= MAX_COMMANDS:
+            raise WorkflowError("fork requires between 1 and 64 branches")
+        values = []
+        for branch in branches:
+            if type(branch) is not BranchSpec or branch._context is not self:
+                raise WorkflowError("branch specification belongs to another activation")
+            try:
+                value = json.loads(branch._encoded)
+            except (TypeError, ValueError, UnicodeError) as exc:
+                raise WorkflowError("invalid branch specification") from exc
+            self._validate_branch(value)
+            values.append(value)
+        keys = tuple(value["key"] for value in values)
+        if len(set(keys)) != len(keys):
+            raise WorkflowError("fork branch keys must be distinct")
+        request = {"key": key, "branches": values}
+        binding = _encode(request, MAX_FORK_BYTES, 96)
+        if key in self._forks:
+            previous, task = self._forks[key]
+            if previous != binding:
+                raise WorkflowError("fork key reused with a different binding")
+        else:
+            if any(value["key"] in keys for value in self._commands):
+                raise WorkflowError("branch key already belongs to a staged child")
+            if any(branch_key in self._fork_branch_keys for branch_key in keys):
+                raise WorkflowError("branch key already belongs to a fork")
+            task = asyncio.create_task(self._register_fork(key, keys, request))
+            self._forks[key] = (binding, task)
+            self._fork_branch_keys.update((branch_key, key) for branch_key in keys)
+        try:
+            return await asyncio.shield(task)
+        except BaseException as exc:
+            if task.done() and not task.cancelled() and task.exception() is exc:
+                self._observed_failures.add(task)
+            raise
+
+    async def _register_fork(self, key, keys, request):
+        async with self._commit_lock:
+            if self._fatal is not None:
+                raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
+            try:
+                reply = await self._rpc("workflow.fork", request)
+                if (type(reply) is not dict
+                        or set(reply) != {"committed", "key", "branch_keys"}
+                        or reply["committed"] is not True
+                        or type(reply["key"]) is not str or reply["key"] != key
+                        or type(reply["branch_keys"]) is not list
+                        or any(type(value) is not str for value in reply["branch_keys"])
+                        or reply["branch_keys"] != list(keys)):
+                    raise WorkflowError("invalid workflow fork acknowledgement")
+            except BaseException as exc:
+                self._fatal = exc
+                raise
+        return ForkRef(key, keys, self)
+
+    def join(self, fork, *, resume, state):
+        """Checkpoint and release this invocation until all branches are terminal."""
+        self._active()
+        if type(fork) is not ForkRef or fork._context is not self:
+            raise WorkflowError("fork reference belongs to another activation")
+        registered = self._forks.get(fork.key)
+        if (registered is None or not registered[1].done() or registered[1].cancelled()
+                or registered[1].exception() is not None or registered[1].result() is not fork):
+            raise WorkflowError("fork reference was not acknowledged by this activation")
+        return self.suspend(continuation=resume, state=state, until=fork.branch_keys)
 
     def _key(self, ref):
         if isinstance(ref, TaskRef):
@@ -683,7 +900,7 @@ class WorkflowContext:
             raise WorkflowError("wait references must be distinct child keys")
         # A key can refer to a child created by an earlier activation, absent
         # from this frozen input batch. The orchestrator verifies its existence.
-        return self._decision("suspend", continuation=_text(continuation, "continuation"),
+        return self._decision("suspend", continuation=self._target(continuation),
                               state=_freeze(state, MAX_STATE_BYTES), commands=self._commands,
                               until=keys)
 
@@ -696,7 +913,7 @@ class WorkflowContext:
         self._active()
         wait = {"kind": "event", "key": key, "timeout_ms": timeout_ms}
         self._validate_wait(wait)
-        return self._decision("wait", continuation=_text(continuation, "continuation"),
+        return self._decision("wait", continuation=self._target(continuation),
                               state=_freeze(state, MAX_STATE_BYTES),
                               commands=self._commands, wait=wait)
 
@@ -709,13 +926,13 @@ class WorkflowContext:
         self._active()
         wait = {"kind": "timer", "key": key, "delay_ms": delay_ms}
         self._validate_wait(wait)
-        return self._decision("wait", continuation=_text(continuation, "continuation"),
+        return self._decision("wait", continuation=self._target(continuation),
                               state=_freeze(state, MAX_STATE_BYTES),
                               commands=self._commands, wait=wait)
 
     def continue_(self, *, continuation, state):
         """Commit a checkpoint and request another activation without a wait."""
-        return self._decision("continue", continuation=_text(continuation, "continuation"),
+        return self._decision("continue", continuation=self._target(continuation),
                               state=_freeze(state, MAX_STATE_BYTES), commands=self._commands)
 
     def complete(self, output):
@@ -754,6 +971,9 @@ class WorkflowContext:
             _encode(decision["output"], MAX_DECISION_BYTES)
         if kind in ("suspend", "continue", "wait"):
             _text(decision["continuation"], "continuation")
+            if (self._entry_registry is not None
+                    and decision["continuation"] not in self._entry_registry):
+                raise WorkflowError("unknown workflow entrypoint")
             if (_encode(decision["commands"], MAX_DECISION_BYTES, 96)
                     != _encode(self._commands, MAX_DECISION_BYTES, 96)):
                 raise WorkflowError("workflow decision does not contain the staged child commands")
@@ -768,19 +988,19 @@ class WorkflowContext:
         # Retain controller-owned operations started by asynchronous controller
         # work while an earlier batch is draining. Local callables cannot stage work.
         while True:
-            tasks = [task for _, task in self._pending.values()]
+            tasks = [task for _, task in (*self._pending.values(), *self._forks.values())]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for task, result in zip(tasks, results):
                 if isinstance(result, BaseException) and task not in self._observed_failures:
                     if isinstance(result, Exception):
                         raise result
-                    raise WorkflowError("an owned local operation was cancelled") from result
-            if len(tasks) == len(self._pending):
+                    raise WorkflowError("an owned workflow operation was cancelled") from result
+            if len(tasks) == len(self._pending) + len(self._forks):
                 return
 
     async def _finish(self, cancel=False):
         self._closed = True
-        tasks = [task for _, task in self._pending.values()]
+        tasks = [task for _, task in (*self._pending.values(), *self._forks.values())]
         if cancel:
             for task in tasks:
                 task.cancel()

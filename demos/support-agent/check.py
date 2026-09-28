@@ -188,7 +188,7 @@ class Deployment:
         for program, kind in (("support-agent", "task"), ("support-workflow", "workflow"),
                               ("support-demo-slot-probe", "task")):
             receipt = self.request("/v1/console/programs/register", {
-                "program": {"id": program, "version": "1.0.1"},
+                "program": {"id": program, "version": "1.0.2" if program == "support-workflow" else "1.0.1"},
                 "metadata": {"display_name": program, "description": None, "kind": kind},
                 "update_metadata": False,
             })
@@ -324,7 +324,7 @@ class Deployment:
 
 def submission(program, key, data):
     return {"idempotency_key": key, "origin_trace": None, "input": {
-        "program": {"id": program, "version": "1.0.1"}, "queue": QUEUE,
+        "program": {"id": program, "version": "1.0.2" if program == "support-workflow" else "1.0.1"}, "queue": QUEUE,
         "data": data, "retry_policy": {"max_attempts": 1, "retry_delay_ms": 0},
         "attempt_timeout_ms": 60_000,
     }}

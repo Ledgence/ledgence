@@ -42,6 +42,11 @@ accepted results, child relationships, the approval deadline and durable
 continuations. The Codex conversation is ephemeral; the validated draft is the
 workflow checkpoint.
 
+The controller registers `Entry.START`, `Entry.REVIEW` and `Entry.FINISH` with
+`Workflow`. The default entrypoint stages the draft task; the others validate the
+accepted draft and approval. Continuations use enum members, while each durable
+checkpoint keeps its existing string ID and explicit JSON state.
+
 ## Requirements
 
 - Repository source, Rust/rustup and PostgreSQL 18.
@@ -78,7 +83,7 @@ export DEMO_HOME="$HOME/.local/share/ledgence-codex-support-demo"
 python3.13 demos/codex-support-agent/prepare.py --directory "$DEMO_HOME/prepared"
 ```
 
-This publishes `codex-support-agent@1.0.0` and `codex-support-workflow@1.0.0`.
+This publishes `codex-support-agent@1.0.0` and `codex-support-workflow@1.0.1`.
 Both use the Python standard library and Ledgence's supplied runtime helper;
 preparation does not download wheels. Codex is a separately installed host
 executable. Workers fetch and cache immutable application packages by digest.
@@ -132,7 +137,7 @@ In another terminal, export the same `DEMO_HOME` and `LEDGENCE_CODEX_BIN`, then:
 target/debug/ledgence program register --server http://127.0.0.1:8083 \
   --program codex-support-agent --version 1.0.0 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8083 \
-  --program codex-support-workflow --version 1.0.0 --kind workflow
+  --program codex-support-workflow --version 1.0.1 --kind workflow
 python3.13 demos/codex-support-agent/run_worker.py \
   --directory "$DEMO_HOME/prepared" --server http://127.0.0.1:8083 \
   --codex-bin "$LEDGENCE_CODEX_BIN"

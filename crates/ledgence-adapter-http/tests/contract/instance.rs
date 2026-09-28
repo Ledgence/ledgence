@@ -145,6 +145,27 @@ async fn instance_legacy_routes_reject_foreign_scope_before_calling_any_service(
             .unwrap_err(),
         ContractError::NotFound
     );
+    assert_eq!(
+        client
+            .fork_workflow(&WorkflowForkCommand {
+                owner: owner(),
+                processing_trace: None,
+                fork: WorkflowForkRequest {
+                    key: "fork".into(),
+                    branches: vec![WorkflowBranch {
+                        key: "child".into(),
+                        entrypoint: "calculate".into(),
+                        queue: "workflows".into(),
+                        data: Value::Null,
+                        retry_policy: RetryPolicy::default(),
+                        attempt_timeout_ms: 60_000,
+                    }],
+                },
+            })
+            .await
+            .unwrap_err(),
+        ContractError::NotFound
+    );
     assert_eq!(client.send_workflow_event(&WorkflowEventCommand {scope:scope(),workflow_id:"wf".into(),key:"event".into(),event:WorkflowEvent::new(json!({"specversion":"1.0","id":"event","source":"urn:test","type":"test","datacontenttype":"application/json","data":null})).unwrap()}).await.unwrap_err(),ContractError::NotFound);
     assert_eq!(
         client

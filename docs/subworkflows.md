@@ -4,6 +4,8 @@ A workflow can stage another workflow with `ctx.workflow(...)`. The child has
 its own workflow ID, pinned program package, checkpoints, activation tasks,
 local-step journals, event/timer waits, and terminal result. Its parent can wait
 for it using the same explicit continuation model as ordinary child tasks.
+For branches of the current pinned package that should start before the parent
+checkpoints, use [typed entrypoints and acknowledged forks](workflow-entrypoints.md).
 
 ```python
 from ledgence.worker.workflow import workflow_context

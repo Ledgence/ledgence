@@ -140,7 +140,8 @@ def validate_prepared_sources(directory):
             require((package / relative).read_bytes() == path.read_bytes(),
                     "prepared source differs from checked source; prepare fresh packages")
         manifest = json.loads((package / "ledgence-program.json").read_text())
-        require(manifest.get("program") == {"id": program, "version": "1.0.0"},
+        version = "1.0.1" if kind == "workflow" else "1.0.0"
+        require(manifest.get("program") == {"id": program, "version": version},
                 "prepared program identity differs from this demo version")
         require((package / "LEDGENCE-LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes(),
                 "prepared package license differs from checked source")
@@ -152,7 +153,7 @@ def validate_prepared_sources(directory):
                 "prepared package digest is invalid")
         require(type(descriptor["size"]) is int and 0 < descriptor["size"] <= 256 * 1024 * 1024,
                 "prepared package size is invalid")
-        stored = directory / "store/programs" / program / "1.0.0/descriptor.json"
+        stored = directory / "store/programs" / program / version / "descriptor.json"
         require(json.loads(stored.read_text()) == descriptor, "program store descriptor differs from prepared evidence")
         blob = directory / "store/blobs" / (digest.removeprefix("sha256:") + ".zip")
         require(blob.is_file() and not blob.is_symlink() and blob.stat().st_size == descriptor["size"],
@@ -253,7 +254,7 @@ class Deployment:
         for program, kind in (("codex-support-agent", "task"), ("codex-support-workflow", "workflow"),
                               ("codex-support-demo-slot-probe", "task")):
             receipt = self.request("/v1/console/programs/register", {
-                "program": {"id": program, "version": "1.0.0"},
+                "program": {"id": program, "version": "1.0.1" if program == "codex-support-workflow" else "1.0.0"},
                 "metadata": {"display_name": program, "description": None, "kind": kind},
                 "update_metadata": False,
             })
@@ -393,7 +394,7 @@ class Deployment:
 
 def submission(program, key, data):
     return {"idempotency_key": key, "origin_trace": None, "input": {
-        "program": {"id": program, "version": "1.0.0"}, "queue": QUEUE,
+        "program": {"id": program, "version": "1.0.1" if program == "codex-support-workflow" else "1.0.0"}, "queue": QUEUE,
         "data": data, "retry_policy": {"max_attempts": 1, "retry_delay_ms": 0},
         "attempt_timeout_ms": 60_000,
     }}
