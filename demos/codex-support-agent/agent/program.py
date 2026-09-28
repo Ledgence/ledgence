@@ -242,10 +242,10 @@ def validated_output(result, ticket, audit):
 
 
 def _run_codex(*args, **kwargs):
-    from codex_runtime import CodexError, run_codex
+    from codex_runtime import run_codex
     try:
         return run_codex(*args, **kwargs)
-    except CodexError:
+    except Exception:
         # The worker must retire this process group after a failed CLI run;
         # returning a normal application error could leave CLI descendants alive
         # while Ledgence reuses the helper for another task.
@@ -270,4 +270,6 @@ def handle(event):
     except AgentError:
         raise
     except Exception:
-        raise AgentError("Codex execution failed; no draft was accepted") from None
+        # Temporary-directory cleanup must not replace session retirement with
+        # an application error if a CLI descendant still holds or writes files.
+        raise SystemExit("Codex execution failed; retiring the worker session") from None

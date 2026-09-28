@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import socket
 import stat
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -178,8 +179,8 @@ class AgentTests(unittest.TestCase):
         output = self.run_fake(result(text=json.dumps(draft(reply="Read item[0]. [task-results]"))))
         self.assertIn("item[0]", output["reply"])
 
-    def test_generic_runtime_error_is_sanitized_and_directory_removed(self):
-        with self.assertRaisesRegex(program.AgentError, "Codex execution failed") as raised:
+    def test_generic_runtime_error_retires_and_directory_is_removed(self):
+        with self.assertRaisesRegex(SystemExit, "retiring the worker session") as raised:
             self.run_fake(RuntimeError("private provider text"))
         self.assertNotIn("private", str(raised.exception))
 
@@ -188,6 +189,35 @@ class AgentTests(unittest.TestCase):
             pass
         fake = SimpleNamespace(CodexError=CodexError, run_codex=lambda *args, **kwargs: (_ for _ in ()).throw(CodexError("private CLI output")))
         with patch.dict(sys.modules, {"codex_runtime": fake}):
+            with self.assertRaisesRegex(SystemExit, "retiring the worker session") as raised:
+                program.handle(event())
+        self.assertNotIn("private", str(raised.exception))
+
+    def test_unclassified_runtime_and_cleanup_errors_also_retire_worker_session(self):
+        for failure in (OSError("private OS detail"), subprocess.SubprocessError("private child detail"),
+                        subprocess.TimeoutExpired("private child command", 2)):
+            def fail(*args, **kwargs):
+                raise failure
+            fake = SimpleNamespace(run_codex=fail)
+            with self.subTest(failure=type(failure).__name__), patch.dict(sys.modules, {"codex_runtime": fake}):
+                with self.assertRaisesRegex(SystemExit, "retiring the worker session") as raised:
+                    program.handle(event())
+                self.assertNotIn("private", str(raised.exception))
+
+    def test_temporary_directory_cleanup_cannot_downgrade_session_retirement(self):
+        create_directory = tempfile.TemporaryDirectory
+        class FailingCleanup:
+            def __init__(self, **kwargs):
+                self.directory = create_directory(**kwargs)
+            def __enter__(self):
+                return self.directory.__enter__()
+            def __exit__(self, *error):
+                self.directory.__exit__(*error)
+                raise OSError("private directory cleanup detail")
+        def fail(*args, **kwargs):
+            raise OSError("private child cleanup detail")
+        with patch.dict(sys.modules, {"codex_runtime": SimpleNamespace(run_codex=fail)}), \
+                patch.object(program.tempfile, "TemporaryDirectory", FailingCleanup):
             with self.assertRaisesRegex(SystemExit, "retiring the worker session") as raised:
                 program.handle(event())
         self.assertNotIn("private", str(raised.exception))
