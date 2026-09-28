@@ -35,9 +35,9 @@ def publish_fixture(prepared, *, replacement=None):
         content = temporary.read_bytes()
         digest = hashlib.sha256(content).hexdigest()
         temporary.replace(blobs / (digest + ".zip"))
-        descriptor = {"program": {"id": program, "version": "1.0.0"},
+        descriptor = {"program": {"id": program, "version": "1.0.1" if kind == "workflow" else "1.0.0"},
                       "digest": "sha256:" + digest, "size": len(content)}
-        stored = prepared / "store/programs" / program / "1.0.0/descriptor.json"
+        stored = prepared / "store/programs" / program / descriptor["program"]["version"] / "descriptor.json"
         stored.parent.mkdir(parents=True, exist_ok=True)
         stored.write_text(json.dumps(descriptor))
         descriptors[kind] = descriptor
@@ -122,6 +122,23 @@ class FakeDeployment:
 
 
 class AcceptanceRunnerTests(unittest.TestCase):
+
+    def test_package_versions_match_registration_and_submission(self):
+        preparation = check.load("demo_prepare_versions", check.HERE / "prepare.py")
+        self.assertEqual(preparation.VERSIONS, {"agent": "1.0.0", "workflow": "1.0.1"})
+        versions = {"codex-support-agent": "1.0.0", "codex-support-workflow": "1.0.1",
+                    "codex-support-demo-slot-probe": "1.0.0"}
+        deployment = check.Deployment.__new__(check.Deployment)
+        deployment.request = Mock(return_value={"registered": True})
+        deployment.evidence = Mock()
+        deployment.register()
+        registered = {call.args[1]["program"]["id"]: call.args[1]["program"]["version"]
+                      for call in deployment.request.call_args_list}
+        self.assertEqual(registered, versions)
+        for program, version in versions.items():
+            command = check.submission(program, "stable-key", {})
+            self.assertEqual(command["input"]["program"], {"id": program, "version": version})
+
     def terminal_deployment(self, directory, request):
         deployment = check.Deployment.__new__(check.Deployment)
         deployment.evidence = check.Evidence(directory, "test-only-private-key")
@@ -338,7 +355,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
                         path.parent.mkdir(exist_ok=True)
                         path.write_text("original source")
                 (package / "ledgence-program.json").write_text(json.dumps({
-                    "program": {"id": program, "version": "1.0.0"}}))
+                    "program": {"id": program, "version": "1.0.1" if kind == "workflow" else "1.0.0"}}))
                 (package / "LEDGENCE-LICENSE").write_bytes((check.ROOT / "LICENSE").read_bytes())
             descriptors = publish_fixture(prepared)
             with patch.object(check, "HERE", source):

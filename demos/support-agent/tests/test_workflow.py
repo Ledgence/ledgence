@@ -1,5 +1,6 @@
 """Offline controller transitions and protocol-3 decision checks (MIT)."""
 
+import asyncio
 import copy
 import importlib.util
 from pathlib import Path
@@ -14,6 +15,8 @@ SPEC = importlib.util.spec_from_file_location(
 )
 program = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(program)
+
+from ledgence.worker.workflow import WorkflowContext, WorkflowError
 
 
 def invocation(**changes):
@@ -55,21 +58,26 @@ def approval(approved=True, *, accepted_at=10, **changes):
 class FakeContext:
     def __init__(self, continuation="start", *, state=None, inputs=None, wake=None):
         self.continuation = continuation
+        self._entry_registry = None
+        self._entry_enum = None
         self.state = copy.deepcopy(state)
         self.inputs = copy.deepcopy(inputs or {})
         self.wake = copy.deepcopy(wake)
         self.commands = []
+
+    def _active(self):
+        pass
 
     def task(self, key, **options):
         self.commands.append(copy.deepcopy({"key": key, **options}))
         return key
 
     def suspend(self, *, continuation, state, until):
-        return copy.deepcopy({"kind": "suspend", "continuation": continuation,
+        return copy.deepcopy({"kind": "suspend", "continuation": WorkflowContext._target(self, continuation),
                               "state": state, "until": until, "commands": self.commands})
 
     def wait_event(self, key, *, continuation, state, timeout_ms):
-        return copy.deepcopy({"kind": "wait", "continuation": continuation, "state": state,
+        return copy.deepcopy({"kind": "wait", "continuation": WorkflowContext._target(self, continuation), "state": state,
                               "wait": {"kind": "event", "key": key, "timeout_ms": timeout_ms},
                               "commands": self.commands})
 
@@ -80,9 +88,13 @@ class FakeContext:
         return {"kind": "fail", "error": {"kind": kind, "message": message}}
 
 
+async def dispatch(context, event=None):
+    with patch("ledgence.worker.workflow.workflow_context", return_value=context):
+        return await program.handle(invocation() if event is None else event)
+
+
 def run(context, event=None):
-    with patch.object(program, "workflow_context", return_value=context):
-        return program.handle(invocation() if event is None else event)
+    return asyncio.run(dispatch(context, event))
 
 
 class WorkflowTests(unittest.TestCase):
@@ -256,8 +268,9 @@ class WorkflowTests(unittest.TestCase):
                 if continuation != "start":
                     self.assertEqual(first.get("commands", []), [])
 
-    def test_unknown_continuation_fails_explicitly(self):
-        self.assert_failure(FakeContext("unknown"), "unknown_continuation")
+    def test_unknown_entrypoint_is_rejected_by_the_registry(self):
+        with self.assertRaisesRegex(WorkflowError, "unknown workflow entrypoint"):
+            run(FakeContext("unknown"))
 
 
 class ProtocolDecisionTests(unittest.IsolatedAsyncioTestCase):
@@ -275,7 +288,8 @@ class ProtocolDecisionTests(unittest.IsolatedAsyncioTestCase):
                        "local_steps": [], "wake": approval() if continuation == "finish" else None}
             context = WorkflowContext(payload, unexpected_rpc)
             try:
-                decision = run(context)
+                decision = await dispatch(context)
+                self.assertIs(context.entrypoint, program.Entry(continuation))
                 self.assertEqual(context._validate_decision(decision), decision)
                 state = decision.get("state")
             finally:

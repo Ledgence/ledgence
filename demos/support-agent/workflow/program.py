@@ -1,9 +1,10 @@
 """Draft a support reply, then checkpoint for human approval (MIT)."""
 
+from enum import StrEnum
 import json
 import unicodedata
 
-from ledgence.worker.workflow import workflow_context
+from ledgence.worker.workflow import Workflow
 
 DEFAULT_MODEL = "gemini-3.8-flash"
 DEFAULT_QUEUE = "support-demo"
@@ -87,71 +88,94 @@ def _draft(value, ticket):
     return json.loads(encoded)
 
 
-def handle(event):
-    """Return one durable decision; never call the model or send a support reply."""
-    ctx = workflow_context()
+class Entry(StrEnum):
+    START = "start"
+    REVIEW = "review"
+    FINISH = "finish"
+
+
+workflow = Workflow(Entry)
+
+
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    """Stage one draft task without calling the model or sending a reply."""
     try:
-        ticket, queue, timeout = _ticket(event)
+        ticket, queue, _timeout = _ticket(event)
     except ValueError as error:
         return ctx.fail("invalid_ticket", str(error))
 
-    if ctx.continuation == "start":
-        # The fixed key and immutable binding make activation replay idempotent.
-        # One child attempt avoids repeating the whole agent and its tool loop.
-        child = ctx.task(
-            DRAFT_KEY, program="support-agent", version="1.0.1", queue=queue,
-            data=ticket, retry_policy={"max_attempts": 1, "retry_delay_ms": 0},
-            attempt_timeout_ms=180_000,
-        )
-        return ctx.suspend(continuation="review", state={}, until=[child])
+    # The fixed key and immutable binding make activation replay idempotent.
+    # One child attempt avoids repeating the whole agent and its tool loop.
+    child = ctx.task(
+        DRAFT_KEY, program="support-agent", version="1.0.1", queue=queue,
+        data=ticket, retry_policy={"max_attempts": 1, "retry_delay_ms": 0},
+        attempt_timeout_ms=180_000,
+    )
+    return ctx.suspend(continuation=Entry.REVIEW, state={}, until=[child])
 
-    if ctx.continuation == "review":
-        child = ctx.inputs.get(DRAFT_KEY)
-        if type(child) is dict and child.get("state") in ("failed", "cancelled"):
-            return ctx.fail("draft_failed", "The support draft task did not succeed")
-        try:
-            if (type(child) is not dict or "task_id" not in child
-                    or child.get("kind") == "workflow" or child.get("state") != "succeeded"
-                    or type(child.get("outcome")) is not dict
-                    or child["outcome"].get("kind") != "succeeded"):
-                raise ValueError("the accepted support draft task result is missing")
-            task_id = _text(child["task_id"], "draft_task_id", 128)
-            draft = _draft(child["outcome"].get("output"), ticket)
-        except ValueError as error:
-            return ctx.fail("invalid_draft", str(error))
-        # The orchestrator persists this wait and releases the activation slot.
-        return ctx.wait_event(
-            APPROVAL_KEY, continuation="finish",
-            state={"draft": draft, "draft_task_id": task_id}, timeout_ms=timeout,
-        )
 
-    if ctx.continuation == "finish":
-        try:
-            state = ctx.state
-            if type(state) is not dict or state.keys() != {"draft", "draft_task_id"}:
-                raise ValueError("the accepted draft checkpoint is missing")
-            task_id = _text(state["draft_task_id"], "draft_task_id", 128)
-            draft = _draft(state["draft"], ticket)
-        except ValueError as error:
-            return ctx.fail("invalid_draft", str(error))
-        wake = ctx.wake
-        if type(wake) is not dict or wake.get("key") != APPROVAL_KEY:
-            return ctx.fail("invalid_approval", "Expected the approval:1 event or timeout")
-        if wake.get("kind") == "timeout":
-            status = "expired"
-        elif wake.get("kind") == "event":
-            envelope = wake.get("event")
-            approval = envelope.get("data") if type(envelope) is dict else None
-            if (type(approval) is not dict
-                    or approval.get("ticket_id") != ticket["ticket_id"]
-                    or approval.get("draft_task_id") != task_id
-                    or type(approval.get("approved")) is not bool):
-                return ctx.fail("invalid_approval", "Approval must identify this ticket and draft task, "
-                                "and include a boolean approved")
-            status = "approved" if approval["approved"] else "rejected"
-        else:
-            return ctx.fail("invalid_approval", "Expected an approval event or timeout")
-        return ctx.complete({"ticket_id": ticket["ticket_id"], "status": status,
-                             "draft_task_id": task_id, "draft": draft})
+@workflow.entrypoint(Entry.REVIEW)
+def review(event, ctx):
+    try:
+        ticket, _queue, timeout = _ticket(event)
+    except ValueError as error:
+        return ctx.fail("invalid_ticket", str(error))
 
-    return ctx.fail("unknown_continuation", "The support workflow continuation is unknown")
+    child = ctx.inputs.get(DRAFT_KEY)
+    if type(child) is dict and child.get("state") in ("failed", "cancelled"):
+        return ctx.fail("draft_failed", "The support draft task did not succeed")
+    try:
+        if (type(child) is not dict or "task_id" not in child
+                or child.get("kind") == "workflow" or child.get("state") != "succeeded"
+                or type(child.get("outcome")) is not dict
+                or child["outcome"].get("kind") != "succeeded"):
+            raise ValueError("the accepted support draft task result is missing")
+        task_id = _text(child["task_id"], "draft_task_id", 128)
+        draft = _draft(child["outcome"].get("output"), ticket)
+    except ValueError as error:
+        return ctx.fail("invalid_draft", str(error))
+    # The orchestrator persists this wait and releases the activation slot.
+    return ctx.wait_event(
+        APPROVAL_KEY, continuation=Entry.FINISH,
+        state={"draft": draft, "draft_task_id": task_id}, timeout_ms=timeout,
+    )
+
+
+@workflow.entrypoint(Entry.FINISH)
+def finish(event, ctx):
+    try:
+        ticket, _queue, _timeout = _ticket(event)
+    except ValueError as error:
+        return ctx.fail("invalid_ticket", str(error))
+
+    try:
+        state = ctx.state
+        if type(state) is not dict or state.keys() != {"draft", "draft_task_id"}:
+            raise ValueError("the accepted draft checkpoint is missing")
+        task_id = _text(state["draft_task_id"], "draft_task_id", 128)
+        draft = _draft(state["draft"], ticket)
+    except ValueError as error:
+        return ctx.fail("invalid_draft", str(error))
+    wake = ctx.wake
+    if type(wake) is not dict or wake.get("key") != APPROVAL_KEY:
+        return ctx.fail("invalid_approval", "Expected the approval:1 event or timeout")
+    if wake.get("kind") == "timeout":
+        status = "expired"
+    elif wake.get("kind") == "event":
+        envelope = wake.get("event")
+        approval = envelope.get("data") if type(envelope) is dict else None
+        if (type(approval) is not dict
+                or approval.get("ticket_id") != ticket["ticket_id"]
+                or approval.get("draft_task_id") != task_id
+                or type(approval.get("approved")) is not bool):
+            return ctx.fail("invalid_approval", "Approval must identify this ticket and draft task, "
+                            "and include a boolean approved")
+        status = "approved" if approval["approved"] else "rejected"
+    else:
+        return ctx.fail("invalid_approval", "Expected an approval event or timeout")
+    return ctx.complete({"ticket_id": ticket["ticket_id"], "status": status,
+                         "draft_task_id": task_id, "draft": draft})
+
+
+handle = workflow.build()
