@@ -27,7 +27,7 @@ except ImportError as error:
     ) from error
 
 SPEC = importlib.util.spec_from_file_location(
-    "support_demo_companion", ROOT / "demos/support-agent/client.py"
+    "support_demo_companion", ROOT / "examples/support-agent/client.py"
 )
 companion = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(companion)

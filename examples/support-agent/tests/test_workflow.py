@@ -11,7 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "sdk" / "python"))
 SPEC = importlib.util.spec_from_file_location(
-    "support_demo_workflow", ROOT / "demos" / "support-agent" / "workflow" / "program.py"
+    "support_demo_workflow", ROOT / "examples" / "support-agent" / "workflow" / "program.py"
 )
 program = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(program)

@@ -2,7 +2,7 @@
 
 ## Optional Codex support-agent demo
 
-The [Codex support-agent demo](../demos/codex-support-agent/README.md) contains
+The [Codex support-agent demo](../examples/codex-support-agent/README.md) contains
 MIT-licensed Python code using the standard library. Its packages do not vendor
 Codex, Google ADK, or an OpenAI API SDK. The operator supplies CPython and a Codex
 CLI installation, which retains its own Apache-2.0 license and dependency notices.
@@ -17,10 +17,10 @@ reviewed dependency graph and legal files.
 
 ## Optional support-agent demo
 
-The [support-agent demo](../demos/support-agent/README.md) pins Google ADK 2.10.0
+The [support-agent demo](../examples/support-agent/README.md) pins Google ADK 2.10.0
 and 47 transitive distributions for CPython 3.13 on macOS arm64 and Linux x86_64.
 This is a separately reviewed application graph, not a dependency of the Rust
-platform or public Python client. Its [inventory and notices](../demos/support-agent/third_party/NOTICE.md)
+platform or public Python client. Its [inventory and notices](../examples/support-agent/third_party/NOTICE.md)
 record exact wheels, source provenance, bundled native components and legal files.
 Preparation verifies hashes and retains notices in the published application
 package. No optional ADK extras are selected.

@@ -80,7 +80,7 @@ build outputs outside the checkout.
 ```sh
 cargo build --workspace --locked
 export DEMO_HOME="$HOME/.local/share/ledgence-codex-support-demo"
-python3.13 demos/codex-support-agent/prepare.py --directory "$DEMO_HOME/prepared"
+python3.13 examples/codex-support-agent/prepare.py --directory "$DEMO_HOME/prepared"
 ```
 
 This publishes `codex-support-agent@1.0.0` and `codex-support-workflow@1.0.1`.
@@ -138,7 +138,7 @@ target/debug/ledgence program register --server http://127.0.0.1:8083 \
   --program codex-support-agent --version 1.0.0 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8083 \
   --program codex-support-workflow --version 1.0.1 --kind workflow
-python3.13 demos/codex-support-agent/run_worker.py \
+python3.13 examples/codex-support-agent/run_worker.py \
   --directory "$DEMO_HOME/prepared" --server http://127.0.0.1:8083 \
   --codex-bin "$LEDGENCE_CODEX_BIN"
 ```
@@ -151,8 +151,8 @@ agent finishes. This is not a separate distributed worker per tool call.
 ## Submit and review
 
 ```sh
-"$DEMO_HOME/client/bin/python" demos/codex-support-agent/client.py --server http://127.0.0.1:8083 \
-  submit --ticket demos/codex-support-agent/tickets/observation-timeout.json \
+"$DEMO_HOME/client/bin/python" examples/codex-support-agent/client.py --server http://127.0.0.1:8083 \
+  submit --ticket examples/codex-support-agent/tickets/observation-timeout.json \
   --idempotency-key codex-demo:SUP-1042:1
 ```
 
@@ -160,7 +160,7 @@ Save the `workflow_id`. In Console, follow the workflow's child execution to its
 result, or read it with the child task ID:
 
 ```sh
-"$DEMO_HOME/client/bin/python" demos/codex-support-agent/client.py --server http://127.0.0.1:8083 \
+"$DEMO_HOME/client/bin/python" examples/codex-support-agent/client.py --server http://127.0.0.1:8083 \
   draft --task TASK_ID
 ```
 
@@ -172,10 +172,10 @@ Codex does not expose a complete HTTP-attempt count here; no such count is infer
 Once the workflow waits on `approval:1`, approve the exact draft:
 
 ```sh
-"$DEMO_HOME/client/bin/python" demos/codex-support-agent/client.py --server http://127.0.0.1:8083 \
+"$DEMO_HOME/client/bin/python" examples/codex-support-agent/client.py --server http://127.0.0.1:8083 \
   review --workflow WORKFLOW_ID --ticket-id SUP-1042 --draft-task TASK_ID \
   --decision approve --event-id review:SUP-1042:1
-"$DEMO_HOME/client/bin/python" demos/codex-support-agent/client.py --server http://127.0.0.1:8083 \
+"$DEMO_HOME/client/bin/python" examples/codex-support-agent/client.py --server http://127.0.0.1:8083 \
   result --workflow WORKFLOW_ID --timeout 60
 ```
 
@@ -209,9 +209,9 @@ Offline checks require no Codex account or model requests:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/sdk/python" \
-  python3.13 -m unittest discover -s demos/codex-support-agent/tests -v
-"$DEMO_HOME/client/bin/python" -m unittest discover -s demos/codex-support-agent/tests/client -v
-python3.13 demos/codex-support-agent/check_cleanup.py --binaries target/debug
+  python3.13 -m unittest discover -s examples/codex-support-agent/tests -v
+"$DEMO_HOME/client/bin/python" -m unittest discover -s examples/codex-support-agent/tests/client -v
+python3.13 examples/codex-support-agent/check_cleanup.py --binaries target/debug
 ```
 
 The opt-in live check starts real Ledgence services and a temporary database,
@@ -220,7 +220,7 @@ restarts services, approves the saved draft and reconciles a duplicate event:
 
 ```sh
 DATABASE_URL='postgres://postgres:demo-local@127.0.0.1:55433/ledgence' \
-  python3.13 demos/codex-support-agent/check.py \
+  python3.13 examples/codex-support-agent/check.py \
   --directory "$DEMO_HOME/prepared" --binaries target/debug \
   --codex-bin "$LEDGENCE_CODEX_BIN" --psql /absolute/path/to/psql \
   --evidence "$DEMO_HOME/evidence/run-1" --live-codex

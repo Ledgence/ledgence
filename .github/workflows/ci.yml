@@ -65,7 +65,7 @@ jobs:
         if: matrix.python == '3.13'
         run: |
           cargo build -p ledgence-worker --locked
-          python demos/codex-support-agent/check_cleanup.py --binaries target/debug
+          python examples/codex-support-agent/check_cleanup.py --binaries target/debug
       - name: Test Rust documentation
         run: cargo test --workspace --doc --all-features --locked
       - name: Build Rust documentation
