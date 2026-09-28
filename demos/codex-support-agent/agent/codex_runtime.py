@@ -21,11 +21,13 @@ MAX_EVENTS = 2048
 MCP_SERVER = "ledgence_docs"
 TOOL_NAMES = {"search_docs", "read_doc"}
 ERROR_CATEGORIES = frozenset({
-    "runtime", "configuration", "authentication", "model_unavailable", "quota",
+    "runtime", "configuration", "authentication", "model_unavailable", "model_rerouted", "quota",
     "mcp", "network", "provider", "cli_exit", "timeout", "output_limit",
     "startup", "event_encoding", "event_json", "event_count", "event_shape",
     "event_order", "event_usage", "event_message", "event_incomplete",
     "event_type", "item_type", "tool_scope", "tool_failure",
+    "event_before_turn", "event_after_turn", "event_repeated_start",
+    "event_repeated_completion", "event_missing_thread", "event_repeated_thread",
 })
 
 
@@ -239,16 +241,24 @@ def _parse_events(raw):
                 raise ValueError("event object")
             if kind == "thread.started":
                 candidate = event.get("thread_id")
-                if thread_id is not None or not isinstance(candidate, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", candidate):
+                if thread_id is not None:
+                    raise ValueError("repeated thread")
+                if not isinstance(candidate, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", candidate):
                     raise ValueError("thread id")
                 thread_id = candidate
             elif kind == "turn.started":
-                if thread_id is None or started:
-                    raise ValueError("turn order")
+                if thread_id is None:
+                    raise ValueError("missing thread")
+                if started:
+                    raise ValueError("repeated start")
                 started = True
             elif kind == "turn.completed":
-                if not started or completed:
-                    raise ValueError("turn order")
+                if thread_id is None:
+                    raise ValueError("missing thread")
+                if not started:
+                    raise ValueError("before turn")
+                if completed:
+                    raise ValueError("repeated completion")
                 completed = True
                 raw_usage = event.get("usage")
                 if not isinstance(raw_usage, dict):
@@ -266,12 +276,28 @@ def _parse_events(raw):
                 if usage["cached_input_tokens"] > usage["input_tokens"]:
                     raise ValueError("cached usage")
             elif kind in {"item.started", "item.updated", "item.completed"}:
-                if not started or completed:
-                    raise ValueError("item order")
                 item = event.get("item")
                 if not isinstance(item, dict):
                     raise ValueError("item object")
                 item_type = item.get("type")
+                if item_type == "error":
+                    # Codex emits configuration/runtime/deprecation warnings as
+                    # completed error *items*, even outside a turn. Its JSONL
+                    # processor distinguishes these from fatal top-level errors.
+                    message = item.get("message")
+                    if kind != "item.completed" or not isinstance(message, str) or len(message.encode("utf-8")) > MAX_FINAL_BYTES:
+                        raise ValueError("warning item")
+                    # The CLI maps ModelRerouted to this exact warning prefix.
+                    # Do not report the requested model for another model's work.
+                    if message.startswith("model rerouted:"):
+                        raise CodexError("Codex rerouted generation to another model", category="model_rerouted")
+                    continue
+                if thread_id is None:
+                    raise ValueError("missing thread")
+                if not started:
+                    raise ValueError("before turn")
+                if completed:
+                    raise ValueError("after turn")
                 if item_type == "mcp_tool_call":
                     if item.get("server") != MCP_SERVER or item.get("tool") not in TOOL_NAMES:
                         raise CodexError("Codex used a tool outside the demo's documentation tools", category="tool_scope")
@@ -308,7 +334,12 @@ def _parse_events(raw):
                 "duplicate key": "event_json", "non-finite constant": "event_json",
                 "event count": "event_count", "event object": "event_shape",
                 "thread id": "event_shape", "item object": "event_shape",
+                "warning item": "event_shape",
                 "turn order": "event_order", "item order": "event_order",
+                "before turn": "event_before_turn", "after turn": "event_after_turn",
+                "repeated start": "event_repeated_start",
+                "repeated completion": "event_repeated_completion",
+                "missing thread": "event_missing_thread", "repeated thread": "event_repeated_thread",
                 "usage": "event_usage", "usage counter": "event_usage",
                 "reasoning counter": "event_usage", "cached usage": "event_usage",
                 "message": "event_message", "event type": "event_type",

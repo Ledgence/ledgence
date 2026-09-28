@@ -83,7 +83,7 @@ class EventsTests(unittest.TestCase):
             (b'{"type":"private-secret"}', "event_type"),
             (encoded(unknown_item), "item_type"),
             (encoded(events()[:-1]), "event_incomplete"),
-            (encoded(events()[1:]), "event_order"),
+            (encoded(events()[1:]), "event_missing_thread"),
             (encoded(bad_usage), "event_usage"),
         ]
         for raw, category in cases:
@@ -91,6 +91,68 @@ class EventsTests(unittest.TestCase):
                 runtime._parse_events(raw)
             self.assertEqual(caught.exception.category, category)
             self.assertNotIn("private-secret", str(caught.exception))
+
+    def test_nonfatal_warning_items_are_allowed_outside_the_turn(self):
+        # Mirrors upstream collect_warning/ConfigWarning/DeprecationNotice:
+        # item.completed with error payload is informational, not a tool call.
+        warning = {"type": "item.completed", "item": {"id": "warning", "type": "error", "message": "private-secret"}}
+        for index in (0, 1, 2, len(events())):
+            values = events()
+            values.insert(index, warning)
+            with self.subTest(index=index):
+                result = runtime._parse_events(encoded(values))
+                self.assertEqual(result, runtime._parse_events(encoded(events())))
+                self.assertNotIn("private-secret", json.dumps(result))
+
+    def test_warnings_cannot_complete_a_turn_or_mask_fatal_events(self):
+        warning = {"type": "item.completed", "item": {"id": "warning", "type": "error", "message": "private-secret"}}
+        variants = [[warning], [warning, *events()[:-1]], *[
+            [*events()[:index], fatal, warning, *events()[index:]]
+            for index in (0, 2, len(events()))
+            for fatal in [{"type": "error", "message": "private-secret"}, {"type": "turn.failed", "error": {"message": "private-secret"}}]
+        ]]
+        for values in variants:
+            with self.subTest(values=len(values)), self.assertRaises(runtime.CodexError) as caught:
+                runtime._parse_events(encoded(values))
+            self.assertNotIn("private-secret", str(caught.exception))
+
+    def test_model_reroute_warning_cannot_misreport_the_requested_model(self):
+        rerouted = {"type": "item.completed", "item": {"id": "warning", "type": "error", "message": "model rerouted: gpt-6-luna -> private-secret (HighRisk)"}}
+        for index in (0, 2, len(events())):
+            values = events()
+            values.insert(index, rerouted)
+            with self.subTest(index=index), self.assertRaises(runtime.CodexError) as caught:
+                runtime._parse_events(encoded(values))
+            self.assertEqual(caught.exception.category, "model_rerouted")
+            self.assertNotIn("private-secret", str(caught.exception))
+
+    def test_only_well_formed_completed_warning_items_are_allowed(self):
+        variants = [
+            {"type": "item.started", "item": {"type": "error", "message": "private-secret"}},
+            {"type": "item.updated", "item": {"type": "error", "message": "private-secret"}},
+            {"type": "item.completed", "item": {"type": "error", "message": None}},
+            {"type": "item.completed", "item": {"type": "error", "message": "x" * (runtime.MAX_FINAL_BYTES + 1)}},
+        ]
+        for warning in variants:
+            with self.subTest(kind=warning["type"]), self.assertRaises(runtime.CodexError) as caught:
+                runtime._parse_events(encoded([warning, *events()]))
+            self.assertEqual(caught.exception.category, "event_shape")
+
+    def test_normal_items_and_turn_lifecycle_keep_precise_order_checks(self):
+        valid = events()
+        cases = [
+            ([valid[0], valid[2], *valid[1:]], "event_before_turn"),
+            ([*valid, valid[2]], "event_after_turn"),
+            ([valid[0], valid[1], *valid[1:]], "event_repeated_start"),
+            ([*valid, valid[-1]], "event_repeated_completion"),
+            (valid[1:], "event_missing_thread"),
+            ([valid[0], *valid], "event_repeated_thread"),
+            ([valid[0], valid[-1], *valid[1:]], "event_before_turn"),
+        ]
+        for values, category in cases:
+            with self.subTest(category=category), self.assertRaises(runtime.CodexError) as caught:
+                runtime._parse_events(encoded(values))
+            self.assertEqual(caught.exception.category, category)
 
     def test_success_preserves_real_usage_and_final(self):
         result = runtime._parse_events(encoded(events()))
