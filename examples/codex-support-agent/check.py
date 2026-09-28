@@ -30,6 +30,8 @@ from http_acceptance.harness import ArtifactServer, Process, eventually, exchang
 
 SCOPE = {"tenant_id": "acme", "namespace": "demo"}
 QUEUE = "codex-support-demo"
+PROGRAM_VERSIONS = {"codex-support-agent": "1.0.1", "codex-support-workflow": "1.0.2",
+                    "codex-support-demo-slot-probe": "1.0.0"}
 
 
 def load(name, path):
@@ -140,7 +142,7 @@ def validate_prepared_sources(directory):
             require((package / relative).read_bytes() == path.read_bytes(),
                     "prepared source differs from checked source; prepare fresh packages")
         manifest = json.loads((package / "ledgence-program.json").read_text())
-        version = "1.0.1" if kind == "workflow" else "1.0.0"
+        version = PROGRAM_VERSIONS[program]
         require(manifest.get("program") == {"id": program, "version": version},
                 "prepared program identity differs from this demo version")
         require((package / "LEDGENCE-LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes(),
@@ -206,7 +208,7 @@ class Deployment:
         probe = self.scratch / "probe-package"
         probe.mkdir()
         manifest = json.loads((self.args.directory / "packages/workflow/ledgence-program.json").read_text())
-        manifest["program"] = {"id": "codex-support-demo-slot-probe", "version": "1.0.0"}
+        manifest["program"] = {"id": "codex-support-demo-slot-probe", "version": PROGRAM_VERSIONS["codex-support-demo-slot-probe"]}
         manifest["runtime"]["protocol"] = 1
         manifest["handler"] = "program:handle"
         (probe / "ledgence-program.json").write_text(json.dumps(manifest))
@@ -254,7 +256,7 @@ class Deployment:
         for program, kind in (("codex-support-agent", "task"), ("codex-support-workflow", "workflow"),
                               ("codex-support-demo-slot-probe", "task")):
             receipt = self.request("/v1/console/programs/register", {
-                "program": {"id": program, "version": "1.0.1" if program == "codex-support-workflow" else "1.0.0"},
+                "program": {"id": program, "version": PROGRAM_VERSIONS[program]},
                 "metadata": {"display_name": program, "description": None, "kind": kind},
                 "update_metadata": False,
             })
@@ -394,7 +396,7 @@ class Deployment:
 
 def submission(program, key, data):
     return {"idempotency_key": key, "origin_trace": None, "input": {
-        "program": {"id": program, "version": "1.0.1" if program == "codex-support-workflow" else "1.0.0"}, "queue": QUEUE,
+        "program": {"id": program, "version": PROGRAM_VERSIONS[program]}, "queue": QUEUE,
         "data": data, "retry_policy": {"max_attempts": 1, "retry_delay_ms": 0},
         "attempt_timeout_ms": 60_000,
     }}

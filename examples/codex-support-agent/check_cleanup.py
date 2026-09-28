@@ -55,7 +55,7 @@ raise SystemExit(7)
 
 
 def task(number):
-    return {"program": {"id": "codex-support-agent", "version": "1.0.0"}, "event": {
+    return {"program": {"id": "codex-support-agent", "version": "1.0.1"}, "event": {
         "specversion": "1.0", "id": f"evt_codex_cleanup_{number}", "source": "urn:ledgence:test",
         "type": "com.ledgence.task.invocation.requested.v1", "datacontenttype": "application/json",
         "ldgtenantid": "test", "ldgnamespace": "demo", "ldgrunid": "run_cleanup",

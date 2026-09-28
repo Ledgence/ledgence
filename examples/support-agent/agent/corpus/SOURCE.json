@@ -1,6 +1,6 @@
 {
   "source_repository": "https://github.com/Ledgence/ledgence",
-  "source_revision": "8b1567cb5daa361ad82d05cb2d1eaa3bde14baff",
+  "source_revision": "a491c970f69c37673ab053e4696b2361cba47b6d",
   "documents": {
     "task-results": {
       "location": "docs/task-results.md",
@@ -8,7 +8,7 @@
     },
     "workflows": {
       "location": "docs/workflows.md",
-      "sha256": "a6b9ec5b2684fb3ea8510938a084ff4822226ba365bd674c667a5656e7bdba67"
+      "sha256": "efda75ce3b20bb557d2e3c5238f52f7044752ff190aab56b320f8748a90d2935"
     },
     "workflow-events": {
       "location": "docs/workflow-events.md",
@@ -17,6 +17,14 @@
     "program-packages": {
       "location": "docs/program-packages.md",
       "sha256": "4752440741573c71361473f95542ae90671d71ac9dbc8a80315b59d8b6ac3fe9"
+    },
+    "python-client": {
+      "location": "sdk/python-client/README.md",
+      "sha256": "46f9aae67312faab8c06edba8dd98ebf0c9c366a6ac100ef7e67254f2d4a25e1"
+    },
+    "workflow-entrypoints": {
+      "location": "docs/workflow-entrypoints.md",
+      "sha256": "3d795c8bcaf756f621246677384b9fb2bf4184bd6584dba9206b828f71b0f868"
     }
   }
 }

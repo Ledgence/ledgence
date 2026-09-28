@@ -14,7 +14,7 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-VERSIONS = {"agent": "1.0.1", "workflow": "1.0.2"}
+VERSIONS = {"agent": "1.0.2", "workflow": "1.0.3"}
 
 
 def target() -> tuple[str, str, str]:

@@ -12,7 +12,10 @@ DEFAULT_APPROVAL_TIMEOUT_MS = 3_600_000
 MAX_APPROVAL_TIMEOUT_MS = 86_400_000
 DRAFT_KEY = "draft"
 APPROVAL_KEY = "approval:1"
-SOURCE_IDS = {"task-results", "workflows", "workflow-events", "program-packages"}
+SOURCE_LOCATIONS = {name: f"docs/{name}.md" for name in
+                    ("task-results", "workflows", "workflow-events", "program-packages", "workflow-entrypoints")}
+SOURCE_LOCATIONS["python-client"] = "sdk/python-client/README.md"
+SOURCE_IDS = set(SOURCE_LOCATIONS)
 
 
 def _text(value, name, limit, *, identifier=False, multiline=False):
@@ -70,7 +73,7 @@ def _draft(value, ticket):
         _text(source["title"], "source title", 128)
         _text(source["location"], "source location", 256)
         if (source_id not in SOURCE_IDS or source_id in seen
-                or source["location"] != f"docs/{source_id}.md"):
+                or source["location"] != SOURCE_LOCATIONS[source_id]):
             raise ValueError("draft must cite distinct bundled document locations")
         seen.add(source_id)
     for name, minimum, maximum in (("model_calls", 1, 6), ("tool_calls", 2, 8),
@@ -108,7 +111,7 @@ def start(event, ctx):
     # The fixed key and immutable binding make activation replay idempotent.
     # One child attempt avoids repeating the whole agent and its tool loop.
     child = ctx.task(
-        DRAFT_KEY, program="support-agent", version="1.0.1", queue=queue,
+        DRAFT_KEY, program="support-agent", version="1.0.2", queue=queue,
         data=ticket, retry_policy={"max_attempts": 1, "retry_delay_ms": 0},
         attempt_timeout_ms=180_000,
     )

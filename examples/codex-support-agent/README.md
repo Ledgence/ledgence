@@ -47,6 +47,13 @@ The controller registers `Entry.START`, `Entry.REVIEW` and `Entry.FINISH` with
 accepted draft and approval. Continuations use enum members, while each durable
 checkpoint keeps its existing string ID and explicit JSON state.
 
+The draft uses `ctx.task(...)` because it runs a separately packaged program.
+`ctx.fork(...)` is for branches in the same pinned workflow package; this linear
+review flow does not need one. The stable `draft` child key reconciles controller
+retries, and `wait_event` checkpoints the accepted reply before releasing the
+worker slot. Neither the provider session nor a Python coroutine is the durable
+checkpoint. See [typed workflow entrypoints](../../docs/workflow-entrypoints.md).
+
 ## Requirements
 
 - Repository source, Rust/rustup and PostgreSQL 18.
@@ -83,7 +90,7 @@ export DEMO_HOME="$HOME/.local/share/ledgence-codex-support-demo"
 python3.13 examples/codex-support-agent/prepare.py --directory "$DEMO_HOME/prepared"
 ```
 
-This publishes `codex-support-agent@1.0.0` and `codex-support-workflow@1.0.1`.
+This publishes `codex-support-agent@1.0.1` and `codex-support-workflow@1.0.2`.
 Both use the Python standard library and Ledgence's supplied runtime helper;
 preparation does not download wheels. Codex is a separately installed host
 executable. Workers fetch and cache immutable application packages by digest.
@@ -135,9 +142,9 @@ In another terminal, export the same `DEMO_HOME` and `LEDGENCE_CODEX_BIN`, then:
 
 ```sh
 target/debug/ledgence program register --server http://127.0.0.1:8083 \
-  --program codex-support-agent --version 1.0.0 --kind task
+  --program codex-support-agent --version 1.0.1 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8083 \
-  --program codex-support-workflow --version 1.0.1 --kind workflow
+  --program codex-support-workflow --version 1.0.2 --kind workflow
 python3.13 examples/codex-support-agent/run_worker.py \
   --directory "$DEMO_HOME/prepared" --server http://127.0.0.1:8083 \
   --codex-bin "$LEDGENCE_CODEX_BIN"
@@ -183,6 +190,9 @@ Replace the uppercase placeholders with actual IDs. Use `reject` for rejection.
 The default review deadline is one hour; results are `approved`, `rejected` or
 `expired`. Waiting for a result times out locally without cancelling or resubmitting
 remote work. Reuse the same workflow ID to observe it again.
+After an uncertain submission or review response, repeat the exact command with
+the same IDs, arguments and unchanged ticket file. A new submission key creates
+new work and can invoke Codex again.
 
 ## Limits and verification
 
@@ -201,9 +211,10 @@ remote work. Reuse the same workflow ID to observe it again.
 - After an accepted draft, approval and service restarts do not rerun Codex.
   A process failure before result acceptance cannot guarantee that no provider
   work occurred.
-- Five public documentation snapshots are recorded in
-  [`SOURCE.json`](agent/corpus/SOURCE.json), including the Python client's timeout
+- Six public documentation snapshots are recorded in
+  [`SOURCE.json`](agent/corpus/SOURCE.json), including typed workflow entrypoints/forks and the Python client's timeout
   and task-handle contracts. Refresh deliberately and version new packages.
+  These snapshots come from commit `a491c970f69c37673ab053e4696b2361cba47b6d`.
 
 Offline checks require no Codex account or model requests:
 

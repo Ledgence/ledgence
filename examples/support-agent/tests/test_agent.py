@@ -103,6 +103,16 @@ class ValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(program.AgentError, "GOOGLE_API_KEY"):
                 program.handle(event())
 
+    def test_current_workflow_and_client_guides_are_searchable_and_readable(self):
+        docs = program.Documentation()
+        matches = docs.search_docs("typed entrypoints durable forks")["matches"]
+        self.assertIn("workflow-entrypoints", [item["id"] for item in matches])
+        guide = docs.read_doc("workflow-entrypoints")
+        self.assertIn("await ctx.fork(", guide["text"])
+        self.assertIn("ctx.join(", guide["text"])
+        self.assertIn("@workflow.entrypoint", docs.read_doc("workflows")["text"])
+        self.assertIn("WaitTimeout", docs.read_doc("python-client")["text"])
+
     def test_corpus_matches_its_recorded_source_bytes(self):
         manifest = json.loads((program.CORPUS / "SOURCE.json").read_text())
         self.assertRegex(manifest["source_revision"], r"^[a-f0-9]{40}$")

@@ -36,23 +36,41 @@ class Entry(StrEnum):
 workflow = Workflow(Entry)
 
 
+def input_values(data):
+    if type(data) is not dict:
+        raise ValueError("data must be an object")
+    values = data.get("values")
+    if (type(values) is not list or not 1 <= len(values) <= 1000
+            or any(type(value) is not int or abs(value) > 1_000_000 for value in values)):
+        raise ValueError("values must contain 1 to 1000 integers between -1000000 and 1000000")
+    return values
+
+
 def summarize(values):
     return {"count": len(values), "sum": sum(values)}
 
 
 @workflow.entrypoint(Entry.MAIN, default=True)
 async def main(event, ctx):
-    data = event["data"]
-    branch_data = {"values": data["values"]}
+    data = event.get("data")
+    try:
+        values = input_values(data)
+    except ValueError as error:
+        return ctx.fail("invalid_input", str(error))
+    queue = data.get("queue")
+    if (type(queue) is not str or not 1 <= len(queue) <= 128
+            or any(ord(char) < 32 or ord(char) >= 127 for char in queue)):
+        return ctx.fail("invalid_input", "queue must contain 1 to 128 printable ASCII characters")
+    branch_data = {"values": values}
     branches = await ctx.fork("calculations:0", branches=[
         ctx.branch("double:0", entrypoint=Entry.DOUBLE,
-                   queue=data["queue"], data=branch_data),
+                   queue=queue, data=branch_data),
         ctx.branch("triple:0", entrypoint=Entry.TRIPLE,
-                   queue=data["queue"], data=branch_data),
+                   queue=queue, data=branch_data),
     ])
     # Registration has committed, so workers can execute both branches while
     # this activation does local work. One worker slot is sufficient to finish.
-    local = await ctx.local("summary", summarize, values=data["values"])
+    local = await ctx.local("summary", summarize, values=values)
     return ctx.join(branches, resume=Entry.COLLECT, state={"local": local})
 
 
@@ -77,8 +95,10 @@ def triple(event, ctx):
 def collect(event, ctx):
     outcomes = ctx.inputs
     for key in ("double:0", "triple:0"):
-        if outcomes[key]["state"] != "succeeded":
-            return ctx.fail("branch_failed", key + " did not succeed")
+        if outcomes[key]["state"] == "failed":
+            return ctx.fail("branch_failed", key + " failed; inspect its terminal outcome")
+        if outcomes[key]["state"] == "cancelled":
+            return ctx.fail("branch_cancelled", key + " was cancelled")
     return ctx.complete({"local": ctx.state["local"],
                          "double": ctx.get_result("double:0"),
                          "triple": ctx.get_result("triple:0")})
@@ -86,6 +106,8 @@ def collect(event, ctx):
 
 handle = workflow.build()
 ```
+
+The default entrypoint validates the request before registering any branches: `values` contains 1–1000 integers between -1000000 and 1000000, and `queue` contains 1–128 printable ASCII characters. Invalid input returns a terminal `invalid_input` decision. Unexpected runtime exceptions use the activation's retry policy.
 
 `Workflow(Entry)` registers one handler per enum value. `build()` validates and freezes the registry and returns the package's asynchronous `handle`. Individual handlers may be synchronous or asynchronous and receive `(event, ctx)`. Public workflow submissions start at the default handler, here `Entry.MAIN`; public submission does not take an initial entrypoint override. Branch creation and explicit resume decisions select named entrypoints.
 
@@ -118,7 +140,7 @@ From the repository root, with the source deployment above still running:
   --source "$workflow_demo/mixed/program" --store "$workflow_demo/store"
 ```
 
-Preparation writes a protocol 3 manifest with `handler: "program:handle"` for the current interpreter and target. The commands publish application version `mixed-workflow@1.0.0`; that application version is separate from the Ledgence platform version. Publish a new immutable application version when changing its code.
+Preparation writes a protocol 3 manifest with `handler: "program:handle"` for the current interpreter and target. Use a fresh output directory; preparation refuses to overwrite an existing one. The commands publish application version `mixed-workflow@1.0.1`; that application version is separate from the Ledgence platform version. Publish a new immutable application version when changing its code.
 
 Submit through the client environment created during setup:
 
@@ -130,9 +152,9 @@ from ledgence.client import AsyncClient
 async def main():
     async with AsyncClient("http://127.0.0.1:8080", tenant="acme", namespace="demo") as client:
         run = await client.workflows.submit(
-            program="mixed-workflow", version="1.0.0", queue="workflows",
+            program="mixed-workflow", version="1.0.1", queue="workflows",
             data={"values": [1, 2, 3], "queue": "workflows"},
-            idempotency_key="mixed-workflow:1",
+            idempotency_key="mixed-workflow:1.0.1:1",
         )
         print(run.id)
         print(await run.result(timeout=60))

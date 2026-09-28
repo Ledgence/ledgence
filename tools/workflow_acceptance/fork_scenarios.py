@@ -62,7 +62,7 @@ async def run(d, names, record, records, snapshot):
         worker = d.start_worker(concurrency=1)
         async with AsyncClient(d.server_url, **options) as client:
             handle = await client.workflows.submit(
-                program="mixed-workflow", version="1.0.0", queue=d.queue,
+                program="mixed-workflow", version="1.0.1", queue=d.queue,
                 data={"values": [1, 2, 3], "queue": d.queue}, idempotency_key="fork-example")
             result = await handle.result(timeout=110)
             assert result == {"local": {"count": 3, "sum": 6}, "double": 12, "triple": 18}, result

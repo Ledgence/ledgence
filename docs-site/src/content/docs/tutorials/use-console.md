@@ -49,7 +49,7 @@ This command prepares three immutable packages for the container's runtime and p
 | Program | Version | Declared use |
 | --- | --- | --- |
 | `invoice-issuer` | `1.0.0` | Task |
-| `workflow-example` | `1.0.0` | Workflow controller |
+| `workflow-example` | `1.0.1` | Workflow controller |
 | `workflow-summary` | `1.0.0` | Task |
 
 Open **Agents**, choose `invoice-issuer`, and open version `1.0.0`. The page shows the verified digest, Python version, operating system, architecture, and handler. This application version is independent of the Ledgence platform version.
@@ -74,7 +74,7 @@ Under **Result**, expect:
 {
   "page_count": 4,
   "summary": {
-    "characters": 80,
+    "characters": 84,
     "pages": 4
   }
 }

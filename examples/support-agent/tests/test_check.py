@@ -4,11 +4,13 @@ import contextlib
 import copy
 import importlib.util
 import io
+import hashlib
 import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+import zipfile
 from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location(
@@ -16,6 +18,31 @@ SPEC = importlib.util.spec_from_file_location(
 )
 check = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(check)
+
+
+def publish_fixture(prepared, *, replacement=None):
+    descriptors = {}
+    blobs = prepared / "store/blobs"
+    blobs.mkdir(parents=True, exist_ok=True)
+    for kind, program in (("agent", "support-agent"), ("workflow", "support-workflow")):
+        temporary = prepared / f"{kind}.zip"
+        with zipfile.ZipFile(temporary, "w") as archive:
+            for path in sorted((prepared / "packages" / kind).rglob("*")):
+                if path.is_file():
+                    name = path.relative_to(prepared / "packages" / kind).as_posix()
+                    content = replacement if kind == "agent" and name == "helper.py" and replacement is not None else path.read_bytes()
+                    archive.writestr(name, content)
+        content = temporary.read_bytes()
+        digest = hashlib.sha256(content).hexdigest()
+        temporary.replace(blobs / (digest + ".zip"))
+        descriptor = {"program": {"id": program, "version": "1.0.3" if kind == "workflow" else "1.0.2"},
+                      "digest": "sha256:" + digest, "size": len(content)}
+        stored = prepared / "store/programs" / program / descriptor["program"]["version"] / "descriptor.json"
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        stored.write_text(json.dumps(descriptor))
+        descriptors[kind] = descriptor
+    (prepared / "prepared.json").write_text(json.dumps({"packages": descriptors}))
+    return descriptors
 
 
 def draft():
@@ -94,10 +121,82 @@ class FakeDeployment:
 
 class AcceptanceRunnerTests(unittest.TestCase):
 
+    def test_prepared_sources_reject_stale_helper_corpus_and_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source, prepared = base / "source", base / "prepared"
+            for kind, program in (("agent", "support-agent"), ("workflow", "support-workflow")):
+                (source / kind).mkdir(parents=True)
+                package = prepared / "packages" / kind
+                package.mkdir(parents=True)
+                for name in ("program.py", "helper.py", "corpus/doc.md"):
+                    for folder in (source / kind, package):
+                        path = folder / name
+                        path.parent.mkdir(exist_ok=True)
+                        path.write_text("original source")
+                (package / "ledgence-program.json").write_text(json.dumps({
+                    "program": {"id": program, "version": "1.0.3" if kind == "workflow" else "1.0.2"}}))
+                (package / "LEDGENCE-LICENSE").write_bytes((check.ROOT / "LICENSE").read_bytes())
+            # Reviewed legal records plus one vendored module remain part of
+            # the actual artifact even though they are not owned agent sources.
+            for folder in (source, prepared / "packages/agent"):
+                (folder / "third_party").mkdir()
+                for name in ("NOTICE.md", "inventory.json", "SUPPLEMENTAL-LICENSES.txt"):
+                    (folder / "third_party" / name).write_text("retained legal record")
+            (prepared / "packages/agent/vendor.py").write_text("vendored module")
+            descriptors = publish_fixture(prepared)
+            with patch.object(check, "HERE", source):
+                check.validate_prepared_sources(prepared)
+                extra = prepared / "packages/agent/corpus/obsolete.md"
+                extra.write_text("outdated advice")
+                with self.assertRaisesRegex(check.CheckFailure, "corpus files differ"):
+                    check.validate_prepared_sources(prepared)
+                extra.unlink()
+                notice = prepared / "packages/agent/third_party/NOTICE.md"
+                notice.write_text("outdated legal record")
+                with self.assertRaisesRegex(check.CheckFailure, "dependency review differs"):
+                    check.validate_prepared_sources(prepared)
+                notice.write_text("retained legal record")
+                dependency = prepared / "packages/agent/vendor.py"
+                dependency.write_text("changed vendored module")
+                with self.assertRaisesRegex(check.CheckFailure, "blob content"):
+                    check.validate_prepared_sources(prepared)
+                dependency.write_text("vendored module")
+                for relative in ("helper.py", "corpus/doc.md"):
+                    path = prepared / "packages/agent" / relative
+                    path.write_text("stale source")
+                    with self.assertRaisesRegex(check.CheckFailure, "prepared source differs"):
+                        check.validate_prepared_sources(prepared)
+                    path.write_text("original source")
+                stored = prepared / "store/programs/support-agent/1.0.2/descriptor.json"
+                stored.write_text(json.dumps({**descriptors["agent"], "size": 1}))
+                with self.assertRaisesRegex(check.CheckFailure, "store descriptor"):
+                    check.validate_prepared_sources(prepared)
+                stored.write_text(json.dumps(descriptors["agent"]))
+                (prepared / "prepared.json").write_text(json.dumps({"packages": {}}))
+                with self.assertRaisesRegex(check.CheckFailure, "descriptors are missing"):
+                    check.validate_prepared_sources(prepared)
+                descriptors = publish_fixture(prepared)
+                blob = prepared / "store/blobs" / (descriptors["agent"]["digest"][7:] + ".zip")
+                content = bytearray(blob.read_bytes())
+                content[-1] ^= 1
+                blob.write_bytes(content)
+                with self.assertRaisesRegex(check.CheckFailure, "blob digest"):
+                    check.validate_prepared_sources(prepared)
+                publish_fixture(prepared, replacement=b"stale runtime helper")
+                with self.assertRaisesRegex(check.CheckFailure, "blob content"):
+                    check.validate_prepared_sources(prepared)
+                publish_fixture(prepared)
+                manifest = prepared / "packages/agent/ledgence-program.json"
+                manifest.write_text(json.dumps({"program": {"id": "wrong-agent", "version": "1.0.2"}}))
+                with self.assertRaisesRegex(check.CheckFailure, "prepared program identity"):
+                    check.validate_prepared_sources(prepared)
+
+
     def test_package_versions_match_registration_and_submission(self):
         preparation = check.load("demo_prepare_versions", check.HERE / "prepare.py")
-        self.assertEqual(preparation.VERSIONS, {"agent": "1.0.1", "workflow": "1.0.2"})
-        versions = {"support-agent": "1.0.1", "support-workflow": "1.0.2",
+        self.assertEqual(preparation.VERSIONS, {"agent": "1.0.2", "workflow": "1.0.3"})
+        versions = {"support-agent": "1.0.2", "support-workflow": "1.0.3",
                     "support-demo-slot-probe": "1.0.1"}
         deployment = check.Deployment.__new__(check.Deployment)
         deployment.request = Mock(return_value={"registered": True})
@@ -245,6 +344,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
                     (binaries / binary).touch()
                 configuration = SimpleNamespace(worker_environment=Mock(side_effect=error))
                 with patch.object(check, "load", return_value=configuration), \
+                        patch.object(check, "validate_prepared_sources"), \
                         patch.object(check.sys, "version_info", (3, 13)), \
                         patch.dict(check.os.environ, {"DATABASE_URL": "postgres://localhost/unused"}, clear=True), \
                         patch.object(check.subprocess, "run") as subprocess_run, \

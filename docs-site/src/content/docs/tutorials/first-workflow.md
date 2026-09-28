@@ -5,6 +5,8 @@ description: Follow a real workflow from concurrent local steps to a distributed
 
 Submit the workflow published in [Run Ledgence locally](/tutorials/run-locally), then follow the code that produced its result. You will see how local work, a distributed task, and a checkpoint fit together—even with a single worker slot.
 
+This tutorial follows the `v0.1.1` source release and its `workflow-example@1.0.0` controller. Its string-based continuations remain valid for that release. The current source example uses typed entrypoints and application version `1.0.1`; see the [typed entrypoints and forks guide](/how-to/fork-workflow-branches).
+
 ## Before you start
 
 Complete the local tutorial and leave its stack running. The `publish` command must have succeeded so that `workflow-example` and `workflow-summary` version `1.0.0` are available.
@@ -65,7 +67,7 @@ You should receive a workflow ID and:
 {
   "page_count": 4,
   "summary": {
-    "characters": 80,
+    "characters": 84,
     "pages": 4
   }
 }

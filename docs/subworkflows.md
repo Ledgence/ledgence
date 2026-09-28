@@ -8,25 +8,34 @@ For branches of the current pinned package that should start before the parent
 checkpoints, use [typed entrypoints and acknowledged forks](workflow-entrypoints.md).
 
 ```python
-from ledgence.worker.workflow import workflow_context
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow
 
-async def handle(event):
-    ctx = workflow_context()
-    if ctx.continuation == "start":
-        invoice = ctx.workflow(
-            "issue-invoice",
-            program="invoice-workflow",
-            version="1.0.0",
-            queue="billing",
-            data={"invoice_id": event["data"]["invoice_id"]},
-        )
-        return ctx.suspend(continuation="after_invoice", state={}, until=[invoice])
-    if ctx.continuation == "after_invoice":
-        result = ctx.inputs["issue-invoice"]
-        if result["state"] == "succeeded":
-            return ctx.complete(ctx.get_result("issue-invoice"))
-        return ctx.fail("invoice_incomplete", "The invoice workflow failed or was cancelled")
-    return ctx.fail("unknown_continuation", ctx.continuation)
+class Entry(StrEnum):
+    START = "start"
+    AFTER_INVOICE = "after_invoice"
+
+workflow = Workflow(Entry)
+
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    invoice = ctx.workflow(
+        "issue-invoice",
+        program="invoice-workflow",
+        version="1.0.0",
+        queue="billing",
+        data={"invoice_id": event["data"]["invoice_id"]},
+    )
+    return ctx.suspend(continuation=Entry.AFTER_INVOICE, state={}, until=[invoice])
+
+@workflow.entrypoint(Entry.AFTER_INVOICE)
+def after_invoice(event, ctx):
+    result = ctx.inputs["issue-invoice"]
+    if result["state"] == "succeeded":
+        return ctx.complete(ctx.get_result("issue-invoice"))
+    return ctx.fail("invoice_incomplete", "The invoice workflow failed or was cancelled")
+
+handle = workflow.build()
 ```
 
 `ctx.workflow()` stages a command and returns a non-awaitable `WorkflowRef`.
