@@ -140,7 +140,7 @@ class Deployment:
         probe = self.scratch / "probe-package"
         probe.mkdir()
         manifest = json.loads((self.args.directory / "packages/workflow/ledgence-program.json").read_text())
-        manifest["program"] = {"id": "support-demo-slot-probe", "version": "1.0.0"}
+        manifest["program"] = {"id": "support-demo-slot-probe", "version": "1.0.1"}
         manifest["runtime"]["protocol"] = 1
         manifest["handler"] = "program:handle"
         (probe / "ledgence-program.json").write_text(json.dumps(manifest))
@@ -188,7 +188,7 @@ class Deployment:
         for program, kind in (("support-agent", "task"), ("support-workflow", "workflow"),
                               ("support-demo-slot-probe", "task")):
             receipt = self.request("/v1/console/programs/register", {
-                "program": {"id": program, "version": "1.0.0"},
+                "program": {"id": program, "version": "1.0.1"},
                 "metadata": {"display_name": program, "description": None, "kind": kind},
                 "update_metadata": False,
             })
@@ -324,7 +324,7 @@ class Deployment:
 
 def submission(program, key, data):
     return {"idempotency_key": key, "origin_trace": None, "input": {
-        "program": {"id": program, "version": "1.0.0"}, "queue": QUEUE,
+        "program": {"id": program, "version": "1.0.1"}, "queue": QUEUE,
         "data": data, "retry_policy": {"max_attempts": 1, "retry_delay_ms": 0},
         "attempt_timeout_ms": 60_000,
     }}
@@ -417,6 +417,8 @@ def scenario(deployment, model):
     return {"workflow_id": workflow_id, "draft_task_id": task_id, "probe_task_id": probe["task_id"],
             "concurrency": 1, "draft_attempt_count": 1, "model": model,
             "model_calls": output["model_calls"], "tool_calls": output["tool_calls"],
+            "http_attempts": output["http_attempts"], "http_retries": output["http_retries"],
+            "retry_wait_ms": output["retry_wait_ms"],
             "original_pids": original_pids,
             "restarted_pids": [deployment.server.process.pid, deployment.worker.process.pid],
             "server_url": deployment.server_url, "artifact_url": deployment.artifacts.url,
@@ -434,7 +436,7 @@ def parser():
     result.add_argument("--evidence", type=Path, required=True, help="new directory outside the repository")
     result.add_argument("--model", default="gemini-3.8-flash")
     result.add_argument("--live-gemini", action="store_true", required=True,
-                        help="explicitly authorize this run's paid Gemini requests (at most six model calls)")
+                        help="explicitly authorize this run's paid Gemini requests (at most six HTTP sends including retries)")
     return result
 
 

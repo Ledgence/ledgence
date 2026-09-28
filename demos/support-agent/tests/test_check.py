@@ -21,6 +21,7 @@ SPEC.loader.exec_module(check)
 def draft():
     return {"ticket_id": "SUP-1042", "classification": "how_to", "model": "gemini-3.8-flash",
             "model_calls": 2, "tool_calls": 2,
+            "http_attempts": 3, "http_retries": 1, "retry_wait_ms": 1500,
             "reply": "Un timeout solo limita la observación. No cancela la tarea ni la reenvía "
                      "automáticamente. La tarea continúa; recupera el resultado con el mismo task_id.",
             "sources": [{"id": "task-results", "title": "Task status and results",
@@ -299,6 +300,8 @@ class AcceptanceRunnerTests(unittest.TestCase):
                 result = check.scenario(deployment, "gemini-3.8-flash")
             self.assertEqual((deployment.submissions, deployment.probes, deployment.events, deployment.restarts), (1, 1, 2, 1))
             self.assertEqual(result["draft_attempt_count"], 1)
+            for counter in ("model_calls", "tool_calls", "http_attempts", "http_retries", "retry_wait_ms"):
+                self.assertEqual(result[counter], draft()[counter])
             self.assertNotEqual(result["original_pids"], result["restarted_pids"])
             summary = json.loads((Path(directory) / "workflow-result.json").read_text())
             self.assertEqual(summary["outcome"]["output"]["draft"], draft())

@@ -50,7 +50,7 @@ def _ticket(event):
 
 def _draft(value, ticket):
     fields = {"ticket_id", "classification", "reply", "sources", "model",
-              "model_calls", "tool_calls"}
+              "model_calls", "tool_calls", "http_attempts", "http_retries", "retry_wait_ms"}
     if type(value) is not dict or value.keys() != fields:
         raise ValueError("draft must contain the structured support response")
     if value["ticket_id"] != ticket["ticket_id"] or value["model"] != ticket["model"]:
@@ -72,9 +72,15 @@ def _draft(value, ticket):
                 or source["location"] != f"docs/{source_id}.md"):
             raise ValueError("draft must cite distinct bundled document locations")
         seen.add(source_id)
-    for name, minimum, maximum in (("model_calls", 1, 6), ("tool_calls", 2, 8)):
+    for name, minimum, maximum in (("model_calls", 1, 6), ("tool_calls", 2, 8),
+                                   ("http_attempts", 1, 6), ("http_retries", 0, 5),
+                                   ("retry_wait_ms", 0, 120_000)):
         if type(value[name]) is not int or not minimum <= value[name] <= maximum:
             raise ValueError(f"draft {name} is outside the demo call budget")
+    if (value["http_attempts"] != value["model_calls"] + value["http_retries"]
+            or value["http_retries"] > 2 * value["model_calls"]
+            or (value["http_retries"] == 0 and value["retry_wait_ms"] != 0)):
+        raise ValueError("draft HTTP counters do not match the model call budget")
     encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > 24 * 1024:
         raise ValueError("draft exceeds the 24 KiB response limit")
@@ -91,9 +97,9 @@ def handle(event):
 
     if ctx.continuation == "start":
         # The fixed key and immutable binding make activation replay idempotent.
-        # One child attempt avoids automatically repeating paid provider calls.
+        # One child attempt avoids repeating the whole agent and its tool loop.
         child = ctx.task(
-            DRAFT_KEY, program="support-agent", version="1.0.0", queue=queue,
+            DRAFT_KEY, program="support-agent", version="1.0.1", queue=queue,
             data=ticket, retry_policy={"max_attempts": 1, "retry_delay_ms": 0},
             attempt_timeout_ms=180_000,
         )

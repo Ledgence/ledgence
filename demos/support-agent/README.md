@@ -64,7 +64,7 @@ python3.13 demos/support-agent/prepare.py --directory "$DEMO_HOME/prepared"
 
 Preparation downloads the exact hash-locked wheels, verifies the legal inventory,
 installs application dependencies into the agent package, and publishes
-`support-agent@1.0.0` and `support-workflow@1.0.0` into a local program store.
+`support-agent@1.0.1` and `support-workflow@1.0.1` into a local program store.
 Workers fetch and cache these immutable packages; they never install dependencies
 while executing a task. The host supplies CPython and Ledgence's worker helper.
 `prepared.json` records artifact digests, package sizes and build provenance.
@@ -116,9 +116,9 @@ In another terminal, export the same `DEMO_HOME` and register the packages:
 ```sh
 export DEMO_HOME="$HOME/.local/share/ledgence-support-demo"
 target/debug/ledgence program register --server http://127.0.0.1:8082 \
-  --program support-agent --version 1.0.0 --kind task
+  --program support-agent --version 1.0.1 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8082 \
-  --program support-workflow --version 1.0.0 --kind workflow
+  --program support-workflow --version 1.0.1 --kind workflow
 ```
 
 ## 3. Supply the credential to the worker
@@ -153,7 +153,12 @@ If the key is already exported as `GOOGLE_API_KEY` in the current terminal,
 Save the returned `workflow_id`. In Console, open that workflow, follow its
 **Children** entry to the agent execution and inspect **Result**. Its structured
 output includes the reply, classification, source documents actually read,
-model name and model/tool call counts. You can also read it with the child's ID:
+model name, logical `model_calls`, executed `tool_calls`, total `http_attempts`
+(including retries), `http_retries`, and `retry_wait_ms` (completed intervals
+between a retryable failure and its next send; a cancelled partial wait is not
+included). These HTTP counters describe client sends, not provider billing or
+guaranteed generations.
+You can also read it with the child's ID:
 
 ```sh
 "$DEMO_HOME/client/bin/python" demos/support-agent/client.py --server http://127.0.0.1:8082 \
@@ -188,12 +193,30 @@ reconcile. A new submission key creates new work and can call Gemini again.
 - The agent must search and read local documents before returning a reply. It
   can cite only documents actually read. This validates provenance, not factual
   correctness; human review remains necessary.
-- Every task invocation creates a fresh ADK session and event loop. Model calls
-  are capped at six, executed tool calls at eight, and agent execution at 120
-  seconds. Provider HTTP retries are disabled. The child has one execution
-  attempt; controller activations can retry without repeating an accepted draft.
-- This is not an exactly-once guarantee for provider calls. A process can fail
-  after a provider request but before Ledgence accepts the result. The demo fails
+- Every task invocation creates a fresh ADK session and event loop. Total HTTP
+  sends, including retries, are capped at **six**; logical model calls are also
+  capped at six, executed tool calls at eight, and agent execution at **120
+  seconds**. Each HTTP request has a 20-second HTTPX timeout per network phase,
+  within the overall agent deadline.
+- Google GenAI retries HTTP **500, 502, 503 and 504**, HTTPX timeouts and
+  `ConnectError`. Each logical request has at most **three attempts including the first**,
+  with exponential backoff of 1 then 2 seconds plus 0–1 second of jitter, capped
+  at 4 seconds. Those attempts share the six-send budget; they do not rerun prior
+  successful model turns or tools. HTTP **400, 401, 403, 404 and 429** are not
+  retried automatically.
+- A valid `Retry-After` or Google `RetryInfo.retryDelay` sets a minimum wait before
+  another request. The agent accounts for time already spent in native backoff.
+  If the requested delay exceeds four seconds or cannot fit in the remaining
+  deadline, the task stops with an explicit failure. Long quota/capacity waits
+  need a future durable retry design; the transient ADK session is not saved for
+  resumption. Brief HTTP backoff occupies the agent's current process slot.
+- The child has **one execution attempt**. Controller activations can retry
+  without repeating an accepted draft; the entire agent is not automatically
+  restarted after its HTTP budget or deadline is exhausted.
+- This is not an exactly-once guarantee for provider calls or costs. A timeout
+  can happen after Gemini accepts a request, so an HTTP retry may duplicate a
+  generation. A process can also fail after a provider request but before
+  Ledgence accepts the result. The demo fails
   that child instead of automatically submitting another model execution.
 - Approval state and its original deadline are durable. The workflow releases
   the worker while waiting. Restarting the worker and orchestrator during that
@@ -204,8 +227,10 @@ reconcile. A new submission key creates new work and can call Gemini again.
 
 ## Verification
 
-Unit tests use real ADK execution with a substituted model provider, plus the
-actual Ledgence workflow helper. They do not call Gemini:
+Unit tests use real ADK execution and the GenAI retry path with a substituted HTTP
+transport, plus the actual Ledgence workflow helper. They cover transient errors,
+send budgets, provider wait hints, cancellation and preserving prior tool work.
+They do not call Gemini:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 \

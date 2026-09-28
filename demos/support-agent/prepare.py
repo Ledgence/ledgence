@@ -85,7 +85,7 @@ def prepare(directory: Path, binaries: Path, wheelhouse: Path | None = None) -> 
         shutil.copytree(HERE / kind, package, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".env", ".env.*"))
         shutil.copy2(ROOT / "LICENSE", package / "LEDGENCE-LICENSE")
-        manifest = {"schema_version": 1, "program": {"id": name, "version": "1.0.0"},
+        manifest = {"schema_version": 1, "program": {"id": name, "version": "1.0.1"},
                     "runtime": {"kind": "python", "python": "3.13", "protocol": protocol},
                     "handler": "program:handle", "platform": {"os": operating_system, "arch": architecture}}
         (package / "ledgence-program.json").write_text(json.dumps(manifest, indent=2) + "\n")

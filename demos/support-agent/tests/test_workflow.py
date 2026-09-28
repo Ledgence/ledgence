@@ -28,7 +28,8 @@ def draft(**changes):
             "reply": "Send a directly addressed event using the workflow ID and wait key.",
             "sources": [{"id": "workflow-events", "title": "Workflow events",
                          "location": "docs/workflow-events.md"}],
-            "model": program.DEFAULT_MODEL, "model_calls": 2, "tool_calls": 2, **changes}
+            "model": program.DEFAULT_MODEL, "model_calls": 2, "tool_calls": 2,
+            "http_attempts": 3, "http_retries": 1, "retry_wait_ms": 1500, **changes}
 
 
 def child(output=None):
@@ -100,7 +101,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["continuation"], "review")
         self.assertEqual(result["until"], ["draft"])
         self.assertEqual(result["commands"], [{
-            "key": "draft", "program": "support-agent", "version": "1.0.0",
+            "key": "draft", "program": "support-agent", "version": "1.0.1",
             "queue": "support-demo", "data": {
                 "ticket_id": "SUP-1042", "question": event["data"]["question"],
                 "model": "gemini-3.8-flash",
@@ -163,6 +164,12 @@ class WorkflowTests(unittest.TestCase):
             draft(ticket_id="OTHER"), draft(model="other-model"), draft(classification="unknown"),
             draft(reply=""), draft(reply="x" * 8193), draft(model_calls=0), draft(model_calls=True),
             draft(model_calls=7), draft(tool_calls=1), draft(tool_calls=9), draft(tool_calls=2.0),
+            draft(http_attempts=0), draft(http_attempts=7), draft(http_attempts=True),
+            draft(http_retries=-1), draft(http_retries=6), draft(http_retries=1.0),
+            draft(retry_wait_ms=-1), draft(retry_wait_ms=120_001), draft(retry_wait_ms=True),
+            draft(http_attempts=2), draft(http_retries=2),
+            draft(model_calls=1, http_attempts=4, http_retries=3),
+            draft(http_attempts=2, http_retries=0, retry_wait_ms=1500),
             draft(sources=[]), draft(sources=draft()["sources"] * 2),
             draft(sources=[{"id": "invented", "title": "Invented", "location": "docs/invented.md"}]),
             draft(sources=[{"id": "workflows", "title": "Workflows", "location": "https://elsewhere"}]),
@@ -177,6 +184,19 @@ class WorkflowTests(unittest.TestCase):
                        {**child(), "outcome": {"kind": "failed"}}):
             with self.subTest(result=result):
                 self.assert_failure(FakeContext("review", inputs={"draft": result}), "invalid_draft")
+
+    def test_valid_http_budgets_survive_the_approval_checkpoint(self):
+        for counters in (
+            {"model_calls": 2, "http_attempts": 2, "http_retries": 0, "retry_wait_ms": 0},
+            {"model_calls": 2, "http_attempts": 6, "http_retries": 4, "retry_wait_ms": 8000},
+            {"model_calls": 6, "http_attempts": 6, "http_retries": 0, "retry_wait_ms": 0},
+        ):
+            with self.subTest(counters=counters):
+                value = draft(**counters)
+                reviewed = run(FakeContext("review", inputs={"draft": child(value)}))
+                self.assertEqual(reviewed["state"]["draft"], value)
+                finished = run(FakeContext("finish", state=reviewed["state"], wake=approval()))
+                self.assertEqual(finished["output"]["draft"], value)
 
     def test_approval_and_rejection_complete_with_the_exact_accepted_draft(self):
         for approved, status in ((True, "approved"), (False, "rejected")):
