@@ -55,3 +55,9 @@ jobs:
             -r sdk/python-client/third_party/runtime-requirements.txt
           PYTHONPATH="$RUNNER_TEMP/client-runtime:$PWD/sdk/python-client/src" \
             python -m unittest discover -s demos/support-agent/tests/client -v
+      - name: Exercise the Codex demo offline with standard-library subprocess fixtures
+        run: |
+          PYTHONPATH="$PWD/sdk/python" \
+            python -m unittest discover -s demos/codex-support-agent/tests -v
+          PYTHONPATH="$RUNNER_TEMP/client-runtime:$PWD/sdk/python-client/src" \
+            python -m unittest discover -s demos/codex-support-agent/tests/client -v

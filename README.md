@@ -23,8 +23,9 @@ Self-host without a required vendor account.
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
-- **Run a real agent workflow:** try the [support agent demo](demos/support-agent/README.md)
-  with Google ADK, Gemini, documentation tools and durable human review.
+- **Run a real agent workflow:** try the [Codex support agent](demos/codex-support-agent/README.md)
+  with ChatGPT sign-in, documentation tools and durable human review, or the
+  [Google ADK and Gemini variant](demos/support-agent/README.md).
 
 The first public native bundle is **v0.1.0 for macOS arm64**. The Python client
 and Rust API crates are published separately at **0.1.1**. See the

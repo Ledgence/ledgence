@@ -7,6 +7,7 @@ Ledgence platform and Python client.
 
 | Demo | Workflow | Integration |
 | --- | --- | --- |
+| [Codex support agent](codex-support-agent/README.md) | Read a ticket → research local documentation → draft a reply → wait for human review → finish | Codex CLI with ChatGPT sign-in and GPT-6 Luna |
 | [Support agent](support-agent/README.md) | Read a ticket → research local documentation → draft a reply → wait for human review → finish | Google ADK and Gemini |
 
 These demos use real Ledgence tasks, workers and persisted workflow state.

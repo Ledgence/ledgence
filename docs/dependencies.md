@@ -1,5 +1,20 @@
 # Dependency policy
 
+## Optional Codex support-agent demo
+
+The [Codex support-agent demo](../demos/codex-support-agent/README.md) contains
+MIT-licensed Python code using the standard library. Its packages do not vendor
+Codex, Google ADK, or an OpenAI API SDK. The operator supplies CPython and a Codex
+CLI installation, which retains its own Apache-2.0 license and dependency notices.
+The CLI is a separate host application; its distribution remains responsible for
+its bundled components. No new dependency enters the Rust platform or Python client.
+
+This optional integration uses Codex's supported ChatGPT sign-in and the account's
+usage limits. It requires an eligible account and model access; neither is needed
+to self-host Ledgence. Subscription access and model-service terms are separate
+from the licenses of Ledgence and Codex. The Gemini demo below retains its own
+reviewed dependency graph and legal files.
+
 ## Optional support-agent demo
 
 The [support-agent demo](../demos/support-agent/README.md) pins Google ADK 2.10.0
