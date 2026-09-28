@@ -21,12 +21,14 @@ older published binaries or packages.
 
 ## Agent workflows
 
-Both examples research bundled Ledgence documentation, draft a support reply,
-and wait for a person to approve or reject that specific draft. They do not send
-an email or external support reply.
+The change-review example proposes and validates a code change. The two support
+examples research bundled Ledgence documentation, draft a reply, and wait for a
+person to approve or reject that draft. The support examples do not send an
+email or external reply.
 
 | Example | Integration | Setup |
 | --- | --- | --- |
+| [Codex change review](codex-change-review/README.md) | Implement a bug fix, run local tests alongside a distributed Codex review, and assemble a review bundle or optional draft PR. | Current source, PostgreSQL 18, CPython 3.13, and a host Codex CLI. Includes an offline acceptance gate and a real-provider mode. |
 | [Codex support agent](codex-support-agent/README.md) | Codex CLI with ChatGPT sign-in and access to the configured model. | Current source, Rust, PostgreSQL 18, and CPython 3.13 on macOS arm64 or Linux x86_64. The application uses the Python standard library; Codex CLI is supplied separately. |
 | [Google ADK support agent](support-agent/README.md) | Google ADK and Gemini Developer API. | Current source, Rust, PostgreSQL 18, CPython 3.13, and a Gemini Developer API key. Reviewed dependency locks target macOS arm64 or Linux x86_64 with glibc 2.28+. |
 

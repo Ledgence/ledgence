@@ -61,3 +61,7 @@ jobs:
             python -m unittest discover -s examples/codex-support-agent/tests -v
           PYTHONPATH="$RUNNER_TEMP/client-runtime:$PWD/sdk/python-client/src" \
             python -m unittest discover -s examples/codex-support-agent/tests/client -v
+      - name: Test the Codex change-review workflow without external accounts
+        run: |
+          PYTHONPATH="$RUNNER_TEMP/client-runtime:$PWD/sdk/python-client/src:$PWD/sdk/python" \
+            python -m unittest discover -s examples/codex-change-review/tests -v

@@ -26,6 +26,7 @@ export default defineConfig({
         { label: 'Explore Console', slug: 'tutorials/use-console' },
         { label: 'Run Ledgence locally', slug: 'tutorials/run-locally' },
         { label: 'Your first workflow', slug: 'tutorials/first-workflow' },
+        { label: 'Build a tested change with Codex', slug: 'tutorials/codex-change-review' },
       ] },
       { label: 'How-to guides', items: [
         { label: 'Register an agent', slug: 'how-to/register-agent' },
