@@ -191,10 +191,23 @@ def read_audit(path, *, complete=True):
             or len(set(audit["read_ids"])) != len(audit["read_ids"])
             or (audit["searched"] and audit["tool_calls"] == 0)
             or (audit["read_ids"] and (not audit["searched"] or len(audit["read_ids"]) >= audit["tool_calls"]))
-            or (audit["exhausted"] and audit["tool_calls"] != MAX_TOOL_CALLS)
-            or (complete and (audit["tool_calls"] < 2 or not audit["read_ids"]
-                              or not audit["searched"] or audit["exhausted"]))):
-        raise AgentError("Documentation tool evidence is missing, invalid, or exhausted")
+            or (audit["exhausted"] and audit["tool_calls"] != MAX_TOOL_CALLS)):
+        raise AgentError("Documentation tool evidence has invalid structure")
+    if complete:
+        # Only validated counters, booleans and fixed corpus IDs enter errors;
+        # malformed audit contents, prompts and provider output stay private.
+        observed = (
+            f"tool_calls={audit['tool_calls']}, searched={audit['searched']}, "
+            f"read_ids={','.join(sorted(audit['read_ids'])) or 'none'}, exhausted={audit['exhausted']}"
+        )
+        if audit["exhausted"]:
+            raise AgentError(f"Documentation tool evidence shows an exhausted budget ({observed})")
+        if audit["tool_calls"] == 0:
+            raise AgentError(f"Documentation tool evidence contains no calls ({observed})")
+        if not audit["searched"]:
+            raise AgentError(f"Documentation tool evidence has no successful search ({observed})")
+        if not audit["read_ids"]:
+            raise AgentError(f"Documentation tool evidence has no successful document read ({observed})")
     return audit
 
 

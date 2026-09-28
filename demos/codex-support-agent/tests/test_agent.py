@@ -145,6 +145,34 @@ class AgentTests(unittest.TestCase):
                 with self.assertRaises(program.AgentError):
                     program.read_audit(path)
 
+    def test_audit_failure_diagnostics_distinguish_missing_tool_progress(self):
+        cases = (
+            (audit(tool_calls=0, searched=False, read_ids=[]), "contains no calls"),
+            (audit(tool_calls=2, searched=False, read_ids=[]), "no successful search"),
+            (audit(tool_calls=2, read_ids=[]), "no successful document read"),
+            (audit(tool_calls=8, exhausted=True), "exhausted budget"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "audit.json"
+            for value, expected in cases:
+                path.write_text(json.dumps(value))
+                with self.subTest(expected=expected), self.assertRaisesRegex(program.AgentError, expected) as failure:
+                    program.read_audit(path)
+                self.assertIn(f"tool_calls={value['tool_calls']}", str(failure.exception))
+                self.assertIn(f"searched={value['searched']}", str(failure.exception))
+                self.assertEqual(program.read_audit(path, complete=False), value)
+
+    def test_invalid_audit_never_exposes_unvalidated_values_in_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "audit.json"
+            for value in (audit(tool_calls="private-request-body"), audit(read_ids=["private-ticket"]),
+                          audit(searched="private-provider-output"), audit(extra="private-credential")):
+                path.write_text(json.dumps(value))
+                with self.subTest(value=value), self.assertRaisesRegex(program.AgentError, "invalid structure") as failure:
+                    program.read_audit(path)
+                self.assertNotIn("private", str(failure.exception))
+                self.assertNotIn("tool_calls=", str(failure.exception))
+
     def test_draft_rejects_bad_json_schema_and_unread_sources(self):
         invalid = ["not JSON", "```json\n{}\n```", '{"classification":"how_to","classification":"how_to"}']
         invalid += [json.dumps(value) for value in (

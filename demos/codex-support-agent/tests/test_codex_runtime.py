@@ -293,6 +293,8 @@ else:
             self.assertIn(flag, args)
         for setting in ['forced_login_method="chatgpt"', 'features.shell_tool=false', 'features.unbounded_connection_retries=false', 'features.code_mode=false']:
             self.assertIn(setting, args)
+        self.assertIn('mcp_servers.ledgence_docs.omit_tools_from=["deferred", "code_mode"]', args)
+        self.assertIn('mcp_servers.ledgence_docs.enabled_tools=["read_doc", "search_docs"]', args)
         for key in ["OPENAI_API_KEY", "GOOGLE_API_KEY", "CODEX_ACCESS_TOKEN", "DATABASE_URL", "PYTHONPATH", "CODEX_THREAD_ID"]:
             self.assertNotIn(key, record["env"])
         self.assertFalse((self.directory / "codex-output-schema.json").exists())

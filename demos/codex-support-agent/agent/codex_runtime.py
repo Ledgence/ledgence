@@ -392,6 +392,10 @@ def _settings(tool_server, audit_path, workdir):
         "mcp_servers.ledgence_docs.args": ["-I", str(tool_server), "--audit-path", str(audit_path)],
         "mcp_servers.ledgence_docs.cwd": str(workdir),
         "mcp_servers.ledgence_docs.enabled_tools": sorted(TOOL_NAMES),
+        # Model metadata can select Code Mode despite the feature defaults above.
+        # Expose these two tools directly so they never depend on deferred search
+        # or a Code Mode wrapper that the demo deliberately does not execute.
+        "mcp_servers.ledgence_docs.omit_tools_from": ["deferred", "code_mode"],
         "mcp_servers.ledgence_docs.required": True,
         "mcp_servers.ledgence_docs.startup_timeout_sec": 10,
         "mcp_servers.ledgence_docs.tool_timeout_sec": 10,
