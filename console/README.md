@@ -99,7 +99,9 @@ page is hidden. Query cancellation is passed through to `fetch`; query keys incl
 origin, contract, instance, resource and complete query parameters.
 
 Mutation retries are manual. A frozen command retains its exact bytes and identity
-when transport leaves the result uncertain. Separating an operation requires an
+when transport leaves the result uncertain. Dialogs and pending commands belong
+to their resource: refreshing the same resource preserves them, while navigating
+to another resource starts with a separate form. Separating an operation requires an
 explicit confirmation. Run again creates a new submission with a new identity.
 Inputs, outputs, events and command bodies are not written to URLs, local storage
 or analytics; only the appearance preference is persistent.
