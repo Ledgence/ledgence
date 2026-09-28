@@ -41,7 +41,7 @@ checkpoint keeps its existing string ID and explicit JSON state.
 
 ## Requirements
 
-- Current repository source containing `demos/`, Rust/rustup, and PostgreSQL 18
+- Current repository source containing `examples/`, Rust/rustup, and PostgreSQL 18
   (the commands below use Docker).
 - **CPython 3.13**, with pip and venv, on **macOS arm64** or **Linux x86_64 with
   glibc 2.28 or newer**. The reviewed dependency locks are specific to these
@@ -64,7 +64,7 @@ the checkout. These commands use port **8082**, leaving a stack on 8080 alone.
 cargo build --workspace --locked
 export DEMO_HOME="$HOME/.local/share/ledgence-support-demo"
 mkdir -p "$DEMO_HOME"
-python3.13 demos/support-agent/prepare.py --directory "$DEMO_HOME/prepared"
+python3.13 examples/support-agent/prepare.py --directory "$DEMO_HOME/prepared"
 ```
 
 Preparation downloads the exact hash-locked wheels, verifies the legal inventory,
@@ -135,7 +135,7 @@ with mode `700`, and set the file to mode `600`. Do not put the key in commands,
 tickets, CloudEvents, published packages, screenshots or Git.
 
 ```sh
-python3.13 demos/support-agent/run_worker.py \
+python3.13 examples/support-agent/run_worker.py \
   --directory "$DEMO_HOME/prepared" --server http://127.0.0.1:8082 \
   --env-file "$DEMO_HOME/private/gemini.env"
 ```
@@ -150,8 +150,8 @@ If the key is already exported as `GOOGLE_API_KEY` in the current terminal,
 ## 4. Submit, inspect and approve
 
 ```sh
-"$DEMO_HOME/client/bin/python" demos/support-agent/client.py --server http://127.0.0.1:8082 \
-  submit --ticket demos/support-agent/tickets/observation-timeout.json \
+"$DEMO_HOME/client/bin/python" examples/support-agent/client.py --server http://127.0.0.1:8082 \
+  submit --ticket examples/support-agent/tickets/observation-timeout.json \
   --idempotency-key support-demo:SUP-1042:1
 ```
 
@@ -166,7 +166,7 @@ guaranteed generations.
 You can also read it with the child's ID:
 
 ```sh
-"$DEMO_HOME/client/bin/python" demos/support-agent/client.py --server http://127.0.0.1:8082 \
+"$DEMO_HOME/client/bin/python" examples/support-agent/client.py --server http://127.0.0.1:8082 \
   draft --task TASK_ID
 ```
 
@@ -174,10 +174,10 @@ The default review deadline is one hour. Once the workflow shows the pending
 `approval:1` wait, send the decision for the **exact ticket and child task**:
 
 ```sh
-"$DEMO_HOME/client/bin/python" demos/support-agent/client.py --server http://127.0.0.1:8082 \
+"$DEMO_HOME/client/bin/python" examples/support-agent/client.py --server http://127.0.0.1:8082 \
   review --workflow WORKFLOW_ID --ticket-id SUP-1042 --draft-task TASK_ID \
   --decision approve --event-id review:SUP-1042:1
-"$DEMO_HOME/client/bin/python" demos/support-agent/client.py --server http://127.0.0.1:8082 \
+"$DEMO_HOME/client/bin/python" examples/support-agent/client.py --server http://127.0.0.1:8082 \
   result --workflow WORKFLOW_ID --timeout 60
 ```
 
@@ -240,9 +240,9 @@ They do not call Gemini:
 ```sh
 PYTHONDONTWRITEBYTECODE=1 \
 PYTHONPATH="$DEMO_HOME/prepared/packages/agent:$PWD/sdk/python" \
-  python3.13 -m unittest discover -s demos/support-agent/tests -v
-python3.13 demos/support-agent/third_party/test_verify.py -v
-"$DEMO_HOME/client/bin/python" -m unittest discover -s demos/support-agent/tests/client -v
+  python3.13 -m unittest discover -s examples/support-agent/tests -v
+python3.13 examples/support-agent/third_party/test_verify.py -v
+"$DEMO_HOME/client/bin/python" -m unittest discover -s examples/support-agent/tests/client -v
 ```
 
 Run the explicit live acceptance check against a PostgreSQL parent database whose
@@ -254,7 +254,7 @@ processes and database; it leaves the parent database and container running.
 
 ```sh
 DATABASE_URL='postgres://postgres:demo-local@127.0.0.1:55432/ledgence' \
-  python3.13 demos/support-agent/check.py \
+  python3.13 examples/support-agent/check.py \
   --directory "$DEMO_HOME/prepared" --binaries target/debug \
   --env-file "$DEMO_HOME/private/gemini.env" --psql /path/to/psql \
   --evidence "$DEMO_HOME/evidence/run-1" --live-gemini

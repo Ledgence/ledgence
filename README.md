@@ -9,12 +9,15 @@ Self-host without a required vendor account.
 
 [Documentation](https://docs.ledgence.com) ·
 [Quickstart](https://docs.ledgence.com/tutorials/run-locally) ·
+[Examples](examples/README.md) ·
 [Console guide](https://docs.ledgence.com/tutorials/use-console) ·
 [Releases](https://github.com/Ledgence/ledgence/releases) ·
 [Python client](https://pypi.org/project/ledgence-client/)
 
 ## Get started
 
+- **Choose an example:** browse the [example catalog](examples/README.md) for Python programs,
+  workflow patterns, client usage, and optional provider integrations.
 - **Explore Console from current source:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
   to inspect executions, workflows, registered agents, and worker process slots in your browser.
 - **Run the complete stack:** follow the [local tutorial](https://docs.ledgence.com/tutorials/run-locally)
@@ -23,9 +26,9 @@ Self-host without a required vendor account.
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
-- **Run a real agent workflow:** try the [Codex support agent](demos/codex-support-agent/README.md)
+- **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
   with ChatGPT sign-in, documentation tools and durable human review, or the
-  [Google ADK and Gemini variant](demos/support-agent/README.md).
+  [Google ADK and Gemini variant](examples/support-agent/README.md).
 
 The first public native bundle is **v0.1.0 for macOS arm64**. The Python client
 and Rust API crates are published separately at **0.1.1**. See the
