@@ -1,0 +1,22 @@
+{
+  "source_repository": "https://github.com/Ledgence/ledgence",
+  "source_revision": "8b1567cb5daa361ad82d05cb2d1eaa3bde14baff",
+  "documents": {
+    "task-results": {
+      "location": "docs/task-results.md",
+      "sha256": "63e1b5396c2b980214bf234d9fef3646c9fe5abb415d813a368d4a093ae7ecca"
+    },
+    "workflows": {
+      "location": "docs/workflows.md",
+      "sha256": "a6b9ec5b2684fb3ea8510938a084ff4822226ba365bd674c667a5656e7bdba67"
+    },
+    "workflow-events": {
+      "location": "docs/workflow-events.md",
+      "sha256": "a2d3fc46be3db47653b850c2854b1bc7ebf72e453e3d3678acdc07b2205d5dac"
+    },
+    "program-packages": {
+      "location": "docs/program-packages.md",
+      "sha256": "4752440741573c71361473f95542ae90671d71ac9dbc8a80315b59d8b6ac3fe9"
+    }
+  }
+}

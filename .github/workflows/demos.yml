@@ -1,0 +1,63 @@
+name: Demos
+
+on:
+  push:
+    paths: ['demos/**', 'sdk/python/**', 'sdk/python-client/**', '.github/workflows/demos.yml']
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  support-agent:
+    name: Support agent (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x86_64-cp313
+          - os: macos-14
+            target: macos-arm64-cp313
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - name: Download and verify the reviewed application dependencies
+        run: |
+          python -m pip download --only-binary=:all: --require-hashes \
+            --dest "$RUNNER_TEMP/wheels" -r "demos/support-agent/requirements-${{ matrix.target }}.txt"
+          python demos/support-agent/third_party/verify.py \
+            --target '${{ matrix.target }}' --wheelhouse "$RUNNER_TEMP/wheels"
+          python -m pip install --no-compile --only-binary=:all: --require-hashes \
+            --no-index --find-links "$RUNNER_TEMP/wheels" --target "$RUNNER_TEMP/packages" \
+            -r "demos/support-agent/requirements-${{ matrix.target }}.txt"
+          python demos/support-agent/third_party/verify.py \
+            --target '${{ matrix.target }}' --wheelhouse "$RUNNER_TEMP/wheels" \
+            --installed "$RUNNER_TEMP/packages"
+      - name: Exercise the real ADK runner without provider requests
+        run: |
+          python demos/support-agent/third_party/test_verify.py -v
+          PYTHONPATH="$RUNNER_TEMP/packages:$PWD/sdk/python" \
+            python -m unittest discover -s demos/support-agent/tests -v
+      - name: Test the companion through the public client contract
+        run: |
+          python -m pip install --no-compile --only-binary=:all: --require-hashes \
+            --target "$RUNNER_TEMP/client-runtime" \
+            -r sdk/python-client/third_party/runtime-requirements.txt
+          PYTHONPATH="$RUNNER_TEMP/client-runtime:$PWD/sdk/python-client/src" \
+            python -m unittest discover -s demos/support-agent/tests/client -v
+      - name: Exercise the Codex demo offline with standard-library subprocess fixtures
+        run: |
+          PYTHONPATH="$PWD/sdk/python" \
+            python -m unittest discover -s demos/codex-support-agent/tests -v
+          PYTHONPATH="$RUNNER_TEMP/client-runtime:$PWD/sdk/python-client/src" \
+            python -m unittest discover -s demos/codex-support-agent/tests/client -v

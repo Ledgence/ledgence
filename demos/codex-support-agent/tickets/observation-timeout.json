@@ -1,0 +1,4 @@
+{
+  "ticket_id": "SUP-1042",
+  "question": "Mi tarea sigue ejecutándose después de que task.result(timeout=60) devuelve un timeout. ¿Se cancela o se vuelve a enviar automáticamente? ¿Cómo recupero el resultado después? Responde en español."
+}
