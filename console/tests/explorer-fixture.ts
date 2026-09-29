@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: MIT
+import { explorerNode, type ExplorerNode } from "../src/api/explorer";
+const base = {
+  activation_id: "phase_validate",
+  revision: "1",
+  entrypoint: "validate",
+};
+export function phase(
+  activation = "phase_validate",
+  entrypoint = "validate",
+): ExplorerNode {
+  return explorerNode({
+    ...base,
+    id: `phase:${activation}`,
+    activation_id: activation,
+    entrypoint,
+    kind: "phase",
+    state: "succeeded",
+    availability: "available",
+    submitted_at: 1000,
+    terminal_at: 1100,
+    applied_at: 1100,
+    decision_kind: "suspend",
+    error: null,
+    resumed_activation_id: "phase_collect",
+  });
+}
+export function fixtureNodes(): ExplorerNode[] {
+  return [
+    phase(),
+    explorerNode({
+      ...base,
+      id: "fork:validate",
+      kind: "fork",
+      key: "validate:0",
+      branch_keys: ["review:0"],
+      accepted_at: 1030,
+      accepting_attempt_id: "att_1",
+    }),
+    explorerNode({
+      ...base,
+      id: "local:tests",
+      kind: "local",
+      key: "tests:0",
+      callable: "checks:run_tests",
+      accepted_at: 1050,
+      accepting_attempt_id: "att_1",
+      observation: null,
+    }),
+    explorerNode({
+      ...base,
+      id: "child:review",
+      kind: "child",
+      key: "review:0",
+      execution: { kind: "workflow", id: "wf_review" },
+      program: { id: "independent-review", version: "1.0.0" },
+      fork_key: "validate:0",
+      availability: "available",
+      state: "succeeded",
+      submitted_at: 1030,
+      terminal_at: 1150,
+    }),
+    explorerNode({
+      ...base,
+      id: "join:validate",
+      kind: "child_wait",
+      member_keys: ["review:0"],
+      resume: "collect",
+      applied_at: 1100,
+      resumed_activation_id: "phase_collect",
+    }),
+    phase("phase_collect", "collect"),
+  ];
+}

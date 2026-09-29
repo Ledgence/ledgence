@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v1.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import * as dto from "../../src/api/resources";
@@ -27,7 +27,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "1",
+      "Ledgence-Console-Contract": "2",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -73,7 +73,9 @@ for (const uncertainFirst of [false, true]) {
     });
     const view = await mount();
     const open = () =>
-      view.getByRole("button", { name: "Register agent", exact: true }).click();
+      view
+        .getByRole("button", { name: "Register program", exact: true })
+        .click();
     const close = () =>
       view.getByRole("button", { name: "Close dialog", exact: true }).click();
     await open();
@@ -133,7 +135,7 @@ for (const uncertainFirst of [false, true]) {
           exact: true,
         }),
       )
-      .toHaveAttribute("href", "/agents/invoice-issuer/versions/release-b");
+      .toHaveAttribute("href", "/programs/invoice-issuer/versions/release-b");
     expect(bodies).toHaveLength(uncertainFirst ? 3 : 2);
   });
 }

@@ -3,7 +3,7 @@ title: Register an agent
 description: Add a published immutable program to the self-hosted Console catalog and manage its descriptive metadata.
 ---
 
-Register a program so operators can discover its exact versions, inspect runtime requirements, and start it from **Agents** in Console. Registration is independent of execution: submitting a task does not automatically add its package to the catalog.
+Register a program so operators can discover its exact versions, inspect runtime requirements, and start it from **Programs** in Console. Registration is independent of execution: submitting a task does not automatically add its package to the catalog.
 
 This guide applies to the Console implementation in the current source tree. The published `v0.1.1` source and `0.1.0` native bundle predate these registration commands. Start a compatible instance using [Explore Ledgence Console](/tutorials/use-console).
 
@@ -45,13 +45,13 @@ Choose the intended use explicitly:
 
 The catalog does not infer business intent from a runtime protocol. Versions are exact opaque strings: `release-september` is valid if it matches the manifest, and there is no automatic “latest” version selection.
 
-Open **Agents**, select the program, and choose its version. Confirm that its digest and runtime requirements match the intended package. Registration can accept a package for another supported platform; an available worker must still satisfy that package's requirements before it can run.
+Open **Programs**, select the program, and choose its version. Confirm that its digest and runtime requirements match the intended package. Registration can accept a package for another supported platform; an available worker must still satisfy that package's requirements before it can run.
 
 ## Register from Console
 
 As an alternative to the CLI:
 
-1. Open **Agents → Register agent**.
+1. Open **Programs → Register program**.
 2. Enter the **Program ID** and **Exact version** from the published manifest.
 3. Set **Declared use** to **Task**, **Workflow controller**, or **Unspecified**.
 4. Optionally add a display name and description, then select **Register reference**.

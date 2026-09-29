@@ -309,11 +309,25 @@ async fn discovery_projects_all_states_and_does_not_read_application_payloads() 
             db.store.status(&scope, &task.task_id).await.unwrap()
         );
     }
-    // Even unreadable application bytes cannot affect a scalar discovery read.
-    sqlx::query("UPDATE tasks SET input_bytes='not-json',descriptor_bytes='not-json'")
-        .execute(&db.store.pool)
+    // Simulate already-corrupted persisted bytes without asking the new
+    // descriptor projection trigger to decode invalid input. This transaction
+    // disables only that trigger in this isolated fixture and restores it
+    // before commit; normal writes must keep rejecting malformed descriptors.
+    let mut tx = db.store.pool.begin().await.unwrap();
+    sqlx::query("ALTER TABLE tasks DISABLE TRIGGER task_program_projection")
+        .execute(&mut *tx)
         .await
         .unwrap();
+    sqlx::query("UPDATE tasks SET input_bytes='not-json',descriptor_bytes='not-json'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE tasks ENABLE TRIGGER task_program_projection")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    // Even unreadable persisted bytes cannot affect a scalar discovery read.
     let request = TaskListQuery::default();
     let rows = discovery::query(&scope, &request, None)
         .build()

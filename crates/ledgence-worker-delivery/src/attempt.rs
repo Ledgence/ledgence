@@ -153,15 +153,25 @@ impl Context {
             quiescence,
             processing_trace,
         };
-        if !valid_settlement(&command) {
+        let mut report_valid = valid_settlement(&command);
+        if !report_valid {
+            // Best-effort telemetry must not invalidate an otherwise valid
+            // result. Trim it before freezing the first settlement exchange.
+            match &mut command.report {
+                AttemptReport::Completed(report) => report.observations = None,
+                AttemptReport::Failed(report) => report.observations = None,
+            }
+            report_valid = valid_settlement(&command);
+        }
+        if !report_valid {
             command.report = failure(
                 &request,
                 ErrorKind::Protocol,
                 "execution report exceeds the settlement contract",
                 true,
             );
+            report_valid = valid_settlement(&command);
         }
-        let report_valid = valid_settlement(&command);
         // No changes to command after the first exchange, even when cleanup
         // finishes meanwhile. Accepted Unconfirmed reports use a separate call.
         let settlement_span = tracing::info_span!(
@@ -307,6 +317,7 @@ fn failure(
     started: bool,
 ) -> AttemptReport {
     AttemptReport::Failed(ExecutionFailure {
+        observations: None,
         context: Box::new(ExecutionContext::from(request)),
         error: Error::new(kind, message),
         cleanup_error: None,

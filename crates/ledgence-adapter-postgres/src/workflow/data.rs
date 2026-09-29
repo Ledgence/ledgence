@@ -298,6 +298,10 @@ pub(super) async fn schedule_activation(
         "controller",
     )
     .await?;
+    explorer::phase(connection, &context, now).await?;
+    if let Some(previous) = &run.wait_activation {
+        explorer::resumed(connection, previous, &task_id, context.wake.as_ref(), now).await?;
+    }
     run.snapshot.activation_id = Some(task_id);
     run.snapshot.state = WorkflowState::Running;
     run.wait_activation = None;

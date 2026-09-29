@@ -33,6 +33,119 @@ fn registration() -> RegisterProgram {
 }
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn catalog_kind_membership_tracks_all_versions_and_explicit_kind_changes() {
+    let db = TestDb::new().await;
+    for (version, kind) in [
+        ("1", ConsoleProgramKind::Task),
+        ("2", ConsoleProgramKind::Workflow),
+        ("3", ConsoleProgramKind::Unspecified),
+    ] {
+        let mut d = descriptor();
+        d.program.version = version.into();
+        let mut m = manifest();
+        m.program = d.program.clone();
+        let c = RegisterProgram {
+            program: d.program.clone(),
+            metadata: ProgramDisplayMetadata {
+                kind,
+                ..Default::default()
+            },
+            update_metadata: false,
+        };
+        db.store
+            .register_program(&scope(), &c, &d, &m)
+            .await
+            .unwrap();
+    }
+    for filter in [
+        None,
+        Some(ConsoleProgramKind::Task),
+        Some(ConsoleProgramKind::Workflow),
+        Some(ConsoleProgramKind::Unspecified),
+    ] {
+        let ProgramCatalogReply::Catalog(p) = db
+            .store
+            .query_programs(
+                &scope(),
+                &ProgramCatalogQuery::Catalog {
+                    kind: filter,
+                    page: Default::default(),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(p.items.len(), 1);
+        assert_eq!(
+            p.items[0].kinds,
+            vec![
+                ConsoleProgramKind::Task,
+                ConsoleProgramKind::Workflow,
+                ConsoleProgramKind::Unspecified
+            ]
+        );
+        assert_eq!(p.items[0].program.registered_versions.0, 3);
+        // First registration's summary kind is not authoritative membership.
+        assert_eq!(p.items[0].program.metadata.kind, ConsoleProgramKind::Task);
+    }
+    let mut d = descriptor();
+    d.program.version = "1".into();
+    let mut m = manifest();
+    m.program = d.program.clone();
+    let c = RegisterProgram {
+        program: d.program.clone(),
+        metadata: ProgramDisplayMetadata {
+            kind: ConsoleProgramKind::Workflow,
+            ..Default::default()
+        },
+        update_metadata: true,
+    };
+    db.store
+        .register_program(&scope(), &c, &d, &m)
+        .await
+        .unwrap();
+    let ProgramCatalogReply::Catalog(p) = db
+        .store
+        .query_programs(
+            &scope(),
+            &ProgramCatalogQuery::Catalog {
+                kind: Some(ConsoleProgramKind::Task),
+                page: Default::default(),
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(p.items.is_empty());
+    let ProgramCatalogReply::Catalog(p) = db
+        .store
+        .query_programs(
+            &scope(),
+            &ProgramCatalogQuery::Catalog {
+                kind: None,
+                page: Default::default(),
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        p.items[0].kinds,
+        vec![
+            ConsoleProgramKind::Workflow,
+            ConsoleProgramKind::Unspecified
+        ]
+    );
+    db.finish().await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
 async fn catalog_registration_is_atomic_idempotent_and_metadata_updates_are_explicit() {
     let db = TestDb::new().await;
     let scope = scope();

@@ -77,6 +77,7 @@ impl PostgresStore {
         sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable) VALUES($1,$2,$3,$4,$5,$6)")
             .bind(&owner.task_id).bind(&command.record.key).bind(bytes).bind(&owner.attempt_id).bind(codec::ms(now)?).bind(&command.record.callable)
             .execute(&mut *tx).await?;
+        explorer::local(&mut tx, command, now).await?;
         tx.commit().await?;
         Ok(LocalResultReceipt {
             key: command.record.key.clone(),

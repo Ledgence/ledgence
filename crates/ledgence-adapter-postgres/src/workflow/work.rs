@@ -548,6 +548,7 @@ pub(super) async fn apply_decision(
                 &command.key,
             )
             .await?;
+            explorer::child(connection, &decision.activation_id, command, &id, None, now).await?;
             task
         };
         wakes.push(task);
@@ -659,6 +660,13 @@ pub(super) async fn apply_decision(
         "decision_applied",
     )
     .await?;
+    let resumed = match &decision.action {
+        WorkflowAction::Continue { .. }
+        | WorkflowAction::Suspend { .. }
+        | WorkflowAction::Wait { .. } => run.snapshot.activation_id.as_deref(),
+        WorkflowAction::Complete { .. } | WorkflowAction::Fail { .. } => None,
+    };
+    explorer::decision(connection, decision, applied_at, resumed).await?;
     Ok(AppliedDecision {
         wakes,
         at: applied_at,

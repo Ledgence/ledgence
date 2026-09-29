@@ -24,7 +24,6 @@ import {
   PageControls,
   QueryError,
   Empty,
-  BackLink,
   Tabs,
   Fields,
   Field,
@@ -32,6 +31,9 @@ import {
 } from "../components/resource-ui";
 import { CommandFeedback } from "../components/command-feedback";
 import { Filters } from "./filters";
+import { ExecutionContext } from "../components/execution-context";
+import { WorkflowExplorer, WorkflowInput } from "./workflow-explorer";
+import { WorkflowResources } from "./execution-resources";
 export function WorkflowsPage() {
   const config = useInstance();
   const [params] = useSearchParams();
@@ -167,8 +169,13 @@ export function WorkflowDetailPage() {
   const { workflowId = "" } = useParams();
   const [params] = useSearchParams();
   const config = useInstance();
-  const requestedTab = params.get("tab") ?? "Recorded work";
+  const requestedTab = params.get("tab") ?? "Execution";
   const tab = [
+    "Execution",
+    "Input",
+    "Output",
+    "Resources",
+    "Advanced",
     "Recorded work",
     "Waits",
     "Local steps",
@@ -177,7 +184,7 @@ export function WorkflowDetailPage() {
     "Context",
   ].includes(requestedTab)
     ? requestedTab
-    : "Recorded work";
+    : "Execution";
   const query = useResource(
     "workflows/inspect",
     { workflow_id: workflowId },
@@ -192,9 +199,18 @@ export function WorkflowDetailPage() {
   const detail = query.data;
   return (
     <>
-      <BackLink to="/workflows">Workflows</BackLink>
+      <ExecutionContext kind="workflow" id={workflowId} />
       <PageHeading
-        title="Workflow"
+        title={
+          detail?.summary.workflow.correlation_key ||
+          detail?.summary.controller.program.id ||
+          "Workflow"
+        }
+        description={
+          detail
+            ? `Workflow · ${detail.summary.controller.program.id} / ${detail.summary.controller.program.version}`
+            : "Workflow execution"
+        }
         actions={
           detail &&
           !dto.terminal(detail.summary.workflow.state) && (
@@ -217,9 +233,27 @@ export function WorkflowDetailPage() {
             <Status value={detail.summary.workflow.state} />
             <span>Revision {detail.summary.workflow.revision}</span>
             <span className="muted">
+              Elapsed{" "}
+              {Math.max(
+                0,
+                (detail.summary.workflow.terminal_at ?? detail.observed_at) -
+                  detail.summary.workflow.submitted_at,
+              ).toLocaleString()}{" "}
+              ms
+            </span>
+            <span className="muted">
               Observed <When value={detail.observed_at} />
             </span>
           </div>
+          {detail.summary.workflow.state === "waiting" && (
+            <p className="notice">
+              {detail.child_wait
+                ? `Waiting for terminal outcomes: ${detail.child_wait.command_keys.join(", ")}.`
+                : detail.external_wait_key
+                  ? `Waiting for external wake: ${detail.external_wait_key}.`
+                  : "Waiting for a recorded continuation."}
+            </p>
+          )}
           {["failing", "cancelling"].includes(
             detail.summary.workflow.state,
           ) && (
@@ -229,16 +263,58 @@ export function WorkflowDetailPage() {
             </p>
           )}
           <Tabs
-            values={[
-              "Recorded work",
-              "Waits",
-              "Local steps",
-              "History",
-              "Result",
-              "Context",
-            ]}
+            values={["Execution", "Input", "Output", "Resources", "Advanced"]}
             current={tab}
           />
+          {tab === "Execution" && (
+            <WorkflowExplorer
+              key={workflowId}
+              workflowId={workflowId}
+              active={!dto.terminal(detail.summary.workflow.state)}
+            />
+          )}
+          {tab === "Input" && (
+            <WorkflowInput key={workflowId} workflowId={workflowId} />
+          )}
+          {tab === "Output" && <WorkflowResult workflowId={workflowId} />}
+          {tab === "Resources" && (
+            <WorkflowResources
+              key={workflowId}
+              workflowId={workflowId}
+              active={!dto.terminal(detail.summary.workflow.state)}
+            />
+          )}
+          {[
+            "Advanced",
+            "Recorded work",
+            "Waits",
+            "Local steps",
+            "History",
+            "Result",
+            "Context",
+          ].includes(tab) && (
+            <Tabs
+              values={[
+                "Recorded work",
+                "Waits",
+                "Local steps",
+                "History",
+                "Result",
+                "Context",
+              ]}
+              current={tab}
+            />
+          )}
+          {tab === "Advanced" && (
+            <>
+              <h2>Diagnostic history</h2>
+              <p className="muted">
+                Inspect controller attempts, recorded waits, accepted local
+                results and durable transitions.
+              </p>
+              <WorkflowHistory workflowId={workflowId} />
+            </>
+          )}
           {tab === "Recorded work" && (
             <RecordedWork
               workflowId={workflowId}

@@ -98,6 +98,22 @@ impl PostgresStore {
                     .await?,
             );
         }
+        explorer::insert(
+            &mut tx,
+            &owner.task_id,
+            &ledgence_orchestration_api::console::ConsoleExplorerData::Fork {
+                key: command.fork.key.clone(),
+                branch_keys: command
+                    .fork
+                    .branches
+                    .iter()
+                    .map(|branch| branch.key.clone())
+                    .collect(),
+                accepted_at: now,
+                accepting_attempt_id: owner.attempt_id.clone(),
+            },
+        )
+        .await?;
         record_history(
             &mut tx,
             &workflow.workflow_id,

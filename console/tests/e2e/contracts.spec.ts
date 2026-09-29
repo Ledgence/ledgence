@@ -10,7 +10,7 @@ import {
 } from "../interaction-checks";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v1.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json",
     import.meta.url,
   ),
   "utf8",
@@ -23,7 +23,7 @@ function fixture(name: string): unknown {
 }
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "1",
+  "Ledgence-Console-Contract": "2",
   "Ledgence-Instance-Id": "instance_demo",
   "Request-Id": "request-contract-test",
 };
@@ -56,6 +56,65 @@ async function mount(page: Page, result = "pending_result") {
       "",
     );
     requests.push(name);
+    if (name === "executions/ancestry") {
+      const url = new URL(route.request().url());
+      const kind = url.searchParams.get("kind");
+      const id = url.searchParams.get("id");
+      await route.fulfill({
+        status: 200,
+        headers,
+        body: stringifyUserJson({
+          execution: { kind, id },
+          path: [
+            {
+              execution: { kind, id },
+              program: null,
+              availability: "available",
+            },
+          ],
+          observed_at: 1790409600000,
+        }),
+      });
+      return;
+    }
+    if (name === "executions") {
+      const page = dto.taskPage(fixture("tasks"));
+      await route.fulfill({
+        status: 200,
+        headers,
+        body: stringifyUserJson({
+          ...page,
+          items: page.items.map(({ task, descriptor }) => ({
+            kind: "task",
+            id: task.task_id,
+            descriptor,
+            queue: task.queue,
+            state: task.state,
+            submitted_at: task.submitted_at,
+            terminal_at: task.terminal_at,
+            correlation_key: task.correlation_key,
+            parent_workflow_id: task.workflow_id,
+            root_workflow_id: null,
+          })),
+        }),
+      });
+      return;
+    }
+    if (name === "programs/catalog") {
+      const page = dto.programPage(fixture("programs"));
+      await route.fulfill({
+        status: 200,
+        headers,
+        body: stringifyUserJson({
+          ...page,
+          items: page.items.map((program) => ({
+            program,
+            kinds: [program.metadata.kind ?? "unspecified"],
+          })),
+        }),
+      });
+      return;
+    }
     const key = paths[name];
     if (!key) throw new Error(`Unexpected request ${name}`);
     await route.fulfill({
@@ -71,11 +130,9 @@ test("execution metadata loads without eager input or result calls", async ({
 }) => {
   const requests = await mount(page);
   await page.goto("/console/executions");
-  await page
-    .getByRole("link", { name: "task_invoice_1042", exact: true })
-    .click();
+  await page.getByRole("link", { name: "INV-1042", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Execution", exact: true }),
+    page.getByRole("heading", { name: "INV-1042", exact: true }),
   ).toBeVisible();
   expect(requests).not.toContain("tasks/inspect");
   expect(requests).not.toContain("tasks/result");
@@ -136,7 +193,7 @@ test("lost submit response is retried with identical bytes and identity", async 
   expect(bodies).toHaveLength(1);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Execution", exact: true }),
+    page.getByRole("heading", { name: "INV-1042", exact: true }),
   ).toBeVisible();
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toBe(bodies[0]);
@@ -146,7 +203,7 @@ test("lost submit response is retried with identical bytes and identity", async 
 });
 test("workflow relationships use recorded creation IDs", async ({ page }) => {
   await mount(page);
-  await page.goto("/console/workflows/wf_invoice_1042");
+  await page.goto("/console/workflows/wf_invoice_1042?tab=Recorded+work");
   await expect(
     page.getByRole("heading", { name: "Recorded work", exact: true }),
   ).toBeVisible();
@@ -170,7 +227,7 @@ for (const width of [320, 375, 768, 1280])
         .getByRole("combobox", { name: "Appearance" })
         .selectOption(theme);
       await expect(
-        page.getByRole("link", { name: "task_invoice_1042", exact: true }),
+        page.getByRole("link", { name: "INV-1042", exact: true }),
       ).toBeVisible();
       expect(
         await page.evaluate(
@@ -186,18 +243,20 @@ test("status tabs keep exact filters and reset pagination", async ({
   await mount(page);
   const paths: string[] = [];
   page.on("request", (req) => {
-    if (new URL(req.url()).pathname === "/v1/console/tasks")
+    if (new URL(req.url()).pathname === "/v1/console/executions")
       paths.push(req.url());
   });
   await page.goto(
     "/console/executions?queue=billing&correlation_key=&cursor=prior",
   );
   await expect(
-    page.getByRole("link", { name: "task_invoice_1042", exact: true }),
+    page.getByRole("link", { name: "INV-1042", exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("navigation", { name: "Execution status" })
-    .getByRole("button", { name: "Failed", exact: true })
+    .getByRole("combobox", { name: "Status", exact: true })
+    .selectOption("failed");
+  await page
+    .getByRole("button", { name: "Apply filters", exact: true })
     .click();
   await expect(page).toHaveURL(/state=failed/);
   const address = new URL(page.url());
@@ -205,10 +264,8 @@ test("status tabs keep exact filters and reset pagination", async ({
   expect(address.searchParams.get("correlation_key")).toBe("");
   expect(address.searchParams.has("cursor")).toBe(false);
   await expect(
-    page
-      .getByRole("navigation", { name: "Execution status" })
-      .getByRole("button", { name: "Failed", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page.getByRole("combobox", { name: "Status", exact: true }),
+  ).toHaveValue("failed");
   await page
     .getByRole("button", { name: "Apply filters", exact: true })
     .click();
@@ -258,7 +315,7 @@ test("catalog capability is optional and long correlation keys round-trip", asyn
     .getByRole("button", { name: "Submit execution", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Execution", exact: true }),
+    page.getByRole("heading", { name: "INV-1042", exact: true }),
   ).toBeVisible();
   expect(sent).toContain("c".repeat(512));
   expect(requests).not.toContain("programs/inspect");
@@ -340,8 +397,26 @@ test("workflow status labels remain intact at desktop width", async ({
       state: state as "cancelled" | "succeeded",
     },
   }));
-  await page.route("**/v1/console/workflows?**", (route) =>
-    route.fulfill({ status: 200, headers, body: stringifyUserJson(workflows) }),
+  await page.route("**/v1/console/executions?**", (route) =>
+    route.fulfill({
+      status: 200,
+      headers,
+      body: stringifyUserJson({
+        ...workflows,
+        items: workflows.items.map(({ workflow, controller, queue }) => ({
+          kind: "workflow",
+          id: workflow.workflow_id,
+          descriptor: controller,
+          queue,
+          state: workflow.state,
+          submitted_at: workflow.submitted_at,
+          terminal_at: workflow.terminal_at,
+          correlation_key: workflow.correlation_key,
+          parent_workflow_id: workflow.parent_workflow_id,
+          root_workflow_id: workflow.root_workflow_id,
+        })),
+      }),
+    }),
   );
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/console/workflows");

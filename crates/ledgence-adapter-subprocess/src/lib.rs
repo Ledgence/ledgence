@@ -199,6 +199,7 @@ impl ExecutionRuntime for SubprocessRuntime {
             let (commands, receiver) = mpsc::channel(1);
             let (started, startup) = oneshot::channel();
             let (terminated, termination) = watch::channel(None);
+            let observations = Arc::new(std::sync::Mutex::new(None));
             // There is no suspension between spawn and transferring ownership to the actor.
             tokio::spawn(
                 supervise(
@@ -212,6 +213,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                     receiver,
                     started,
                     terminated,
+                    observations.clone(),
                 )
                 .with_current_subscriber(),
             );
@@ -222,6 +224,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                 owner,
                 owners: self.owners.clone(),
                 cleanup: None,
+                observations,
             });
             finish_startup(session, startup).await
         })
@@ -235,6 +238,7 @@ struct Session {
     owner: SharedResources,
     owners: ResourceRegistry,
     cleanup: Option<Result<()>>,
+    observations: Arc<std::sync::Mutex<Option<ledgence_worker_api::InvocationObservations>>>,
 }
 
 async fn finish_startup(
@@ -274,6 +278,9 @@ enum SessionCommand {
 impl ExecutionSession for Session {
     fn pid(&self) -> u32 {
         self.pid
+    }
+    fn take_observations(&mut self) -> Option<ledgence_worker_api::InvocationObservations> {
+        self.observations.lock().ok()?.take()
     }
     fn execute<'a>(
         &'a mut self,
@@ -330,6 +337,9 @@ impl Session {
         handler: Option<Arc<dyn RuntimeRequestHandler>>,
     ) -> PortFuture<'a, ProgramOutcome> {
         Box::pin(async move {
+            if let Ok(mut observations) = self.observations.lock() {
+                *observations = None;
+            }
             control.check()?;
             let sender = self.commands.as_ref().ok_or_else(retired)?;
             let (reply, response) = oneshot::channel();
@@ -369,6 +379,7 @@ async fn supervise(
     mut commands: mpsc::Receiver<SessionCommand>,
     mut started: oneshot::Sender<Result<()>>,
     terminated: watch::Sender<Option<Result<()>>>,
+    observations: Arc<std::sync::Mutex<Option<ledgence_worker_api::InvocationObservations>>>,
 ) {
     let mut resources = owner.lock().await;
     let pid = resources.child.id().expect("actor owns a new child");
@@ -469,6 +480,7 @@ async fn supervise(
                         RequestDispatch {
                             handler: handler.as_deref(),
                             control: &control,
+                            observations: &observations,
                         },
                     ),
                     &control,
@@ -592,6 +604,7 @@ struct Ready {
 struct RequestDispatch<'a> {
     handler: Option<&'a dyn RuntimeRequestHandler>,
     control: &'a RunControl,
+    observations: &'a std::sync::Mutex<Option<ledgence_worker_api::InvocationObservations>>,
 }
 
 #[derive(Deserialize)]
@@ -633,6 +646,8 @@ async fn invoke(
     }
     let event = &invocation.event;
     let mut request = json!({"v": version, "type": "invoke", "event_id": event.id(), "attempt_id": event.attempt_id(), "event": event.value()});
+    // Optional and understood by the bundled helper; legacy helpers ignore it.
+    request["observe"] = Value::Bool(true);
     if version >= 2 {
         if let Some(context) = &invocation.processing_context {
             context.validate()?;
@@ -705,6 +720,16 @@ async fn invoke(
         || response.get("attempt_id").and_then(Value::as_str) != Some(event.attempt_id())
     {
         return Err(protocol("result protocol or invocation identity mismatch"));
+    }
+    if let Some(value) = response.get("observations") {
+        // A telemetry failure must not turn valid application output into a retry.
+        let observed =
+            serde_json::from_value::<ledgence_worker_api::InvocationObservations>(value.clone())
+                .ok()
+                .filter(|value| value.validate().is_ok());
+        if let Ok(mut target) = dispatch.observations.lock() {
+            *target = observed;
+        }
     }
     match response.get("status").and_then(Value::as_str) {
         Some("success") => {
@@ -1200,6 +1225,7 @@ mod tests {
             owner,
             owners: owners.clone(),
             cleanup: None,
+            observations: Arc::new(StdMutex::new(None)),
         });
         let mut session = match finish_startup(session, startup).await {
             Ok(StartOutcome::CleanupRequired { session, .. }) => session,
@@ -1274,6 +1300,7 @@ mod tests {
             owner: owner.clone(),
             owners: owners.clone(),
             cleanup: None,
+            observations: Arc::new(StdMutex::new(None)),
         };
         // Poll the actual fallback close through group signaling, then cancel at
         // an exact pre-reap suspension instead of relying on scheduler timing.

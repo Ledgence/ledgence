@@ -51,8 +51,8 @@ test("Rust-served four views support light/dark and mobile without overflow", as
   const errors = noRuntimeErrors(page);
   for (const [route, title] of [
     ["executions", "Executions"],
-    ["workflows", "Workflows"],
-    ["agents", "Agents"],
+    ["workflows", "Executions"],
+    ["programs", "Programs"],
     ["workers", "Workers"],
   ]) {
     for (const width of [320, 375, 768, 1280]) {
@@ -89,13 +89,13 @@ test("real attempts, workflow records, and catalog dialogs load under production
   await page.goto(
     `/console/executions/${encodeURIComponent(task.task.task_id)}?tab=Result`,
   );
-  await ready(page, "Execution");
+  await ready(page, task.task.correlation_key || "Task execution");
   await expect(
     page.getByRole("heading", { name: "Execution failed" }),
   ).toBeVisible();
   for (const tab of ["Input", "Attempts", "History"]) {
     await page.getByRole("button", { name: tab, exact: true }).click();
-    await ready(page, "Execution");
+    await ready(page, task.task.correlation_key || "Task execution");
   }
   await page.getByRole("button", { name: "Attempts", exact: true }).click();
   await page.getByRole("button", { name: /^att_/ }).first().click();
@@ -113,9 +113,9 @@ test("real attempts, workflow records, and catalog dialogs load under production
   );
   if (!wf) throw new Error("Seeded owned workflow required.");
   await page.goto(
-    `/console/workflows/${encodeURIComponent(wf.workflow.workflow_id)}`,
+    `/console/workflows/${encodeURIComponent(wf.workflow.workflow_id)}?tab=Recorded+work`,
   );
-  await ready(page, "Workflow");
+  await ready(page, wf.workflow.correlation_key || wf.controller.program.id);
   await expect(
     page.getByRole("heading", { name: "Recorded work", exact: true }),
   ).toBeVisible();
@@ -126,19 +126,19 @@ test("real attempts, workflow records, and catalog dialogs load under production
   });
   for (const tab of ["Waits", "History", "Result", "Context"]) {
     await page.getByRole("button", { name: tab, exact: true }).click();
-    await ready(page, "Workflow");
+    await ready(page, wf.workflow.correlation_key || wf.controller.program.id);
   }
   await page.goto("/console/agents/invoice/versions/1.0.0");
   await ready(page, "invoice");
   await page.goto("/console/agents");
-  await ready(page, "Agents");
+  await ready(page, "Programs");
   await page
-    .getByRole("button", { name: "Register agent", exact: true })
+    .getByRole("button", { name: "Register program", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Close dialog" }).click();
   await expect(
-    page.getByRole("button", { name: "Register agent", exact: true }),
+    page.getByRole("button", { name: "Register program", exact: true }),
   ).toBeFocused();
   const workers = await get(request, "workers", dto.workerPage);
   const worker = workers.items.find((w) => w.detail_state === "available");
@@ -177,7 +177,7 @@ test("Run again submits a distinct real task and preserves lossless numeric inpu
   await page.goto(
     `/console/executions/${encodeURIComponent(original.task.task_id)}`,
   );
-  await ready(page, "Execution");
+  await ready(page, original.task.correlation_key || "Task execution");
   await page.getByRole("link", { name: "Run again", exact: true }).click();
   await ready(page, "Run again");
   const input = page.getByRole("textbox", { name: "JSON input", exact: true });
@@ -205,7 +205,7 @@ test("Run again submits a distinct real task and preserves lossless numeric inpu
   await expect(page.getByLabel("Input", { exact: true })).toContainText(
     "9007199254740993",
   );
-  await page.getByRole("button", { name: "Result", exact: true }).click();
+  await page.getByRole("button", { name: "Output", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Execution succeeded" }),
   ).toBeVisible({ timeout: 30000 });
@@ -290,7 +290,7 @@ test("WebKit remains usable through ten minutes of real polling and reconnect", 
       expect(errors).toEqual([]);
       rounds++;
       if (rounds % 3 === 0) {
-        for (const title of ["Executions", "Workflows", "Agents", "Workers"]) {
+        for (const title of ["Executions", "Programs", "Workers"]) {
           await page.getByRole("link", { name: title, exact: true }).click();
           await ready(page, title);
         }

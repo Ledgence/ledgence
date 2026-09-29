@@ -2,6 +2,7 @@ use super::*;
 use crate::tests::{TestDb, acquire_command, assignment, command, completed, descriptor, scope};
 use serde_json::{Value, json};
 use sqlx::{AssertSqlSafe, Execute};
+mod executions;
 fn pagination() -> ConsolePagination {
     ConsolePagination {
         limit: 1,
@@ -591,8 +592,22 @@ async fn console_query_migration_backfills_existing_metadata_without_rewriting_p
     let controller = codec::encode(&descriptor()).unwrap();
     sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms) VALUES('wf_upgrade','acme','billing','upgrade',$1,$2,'running','start',$3,1)")
         .bind(&submission).bind(&controller).bind(b"null".as_slice()).execute(&db.store.pool).await.unwrap();
+    let context = WorkflowActivationContext {
+        parent_workflow_id: None,
+        root_workflow_id: None,
+        v: 1,
+        workflow_id: "wf_upgrade".into(),
+        activation_id: assigned.lease.owner.task_id.clone(),
+        revision: 0,
+        continuation: "start".into(),
+        state: Value::Null,
+        inputs: Default::default(),
+        local_steps: vec![],
+        wake: None,
+    };
+    context.validate().unwrap();
     sqlx::query("INSERT INTO workflow_activations(activation_id,workflow_id,revision,task_id,context_bytes) VALUES($1,'wf_upgrade',0,$1,$2)")
-        .bind(&assigned.lease.owner.task_id).bind(b"{}".as_slice()).execute(&db.store.pool).await.unwrap();
+        .bind(&assigned.lease.owner.task_id).bind(codec::encode(&context).unwrap()).execute(&db.store.pool).await.unwrap();
     sqlx::query("INSERT INTO workflow_task_links(task_id,workflow_id,activation_id,is_activation,command_key) VALUES($1,'wf_upgrade',$1,true,'controller')")
         .bind(&assigned.lease.owner.task_id).execute(&db.store.pool).await.unwrap();
     let record = codec::encode(&LocalStepRecord {
@@ -698,6 +713,7 @@ async fn console_attempt_inspection_distinguishes_application_and_runtime_failur
         };
         if runtime_failure {
             report.report = AttemptReport::Failed(ExecutionFailure {
+                observations: None,
                 context: completed.context.clone(),
                 phase: Phase::Execution,
                 error: Error::new(ErrorKind::Io, "runtime failed"),

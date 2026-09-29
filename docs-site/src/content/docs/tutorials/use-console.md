@@ -34,7 +34,7 @@ docker compose -f deploy/local/compose.yaml up -d --wait --wait-timeout 120
 
 Compose starts PostgreSQL, runs the explicit migration, then starts the orchestrator, a worker, and the example callback receiver. The Rust orchestrator serves the built Console; there is no separate frontend server to start.
 
-Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/). You should see **Local instance** and four sections: **Executions**, **Workflows**, **Agents**, and **Workers**. This is one self-hosted instance, with no tenant or workspace selection.
+Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/). You should see **Local instance**, **Executions** and **Programs**, with **Workers** under Operations. This is one self-hosted instance, with no tenant or workspace selection.
 
 The lists can be empty at this point. Leave the worker's default concurrency at **one** so the example can check process reuse.
 
@@ -52,7 +52,7 @@ This command prepares three immutable packages for the container's runtime and p
 | `workflow-example` | `1.0.1` | Workflow controller |
 | `workflow-summary` | `1.0.0` | Task |
 
-Open **Agents**, choose `invoice-issuer`, and open version `1.0.0`. The page shows the verified digest, Python version, operating system, architecture, and handler. This application version is independent of the Ledgence platform version.
+Open **Programs**, choose `invoice-issuer`, and open version `1.0.0`. The page shows the verified digest, Python version, operating system, architecture, and handler. This application version is independent of the Ledgence platform version.
 
 ## 4. Run and inspect the example
 
@@ -64,11 +64,11 @@ docker compose -f deploy/local/compose.yaml run --rm --no-deps demo
 
 The final JSON contains `passed: true`, two task IDs, a workflow ID, and a workflow output. Keep those IDs visible.
 
-In **Executions**, open either invoice task by its ID. Use **Input** to see the invoice request and **Result** to inspect the returned invoice ID, process ID, and invocation counter. **Attempts** records the actual attempt; **History** records durable transitions.
+In **Executions**, open either invoice task by its ID. Use **Input** to see the invoice request and **Output** to inspect the returned invoice ID, process ID, and invocation counter. **Attempts** records the actual attempt; **History** records durable transitions.
 
-Open **Workflows** and select the workflow ID printed by the demo. In **Recorded work**, enable **Show completed children** to reveal the `summarize` child task beneath the controller activation that created it. Copy that first activation's ID from its activation card. Open **Local steps**, paste the ID into **Activation ID**, and select **Load steps** to see its recorded page-fetch steps. A completed workflow has no current activation to select automatically. These views reflect work that happened; they do not predict future steps.
+In **Executions**, select the **Workflows** filter and open the workflow ID printed by the demo. Its **Execution** view offers **Graph** and **Timeline**. The recorded local page-fetch steps appear inside their controller phase, and `summarize` appears as a child task. Select a node or row to inspect it; select **Open execution** on the child to inspect its input and output. Use Back or Up to return and explore another part of the workflow. Completed work stays visible; these views reflect work that happened and do not predict future steps.
 
-Under **Result**, expect:
+Under **Output**, expect:
 
 ```json
 {
@@ -93,7 +93,7 @@ Open **Executions → New execution** and enter:
 | Queue | `demo` |
 | JSON input | `{"invoice_id":"CONSOLE-1042"}` |
 
-Select **Verify reference**, then **Submit execution**. Console opens the accepted execution. Its **Result** should contain `"invoice_id": "CONSOLE-1042"` once the worker completes it. The process ID and invocation counter depend on the worker's current reusable process.
+Select **Verify reference**, then **Submit execution**. Console opens the accepted execution. Its **Output** should contain `"invoice_id": "CONSOLE-1042"` once the worker completes it. The process ID and invocation counter depend on the worker's current reusable process.
 
 Submitting is a write to your running instance. **Run again** creates new work with a new submission identity; it does not reconnect to the previous result.
 
@@ -120,4 +120,4 @@ docker compose -f deploy/local/compose.yaml ps
 docker compose -f deploy/local/compose.yaml logs --tail 100 orchestrator worker
 ```
 
-A blank agent catalog usually means publication or registration has not completed. Repeat `publish` to reconcile an interrupted registration; it is safe for identical package bytes. If Console returns 404, check that your checkout and running image include Console and that the orchestrator was started with `--console-dir`.
+A blank program registry usually means publication or registration has not completed. Repeat `publish` to reconcile an interrupted registration; it is safe for identical package bytes. If Console returns 404, check that your checkout and running image include Console and that the orchestrator was started with `--console-dir`.

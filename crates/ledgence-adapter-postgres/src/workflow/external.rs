@@ -132,6 +132,27 @@ pub(super) async fn install_external_wait(
     sqlx::query("INSERT INTO workflow_waits(workflow_id,wait_key,activation_id,kind,deadline_ms,registered_at_ms) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(&run.snapshot.workflow_id).bind(wait.key()).bind(activation).bind(kind)
         .bind(deadline.map(codec::ms).transpose()?).bind(codec::ms(now)?).execute(&mut *connection).await?;
+    explorer::insert(
+        connection,
+        activation,
+        &ledgence_orchestration_api::console::ConsoleExplorerData::ExternalWait {
+            key: wait.key().to_owned(),
+            wait_kind: match wait {
+                WorkflowWait::Event { .. } => {
+                    ledgence_orchestration_api::console::ConsoleWaitKind::Event
+                }
+                WorkflowWait::Timer { .. } => {
+                    ledgence_orchestration_api::console::ConsoleWaitKind::Timer
+                }
+            },
+            deadline,
+            registered_at: now,
+            closed_at: None,
+            wake_reason: None,
+            resumed_activation_id: None,
+        },
+    )
+    .await?;
     run.snapshot.state = WorkflowState::Waiting;
     run.snapshot.activation_id = None;
     run.wait_activation = Some(activation.to_owned());

@@ -6,7 +6,7 @@ use ledgence_worker_api::ProgramManifest;
 /// name and 4096-byte description needs at most two JSON bytes when escaped.
 pub const PROGRAM_DISPLAY_METADATA_MAX_BYTES: usize = 57 + 2 * (128 + 4096);
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsoleProgramKind {
     Task,
@@ -67,6 +67,29 @@ pub struct ConsoleProgramSummary {
     pub metadata: ProgramDisplayMetadata,
     pub registered_versions: ConsoleU64,
     pub last_registered_at: Timestamp,
+}
+/// New catalog contract: membership is aggregated from registered versions,
+/// independently of the last-edited program display metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsoleProgramCatalogEntry {
+    pub program: ConsoleProgramSummary,
+    pub kinds: Vec<ConsoleProgramKind>,
+}
+impl ConsoleRecord for ConsoleProgramCatalogEntry {
+    fn position(&self) -> ConsolePosition {
+        self.program.position()
+    }
+    fn validate(&self) -> Result<()> {
+        self.program.validate()?;
+        if self.kinds.is_empty()
+            || self.kinds.len() > 3
+            || self.kinds.windows(2).any(|v| v[0] >= v[1])
+        {
+            return Err(invalid("invalid registered program kind membership"));
+        }
+        Ok(())
+    }
 }
 impl ConsoleRecord for ConsoleProgramSummary {
     fn position(&self) -> ConsolePosition {
@@ -134,6 +157,10 @@ pub struct RegisterProgramReply {
 }
 #[derive(Debug, Clone)]
 pub enum ProgramCatalogQuery {
+    Catalog {
+        kind: Option<ConsoleProgramKind>,
+        page: ConsolePagination,
+    },
     Programs(ConsolePagination),
     Versions {
         program_id: String,
@@ -145,6 +172,7 @@ impl ProgramCatalogQuery {
     pub fn binding(&self, scope: &Scope) -> Result<ConsoleCursorBinding> {
         scope.validate()?;
         let (endpoint, parent, descending, numeric_keys) = match self {
+            Self::Catalog { .. } => ("programs/catalog", vec![], false, vec![false]),
             Self::Programs(_) => ("programs", vec![], false, vec![false]),
             Self::Versions { program_id, .. } => {
                 ProgramRef {
@@ -173,7 +201,12 @@ impl ProgramCatalogQuery {
             endpoint,
             scope: scope.clone(),
             parent,
-            filters: serde_json::Value::Null,
+            filters: match self {
+                Self::Catalog { kind, .. } => {
+                    serde_json::to_value(kind).map_err(|_| invalid("invalid catalog kind"))?
+                }
+                _ => serde_json::Value::Null,
+            },
             descending,
             numeric_keys,
         })
@@ -181,13 +214,16 @@ impl ProgramCatalogQuery {
     pub fn validate(&self, scope: &Scope) -> Result<Option<ConsolePosition>> {
         let binding = self.binding(scope)?;
         match self {
-            Self::Programs(page) | Self::Versions { page, .. } => page.validate(&binding),
+            Self::Catalog { page, .. } | Self::Programs(page) | Self::Versions { page, .. } => {
+                page.validate(&binding)
+            }
             Self::Inspect(_) => Ok(None),
         }
     }
 }
 #[derive(Debug, Clone)]
 pub enum ProgramCatalogReply {
+    Catalog(ConsolePage<ConsoleProgramCatalogEntry>),
     Programs(ConsolePage<ConsoleProgramSummary>),
     Versions(ConsolePage<ConsoleProgramVersion>),
     Inspect(Box<ConsoleProgramDetail>),
@@ -198,6 +234,15 @@ impl ProgramCatalogReply {
         let binding = query.binding(scope)?;
         let mismatch = || inconsistent("inconsistent catalog observation");
         match (self, query) {
+            (Self::Catalog(reply), ProgramCatalogQuery::Catalog { kind, page }) => {
+                reply.validate(page, &binding)?;
+                if kind
+                    .is_some_and(|kind| reply.items.iter().any(|item| !item.kinds.contains(&kind)))
+                {
+                    return Err(mismatch());
+                }
+                Ok(())
+            }
             (Self::Programs(reply), ProgramCatalogQuery::Programs(page)) => {
                 reply.validate(page, &binding)
             }

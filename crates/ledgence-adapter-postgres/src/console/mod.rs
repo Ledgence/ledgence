@@ -1,4 +1,7 @@
 //! Consistent bounded console reads. Never mutates authority or scheduling.
+mod executions;
+mod explorer;
+mod observations;
 mod tasks;
 #[cfg(test)]
 mod tests;
@@ -21,6 +24,28 @@ impl ConsoleQueryStore for PostgresStore {
             let mut tx = connection.begin_read().await?;
             let observed_at = db::now(&mut tx).await?;
             let reply = match query {
+                ConsoleQuery::Explorer { .. }
+                | ConsoleQuery::WorkflowInput { .. }
+                | ConsoleQuery::Ancestry { .. } => {
+                    explorer::query(&mut tx, scope, query, position.as_ref(), observed_at).await?
+                }
+                ConsoleQuery::AttemptObservations { attempt_id } => {
+                    ConsoleQueryReply::AttemptObservations(
+                        observations::attempt(&mut tx, scope, attempt_id, observed_at).await?,
+                    )
+                }
+                ConsoleQuery::Executions { filters, page } => ConsoleQueryReply::Executions(
+                    executions::list(
+                        &mut tx,
+                        scope,
+                        query,
+                        filters,
+                        page,
+                        position.as_ref(),
+                        observed_at,
+                    )
+                    .await?,
+                ),
                 ConsoleQuery::Tasks { filters, page } => ConsoleQueryReply::Tasks(
                     tasks::list(
                         &mut tx,

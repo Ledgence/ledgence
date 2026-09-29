@@ -5,6 +5,23 @@ use serde_json::Value;
 /// adapter queries cannot add a browser-supplied tenant or arbitrary sort order.
 #[derive(Debug, Clone)]
 pub enum ConsoleQuery {
+    Explorer {
+        workflow_id: String,
+        page: ConsolePagination,
+    },
+    WorkflowInput {
+        workflow_id: String,
+    },
+    Ancestry {
+        execution: ConsoleExecutionIdentity,
+    },
+    AttemptObservations {
+        attempt_id: String,
+    },
+    Executions {
+        filters: ConsoleExecutionFilters,
+        page: ConsolePagination,
+    },
     Tasks {
         filters: TaskFilters,
         page: ConsolePagination,
@@ -48,7 +65,9 @@ pub enum ConsoleQuery {
 impl ConsoleQuery {
     pub fn pagination(&self) -> Option<&ConsolePagination> {
         match self {
-            Self::Tasks { page, .. }
+            Self::Executions { page, .. }
+            | Self::Explorer { page, .. }
+            | Self::Tasks { page, .. }
             | Self::Attempts { page, .. }
             | Self::Workflows { page, .. }
             | Self::Activations { page, .. }
@@ -56,12 +75,54 @@ impl ConsoleQuery {
             | Self::Waits { page, .. }
             | Self::History { page, .. }
             | Self::LocalSteps { page, .. } => Some(page),
-            Self::Attempt { .. } | Self::Workflow { .. } => None,
+            Self::Attempt { .. }
+            | Self::Workflow { .. }
+            | Self::WorkflowInput { .. }
+            | Self::Ancestry { .. }
+            | Self::AttemptObservations { .. } => None,
         }
     }
     pub fn binding(&self, scope: &Scope) -> Result<ConsoleCursorBinding> {
         scope.validate()?;
         let (endpoint, parent, filters, descending, numeric_keys) = match self {
+            Self::Explorer { workflow_id, .. } => (
+                "workflows/explorer",
+                vec![workflow_id.clone()],
+                Ok(Value::Null),
+                false,
+                vec![true, false, false],
+            ),
+            Self::WorkflowInput { workflow_id } => (
+                "workflows/input",
+                vec![workflow_id.clone()],
+                Ok(Value::Null),
+                false,
+                vec![],
+            ),
+            Self::Ancestry { execution } => (
+                "executions/ancestry",
+                vec![execution.id.clone()],
+                serde_json::to_value(execution.kind),
+                false,
+                vec![],
+            ),
+            Self::AttemptObservations { attempt_id } => (
+                "attempts/observations",
+                vec![attempt_id.clone()],
+                Ok(Value::Null),
+                false,
+                vec![],
+            ),
+            Self::Executions { filters, .. } => {
+                filters.validate()?;
+                (
+                    "executions",
+                    vec![],
+                    serde_json::to_value(filters),
+                    true,
+                    vec![true, false, false],
+                )
+            }
             Self::Tasks { filters, .. } => {
                 filters.validate()?;
                 (
@@ -166,6 +227,11 @@ impl ConsoleQuery {
 /// response DTO. A mismatched or invalid adapter reply is an availability error.
 #[derive(Debug, Clone)]
 pub enum ConsoleQueryReply {
+    Explorer(ConsoleWorkflowExplorer),
+    WorkflowInput(ConsoleWorkflowInput),
+    Ancestry(ConsoleAncestry),
+    AttemptObservations(ConsoleAttemptObservations),
+    Executions(ConsolePage<ConsoleExecutionSummary>),
     Tasks(ConsolePage<ConsoleTaskSummary>),
     Attempts(ConsolePage<ConsoleAttemptSummary>),
     Attempt(ConsoleAttemptDetail),
@@ -183,6 +249,30 @@ impl ConsoleQueryReply {
         let binding = query.binding(scope)?;
         let mismatch = || inconsistent("console adapter returned inconsistent observation");
         match (self, query) {
+            (Self::Explorer(reply), ConsoleQuery::Explorer { workflow_id, page }) => {
+                reply.validate(workflow_id, page, &binding)?
+            }
+            (Self::WorkflowInput(reply), ConsoleQuery::WorkflowInput { workflow_id }) => {
+                reply.validate(workflow_id)?
+            }
+            (Self::Ancestry(reply), ConsoleQuery::Ancestry { execution }) => {
+                reply.validate(execution)?
+            }
+            (
+                Self::AttemptObservations(reply),
+                ConsoleQuery::AttemptObservations { attempt_id },
+            ) => {
+                reply.validate()?;
+                if &reply.attempt_id != attempt_id {
+                    return Err(mismatch());
+                }
+            }
+            (Self::Executions(reply), ConsoleQuery::Executions { filters, page }) => {
+                reply.validate(page, &binding)?;
+                if reply.items.iter().any(|r| !filters.matches(r)) {
+                    return Err(mismatch());
+                }
+            }
             (Self::Tasks(reply), ConsoleQuery::Tasks { filters, page }) => {
                 reply.validate(page, &binding)?;
                 if reply.items.iter().any(|r| !r.task.matches(filters)) {

@@ -217,9 +217,12 @@ fn navigation(path: &str) -> bool {
     }
     match parts.as_slice() {
         [] => true,
-        ["executions" | "workflows" | "agents" | "workers"] => true,
-        ["executions" | "workflows" | "agents" | "workers", id] => !id.is_empty(),
-        ["agents", _, "versions", _] => true,
+        ["executions" | "workflows" | "programs" | "agents" | "workers"] => true,
+        [
+            "executions" | "workflows" | "programs" | "agents" | "workers",
+            id,
+        ] => !id.is_empty(),
+        ["programs" | "agents", _, "versions", _] => true,
         _ => false,
     }
 }

@@ -1,4 +1,31 @@
 use super::*;
+
+#[tokio::test]
+async fn invocation_measurements_are_optional_and_reset_on_warm_reuse() {
+    let (_dir, artifact, runtime) = fixture("def handle(event):\n    return sum(range(1000))\n");
+    let mut session = ready(runtime.start(artifact, control()).await);
+    assert!(session.take_observations().is_none());
+    session
+        .execute(event("first-measurement").into(), control())
+        .await
+        .unwrap();
+    let first = session
+        .take_observations()
+        .expect("bundled helper measurements");
+    first.validate().unwrap();
+    assert!(first.runtime_started_at_ms > 0);
+    assert!(first.process_cpu_user_us.is_some());
+    assert!(first.local_steps.is_empty());
+    assert!(session.take_observations().is_none());
+    session
+        .execute(event("warm-measurement").into(), control())
+        .await
+        .unwrap();
+    let second = session.take_observations().unwrap();
+    assert!(second.runtime_started_at_ms >= first.runtime_started_at_ms);
+    assert!(second.local_steps.is_empty());
+    session.close().await.unwrap();
+}
 use ledgence_worker_api::{RuntimeInvocation, TraceContext};
 
 fn v2_fixture(source: &str) -> (TempDir, PreparedArtifact, SubprocessRuntime) {

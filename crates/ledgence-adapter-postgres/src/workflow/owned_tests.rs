@@ -53,6 +53,7 @@ pub(super) async fn failed_attempt(store: &PostgresStore, assigned: &Assignment)
         owner: assigned.lease.owner.clone(),
         operation_id: "retry-controller".into(),
         report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: Box::new(ExecutionContext {
                 identity: InvocationIdentity::from(&assigned.event),
                 program: assigned.descriptor.program.clone(),

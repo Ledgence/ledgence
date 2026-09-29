@@ -175,7 +175,7 @@ def _text(value, field):
 
 
 def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
-            extension=None, rpc=None):
+            extension=None, rpc=None, observe=False):
     from ledgence.worker import InvocationContext, _invocation
     from ledgence.worker.otel import _activate
 
@@ -198,13 +198,33 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
         parent_workflow_id=event.get("ldgparentworkflowid"),
         root_workflow_id=event.get("ldgrootworkflowid", event.get("ldgworkflowid")),
     ))
+    observation = None
+    observation_token = None
+    if observe:
+        from ledgence.worker._observations import Observations, _current
+        try:
+            observation = Observations()
+            observation_token = _current.set(observation)
+        except Exception:
+            observation = None
     try:
         with _activate(processing_context):
             if version >= 3:
                 import asyncio
-                return asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc))
-            return _invoke_output(handler, event, envelope, limit)
+                response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc))
+            else:
+                response = _invoke_output(handler, event, envelope, limit)
+        if observation is not None:
+            try:
+                enriched = dict(response, observations=observation.snapshot())
+                _encode(enriched, limit)
+                response = enriched
+            except Exception:
+                pass  # Measurements must never displace valid application output.
+        return response
     finally:
+        if observation_token is not None:
+            _current.reset(observation_token)
         _invocation.reset(token)
 
 
@@ -456,7 +476,7 @@ def main():
         # leaking into the next one in this persistent process.
         response = contextvars.Context().run(
             _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
-            args.protocol_version, processing, extension, rpc
+            args.protocol_version, processing, extension, rpc, message.get("observe") is True
         )
         write(response)
 

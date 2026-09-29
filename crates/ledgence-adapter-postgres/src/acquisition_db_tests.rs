@@ -249,6 +249,7 @@ async fn only_committed_retry_transitions_emit_queue_wakes() {
             unreachable!()
         };
         failed.report = AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: report.context,
             error: Error::new(ErrorKind::Runtime, "controlled retry"),
             cleanup_error: None,

@@ -11,24 +11,25 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 
 | View | Recorded information | Available actions |
 | --- | --- | --- |
-| Executions | Program/version, task state, queue, correlation, input, result, attempts, and durable history. | Submit an exact program reference, run an existing submission again, request cancellation. |
-| Workflows | Controller activations, recorded children, local steps, waits, history, context, and result. | Start a workflow controller, send an event to a recorded external wait, request cancellation. |
-| Agents | Registered program references, versions, digests, manifests, and descriptive metadata. | Register a published reference, replace descriptive metadata explicitly, open a submission form. |
+| Executions | Unified task/workflow history, program/version, status, queue, correlation, input, output, attempts, resources and durable history. Workflow details include Graph and Timeline. | Submit an exact program reference, run again as new work, request cancellation, inspect a child execution, send an event to a recorded workflow wait. |
+| Programs | Registered program references, versions, digests, manifests, declared kinds and descriptive metadata. | Register a published reference, update descriptive metadata explicitly, open a submission form or matching execution history. |
 | Workers | Worker sessions, configured capacity, observation freshness, process slots, and validated task/attempt links. | Inspect the latest available observation and follow execution links. |
 
-**Agents** is the program catalog: it also contains data-processing programs and workflow controllers. Registration does not execute or upload a package. Worker inspection does not provide a drain, kill, or scaling command.
+**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. Workers is under Operations; worker inspection does not provide a drain, kill, or scaling command.
 
-Workflow **Recorded work** comes from durable creation and activation relationships. Correlation keys are filters, not proof of parentage. The view does not predict future steps or edit a workflow definition.
+Workflow **Graph** and **Timeline** use the same retained execution records. Select work to inspect it; open a child execution to drill in. Back restores the previous navigation entry, Up follows ownership, and breadcrumbs select ancestors. Completed work remains visible. Correlation keys and timestamps do not prove dependencies. The graph does not predict future branches or edit a workflow definition.
+
+Local work stays inside its controller phase; only recorded branch members belong to a distributed fork. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
 
 ## Filters and pagination
 
-Execution discovery supports exact state, queue, and correlation filters, plus submission time bounds. Workflow discovery supports exact state and correlation, submission time bounds, a parent workflow ID, and root-only filtering. The end of a submission-time interval is exclusive.
+Execution discovery supports task/workflow kind, exact state, program/version, queue, correlation and execution ID, plus submission time bounds. The default scope is root workflows and standalone tasks; Include child executions adds ordinary tasks and subworkflows. Program history and exact-ID lookup include children automatically. Controller activations remain inside their workflow. Unregistered programs retain execution history. The end of a submission-time interval is exclusive.
 
 An unset correlation filter differs from filtering for an empty correlation string. Enable the form's correlation checkbox when applying either a nonempty or empty exact value. These are exact filters, not full-text search.
 
 Pages default to **50** items and are capped at **100**. Opaque keyset cursors are bound to the resource and filters. Each response is coherent at its read, while later pages may see newer committed data. There are no synthetic total counts or a frozen snapshot across navigation.
 
-Execution and workflow discovery refresh their first live page automatically; older pages refresh explicitly. Worker pages refresh the latest observations. The agent catalog does not poll on an interval. Hidden and offline pages pause polling. Terminal outcomes stop active execution and workflow polling. Input and output bodies load on demand, so ordinary refreshes do not repeatedly fetch execution payloads.
+Execution discovery refreshes its first live page automatically; older pages refresh explicitly. Worker pages refresh the latest observations. The program catalog does not poll on an interval. Hidden and offline pages pause polling. Terminal outcomes stop active execution and workflow polling. Input and output bodies load on demand, so ordinary refreshes do not repeatedly fetch execution payloads.
 
 The browser checks the instance identity and Console contract version before accepting a response. A compatibility error is explicit rather than silently interpreting another version's fields.
 
@@ -53,7 +54,15 @@ Console does not automatically retry writes. A transport timeout can happen afte
 
 Cancellation is a request. Active process cleanup and workflow child draining may continue after the request is accepted. Likewise, an accepted external event does not mean the workflow has already resumed. Use the actual recorded wait and its exact key; preserve the event identity when reconciling an uncertain send.
 
-Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Only the appearance preference persists. Filters and resource identifiers can appear in navigation URLs.
+Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Appearance and Graph/Timeline preferences may persist. Filters and resource identifiers can appear in navigation URLs; scroll, selection and graph presentation are retained for navigation.
+
+## Attempt resources and local observations
+
+Resources show available measurements for one attempt. Runtime elapsed excludes preparation and startup, while CPU counts the Python process and all its threads during the invocation. Child processes, including Codex, are excluded. Concurrent local functions share the process, so its CPU cannot be attributed exclusively to a single local function.
+
+Memory is labeled **process lifetime peak memory**. Reused processes can retain peaks from earlier invocations; this is not an invocation peak and peaks must not be summed. Unavailable counters are distinct from zero. No provider billing estimate is inferred.
+
+Local start, elapsed, failure and replay observations are delivered with the accepted attempt report. They are not a live stream of running functions. The accepted-result journal remains authoritative: a callable returning does not prove its result was durably committed, and replay does not execute it again. Older workers, interrupted processes and lost reports can leave measurements unavailable. See the [execution observation contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-observations.md).
 
 ## Worker process observations
 
@@ -113,6 +122,8 @@ Configure that exact public origin in the server's `allowed_origins`, for exampl
 Do not rewrite API failures or missing assets into HTML. The orchestrator handles supported Console navigation routes. Its content security policy permits local scripts and reviewed inline styles, without inline JavaScript or evaluation.
 
 ## Upgrades
+
+The execution explorer uses Console contract version 2. Start matching server and assets; incompatible bundles fail explicitly. Existing `/agents` and workflow links remain supported. Migrations backfill retained compact metadata and build discovery indexes, so budget maintenance time according to database size.
 
 1. Back up PostgreSQL and the immutable program store using a tested restoration procedure.
 2. Stop orchestrators and all other writers before migrating or binding an existing database.

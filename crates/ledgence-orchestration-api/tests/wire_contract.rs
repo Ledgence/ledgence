@@ -34,6 +34,7 @@ fn command(output: Value) -> SettleCommand {
         },
         operation_id: "settle".into(),
         report: AttemptReport::Completed(ExecutionReport {
+            observations: None,
             context: Box::new(context),
             process_id: 42,
             reused_process: true,

@@ -81,7 +81,7 @@ pub fn fixtures() -> Value {
         observed_at: at + 100,
     };
     let config = ConsoleConfig {
-        contract_version: 1,
+        contract_version: CONSOLE_CONTRACT_VERSION,
         server_version: "0.1.1".into(),
         instance_id: "instance_demo".into(),
         instance_name: "Ledgence".into(),
@@ -327,7 +327,7 @@ pub fn fixtures() -> Value {
         next_cursor: None,
         observed_at: at,
     };
-    json!({"contract_version":1,"config":config,"tasks":tasks,"task_status":ConsoleObservedTaskStatus{task:status,observed_at:at},"task_detail":task_detail,"attempts":attempts,"attempt_detail":attempt_detail,
+    json!({"contract_version":CONSOLE_CONTRACT_VERSION,"config":config,"tasks":tasks,"task_status":ConsoleObservedTaskStatus{task:status,observed_at:at},"task_detail":task_detail,"attempts":attempts,"attempt_detail":attempt_detail,
         "workflows":workflows,"workflow_status":ConsoleObservedWorkflowStatus{workflow,observed_at:at},"workflow_detail":workflow_detail,"activations":activations,"children":children,"waits":waits,"local_steps":local_steps,"workflow_history":workflow_history,
         "pending_result":pending,"null_result":success,"numeric_payload":numeric_payload,
         "programs":programs,"program_versions":versions,"program_detail":program_detail,"program_receipt":program_receipt,"workers":workers,"worker_detail":worker_detail})
