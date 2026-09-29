@@ -61,6 +61,9 @@ class ConsoleDeployment(Deployment):
         lower = {key.lower(): value for key, value in headers.items()}
         assert lower.get("request-id"), headers
         assert lower.get("cache-control") == "no-store", headers
+        if status == 200:
+            assert lower.get("ledgence-console-contract") == "3", headers
+            assert lower.get("ledgence-instance-id") == self.instance["instance_id"], headers
         return result
 
     def rows(self, path, **query):

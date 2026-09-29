@@ -3,6 +3,9 @@ use crate::tests::{TestDb, acquire_command, assignment, command, completed, desc
 use ledgence_worker_api::{InvocationObservations, LocalStepObservation, LocalStepObservedState};
 use serde_json::json;
 
+#[path = "explorer_entrypoint_tests.rs"]
+mod entrypoint_tests;
+
 async fn acquire(db: &TestDb, queue: &str) -> Assignment {
     let session = db.store.open_session(&scope(), queue, 1).await.unwrap();
     let assigned = assignment(
@@ -98,6 +101,12 @@ async fn rebuild_historical_projection(db: &TestDb) {
     .execute(&mut *tx)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../migrations/20260929000000_console_entrypoints.sql"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
 }
 fn local(assigned: &Assignment) -> LocalResultCommand {
@@ -177,7 +186,7 @@ async fn explorer_fork_local_and_join_follow_recorded_semantics_with_singleton_c
     assert_eq!(
         before.len(),
         4,
-        "one phase, child, fork and local occurrence despite replay"
+        "one entrypoint, child, fork and local occurrence despite replay"
     );
     assert_eq!(
         db.store
@@ -227,7 +236,7 @@ async fn explorer_fork_local_and_join_follow_recorded_semantics_with_singleton_c
     assert_eq!(
         after.len(),
         6,
-        "join and resumed phase augment existing identities"
+        "join and resumed entrypoint augment existing identities"
     );
     assert!(
         before
@@ -242,11 +251,11 @@ async fn explorer_fork_local_and_join_follow_recorded_semantics_with_singleton_c
         .activation_id
         .unwrap();
     assert!(after.iter().any(|node| matches!(&node.data, ConsoleExplorerData::ChildWait { member_keys, resumed_activation_id: Some(id), .. } if member_keys == &["review:0"] && id == &next)));
-    assert!(after.iter().any(|node| matches!(&node.data, ConsoleExplorerData::Phase { decision_kind: Some(ConsoleDecisionKind::Suspend), resumed_activation_id: Some(id), .. } if id == &next)));
+    assert!(after.iter().any(|node| matches!(&node.data, ConsoleExplorerData::Entrypoint { decision_kind: Some(ConsoleDecisionKind::Suspend), resumed_activation_id: Some(id), .. } if id == &next)));
     assert!(after.iter().any(|node| node.activation_id == next
         && matches!(
             node.data,
-            ConsoleExplorerData::Phase {
+            ConsoleExplorerData::Entrypoint {
                 state: Some(TaskState::Queued),
                 ..
             }
@@ -461,7 +470,7 @@ async fn explorer_rejected_decision_has_no_effect_or_continuation_before_or_afte
     let accepted = all(&db, &root.workflow_id, 1).await;
     assert!(matches!(
         &accepted[0].data,
-        ConsoleExplorerData::Phase {
+        ConsoleExplorerData::Entrypoint {
             state: Some(TaskState::Succeeded),
             applied_at: None,
             decision_kind: None,
@@ -485,7 +494,7 @@ async fn explorer_rejected_decision_has_no_effect_or_continuation_before_or_afte
     assert_eq!(rejected.len(), 1);
     assert!(matches!(
         &rejected[0].data,
-        ConsoleExplorerData::Phase {
+        ConsoleExplorerData::Entrypoint {
             applied_at: Some(_),
             decision_kind: None,
             error: Some(_),
@@ -581,5 +590,107 @@ async fn explorer_unavailable_children_keep_identity_without_reading_application
             .await,
         Err(ContractError::NotFound)
     ));
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn explorer_byte_limited_page_continues_without_skipping_retained_records() {
+    let db = TestDb::new().await;
+    let workflow = "byte-budget";
+    let mut submission = command();
+    submission.idempotency_key = workflow.into();
+    // Exercise the read projection's contract bounds independently of workflow
+    // transitions. These typed retained records have no live activation targets;
+    // this fixture does not claim that one workflow can reject 100 decisions.
+    sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,revision,continuation,checkpoint_bytes,outcome_bytes,submitted_at_ms,terminal_at_ms,queue) VALUES($1,'acme','billing',$1,$2,$3,'failed',99,'review',$4,$5,1,3,'python')")
+        .bind(workflow)
+        .bind(codec::encode(&submission).unwrap())
+        .bind(codec::encode(&descriptor()).unwrap())
+        .bind(codec::encode(&json!(null)).unwrap())
+        .bind(codec::encode(&WorkflowOutcome::Failed {
+            error: ApplicationError {
+                kind: "fixture".into(),
+                message: "Retained projection boundary fixture".into(),
+            },
+        }).unwrap())
+        .execute(&db.store.pool).await.unwrap();
+    let message = "\0".repeat(4096);
+    let data = ConsoleExplorerData::Entrypoint {
+        state: None,
+        availability: ConsoleEvidenceAvailability::Unavailable,
+        submitted_at: 1,
+        terminal_at: Some(2),
+        applied_at: Some(3),
+        decision_kind: None,
+        error: Some(ApplicationError {
+            kind: "retained".into(),
+            message: message.clone(),
+        }),
+        resumed_activation_id: None,
+    };
+    data.validate().unwrap();
+    let bytes = codec::encode(&data).unwrap();
+    assert!(bytes.len() * 100 > CONSOLE_METADATA_MAX_BYTES);
+    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT $1,n,'entrypoint','','retained_'||lpad(n::text,3,'0'),'review',$2 FROM generate_series(0,99) n")
+        .bind(workflow).bind(bytes).execute(&db.store.pool).await.unwrap();
+    let expected: Vec<_> = (0..100)
+        .map(|revision| {
+            serde_json::to_string(&(
+                "entrypoint",
+                workflow,
+                format!("retained_{revision:03}"),
+                "",
+            ))
+            .unwrap()
+        })
+        .collect();
+    let mut request = ConsolePagination {
+        limit: 100,
+        cursor: None,
+    };
+    let mut found = Vec::new();
+    let mut finished = false;
+    for page_number in 0..4 {
+        let ConsoleQueryReply::Explorer(result) = db
+            .store
+            .query_console(
+                &scope(),
+                &ConsoleQuery::Explorer {
+                    workflow_id: workflow.into(),
+                    page: request.clone(),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("explorer response")
+        };
+        assert!(codec::encode(&result).unwrap().len() <= CONSOLE_METADATA_MAX_BYTES);
+        assert!(!result.page.items.is_empty());
+        if page_number == 0 {
+            assert!(result.page.items.len() < request.limit as usize);
+            assert!(
+                result.page.next_cursor.is_some(),
+                "a page shortened by bytes must still expose its continuation"
+            );
+        }
+        for node in result.page.items {
+            assert!(
+                matches!(node.data, ConsoleExplorerData::Entrypoint { error: Some(error), .. } if error.message == message)
+            );
+            found.push(node.id);
+        }
+        request.cursor = result.page.next_cursor;
+        if request.cursor.is_none() {
+            finished = true;
+            break;
+        }
+    }
+    assert!(finished, "bounded traversal must reach the final page");
+    assert_eq!(
+        found, expected,
+        "following the real SQL cursor must preserve every record exactly once in order"
+    );
     db.finish().await;
 }

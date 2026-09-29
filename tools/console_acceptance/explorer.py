@@ -84,22 +84,22 @@ def run(d, publish, record):
     assert all(node.get("fork_key") is None for node in children if node["key"] != "review:0")
     joins = kinds("child_wait")
     assert len(joins) == 3
-    phases = {node["entrypoint"]: node for node in kinds("phase")}
-    assert len(kinds("phase")) == 4 and set(phases) == {"start", "validate", "collect", "finish"}
+    entrypoints = {node["entrypoint"]: node for node in kinds("entrypoint")}
+    assert len(kinds("entrypoint")) == 4 and set(entrypoints) == {"start", "validate", "collect", "finish"}
     for entrypoint, child_key, resume in [("start", "implement:0", "validate"),
                                          ("validate", "review:0", "collect"),
                                          ("collect", "finalize:0", "finish")]:
-        join, = [node for node in joins if node["activation_id"] == phases[entrypoint]["activation_id"]]
+        join, = [node for node in joins if node["activation_id"] == entrypoints[entrypoint]["activation_id"]]
         assert join["member_keys"] == [child_key] and join["resume"] == resume
-        assert join["resumed_activation_id"] == phases[resume]["activation_id"]
-        assert phases[entrypoint]["decision_kind"] == "suspend"
-        assert phases[entrypoint]["resumed_activation_id"] == phases[resume]["activation_id"]
-    assert phases["finish"]["decision_kind"] == "complete"
-    assert phases["finish"]["resumed_activation_id"] is None
+        assert join["resumed_activation_id"] == entrypoints[resume]["activation_id"]
+        assert entrypoints[entrypoint]["decision_kind"] == "suspend"
+        assert entrypoints[entrypoint]["resumed_activation_id"] == entrypoints[resume]["activation_id"]
+    assert entrypoints["finish"]["decision_kind"] == "complete"
+    assert entrypoints["finish"]["resumed_activation_id"] is None
     ancestry = d.api("GET", "executions/ancestry", kind="workflow", id=review["execution"]["id"])
     assert [node["execution"]["id"] for node in ancestry["path"]] == [root, review["execution"]["id"]]
     nested = d.rows("workflows/explorer", workflow_id=review["execution"]["id"], limit=1)
-    assert {node["kind"] for node in nested} == {"phase", "local"} and len(nested) == 2
+    assert {node["kind"] for node in nested} == {"entrypoint", "local"} and len(nested) == 2
     nested_local, = [node for node in nested if node["kind"] == "local"]
     assert nested_local["entrypoint"] == "review" and nested_local["key"] == "review:0"
     assert nested_local["accepted_at"] is not None and nested_local["observation"]["state"] == "returned"

@@ -143,7 +143,7 @@ pub(super) fn explorer_query(
     if let Some(position) = position {
         let kind = position_text(position, 1)?;
         let key = position_text(position, 2)?;
-        let record_key = if matches!(kind.as_str(), "phase" | "child_wait") {
+        let record_key = if matches!(kind.as_str(), "entrypoint" | "child_wait") {
             if key != kind {
                 return Err(ContractError::InvalidInput(
                     "invalid singleton explorer cursor".into(),
@@ -172,9 +172,9 @@ async fn hydrate(
     workflow: &str,
     items: &mut [ConsoleExplorerNode],
 ) -> StoreResult<()> {
-    let phase_ids: Vec<_> = items
+    let entrypoint_ids: Vec<_> = items
         .iter()
-        .filter(|node| matches!(node.data, ConsoleExplorerData::Phase { .. }))
+        .filter(|node| matches!(node.data, ConsoleExplorerData::Entrypoint { .. }))
         .map(|node| node.activation_id.clone())
         .collect();
     let task_ids: Vec<_> = items
@@ -206,11 +206,11 @@ async fn hydrate(
             _ => None,
         })
         .collect();
-    let phases: BTreeMap<String, PgRow> = if phase_ids.is_empty() {
+    let entrypoints: BTreeMap<String, PgRow> = if entrypoint_ids.is_empty() {
         BTreeMap::new()
     } else {
         sqlx::query("SELECT t.task_id,t.state,t.terminal_at_ms,a.applied_at_ms,a.error_bytes FROM tasks t LEFT JOIN workflow_activations a ON a.task_id=t.task_id WHERE t.task_id=ANY($1) AND t.tenant_id=$2 AND t.namespace=$3 AND t.retiring_at_ms IS NULL")
-            .bind(phase_ids).bind(&scope.tenant_id).bind(&scope.namespace).fetch_all(&mut *connection).await?.into_iter().map(|row| Ok((row.try_get("task_id")?, row))).collect::<StoreResult<_>>()?
+            .bind(entrypoint_ids).bind(&scope.tenant_id).bind(&scope.namespace).fetch_all(&mut *connection).await?.into_iter().map(|row| Ok((row.try_get("task_id")?, row))).collect::<StoreResult<_>>()?
     };
     let children: BTreeMap<(String, String), PgRow> = if task_ids.is_empty()
         && workflow_ids.is_empty()
@@ -228,7 +228,7 @@ async fn hydrate(
     };
     for node in items {
         match &mut node.data {
-            ConsoleExplorerData::Phase {
+            ConsoleExplorerData::Entrypoint {
                 state,
                 availability,
                 terminal_at,
@@ -238,7 +238,7 @@ async fn hydrate(
                 resumed_activation_id,
                 ..
             } => {
-                if let Some(row) = phases.get(&node.activation_id) {
+                if let Some(row) = entrypoints.get(&node.activation_id) {
                     *state = Some(enumeration(row, "state")?);
                     *availability = ConsoleEvidenceAvailability::Available;
                     *terminal_at = optional_number(row, "terminal_at_ms")?;

@@ -7,6 +7,7 @@ import types
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sdk/python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ledgence.worker.workflow import WorkflowContext, WorkflowError, _workflow
 from console_acceptance.explorer import STEP, WORKFLOW
 
