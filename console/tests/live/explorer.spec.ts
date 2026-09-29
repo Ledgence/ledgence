@@ -167,12 +167,17 @@ test("real fork graph distinguishes parent locals, explores review, and restores
   });
   expect(geometry.intersections).toEqual([]);
   expect(geometry.fits).toBe(true);
-  await page
-    .getByRole("button", {
-      name: "tests:0 · Local step · accepted",
-      exact: true,
-    })
-    .click();
+  // The initial camera keeps the start readable, not every loaded node in view.
+  // Follow the graph's normal navigation before selecting this later local.
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  const localCard = page.getByRole("button", {
+    name: "tests:0 · Local step · accepted",
+    exact: true,
+  });
+  // Transformed cards can report 0.999998 visibility from subpixel rounding.
+  // Allow that rounding; the normal click still verifies pointer reachability.
+  await expect(localCard).toBeInViewport({ ratio: 0.999 });
+  await localCard.click();
   await expect(
     page
       .getByRole("complementary", { name: "Selected work details" })
