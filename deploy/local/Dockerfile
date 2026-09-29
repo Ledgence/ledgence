@@ -4,6 +4,7 @@ FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea41952009
 WORKDIR /src/console
 RUN corepack enable && corepack prepare pnpm@11.27.1 --activate
 COPY console/package.json console/pnpm-lock.yaml console/pnpm-workspace.yaml ./
+COPY console/patches ./patches
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY console ./
 COPY LICENSE /src/LICENSE
