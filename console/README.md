@@ -104,7 +104,7 @@ to their resource: refreshing the same resource preserves them, while navigating
 to another resource starts with a separate form. Separating an operation requires an
 explicit confirmation. Run again creates a new submission with a new identity.
 Inputs, outputs, events and command bodies are not written to URLs, local storage
-or analytics. Only appearance and the preferred Graph/Timeline view persist in
+or analytics. Only appearance, sidebar collapse, and the preferred Graph/Timeline view persist in
 local storage. Shareable filters, selected record and view belong in the URL;
 scroll, expansion and focus restoration use bounded memory per history entry.
 
@@ -142,8 +142,14 @@ missing reports never become fabricated process slots.
 
 ## Interface and dependencies
 
-The shell follows the approved neutral layout, with light/dark/system appearance,
-responsive tables, local system fonts, visible focus, semantic controls and
+The shell has a persistent collapsible desktop sidebar, compact mobile navigation,
+and light/dark/system appearance. Execution headers group identity and status;
+advanced filters expand across the available width. The explorer can expand to
+full screen with Escape to exit, keeps selection and canvas state, and opens its
+inspector only when work is selected. Secondary evidence remains available in an
+expandable work list.
+
+The interface uses responsive tables, local system fonts, visible focus, semantic controls and
 reduced-motion support. Selected shadcn primitives are adapted locally; only the
 Radix Dialog runtime is used. Its modal scroll lock inserts reviewed CSS at runtime,
 so the server's CSP permits inline styles while keeping scripts restricted to local

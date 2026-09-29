@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { afterEach, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -50,8 +51,20 @@ function detail(id: string) {
   return value;
 }
 function routes(
-  options: { next?: string; nodes?: ReturnType<typeof fixtureNodes> } = {},
+  options: {
+    next?: string;
+    nodes?: ReturnType<typeof fixtureNodes>;
+    running?: boolean;
+  } = {},
 ) {
+  function executionDetail(id: string) {
+    const result = detail(id);
+    if (options.running) {
+      result.summary.workflow.state = "running";
+      result.summary.workflow.terminal_at = null;
+    }
+    return result;
+  }
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = new URL(String(input), location.origin);
     const id =
@@ -59,10 +72,10 @@ function routes(
       url.searchParams.get("id") ??
       "wf_invoice_1042";
     if (url.pathname.endsWith("/workflows/inspect"))
-      return response(detail(id));
+      return response(executionDetail(id));
     if (url.pathname.endsWith("/workflows/explorer"))
       return response({
-        workflow: detail(id),
+        workflow: executionDetail(id),
         page: {
           items:
             id === "wf_review"
@@ -91,6 +104,7 @@ function routes(
     throw Error(`Unexpected request ${url.pathname}`);
   });
 }
+let historyEntry = 0;
 async function mount(url = "/workflows/wf_invoice_1042?view=graph") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -99,7 +113,15 @@ async function mount(url = "/workflows/wf_invoice_1042?view=graph") {
   const view = await render(
     <QueryClientProvider client={client}>
       <InstanceContext.Provider value={config}>
-        <MemoryRouter initialEntries={[url]}>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: url.split("?")[0]!,
+              search: url.includes("?") ? `?${url.split("?")[1]}` : "",
+              key: `explorer-test-${historyEntry++}`,
+            },
+          ]}
+        >
           <NavigationMemory />
           <main id="main-content" tabIndex={-1}>
             <Routes>
@@ -267,6 +289,7 @@ it("anchors a selected timeline row when earlier evidence arrives, unless follow
     ),
   ];
   routes({
+    running: true,
     get nodes() {
       return nodes;
     },
@@ -345,4 +368,106 @@ it("shows an unavailable child's unknown end explicitly without stretching a com
       .querySelector(".execution-timeline")
       ?.getAttribute("data-timeline-end"),
   ).toBe("1100");
+});
+
+it("maximizes the mounted workspace, contains focus, and restores selection on Escape", async () => {
+  routes();
+  const { view } = await mount();
+  await view
+    .getByRole("button", { name: "Collapse phase collect", exact: true })
+    .click();
+  await view
+    .getByRole("button", {
+      name: "tests:0 · Local step · accepted",
+      exact: true,
+    })
+    .click();
+  const canvas = document.querySelector(".explorer-canvas");
+  const previousOverflow = document.body.style.overflow;
+  await view
+    .getByRole("button", { name: "Expand to full screen", exact: true })
+    .click();
+  await expect
+    .element(view.getByRole("dialog", { name: "Workflow execution" }))
+    .toBeVisible();
+  await expect
+    .element(
+      view.getByRole("dialog").getByText("change-review", { exact: true }),
+    )
+    .toBeVisible();
+  expect(document.querySelector(".explorer-canvas")).toBe(canvas);
+  expect(document.body.style.overflow).toBe("hidden");
+  const graphButton = view.getByRole("button", { name: "Graph", exact: true });
+  graphButton.element().focus();
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(
+    document
+      .querySelector(".execution-explorer")
+      ?.contains(document.activeElement),
+  ).toBe(true);
+  expect(document.activeElement).not.toBe(graphButton.element());
+  await userEvent.keyboard("{Tab}");
+  await expect.element(graphButton).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await expect
+    .element(view.getByRole("dialog", { name: "Workflow execution" }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(
+      view.getByRole("button", { name: "Expand to full screen", exact: true }),
+    )
+    .toHaveFocus();
+  expect(document.body.style.overflow).toBe(previousOverflow);
+  expect(document.querySelector("[inert]")).toBeNull();
+  await expect
+    .element(
+      view.getByRole("button", { name: "Expand phase collect", exact: true }),
+    )
+    .toHaveAttribute("aria-expanded", "false");
+  await expect
+    .element(
+      view.getByRole("complementary").getByRole("heading", { name: "tests:0" }),
+    )
+    .toBeVisible();
+  await view
+    .getByRole("button", { name: "Close details", exact: true })
+    .click();
+  await expect
+    .element(view.getByRole("complementary", { name: "Selected work details" }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(
+      view.getByRole("button", {
+        name: "tests:0 · Local step · accepted",
+        exact: true,
+      }),
+    )
+    .toHaveFocus();
+});
+
+it("keeps supplementary work and time controls behind explicit disclosures", async () => {
+  routes();
+  const { view } = await mount();
+  await expect
+    .element(view.getByRole("complementary", { name: "Selected work details" }))
+    .not.toBeInTheDocument();
+  await expect
+    .poll(
+      () =>
+        document.querySelector<HTMLDetailsElement>(".explorer-reference")?.open,
+    )
+    .toBe(false);
+  await expect
+    .element(
+      view.getByRole("checkbox", { name: "Follow activity", exact: true }),
+    )
+    .not.toBeInTheDocument();
+  await view.getByRole("button", { name: "Timeline", exact: true }).click();
+  await expect
+    .element(view.getByLabelText("From", { exact: true }))
+    .not.toBeVisible();
+  await view.getByText("Adjust time range", { exact: true }).click();
+  await expect
+    .element(view.getByLabelText("From", { exact: true }))
+    .toBeVisible();
 });

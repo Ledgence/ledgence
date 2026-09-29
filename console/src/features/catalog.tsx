@@ -58,7 +58,7 @@ export function AgentsPage() {
     <>
       <PageHeading
         title="Programs"
-        description="Programs registered in this instance, ready to use by exact version."
+        description="Your registered tasks and workflows, ready to run."
         actions={config.capabilities.programs && <RegisterProgram />}
       />
       <nav className="tabs" aria-label="Program type">
@@ -84,9 +84,8 @@ export function AgentsPage() {
           </Button>
         ))}
       </nav>
-      <p className="muted">
-        Type filters match any registered version. Package contents are
-        immutable; descriptive metadata can be updated.
+      <p className="muted list-caption">
+        Filter by the type of any registered version.
       </p>
       {!config.capabilities.programs ? (
         <Empty>The program catalog is unavailable on this server.</Empty>
@@ -105,9 +104,12 @@ export function AgentsPage() {
           {query.data && (
             <>
               {query.data.items.length ? (
-                <div className="card-grid">
+                <div className="card-grid program-grid">
                   {query.data.items.map(({ program: item, kinds }) => (
-                    <article className="card" key={item.program_id}>
+                    <article
+                      className="card program-card"
+                      key={item.program_id}
+                    >
                       <div className="summary-line">
                         <Package aria-hidden="true" />
                         <Status
@@ -144,21 +146,20 @@ export function AgentsPage() {
                           ? "version"
                           : "versions"}
                       </p>
-                      <p>
-                        <Link to={programHistory(item.program_id)}>
-                          View executions
-                        </Link>
-                      </p>
                       <p className="muted">
                         Last registration{" "}
                         <When value={item.last_registered_at} />
                       </p>
-                      <Link
-                        className="back-link"
-                        to={`/programs/${encodeURIComponent(item.program_id)}`}
-                      >
-                        View versions <ArrowRight aria-hidden="true" />
-                      </Link>
+                      <div className="program-card-actions">
+                        <Link
+                          to={`/programs/${encodeURIComponent(item.program_id)}`}
+                        >
+                          View versions <ArrowRight aria-hidden="true" />
+                        </Link>
+                        <Link to={programHistory(item.program_id)}>
+                          View executions
+                        </Link>
+                      </div>
                     </article>
                   ))}
                 </div>

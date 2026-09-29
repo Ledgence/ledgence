@@ -14,7 +14,12 @@ import {
   ChevronRight,
   GitFork,
   ListTree,
+  Maximize2,
+  Minimize2,
+  Search,
+  X,
 } from "lucide-react";
+import "../styles/explorer.css";
 import { useInstance } from "../app/instance";
 import {
   readExplorerState,
@@ -76,6 +81,76 @@ export function WorkflowExplorer({
   active: boolean;
 }) {
   const config = useInstance();
+  const [maximized, setMaximized] = useState(false);
+  const workspace = useRef<HTMLElement>(null);
+  const maximizeButton = useRef<HTMLButtonElement>(null);
+  const inspector = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!maximized || !workspace.current) return;
+    const element = workspace.current;
+    // Safari does not focus buttons on pointer clicks, so capture the actual
+    // trigger rather than assuming activeElement is the opener.
+    const before = maximizeButton.current ?? document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    const inertElements: { element: HTMLElement; previous: boolean }[] = [];
+    // Keep the mounted canvas (and its camera/selection) in place while making
+    // the rest of the document unavailable to keyboard and assistive input.
+    let branch: HTMLElement = element;
+    while (branch.parentElement) {
+      for (const sibling of branch.parentElement.children) {
+        if (sibling !== branch && sibling instanceof HTMLElement) {
+          inertElements.push({ element: sibling, previous: sibling.inert });
+          sibling.inert = true;
+        }
+      }
+      branch = branch.parentElement;
+      if (branch === document.body) break;
+    }
+    document.body.style.overflow = "hidden";
+    maximizeButton.current?.focus({ preventScroll: true });
+    function trapFocus(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setMaximized(false);
+      }
+      if (event.key !== "Tab") return;
+      const closedDetails = Array.from(
+        element.querySelectorAll("details:not([open])"),
+      );
+      const candidates = Array.from(
+        element.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex="0"]',
+        ),
+      ).filter(
+        (item) =>
+          item.getClientRects().length &&
+          !item.closest("[inert]") &&
+          !closedDetails.some(
+            (details) =>
+              details.contains(item) &&
+              !details.querySelector(":scope > summary")?.contains(item),
+          ),
+      );
+      const first = candidates[0];
+      const last = candidates.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.removeEventListener("keydown", trapFocus);
+      document.body.style.overflow = previousOverflow;
+      for (const item of inertElements) item.element.inert = item.previous;
+      if (before instanceof HTMLElement && before.isConnected)
+        before.focus({ preventScroll: true });
+    };
+  }, [maximized]);
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const paging = usePagination("explorer_");
@@ -160,6 +235,13 @@ export function WorkflowExplorer({
   function select(id: string) {
     changeParam("node", id);
   }
+  function clearSelection() {
+    const selectedButton = canvas.current?.querySelector<HTMLElement>(
+      '[aria-pressed="true"]',
+    );
+    changeParam("node", null);
+    (selectedButton ?? canvas.current)?.focus({ preventScroll: true });
+  }
   function collapse(id: string) {
     updateState({
       ...state,
@@ -178,7 +260,13 @@ export function WorkflowExplorer({
     }
   }, [query.dataUpdatedAt, state.follow]);
   return (
-    <section className="execution-explorer" aria-label="Workflow execution">
+    <section
+      ref={workspace}
+      className={`execution-explorer${maximized ? " explorer-maximized" : ""}`}
+      role={maximized ? "dialog" : undefined}
+      aria-modal={maximized ? true : undefined}
+      aria-label="Workflow execution"
+    >
       <div className="explorer-toolbar">
         <div className="segmented" aria-label="Execution view">
           {(["graph", "timeline"] as const).map((mode) => (
@@ -205,25 +293,45 @@ export function WorkflowExplorer({
           ))}
         </div>
         <label className="explorer-search">
+          <Search aria-hidden="true" />
           <span className="sr-only">Find recorded work on this page</span>
           <input
-            placeholder="Find work on this page"
+            placeholder="Find a step…"
             value={state.search}
             onChange={(event) =>
               updateState({ ...state, search: event.target.value })
             }
           />
         </label>
-        <label className="check-label">
-          <input
-            type="checkbox"
-            checked={state.follow}
-            onChange={(event) =>
-              updateState({ ...state, follow: event.target.checked })
-            }
-          />
-          Follow activity
-        </label>
+        {active && (
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={state.follow}
+              onChange={(event) =>
+                updateState({ ...state, follow: event.target.checked })
+              }
+            />
+            Follow activity
+          </label>
+        )}
+        <Button
+          ref={maximizeButton}
+          variant="ghost"
+          className="explorer-maximize"
+          aria-label={maximized ? "Exit full screen" : "Expand to full screen"}
+          title={
+            maximized ? "Exit full screen (Escape)" : "Expand to full screen"
+          }
+          onClick={() => setMaximized(!maximized)}
+        >
+          {maximized ? (
+            <Minimize2 aria-hidden="true" />
+          ) : (
+            <Maximize2 aria-hidden="true" />
+          )}
+          <span>{maximized ? "Exit full screen" : "Full screen"}</span>
+        </Button>
       </div>
       {query.isPending && <LoadingState label="Loading recorded execution" />}
       {query.error && (
@@ -235,19 +343,36 @@ export function WorkflowExplorer({
       )}
       {query.data && (
         <>
-          <p className="muted explorer-caption">
-            Recorded execution · {nodes.length} records on this page. Local
-            steps run within their controller phase; child executions run
-            independently.
-          </p>
           {(paging.cursor || query.data.page.next_cursor) && (
             <p className="notice">
               Partial view. More recorded work is available on other pages; an
               edge appears when both endpoints are loaded.
             </p>
           )}
-          <div className="explorer-body">
-            <div>
+          <div className={`explorer-body${selectedId ? " has-selection" : ""}`}>
+            <div className="explorer-stage">
+              <div className="explorer-stage-heading">
+                <div className="explorer-record-count">
+                  {maximized && (
+                    <strong
+                      title={`${query.data.workflow.summary.controller.program.id} · ${workflowId}`}
+                    >
+                      {query.data.workflow.summary.controller.program.id ||
+                        workflowId}
+                    </strong>
+                  )}
+                  <span>
+                    {nodes.length} recorded{" "}
+                    {nodes.length === 1 ? "item" : "items"}
+                    {search ? ` · ${filtered.length} matching` : ""}
+                  </span>
+                </div>
+                <span>
+                  {selectedId
+                    ? "Select another item to inspect"
+                    : "Select an item to inspect"}
+                </span>
+              </div>
               <div
                 className={`explorer-canvas explorer-${view}`}
                 data-scroll-memory={`explorer:${workflowId}:${view}`}
@@ -284,6 +409,56 @@ export function WorkflowExplorer({
                   />
                 )}
               </div>
+            </div>
+            {selectedId && (
+              <aside
+                ref={inspector}
+                className="explorer-inspector"
+                aria-label="Selected work details"
+              >
+                <div className="explorer-inspector-toolbar">
+                  <span>Details</span>
+                  <Button
+                    variant="ghost"
+                    aria-label="Close details"
+                    title="Close details"
+                    onClick={clearSelection}
+                  >
+                    <X aria-hidden="true" />
+                  </Button>
+                </div>
+                {selected ? (
+                  <NodeInspector
+                    key={selected.id}
+                    node={selected}
+                    workflowId={workflowId}
+                  />
+                ) : (
+                  <>
+                    <h2>Selection unavailable on this page</h2>
+                    <p>
+                      The selected record may be on another page, unavailable,
+                      or no longer retained. Its absence does not prove it
+                      expired.
+                    </p>
+                    <Button variant="outline" onClick={clearSelection}>
+                      Clear selection
+                    </Button>
+                  </>
+                )}
+              </aside>
+            )}
+          </div>
+          <PageControls
+            pagination={paging}
+            nextCursor={query.data.page.next_cursor}
+            observedAt={query.data.page.observed_at}
+            refresh={() => void query.refetch()}
+            fetching={query.isFetching}
+          />
+          <details className="explorer-reference">
+            <summary>Work list & recorded evidence</summary>
+            <div className="explorer-reference-content">
               <details className="explorer-relationships">
                 <summary>Recorded relationships ({edges.length})</summary>
                 <p className="muted">
@@ -335,59 +510,14 @@ export function WorkflowExplorer({
                   </section>
                 ))}
               </details>
+              <p className="muted explorer-evidence-note">
+                This view uses retained Ledgence records and works without
+                exported traces. Missing local evidence does not mean a step
+                never started. Timestamps do not establish dependencies.
+                Measurements and history may be incomplete after interrupted
+                attempts or retention cleanup.
+              </p>
             </div>
-            <aside
-              className="explorer-inspector"
-              aria-label="Selected work details"
-            >
-              {selected ? (
-                <NodeInspector
-                  key={selected.id}
-                  node={selected}
-                  workflowId={workflowId}
-                />
-              ) : selectedId ? (
-                <>
-                  <h2>Selection unavailable on this page</h2>
-                  <p>
-                    The selected record may be on another page, unavailable, or
-                    no longer retained. Its absence does not prove it expired.
-                  </p>
-                  <Button
-                    variant="outline"
-                    onClick={() => changeParam("node", null)}
-                  >
-                    Clear selection
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <h2>Inspect recorded work</h2>
-                  <p>
-                    Select a node or timeline row to see its status and
-                    evidence. Open a task or subworkflow to explore its
-                    execution.
-                  </p>
-                </>
-              )}
-            </aside>
-          </div>
-          <PageControls
-            pagination={paging}
-            nextCursor={query.data.page.next_cursor}
-            observedAt={query.data.page.observed_at}
-            refresh={() => void query.refetch()}
-            fetching={query.isFetching}
-          />
-          <details className="muted">
-            <summary>About this execution view</summary>
-            <p>
-              This view uses retained Ledgence records and works without
-              exported traces. Missing local evidence does not mean a step never
-              started. Timestamps do not establish dependencies. Measurements
-              and history may be incomplete after interrupted attempts or
-              retention cleanup.
-            </p>
           </details>
         </>
       )}
@@ -454,7 +584,10 @@ function SemanticGraph({
               <ChevronDown aria-hidden="true" />
             )}
             Phase · {group.label}
-            <small>{group.nodes.length} records</small>
+            <small>
+              {group.nodes.length}{" "}
+              {group.nodes.length === 1 ? "record" : "records"}
+            </small>
           </Button>
           <span className="graph-lane-label">Within workflow</span>
           <span className="graph-child-label">Child executions</span>
@@ -593,34 +726,41 @@ function Timeline({
       data-timeline-start={start}
       data-timeline-end={end}
     >
-      <div className="timeline-range">
-        <label>
-          From
-          <input
-            type="datetime-local"
-            value={state.start}
-            onChange={(event) =>
-              updateState({ ...state, start: event.target.value })
-            }
-          />
-        </label>
-        <label>
-          Until
-          <input
-            type="datetime-local"
-            value={state.end}
-            onChange={(event) =>
-              updateState({ ...state, end: event.target.value })
-            }
-          />
-        </label>
-        <Button
-          variant="ghost"
-          onClick={() => updateState({ ...state, start: "", end: "" })}
-        >
-          Reset range
-        </Button>
-      </div>
+      <details className="timeline-range-options">
+        <summary>
+          {state.start || state.end ? "Custom time range" : "Adjust time range"}
+        </summary>
+        <div className="timeline-range">
+          <label>
+            From
+            <input
+              type="datetime-local"
+              value={state.start}
+              onChange={(event) =>
+                updateState({ ...state, start: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Until
+            <input
+              type="datetime-local"
+              value={state.end}
+              onChange={(event) =>
+                updateState({ ...state, end: event.target.value })
+              }
+            />
+          </label>
+          {(state.start || state.end) && (
+            <Button
+              variant="ghost"
+              onClick={() => updateState({ ...state, start: "", end: "" })}
+            >
+              Reset range
+            </Button>
+          )}
+        </div>
+      </details>
       {!validRange && (state.start || state.end) && (
         <p className="notice">
           Choose an end after the start. Showing the full observed range.
@@ -736,7 +876,7 @@ function NodeInspector({
   const [expanded, setExpanded] = useState(false);
   return (
     <>
-      <div>
+      <div className="explorer-node-heading">
         <p className="eyebrow">{nodeType(node)}</p>
         <h2>{nodeLabel(node)}</h2>
         <Status value={nodeStatus(node)} />

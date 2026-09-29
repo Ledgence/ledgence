@@ -111,10 +111,10 @@ export function ExecutionsPage() {
         ))}
       </nav>
       <HistoryFilters />
-      <p className="muted">
+      <p className="muted list-caption">
         {includesChildren
-          ? "Including child executions. Controller invocations and local steps remain inside their workflows."
-          : "Showing root workflows and standalone tasks."}
+          ? "Root and child executions."
+          : "Root workflows and standalone tasks."}
       </p>
       {!config.capabilities.executions && !config.capabilities.workflows ? (
         <Empty>Executions are unavailable on this server.</Empty>
@@ -131,7 +131,7 @@ export function ExecutionsPage() {
           {query.data && (
             <>
               {query.data.items.length ? (
-                <Table className="responsive-table">
+                <Table className="responsive-table execution-table">
                   <thead>
                     <tr>
                       {[
@@ -151,6 +151,10 @@ export function ExecutionsPage() {
                       <tr key={`${item.kind}:${item.id}`}>
                         <td data-label="Execution">
                           <Link
+                            className="execution-name"
+                            title={
+                              item.correlation_key || item.descriptor.program.id
+                            }
                             to={executionPath(item.kind, item.id)}
                             state={{
                               returnTo: `/executions${params.size ? `?${params}` : ""}`,
@@ -158,7 +162,12 @@ export function ExecutionsPage() {
                           >
                             {item.correlation_key || item.descriptor.program.id}
                           </Link>
-                          <span className="cell-secondary wrap">{item.id}</span>
+                          <span
+                            className="cell-secondary execution-id"
+                            title={item.id}
+                          >
+                            {item.id}
+                          </span>
                         </td>
                         <td data-label="Type">
                           {item.kind === "task" ? "Task" : "Workflow"}
@@ -231,6 +240,17 @@ function HistoryFilters() {
   const [params, setParams] = useSearchParams();
   const implicitChildren =
     !!params.get("program_id") || !!params.get("execution_id");
+  const activeFilters =
+    filterKeys.filter((key) => key !== "kind" && params.has(key)).length +
+    (params.get("include_children") === "true" ? 1 : 0);
+  const advancedFilters = [
+    "version",
+    "execution_id",
+    "queue",
+    "correlation_key",
+    "submitted_from",
+    "submitted_until",
+  ].filter((key) => params.has(key)).length;
   const states =
     params.get("kind") === "task"
       ? ["queued", "active", "succeeded", "failed", "cancelled"]
@@ -257,7 +277,7 @@ function HistoryFilters() {
           ];
   return (
     <form
-      className="filters"
+      className="filters history-filters"
       key={params.toString()}
       onSubmit={(event) => {
         event.preventDefault();
@@ -284,42 +304,85 @@ function HistoryFilters() {
         setParams(next);
       }}
     >
-      <label>
-        Status
-        <select name="state" defaultValue={params.get("state") ?? ""}>
-          <option value="">All statuses</option>
-          {states.map((state) => (
-            <option key={state} value={state}>
-              {state === "active"
-                ? "Active task"
-                : state === "running"
-                  ? "Running workflow"
-                  : state === "failing"
-                    ? "Stopping after failure"
-                    : state}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Program
-        <input
-          name="program_id"
-          defaultValue={params.get("program_id") ?? ""}
-        />
-      </label>
-      <label className="check-label">
-        <input
-          type="checkbox"
-          name="include_children"
-          defaultChecked={
-            implicitChildren || params.get("include_children") === "true"
+      <div className="filter-primary">
+        <label>
+          Status
+          <select name="state" defaultValue={params.get("state") ?? ""}>
+            <option value="">All statuses</option>
+            {states.map((state) => (
+              <option key={state} value={state}>
+                {state === "active"
+                  ? "Active task"
+                  : state === "running"
+                    ? "Running workflow"
+                    : state === "failing"
+                      ? "Stopping after failure"
+                      : state}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Program
+          <input
+            name="program_id"
+            defaultValue={params.get("program_id") ?? ""}
+          />
+        </label>
+        <label
+          className="check-label"
+          title={
+            implicitChildren
+              ? "Program and execution ID searches always include child executions."
+              : undefined
           }
-        />
-        Include child executions
-      </label>
-      <details>
-        <summary>More filters</summary>
+        >
+          <input
+            type="checkbox"
+            name="include_children"
+            disabled={implicitChildren}
+            aria-description={
+              implicitChildren
+                ? "Program and execution ID searches always include child executions."
+                : undefined
+            }
+            defaultChecked={
+              implicitChildren || params.get("include_children") === "true"
+            }
+          />
+          Include child executions
+        </label>
+        <div className="filter-actions">
+          <Button type="submit" variant="outline">
+            Apply filters
+          </Button>
+          {activeFilters > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                const next = new URLSearchParams();
+                if (params.get("kind")) next.set("kind", params.get("kind")!);
+                if (params.get("limit"))
+                  next.set("limit", params.get("limit")!);
+                setParams(next);
+              }}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
+      <details
+        className="advanced-filters"
+        open={advancedFilters > 0 || undefined}
+      >
+        <summary>
+          More filters
+          {advancedFilters > 0 && (
+            <span className="filter-count">{advancedFilters} active</span>
+          )}
+        </summary>
         <div className="filter-extra">
           <label>
             Exact version
@@ -371,16 +434,6 @@ function HistoryFilters() {
           </label>
         </div>
       </details>
-      <Button type="submit" variant="outline">
-        Apply filters
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={() => setParams(new URLSearchParams())}
-      >
-        Clear
-      </Button>
     </form>
   );
 }

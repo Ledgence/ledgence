@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { Server, Activity, Plus } from "lucide-react";
+import { Server, Activity, Scan } from "lucide-react";
 import { useInstance } from "../app/instance";
 import { usePagination, useResource } from "../api/hooks";
 import { ContractError } from "../api/codecs";
@@ -56,7 +56,7 @@ export function WorkersPage() {
     <>
       <PageHeading
         title="Workers"
-        description="Observe registered worker sessions and their reported process capacity."
+        description="Worker sessions, reported capacity and process activity."
       />
       {!config.capabilities.workers ? (
         <Empty>Worker observations are unavailable on this server.</Empty>
@@ -87,12 +87,14 @@ export function WorkersPage() {
             <Button type="submit" variant="outline">
               Apply filter
             </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setParams(new URLSearchParams())}
-            >
-              Clear
-            </Button>
+            {params.has("queue") && (
+              <Button
+                variant="ghost"
+                onClick={() => setParams(new URLSearchParams())}
+              >
+                Clear
+              </Button>
+            )}
           </form>
           {query.isPending && <LoadingState label="Loading workers" />}
           {query.error && (
@@ -105,10 +107,13 @@ export function WorkersPage() {
           {query.data && (
             <>
               {query.data.items.length ? (
-                <div className="card-grid">
+                <div className="card-grid worker-grid">
                   {query.data.items.map((worker) => (
-                    <article className="card" key={worker.worker_session_id}>
-                      <div className="summary-line">
+                    <article
+                      className="card worker-card"
+                      key={worker.worker_session_id}
+                    >
+                      <div className="worker-card-heading">
                         <Server aria-hidden="true" />
                         <h2>
                           <Link
@@ -118,17 +123,16 @@ export function WorkersPage() {
                           </Link>
                         </h2>
                       </div>
-                      <p className="wrap muted">{worker.worker_session_id}</p>
+                      {worker.display_name &&
+                        worker.display_name !== worker.worker_session_id && (
+                          <p className="wrap muted worker-session-id">
+                            {worker.worker_session_id}
+                          </p>
+                        )}
                       <WorkerSummary
                         worker={worker}
                         observedAt={query.data.observed_at}
                       />
-                      <Link
-                        className="back-link"
-                        to={`/workers/${encodeURIComponent(worker.worker_session_id)}`}
-                      >
-                        Inspect process slots
-                      </Link>
                     </article>
                   ))}
                 </div>
@@ -234,84 +238,109 @@ export function WorkerDetailPage() {
             </>
           )}
           {detail && (
-            <section className="card">
-              <WorkerSummary
-                worker={detail.worker}
-                observedAt={detail.slots.observed_at}
-              />
-              <Fields>
-                <Field label="Session expiry">
-                  <When value={detail.worker.session_expires_at} />
-                </Field>
-                <Field label="Snapshot sequence">
-                  {detail.worker.snapshot_sequence ?? "Not reported"}
-                </Field>
-              </Fields>
-              <h2>Process slots</h2>
-              {detail.worker.detail_state === "available" ? (
-                <>
-                  {detail.slots.items.length ? (
-                    <div className="slot-grid">
-                      {detail.slots.items.map((slot) => (
-                        <Button
-                          key={slot.slot_id}
-                          className={`slot slot-${slot.state}`}
-                          variant="ghost"
-                          onClick={(event) => {
-                            returnFocus.current = event.currentTarget;
-                            setSelection({
-                              sessionId: workerSessionId,
-                              slotId: slot.slot_id,
-                            });
-                          }}
-                          aria-label={`Inspect process slot ${slot.slot_id + 1}: ${slot.state.replaceAll("_", " ")}`}
-                        >
-                          <span className="summary-line">
-                            Slot {slot.slot_id + 1}
-                            {slot.state === "empty" ? (
-                              <Plus aria-hidden="true" />
-                            ) : (
-                              <Activity aria-hidden="true" />
+            <>
+              <section
+                className="card worker-overview"
+                aria-label="Worker summary"
+              >
+                <WorkerSummary
+                  worker={detail.worker}
+                  observedAt={detail.slots.observed_at}
+                />
+                <details className="worker-session-details">
+                  <summary>Session details</summary>
+                  <Fields>
+                    <Field label="Session expiry">
+                      <When value={detail.worker.session_expires_at} />
+                    </Field>
+                    <Field label="Snapshot sequence">
+                      {detail.worker.snapshot_sequence ?? "Not reported"}
+                    </Field>
+                  </Fields>
+                </details>
+              </section>
+              <section
+                className="card worker-process-panel"
+                aria-labelledby="process-slots-heading"
+              >
+                <div className="section-heading">
+                  <div>
+                    <h2 id="process-slots-heading">Process slots</h2>
+                    {detail.worker.detail_state === "available" &&
+                      detail.slots.items.length > 0 && (
+                        <p className="muted">
+                          Select a slot to inspect its reported state.
+                        </p>
+                      )}
+                  </div>
+                </div>
+                {detail.worker.detail_state === "available" ? (
+                  <>
+                    {detail.slots.items.length ? (
+                      <div className="slot-grid">
+                        {detail.slots.items.map((slot) => (
+                          <Button
+                            key={slot.slot_id}
+                            className={`slot slot-${slot.state}`}
+                            variant="ghost"
+                            onClick={(event) => {
+                              returnFocus.current = event.currentTarget;
+                              setSelection({
+                                sessionId: workerSessionId,
+                                slotId: slot.slot_id,
+                              });
+                            }}
+                            aria-label={`Inspect process slot ${slot.slot_id + 1}: ${slot.state.replaceAll("_", " ")}`}
+                          >
+                            <span className="summary-line">
+                              Slot {slot.slot_id + 1}
+                              {slot.state === "empty" ? (
+                                <Scan aria-hidden="true" />
+                              ) : (
+                                <Activity aria-hidden="true" />
+                              )}
+                            </span>
+                            <strong className="wrap">
+                              {slot.state === "empty"
+                                ? "Empty process slot"
+                                : (slot.program?.id ?? "Program not recorded")}
+                            </strong>
+                            {slot.program && (
+                              <span>{slot.program.version}</span>
                             )}
-                          </span>
-                          <strong className="wrap">
-                            {slot.state === "empty"
-                              ? "Empty process slot"
-                              : (slot.program?.id ?? "Program not recorded")}
-                          </strong>
-                          {slot.program && <span>{slot.program.version}</span>}
-                          <Status value={slot.state} />
-                        </Button>
-                      ))}
-                    </div>
-                  ) : (
-                    <Empty>
-                      No process slots are present on this observed page.
-                    </Empty>
-                  )}
-                  <p className="muted">
-                    Warm processes may be reused for compatible programs. Empty
-                    slots describe the reported snapshot; they are not a
-                    reservation of current capacity.
+                            <Status value={slot.state} />
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <Empty>
+                        No process slots are present on this observed page.
+                      </Empty>
+                    )}
+                    <p className="muted">
+                      Warm processes may be reused for compatible programs.
+                      Empty slots describe the reported snapshot; they are not a
+                      reservation of current capacity.
+                    </p>
+                  </>
+                ) : (
+                  <p className="notice">
+                    {detail.worker.detail_state === "unsupported_capacity"
+                      ? `Detailed reporting is unsupported for this worker’s configured capacity (${detail.worker.capacity}). The registered capacity is preserved; slots are not fabricated.`
+                      : detail.worker.detail_state === "unavailable"
+                        ? "The latest report cannot provide process details. The session and summary remain available."
+                        : "No process snapshot has been reported for this session. Older workers can still execute work without detailed reporting."}
                   </p>
-                </>
-              ) : (
-                <p className="notice">
-                  {detail.worker.detail_state === "unsupported_capacity"
-                    ? `Detailed reporting is unsupported for this worker’s configured capacity (${detail.worker.capacity}). The registered capacity is preserved; slots are not fabricated.`
-                    : detail.worker.detail_state === "unavailable"
-                      ? "The latest report cannot provide process details. The session and summary remain available."
-                      : "No process snapshot has been reported for this session. Older workers can still execute work without detailed reporting."}
-                </p>
-              )}
-              <PageControls
-                pagination={pagination}
-                nextCursor={detail.slots.next_cursor}
-                observedAt={detail.slots.observed_at}
-                refresh={() => void query.refetch()}
-                fetching={query.isFetching}
-              />
-            </section>
+                )}
+                <PageControls
+                  pagination={pagination}
+                  nextCursor={detail.slots.next_cursor}
+                  observedAt={detail.slots.observed_at}
+                  refresh={() => void query.refetch()}
+                  fetching={query.isFetching}
+                />
+              </section>
+            </>
           )}
         </>
       )}
@@ -365,19 +394,32 @@ function WorkerSummary({
       ? null
       : Math.max(0, Math.floor((observedAt - worker.received_at) / 1000));
   return (
-    <>
-      <div className="summary-line">
+    <div className="worker-summary">
+      <div className="summary-line worker-status-line">
         <Status value={worker.freshness} />
-        <span>
+        <span className="muted">
           {worker.session_expired ? "Session expired" : "Session registered"}
         </span>
       </div>
-      <p>
-        Last report <When value={worker.received_at} />
-        {age !== null && (
-          <span className="muted"> · {age} s before this observation</span>
-        )}
-      </p>
+      <dl className="worker-context">
+        <Field label="Queue">{worker.queue}</Field>
+        <Field label="Acquisition">
+          {worker.accepting === null
+            ? "Not reported"
+            : worker.accepting
+              ? "Accepting (reported)"
+              : "Not accepting (reported)"}
+        </Field>
+      </dl>
+      <dl className="worker-metrics">
+        <Field label="Configured capacity">{worker.capacity}</Field>
+        <Field label="Active consumers">
+          {worker.active_consumers ?? "Not reported"}
+        </Field>
+        <Field label="Occupied process slots">
+          {worker.occupied_process_slots ?? "Not reported"}
+        </Field>
+      </dl>
       {worker.freshness !== "fresh" && (
         <p className="notice">
           {worker.freshness === "stale"
@@ -393,24 +435,11 @@ function WorkerSummary({
           system processes have stopped.
         </p>
       )}
-      <Fields>
-        <Field label="Queue">{worker.queue}</Field>
-        <Field label="Configured capacity">{worker.capacity}</Field>
-        <Field label="Active consumers">
-          {worker.active_consumers ?? "Not reported"}
-        </Field>
-        <Field label="Occupied process slots">
-          {worker.occupied_process_slots ?? "Not reported"}
-        </Field>
-        <Field label="Acquisition">
-          {worker.accepting === null
-            ? "Not reported"
-            : worker.accepting
-              ? "Accepting (reported)"
-              : "Not accepting (reported)"}
-        </Field>
-      </Fields>
-    </>
+      <p className="muted worker-report">
+        Last report <When value={worker.received_at} />
+        {age !== null && <span> · {age} s before this observation</span>}
+      </p>
+    </div>
   );
 }
 

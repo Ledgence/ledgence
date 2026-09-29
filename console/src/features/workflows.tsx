@@ -18,6 +18,7 @@ import {
 import { LoadingState } from "../components/async-state";
 import {
   PageHeading,
+  Elapsed,
   Status,
   When,
   CopyText,
@@ -211,6 +212,22 @@ export function WorkflowDetailPage() {
             ? `Workflow · ${detail.summary.controller.program.id} / ${detail.summary.controller.program.version}`
             : "Workflow execution"
         }
+        metadata={
+          <>
+            {detail && (
+              <>
+                <Status value={detail.summary.workflow.state} />
+                <Elapsed
+                  start={detail.summary.workflow.submitted_at}
+                  end={
+                    detail.summary.workflow.terminal_at ?? detail.observed_at
+                  }
+                />
+              </>
+            )}
+            <CopyText value={workflowId} label="Copy workflow ID" />
+          </>
+        }
         actions={
           detail &&
           !dto.terminal(detail.summary.workflow.state) && (
@@ -218,7 +235,6 @@ export function WorkflowDetailPage() {
           )
         }
       />
-      <CopyText value={workflowId} label="Copy workflow ID" />
       {query.isPending && <LoadingState />}
       {query.error && (
         <QueryError
@@ -229,22 +245,6 @@ export function WorkflowDetailPage() {
       )}{" "}
       {detail && (
         <>
-          <div className="summary-line">
-            <Status value={detail.summary.workflow.state} />
-            <span>Revision {detail.summary.workflow.revision}</span>
-            <span className="muted">
-              Elapsed{" "}
-              {Math.max(
-                0,
-                (detail.summary.workflow.terminal_at ?? detail.observed_at) -
-                  detail.summary.workflow.submitted_at,
-              ).toLocaleString()}{" "}
-              ms
-            </span>
-            <span className="muted">
-              Observed <When value={detail.observed_at} />
-            </span>
-          </div>
           {detail.summary.workflow.state === "waiting" && (
             <p className="notice">
               {detail.child_wait
@@ -264,7 +264,20 @@ export function WorkflowDetailPage() {
           )}
           <Tabs
             values={["Execution", "Input", "Output", "Resources", "Advanced"]}
-            current={tab}
+            current={
+              [
+                "Advanced",
+                "Recorded work",
+                "Waits",
+                "Local steps",
+                "History",
+                "Context",
+              ].includes(tab)
+                ? "Advanced"
+                : tab === "Result"
+                  ? "Output"
+                  : tab
+            }
           />
           {tab === "Execution" && (
             <WorkflowExplorer
@@ -290,20 +303,20 @@ export function WorkflowDetailPage() {
             "Waits",
             "Local steps",
             "History",
-            "Result",
             "Context",
           ].includes(tab) && (
-            <Tabs
-              values={[
-                "Recorded work",
-                "Waits",
-                "Local steps",
-                "History",
-                "Result",
-                "Context",
-              ]}
-              current={tab}
-            />
+            <div className="diagnostic-navigation">
+              <Tabs
+                values={[
+                  "Recorded work",
+                  "Waits",
+                  "Local steps",
+                  "History",
+                  "Context",
+                ]}
+                current={tab === "Advanced" ? "History" : tab}
+              />
+            </div>
           )}
           {tab === "Advanced" && (
             <>
@@ -347,6 +360,12 @@ export function WorkflowDetailPage() {
                 </Field>
                 <Field label="Queue">{detail.summary.queue}</Field>
                 <Field label="Continuation">{detail.continuation}</Field>
+                <Field label="Revision">
+                  {detail.summary.workflow.revision}
+                </Field>
+                <Field label="Observed">
+                  <When value={detail.observed_at} />
+                </Field>
                 <Field label="Current activation">
                   {detail.summary.workflow.activation_id ? (
                     <Link
