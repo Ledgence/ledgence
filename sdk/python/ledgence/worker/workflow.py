@@ -666,7 +666,10 @@ class WorkflowContext:
         return _LocalResult(task, self._observed_failures)
 
     async def _run_local(self, binding, fn, previous):
+        from ledgence.worker._observations import begin_local, finish_local
+        observation = begin_local(binding, replayed=previous is not None)
         if previous is not None:
+            finish_local(observation, "replayed")
             return previous["output"]
         # Sync functions retain normal synchronous semantics. Async functions
         # can overlap I/O without allocating additional subprocesses or threads.
@@ -675,10 +678,16 @@ class WorkflowContext:
             output = fn(**_freeze(binding["input"], MAX_RECORD_BYTES))
             if inspect.isawaitable(output):
                 output = await output
+            record = dict(binding, output=_freeze(output, MAX_RECORD_BYTES))
+            self._validate_record(record)
+        except BaseException as exc:
+            finish_local(observation, "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed")
+            raise
+        else:
+            # A callable returning is distinct from its result being accepted.
+            finish_local(observation, "returned")
         finally:
             _local_owner.reset(token)
-        record = dict(binding, output=_freeze(output, MAX_RECORD_BYTES))
-        self._validate_record(record)
         async with self._commit_lock:
             _encode([*self._records.values(), record], MAX_RECORDS_BYTES, 96)
             try:

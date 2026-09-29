@@ -1,11 +1,10 @@
 import { useState, type ReactNode } from "react";
-import { NavLink, Link } from "react-router";
+import { NavLink, Link, useLocation } from "react-router";
 import {
   Activity,
   ArrowUpRight,
   BookOpen,
   Box,
-  GitBranch,
   Layers2,
   Monitor,
   Server,
@@ -13,9 +12,7 @@ import {
 import { applyTheme, readTheme, type Theme } from "../app/theme";
 const sections = [
   { to: "/executions", title: "Executions", icon: Activity },
-  { to: "/workflows", title: "Workflows", icon: GitBranch },
-  { to: "/agents", title: "Agents", icon: Layers2 },
-  { to: "/workers", title: "Workers", icon: Server },
+  { to: "/programs", title: "Programs", icon: Layers2 },
 ];
 export function AppShell({
   instanceName,
@@ -24,6 +21,7 @@ export function AppShell({
   instanceName: string;
   children: ReactNode;
 }) {
+  const location = useLocation();
   const [theme, setTheme] = useState<Theme>(readTheme);
   function changeTheme(value: string) {
     if (value !== "system" && value !== "light" && value !== "dark") return;
@@ -57,11 +55,30 @@ export function AppShell({
           </div>
           <nav className="navigation" aria-label="Main navigation">
             {sections.map(({ to, title, icon: Icon }) => (
-              <NavLink key={to} to={to}>
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  isActive ||
+                  (to === "/executions" &&
+                    location.pathname.startsWith("/workflows")) ||
+                  (to === "/programs" &&
+                    location.pathname.startsWith("/agents"))
+                    ? "active"
+                    : undefined
+                }
+              >
                 <Icon aria-hidden="true" />
                 <span>{title}</span>
               </NavLink>
             ))}
+          </nav>
+          <div className="navigation-label">Operations</div>
+          <nav className="navigation" aria-label="Operations">
+            <NavLink to="/workers">
+              <Server aria-hidden="true" />
+              <span>Workers</span>
+            </NavLink>
           </nav>
           <div className="sidebar-footer">
             <a

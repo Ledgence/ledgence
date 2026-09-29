@@ -202,6 +202,7 @@ pub(crate) fn completed(
         owner: assigned.lease.owner.clone(),
         operation_id: "settle_1".into(),
         report: AttemptReport::Completed(ExecutionReport {
+            observations: None,
             context: Box::new(execution_context(assigned)),
             process_id: 42,
             reused_process: false,
@@ -474,6 +475,7 @@ async fn retry_keeps_digest_and_old_receipt_does_not_change_new_ownership() {
         owner: first.lease.owner.clone(),
         operation_id: "failed_1".into(),
         report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: Box::new(execution_context(&first)),
             phase: Phase::Execution,
             error: Error::new(ErrorKind::Io, "temporary failure"),

@@ -66,6 +66,23 @@ impl ProgramCatalogStore for PostgresStore {
             let mut tx=connection.begin_read().await?;
             let at=db::now(&mut tx).await?;
             let reply=match query {
+                ProgramCatalogQuery::Catalog {kind,page} => {
+                    let mut sql=QueryBuilder::<Postgres>::new("SELECT program_id,metadata_bytes,registered_versions::text AS registered_versions,last_registered_at_ms,has_task,has_workflow,has_unspecified FROM console_programs WHERE tenant_id=");
+                    sql.push_bind(&scope.tenant_id).push(" AND namespace=").push_bind(&scope.namespace);
+                    if let Some(kind)=kind { sql.push(match kind { ConsoleProgramKind::Task=>" AND has_task",ConsoleProgramKind::Workflow=>" AND has_workflow",ConsoleProgramKind::Unspecified=>" AND has_unspecified" }); }
+                    if let Some(position)=&position {sql.push(" AND program_id>").push_bind(text_key(position,0)?);}
+                    sql.push(" ORDER BY program_id ASC LIMIT ").push_bind(i64::from(page.limit)+1);
+                    let rows=sql.build().fetch_all(&mut *tx).await?;
+                    let items=rows.iter().take(page.limit as usize).map(|row|{
+                        let mut kinds=Vec::new();
+                        for (key,kind) in [("has_task",ConsoleProgramKind::Task),("has_workflow",ConsoleProgramKind::Workflow),("has_unspecified",ConsoleProgramKind::Unspecified)] { if row.try_get::<bool,_>(key)? { kinds.push(kind); } }
+                        Ok(ConsoleProgramCatalogEntry {program:ConsoleProgramSummary {
+                            program_id:row.try_get("program_id")?,metadata:codec::decode(&row.try_get::<Vec<u8>,_>("metadata_bytes")?)?,
+                            registered_versions:ConsoleU64(codec::u64_text(&row.try_get::<String,_>("registered_versions")?)?),last_registered_at:time(row,"last_registered_at_ms")?,
+                        },kinds})
+                    }).collect::<StoreResult<Vec<_>>>()?;
+                    ProgramCatalogReply::Catalog(make_page(items,rows.len()>page.limit as usize,page,&binding,at)?)
+                },
                 ProgramCatalogQuery::Programs(page)=>{
                     let mut sql=QueryBuilder::<Postgres>::new("SELECT program_id,metadata_bytes,registered_versions::text AS registered_versions,last_registered_at_ms FROM console_programs WHERE tenant_id=");
                     sql.push_bind(&scope.tenant_id).push(" AND namespace=").push_bind(&scope.namespace);

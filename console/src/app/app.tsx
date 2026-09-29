@@ -9,9 +9,13 @@ import { consoleContractVersion } from "../api/contracts";
 import { ApiError } from "../api/errors";
 import { NavigationMemory } from "./navigation";
 import { InstanceContext } from "./instance";
-import { ExecutionsPage, ExecutionDetailPage } from "../features/executions";
+import { ExecutionDetailPage } from "../features/executions";
+import {
+  ExecutionsPage,
+  LegacyWorkflowsRedirect,
+} from "../features/execution-history";
 import { NewExecutionPage } from "../features/new-execution";
-import { WorkflowsPage, WorkflowDetailPage } from "../features/workflows";
+import { WorkflowDetailPage } from "../features/workflows";
 import {
   AgentsPage,
   AgentDetailPage,
@@ -54,10 +58,16 @@ function Console() {
               path="executions/:taskId"
               element={<ExecutionDetailPage />}
             />
-            <Route path="workflows" element={<WorkflowsPage />} />
+            <Route path="workflows" element={<LegacyWorkflowsRedirect />} />
             <Route
               path="workflows/:workflowId"
               element={<WorkflowDetailPage />}
+            />
+            <Route path="programs" element={<AgentsPage />} />
+            <Route path="programs/:programId" element={<AgentDetailPage />} />
+            <Route
+              path="programs/:programId/versions/:version"
+              element={<ProgramVersionPage />}
             />
             <Route path="agents" element={<AgentsPage />} />
             <Route path="agents/:programId" element={<AgentDetailPage />} />

@@ -337,6 +337,7 @@ async fn collect_workflow(
     progress: &mut RetentionProgress,
 ) -> StoreResult<()> {
     for sql in [
+        "DELETE FROM workflow_explorer_records WHERE ctid IN (SELECT ctid FROM workflow_explorer_records WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_history WHERE ctid IN (SELECT ctid FROM workflow_history WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_forks WHERE ctid IN (SELECT ctid FROM workflow_forks WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_events WHERE ctid IN (SELECT ctid FROM workflow_events WHERE workflow_id=$1 LIMIT $2)",

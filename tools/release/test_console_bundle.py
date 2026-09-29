@@ -20,7 +20,7 @@ def distribution(directory, source='a' * 40):
         file.write_bytes(data)
         assets.append({'path': name, 'sha256': hashlib.sha256(data).hexdigest(),
                        'size_bytes': len(data), 'content_type': mime})
-    manifest = {'schema_version': 1, 'console_contract_version': 1, 'console_version': '0.1.0',
+    manifest = {'schema_version': 1, 'console_contract_version': 2, 'console_version': '0.1.0',
                 'source_revision': source, 'source_dirty': False,
                 'toolchain': {'node': '24.21.0', 'pnpm': '11.27.1'}, 'lockfile_sha256': 'b' * 64, 'assets': assets}
     (directory / 'console-manifest.json').write_text(json.dumps(manifest))
@@ -42,6 +42,15 @@ class ConsoleBundleTests(unittest.TestCase):
         (self.dist / 'assets/app-12345678.js').write_bytes(b'tampered')
         with self.assertRaisesRegex(ValueError, 'checksum'):
             validate(self.dist)
+
+    def test_incompatible_console_contracts_are_rejected(self):
+        for contract in [1, 3, True, '2']:
+            with self.subTest(contract=contract):
+                changed = copy.deepcopy(self.manifest)
+                changed['console_contract_version'] = contract
+                (self.dist / 'console-manifest.json').write_text(json.dumps(changed))
+                with self.assertRaisesRegex(ValueError, 'incompatible'):
+                    validate(self.dist)
 
     def test_dirty_extra_and_legal_inventory_fail(self):
         for change in ['dirty', 'extra', 'notice']:

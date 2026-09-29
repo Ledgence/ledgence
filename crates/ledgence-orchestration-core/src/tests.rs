@@ -147,6 +147,7 @@ fn success(attempt: &AttemptSnapshot, quiescence: Quiescence) -> SettleCommand {
         owner: attempt.lease.owner.clone(),
         operation_id: format!("settle_{}", attempt.lease.owner.attempt_id),
         report: AttemptReport::Completed(ExecutionReport {
+            observations: None,
             context: context(attempt),
             process_id: 42,
             reused_process: true,
@@ -163,6 +164,7 @@ fn success(attempt: &AttemptSnapshot, quiescence: Quiescence) -> SettleCommand {
 fn failure(attempt: &AttemptSnapshot, kind: ErrorKind, quiescence: Quiescence) -> SettleCommand {
     SettleCommand {
         report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: context(attempt),
             error: Error::new(kind, "adapter failure"),
             cleanup_error: None,

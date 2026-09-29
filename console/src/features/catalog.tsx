@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Package, Plus } from "lucide-react";
 import { useInstance } from "../app/instance";
@@ -7,6 +7,7 @@ import { usePagination, useResource } from "../api/hooks";
 import { freezeCommand, useCommand } from "../api/commands";
 import { ApiError } from "../api/errors";
 import { ContractError } from "../api/codecs";
+import { catalogPage, programHistory } from "../api/explorer";
 import * as dto from "../api/resources";
 import { LoadingState } from "../components/async-state";
 import { CommandFeedback } from "../components/command-feedback";
@@ -34,15 +35,20 @@ import {
 const validReference = (value: string) =>
   /^[a-z0-9._-]{1,128}$/.test(value) && value !== "." && value !== "..";
 const versionPath = (id: string, version: string) =>
-  `/agents/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`;
+  `/programs/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`;
 
 export function AgentsPage() {
+  const [params, setParams] = useSearchParams();
   const config = useInstance();
   const pagination = usePagination();
   const query = useResource(
-    "programs",
-    { limit: pagination.limit, cursor: pagination.cursor },
-    dto.programPage,
+    "programs/catalog",
+    {
+      kind: params.get("kind"),
+      limit: pagination.limit,
+      cursor: pagination.cursor,
+    },
+    catalogPage,
     {
       enabled: config.capabilities.programs,
       staleTime: config.polling.catalog_stale_ms,
@@ -51,16 +57,43 @@ export function AgentsPage() {
   return (
     <>
       <PageHeading
-        title="Agents"
+        title="Programs"
         description="Programs registered in this instance, ready to use by exact version."
         actions={config.capabilities.programs && <RegisterProgram />}
       />
+      <nav className="tabs" aria-label="Program type">
+        {[
+          ["", "All"],
+          ["task", "Tasks"],
+          ["workflow", "Workflows"],
+          ["unspecified", "Unspecified"],
+        ].map(([kind, label]) => (
+          <Button
+            key={kind}
+            variant="ghost"
+            aria-pressed={(params.get("kind") ?? "") === kind}
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              if (kind) next.set("kind", kind);
+              else next.delete("kind");
+              next.delete("cursor");
+              setParams(next);
+            }}
+          >
+            {label}
+          </Button>
+        ))}
+      </nav>
+      <p className="muted">
+        Type filters match any registered version. Package contents are
+        immutable; descriptive metadata can be updated.
+      </p>
       {!config.capabilities.programs ? (
         <Empty>The program catalog is unavailable on this server.</Empty>
       ) : (
         <>
           {query.isPending && (
-            <LoadingState label="Loading registered agents" />
+            <LoadingState label="Loading registered programs" />
           )}
           {query.error && (
             <QueryError
@@ -73,15 +106,28 @@ export function AgentsPage() {
             <>
               {query.data.items.length ? (
                 <div className="card-grid">
-                  {query.data.items.map((item) => (
+                  {query.data.items.map(({ program: item, kinds }) => (
                     <article className="card" key={item.program_id}>
                       <div className="summary-line">
                         <Package aria-hidden="true" />
-                        <Status value={item.metadata.kind} />
+                        <Status
+                          value={
+                            kinds.includes("task") && kinds.includes("workflow")
+                              ? "mixed"
+                              : (kinds.filter(
+                                  (kind) => kind !== "unspecified",
+                                )[0] ?? "unspecified")
+                          }
+                        />
+                        {kinds.includes("unspecified") && kinds.length > 1 && (
+                          <span className="muted">
+                            Some versions unspecified
+                          </span>
+                        )}
                       </div>
                       <h2>
                         <Link
-                          to={`/agents/${encodeURIComponent(item.program_id)}`}
+                          to={`/programs/${encodeURIComponent(item.program_id)}`}
                         >
                           {item.metadata.display_name ?? item.program_id}
                         </Link>
@@ -98,13 +144,18 @@ export function AgentsPage() {
                           ? "version"
                           : "versions"}
                       </p>
+                      <p>
+                        <Link to={programHistory(item.program_id)}>
+                          View executions
+                        </Link>
+                      </p>
                       <p className="muted">
                         Last registration{" "}
                         <When value={item.last_registered_at} />
                       </p>
                       <Link
                         className="back-link"
-                        to={`/agents/${encodeURIComponent(item.program_id)}`}
+                        to={`/programs/${encodeURIComponent(item.program_id)}`}
                       >
                         View versions <ArrowRight aria-hidden="true" />
                       </Link>
@@ -113,7 +164,7 @@ export function AgentsPage() {
                 </div>
               ) : (
                 <section className="empty-state">
-                  <h2>No registered agents</h2>
+                  <h2>No registered programs</h2>
                   <p>
                     Publish a package to the configured program store, then
                     register its exact program ID and version here. Existing
@@ -163,7 +214,7 @@ export function AgentDetailPage() {
   );
   return (
     <>
-      <BackLink to="/agents">Agents</BackLink>
+      <BackLink to="/programs">Programs</BackLink>
       <PageHeading
         title={valid ? programId : "Invalid program reference"}
         description="Registered versions, ordered by registration time. Choose an exact version."
@@ -174,6 +225,13 @@ export function AgentDetailPage() {
           )
         }
       />
+      {valid && (
+        <p>
+          <Link to={programHistory(programId)}>
+            View executions, including children
+          </Link>
+        </p>
+      )}
       {!valid ? (
         <Empty>This link does not contain a valid program ID.</Empty>
       ) : !config.capabilities.programs ? (
@@ -294,7 +352,7 @@ export function ProgramVersionPage() {
   return (
     <>
       <BackLink
-        to={valid ? `/agents/${encodeURIComponent(programId)}` : "/agents"}
+        to={valid ? `/programs/${encodeURIComponent(programId)}` : "/programs"}
       >
         Registered versions
       </BackLink>
@@ -314,6 +372,13 @@ export function ProgramVersionPage() {
           )
         }
       />
+      {valid && (
+        <p>
+          <Link to={programHistory(programId, version)}>
+            View executions, including children
+          </Link>
+        </p>
+      )}
       {!valid ? (
         <Empty>
           This link does not contain a valid exact program reference.
@@ -524,7 +589,7 @@ function RegisterProgram({
       <DialogTrigger asChild>
         <Button variant="outline">
           <Plus aria-hidden="true" />
-          {version ? "Register / update metadata" : "Register agent"}
+          {version ? "Register / update metadata" : "Register program"}
         </Button>
       </DialogTrigger>
       <DialogContent>

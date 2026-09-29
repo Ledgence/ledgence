@@ -1,0 +1,15 @@
+{
+  "executions": {
+    "items": [
+      {"kind":"workflow","id":"shared-id","descriptor":{"program":{"id":"mixed-program","version":"2"},"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":"4096"},"queue":"billing","state":"failing","submitted_at":100,"terminal_at":null,"correlation_key":"INV-1042","parent_workflow_id":null,"root_workflow_id":null},
+      {"kind":"task","id":"shared-id","descriptor":{"program":{"id":"mixed-program","version":"1"},"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","size":"4096"},"queue":"billing","state":"succeeded","submitted_at":100,"terminal_at":101,"correlation_key":"INV-1042","parent_workflow_id":"root-workflow","root_workflow_id":"root-workflow"}
+    ],
+    "next_cursor":null,
+    "observed_at":102
+  },
+  "catalog": {
+    "items":[{"program":{"program_id":"mixed-program","metadata":{"display_name":"Invoice processing","description":null,"kind":"task"},"registered_versions":"2","last_registered_at":90},"kinds":["task","workflow"]}],
+    "next_cursor":null,
+    "observed_at":102
+  }
+}

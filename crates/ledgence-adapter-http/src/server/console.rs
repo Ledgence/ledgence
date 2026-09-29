@@ -87,6 +87,12 @@ impl ConsoleServices {
     }
 }
 pub(super) const ROUTES: &[(&str, &str)] = &[
+    ("/v1/console/executions", "GET"),
+    ("/v1/console/executions/ancestry", "GET"),
+    ("/v1/console/workflows/explorer", "GET"),
+    ("/v1/console/workflows/input", "GET"),
+    ("/v1/console/attempts/observations", "GET"),
+    ("/v1/console/programs/catalog", "GET"),
     ("/v1/console/config", "GET"),
     ("/v1/console/tasks", "GET, POST"),
     ("/v1/console/tasks/inspect", "GET"),
@@ -159,6 +165,10 @@ pub(super) async fn dispatch(
         if path.starts_with("/v1/console/programs") {
             let service = console.catalog.as_ref().ok_or(ContractError::NotFound)?;
             let query = match path {
+                "/v1/console/programs/catalog" => ProgramCatalogQuery::Catalog {
+                    kind: enum_field(&fields, "kind")?,
+                    page,
+                },
                 "/v1/console/programs" => ProgramCatalogQuery::Programs(page),
                 "/v1/console/programs/versions" => ProgramCatalogQuery::Versions {
                     program_id: required(&fields, "program_id")?,
@@ -173,6 +183,7 @@ pub(super) async fn dispatch(
             let reply = service.query_programs(&query).await?;
             reply.validate(scope, &query)?;
             return match reply {
+                ProgramCatalogReply::Catalog(v) => metadata(server, v).await,
                 ProgramCatalogReply::Programs(v) => metadata(server, v).await,
                 ProgramCatalogReply::Versions(v) => metadata(server, v).await,
                 ProgramCatalogReply::Inspect(v) => metadata(server, v).await,
@@ -274,6 +285,27 @@ pub(super) async fn dispatch(
                 .await;
         }
         let query = match path {
+            "/v1/console/executions" => ConsoleQuery::Executions {
+                filters: execution_filters(&fields)?,
+                page,
+            },
+            "/v1/console/executions/ancestry" => ConsoleQuery::Ancestry {
+                execution: ConsoleExecutionIdentity {
+                    kind: enum_field(&fields, "kind")?
+                        .ok_or_else(|| invalid("kind is required"))?,
+                    id: required(&fields, "id")?,
+                },
+            },
+            "/v1/console/workflows/explorer" => ConsoleQuery::Explorer {
+                workflow_id: required(&fields, "workflow_id")?,
+                page,
+            },
+            "/v1/console/workflows/input" => ConsoleQuery::WorkflowInput {
+                workflow_id: required(&fields, "workflow_id")?,
+            },
+            "/v1/console/attempts/observations" => ConsoleQuery::AttemptObservations {
+                attempt_id: required(&fields, "attempt_id")?,
+            },
             "/v1/console/tasks" => ConsoleQuery::Tasks {
                 filters: list_query(&fields)?.filters,
                 page,
@@ -319,6 +351,11 @@ pub(super) async fn dispatch(
         let reply = console.queries.query_console(&query).await?;
         reply.validate(scope, &query)?;
         return match reply {
+            ConsoleQueryReply::Executions(v) => metadata(server, v).await,
+            ConsoleQueryReply::Explorer(v) => metadata(server, v).await,
+            ConsoleQueryReply::WorkflowInput(v) => server.encode(v).await,
+            ConsoleQueryReply::Ancestry(v) => metadata(server, v).await,
+            ConsoleQueryReply::AttemptObservations(v) => metadata(server, v).await,
             ConsoleQueryReply::Tasks(v) => metadata(server, v).await,
             ConsoleQueryReply::Attempts(v) => metadata(server, v).await,
             ConsoleQueryReply::Attempt(v) => metadata(server, v).await,
@@ -555,11 +592,64 @@ fn workflow_filters(fields: &BTreeMap<String, String>) -> Result<ConsoleWorkflow
             .unwrap_or(false),
     })
 }
+fn enum_field<T: serde::de::DeserializeOwned>(
+    fields: &BTreeMap<String, String>,
+    key: &str,
+) -> Result<Option<T>> {
+    fields
+        .get(key)
+        .map(|v| {
+            serde_json::from_value(serde_json::Value::String(v.clone()))
+                .map_err(|_| invalid("invalid enum query parameter"))
+        })
+        .transpose()
+}
+fn execution_filters(fields: &BTreeMap<String, String>) -> Result<ConsoleExecutionFilters> {
+    Ok(ConsoleExecutionFilters {
+        kind: enum_field(fields, "kind")?,
+        state: enum_field(fields, "state")?,
+        program_id: fields.get("program_id").cloned(),
+        version: fields.get("version").cloned(),
+        queue: fields.get("queue").cloned(),
+        correlation_key: fields.get("correlation_key").cloned(),
+        execution_id: fields.get("execution_id").cloned(),
+        include_children: fields
+            .get("include_children")
+            .map(|v| match v.as_str() {
+                "true" => Ok(true),
+                "false" => Ok(false),
+                _ => Err(invalid("include_children must be true or false")),
+            })
+            .transpose()?
+            .unwrap_or(false),
+        submitted_from: number(fields, "submitted_from")?,
+        submitted_until: number(fields, "submitted_until")?,
+    })
+}
 fn fields(raw: &str, path: &str) -> Result<BTreeMap<String, String>> {
     if raw.len() > CONSOLE_QUERY_MAX_BYTES {
         return Err(invalid("console query exceeds limit"));
     }
     let allowed: &[&str] = match path {
+        "/v1/console/executions" => &[
+            "kind",
+            "state",
+            "program_id",
+            "version",
+            "queue",
+            "correlation_key",
+            "execution_id",
+            "include_children",
+            "submitted_from",
+            "submitted_until",
+            "limit",
+            "cursor",
+        ],
+        "/v1/console/executions/ancestry" => &["kind", "id"],
+        "/v1/console/workflows/explorer" => &["workflow_id", "limit", "cursor"],
+        "/v1/console/workflows/input" => &["workflow_id"],
+        "/v1/console/attempts/observations" => &["attempt_id"],
+        "/v1/console/programs/catalog" => &["kind", "limit", "cursor"],
         "/v1/console/config" => &[],
         "/v1/console/tasks" => &[
             "state",

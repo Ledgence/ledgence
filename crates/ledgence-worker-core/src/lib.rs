@@ -600,6 +600,18 @@ impl Worker {
             execution_span.record("otel.status_code", "ERROR");
         }
         drop(execution_span);
+        let observations = catch_call(|| {
+            ownership
+                .session
+                .as_mut()
+                .expect("session acquired")
+                .session
+                .take_observations()
+        })
+        .ok()
+        .flatten()
+        .filter(|value| value.validate().is_ok())
+        .map(Box::new);
         match outcome {
             Ok(outcome) => {
                 let mut idle = ownership.session.take().expect("session acquired");
@@ -615,6 +627,7 @@ impl Worker {
                 ownership.stage = InvocationStage::Settled;
                 tracing::info!(pid, phase = "completed", "program returned");
                 Ok(ExecutionReport {
+                    observations,
                     context: Box::new(context.clone()),
                     process_id: pid,
                     reused_process: reused,
@@ -624,10 +637,10 @@ impl Worker {
             }
             Err(error) => {
                 let cleanup = self.retire_owned(ownership, &context.identity).await.err();
-                Err(with_cleanup(
-                    failure(error, Phase::Execution, true, context),
-                    cleanup,
-                ))
+                let mut failure =
+                    with_cleanup(failure(error, Phase::Execution, true, context), cleanup);
+                failure.observations = observations;
+                Err(failure)
             }
         }
     }
@@ -1179,6 +1192,7 @@ fn failure(
     context: &ExecutionContext,
 ) -> ExecutionFailure {
     ExecutionFailure {
+        observations: None,
         context: Box::new(context.clone()),
         error,
         cleanup_error: None,

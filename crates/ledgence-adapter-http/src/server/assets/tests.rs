@@ -42,7 +42,7 @@ fn distribution() -> tempfile::TempDir {
         std::fs::write(dir.path().join(path), bytes).unwrap();
         assets.push(json!({"path":path,"content_type":content_type,"size_bytes":bytes.len(),"sha256":format!("{:x}",Sha256::digest(bytes))}));
     }
-    std::fs::write(dir.path().join("console-manifest.json"),serde_json::to_vec(&json!({"schema_version":1,"console_version":"0.1.1","console_contract_version":1,"source_revision":"a".repeat(40),"source_dirty":true,"toolchain":{"node":"24.21.0","pnpm":"11.27.1"},"lockfile_sha256":"b".repeat(64),"assets":assets})).unwrap()).unwrap();
+    std::fs::write(dir.path().join("console-manifest.json"),serde_json::to_vec(&json!({"schema_version":1,"console_version":"0.1.1","console_contract_version":CONSOLE_CONTRACT_VERSION,"source_revision":"a".repeat(40),"source_dirty":true,"toolchain":{"node":"24.21.0","pnpm":"11.27.1"},"lockfile_sha256":"b".repeat(64),"assets":assets})).unwrap()).unwrap();
     dir
 }
 #[test]
@@ -58,9 +58,11 @@ fn static_build_fails_on_missing_changed_or_incompatible_assets() {
     let path = dir.path().join("console-manifest.json");
     let mut value: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    value["console_contract_version"] = json!(2);
-    std::fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
-    assert!(ConsoleAssets::load(dir.path()).is_err());
+    for incompatible in [1, CONSOLE_CONTRACT_VERSION + 1] {
+        value["console_contract_version"] = json!(incompatible);
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(ConsoleAssets::load(dir.path()).is_err());
+    }
 }
 #[cfg(unix)]
 #[test]
@@ -96,6 +98,26 @@ async fn static_routes_preserve_api_failures_and_only_fallback_for_navigation() 
     for (method, path, status, contains) in [
         ("GET", "/console", 308, "location: /console/"),
         ("GET", "/console/workflows/wf_1", 200, "<main>Console"),
+        ("GET", "/console/programs", 200, "<main>Console"),
+        ("GET", "/console/programs/name", 200, "<main>Console"),
+        (
+            "GET",
+            "/console/programs/name/versions/v1",
+            200,
+            "<main>Console",
+        ),
+        (
+            "GET",
+            "/console/agents/name/versions/v1",
+            200,
+            "<main>Console",
+        ),
+        (
+            "GET",
+            "/console/programs/task%2F%20%C3%A9/versions/v%2F1",
+            200,
+            "<main>Console",
+        ),
         ("GET", "/console/assets/missing.js", 404, "no-store"),
         ("GET", "/v1/missing", 404, "route_not_found"),
         ("GET", "/health/missing", 404, "route_not_found"),
@@ -139,6 +161,19 @@ async fn static_routes_preserve_api_failures_and_only_fallback_for_navigation() 
         ("GET", "/console/executions/%00", 404, "no-store"),
         ("GET", "/console/executions/%FF", 404, "no-store"),
         ("GET", "/console/agents//versions/v1", 404, "no-store"),
+        ("GET", "/console/programs//versions/v1", 404, "no-store"),
+        (
+            "GET",
+            "/console/programs/name/versions/%00",
+            404,
+            "no-store",
+        ),
+        (
+            "GET",
+            "/console/programs/name/versions/%FF",
+            404,
+            "no-store",
+        ),
     ] {
         let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
         stream

@@ -119,8 +119,27 @@ pub(crate) async fn apply<R>(
         if let Some(accepted) = &a.settlement {
             let bytes = codec::encode(&accepted.command)?;
             let at = codec::ms(accepted.receipt.accepted_at)?;
-            sqlx::query!("INSERT INTO accepted_settlements(attempt_id,operation_id,accepted_command,accepted_at) VALUES($1,$2,$3,$4) ON CONFLICT(attempt_id) DO NOTHING",a.lease.owner.attempt_id,accepted.receipt.operation_id,bytes,at)
-                .execute(&mut *connection).await?;
+            let observations = match &accepted.command.report {
+                AttemptReport::Completed(report) => report.observations.as_deref(),
+                AttemptReport::Failed(report) => report.observations.as_deref(),
+            }
+            .filter(|value| value.validate().is_ok());
+            let observations_bytes = observations.map(codec::encode).transpose()?;
+            let inserted = sqlx::query("INSERT INTO accepted_settlements(attempt_id,operation_id,accepted_command,accepted_at,observations_bytes) VALUES($1,$2,$3,$4,$5) ON CONFLICT(attempt_id) DO NOTHING")
+                .bind(&a.lease.owner.attempt_id).bind(&accepted.receipt.operation_id)
+                .bind(bytes).bind(at).bind(observations_bytes)
+                .execute(&mut *connection).await?.rows_affected();
+            if inserted != 0
+                && let Some(observations) = observations
+            {
+                crate::workflow::explorer::observe_locals(
+                    connection,
+                    &a.lease.owner.task_id,
+                    &a.lease.owner.attempt_id,
+                    observations,
+                )
+                .await?;
+            }
         }
     }
     let t = &transition.task;

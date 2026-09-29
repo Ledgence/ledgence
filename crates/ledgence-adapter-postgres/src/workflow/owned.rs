@@ -78,6 +78,7 @@ pub(super) async fn create_child_at(
     if inserted != 1 {
         return Err(corrupt("missing owned creating activation").into());
     }
+    explorer::child(connection, activation, command, &id, start.fork_key, now).await?;
     let mut child = load_run(connection, &parent.snapshot.scope, Some(&id), None, false).await?;
     let task = schedule_activation(connection, &mut child, BTreeMap::new(), None, now).await?;
     record_history(connection, &id, Some(&task.task_id), now, "started_owned").await?;

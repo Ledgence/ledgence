@@ -85,7 +85,7 @@ namespace or scope. Every response is checked against the configured instance
 identity and Console contract version before entering query state.
 
 The canonical Rust serialization fixture is
-[`console-v1.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v1.json).
+[`console-v2.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json).
 Strict runtime decoders consume that fixture in tests. Unknown fields or result
 variants fail explicitly. Metadata u64 values remain decimal strings; JSON input,
 output and CloudEvents use `lossless-json` to preserve integer/floating tokens and
@@ -104,11 +104,39 @@ to their resource: refreshing the same resource preserves them, while navigating
 to another resource starts with a separate form. Separating an operation requires an
 explicit confirmation. Run again creates a new submission with a new identity.
 Inputs, outputs, events and command bodies are not written to URLs, local storage
-or analytics; only the appearance preference is persistent.
+or analytics. Only appearance and the preferred Graph/Timeline view persist in
+local storage. Shareable filters, selected record and view belong in the URL;
+scroll, expansion and focus restoration use bounded memory per history entry.
 
-The recorded-work view draws relationships from durable creation and activation
-IDs. It is bounded and paginated, and does not infer relationships from correlation
-keys or present recorded history as future execution. Worker telemetry is
+Executions combines root workflows and standalone tasks in one server-paginated
+history, with task/workflow and exact program/version filters. Include child
+executions expands discovery; program history and exact-ID searches include
+children automatically. Controller invocations and local steps stay inside their
+workflow. Programs replaces the former Agents navigation; `/agents` links remain
+usable. Type filters match any registered version and preserve mixed and
+unspecified registrations.
+
+Workflow Graph and Timeline share durable node identities, selection and an
+evidence inspector. Explicit fork membership, applied decisions, terminal-outcome
+joins, external waits and scheduled resumes establish relationships. Local work
+appears within its controller phase, never as an invented distributed branch.
+No relationship is inferred from timestamp order, trace parentage or correlation.
+Accepted local results without runtime observations appear as milestones. A closed
+wait without a recorded wake remains unknown. Both views work without OTel export.
+
+The explorer loads bounded snapshots with explicit page boundaries. Timeline rows
+are virtualized, with a complete accessible work list for each loaded page. Child
+workflow timelines expand on demand; Open execution supports focused navigation.
+Back follows browser history, while Up and breadcrumbs follow recorded ownership.
+Updates preserve selected-node positioning unless Follow activity is enabled.
+Old diagnostic tabs and task/workflow deep links remain available under Advanced.
+The browser and server use Console contract **2**; deploy matching assets together.
+
+Resources shows per-attempt runtime and Python-process CPU where recorded.
+Child processes are excluded from that CPU scope. Process lifetime peak memory
+includes earlier warm invocations; it is not an invocation peak and is never
+summed across attempts. Missing measurements remain unavailable, not zero; terminal
+attempts do not poll indefinitely for absent reports. Worker telemetry is
 observational: fresh, stale, expired and unsupported details are distinct, and
 missing reports never become fabricated process slots.
 

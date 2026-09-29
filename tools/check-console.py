@@ -133,6 +133,7 @@ def main():
             name: hashlib.sha256((root / name).read_bytes()).hexdigest()
             for name in ["tools/check-console.py", "tools/console_acceptance/harness.py",
                          "tools/console_acceptance/scenarios.py", "tools/console_acceptance/workflows.py",
+                         "tools/console_acceptance/explorer.py",
                          *resources["source_fixtures"]]
         }
         (directory / "resources.json").write_text(json.dumps(resources, indent=2) + "\n")

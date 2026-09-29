@@ -28,6 +28,32 @@ impl ConsoleQueryService for Queries {
         })
     }
 }
+#[derive(Default)]
+struct Catalog {
+    calls: Mutex<Vec<ProgramCatalogQuery>>,
+    reply: Mutex<Option<ProgramCatalogReply>>,
+}
+impl ProgramCatalogService for Catalog {
+    fn register_program<'a>(
+        &'a self,
+        _: &'a RegisterProgram,
+    ) -> ContractFuture<'a, RegisterProgramReply> {
+        Box::pin(async { panic!("catalog read must not register a program") })
+    }
+    fn query_programs<'a>(
+        &'a self,
+        query: &'a ProgramCatalogQuery,
+    ) -> ContractFuture<'a, ProgramCatalogReply> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push(query.clone());
+            self.reply
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or(ContractError::NotFound)
+        })
+    }
+}
 fn config() -> SelfHostedInstanceConfig {
     SelfHostedInstanceConfig {
         instance_id: "local-console".into(),
@@ -38,11 +64,18 @@ fn config() -> SelfHostedInstanceConfig {
     }
 }
 async fn setup(mock: &Arc<Mock>, queries: &Arc<Queries>) -> Running {
+    setup_catalog(mock, queries, None).await
+}
+async fn setup_catalog(
+    mock: &Arc<Mock>,
+    queries: &Arc<Queries>,
+    catalog: Option<Arc<dyn ProgramCatalogService>>,
+) -> Running {
     let console = server::console::ConsoleServices::new(
         config(),
         "0.1.1".into(),
         queries.clone(),
-        None,
+        catalog,
         None,
     )
     .unwrap();
@@ -67,7 +100,7 @@ fn query_url(running: &Running, path: &str, parameters: &[(&str, &str)]) -> reqw
 }
 fn assert_headers(response: &reqwest::Response) {
     assert_eq!(response.headers()["ledgence-instance-id"], "local-console");
-    assert_eq!(response.headers()["ledgence-console-contract"], "1");
+    assert_eq!(response.headers()["ledgence-console-contract"], "2");
     assert_eq!(response.headers()["cache-control"], "no-store");
     assert_eq!(response.headers()["content-type"], "application/json");
     assert_eq!(response.headers()["x-content-type-options"], "nosniff");
@@ -94,6 +127,160 @@ fn workflow_snapshot() -> WorkflowSnapshot {
         terminal_at: None,
         correlation_key: Some("invoice:42".into()),
     }
+}
+
+#[tokio::test]
+async fn unified_execution_endpoint_decodes_filters_and_preserves_typed_identity() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let fixtures: Value = serde_json::from_str(include_str!(
+        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v1.json"
+    ))
+    .unwrap();
+    *queries.reply.lock().unwrap() = Some(ConsoleQueryReply::Executions(
+        serde_json::from_value(fixtures["executions"].clone()).unwrap(),
+    ));
+    let running = setup(&mock, &queries).await;
+    let response = reqwest::Client::new()
+        .get(query_url(
+            &running,
+            "/v1/console/executions",
+            &[
+                ("execution_id", "shared-id"),
+                ("program_id", "mixed-program"),
+                ("submitted_from", "100"),
+                ("submitted_until", "102"),
+            ],
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_headers(&response);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&response.bytes().await.unwrap()).unwrap(),
+        fixtures["executions"]
+    );
+    let calls = queries.calls.lock().unwrap();
+    let ConsoleQuery::Executions { filters, .. } = &calls[0] else {
+        panic!()
+    };
+    assert!(filters.includes_children());
+    assert!(!filters.include_children);
+    assert_eq!(filters.execution_id.as_deref(), Some("shared-id"));
+}
+
+#[tokio::test]
+async fn unified_execution_endpoint_rejects_incompatible_or_unknown_filters_before_service() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let running = setup(&mock, &queries).await;
+    for fields in [
+        vec![("kind", "task"), ("state", "waiting")],
+        vec![("version", "1")],
+        vec![("include_children", "yes")],
+        vec![("kind", "local")],
+        vec![("tenant_id", "other")],
+        vec![("submitted_from", "20"), ("submitted_until", "10")],
+    ] {
+        let response = reqwest::Client::new()
+            .get(query_url(&running, "/v1/console/executions", &fields))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400, "{fields:?}");
+    }
+    assert!(queries.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn catalog_endpoint_filters_any_version_kind_and_binds_its_cursor() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let catalog = Arc::new(Catalog::default());
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v1.json"
+    ))
+    .unwrap();
+    *catalog.reply.lock().unwrap() = Some(ProgramCatalogReply::Catalog(
+        serde_json::from_value(fixture["catalog"].clone()).unwrap(),
+    ));
+    let running = setup_catalog(&mock, &queries, Some(catalog.clone())).await;
+    let client = reqwest::Client::new();
+    // The fixture's editable summary says task, but registered versions include
+    // a workflow. The endpoint must validate membership, not summary metadata.
+    let response = client
+        .get(query_url(
+            &running,
+            "/v1/console/programs/catalog",
+            &[("kind", "workflow")],
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_headers(&response);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&response.bytes().await.unwrap()).unwrap(),
+        fixture["catalog"]
+    );
+    let binding = ProgramCatalogQuery::Catalog {
+        kind: Some(ConsoleProgramKind::Task),
+        page: Default::default(),
+    }
+    .binding(&scope())
+    .unwrap();
+    let cursor = ConsolePagination::default()
+        .next_cursor(&binding, &vec![ConsoleKey::Text("mixed-program".into())])
+        .unwrap();
+    for fields in [
+        vec![("kind", "mixed")],
+        vec![("kind", "workflow"), ("cursor", cursor.as_str())],
+        vec![("tenant_id", "other")],
+    ] {
+        let response = client
+            .get(query_url(&running, "/v1/console/programs/catalog", &fields))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400, "{fields:?}");
+    }
+    let calls = catalog.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert!(matches!(
+        calls[0],
+        ProgramCatalogQuery::Catalog {
+            kind: Some(ConsoleProgramKind::Workflow),
+            ..
+        }
+    ));
+    assert!(queries.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn catalog_endpoint_rejects_a_store_reply_outside_the_requested_kind() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let catalog = Arc::new(Catalog::default());
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v1.json"
+    ))
+    .unwrap();
+    *catalog.reply.lock().unwrap() = Some(ProgramCatalogReply::Catalog(
+        serde_json::from_value(fixture["catalog"].clone()).unwrap(),
+    ));
+    let running = setup_catalog(&mock, &queries, Some(catalog)).await;
+    let response = reqwest::Client::new()
+        .get(query_url(
+            &running,
+            "/v1/console/programs/catalog",
+            &[("kind", "unspecified")],
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    assert_headers(&response);
 }
 
 #[tokio::test]

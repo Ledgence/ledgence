@@ -390,9 +390,10 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                     .headers_mut()
                     .insert("ledgence-instance-id", identity);
             }
-            response
-                .headers_mut()
-                .insert("ledgence-console-contract", HeaderValue::from_static("1"));
+            response.headers_mut().insert(
+                "ledgence-console-contract",
+                HeaderValue::from(ledgence_orchestration_api::console::CONSOLE_CONTRACT_VERSION),
+            );
         }
         if status == 405 {
             response.headers_mut().insert(

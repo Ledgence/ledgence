@@ -8,7 +8,7 @@ function reply(body: string, extra: HeadersInit = {}) {
   return new Response(body, {
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "1",
+      "Ledgence-Console-Contract": "2",
       "Ledgence-Instance-Id": "instance_demo",
       "Request-Id": "req-test",
       ...extra,
@@ -138,7 +138,7 @@ it("treats invalid UTF-8 as a permanent protocol failure with request ID", async
       new Response(new Uint8Array([0xc3, 0x28]), {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "1",
+          "Ledgence-Console-Contract": "2",
           "Ledgence-Instance-Id": "instance_demo",
           "Request-Id": "req-encoding",
         },

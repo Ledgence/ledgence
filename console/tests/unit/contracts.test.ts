@@ -7,7 +7,7 @@ import { taskPage, workflowPage, taskResult } from "../../src/api/resources";
 import { decimal } from "../../src/api/schema";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v1.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json",
     import.meta.url,
   ),
   "utf8",
@@ -20,7 +20,7 @@ function field(name: string): unknown {
 }
 describe("Rust-produced Console contract", () => {
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(1);
+    expect(decodeConfig(field("config")).contract_version).toBe(2);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );

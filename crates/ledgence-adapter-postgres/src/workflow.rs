@@ -2,6 +2,7 @@
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
 mod data;
 mod execution;
+pub(crate) mod explorer;
 mod external;
 mod forks;
 mod owned;

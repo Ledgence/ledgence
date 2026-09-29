@@ -13,17 +13,18 @@ covers the interface and operational behavior.
 ## Open the local deployment
 
 Follow [local deployment](local-deployment.md), including the explicit publication
-command, then open [Console](http://127.0.0.1:8080/console/). The four sections use
-persisted executions, recorded workflows, registered programs and actual worker
-observations. The supplied demo uses one compatibility binding configured on the
+command, then open [Console](http://127.0.0.1:8080/console/). Executions and Programs
+are the primary sections; Workers is available under Operations. These views use
+durable execution records, registered programs and actual worker observations.
+The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
 
-- **Executions**: filter by supported exact values, inspect input/result/attempts
-  and history, submit a program, run it again as new work, or request cancellation.
-- **Workflows**: inspect activations and recorded relationships, local steps,
-  child and external waits; start a registered controller, send an event to an
-  actual wait, or request cancellation. Recorded work is not a future DAG.
-- **Agents**: inspect registered packages, exact opaque versions, digests and
+- **Executions**: one history for tasks and workflows, filtered by type, status,
+  program/version, queue, correlation, exact execution ID and submission time.
+  Inspect input, output, attempts, resources and history; submit a program, run it
+  again as new work, or request cancellation. Workflow details include Graph and
+  Timeline views, local steps and recorded waits.
+- **Programs**: inspect registered packages, exact opaque versions, digests and
   runtime requirements. Registration is explicit and independent of execution.
 - **Workers**: inspect server-received observations, stable process slots and
   validated execution links. Fresh/stale/no-recent-report describes the age of
@@ -33,6 +34,46 @@ Lists are live keyset pages, not a transaction frozen across navigation. There
 are no synthetic fleet totals. Inputs and terminal results load on demand; normal
 refreshes read bounded metadata. Hidden/offline pages pause polling. The browser
 validates instance identity and contract version before accepting responses.
+
+The global history starts with root workflows and standalone tasks. **Include
+child executions** adds ordinary child tasks and subworkflows; controller
+activations remain inside their workflow. Program/version history and exact-ID
+lookup include children automatically. Executions remain discoverable even when
+their packages have not been added to the registry. Catalog type filters match
+any registered version; mixed kinds and unspecified kinds stay explicit.
+
+## Explore a workflow
+
+Graph and Timeline use the same durable execution records. Select a node or row to
+inspect it, then use **Open execution** to drill into a task or subworkflow. Back
+restores the previous navigation entry; Up follows ownership. Breadcrumbs provide
+direct access to ancestors. A child deep link works without visiting its parent.
+
+Graph shows the observed path: controller phases, children, local operations,
+fork registration, joins and external waits. It does not reconstruct arbitrary
+Python statements or predict unexecuted branches. Local work remains inside its
+controller phase. A fork's distributed members come from recorded branch keys;
+nearby local work is not invented as another distributed branch. Edges describe
+registration, waiting for terminal outcomes, and recorded resumption. Correlation
+and timestamp order never establish a dependency.
+
+Timeline distinguishes recorded intervals from acceptance milestones. Submission
+to terminal includes queue and wait time; an accepted local result alone does not
+provide its runtime interval. A closed wait alone does not prove a successful
+wake. Rejected controller decisions do not create execution edges, and workflow
+`failing`/`cancelling` remain nonterminal while children drain.
+
+The explorer reads bounded pages and identifies records not yet loaded. Retained
+references can remain visible when their target has become unavailable; generic
+unavailability does not prove retention removed it. No graph depends on exported
+OpenTelemetry traces. Older histories may lack observations that were never
+recorded, and the Console does not fabricate them.
+
+Resources are inspected per attempt. CPU covers the Python process, excluding
+subprocesses; memory is explicitly a process-lifetime high-water mark, not an
+invocation peak. Local lifecycle observations arrive with the accepted attempt
+report rather than as a live stream. See [execution observations](execution-observations.md)
+for scope, bounds, replay and unavailable-measurement behavior.
 
 ## Native startup
 
@@ -134,6 +175,12 @@ Mixed historical bindings fail startup and require an offline operational decisi
 No migration deletes or reassigns them. Rollback to an older binary that ignores
 the persisted binding requires an offline plan; never run it concurrently against
 the bound database. Catalog retention is independent of execution-history cleanup.
+
+The execution explorer requires Console contract version 2 and matching server
+and assets. Existing API DTOs and useful `/agents` and workflow deep links remain
+available, but incompatible asset bundles are rejected explicitly. New database
+projections are installed by explicit migrations; budget maintenance time for
+backfilling retained execution metadata and building indexes.
 
 ## Qualification
 

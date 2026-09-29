@@ -307,6 +307,7 @@ async fn delayed_retry_becomes_claimable_without_another_write_or_hint() {
         unreachable!()
     };
     failed.report = AttemptReport::Failed(ExecutionFailure {
+        observations: None,
         context: report.context,
         error: Error::new(ErrorKind::Runtime, "retry later"),
         cleanup_error: None,

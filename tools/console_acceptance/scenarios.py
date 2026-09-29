@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 from http_acceptance.harness import PROGRAM, eventually, exchange
 from .harness import ObservationProxy, raw_exchange
 from .workflows import workflow_scenarios
+from .explorer import run as explorer_scenario
 
 
 def equivalent(left, right):
@@ -30,6 +31,7 @@ def equivalent(left, right):
 
 def static_and_contract(d, record):
     deep_links = ("/console/", "/console/executions/unknown-id", "/console/workflows/unknown-id",
+                  "/console/programs", "/console/programs/invoice", "/console/programs/invoice/versions/1.0.0",
                   "/console/workers/unknown-id", "/console/agents/invoice/versions/1.0.0",
                   "/console/agents/invoice", "/console/executions/task%2F%20%25%C3%A9",
                   "/console/workflows/literal%252F", "/console/workers/worker%2B%25")
@@ -249,6 +251,7 @@ def run(d, delay, workflow_gate, record):
     worker, old_session, task_id = execution_and_reporting(d, record)
     active_cancel_and_race(d, record)
     workflow_id = workflow_scenarios(d, delay, record)
+    explorer_scenario(d, workflow_gate["publish"], record)
     old_result = d.api("GET", "tasks/result", task_id=task_id)
     worker.stop()
     d.server.stop()

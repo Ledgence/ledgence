@@ -3,7 +3,7 @@ title: One self-hosted instance
 description: Understand the Console deployment boundary, program catalog, and distinction between durable execution state and worker observations.
 ---
 
-A self-hosted Ledgence installation is one operating environment. Console opens directly into its executions, workflows, agents, and workers. There is no tenant administration, workspace switcher, or organization model to configure.
+A self-hosted Ledgence installation is one operating environment. Console opens into unified task/workflow executions and a program registry, with workers under Operations. There is no tenant administration, workspace switcher, or organization model to configure.
 
 Console is implemented in the current source tree; the published `v0.1.1` source and `0.1.0` native bundle predate it. The [Console tutorial](/tutorials/use-console) explains how to start a compatible source checkout.
 
@@ -29,7 +29,7 @@ Adopting existing data therefore requires an explicit binding decision. If a dat
 
 **Publication** makes immutable application bytes available in a program store. The package contains the application and its prepared dependencies, with requirements for the worker's Python runtime and platform.
 
-**Registration** verifies a published reference and adds its metadata to the instance's catalog. Console calls this catalog **Agents**, but it can contain any supported application program or workflow controller. Registration is deliberate: it does not scan a private store or run code to discover what a program does.
+**Registration** verifies a published reference and adds its metadata to **Programs**, the instance's registry of tasks and workflows. Registration is deliberate: it does not scan a private store or run code to discover what a program does.
 
 **Execution** creates durable work that asks a worker to invoke an exact program version. Many executions can use the same registered package. Deleting old execution history does not remove that package from the catalog.
 

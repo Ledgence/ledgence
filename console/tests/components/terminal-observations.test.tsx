@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v1.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import * as dto from "../../src/api/resources";
@@ -33,7 +33,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "1",
+      "Ledgence-Console-Contract": "2",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -228,7 +228,9 @@ it("refreshes recorded activations and children when the workflow completes", as
     }
     throw new Error(`Unexpected request ${path}`);
   });
-  const { view, client } = await mount("/workflows/wf_invoice_1042");
+  const { view, client } = await mount(
+    "/workflows/wf_invoice_1042?tab=Recorded+work",
+  );
   await expect
     .element(view.getByText("Result not consumed", { exact: true }))
     .toBeVisible();
@@ -331,6 +333,6 @@ it("keeps the filtered workflow return link when choosing local-step activation"
     .fill("task_controller_1");
   await view.getByRole("button", { name: "Load steps", exact: true }).click();
   await expect
-    .element(view.getByRole("link", { name: "Workflows", exact: true }))
+    .element(view.getByRole("link", { name: "Executions", exact: true }))
     .toHaveAttribute("href", returnTo);
 });

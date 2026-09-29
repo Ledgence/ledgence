@@ -15,7 +15,7 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
     let actual = serde_json::to_string_pretty(&fixture::fixtures()).unwrap() + "\n";
     assert_eq!(
         actual,
-        include_str!("fixtures/console-v1.json"),
+        include_str!("fixtures/console-v2.json"),
         "regenerate with cargo run -p ledgence-orchestration-api --example console-fixtures -- --write"
     );
     let data = fixture::fixtures();

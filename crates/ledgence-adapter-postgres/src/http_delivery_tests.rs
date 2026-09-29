@@ -470,6 +470,7 @@ async fn http_old_unconfirmed_failure_receipt_and_cleanup_leave_later_attempt_un
         owner: first.lease.owner.clone(),
         operation_id: "controlled_failed_attempt".into(),
         report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: Box::new(ExecutionContext {
                 identity: InvocationIdentity::from(&first.event),
                 program: first.descriptor.program.clone(),

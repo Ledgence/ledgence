@@ -34,6 +34,65 @@ async fn count(store: &PostgresStore, table: &str) -> i64 {
         .unwrap()
 }
 
+/// Upgrade fixtures describe historical rows directly. Calling current workflow
+/// creation against an old schema would invoke projections not installed yet.
+async fn historical_workflow_fixture(store: &PostgresStore) -> WorkflowSnapshot {
+    let mut connection = store.pool.begin().await.unwrap();
+    let now = db::now(&mut connection).await.unwrap();
+    let submit = command();
+    let controller = descriptor();
+    sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms,correlation_key,queue) VALUES('wf_upgrade',$1,$2,$3,$4,$5,'running','start',$6,$7,$8,$9)")
+        .bind(&submit.input.tenant_id).bind(&submit.input.namespace).bind(&submit.idempotency_key)
+        .bind(codec::encode(&submit).unwrap()).bind(codec::encode(&controller).unwrap()).bind(b"null".as_slice())
+        .bind(codec::ms(now).unwrap()).bind(&submit.input.correlation_key).bind(&submit.input.queue)
+        .execute(&mut *connection).await.unwrap();
+    let mut run = load_run(&mut connection, &scope(), Some("wf_upgrade"), None, false)
+        .await
+        .unwrap();
+    let context = WorkflowActivationContext {
+        v: 1,
+        workflow_id: "wf_upgrade".into(),
+        parent_workflow_id: None,
+        root_workflow_id: None,
+        activation_id: "task_upgrade".into(),
+        revision: 0,
+        continuation: "start".into(),
+        state: Value::Null,
+        inputs: BTreeMap::new(),
+        wake: None,
+        local_steps: vec![],
+    };
+    let mut task_command = submit;
+    task_command.idempotency_key = "workflow:wf_upgrade:task_upgrade".into();
+    insert_task(
+        &mut connection,
+        &task_command,
+        &controller,
+        "task_upgrade",
+        &run.snapshot,
+        true,
+        now,
+    )
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO workflow_activations(activation_id,workflow_id,revision,task_id,context_bytes) VALUES('task_upgrade','wf_upgrade',0,'task_upgrade',$1)")
+        .bind(codec::encode(&context).unwrap()).execute(&mut *connection).await.unwrap();
+    link_task(
+        &mut connection,
+        "task_upgrade",
+        "wf_upgrade",
+        "task_upgrade",
+        true,
+        "controller",
+    )
+    .await
+    .unwrap();
+    run.snapshot.activation_id = Some("task_upgrade".into());
+    save_run(&mut connection, &run).await.unwrap();
+    connection.commit().await.unwrap();
+    run.snapshot
+}
+
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn fork_migration_preserves_existing_activation_and_local_receipts() {
@@ -49,13 +108,13 @@ async fn fork_migration_preserves_existing_activation_and_local_receipts() {
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
-    let parent = start(&db.store).await;
+    let parent = historical_workflow_fixture(&db.store).await;
     let controller = acquire(&db.store, "python").await;
     dispatched(&db.store, &controller).await;
-    db.store
-        .record_local_result(&local(&controller, "existing"))
-        .await
-        .unwrap();
+    let old_local = local(&controller, "existing");
+    sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable) VALUES($1,$2,$3,$4,1,$5)")
+        .bind(&old_local.owner.task_id).bind(&old_local.record.key).bind(codec::encode(&old_local.record).unwrap())
+        .bind(&old_local.owner.attempt_id).bind(&old_local.record.callable).execute(&db.store.pool).await.unwrap();
     let before = db
         .store
         .activation_context(&controller.lease.owner)

@@ -24,7 +24,6 @@ import {
   PageControls,
   QueryError,
   Empty,
-  BackLink,
   Tabs,
   Fields,
   Field,
@@ -32,6 +31,8 @@ import {
 } from "../components/resource-ui";
 import { CommandFeedback } from "../components/command-feedback";
 import { Filters, ExecutionStatusTabs } from "./filters";
+import { ExecutionContext } from "../components/execution-context";
+import { TaskResources } from "./execution-resources";
 export function ExecutionsPage() {
   const config = useInstance();
   const [params] = useSearchParams();
@@ -116,7 +117,7 @@ export function ExecutionsPage() {
                           </td>
                           <td data-label="Program / version">
                             <Link
-                              to={`/agents/${encodeURIComponent(descriptor.program.id)}/versions/${encodeURIComponent(descriptor.program.version)}`}
+                              to={`/programs/${encodeURIComponent(descriptor.program.id)}/versions/${encodeURIComponent(descriptor.program.version)}`}
                             >
                               {descriptor.program.id}
                             </Link>
@@ -172,9 +173,15 @@ export function ExecutionDetailPage() {
   const [params] = useSearchParams();
   const config = useInstance();
   const requestedTab = params.get("tab") ?? "Overview";
-  const tab = ["Overview", "Input", "Result", "Attempts", "History"].includes(
-    requestedTab,
-  )
+  const tab = [
+    "Overview",
+    "Input",
+    "Output",
+    "Resources",
+    "Result",
+    "Attempts",
+    "History",
+  ].includes(requestedTab)
     ? requestedTab
     : "Overview";
   const query = useResource(
@@ -189,9 +196,9 @@ export function ExecutionDetailPage() {
   const task = query.data?.task;
   return (
     <>
-      <BackLink to="/executions">Executions</BackLink>
+      <ExecutionContext kind="task" id={taskId} />
       <PageHeading
-        title="Execution"
+        title={task?.correlation_key || "Task execution"}
         actions={
           task && (
             <>
@@ -221,6 +228,16 @@ export function ExecutionDetailPage() {
         <>
           <div className="summary-line">
             <Status value={task.state} />
+            <span className="muted">
+              Elapsed{" "}
+              {Math.max(
+                0,
+                (task.terminal_at ??
+                  query.data?.observed_at ??
+                  task.submitted_at) - task.submitted_at,
+              ).toLocaleString()}{" "}
+              ms
+            </span>
             {task.cancel_requested_at !== null && !dto.terminal(task.state) && (
               <span>Cancellation requested; awaiting final state</span>
             )}
@@ -229,8 +246,15 @@ export function ExecutionDetailPage() {
             </span>
           </div>
           <Tabs
-            values={["Overview", "Input", "Result", "Attempts", "History"]}
-            current={tab}
+            values={[
+              "Overview",
+              "Input",
+              "Output",
+              "Resources",
+              "Attempts",
+              "History",
+            ]}
+            current={tab === "Result" ? "Output" : tab}
           />
           {tab === "Overview" && (
             <section className="card">
@@ -276,7 +300,16 @@ export function ExecutionDetailPage() {
             </section>
           )}
           {tab === "Input" && <ExecutionInput taskId={taskId} />}{" "}
-          {tab === "Result" && <ExecutionResult taskId={taskId} />}{" "}
+          {(tab === "Result" || tab === "Output") && (
+            <ExecutionResult taskId={taskId} />
+          )}{" "}
+          {tab === "Resources" && (
+            <TaskResources
+              key={taskId}
+              taskId={taskId}
+              active={!dto.terminal(task.state)}
+            />
+          )}
           {tab === "Attempts" && (
             <Attempts taskId={taskId} active={!dto.terminal(task.state)} />
           )}{" "}

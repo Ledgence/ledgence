@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v1.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import * as dto from "../../src/api/resources";
@@ -22,6 +22,16 @@ function field(key: string): unknown {
   return Reflect.get(fixture, key);
 }
 const config = decodeConfig(field("config"));
+function catalog() {
+  const page = dto.programPage(field("programs"));
+  return {
+    ...page,
+    items: page.items.map((program) => ({
+      program,
+      kinds: [program.metadata.kind ?? "unspecified"],
+    })),
+  };
+}
 const clients: QueryClient[] = [];
 afterEach(() => {
   for (const client of clients) client.clear();
@@ -33,7 +43,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "1",
+      "Ledgence-Console-Contract": "2",
       "Ledgence-Instance-Id": config.instance_id,
       "Request-Id": "req_console_test",
     },
@@ -57,6 +67,11 @@ async function mount(route: string) {
         <MemoryRouter initialEntries={[route]}>
           <Routes>
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/programs/:programId" element={<AgentDetailPage />} />
+            <Route
+              path="/programs/:programId/versions/:version"
+              element={<ProgramVersionPage />}
+            />
             <Route path="/agents/:programId" element={<AgentDetailPage />} />
             <Route
               path="/agents/:programId/versions/:version"
@@ -81,7 +96,7 @@ it("loads catalog summaries once and navigates exact opaque versions without sub
     paths.push(String(input));
     expect(init?.method).toBe("GET");
     const path = new URL(String(input), location.origin).pathname;
-    if (path === "/v1/console/programs") return response(field("programs"));
+    if (path === "/v1/console/programs/catalog") return response(catalog());
     if (path === "/v1/console/programs/versions")
       return response(field("program_versions"));
     if (path === "/v1/console/programs/inspect")
@@ -125,11 +140,11 @@ it("freezes an uncertain registration and retries exactly the same bytes", async
         ? response({}, 503)
         : response(field("program_receipt"));
     }
-    return response(field("programs"));
+    return response(catalog());
   });
   const page = await mount("/agents");
   await page
-    .getByRole("button", { name: "Register agent", exact: true })
+    .getByRole("button", { name: "Register program", exact: true })
     .click();
   await page
     .getByRole("textbox", { name: "Program ID", exact: true })

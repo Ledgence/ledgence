@@ -21,7 +21,9 @@ export function record(
     keys.length !== fields.length ||
     fields.some((key) => !Object.hasOwn(object, key))
   )
-    throw new ContractError("Response fields do not match Console contract 1.");
+    throw new ContractError(
+      "Response fields do not match the Console contract.",
+    );
   return object;
 }
 function text(value: unknown): string {
