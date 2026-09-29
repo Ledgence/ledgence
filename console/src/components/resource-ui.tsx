@@ -16,7 +16,7 @@ export function CopyText({
   const [feedback, setFeedback] = useState("");
   return (
     <span className="copy-value">
-      <code>{value}</code>
+      <code title={value}>{value}</code>
       <Button
         variant="ghost"
         aria-label={label}
@@ -56,20 +56,45 @@ export function When({ value }: { value: number | null }) {
     </time>
   );
 }
+export function Elapsed({ start, end }: { start: number; end: number }) {
+  const ms = Math.max(0, end - start);
+  const seconds = Math.floor(ms / 1000);
+  const value =
+    ms < 1000
+      ? `${ms} ms`
+      : seconds < 60
+        ? `${seconds}s`
+        : seconds < 3600
+          ? `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+          : `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return (
+    <span
+      className="elapsed"
+      title={`${ms.toLocaleString()} ms at the last observation`}
+    >
+      Elapsed {value}
+    </span>
+  );
+}
 export function PageHeading({
   title,
   description,
   actions,
+  metadata,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
+  metadata?: ReactNode;
 }) {
   return (
     <header className="page-heading">
       <div>
         <h1>{title}</h1>
         {description && <p className="muted">{description}</p>}
+        {metadata && (
+          <div className="heading-metadata summary-line">{metadata}</div>
+        )}
       </div>
       {actions && <div className="actions">{actions}</div>}
     </header>
@@ -184,22 +209,26 @@ export function PageControls({
         <RefreshCw aria-hidden="true" />
         Refresh
       </Button>
-      <Button
-        variant="outline"
-        disabled={!pagination.cursor}
-        onClick={pagination.back}
-      >
-        {pagination.previous.length ? "Previous" : "First page"}
-      </Button>
-      <Button
-        variant="outline"
-        disabled={!nextCursor}
-        onClick={() => {
-          if (nextCursor) pagination.next(nextCursor);
-        }}
-      >
-        Next
-      </Button>
+      {(pagination.cursor || nextCursor) && (
+        <>
+          <Button
+            variant="outline"
+            disabled={!pagination.cursor}
+            onClick={pagination.back}
+          >
+            {pagination.previous.length ? "Previous" : "First page"}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!nextCursor}
+            onClick={() => {
+              if (nextCursor) pagination.next(nextCursor);
+            }}
+          >
+            Next
+          </Button>
+        </>
+      )}
     </div>
   );
 }

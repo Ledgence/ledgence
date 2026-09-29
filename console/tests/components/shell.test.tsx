@@ -10,7 +10,7 @@ import {
   DialogTrigger,
 } from "../../src/components/ui/dialog";
 import "../../src/styles/global.css";
-it("navigates all four sections and renders instance names as text", async () => {
+it("navigates the console and renders instance names as text", async () => {
   const page = await render(
     <MemoryRouter initialEntries={["/executions"]}>
       <AppShell instanceName="<script>test</script>">

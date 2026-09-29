@@ -18,6 +18,7 @@ import {
 import { LoadingState } from "../components/async-state";
 import {
   PageHeading,
+  Elapsed,
   Status,
   When,
   CopyText,
@@ -199,6 +200,28 @@ export function ExecutionDetailPage() {
       <ExecutionContext kind="task" id={taskId} />
       <PageHeading
         title={task?.correlation_key || "Task execution"}
+        metadata={
+          <>
+            {task && (
+              <>
+                <Status value={task.state} />
+                <Elapsed
+                  start={task.submitted_at}
+                  end={
+                    task.terminal_at ??
+                    query.data?.observed_at ??
+                    task.submitted_at
+                  }
+                />
+                {task.cancel_requested_at !== null &&
+                  !dto.terminal(task.state) && (
+                    <span>Cancellation requested; awaiting final state</span>
+                  )}
+              </>
+            )}
+            <CopyText value={taskId} label="Copy task ID" />
+          </>
+        }
         actions={
           task && (
             <>
@@ -215,7 +238,6 @@ export function ExecutionDetailPage() {
           )
         }
       />
-      <CopyText value={taskId} label="Copy task ID" />
       {query.isPending && <LoadingState />}
       {query.error && (
         <QueryError
@@ -226,25 +248,6 @@ export function ExecutionDetailPage() {
       )}{" "}
       {task && (
         <>
-          <div className="summary-line">
-            <Status value={task.state} />
-            <span className="muted">
-              Elapsed{" "}
-              {Math.max(
-                0,
-                (task.terminal_at ??
-                  query.data?.observed_at ??
-                  task.submitted_at) - task.submitted_at,
-              ).toLocaleString()}{" "}
-              ms
-            </span>
-            {task.cancel_requested_at !== null && !dto.terminal(task.state) && (
-              <span>Cancellation requested; awaiting final state</span>
-            )}
-            <span className="muted">
-              Observed <When value={query.data?.observed_at ?? null} />
-            </span>
-          </div>
           <Tabs
             values={[
               "Overview",
@@ -274,6 +277,9 @@ export function ExecutionDetailPage() {
                 </Field>
                 <Field label="Terminal">
                   <When value={task.terminal_at} />
+                </Field>
+                <Field label="Observed">
+                  <When value={query.data?.observed_at ?? null} />
                 </Field>
                 <Field label="Attempts">{task.attempt_count}</Field>
                 <Field label="Current attempt">
