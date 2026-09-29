@@ -58,7 +58,7 @@ fn static_build_fails_on_missing_changed_or_incompatible_assets() {
     let path = dir.path().join("console-manifest.json");
     let mut value: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    for incompatible in [1, CONSOLE_CONTRACT_VERSION + 1] {
+    for incompatible in [1, 2, CONSOLE_CONTRACT_VERSION + 1] {
         value["console_contract_version"] = json!(incompatible);
         std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(ConsoleAssets::load(dir.path()).is_err());

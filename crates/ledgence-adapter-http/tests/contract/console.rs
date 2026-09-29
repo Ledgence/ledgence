@@ -100,7 +100,7 @@ fn query_url(running: &Running, path: &str, parameters: &[(&str, &str)]) -> reqw
 }
 fn assert_headers(response: &reqwest::Response) {
     assert_eq!(response.headers()["ledgence-instance-id"], "local-console");
-    assert_eq!(response.headers()["ledgence-console-contract"], "2");
+    assert_eq!(response.headers()["ledgence-console-contract"], "3");
     assert_eq!(response.headers()["cache-control"], "no-store");
     assert_eq!(response.headers()["content-type"], "application/json");
     assert_eq!(response.headers()["x-content-type-options"], "nosniff");
@@ -127,6 +127,94 @@ fn workflow_snapshot() -> WorkflowSnapshot {
         terminal_at: None,
         correlation_key: Some("invoice:42".into()),
     }
+}
+
+#[tokio::test]
+async fn explorer_http_preserves_canonical_c3_entrypoints_and_relationship_evidence() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let fixtures: Value = serde_json::from_str(include_str!(
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v3.json"
+    ))
+    .unwrap();
+    let explorer: ConsoleWorkflowExplorer =
+        serde_json::from_value(fixtures["explorer"].clone()).unwrap();
+    let workflow_id = explorer.workflow.summary.workflow.workflow_id.clone();
+    assert!(
+        explorer
+            .page
+            .items
+            .iter()
+            .any(|node| { matches!(node.data, ConsoleExplorerData::Entrypoint { .. }) })
+    );
+    *queries.reply.lock().unwrap() = Some(ConsoleQueryReply::Explorer(explorer));
+    let running = setup(&mock, &queries).await;
+    let response = reqwest::Client::new()
+        .get(query_url(
+            &running,
+            "/v1/console/workflows/explorer",
+            &[("workflow_id", &workflow_id)],
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_headers(&response);
+    let actual: Value = serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+    assert_eq!(actual, fixtures["explorer"]);
+    assert!(
+        actual["page"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|node| node["kind"] != "phase")
+    );
+}
+
+#[tokio::test]
+async fn explorer_http_rejects_every_old_cursor_kind_before_querying_the_store() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let running = setup(&mock, &queries).await;
+    let page = ConsolePagination::default();
+    let mut old_binding = ConsoleQuery::Explorer {
+        workflow_id: "wf_old".into(),
+        page: page.clone(),
+    }
+    .binding(&scope())
+    .unwrap();
+    old_binding.endpoint = "workflows/explorer";
+    for (kind, key) in [
+        ("phase", "phase"),
+        ("child", "child:0"),
+        ("fork", "fork:0"),
+        ("local", "local:0"),
+        ("child_wait", "child_wait"),
+        ("external_wait", "wait:0"),
+    ] {
+        let cursor = page
+            .next_cursor(
+                &old_binding,
+                &vec![
+                    ConsoleKey::Number(ConsoleU64(0)),
+                    ConsoleKey::Text(kind.into()),
+                    ConsoleKey::Text(key.into()),
+                ],
+            )
+            .unwrap();
+        let response = reqwest::Client::new()
+            .get(query_url(
+                &running,
+                "/v1/console/workflows/explorer",
+                &[("workflow_id", "wf_old"), ("cursor", &cursor)],
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400, "old {kind} cursor");
+        assert_headers(&response);
+    }
+    assert!(queries.calls.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -299,6 +387,7 @@ async fn console_configuration_and_errors_identify_instance_without_exposing_sco
     let bytes = response.bytes().await.unwrap();
     let config: ConsoleConfig = decode_unique_json(&bytes, CONSOLE_METADATA_MAX_BYTES).unwrap();
     assert_eq!(config.instance_id, "local-console");
+    assert_eq!(config.contract_version, 3);
     assert!(config.capabilities.executions);
     assert!(!config.capabilities.programs);
     assert!(!config.capabilities.workers);

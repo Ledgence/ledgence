@@ -86,7 +86,7 @@ impl ConsoleQuery {
         scope.validate()?;
         let (endpoint, parent, filters, descending, numeric_keys) = match self {
             Self::Explorer { workflow_id, .. } => (
-                "workflows/explorer",
+                "workflows/explorer/v3",
                 vec![workflow_id.clone()],
                 Ok(Value::Null),
                 false,
