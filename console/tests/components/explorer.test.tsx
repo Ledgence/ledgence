@@ -4,11 +4,12 @@ import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import { workflowDetail } from "../../src/api/resources";
-import { explorerNode } from "../../src/api/explorer";
+import { explorerNode, workflowExplorer } from "../../src/api/explorer";
+import { evidenceEdges, graphEdges } from "../../src/features/explorer-model";
 import { InstanceContext } from "../../src/app/instance";
 import { NavigationMemory } from "../../src/app/navigation";
 import { WorkflowDetailPage } from "../../src/features/workflows";
@@ -34,7 +35,7 @@ function response(value: unknown) {
   return new Response(stringifyUserJson(value), {
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "3",
+      "Ledgence-Console-Contract": "4",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -165,6 +166,66 @@ it("synchronizes Graph and Trace selection with one evidence inspector", async (
   await expect
     .element(view.getByRole("button", { name: /tests:0.*Local step/ }))
     .toHaveAttribute("aria-pressed", "true");
+});
+it("draws the server-recorded local invocation in a mixed fork without inventing local dependencies", async () => {
+  const cases = field("explorer_cases") as Record<string, unknown>;
+  const nodes = workflowExplorer(cases.mixed_local).page.items;
+  const local = nodes.find((node) => node.kind === "local")!;
+  routes({ nodes });
+  const { view } = await mount(
+    `/workflows/wf_invoice_1042?view=graph&node=${encodeURIComponent(local.id)}`,
+  );
+  await expect
+    .poll(() =>
+      [...document.querySelectorAll("[data-edge-id]")]
+        .map((edge) => edge.getAttribute("data-edge-id"))
+        .sort(),
+    )
+    .toEqual(
+      graphEdges(evidenceEdges(nodes))
+        .map((edge) => edge.id)
+        .sort(),
+    );
+  const inspector = view.getByRole("complementary", {
+    name: "Selected work details",
+  });
+  await inspector
+    .getByText("Recorded relationships (1)", { exact: true })
+    .click();
+  await expect
+    .element(inspector.getByText("invokes", { exact: false }).first())
+    .toBeVisible();
+  expect(evidenceEdges(nodes).some((edge) => edge.from === local.id)).toBe(
+    false,
+  );
+});
+it("keeps unloaded relationship references visible without creating graph nodes", async () => {
+  const nodes = fixtureNodes().filter((node) => node.kind === "child");
+  routes({ nodes });
+  const { view } = await mount();
+  await expect
+    .poll(() => document.querySelectorAll(".graph-node").length)
+    .toBe(1);
+  expect(document.querySelectorAll("[data-edge-id]").length).toBe(0);
+  await expect
+    .element(
+      view.getByText("2 recorded relationships reference work not loaded", {
+        exact: false,
+      }),
+    )
+    .toBeVisible();
+  await view
+    .getByText("Work list & recorded evidence", { exact: true })
+    .click();
+  await view.getByText("Recorded relationships (2)", { exact: true }).click();
+  await expect
+    .element(
+      view.getByText("Entrypoint · activation_validate", { exact: false }),
+    )
+    .toBeVisible();
+  await expect
+    .element(view.getByText("Fork · validate:0", { exact: false }))
+    .toBeVisible();
 });
 it("drills into a subworkflow and restores parent view and selection with Up", async () => {
   routes();

@@ -9,6 +9,7 @@ mod explorer;
 mod measurements;
 mod pagination;
 mod query;
+mod relations;
 mod task;
 mod workers;
 mod workflow;
@@ -18,6 +19,7 @@ pub use explorer::*;
 pub use measurements::*;
 pub use pagination::*;
 pub use query::*;
+pub use relations::*;
 pub use task::*;
 pub use workers::*;
 pub use workflow::*;
@@ -26,10 +28,10 @@ use crate::*;
 use ledgence_worker_api::{Digest, ProgramDescriptor, ProgramRef};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Version 3 identifies controller invocations as entrypoints and invalidates
-/// previous explorer cursors. Other endpoint ordering contracts are unchanged.
+/// Version 4 supplies typed durable relations with each explorer record and
+/// invalidates previous explorer cursors. Other endpoint ordering is unchanged.
 /// Static assets and server must advertise the same contract version.
-pub const CONSOLE_CONTRACT_VERSION: u32 = 3;
+pub const CONSOLE_CONTRACT_VERSION: u32 = 4;
 pub const CONSOLE_QUERY_MAX_BYTES: usize = 16 * 1024;
 pub const CONSOLE_METADATA_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const CONSOLE_MAX_TIMESTAMP: Timestamp = 253_402_300_799_999;

@@ -14,7 +14,7 @@ The new API serializes revision and sequence values as decimal strings. Program 
 
 ## Unified discovery and execution explorer
 
-Console contract version 3 reuses the existing discovery and inspection endpoints:
+Console contract version 4 reuses the existing discovery and inspection endpoints:
 
 - `GET /v1/console/executions` merges tasks and workflows in a stable descending
   order of submission time, kind and immutable ID. Each typed index seek is
@@ -67,26 +67,55 @@ The opaque ID is canonically encoded from `[kind, workflow_id, activation_id, ke
 Revisions and other u64 metadata remain decimal strings; timestamps are UTC Unix
 milliseconds. Worker failure `phase` remains a separate wire field (Failure stage).
 
-The browser builds edges from retained evidence, never from timestamps or array
-order. No coordinates, presentation labels or additional edges DTO are persisted.
+Each node includes a required `relations` array supplied by the backend. These
+relations are projected from the node's retained metadata, never from timestamps,
+array order or the presence of neighboring records in the current page. No extra
+SQL queries, graph writes or presentation coordinates are needed. Serialized
+relations count toward the existing 2 MiB response bound.
 
-| Relationship | Required evidence |
+Each relation contains an opaque `id`, a typed `kind`, and `source`/`target`
+references. References are scoped to the selected workflow and use existing keys:
+
+| Reference kind | Fields |
 | --- | --- |
-| Entrypoint → fork | Accepted fork associated with that activation. |
-| Fork → child | Matching `fork_key` and membership in `branch_keys`. |
-| Entrypoint → child outside a fork | Same creating activation and an applied decision without error. |
-| Entrypoint → child wait | Same activation and recorded `applied_at`. |
-| Child → child wait | Child key included in `member_keys`; terminal does not imply success. |
-| Child wait → entrypoint | Explicit `resumed_activation_id`. |
-| Entrypoint → external wait | Recorded wait associated with the activation. |
-| External wait → entrypoint | Recorded wake and explicit resumed activation; closure alone is insufficient. |
-| Entrypoint → entrypoint | Applied `continue`, no error and explicit resumed activation. |
+| `entrypoint`, `child_wait` | `activation_id` |
+| `child`, `fork`, `external_wait` | `key` |
+| `local` | `activation_id`, `key` |
 
-Locals retain their activation attribution and callable/acceptance observations.
-These do not establish local-to-local or local-to-join dependencies. A parent task
+A child's key is workflow-wide; a local key is activation-scoped. These references
+can identify an endpoint not loaded in the current page without fabricating its
+node or querying its payload. Relation IDs encode
+`[workflow_id, kind, source, target]`; consumers treat them as opaque. The carrier
+node identifies the evidence supporting a relation. Multiple carriers can support
+the same relation ID, for example a fork's branch list and a child's `fork_key`.
+The browser merges their evidence references and resolves endpoints against loaded
+nodes. Missing endpoints remain unresolved, rather than proving nonexistence.
+
+| Kind and direction | Required evidence |
+| --- | --- |
+| `invokes`: entrypoint → child | Child record carries its original creating activation. |
+| `invokes`: entrypoint → local | Local result acceptance or retained attempt observation attributed to that activation. |
+| `registers`: entrypoint → fork | Accepted fork associated with that activation. |
+| `branch`: fork → child | Retained fork `branch_keys` or child `fork_key`; each is an explicit membership fact. |
+| `registers`: entrypoint → child wait | Recorded wait and its `applied_at`. |
+| `awaits_terminal`: child → child wait | Child key included in `member_keys`; the target waits for the source's terminal outcome. Terminal does not imply success. |
+| `resumes`: child wait → entrypoint | Explicit `resumed_activation_id`. |
+| `registers`: entrypoint → external wait | Recorded wait associated with the activation. |
+| `resumes`: external wait → entrypoint | Recorded wake and explicit resumed activation; closure alone is insufficient. |
+| `resumes`: entrypoint → entrypoint | Applied `continue`, no error and explicit resumed activation. |
+
+Invocation does not imply that its source completed before the target started.
+Locals connect to their invoking entrypoint, but this does not establish
+local-to-local or local-to-join dependencies. A parent task
 registered after a fork is still direct work of its entrypoint, not a fork member.
 Each explorer query covers one workflow and direct child references. Opening a
 child queries that workflow independently; correlation does not establish ancestry.
+
+Successful locals commit their result and projection before returning the result.
+There is no durable local-start registration: abrupt process loss before result
+acceptance or a retained attempt report may leave no local node. OTel observations
+can enrich diagnostics but never supply missing orchestration relationships.
+The graph represents retained execution evidence, not all possible code paths.
 
 An already resumed single-child wait can be visually compacted only when the full
 child/wait/destination chain is evidenced. The wait and evidence IDs remain in
@@ -114,7 +143,18 @@ The HTTP route remains `/v1/console/workflows/explorer`; unrelated cursor bindin
 and SDK execution protocols are unchanged.
 
 Stop all writers and back up the database and artifact store before explicit
-migration. Start matching version-3 server and assets afterwards. The migration
+migration. Start matching server and assets afterwards. The migration
 is transactional and may hold write locks. `serve` verifies schema without
 migrating it. C2 assets fail validation, and an older binary cannot be rolled back
 onto the new schema; restore matching backups for an offline rollback.
+
+## Contract 3 to 4 upgrade
+
+C4 adds required backend-projected relations to each Explorer node. No additional
+database migration or runtime protocol change is required on a C3 database; node
+IDs, key scopes and persisted records are unchanged. Deploy matching C4 server
+and assets together. C3 assets and older Console contracts are rejected explicitly.
+The route stays `/v1/console/workflows/explorer`. Its cursor binding is now
+`workflows/explorer/v4`, so restart Explorer traversal; unrelated cursor bindings
+remain unchanged. Earlier schema migrations still apply when upgrading from C2
+or older releases.

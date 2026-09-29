@@ -1,4 +1,4 @@
-//! Canonical C3 observations. All API objects are serialized from Rust DTOs.
+//! Canonical C4 observations. All API objects are serialized from Rust DTOs.
 use ledgence_orchestration_api::{console::*, *};
 use ledgence_worker_api::{Digest, ProgramRef};
 use serde::Serialize;
@@ -51,6 +51,7 @@ fn node(
         activation_id,
         revision: ConsoleU64(revision),
         entrypoint: entrypoint.into(),
+        relations: Vec::new(),
         data,
     }
 }
@@ -135,6 +136,9 @@ fn explorer(
     continuation: &str,
     mut items: Vec<ConsoleExplorerNode>,
 ) -> ConsoleWorkflowExplorer {
+    for node in &mut items {
+        node.relations = node.derive_relations(workflow).unwrap();
+    }
     items.sort_by_key(ConsoleRecord::position);
     let revision = items
         .iter()
@@ -315,6 +319,116 @@ fn retry() -> ConsoleWorkflowExplorer {
                         started_at: AT + 10,
                         elapsed_us: ConsoleU64(7500),
                         state: "returned".into(),
+                    }),
+                },
+            ),
+        ],
+    )
+}
+
+fn mixed_local() -> ConsoleWorkflowExplorer {
+    let id = "wf_mixed_local";
+    explorer(
+        id,
+        WorkflowState::Succeeded,
+        "collect",
+        vec![
+            entrypoint(id, 0, "start", ConsoleDecisionKind::Suspend, Some(1)),
+            node(
+                id,
+                0,
+                "start",
+                ConsoleExplorerData::Fork {
+                    key: "calculations:0".into(),
+                    branch_keys: vec!["double:0".into(), "triple:0".into()],
+                    accepted_at: AT + 10,
+                    accepting_attempt_id: "att_mixed_0".into(),
+                },
+            ),
+            child(
+                id,
+                0,
+                "start",
+                "double:0",
+                "wf_double",
+                ConsoleExecutionKind::Workflow,
+                Some("calculations:0"),
+            ),
+            child(
+                id,
+                0,
+                "start",
+                "triple:0",
+                "wf_triple",
+                ConsoleExecutionKind::Workflow,
+                Some("calculations:0"),
+            ),
+            node(
+                id,
+                0,
+                "start",
+                ConsoleExplorerData::Local {
+                    key: "summary".into(),
+                    callable: "program:summarize".into(),
+                    accepted_at: Some(AT + 50),
+                    accepting_attempt_id: Some("att_mixed_0".into()),
+                    observation: Some(ConsoleLocalObservation {
+                        attempt_id: "att_mixed_0".into(),
+                        started_at: AT + 20,
+                        elapsed_us: ConsoleU64(20_000),
+                        state: "returned".into(),
+                    }),
+                },
+            ),
+            join(
+                id,
+                0,
+                "start",
+                &["double:0", "triple:0"],
+                "collect",
+                Some(1),
+            ),
+            entrypoint(id, 1, "collect", ConsoleDecisionKind::Complete, None),
+        ],
+    )
+}
+
+fn observed_local_failure() -> ConsoleWorkflowExplorer {
+    let id = "wf_observed_local_failure";
+    explorer(
+        id,
+        WorkflowState::Failed,
+        "start",
+        vec![
+            node(
+                id,
+                0,
+                "start",
+                ConsoleExplorerData::Entrypoint {
+                    state: Some(TaskState::Failed),
+                    availability: ConsoleEvidenceAvailability::Available,
+                    submitted_at: AT,
+                    terminal_at: Some(AT + 100),
+                    applied_at: None,
+                    decision_kind: None,
+                    error: None,
+                    resumed_activation_id: None,
+                },
+            ),
+            node(
+                id,
+                0,
+                "start",
+                ConsoleExplorerData::Local {
+                    key: "summary".into(),
+                    callable: "program:summarize".into(),
+                    accepted_at: None,
+                    accepting_attempt_id: None,
+                    observation: Some(ConsoleLocalObservation {
+                        attempt_id: "att_observed_failure".into(),
+                        started_at: AT + 20,
+                        elapsed_us: ConsoleU64(20_000),
+                        state: "failed".into(),
                     }),
                 },
             ),
@@ -620,6 +734,8 @@ pub fn fixtures() -> Value {
     let cases = BTreeMap::from([
         ("repeated_entrypoint", repeated_entrypoint()),
         ("retry", retry()),
+        ("mixed_local", mixed_local()),
+        ("observed_local_failure", observed_local_failure()),
         ("rejected", rejected()),
         ("unavailable_child", unavailable()),
         ("external_waits", external_waits()),

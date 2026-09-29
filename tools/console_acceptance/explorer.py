@@ -54,6 +54,26 @@ handle = workflow.build()
 '''
 
 
+def relation_map(nodes):
+    """Compare server-supplied facts across pages and duplicate evidence carriers."""
+    relations = {}
+    for node in nodes:
+        assert type(node["relations"]) is list
+        assert len({item["id"] for item in node["relations"]}) == len(node["relations"])
+        for relation in node["relations"]:
+            assert set(relation) == {"id", "kind", "source", "target"}
+            prior = relations.setdefault(relation["id"], relation)
+            assert prior == relation, "one relation ID has contradictory facts"
+    return relations
+
+
+def require_relation(node, kind, source, target):
+    matches = [relation for relation in node["relations"] if relation["kind"] == kind
+               and relation["source"] == source and relation["target"] == target]
+    assert len(matches) == 1, (node["id"], kind, source, target)
+    return matches[0]
+
+
 def run(d, publish, record):
     publish(d, "explorer-step", STEP)
     publish(d, "explorer-workflow", WORKFLOW)
@@ -74,6 +94,14 @@ def run(d, publish, record):
     assert local["accepted_at"] is not None
     assert local["observation"]["state"] == "returned"
     assert local["activation_id"] == fork["activation_id"]
+    relations = relation_map(nodes)
+    require_relation(local, "invokes",
+                     {"kind": "entrypoint", "activation_id": local["activation_id"]},
+                     {"kind": "local", "activation_id": local["activation_id"], "key": "tests:0"})
+    assert len(local["relations"]) == 1, "local ownership invented a downstream dependency"
+    assert not any(relation["kind"] in ("branch", "awaits_terminal") and
+                   any(relation[end]["kind"] == "local" for end in ("source", "target"))
+                   for relation in relations.values())
     children = kinds("child")
     assert {node["key"] for node in children} == {"implement:0", "review:0", "finalize:0"}
     assert len(children) == 3
@@ -92,6 +120,11 @@ def run(d, publish, record):
         join, = [node for node in joins if node["activation_id"] == entrypoints[entrypoint]["activation_id"]]
         assert join["member_keys"] == [child_key] and join["resume"] == resume
         assert join["resumed_activation_id"] == entrypoints[resume]["activation_id"]
+        require_relation(join, "awaits_terminal", {"kind": "child", "key": child_key},
+                         {"kind": "child_wait", "activation_id": join["activation_id"]})
+        require_relation(join, "resumes",
+                         {"kind": "child_wait", "activation_id": join["activation_id"]},
+                         {"kind": "entrypoint", "activation_id": entrypoints[resume]["activation_id"]})
         assert entrypoints[entrypoint]["decision_kind"] == "suspend"
         assert entrypoints[entrypoint]["resumed_activation_id"] == entrypoints[resume]["activation_id"]
     assert entrypoints["finish"]["decision_kind"] == "complete"
@@ -103,6 +136,14 @@ def run(d, publish, record):
     nested_local, = [node for node in nested if node["kind"] == "local"]
     assert nested_local["entrypoint"] == "review" and nested_local["key"] == "review:0"
     assert nested_local["accepted_at"] is not None and nested_local["observation"]["state"] == "returned"
+    require_relation(nested_local, "invokes",
+                     {"kind": "entrypoint", "activation_id": nested_local["activation_id"]},
+                     {"kind": "local", "activation_id": nested_local["activation_id"], "key": "review:0"})
+    single_page = d.api("GET", "workflows/explorer", workflow_id=root, limit=1)
+    assert len(single_page["page"]["items"]) == 1
+    carrier = single_page["page"]["items"][0]
+    assert carrier["relations"], "page-local filtering dropped unloaded endpoint references"
+    assert relation_map(d.rows("workflows/explorer", workflow_id=root, limit=1)) == relations
     first, = [node for node in children if node["key"] == "implement:0"]
     task_ancestry = d.api("GET", "executions/ancestry", kind="task", id=first["execution"]["id"])
     assert [node["execution"]["id"] for node in task_ancestry["path"]] == [root, first["execution"]["id"]]
@@ -126,6 +167,7 @@ def run(d, publish, record):
     record("explorer-real-local-and-distributed-join", {
         "workflow_id": root, "review_id": review["execution"]["id"],
         "nodes": len(nodes), "local_is_fork_member": False,
+        "relations": len(relations), "server_relations_survive_pagination": True,
         "observations_attempt_id": attempt_id, "otel_required": False,
         "unregistered_child_discovery": len(discovered),
     })

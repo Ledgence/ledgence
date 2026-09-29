@@ -6,7 +6,7 @@ import {
   useLocation,
   useSearchParams,
 } from "react-router";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { usePagination } from "../../src/api/hooks";
 import { parseUserJson } from "../../src/api/json";

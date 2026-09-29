@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { workflowExplorer } from "../../src/api/explorer";
 import {
@@ -55,7 +55,14 @@ it("keeps the Explorer page, selected wait and camera restoration when opening w
     [
       {
         path: "*",
-        element: <NodeInspector node={node} workflowId={workflowId} />,
+        element: (
+          <NodeInspector
+            node={node}
+            workflowId={workflowId}
+            relations={[]}
+            select={() => undefined}
+          />
+        ),
       },
     ],
     {

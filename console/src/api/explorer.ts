@@ -53,11 +53,45 @@ import {
 } from "./resources";
 const identity = s.object({ kind: executionKind, id: s.id });
 const availability = s.enumeration("available", "unavailable");
+// References are scoped to the selected workflow, including unloaded endpoints.
+export const explorerReference = s.variant({
+  entrypoint: s.object({
+    kind: s.enumeration("entrypoint"),
+    activation_id: s.id,
+  }),
+  child: s.object({ kind: s.enumeration("child"), key: s.id }),
+  fork: s.object({ kind: s.enumeration("fork"), key: s.id }),
+  local: s.object({
+    kind: s.enumeration("local"),
+    activation_id: s.id,
+    key: s.id,
+  }),
+  child_wait: s.object({
+    kind: s.enumeration("child_wait"),
+    activation_id: s.id,
+  }),
+  external_wait: s.object({ kind: s.enumeration("external_wait"), key: s.id }),
+});
+export type ExplorerReference = s.Decoded<typeof explorerReference>;
+export const explorerRelation = s.object({
+  id: s.string,
+  kind: s.enumeration(
+    "invokes",
+    "registers",
+    "branch",
+    "awaits_terminal",
+    "resumes",
+  ),
+  source: explorerReference,
+  target: explorerReference,
+});
+export type ExplorerRelation = s.Decoded<typeof explorerRelation>;
 const base = {
   id: s.string,
   activation_id: s.id,
   revision: s.decimal,
   entrypoint: s.string,
+  relations: s.array(explorerRelation, 66),
 };
 const localState = s.enumeration("returned", "failed", "cancelled", "replayed");
 const rawExplorerNode = s.variant({
@@ -160,11 +194,27 @@ export const explorerNode = s.refine(
   "Inconsistent workflow explorer evidence.",
 );
 export type ExplorerNode = s.Decoded<typeof explorerNode>;
-export const workflowExplorer = s.object({
+const rawWorkflowExplorer = s.object({
   workflow: workflowDetail,
   page: s.page(explorerNode),
   evidence: s.enumeration("retained_records_only"),
 });
+export const workflowExplorer = s.refine(
+  rawWorkflowExplorer,
+  ({ page }) => {
+    const records = new Map<string, string>();
+    for (const node of page.items) {
+      for (const relation of node.relations) {
+        const encoded = JSON.stringify(relation);
+        const previous = records.get(relation.id);
+        if (previous !== undefined && previous !== encoded) return false;
+        records.set(relation.id, encoded);
+      }
+    }
+    return true;
+  },
+  "Conflicting workflow relationship evidence.",
+);
 export const workflowInput = s.object({
   workflow_id: s.id,
   data: s.payload,

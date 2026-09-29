@@ -22,14 +22,17 @@ fn entrypoint() -> ConsoleExplorerData {
 }
 fn node(revision: u64, data: ConsoleExplorerData) -> ConsoleExplorerNode {
     let activation_id = format!("activation:{revision}");
-    ConsoleExplorerNode {
+    let mut node = ConsoleExplorerNode {
         id: serde_json::to_string(&(data.kind(), "workflow:1", &activation_id, data.key()))
             .unwrap(),
         activation_id,
         revision: ConsoleU64(revision),
         entrypoint: "validate".into(),
+        relations: Vec::new(),
         data,
-    }
+    };
+    node.relations = node.derive_relations("workflow:1").unwrap();
+    node
 }
 
 #[test]
@@ -281,42 +284,45 @@ fn every_legacy_explorer_cursor_is_rejected_including_unchanged_node_kinds() {
         page: Default::default(),
     };
     let current = query.binding(&scope()).unwrap();
-    assert_eq!(current.endpoint, "workflows/explorer/v3");
+    assert_eq!(current.endpoint, "workflows/explorer/v4");
     let mut old = current.clone();
-    old.endpoint = "workflows/explorer";
-    for kind in [
-        "phase",
-        "child",
-        "fork",
-        "local",
-        "child_wait",
-        "external_wait",
-    ] {
-        let position = vec![
-            ConsoleKey::Number(ConsoleU64(0)),
-            ConsoleKey::Text(kind.into()),
-            ConsoleKey::Text(
-                if matches!(kind, "phase" | "child_wait") {
-                    kind
-                } else {
-                    "record:0"
-                }
-                .into(),
-            ),
-        ];
-        let request = ConsolePagination {
-            limit: 2,
-            cursor: Some(
-                ConsolePagination::default()
-                    .next_cursor(&old, &position)
-                    .unwrap(),
-            ),
-        };
-        assert!(request.validate(&old).is_ok());
-        assert!(
-            request.validate(&current).is_err(),
-            "legacy {kind} cursor must restart under C3"
-        );
+    for endpoint in ["workflows/explorer", "workflows/explorer/v3"] {
+        old.endpoint = endpoint;
+        for kind in [
+            "entrypoint",
+            "phase",
+            "child",
+            "fork",
+            "local",
+            "child_wait",
+            "external_wait",
+        ] {
+            let position = vec![
+                ConsoleKey::Number(ConsoleU64(0)),
+                ConsoleKey::Text(kind.into()),
+                ConsoleKey::Text(
+                    if matches!(kind, "phase" | "child_wait") {
+                        kind
+                    } else {
+                        "record:0"
+                    }
+                    .into(),
+                ),
+            ];
+            let request = ConsolePagination {
+                limit: 2,
+                cursor: Some(
+                    ConsolePagination::default()
+                        .next_cursor(&old, &position)
+                        .unwrap(),
+                ),
+            };
+            assert!(request.validate(&old).is_ok());
+            assert!(
+                request.validate(&current).is_err(),
+                "legacy {kind} cursor must restart under C4"
+            );
+        }
     }
     // Endpoints whose ordering did not change keep their independent bindings.
     let other = ConsoleQuery::Attempts {

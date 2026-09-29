@@ -15,7 +15,7 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
     let actual = serde_json::to_string_pretty(&fixture::fixtures()).unwrap() + "\n";
     assert_eq!(
         actual,
-        include_str!("fixtures/console-v3.json"),
+        include_str!("fixtures/console-v4.json"),
         "regenerate with cargo run -p ledgence-orchestration-api --example console-fixtures -- --write"
     );
     let data = fixture::fixtures();
@@ -39,10 +39,24 @@ fn historical_console_two_is_explicitly_incompatible() {
         serde_json::from_str(include_str!("fixtures/historical/console-v2.json")).unwrap();
     assert_eq!(historical["contract_version"], 2);
     assert_eq!(historical["config"]["contract_version"], 2);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 3);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 4);
     assert_ne!(
         historical["contract_version"],
         json!(CONSOLE_CONTRACT_VERSION)
+    );
+}
+
+#[test]
+fn historical_console_three_lacks_required_durable_relations() {
+    let historical: Value =
+        serde_json::from_str(include_str!("fixtures/historical/console-v3.json")).unwrap();
+    assert_eq!(historical["contract_version"], 3);
+    assert_ne!(
+        historical["config"]["contract_version"],
+        json!(CONSOLE_CONTRACT_VERSION)
+    );
+    assert!(
+        serde_json::from_value::<ConsoleWorkflowExplorer>(historical["explorer"].clone()).is_err()
     );
 }
 

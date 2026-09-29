@@ -103,6 +103,8 @@ pub struct ConsoleExplorerNode {
     pub revision: ConsoleU64,
     /// Handler name repeated on evidence records to make bounded pages useful.
     pub entrypoint: String,
+    /// Durable relationships carried by this record, including unloaded endpoints.
+    pub relations: Vec<ConsoleExplorerRelation>,
     #[serde(flatten)]
     pub data: ConsoleExplorerData,
 }
@@ -325,6 +327,19 @@ impl ConsoleRecord for ConsoleExplorerNode {
         self.data.validate()?;
         if self.id.len() > 1024 {
             return Err(invalid("invalid explorer node identity"));
+        }
+        if self.relations.len() > CONSOLE_EXPLORER_MAX_RELATIONS {
+            return Err(invalid("too many explorer relations"));
+        }
+        let (kind, workflow_id, activation_id, key): (String, String, String, String) =
+            serde_json::from_str(&self.id)
+                .map_err(|_| invalid("invalid explorer node identity"))?;
+        if kind != self.data.kind()
+            || activation_id != self.activation_id
+            || key != self.data.key()
+            || self.relations != self.derive_relations(&workflow_id)?
+        {
+            return Err(invalid("inconsistent explorer relations or identity"));
         }
         Ok(())
     }

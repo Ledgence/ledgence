@@ -37,13 +37,16 @@ import {
 } from "../components/resource-ui";
 import { Button } from "../components/ui/button";
 import {
-  evidenceEdges,
+  resolvedEdges,
+  graphEdges,
+  recordedRelations,
   nodeLabel,
   nodeStatus,
   nodeType,
 } from "./explorer-model";
 import { Trace } from "./explorer/trace";
 import { NodeInspector } from "./explorer/inspector";
+import { RelationList } from "./explorer/relations";
 const GraphCanvas = lazy(() =>
   import("./explorer/graph").then((module) => ({
     default: module.GraphCanvas,
@@ -222,7 +225,11 @@ export function WorkflowExplorer({
         .toLocaleLowerCase()
         .includes(search),
   );
-  const edges = evidenceEdges(nodes);
+  const relations = recordedRelations(nodes);
+  const edges = resolvedEdges(relations);
+  const unloadedRelations = relations.filter(
+    (relation) => !relation.source || !relation.target,
+  ).length;
   function changeParam(key: string, value: string | null) {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -369,10 +376,14 @@ export function WorkflowExplorer({
       )}
       {query.data && (
         <>
-          {(paging.cursor || query.data.page.next_cursor) && (
+          {(paging.cursor ||
+            query.data.page.next_cursor ||
+            unloadedRelations > 0) && (
             <p className="notice">
-              Partial view. More recorded work is available on other pages; an
-              edge appears when both endpoints are loaded.
+              Partial view. An edge appears when both endpoints are loaded.
+              {unloadedRelations > 0 &&
+                ` ${unloadedRelations} recorded relationships reference work not loaded on this page; their evidence remains available below.`}{" "}
+              Missing work may be on another page or unavailable.
             </p>
           )}
           <div className={`explorer-body${selectedId ? " has-selection" : ""}`}>
@@ -419,7 +430,7 @@ export function WorkflowExplorer({
                         key={`${workflowId}:${paging.cursor ?? "first"}`}
                         scope={`${workflowId}:${paging.cursor ?? "first"}`}
                         nodes={nodes}
-                        edges={edges}
+                        edges={graphEdges(edges)}
                         selectedId={selectedId}
                         select={select}
                         matchingIds={
@@ -468,6 +479,12 @@ export function WorkflowExplorer({
                     key={selected.id}
                     node={selected}
                     workflowId={workflowId}
+                    relations={relations.filter(
+                      (relation) =>
+                        relation.source?.id === selected.id ||
+                        relation.target?.id === selected.id,
+                    )}
+                    select={select}
                   />
                 ) : (
                   <>
@@ -496,32 +513,15 @@ export function WorkflowExplorer({
             <summary>Work list & recorded evidence</summary>
             <div className="explorer-reference-content">
               <details className="explorer-relationships">
-                <summary>Recorded relationships ({edges.length})</summary>
+                <summary>Recorded relationships ({relations.length})</summary>
                 <p className="muted">
-                  Lines represent recorded registration, terminal-outcome waits
-                  and scheduled resumes. A subworkflow opens its own graph.
+                  The server records invocations, registrations, branch
+                  membership, terminal-outcome waits and scheduled resumes. The
+                  graph shows a fork path once; its direct child invocation
+                  remains listed here. Invocation does not prove completion. A
+                  subworkflow opens its own graph.
                 </p>
-                {edges.length ? (
-                  <ul>
-                    {edges.map((edge) => (
-                      <li key={`${edge.from}:${edge.to}:${edge.relation}`}>
-                        <button type="button" onClick={() => select(edge.from)}>
-                          {nodeLabel(
-                            nodes.find((node) => node.id === edge.from)!,
-                          )}
-                        </button>{" "}
-                        → {edge.relation} →{" "}
-                        <button type="button" onClick={() => select(edge.to)}>
-                          {nodeLabel(
-                            nodes.find((node) => node.id === edge.to)!,
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No complete relationship is recorded on this page.</p>
-                )}
+                <RelationList relations={relations} select={select} />
               </details>
               <details className="explorer-semantic-list">
                 <summary>Accessible work list ({filtered.length})</summary>

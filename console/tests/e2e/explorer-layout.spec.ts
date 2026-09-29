@@ -49,7 +49,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json",
     import.meta.url,
   ),
   "utf8",
@@ -73,7 +73,7 @@ const parentUrl = `/console/workflows/${encodeURIComponent(parentId)}`;
 const config = decodeConfig(field("config"));
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "3",
+  "Ledgence-Console-Contract": "4",
   "Ledgence-Instance-Id": config.instance_id,
 };
 
@@ -234,6 +234,28 @@ for (const theme of ["light", "dark"] as const) {
     ).toBeFocused();
   });
 }
+
+test("Fit reveals later work clipped by the readable initial camera in the ordinary canvas", async ({
+  page,
+}) => {
+  await mount(page);
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await openGraph(page);
+  const finish = page.getByRole("button", {
+    name: "finish · Entrypoint · succeeded",
+    exact: true,
+  });
+  await expect(finish).not.toBeInViewport();
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  // Match the native check's tolerance for transformed-card subpixel rounding.
+  await expect(finish).toBeInViewport({ ratio: 0.999 });
+  await finish.click();
+  await expect(
+    page
+      .getByRole("complementary", { name: "Selected work details" })
+      .getByRole("heading", { name: "finish", exact: true }),
+  ).toBeVisible();
+});
 
 test("canonical fork4 offers a bounded mobile graph and a readable Trace alternative", async ({
   page,

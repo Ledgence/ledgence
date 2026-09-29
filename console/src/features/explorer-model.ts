@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT
-import type { ExplorerNode } from "../api/explorer";
+import type {
+  ExplorerNode,
+  ExplorerReference,
+  ExplorerRelation,
+} from "../api/explorer";
 export function micros(value: string) {
   const n = BigInt(value);
   const whole = n / 1000n;
@@ -11,7 +15,8 @@ export type EvidenceEdge = {
   id: string;
   from: string;
   to: string;
-  relation: "registers" | "awaits terminal outcome" | "resumes";
+  kind: ExplorerRelation["kind"];
+  relation: string;
   style: "parent" | "fork";
   /** Retained record IDs that justify this relationship, never inferred order. */
   evidenceIds: string[];
@@ -72,90 +77,131 @@ export function nodeType(node: ExplorerNode): string {
             : "External wait";
 }
 
-// These are the only relationships the durable projection establishes. In
-// particular, activation ownership and timestamp order are not causal edges.
-export function evidenceEdges(nodes: ExplorerNode[]): EvidenceEdge[] {
-  const edges = new Map<string, EvidenceEdge>();
-  const entrypoints = new Map(
-    nodes
-      .filter((n) => n.kind === "entrypoint")
-      .map((n) => [n.activation_id, n]),
-  );
-  const children = new Map(
-    nodes.filter((n) => n.kind === "child").map((n) => [n.key, n]),
-  );
-  const forks = new Map(
-    nodes.filter((n) => n.kind === "fork").map((n) => [n.key, n]),
-  );
-  function add(
-    from: ExplorerNode | undefined,
-    to: ExplorerNode | undefined,
-    relation: EvidenceEdge["relation"],
-    style: EvidenceEdge["style"] = "parent",
-  ) {
-    if (!from || !to) return;
-    // Tuple encoding avoids ambiguity when opaque record IDs contain separators.
-    const id = JSON.stringify([from.id, to.id, relation]);
-    edges.set(id, {
-      id,
-      from: from.id,
-      to: to.id,
-      relation,
-      style,
-      evidenceIds: [from.id, to.id],
-    });
+// These keys only resolve explicit typed references; they never establish edges.
+export function referenceIdentity(reference: ExplorerReference): string {
+  switch (reference.kind) {
+    case "entrypoint":
+    case "child_wait":
+      return JSON.stringify([reference.kind, reference.activation_id]);
+    case "local":
+      return JSON.stringify([
+        reference.kind,
+        reference.activation_id,
+        reference.key,
+      ]);
+    case "child":
+    case "fork":
+    case "external_wait":
+      return JSON.stringify([reference.kind, reference.key]);
   }
+}
+export function referenceLabel(reference: ExplorerReference): string {
+  switch (reference.kind) {
+    case "entrypoint":
+      return `Entrypoint · ${reference.activation_id}`;
+    case "child_wait":
+      return `Join · ${reference.activation_id}`;
+    case "local":
+      return `Local step · ${reference.key} · ${reference.activation_id}`;
+    case "child":
+      return `Child · ${reference.key}`;
+    case "fork":
+      return `Fork · ${reference.key}`;
+    case "external_wait":
+      return `External wait · ${reference.key}`;
+  }
+}
+const relationLabels: Record<ExplorerRelation["kind"], string> = {
+  invokes: "invokes",
+  registers: "registers",
+  branch: "includes branch",
+  awaits_terminal: "terminal outcome awaited by",
+  resumes: "resumes",
+};
+export type RecordedRelation = {
+  record: ExplorerRelation;
+  relation: string;
+  source: ExplorerNode | null;
+  target: ExplorerNode | null;
+  evidenceIds: string[];
+};
+export function recordedRelations(nodes: ExplorerNode[]): RecordedRelation[] {
+  const loaded = new Map(nodes.map((node) => [referenceIdentity(node), node]));
+  const records = new Map<string, RecordedRelation>();
   for (const node of nodes) {
-    const entrypoint = entrypoints.get(node.activation_id);
-    const applied =
-      entrypoint?.applied_at !== null &&
-      Boolean(entrypoint?.decision_kind) &&
-      !entrypoint?.error;
-    if (node.kind === "fork") add(entrypoint, node, "registers");
-    if (node.kind === "external_wait") add(entrypoint, node, "registers");
-    if (node.kind === "child") {
-      const fork = node.fork_key ? forks.get(node.fork_key) : undefined;
-      if (fork?.branch_keys.includes(node.key))
-        add(fork, node, "registers", "fork");
-      else if (!node.fork_key && applied) add(entrypoint, node, "registers");
-    }
-    if (node.kind === "child_wait") {
-      if (applied) add(entrypoint, node, "registers");
-      for (const key of node.member_keys) {
-        const child = children.get(key);
-        // The child's retained fork_key identifies branch outcomes even when
-        // the fork registration lies on an unloaded page.
-        add(
-          child,
-          node,
-          "awaits terminal outcome",
-          child?.fork_key ? "fork" : "parent",
-        );
+    for (const record of node.relations) {
+      const previous = records.get(record.id);
+      if (previous) {
+        if (!previous.evidenceIds.includes(node.id))
+          previous.evidenceIds.push(node.id);
+        continue;
       }
-      if (node.resumed_activation_id)
-        add(node, entrypoints.get(node.resumed_activation_id), "resumes");
+      records.set(record.id, {
+        record,
+        relation: relationLabels[record.kind],
+        source: loaded.get(referenceIdentity(record.source)) ?? null,
+        target: loaded.get(referenceIdentity(record.target)) ?? null,
+        evidenceIds: [node.id],
+      });
     }
-    if (
-      node.kind === "external_wait" &&
-      node.wake_reason !== null &&
-      node.closed_at !== null &&
-      node.resumed_activation_id
-    )
-      add(node, entrypoints.get(node.resumed_activation_id), "resumes");
-    // Suspend/wait resume through explicit coordination evidence, never a
-    // shortcut directly from one entrypoint to the next.
-    if (
-      node.kind === "entrypoint" &&
-      node.decision_kind === "continue" &&
-      node.applied_at !== null &&
-      !node.error &&
-      node.resumed_activation_id
-    )
-      add(node, entrypoints.get(node.resumed_activation_id), "resumes");
   }
-  return [...edges.values()].sort((a, b) =>
-    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  return [...records.values()]
+    .map((relation) => ({
+      ...relation,
+      evidenceIds: relation.evidenceIds.sort(),
+    }))
+    .sort((a, b) =>
+      a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0,
+    );
+}
+export function evidenceEdges(nodes: ExplorerNode[]): EvidenceEdge[] {
+  return resolvedEdges(recordedRelations(nodes));
+}
+export function resolvedEdges(relations: RecordedRelation[]): EvidenceEdge[] {
+  return relations.flatMap(
+    ({ record, relation, source, target, evidenceIds }) =>
+      source && target
+        ? [
+            {
+              id: record.id,
+              kind: record.kind,
+              from: source.id,
+              to: target.id,
+              relation,
+              style:
+                record.kind === "branch"
+                  ? ("fork" as const)
+                  : ("parent" as const),
+              evidenceIds,
+            },
+          ]
+        : [],
   );
+}
+// Omit a redundant invocation only when its explicit, fully loaded fork path
+// is drawn. The invocation remains in recordedRelations and the evidence UI.
+export function graphEdges(edges: EvidenceEdge[]): EvidenceEdge[] {
+  const registered = new Map<string, Set<string>>();
+  const memberships = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    if (edge.kind === "registers") {
+      const targets = registered.get(edge.from) ?? new Set<string>();
+      targets.add(edge.to);
+      registered.set(edge.from, targets);
+    } else if (edge.kind === "branch") {
+      const forks = memberships.get(edge.to) ?? new Set<string>();
+      forks.add(edge.from);
+      memberships.set(edge.to, forks);
+    }
+  }
+  return edges.filter((edge) => {
+    if (edge.kind !== "invokes") return true;
+    const sources = memberships.get(edge.to);
+    if (sources)
+      for (const fork of sources)
+        if (registered.get(edge.from)?.has(fork)) return false;
+    return true;
+  });
 }
 
 export type NodeTiming = {
