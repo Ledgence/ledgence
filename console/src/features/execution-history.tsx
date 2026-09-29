@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { useState } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { Plus } from "lucide-react";
 import { useInstance } from "../app/instance";
@@ -11,22 +12,20 @@ import {
   PageHeading,
   QueryError,
   Status,
-  When,
 } from "../components/resource-ui";
 import { Button } from "../components/ui/button";
-import { Table } from "../components/ui/table";
+import {
+  applyHistoryFilters,
+  compatibleHistoryState,
+  executionFilterKeys,
+  formatHistoryElapsed,
+  hasExactHistoryDates,
+  historyDateValue,
+  historyElapsed,
+  historyStates,
+} from "./execution-history-filters";
+import "../styles/execution-history.css";
 
-const filterKeys = [
-  "kind",
-  "state",
-  "program_id",
-  "version",
-  "queue",
-  "correlation_key",
-  "execution_id",
-  "submitted_from",
-  "submitted_until",
-] as const;
 export function LegacyWorkflowsRedirect() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
@@ -39,14 +38,14 @@ export function LegacyWorkflowsRedirect() {
 }
 export function ExecutionsPage() {
   const config = useInstance();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const paging = usePagination();
   const includesChildren =
     params.get("include_children") === "true" ||
     !!params.get("program_id") ||
     !!params.get("execution_id");
   const filters = Object.fromEntries(
-    filterKeys.map((key) => [key, params.get(key)]),
+    executionFilterKeys.map((key) => [key, params.get(key)]),
   );
   const query = useResource(
     "executions",
@@ -62,29 +61,14 @@ export function ExecutionsPage() {
       interval: paging.cursor ? false : config.polling.lists_ms,
     },
   );
-  function changeKind(kind: string) {
-    const next = new URLSearchParams(params);
-    if (kind) next.set("kind", kind);
-    else next.delete("kind");
-    next.delete("cursor");
-    next.delete("previous");
-    // States specific to the other execution type cannot match the new filter.
-    if (
-      (kind === "task" &&
-        ["running", "waiting", "failing", "cancelling"].includes(
-          next.get("state") ?? "",
-        )) ||
-      (kind === "workflow" &&
-        ["queued", "active"].includes(next.get("state") ?? ""))
-    )
-      next.delete("state");
-    setParams(next);
-  }
+  const filtered =
+    executionFilterKeys.some((key) => params.has(key)) ||
+    params.get("include_children") === "true";
   return (
     <>
       <PageHeading
         title="Executions"
-        description="Tasks and workflows submitted to this instance."
+        description="Follow your tasks and workflows, from submission to result."
         actions={
           (config.capabilities.executions || config.capabilities.workflows) && (
             <Link className="button button-primary" to="/executions/new">
@@ -94,32 +78,17 @@ export function ExecutionsPage() {
           )
         }
       />
-      <nav className="tabs" aria-label="Execution type">
-        {[
-          ["", "All"],
-          ["task", "Tasks"],
-          ["workflow", "Workflows"],
-        ].map(([kind, label]) => (
-          <Button
-            key={kind}
-            variant="ghost"
-            aria-pressed={(params.get("kind") ?? "") === kind}
-            onClick={() => changeKind(kind ?? "")}
-          >
-            {label}
-          </Button>
-        ))}
-      </nav>
-      <HistoryFilters />
+      <HistoryFilters key={params.toString()} />
       <p className="muted list-caption">
         {includesChildren
           ? "Root and child executions."
-          : "Root workflows and standalone tasks."}
+          : "Root workflows and standalone tasks."}{" "}
+        <span>Submitted dates are shown in UTC.</span>
       </p>
       {!config.capabilities.executions && !config.capabilities.workflows ? (
         <Empty>Executions are unavailable on this server.</Empty>
       ) : (
-        <div className="table-panel">
+        <div className="table-panel history-table-panel">
           {query.isPending && <LoadingState label="Loading executions" />}
           {query.error && (
             <QueryError
@@ -131,83 +100,132 @@ export function ExecutionsPage() {
           {query.data && (
             <>
               {query.data.items.length ? (
-                <Table className="responsive-table execution-table">
-                  <thead>
-                    <tr>
-                      {[
-                        "Execution",
-                        "Type",
-                        "Status",
-                        "Program / version",
-                        "Submitted",
-                        "Scope",
-                      ].map((label) => (
-                        <th key={label}>{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {query.data.items.map((item) => (
-                      <tr key={`${item.kind}:${item.id}`}>
-                        <td data-label="Execution">
-                          <Link
-                            className="execution-name"
-                            title={
-                              item.correlation_key || item.descriptor.program.id
-                            }
-                            to={executionPath(item.kind, item.id)}
-                            state={{
-                              returnTo: `/executions${params.size ? `?${params}` : ""}`,
-                            }}
-                          >
-                            {item.correlation_key || item.descriptor.program.id}
-                          </Link>
-                          <span
-                            className="cell-secondary execution-id"
-                            title={item.id}
-                          >
-                            {item.id}
-                          </span>
-                        </td>
-                        <td data-label="Type">
-                          {item.kind === "task" ? "Task" : "Workflow"}
-                        </td>
-                        <td data-label="Status">
-                          <Status value={item.state} />
-                        </td>
-                        <td data-label="Program / version">
-                          <Link
-                            to={`/programs/${encodeURIComponent(item.descriptor.program.id)}/versions/${encodeURIComponent(item.descriptor.program.version)}`}
-                          >
-                            {item.descriptor.program.id}
-                          </Link>
-                          <span className="cell-secondary">
-                            {item.descriptor.program.version}
-                          </span>
-                        </td>
-                        <td data-label="Submitted">
-                          <When value={item.submitted_at} />
-                        </td>
-                        <td data-label="Scope">
-                          {item.parent_workflow_id ? (
-                            <Link
-                              to={executionPath(
-                                "workflow",
-                                item.parent_workflow_id,
-                              )}
-                            >
-                              Child execution
-                            </Link>
-                          ) : (
-                            "Root"
-                          )}
-                        </td>
+                <div
+                  className="history-table-scroll"
+                  role="region"
+                  aria-label="Execution history"
+                  tabIndex={0}
+                >
+                  <table className="table execution-table history-table">
+                    <caption className="sr-only">
+                      Tasks and workflows. Scroll horizontally to view all
+                      columns on smaller screens.
+                    </caption>
+                    <thead>
+                      <tr>
+                        {[
+                          "Execution",
+                          "Status",
+                          "Type",
+                          "Program / version",
+                          "Submitted · UTC",
+                          "Elapsed",
+                          ...(includesChildren ? ["Scope"] : []),
+                        ].map((label) => (
+                          <th scope="col" key={label}>
+                            {label}
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
+                    </thead>
+                    <tbody>
+                      {query.data.items.map((item) => {
+                        const elapsed = historyElapsed(
+                          item,
+                          query.data!.observed_at,
+                        );
+                        return (
+                          <tr key={`${item.kind}:${item.id}`}>
+                            <td>
+                              <Link
+                                className="execution-name"
+                                title={
+                                  item.correlation_key ||
+                                  item.descriptor.program.id
+                                }
+                                to={executionPath(item.kind, item.id)}
+                                state={{
+                                  returnTo: `/executions${params.size ? `?${params}` : ""}`,
+                                }}
+                              >
+                                {item.correlation_key ||
+                                  item.descriptor.program.id}
+                              </Link>
+                              <span
+                                className="cell-secondary execution-id"
+                                title={item.id}
+                              >
+                                {item.id}
+                              </span>
+                            </td>
+                            <td>
+                              <Status value={item.state} />
+                            </td>
+                            <td>
+                              <span className="execution-kind">
+                                {item.kind === "task" ? "Task" : "Workflow"}
+                              </span>
+                            </td>
+                            <td>
+                              <Link
+                                className="execution-program"
+                                title={item.descriptor.program.id}
+                                to={`/programs/${encodeURIComponent(item.descriptor.program.id)}/versions/${encodeURIComponent(item.descriptor.program.version)}`}
+                              >
+                                {item.descriptor.program.id}
+                              </Link>
+                              <span
+                                className="cell-secondary execution-version"
+                                title={item.descriptor.program.version}
+                              >
+                                {item.descriptor.program.version}
+                              </span>
+                            </td>
+                            <td>
+                              <SubmittedAt value={item.submitted_at} />
+                            </td>
+                            <td>
+                              <span
+                                className={
+                                  elapsed === null ? "muted" : "history-elapsed"
+                                }
+                                title={
+                                  elapsed === null
+                                    ? undefined
+                                    : item.terminal_at === null
+                                      ? "Time since submission at the last observation, including time waiting."
+                                      : "Time from submission to completion, including time waiting."
+                                }
+                              >
+                                {elapsed === null
+                                  ? "Not recorded"
+                                  : formatHistoryElapsed(elapsed)}
+                              </span>
+                            </td>
+                            {includesChildren && (
+                              <td>
+                                {item.parent_workflow_id ? (
+                                  <Link
+                                    to={executionPath(
+                                      "workflow",
+                                      item.parent_workflow_id,
+                                    )}
+                                  >
+                                    Child execution
+                                  </Link>
+                                ) : (
+                                  "Root"
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                <Empty filtered={params.size > 0}>
+                <Empty filtered={filtered}>
                   Submit an execution or adjust the exact filters.
                 </Empty>
               )}
@@ -225,132 +243,124 @@ export function ExecutionsPage() {
     </>
   );
 }
-function dateValue(params: URLSearchParams, key: string) {
-  const value = params.get(key);
-  if (value === null) return "";
-  const number = Number(value);
-  if (!Number.isSafeInteger(number) || number < 0 || number > 253402300799999)
-    return "";
-  const date = new Date(number);
-  return new Date(number - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
+function SubmittedAt({ value }: { value: number }) {
+  const date = new Date(value);
+  const iso = date.toISOString();
+  return (
+    <time className="history-submitted" dateTime={iso} title={iso}>
+      {date.toLocaleDateString("en", {
+        timeZone: "UTC",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })}
+      <span className="cell-secondary">{iso.slice(11, 19)}</span>
+    </time>
+  );
 }
-function HistoryFilters() {
+export function HistoryFilters() {
   const [params, setParams] = useSearchParams();
-  const implicitChildren =
-    !!params.get("program_id") || !!params.get("execution_id");
+  const [kind, setKind] = useState(params.get("kind") ?? "");
+  const [state, setState] = useState(params.get("state") ?? "");
+  const [program, setProgram] = useState(params.get("program_id") ?? "");
+  const [executionId, setExecutionId] = useState(
+    params.get("execution_id") ?? "",
+  );
+  const [error, setError] = useState("");
+  const [includeChildren, setIncludeChildren] = useState(
+    params.get("include_children") === "true",
+  );
+  const implicitChildren = !!program || !!executionId;
   const activeFilters =
-    filterKeys.filter((key) => key !== "kind" && params.has(key)).length +
+    executionFilterKeys.filter((key) => params.has(key)).length +
     (params.get("include_children") === "true" ? 1 : 0);
-  const advancedFilters = [
-    "version",
-    "execution_id",
-    "queue",
-    "correlation_key",
-    "submitted_from",
-    "submitted_until",
-  ].filter((key) => params.has(key)).length;
-  const states =
-    params.get("kind") === "task"
-      ? ["queued", "active", "succeeded", "failed", "cancelled"]
-      : params.get("kind") === "workflow"
-        ? [
-            "running",
-            "waiting",
-            "failing",
-            "cancelling",
-            "succeeded",
-            "failed",
-            "cancelled",
-          ]
-        : [
-            "queued",
-            "active",
-            "running",
-            "waiting",
-            "failing",
-            "cancelling",
-            "succeeded",
-            "failed",
-            "cancelled",
-          ];
+  const advancedFilters =
+    [
+      "program_id",
+      "version",
+      "execution_id",
+      "queue",
+      "correlation_key",
+    ].filter((key) => params.has(key)).length +
+    (params.get("include_children") === "true" ? 1 : 0);
   return (
     <form
-      className="filters history-filters"
-      key={params.toString()}
+      className="filters history-filters history-filters--calendar"
+      aria-label="Filter executions"
       onSubmit={(event) => {
         event.preventDefault();
-        const form = new FormData(event.currentTarget);
-        const next = new URLSearchParams();
-        if (params.get("kind")) next.set("kind", params.get("kind") ?? "");
-        if (params.get("limit")) next.set("limit", params.get("limit") ?? "");
-        for (const key of filterKeys.filter(
-          (key) => key !== "kind" && key !== "correlation_key",
-        )) {
-          const value = String(form.get(key) ?? "");
-          if (!value) continue;
-          if (key.startsWith("submitted_")) {
-            const at = Date.parse(value);
-            if (Number.isFinite(at)) next.set(key, String(at));
-          } else next.set(key, value);
+        const result = applyHistoryFilters(
+          params,
+          new FormData(event.currentTarget),
+        );
+        if (!result.ok) {
+          setError(result.message);
+          return;
         }
-        if (form.get("correlation_enabled"))
-          next.set(
-            "correlation_key",
-            String(form.get("correlation_key") ?? ""),
-          );
-        if (form.get("include_children")) next.set("include_children", "true");
-        setParams(next);
+        setError("");
+        setParams(result.params);
       }}
     >
       <div className="filter-primary">
         <label>
-          Status
-          <select name="state" defaultValue={params.get("state") ?? ""}>
-            <option value="">All statuses</option>
-            {states.map((state) => (
-              <option key={state} value={state}>
-                {state === "active"
-                  ? "Active task"
-                  : state === "running"
-                    ? "Running workflow"
-                    : state === "failing"
-                      ? "Stopping after failure"
-                      : state}
-              </option>
-            ))}
+          Submitted from · UTC
+          <input
+            type="date"
+            name="submitted_from"
+            min="1970-01-01"
+            max="9999-12-31"
+            defaultValue={historyDateValue(params, "submitted_from")}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "history-date-error" : undefined}
+          />
+        </label>
+        <label>
+          Submitted through · UTC
+          <input
+            type="date"
+            name="submitted_until"
+            min="1970-01-01"
+            max="9999-12-30"
+            defaultValue={historyDateValue(params, "submitted_until")}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "history-date-error" : undefined}
+          />
+        </label>
+        <label>
+          Type
+          <select
+            name="kind"
+            value={kind}
+            onChange={(event) => {
+              setKind(event.target.value);
+              setState(compatibleHistoryState(event.target.value, state));
+            }}
+          >
+            <option value="">All types</option>
+            <option value="task">Task</option>
+            <option value="workflow">Workflow</option>
           </select>
         </label>
         <label>
-          Program
-          <input
-            name="program_id"
-            defaultValue={params.get("program_id") ?? ""}
-          />
-        </label>
-        <label
-          className="check-label"
-          title={
-            implicitChildren
-              ? "Program and execution ID searches always include child executions."
-              : undefined
-          }
-        >
-          <input
-            type="checkbox"
-            name="include_children"
-            disabled={implicitChildren}
-            aria-description={
-              implicitChildren
-                ? "Program and execution ID searches always include child executions."
-                : undefined
-            }
-            defaultChecked={
-              implicitChildren || params.get("include_children") === "true"
-            }
-          />
-          Include child executions
+          Status
+          <select
+            name="state"
+            value={state}
+            onChange={(event) => setState(event.target.value)}
+          >
+            <option value="">All statuses</option>
+            {historyStates(kind).map((value) => (
+              <option key={value} value={value}>
+                {value === "active"
+                  ? "Active task"
+                  : value === "running"
+                    ? "Running workflow"
+                    : value === "failing"
+                      ? "Stopping after failure"
+                      : value[0]!.toUpperCase() + value.slice(1)}
+              </option>
+            ))}
+          </select>
         </label>
         <div className="filter-actions">
           <Button type="submit" variant="outline">
@@ -362,8 +372,7 @@ function HistoryFilters() {
               variant="ghost"
               onClick={() => {
                 const next = new URLSearchParams();
-                if (params.get("kind")) next.set("kind", params.get("kind")!);
-                if (params.get("limit"))
+                if (params.has("limit"))
                   next.set("limit", params.get("limit")!);
                 setParams(next);
               }}
@@ -373,6 +382,20 @@ function HistoryFilters() {
           )}
         </div>
       </div>
+      {error && (
+        <p
+          id="history-date-error"
+          className="history-filter-error"
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+      {hasExactHistoryDates(params) && (
+        <p className="history-date-note muted">
+          This link uses exact timestamps. Unchanged dates keep that range.
+        </p>
+      )}
       <details
         className="advanced-filters"
         open={advancedFilters > 0 || undefined}
@@ -385,6 +408,14 @@ function HistoryFilters() {
         </summary>
         <div className="filter-extra">
           <label>
+            Exact program ID
+            <input
+              name="program_id"
+              value={program}
+              onChange={(event) => setProgram(event.target.value)}
+            />
+          </label>
+          <label>
             Exact version
             <input name="version" defaultValue={params.get("version") ?? ""} />
           </label>
@@ -392,7 +423,8 @@ function HistoryFilters() {
             Exact execution ID
             <input
               name="execution_id"
-              defaultValue={params.get("execution_id") ?? ""}
+              value={executionId}
+              onChange={(event) => setExecutionId(event.target.value)}
             />
           </label>
           <label>
@@ -416,22 +448,33 @@ function HistoryFilters() {
               Apply correlation, including empty
             </label>
           </div>
-          <label>
-            Submitted from
-            <input
-              type="datetime-local"
-              name="submitted_from"
-              defaultValue={dateValue(params, "submitted_from")}
-            />
-          </label>
-          <label>
-            Submitted until (exclusive)
-            <input
-              type="datetime-local"
-              name="submitted_until"
-              defaultValue={dateValue(params, "submitted_until")}
-            />
-          </label>
+          <div className="history-scope-filter">
+            {implicitChildren && includeChildren && (
+              <input type="hidden" name="include_children" value="true" />
+            )}
+            <label
+              className="check-label"
+              title={
+                implicitChildren
+                  ? "Program and execution ID searches always include child executions."
+                  : undefined
+              }
+            >
+              <input
+                type="checkbox"
+                name="include_children"
+                disabled={implicitChildren}
+                checked={implicitChildren || includeChildren}
+                onChange={(event) => setIncludeChildren(event.target.checked)}
+              />
+              Include child executions
+            </label>
+            {implicitChildren && (
+              <p className="muted">
+                Included for exact program or execution searches.
+              </p>
+            )}
+          </div>
         </div>
       </details>
     </form>

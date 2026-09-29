@@ -26,9 +26,10 @@ use crate::*;
 use ledgence_worker_api::{Digest, ProgramDescriptor, ProgramRef};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Version 2 adds unified execution discovery and the durable workflow explorer.
+/// Version 3 identifies controller invocations as entrypoints and invalidates
+/// previous explorer cursors. Other endpoint ordering contracts are unchanged.
 /// Static assets and server must advertise the same contract version.
-pub const CONSOLE_CONTRACT_VERSION: u32 = 2;
+pub const CONSOLE_CONTRACT_VERSION: u32 = 3;
 pub const CONSOLE_QUERY_MAX_BYTES: usize = 16 * 1024;
 pub const CONSOLE_METADATA_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const CONSOLE_MAX_TIMESTAMP: Timestamp = 253_402_300_799_999;

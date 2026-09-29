@@ -6,10 +6,11 @@ import {
   useLocation,
   useSearchParams,
 } from "react-router";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { usePagination } from "../../src/api/hooks";
 import { parseUserJson } from "../../src/api/json";
+import { DetailPanels } from "../../src/features/detail-panels";
 import { InstanceContext } from "../../src/app/instance";
 import { BackLink, PageControls, Tabs } from "../../src/components/resource-ui";
 
@@ -248,4 +249,40 @@ it("preserves filtered list return state through detail tabs and pagination", as
   await expect
     .element(view.getByTestId("Current URL"))
     .toHaveTextContent(returnTo);
+});
+
+function ExplorerPager() {
+  return (
+    <DetailPanels kind="workflow">
+      {() => <Pager prefix="explorer_" />}
+    </DetailPanels>
+  );
+}
+it("retains Explorer cursor predecessors across Graph, Trace and General panels", async () => {
+  const router = createMemoryRouter(
+    [{ path: "*", element: <ExplorerPager /> }],
+    {
+      initialEntries: ["/workflow-paging?tab=Graph"],
+    },
+  );
+  routers.push(router);
+  const view = await render(
+    <InstanceContext.Provider value={config}>
+      <RouterProvider router={router} />
+    </InstanceContext.Provider>,
+  );
+  for (let i = 0; i < 3; i++)
+    await view.getByRole("button", { name: "Next", exact: true }).click();
+  await view.getByRole("button", { name: "Trace", exact: true }).click();
+  await view.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect
+    .element(view.getByTestId("Pages cursor"))
+    .toHaveTextContent("page3");
+  await view.getByRole("button", { name: "General", exact: true }).click();
+  await view.getByRole("button", { name: "Graph", exact: true }).click();
+  await view.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect
+    .element(view.getByTestId("Pages cursor"))
+    .toHaveTextContent("page2");
+  localStorage.removeItem("ledgence-explorer-view-v3");
 });

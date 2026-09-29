@@ -3,12 +3,12 @@
 use super::*;
 use ledgence_orchestration_api::console::*;
 
-pub(super) async fn phase(
+pub(super) async fn entrypoint(
     connection: &mut PgConnection,
     context: &WorkflowActivationContext,
     now: u64,
 ) -> StoreResult<()> {
-    let data = ConsoleExplorerData::Phase {
+    let data = ConsoleExplorerData::Entrypoint {
         state: None,
         availability: ConsoleEvidenceAvailability::Available,
         submitted_at: now,
@@ -18,7 +18,7 @@ pub(super) async fn phase(
         error: None,
         resumed_activation_id: None,
     };
-    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) VALUES($1,($2::text)::ldg_u64,'phase','',$3,$4,$5)")
+    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) VALUES($1,($2::text)::ldg_u64,'entrypoint','',$3,$4,$5)")
         .bind(&context.workflow_id).bind(context.revision.to_string()).bind(&context.activation_id).bind(&context.continuation).bind(codec::encode(&data)?).execute(connection).await?;
     Ok(())
 }
@@ -29,10 +29,10 @@ pub(super) async fn insert(
     data: &ConsoleExplorerData,
 ) -> StoreResult<()> {
     data.validate()?;
-    let inserted = sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT workflow_id,revision,$2,$3,activation_id,entrypoint,$4 FROM workflow_explorer_records WHERE activation_id=$1 AND kind='phase' AND record_key='' ON CONFLICT (activation_id,kind,record_key) DO NOTHING")
+    let inserted = sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT workflow_id,revision,$2,$3,activation_id,entrypoint,$4 FROM workflow_explorer_records WHERE activation_id=$1 AND kind='entrypoint' AND record_key='' ON CONFLICT (activation_id,kind,record_key) DO NOTHING")
         .bind(activation).bind(data.kind()).bind(data.key()).bind(codec::encode(data)?).execute(connection).await?.rows_affected();
     if inserted != 1 {
-        return Err(corrupt("missing or duplicate explorer phase record").into());
+        return Err(corrupt("missing or duplicate explorer entrypoint record").into());
     }
     Ok(())
 }
@@ -82,7 +82,7 @@ pub(super) async fn local(
     };
     // Only metadata identifiers and timestamps enter this JSON merge. Application
     // input/output remain exclusively in the accepted-result journal.
-    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT workflow_id,revision,'local',$2,activation_id,entrypoint,$3 FROM workflow_explorer_records WHERE activation_id=$1 AND kind='phase' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=convert_to((convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb || jsonb_build_object('observation',CASE WHEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable'=convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable' THEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->'observation' ELSE NULL END))::text,'UTF8')")
+    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT workflow_id,revision,'local',$2,activation_id,entrypoint,$3 FROM workflow_explorer_records WHERE activation_id=$1 AND kind='entrypoint' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=convert_to((convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb || jsonb_build_object('observation',CASE WHEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable'=convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable' THEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->'observation' ELSE NULL END))::text,'UTF8')")
         .bind(&command.owner.task_id).bind(&command.record.key).bind(codec::encode(&data)?).execute(connection).await?;
     Ok(())
 }
@@ -93,17 +93,17 @@ pub(super) async fn decision(
     now: u64,
     resumed: Option<&str>,
 ) -> StoreResult<()> {
-    let bytes: Vec<u8> = sqlx::query_scalar("SELECT metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind='phase'")
+    let bytes: Vec<u8> = sqlx::query_scalar("SELECT metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind='entrypoint'")
         .bind(&decision.activation_id).fetch_one(&mut *connection).await?;
     let mut data: ConsoleExplorerData = codec::decode(&bytes)?;
-    let ConsoleExplorerData::Phase {
+    let ConsoleExplorerData::Entrypoint {
         applied_at,
         decision_kind,
         resumed_activation_id,
         ..
     } = &mut data
     else {
-        return Err(corrupt("explorer phase kind").into());
+        return Err(corrupt("explorer entrypoint kind").into());
     };
     *applied_at = Some(now);
     *decision_kind = Some(match &decision.action {
@@ -115,7 +115,7 @@ pub(super) async fn decision(
     });
     *resumed_activation_id = resumed.map(str::to_owned);
     data.validate()?;
-    sqlx::query("UPDATE workflow_explorer_records SET metadata_bytes=$2 WHERE activation_id=$1 AND kind='phase'")
+    sqlx::query("UPDATE workflow_explorer_records SET metadata_bytes=$2 WHERE activation_id=$1 AND kind='entrypoint'")
         .bind(&decision.activation_id).bind(codec::encode(&data)?).execute(&mut *connection).await?;
     if let WorkflowAction::Suspend {
         until,
@@ -146,13 +146,13 @@ pub(super) async fn resumed(
     wake: Option<&WorkflowWake>,
     now: u64,
 ) -> StoreResult<()> {
-    let rows = sqlx::query("SELECT kind,record_key,metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind IN ('phase','child_wait','external_wait')")
+    let rows = sqlx::query("SELECT kind,record_key,metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind IN ('entrypoint','child_wait','external_wait')")
         .bind(activation).fetch_all(&mut *connection).await?;
     for row in rows {
         let mut data: ConsoleExplorerData =
             codec::decode(&row.try_get::<Vec<u8>, _>("metadata_bytes")?)?;
         match &mut data {
-            ConsoleExplorerData::Phase {
+            ConsoleExplorerData::Entrypoint {
                 resumed_activation_id,
                 decision_kind: Some(_),
                 ..
@@ -163,7 +163,7 @@ pub(super) async fn resumed(
             } if wake.is_none() => {
                 *resumed_activation_id = Some(task.into());
             }
-            ConsoleExplorerData::Phase {
+            ConsoleExplorerData::Entrypoint {
                 resumed_activation_id,
                 decision_kind: Some(ConsoleDecisionKind::Wait),
                 ..
@@ -232,11 +232,11 @@ pub(crate) async fn observe_locals(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    // One bounded batch. An ordinary task has no phase and therefore adds no nodes.
+    // One bounded batch. An ordinary task has no entrypoint and therefore adds no nodes.
     // Replay does not execute the callable: retain an earlier returned interval
     // instead of replacing its runtime with the near-zero cache lookup. The
     // original attempt observations still retain every replay occurrence.
-    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT p.workflow_id,p.revision,'local',r.key,p.activation_id,p.entrypoint,r.bytes FROM workflow_explorer_records p CROSS JOIN unnest($2::text[],$3::bytea[]) r(key,bytes) WHERE p.activation_id=$1 AND p.kind='phase' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=convert_to((convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb || jsonb_build_object('callable',CASE WHEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'accepted_at' IS NULL THEN convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable' ELSE convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable' END,'observation',convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->'observation'))::text,'UTF8') WHERE (convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'accepted_at' IS NULL OR convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable'=convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable') AND NOT (convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->'observation'->>'state'='replayed' AND coalesce(convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->'observation'->>'state'='returned',false))")
+    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT p.workflow_id,p.revision,'local',r.key,p.activation_id,p.entrypoint,r.bytes FROM workflow_explorer_records p CROSS JOIN unnest($2::text[],$3::bytea[]) r(key,bytes) WHERE p.activation_id=$1 AND p.kind='entrypoint' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=convert_to((convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb || jsonb_build_object('callable',CASE WHEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'accepted_at' IS NULL THEN convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable' ELSE convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable' END,'observation',convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->'observation'))::text,'UTF8') WHERE (convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'accepted_at' IS NULL OR convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable'=convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable') AND NOT (convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->'observation'->>'state'='replayed' AND coalesce(convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->'observation'->>'state'='returned',false))")
         .bind(task_id).bind(keys).bind(records).execute(connection).await?;
     Ok(())
 }

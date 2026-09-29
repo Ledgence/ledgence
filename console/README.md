@@ -85,7 +85,7 @@ namespace or scope. Every response is checked against the configured instance
 identity and Console contract version before entering query state.
 
 The canonical Rust serialization fixture is
-[`console-v2.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json).
+[`console-v3.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json).
 Strict runtime decoders consume that fixture in tests. Unknown fields or result
 variants fail explicitly. Metadata u64 values remain decimal strings; JSON input,
 output and CloudEvents use `lossless-json` to preserve integer/floating tokens and
@@ -104,7 +104,7 @@ to their resource: refreshing the same resource preserves them, while navigating
 to another resource starts with a separate form. Separating an operation requires an
 explicit confirmation. Run again creates a new submission with a new identity.
 Inputs, outputs, events and command bodies are not written to URLs, local storage
-or analytics. Only appearance, sidebar collapse, and the preferred Graph/Timeline view persist in
+or analytics. Only appearance, sidebar collapse, and the preferred Graph/Trace view persist in
 local storage. Shareable filters, selected record and view belong in the URL;
 scroll, expansion and focus restoration use bounded memory per history entry.
 
@@ -116,21 +116,46 @@ workflow. Programs replaces the former Agents navigation; `/agents` links remain
 usable. Type filters match any registered version and preserve mixed and
 unspecified registrations.
 
-Workflow Graph and Timeline share durable node identities, selection and an
-evidence inspector. Explicit fork membership, applied decisions, terminal-outcome
-joins, external waits and scheduled resumes establish relationships. Local work
-appears within its controller phase, never as an invented distributed branch.
-No relationship is inferred from timestamp order, trace parentage or correlation.
-Accepted local results without runtime observations appear as milestones. A closed
-wait without a recorded wake remains unknown. Both views work without OTel export.
+Workflow details offer Graph, Trace and General; task details offer Trace and
+General. General keeps input/output, resources and durable records in explicit
+sections loaded on demand. Existing detail URLs continue to resolve to their
+corresponding section. The main Executions table uses inclusive UTC calendar days
+for its Submitted from/through controls and server-side type/status filtering.
+Exact timestamp links retain their precision until their calendar field changes.
 
-The explorer loads bounded snapshots with explicit page boundaries. Timeline rows
-are virtualized, with a complete accessible work list for each loaded page. Child
-workflow timelines expand on demand; Open execution supports focused navigation.
-Back follows browser history, while Up and breadcrumbs follow recorded ownership.
-Updates preserve selected-node positioning unless Follow activity is enabled.
-Old diagnostic tabs and task/workflow deep links remain available under Advanced.
-The browser and server use Console contract **2**; deploy matching assets together.
+Graph and Trace share durable identities, selection and an evidence inspector.
+Each entrypoint invocation is a node; repeated handlers remain distinct. The canvas
+shows one workflow and references to its direct children. Open workflow navigates
+to the child's own canvas; neither Graph nor Trace expands a child's internals.
+Back restores the previous view, selection, camera and node positions. Up and
+breadcrumbs use recorded ownership, never correlation keys.
+
+The graph uses React Flow for interaction and a replaceable Dagre layout adapter.
+It is an execution viewer: moving a card only changes local presentation; creating,
+reconnecting and deleting edges are disabled. Fit changes the camera; Reorganize
+restores automatic card positions. Status updates preserve the view; newly loaded
+nodes are positioned without moving existing cards. These adjustments are held in
+bounded history memory, not persisted as workflow data or stored in the backend.
+An initial readable view can require panning; Fit can show the whole loaded graph.
+
+Continuous connections represent evidenced parent flow; dashed connections mark
+fork membership and fork outcomes entering a join. Applied decisions, waits and
+recorded resumes establish relationships. Locals without causal evidence remain
+independent cards attributed to their entrypoint in the inspector. No dependency
+is inferred from timestamps, proximity, trace parentage or correlation. A join
+waits for terminal outcomes, which may include failure or cancellation. A closed
+external wait without a recorded wake remains unknown. These views work without
+OpenTelemetry export. Worker failure diagnostics retain their separate wire field
+`phase`, labeled **Failure stage** in the interface.
+
+Explorer pages remain bounded and identify partial views. Missing targets may be
+on another page or unavailable; the Console does not infer deletion or expiry.
+Trace rows are virtualized, with a complete accessible work list for the loaded
+page. Routing is checked against card obstacles; extreme density or overlapping
+manual positions can still need Reorganize or Trace. Unit geometry checks cover
+the canonical four-branch workflow and bounded synthetic pages of 100 records.
+The browser and server use Console contract **3**; deploy matching assets together.
+Old Explorer cursors are invalidated by the coordinated backend upgrade.
 
 Resources shows per-attempt runtime and Python-process CPU where recorded.
 Child processes are excluded from that CPU scope. Process lifetime peak memory
@@ -144,14 +169,13 @@ missing reports never become fabricated process slots.
 
 The shell has a persistent collapsible desktop sidebar, compact mobile navigation,
 and light/dark/system appearance. Execution headers group identity and status;
-advanced filters expand across the available width. The explorer can expand to
+primary date/type/status filters stay visible and advanced exact filters expand on demand. The explorer can expand to
 full screen with Escape to exit, keeps selection and canvas state, and opens its
 inspector only when work is selected. Secondary evidence remains available in an
 expandable work list.
 
 The interface uses responsive tables, local system fonts, visible focus, semantic controls and
-reduced-motion support. Selected shadcn primitives are adapted locally; only the
-Radix Dialog runtime is used. Its modal scroll lock inserts reviewed CSS at runtime,
+reduced-motion support. Selected shadcn primitives are adapted locally; Radix Dialog supplies modal behavior and React Flow supplies graph interaction. The modal scroll lock inserts reviewed CSS at runtime,
 so the server's CSP permits inline styles while keeping scripts restricted to local
 assets without inline script or evaluation. All bundled resources are local.
 

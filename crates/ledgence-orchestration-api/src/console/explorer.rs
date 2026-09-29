@@ -43,7 +43,7 @@ pub struct ConsoleLocalObservation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConsoleExplorerData {
-    Phase {
+    Entrypoint {
         state: Option<TaskState>,
         availability: ConsoleEvidenceAvailability,
         submitted_at: Timestamp,
@@ -101,7 +101,7 @@ pub struct ConsoleExplorerNode {
     pub id: String,
     pub activation_id: String,
     pub revision: ConsoleU64,
-    /// Repeated compact phase label permits independently useful bounded pages.
+    /// Handler name repeated on evidence records to make bounded pages useful.
     pub entrypoint: String,
     #[serde(flatten)]
     pub data: ConsoleExplorerData,
@@ -109,7 +109,7 @@ pub struct ConsoleExplorerNode {
 impl ConsoleExplorerData {
     pub fn kind(&self) -> &'static str {
         match self {
-            Self::Phase { .. } => "phase",
+            Self::Entrypoint { .. } => "entrypoint",
             Self::Child { .. } => "child",
             Self::Fork { .. } => "fork",
             Self::Local { .. } => "local",
@@ -119,7 +119,7 @@ impl ConsoleExplorerData {
     }
     pub fn key(&self) -> &str {
         match self {
-            Self::Phase { .. } | Self::ChildWait { .. } => "",
+            Self::Entrypoint { .. } | Self::ChildWait { .. } => "",
             Self::Child { key, .. }
             | Self::Fork { key, .. }
             | Self::Local { key, .. }
@@ -131,7 +131,7 @@ impl ConsoleExplorerData {
             |id: &Option<String>| id.as_deref().map_or(Ok(()), |id| validate_text(id, 128));
         let time = |at: Option<Timestamp>| at.map_or(Ok(()), timestamp);
         match self {
-            Self::Phase {
+            Self::Entrypoint {
                 state,
                 availability,
                 submitted_at,
@@ -147,12 +147,12 @@ impl ConsoleExplorerData {
                 time(*applied_at)?;
                 optional_id(resumed_activation_id)?;
                 if *availability == ConsoleEvidenceAvailability::Unavailable && state.is_some() {
-                    return Err(invalid("unavailable phase cannot claim current state"));
+                    return Err(invalid("unavailable entrypoint cannot claim current state"));
                 }
                 if let Some(state) = state
                     && state.is_terminal() != terminal_at.is_some()
                 {
-                    return Err(invalid("inconsistent explorer phase terminal state"));
+                    return Err(invalid("inconsistent explorer entrypoint terminal state"));
                 }
                 if error.is_some() && decision_kind.is_some() {
                     return Err(invalid(
@@ -305,7 +305,7 @@ fn keys(values: &[String]) -> Result<()> {
 }
 impl ConsoleRecord for ConsoleExplorerNode {
     fn position(&self) -> ConsolePosition {
-        // Phase and child-wait records have no user key. Cursor text is required
+        // Entrypoint and child-wait records have no user key. Cursor text is required
         // to be nonempty, so encode their kind as the singleton key; storage
         // decodes it back to the empty record_key before its indexed seek.
         let key = if self.data.key().is_empty() {

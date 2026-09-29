@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "lockfile_sha256": "07e5b3d48c6bf1f0496a82b94f9e81857b1f561ea9732372bace2900d7377792",
+  "lockfile_sha256": "de83e52fe121b18876b12d09c4cebfa88bd2b71c25cf2b646c739acdef572c50",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -457,6 +457,46 @@
           "file": "third_party/packages/@cacheable__utils@2.5.0/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "465e8da349d50d8512e4a0e9b26d2bee50392c394f17edaa3be6e0df7c2b27ad"
+        }
+      ]
+    },
+    {
+      "name": "@dagrejs/dagre",
+      "version": "3.1.1",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dagrejs/dagre.git"
+      },
+      "archive": "https://registry.npmjs.org/@dagrejs/dagre/-/dagre-3.1.1.tgz",
+      "integrity": "sha512-zroZB1dFOFiGgv4Xcrn1DckB1o4aOikPqD2NDQPV0WM//CXGcS6xiD0rNkqHmw6FEg4tabt4nxPLwgCWT+Vb2A==",
+      "sha256": "6db2c35cf4c52cd1cd3a87c3a97c7c5fa559deaf4e452f67aab4008e00ca28c4",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@dagrejs__dagre@3.1.1/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "6a349742a6cb219d5a2fc8d0844f6d89a6efc62e20c664450d884fc7ff2d6015"
+        }
+      ]
+    },
+    {
+      "name": "@dagrejs/graphlib",
+      "version": "4.0.5",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dagrejs/graphlib.git"
+      },
+      "archive": "https://registry.npmjs.org/@dagrejs/graphlib/-/graphlib-4.0.5.tgz",
+      "integrity": "sha512-7xrBTqIts3o+PMUZX97wSc+7TUbW+/rULzGNCTP6yooNVDXbzw4Wutg/H/xOutTB/c/k0YqOAavgPh4/Zk9PFA==",
+      "sha256": "a0fce2b8ccde6bb23b622242f70444972da50d5a629dacb374a1c34c00d43f48",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@dagrejs__graphlib@4.0.5/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "6a349742a6cb219d5a2fc8d0844f6d89a6efc62e20c664450d884fc7ff2d6015"
         }
       ]
     },
@@ -2543,6 +2583,132 @@
       ]
     },
     {
+      "name": "@types/d3-color",
+      "version": "3.1.3",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/d3-color"
+      },
+      "archive": "https://registry.npmjs.org/@types/d3-color/-/d3-color-3.1.3.tgz",
+      "integrity": "sha512-iO90scth9WAbmgv7ogoq57O9YpKmFBbmoEoCHDB2xMBY0+/KVrqAaCDyCE16dUspeOvIxFFRI+0sEtqDqy2b4A==",
+      "sha256": "ca73ea290f4a58c9ae961e0abb5c6a42d7c90cc720cd855758d4b1b636ff6792",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@types__d3-color@3.1.3/LICENSE",
+          "archive_path": "d3-color/LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/d3-drag",
+      "version": "3.0.7",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/d3-drag"
+      },
+      "archive": "https://registry.npmjs.org/@types/d3-drag/-/d3-drag-3.0.7.tgz",
+      "integrity": "sha512-HE3jVKlzU9AaMazNufooRJ5ZpWmLIoc90A37WU2JMmeq28w1FQqCZswHZ3xR+SuxYftzHq6WU6KJHvqxKzTxxQ==",
+      "sha256": "4e8144e5a8b1d065aa9dbee8f7b4abb23c35fa5c957e6145f650bf00824c0244",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@types__d3-drag@3.0.7/LICENSE",
+          "archive_path": "d3-drag/LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/d3-interpolate",
+      "version": "3.0.4",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/d3-interpolate"
+      },
+      "archive": "https://registry.npmjs.org/@types/d3-interpolate/-/d3-interpolate-3.0.4.tgz",
+      "integrity": "sha512-mgLPETlrpVV1YRJIglr4Ez47g7Yxjl1lj7YKsiMCb27VJH9W8NVM6Bb9d8kkpG/uAQS5AmbA48q2IAolKKo1MA==",
+      "sha256": "1600127c3e338461c6fa93fb88f5438151041f56ec4b40cdbb07c0ab3e5c4217",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@types__d3-interpolate@3.0.4/LICENSE",
+          "archive_path": "d3-interpolate/LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/d3-selection",
+      "version": "3.0.12",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/d3-selection"
+      },
+      "archive": "https://registry.npmjs.org/@types/d3-selection/-/d3-selection-3.0.12.tgz",
+      "integrity": "sha512-Qe/KWYhEiIIxGs7HrAAjMfShxKldx19SJtr5zu53f3afPsdZNz7HHtdTLXo/kqeiWNXVycI24kSnfzBYkTzpgw==",
+      "sha256": "0f7766ed092c86906a939c586297d2ad13390822a1b467f4cc2b6ba5b8a244a8",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@types__d3-selection@3.0.12/LICENSE",
+          "archive_path": "d3-selection/LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/d3-transition",
+      "version": "3.0.9",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/d3-transition"
+      },
+      "archive": "https://registry.npmjs.org/@types/d3-transition/-/d3-transition-3.0.9.tgz",
+      "integrity": "sha512-uZS5shfxzO3rGlu0cC3bjmMFKsXv+SmZZcgp0KD22ts4uGXp5EVYGzu/0YdwZeKmddhcAccYtREJKkPfXkZuCg==",
+      "sha256": "c2bb47a6737215473c81785812e5af1c354dbc5a2e0739a554b36fdbb10c30db",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@types__d3-transition@3.0.9/LICENSE",
+          "archive_path": "d3-transition/LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/d3-zoom",
+      "version": "3.0.8",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/d3-zoom"
+      },
+      "archive": "https://registry.npmjs.org/@types/d3-zoom/-/d3-zoom-3.0.8.tgz",
+      "integrity": "sha512-iqMC4/YlFCSlO8+2Ii1GGGliCAY4XdeG748w5vQUbevlbDu0zSjH/+jojorQVBK/se0j6DUFNPBGSqD3YWYnDw==",
+      "sha256": "c342ffc416e3ebb966ebb75d1ffdee436b2c5affb0074434152df568504c780f",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@types__d3-zoom@3.0.8/LICENSE",
+          "archive_path": "d3-zoom/LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
       "name": "@types/deep-eql",
       "version": "4.0.2",
       "declared_license": "MIT",
@@ -3110,6 +3276,48 @@
       ]
     },
     {
+      "name": "@xyflow/react",
+      "version": "12.12.0",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/xyflow/xyflow.git",
+        "directory": "packages/react"
+      },
+      "archive": "https://registry.npmjs.org/@xyflow/react/-/react-12.12.0.tgz",
+      "integrity": "sha512-74oXI0Rgm1Eu33cHQAd74J6oVgCH9mbFyTVQbsGgp2kmWwh0HdtBr2VP04z8mbPD+M/xO69nqG5dDEt7/EN2rQ==",
+      "sha256": "b61b1486935902dc9c2002395004591873733ba48276a63622ce62cb13833fac",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@xyflow__react@12.12.0/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "023119ac20fb1c8c9930abe0bcd196989a1960388529a96fc43cebf96f07c9ff"
+        }
+      ]
+    },
+    {
+      "name": "@xyflow/system",
+      "version": "0.0.83",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/xyflow/xyflow.git",
+        "directory": "packages/system"
+      },
+      "archive": "https://registry.npmjs.org/@xyflow/system/-/system-0.0.83.tgz",
+      "integrity": "sha512-a//eDjez3WZF47aaPTfVUDD0OINOq+WVwBZCRTqG+m0a5euX8EwlJ4jMY1Wxz0Ocj4xOeekJ70V22Pq0ll8RJw==",
+      "sha256": "fc5d6ec987f33c14a83295d3deaaed2e36309ca3271d56f04c8442fba17e0d23",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/@xyflow__system@0.0.83/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "023119ac20fb1c8c9930abe0bcd196989a1960388529a96fc43cebf96f07c9ff"
+        }
+      ]
+    },
+    {
       "name": "acorn",
       "version": "8.18.0",
       "declared_license": "MIT",
@@ -3354,6 +3562,25 @@
       ]
     },
     {
+      "name": "classcat",
+      "version": "5.0.5",
+      "declared_license": "MIT",
+      "repository": "jorgebucaran/classcat",
+      "archive": "https://registry.npmjs.org/classcat/-/classcat-5.0.5.tgz",
+      "integrity": "sha512-JhZUT7JFcQy/EzW605k/ktHtncoo9vnyW/2GspNYwFlN1C/WmjuV/xtS04e9SOkL2sTdw0VAZ2UGCcQ9lR6p6w==",
+      "sha256": "e0968992357c1ce4d0ab183986debed34971aff8a440338f0ea8a5b5ed04ed24",
+      "scripts": {
+        "prepare": "npm run build"
+      },
+      "notices": [
+        {
+          "file": "third_party/packages/classcat@5.0.5/LICENSE.md",
+          "archive_path": "package/LICENSE.md",
+          "sha256": "f101c761d255d0dddc77dd8a9327733b03d381798ec54a1bb718367207b48a8e"
+        }
+      ]
+    },
+    {
       "name": "convert-source-map",
       "version": "2.0.0",
       "declared_license": "MIT",
@@ -3424,6 +3651,186 @@
           "file": "third_party/packages/csstype@3.2.3/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "11d55bd4541c75ee7879547ac49089c489163dae49551389713c3d026cab383e"
+        }
+      ]
+    },
+    {
+      "name": "d3-color",
+      "version": "3.1.0",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-color.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-color/-/d3-color-3.1.0.tgz",
+      "integrity": "sha512-zg/chbXyeBtMQ1LbD/WSoW2DpC3I0mpmPdW+ynRTj/x2DAWYrIY7qeZIHidozwV24m4iavr15lNwIwLxRmOxhA==",
+      "sha256": "d41bbcd99dd4f00e696546bffc73fed9b8fb6c3354905b6ea1721bff25f33b42",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-color@3.1.0/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884"
+        }
+      ]
+    },
+    {
+      "name": "d3-dispatch",
+      "version": "3.0.1",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-dispatch.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-dispatch/-/d3-dispatch-3.0.1.tgz",
+      "integrity": "sha512-rzUyPU/S7rwUflMyLc1ETDeBj0NRuHKKAcvukozwhshr6g6c5d8zh4c2gQjY2bZ0dXeGLWc1PF174P2tVvKhfg==",
+      "sha256": "3d1a0b5c003e0e9608ad57f6ca21a0c8368031fcbe5f5317fe4e50b3f797ea23",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-dispatch@3.0.1/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee"
+        }
+      ]
+    },
+    {
+      "name": "d3-drag",
+      "version": "3.0.0",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-drag.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-drag/-/d3-drag-3.0.0.tgz",
+      "integrity": "sha512-pWbUJLdETVA8lQNJecMxoXfH6x+mO2UQo8rSmZ+QqxcbyA3hfeprFgIT//HW2nlHChWeIIMwS2Fq+gEARkhTkg==",
+      "sha256": "a3ccc9d31d85135f35a4eda3ec0fae6ac22435d4e3fe2d2e0c73b5246460d4db",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-drag@3.0.0/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee"
+        }
+      ]
+    },
+    {
+      "name": "d3-ease",
+      "version": "3.0.1",
+      "declared_license": "BSD-3-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-ease.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-ease/-/d3-ease-3.0.1.tgz",
+      "integrity": "sha512-wR/XK3D3XcLIZwpbvQwQ5fK+8Ykds1ip7A2Txe0yxncXSdq1L9skcG7blcedkOX+ZcgxGAmLX1FrRGbADwzi0w==",
+      "sha256": "b249afe4aa8b741beeaf2d14f625ccf49270adb645e3f1c755d11476c1fdbe2a",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-ease@3.0.1/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "b989d9085148d21ff64a75e14462aefa06b2589a55553b07b1460c70081c7d08"
+        }
+      ]
+    },
+    {
+      "name": "d3-interpolate",
+      "version": "3.0.1",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-interpolate.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-interpolate/-/d3-interpolate-3.0.1.tgz",
+      "integrity": "sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g==",
+      "sha256": "7e8df78d233cd102a0bb518658dc0b7d5c38442b6f2dbc8b95ffc14ba87c7c33",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-interpolate@3.0.1/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee"
+        }
+      ]
+    },
+    {
+      "name": "d3-selection",
+      "version": "3.0.0",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-selection.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-selection/-/d3-selection-3.0.0.tgz",
+      "integrity": "sha512-fmTRWbNMmsmWq6xJV8D19U/gw/bwrHfNXxrIN+HfZgnzqTHp9jOmKMhsTUjXOJnZOdZY9Q28y4yebKzqDKlxlQ==",
+      "sha256": "a1f872f30dca23b76de89cae9e882f56c325433e7f3aee87b95fa830d12789f3",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-selection@3.0.0/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee"
+        }
+      ]
+    },
+    {
+      "name": "d3-timer",
+      "version": "3.0.1",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-timer.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-timer/-/d3-timer-3.0.1.tgz",
+      "integrity": "sha512-ndfJ/JxxMd3nw31uyKoY2naivF+r29V+Lc0svZxe1JvvIRmi8hUsrMvdOwgS1o6uBHmiz91geQ0ylPP0aj1VUA==",
+      "sha256": "05cdf901e1876a7f24f4c365a879252752e22e3cc52b131ca616639f07e8ed05",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-timer@3.0.1/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee"
+        }
+      ]
+    },
+    {
+      "name": "d3-transition",
+      "version": "3.0.1",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-transition.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-transition/-/d3-transition-3.0.1.tgz",
+      "integrity": "sha512-ApKvfjsSR6tg06xrL434C0WydLr7JewBB3V+/39RMHsaXTOG0zmt/OAXeng5M5LBm0ojmxJrpomQVZ1aPvBL4w==",
+      "sha256": "260eb8eaed565581afc00634ec83c83fd3b7e830e2a6b73b49f3f744dce0254c",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-transition@3.0.1/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee"
+        }
+      ]
+    },
+    {
+      "name": "d3-zoom",
+      "version": "3.0.0",
+      "declared_license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/d3/d3-zoom.git"
+      },
+      "archive": "https://registry.npmjs.org/d3-zoom/-/d3-zoom-3.0.0.tgz",
+      "integrity": "sha512-b8AmV3kfQaqWAuacbPuNbL6vahnOJflOhexLzMMNLga62+/nh0JzvJ0aO/5a5MVgUFGS7Hu1P9P03o3fJkDCyw==",
+      "sha256": "846d28725c4889d6a2069c6cf084ca7e7730ee917a9b87960ecc53247f840f85",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/d3-zoom@3.0.0/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee"
         }
       ]
     },
@@ -4499,11 +4906,13 @@
           "file": "third_party/packages/lucide-react@1.48.0/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
-        },
+        }
+      ],
+      "excluded_notice_candidates": [
         {
-          "file": "third_party/packages/lucide-react@1.48.0/dist/esm/icons/copyright.mjs",
           "archive_path": "package/dist/esm/icons/copyright.mjs",
-          "sha256": "7b931e2c0349d0cebc2e1b6371218e3d7cd1f1b1a3b0fcdb683a0c3a4e23f0d7"
+          "sha256": "7b931e2c0349d0cebc2e1b6371218e3d7cd1f1b1a3b0fcdb683a0c3a4e23f0d7",
+          "reason": "The Copyright icon module is executable JavaScript, not a legal notice. Its header refers to the original root LICENSE, whose complete ISC and Feather MIT terms are retained."
         }
       ]
     },
@@ -5633,6 +6042,27 @@
       ]
     },
     {
+      "name": "use-sync-external-store",
+      "version": "1.7.0",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/react/react.git",
+        "directory": "packages/use-sync-external-store"
+      },
+      "archive": "https://registry.npmjs.org/use-sync-external-store/-/use-sync-external-store-1.7.0.tgz",
+      "integrity": "sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==",
+      "sha256": "4f62a44660396a55417322fb0c71c14413b784192e4cd18acfec6bdf3157e359",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/use-sync-external-store@1.7.0/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+        }
+      ]
+    },
+    {
       "name": "vite",
       "version": "7.3.6",
       "declared_license": "MIT",
@@ -5849,6 +6279,26 @@
           "sha256": "03cc9a630489a2544b799548a0e8b134f382fe09fa06dc22b339091b28b8f4a8"
         }
       ]
+    },
+    {
+      "name": "zustand",
+      "version": "4.5.7",
+      "declared_license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/pmndrs/zustand.git"
+      },
+      "archive": "https://registry.npmjs.org/zustand/-/zustand-4.5.7.tgz",
+      "integrity": "sha512-CHOUy7mu3lbD6o6LJLfllpjkzhHXSBlX8B9+qPddUsIfeF5S/UZ5q0kmCsnRqT1UHFQZchNFDDzMbQsuesHWlw==",
+      "sha256": "5240b7736397aa0e8442d290dea0ce7a6dd324c986e1a8644ff91bf61864e863",
+      "scripts": {},
+      "notices": [
+        {
+          "file": "third_party/packages/zustand@4.5.7/LICENSE",
+          "archive_path": "package/LICENSE",
+          "sha256": "c1e6e266563517467b1bf874817d23e426f3149252bd7d42758cd697514b8417"
+        }
+      ]
     }
   ],
   "allowed_package_licenses": [
@@ -5867,32 +6317,47 @@
     "caniuse-lite@1.0.30001812": "CC-BY-4.0"
   },
   "direct_dependencies": {
+    "@dagrejs/dagre": "3.1.1",
+    "@radix-ui/react-dialog": "1.1.23",
+    "@tanstack/react-query": "5.103.2",
+    "@xyflow/react": "12.12.0",
+    "lossless-json": "4.3.1",
+    "lucide-react": "1.48.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-router": "8.4.0",
-    "@tanstack/react-query": "5.103.2",
-    "lucide-react": "1.48.0",
-    "lossless-json": "4.3.1",
-    "@radix-ui/react-dialog": "1.1.23"
+    "react-router": "8.4.0"
   },
   "direct_dev_dependencies": {
-    "typescript": "6.0.3",
-    "vite": "7.3.6",
-    "@vitejs/plugin-react": "5.2.0",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.13.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@types/node": "24.13.6",
-    "prettier": "3.9.9",
+    "@vitejs/plugin-react": "5.2.0",
+    "@vitest/browser-playwright": "4.1.11",
     "eslint": "10.11.0",
-    "@eslint/js": "10.0.1",
-    "typescript-eslint": "8.70.1",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.7",
-    "vitest": "4.1.11",
-    "@vitest/browser-playwright": "4.1.11",
-    "vitest-browser-react": "2.3.0",
     "playwright": "1.63.0",
-    "@playwright/test": "1.63.0"
+    "prettier": "3.9.9",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1",
+    "vite": "7.3.6",
+    "vitest": "4.1.11",
+    "vitest-browser-react": "2.3.0"
   },
-  "build_policy_sha256": "4edc800064ced58c4608cbfd190eb62917fcbc375fb641de7143963e2a91a5a2"
+  "build_policy_sha256": "6ffc58e3dfaea1f23b267c6cb3762511434d5fbee86af4ae307588511accc5ef",
+  "reviewed_patches": {
+    "@xyflow/system@0.0.83": {
+      "file": "patches/@xyflow__system@0.0.83.patch",
+      "sha256": "5bb2dbf7a659c5abc2776087ca263fb707abfe3da27393fca9bbe56e7429d343",
+      "changed_files": [
+        "dist/esm/types/nodes.d.ts",
+        "dist/umd/types/nodes.d.ts"
+      ],
+      "reason": "Preserve the NodeBase constraint explicitly in InternalNodeBase under TypeScript 6 exactOptionalPropertyTypes. Declaration-only intersection; no runtime JavaScript, CSS or license changes.",
+      "upstream_archive_sha256": "fc5d6ec987f33c14a83295d3deaaed2e36309ca3271d56f04c8442fba17e0d23",
+      "reviewed_archive_file_count": 186
+    }
+  }
 }

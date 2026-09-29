@@ -10,7 +10,7 @@ import {
 } from "../interaction-checks";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json",
     import.meta.url,
   ),
   "utf8",
@@ -23,7 +23,7 @@ function fixture(name: string): unknown {
 }
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "2",
+  "Ledgence-Console-Contract": "3",
   "Ledgence-Instance-Id": "instance_demo",
   "Request-Id": "request-contract-test",
 };
@@ -136,8 +136,9 @@ test("execution metadata loads without eager input or result calls", async ({
   ).toBeVisible();
   expect(requests).not.toContain("tasks/inspect");
   expect(requests).not.toContain("tasks/result");
+  await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByRole("button", { name: "Input", exact: true }).click();
-  await expect(page.getByLabel("Input", { exact: true })).toContainText(
+  await expect(page.locator('pre[aria-label="Input"]')).toContainText(
     "9007199254740993",
   );
 });
@@ -205,8 +206,8 @@ test("workflow relationships use recorded creation IDs", async ({ page }) => {
   await mount(page);
   await page.goto("/console/workflows/wf_invoice_1042?tab=Recorded+work");
   await expect(
-    page.getByRole("heading", { name: "Recorded work", exact: true }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Recorded work", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
   await expect(
     page.getByRole("link", { name: "task_child_1", exact: true }),
   ).toBeVisible();
@@ -237,7 +238,7 @@ for (const width of [320, 375, 768, 1280])
     });
   }
 
-test("status tabs keep exact filters and reset pagination", async ({
+test("status filters keep exact filters and reset pagination", async ({
   page,
 }) => {
   await mount(page);
@@ -420,7 +421,7 @@ test("workflow status labels remain intact at desktop width", async ({
   );
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/console/workflows");
-  const labels = page.locator('td[data-label="Status"] .status');
+  const labels = page.getByRole("table").getByRole("cell").locator(".status");
   await expect(labels).toHaveCount(2);
   for (const label of await labels.all()) {
     expect(
@@ -549,4 +550,103 @@ test("accepted cancellation stays pending until an observed terminal state", asy
   await expect(
     page.getByRole("button", { name: "Cancel execution", exact: true }),
   ).toHaveCount(0);
+});
+
+for (const width of [320, 390, 1280]) {
+  test(`General keeps payloads readable and bounded at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    const requests = await mount(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/console/executions/task_invoice_1042?tab=Input");
+    await expect(
+      page.getByRole("button", { name: "General", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    await expect(
+      page.getByRole("button", { name: "Input", exact: true }),
+    ).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('pre[aria-label="Input"]')).toContainText(
+      "9007199254740993",
+    );
+    await expect(
+      page.getByRole("button", { name: "Graph", exact: true }),
+    ).toHaveCount(0);
+    expect(requests).not.toContain("tasks/result");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    if (width === 390 && testInfo.project.name === "chromium")
+      await page.screenshot({
+        path: testInfo.outputPath("general-mobile.png"),
+        fullPage: true,
+      });
+    await page.getByRole("button", { name: "Input", exact: true }).click();
+    await expect(page.locator('pre[aria-label="Input"]')).toHaveCount(0);
+    await page.getByRole("button", { name: "Trace", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "att_invoice_1", exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  });
+}
+
+test("date and type filters send inclusive UTC days and prevent inverted queries", async ({
+  page,
+}) => {
+  await mount(page);
+  const reads: URL[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/v1/console/executions") reads.push(url);
+  });
+  await page.goto("/console/executions");
+  await expect(
+    page.getByRole("link", { name: "INV-1042", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Submitted from · UTC", { exact: true })
+    .fill("2026-09-28");
+  await page
+    .getByLabel("Submitted through · UTC", { exact: true })
+    .fill("2026-09-29");
+  await page
+    .getByRole("combobox", { name: "Type", exact: true })
+    .selectOption("workflow");
+  await page
+    .getByRole("combobox", { name: "Status", exact: true })
+    .selectOption("waiting");
+  await page
+    .getByRole("button", { name: "Apply filters", exact: true })
+    .click();
+  await expect
+    .poll(() => reads.at(-1)?.searchParams.get("state"))
+    .toBe("waiting");
+  expect(reads.at(-1)?.searchParams.get("submitted_from")).toBe(
+    String(Date.UTC(2026, 8, 28)),
+  );
+  expect(reads.at(-1)?.searchParams.get("submitted_until")).toBe(
+    String(Date.UTC(2026, 8, 30)),
+  );
+  expect(reads.at(-1)?.searchParams.get("kind")).toBe("workflow");
+  await page
+    .getByRole("combobox", { name: "Type", exact: true })
+    .selectOption("task");
+  await expect(
+    page.getByRole("combobox", { name: "Status", exact: true }),
+  ).toHaveValue("");
+  const before = reads.length;
+  await page
+    .getByLabel("Submitted from · UTC", { exact: true })
+    .fill("2026-10-01");
+  await page
+    .getByRole("button", { name: "Apply filters", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("Submitted through");
+  expect(reads).toHaveLength(before);
 });

@@ -8,8 +8,8 @@ fn scope() -> Scope {
         namespace: "billing".into(),
     }
 }
-fn phase() -> ConsoleExplorerData {
-    ConsoleExplorerData::Phase {
+fn entrypoint() -> ConsoleExplorerData {
+    ConsoleExplorerData::Entrypoint {
         state: Some(TaskState::Succeeded),
         availability: ConsoleEvidenceAvailability::Available,
         submitted_at: 10,
@@ -33,7 +33,7 @@ fn node(revision: u64, data: ConsoleExplorerData) -> ConsoleExplorerNode {
 }
 
 #[test]
-fn singleton_phase_and_child_wait_have_valid_ordered_cursor_boundaries() {
+fn singleton_entrypoint_and_child_wait_have_valid_ordered_cursor_boundaries() {
     let request = ConsolePagination {
         limit: 1,
         cursor: None,
@@ -53,8 +53,8 @@ fn singleton_phase_and_child_wait_have_valid_ordered_cursor_boundaries() {
                 resumed_activation_id: None,
             },
         ),
-        node(0, phase()),
-        node(1, phase()),
+        node(0, entrypoint()),
+        node(1, entrypoint()),
     ];
     let mut request = request;
     for record in records {
@@ -77,9 +77,9 @@ fn singleton_phase_and_child_wait_have_valid_ordered_cursor_boundaries() {
 
 #[test]
 fn accepted_and_rejected_decisions_do_not_imply_applied_effects() {
-    let mut record = phase();
+    let mut record = entrypoint();
     record.validate().unwrap(); // Task success alone does not apply the decision.
-    let ConsoleExplorerData::Phase {
+    let ConsoleExplorerData::Entrypoint {
         applied_at, error, ..
     } = &mut record
     else {
@@ -91,12 +91,12 @@ fn accepted_and_rejected_decisions_do_not_imply_applied_effects() {
         message: "Program binding conflicted".into(),
     });
     record.validate().unwrap(); // A rejection may also carry applied_at.
-    let ConsoleExplorerData::Phase { decision_kind, .. } = &mut record else {
+    let ConsoleExplorerData::Entrypoint { decision_kind, .. } = &mut record else {
         unreachable!()
     };
     *decision_kind = Some(ConsoleDecisionKind::Continue);
     assert!(record.validate().is_err());
-    let ConsoleExplorerData::Phase {
+    let ConsoleExplorerData::Entrypoint {
         error,
         resumed_activation_id,
         ..
@@ -107,7 +107,7 @@ fn accepted_and_rejected_decisions_do_not_imply_applied_effects() {
     *error = None;
     *resumed_activation_id = Some("next".into());
     record.validate().unwrap();
-    let ConsoleExplorerData::Phase { applied_at, .. } = &mut record else {
+    let ConsoleExplorerData::Entrypoint { applied_at, .. } = &mut record else {
         unreachable!()
     };
     *applied_at = None;
@@ -117,8 +117,8 @@ fn accepted_and_rejected_decisions_do_not_imply_applied_effects() {
 #[test]
 fn explorer_preserves_valid_workflow_error_messages() {
     for message in ["", "first line\nsecond line\twith detail"] {
-        let mut record = phase();
-        let ConsoleExplorerData::Phase {
+        let mut record = entrypoint();
+        let ConsoleExplorerData::Entrypoint {
             applied_at, error, ..
         } = &mut record
         else {
@@ -249,9 +249,9 @@ fn child_kind_state_and_unavailability_remain_explicit() {
 
 #[test]
 fn explorer_wire_shape_is_flat_and_does_not_include_application_payloads() {
-    let record = node(0, phase());
+    let record = node(0, entrypoint());
     let encoded = serde_json::to_value(&record).unwrap();
-    assert_eq!(encoded["kind"], "phase");
+    assert_eq!(encoded["kind"], "entrypoint");
     assert_eq!(encoded["revision"], "0");
     assert!(encoded.get("data").is_none());
     let decoded: ConsoleExplorerNode = serde_json::from_value(encoded.clone()).unwrap();
@@ -259,4 +259,83 @@ fn explorer_wire_shape_is_flat_and_does_not_include_application_payloads() {
     let mut extra = encoded;
     extra["input"] = json!({"private": true});
     assert!(serde_json::from_value::<ConsoleExplorerNode>(extra).is_err());
+}
+
+#[test]
+fn console_three_rejects_legacy_explorer_kind_without_changing_failure_stage() {
+    let mut encoded = serde_json::to_value(node(0, entrypoint())).unwrap();
+    assert_eq!(encoded["kind"], "entrypoint");
+    encoded["kind"] = json!("phase");
+    assert!(serde_json::from_value::<ConsoleExplorerNode>(encoded).is_err());
+    // Worker failure stage is a separate protocol and keeps its original enum.
+    assert_eq!(
+        serde_json::to_value(ledgence_worker_api::Phase::Execution).unwrap(),
+        "execution"
+    );
+}
+
+#[test]
+fn every_legacy_explorer_cursor_is_rejected_including_unchanged_node_kinds() {
+    let query = ConsoleQuery::Explorer {
+        workflow_id: "workflow:1".into(),
+        page: Default::default(),
+    };
+    let current = query.binding(&scope()).unwrap();
+    assert_eq!(current.endpoint, "workflows/explorer/v3");
+    let mut old = current.clone();
+    old.endpoint = "workflows/explorer";
+    for kind in [
+        "phase",
+        "child",
+        "fork",
+        "local",
+        "child_wait",
+        "external_wait",
+    ] {
+        let position = vec![
+            ConsoleKey::Number(ConsoleU64(0)),
+            ConsoleKey::Text(kind.into()),
+            ConsoleKey::Text(
+                if matches!(kind, "phase" | "child_wait") {
+                    kind
+                } else {
+                    "record:0"
+                }
+                .into(),
+            ),
+        ];
+        let request = ConsolePagination {
+            limit: 2,
+            cursor: Some(
+                ConsolePagination::default()
+                    .next_cursor(&old, &position)
+                    .unwrap(),
+            ),
+        };
+        assert!(request.validate(&old).is_ok());
+        assert!(
+            request.validate(&current).is_err(),
+            "legacy {kind} cursor must restart under C3"
+        );
+    }
+    // Endpoints whose ordering did not change keep their independent bindings.
+    let other = ConsoleQuery::Attempts {
+        task_id: "activation:0".into(),
+        page: Default::default(),
+    };
+    let binding = other.binding(&scope()).unwrap();
+    assert_eq!(binding.endpoint, "tasks/attempts");
+    let position = vec![
+        ConsoleKey::Number(ConsoleU64(2)),
+        ConsoleKey::Text("attempt:2".into()),
+    ];
+    let request = ConsolePagination {
+        limit: 1,
+        cursor: Some(
+            ConsolePagination::default()
+                .next_cursor(&binding, &position)
+                .unwrap(),
+        ),
+    };
+    assert_eq!(request.validate(&binding).unwrap(), Some(position));
 }

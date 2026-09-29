@@ -3,6 +3,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { executionPage, workflowExplorer } from "../../src/api/explorer";
 import { parseUserJson } from "../../src/api/json";
+import { evidenceEdges } from "../../src/features/explorer-model";
 async function get<T>(
   request: APIRequestContext,
   path: string,
@@ -50,22 +51,24 @@ test("real fork graph distinguishes parent locals, explores review, and restores
   await expect(page.locator(".graph-node")).toHaveCount(
     evidence.page.items.length,
   );
-  const geometry = await page.locator(".semantic-graph").evaluate((graph) => {
+  const geometry = await page.locator(".workflow-flow").evaluate((graph) => {
     const cards = Array.from(
       graph.querySelectorAll<HTMLElement>(".graph-node"),
     ).map((card) => ({
       id: card.dataset.focusKey?.slice(5),
-      x: Number.parseFloat(card.style.left),
-      y: Number.parseFloat(card.style.top),
+      x: Number(card.dataset.positionX),
+      y: Number(card.dataset.positionY),
       width: Number.parseFloat(card.style.width),
       height: Number.parseFloat(card.style.height),
     }));
     const intersections: string[] = [];
-    for (const edge of graph.querySelectorAll<SVGPathElement>(
-      "path[data-edge-from]",
+    for (const edge of graph.querySelectorAll<SVGGElement>(
+      "g[data-edge-from]",
     )) {
       const points = Array.from(
-        (edge.getAttribute("d") ?? "").matchAll(/[ML]([\d.]+),([\d.]+)/g),
+        (edge.querySelector("path")?.getAttribute("d") ?? "").matchAll(
+          /[ML](-?[\d.]+),(-?[\d.]+)/g,
+        ),
         (match) => ({ x: Number(match[1]), y: Number(match[2]) }),
       );
       for (let index = 1; index < points.length; index++) {
@@ -115,13 +118,16 @@ test("real fork graph distinguishes parent locals, explores review, and restores
       .getByRole("complementary", { name: "Selected work details" })
       .getByText("Callable observation", { exact: true }),
   ).toBeVisible();
+  // The canvas pans independently of document scrolling. Bring the complete
+  // loaded graph into view after the inspector changes its available width.
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
   await page
     .getByRole("button", {
       name: "review:0 · Subworkflow · succeeded",
       exact: true,
     })
     .click();
-  await page.getByRole("button", { name: "Timeline", exact: true }).click();
+  await page.getByRole("button", { name: "Trace", exact: true }).click();
   // The browser must bound this completed, short run by execution evidence,
   // even though the page is observed much later during the browser suite.
   const renderedEnd = Number(
@@ -142,7 +148,7 @@ test("real fork graph distinguishes parent locals, explores review, and restores
     root.terminal_at - root.submitted_at,
   );
   await expect(page.locator(".timeline-row").first()).toContainText(
-    "Controller phase",
+    "Entrypoint",
   );
   await expect(
     page
@@ -150,7 +156,7 @@ test("real fork graph distinguishes parent locals, explores review, and restores
       .getByRole("heading", { name: "review:0", exact: true }),
   ).toBeVisible();
   const parentUrl = page.url();
-  await page.getByRole("link", { name: "Open execution", exact: true }).click();
+  await page.getByRole("link", { name: "Open workflow", exact: true }).click();
   await expect(page).toHaveURL(
     new RegExp(encodeURIComponent(review.execution.id)),
   );
@@ -160,8 +166,8 @@ test("real fork graph distinguishes parent locals, explores review, and restores
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(page).toHaveURL(parentUrl);
   await expect(
-    page.getByRole("button", { name: "Timeline", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page.getByRole("button", { name: "Trace", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
   await expect(
     page
       .getByRole("complementary", { name: "Selected work details" })
@@ -181,7 +187,7 @@ test("real fork graph distinguishes parent locals, explores review, and restores
         .selectOption(theme);
       await page
         .getByRole("button", {
-          name: width === 375 ? "Timeline" : "Graph",
+          name: width === 375 ? "Trace" : "Graph",
           exact: true,
         })
         .click();
@@ -198,4 +204,117 @@ test("real fork graph distinguishes parent locals, explores review, and restores
     }
   expect(errors).toEqual([]);
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("real four-branch release navigates one workflow level through review and publication", async ({
+  page,
+  request,
+}, info) => {
+  const executions = await get(
+    request,
+    "executions?correlation_key=explorer-native-fork4&limit=25",
+    executionPage,
+  );
+  const root = executions.items.find(
+    (item) => item.kind === "workflow" && !item.parent_workflow_id,
+  );
+  if (!root)
+    throw Error("The real four-branch release acceptance seed is required.");
+  const evidence = await get(
+    request,
+    `workflows/explorer?workflow_id=${encodeURIComponent(root.id)}&limit=100`,
+    workflowExplorer,
+  );
+  const nodes = evidence.page.items;
+  expect(evidence.page.next_cursor).toBeNull();
+  const fork = nodes.find((node) => node.kind === "fork");
+  if (fork?.kind !== "fork") throw Error("Recorded fork is required.");
+  expect(new Set(fork.branch_keys)).toEqual(
+    new Set(["security:0", "tests:0", "dependencies:0", "docs:0"]),
+  );
+  expect(
+    nodes
+      .filter((node) => node.kind === "entrypoint")
+      .map((node) => node.entrypoint),
+  ).toEqual([
+    "start",
+    "after_prepare",
+    "publish_draft",
+    "review",
+    "publish_report",
+    "finish",
+  ]);
+  const preparation = nodes.find(
+    (node) => node.kind === "child" && node.key === "prepare:0",
+  );
+  if (preparation?.kind !== "child")
+    throw Error("Independent parent task is required.");
+  expect(preparation.fork_key).toBeNull();
+  expect(
+    evidenceEdges(nodes).some(
+      (edge) => edge.from === fork.id && edge.to === preparation.id,
+    ),
+  ).toBe(false);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await page.goto(
+    `/console/workflows/${encodeURIComponent(root.id)}?tab=Graph&explorer_limit=100`,
+  );
+  await expect(page.locator(".react-flow__node")).toHaveCount(nodes.length);
+  await expect(page.locator("[data-obstructed]")).toHaveCount(0);
+  expect(await page.locator(".graph-phase-area").count()).toBe(0);
+  await page
+    .getByRole("button", { name: "Expand to full screen", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  await page.screenshot({
+    path: info.outputPath("real-release-fork4-fullscreen.png"),
+    animations: "disabled",
+  });
+  await page.keyboard.press("Escape");
+  for (const branch of nodes.filter(
+    (node) => node.kind === "child" && node.fork_key === fork.key,
+  )) {
+    if (branch.kind !== "child") continue;
+    const card = page.getByRole("button", {
+      name: `${branch.key} · Subworkflow · succeeded`,
+      exact: true,
+    });
+    await card.focus();
+    await card.press("Enter");
+    await page
+      .getByRole("link", { name: "Open workflow", exact: true })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(encodeURIComponent(branch.execution.id)),
+    );
+    const child = await get(
+      request,
+      `workflows/explorer?workflow_id=${encodeURIComponent(branch.execution.id)}&limit=100`,
+      workflowExplorer,
+    );
+    await expect(page.locator(".react-flow__node")).toHaveCount(
+      child.page.items.length,
+    );
+    expect(
+      child.page.items.every(
+        (node) => !nodes.some((parent) => parent.id === node.id),
+      ),
+    ).toBe(true);
+    await page.getByRole("link", { name: "Up to parent", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(encodeURIComponent(root.id)));
+    await expect(page.locator(".react-flow__node")).toHaveCount(nodes.length);
+  }
+  await page.getByRole("button", { name: "Trace", exact: true }).click();
+  await expect(page.locator(".execution-timeline")).toBeVisible();
+  await page.getByRole("button", { name: "General", exact: true }).click();
+  await page.getByRole("button", { name: "Output", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Workflow succeeded", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator("pre").filter({ hasText: "report-2026.09" }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
 });

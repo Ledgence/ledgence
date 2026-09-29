@@ -27,7 +27,7 @@ async function ready(page: Page, title: string) {
   await expect(
     page.getByRole("heading", { name: title, exact: true }).first(),
   ).toBeVisible();
-  await expect(page.locator(".loading-state")).toHaveCount(0);
+  await expect(page.locator(".loading-state:visible")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
 }
 function noRuntimeErrors(page: Page) {
@@ -93,10 +93,11 @@ test("real attempts, workflow records, and catalog dialogs load under production
   await expect(
     page.getByRole("heading", { name: "Execution failed" }),
   ).toBeVisible();
-  for (const tab of ["Input", "Attempts", "History"]) {
-    await page.getByRole("button", { name: tab, exact: true }).click();
-    await ready(page, task.task.correlation_key || "Task execution");
-  }
+  await page.getByRole("button", { name: "Input", exact: true }).click();
+  await ready(page, task.task.correlation_key || "Task execution");
+  await page.getByRole("button", { name: "Trace", exact: true }).click();
+  await page.getByRole("button", { name: "Lifecycle", exact: true }).click();
+  await ready(page, task.task.correlation_key || "Task execution");
   await page.getByRole("button", { name: "Attempts", exact: true }).click();
   await page.getByRole("button", { name: /^att_/ }).first().click();
   await expect(
@@ -124,7 +125,12 @@ test("real attempts, workflow records, and catalog dialogs load under production
     fullPage: false,
     animations: "disabled",
   });
-  for (const tab of ["Waits", "History", "Result", "Context"]) {
+  for (const tab of [
+    "Waits and events",
+    "Lifecycle",
+    "Output",
+    "Workflow details",
+  ]) {
     await page.getByRole("button", { name: tab, exact: true }).click();
     await ready(page, wf.workflow.correlation_key || wf.controller.program.id);
   }
@@ -201,8 +207,9 @@ test("Run again submits a distinct real task and preserves lossless numeric inpu
     new URL(page.url()).pathname.split("/").at(-1) ?? "",
   );
   expect(taskId).not.toBe(original.task.task_id);
+  await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByRole("button", { name: "Input", exact: true }).click();
-  await expect(page.getByLabel("Input", { exact: true })).toContainText(
+  await expect(page.locator('pre[aria-label="Input"]')).toContainText(
     "9007199254740993",
   );
   await page.getByRole("button", { name: "Output", exact: true }).click();

@@ -11,19 +11,21 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 
 | View | Recorded information | Available actions |
 | --- | --- | --- |
-| Executions | Unified task/workflow history, program/version, status, queue, correlation, input, output, attempts, resources and durable history. Workflow details include Graph and Timeline. | Submit an exact program reference, run again as new work, request cancellation, inspect a child execution, send an event to a recorded workflow wait. |
+| Executions | Unified task/workflow history. Task details provide Trace and General; workflow details also provide Graph. Input, output, attempts, resources and durable history remain available. | Submit an exact program reference, run again as new work, request cancellation, inspect a child execution, send an event to a recorded workflow wait. |
 | Programs | Registered program references, versions, digests, manifests, declared kinds and descriptive metadata. | Register a published reference, update descriptive metadata explicitly, open a submission form or matching execution history. |
 | Workers | Worker sessions, configured capacity, observation freshness, process slots, and validated task/attempt links. | Inspect the latest available observation and follow execution links. |
 
 **Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. Workers is under Operations; worker inspection does not provide a drain, kill, or scaling command.
 
-Workflow **Graph** and **Timeline** use the same retained execution records. Select work to inspect it; open a child execution to drill in. Back restores the previous navigation entry, Up follows ownership, and breadcrumbs select ancestors. Completed work remains visible. Correlation keys and timestamps do not prove dependencies. The graph does not predict future branches or edit a workflow definition.
+Workflow **Graph** and **Trace** use the same retained execution records. Graph shows one workflow and its direct children; a subworkflow is an opaque node that opens its own graph. Select work to inspect it; open a child execution to drill in. Back restores the previous navigation entry, Up follows ownership, and breadcrumbs select ancestors. Completed work remains visible. Correlation keys and timestamps do not prove dependencies. The graph does not predict future branches or edit a workflow definition.
 
-Local work stays inside its controller phase; only recorded branch members belong to a distributed fork. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
+Every entrypoint invocation is a node identified by its activation ID. Re-entering the same handler creates a distinct invocation; retrying one activation does not. There are no phase containers. Local work remains visible as evidence attributed to an activation; it does not gain causal edges based on code order or timestamps. Only recorded branch members belong to a distributed fork. A separate parent task is not another branch. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
+
+Edges distinguish registering work, waiting for terminal outcomes, and resuming an entrypoint. A resumed single-child wait may be compacted visually when the entire child/wait/destination chain is known; its coordination record remains inspectable and appears in Trace. Multi-member joins and incomplete evidence retain their coordination nodes. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/develop/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
 
 ## Filters and pagination
 
-Execution discovery supports task/workflow kind, exact state, program/version, queue, correlation and execution ID, plus submission time bounds. The default scope is root workflows and standalone tasks; Include child executions adds ordinary tasks and subworkflows. Program history and exact-ID lookup include children automatically. Controller activations remain inside their workflow. Unregistered programs retain execution history. The end of a submission-time interval is exclusive.
+Execution discovery supports task/workflow kind, exact state, program/version, queue, correlation and execution ID, plus submission time bounds. The default scope is root workflows and standalone tasks; Include child executions adds ordinary tasks and subworkflows. Program history and exact-ID lookup include children automatically. Controller activations remain inside their workflow. Unregistered programs retain execution history. The server interval is `[submitted_from, submitted_until)`. Inclusive UTC calendar-day filters use the next UTC midnight as the exclusive upper bound. Invalid ranges and kind/state combinations are rejected.
 
 An unset correlation filter differs from filtering for an empty correlation string. Enable the form's correlation checkbox when applying either a nonempty or empty exact value. These are exact filters, not full-text search.
 
@@ -54,7 +56,7 @@ Console does not automatically retry writes. A transport timeout can happen afte
 
 Cancellation is a request. Active process cleanup and workflow child draining may continue after the request is accepted. Likewise, an accepted external event does not mean the workflow has already resumed. Use the actual recorded wait and its exact key; preserve the event identity when reconciling an uncertain send.
 
-Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Appearance and Graph/Timeline preferences may persist. Filters and resource identifiers can appear in navigation URLs; scroll, selection and graph presentation are retained for navigation.
+Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Appearance and Graph/Trace preferences may persist. Filters and resource identifiers can appear in navigation URLs; scroll, selection and graph presentation are retained for navigation.
 
 ## Attempt resources and local observations
 
@@ -123,12 +125,16 @@ Do not rewrite API failures or missing assets into HTML. The orchestrator handle
 
 ## Upgrades
 
-The execution explorer uses Console contract version 2. Start matching server and assets; incompatible bundles fail explicitly. Existing `/agents` and workflow links remain supported. Migrations backfill retained compact metadata and build discovery indexes, so budget maintenance time according to database size.
+The execution explorer uses Console contract version 3. Start matching server and assets; C2 bundles fail explicitly. `kind: "entrypoint"` replaces `phase` in explorer records, including their opaque IDs. The new migration converts only the Console projection, preserving workflow/task identities, payloads, revisions, errors and timestamps. Old migration files retain their checksums. Every C2 Explorer cursor is rejected, including cursors ending at another node kind: restart from the first page. Other endpoint cursor bindings and SDK execution protocols are unchanged. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
+
+Existing `/agents` and workflow links remain supported. Migrations can lock writes, so budget maintenance time according to database size. This is a coordinated upgrade, not a rolling upgrade.
 
 1. Back up PostgreSQL and the immutable program store using a tested restoration procedure.
 2. Stop orchestrators and all other writers before migrating or binding an existing database.
 3. Run the explicit migration with the chosen source version.
 4. Start matching server, worker, and Console assets with the saved instance configuration.
+
+`serve` verifies the complete schema and does not migrate it. A failed migration transaction rolls back its changes; do not start with a partial or incompatible schema. Downgrading to C2 requires matching offline backups, not running an older binary on the converted projection.
 
 A database containing multiple historical bindings is rejected; migration does not delete or reassign records. Older binaries must not run concurrently against a bound database. Returning to a version that ignores the binding requires a coordinated offline rollback plan.
 

@@ -134,6 +134,8 @@ def main():
             for name in ["tools/check-console.py", "tools/console_acceptance/harness.py",
                          "tools/console_acceptance/scenarios.py", "tools/console_acceptance/workflows.py",
                          "tools/console_acceptance/explorer.py",
+                         "tools/console_acceptance/fork4.py", "tools/console_acceptance/fork4_program.py",
+                         "tools/console_acceptance/fork4_task.py",
                          *resources["source_fixtures"]]
         }
         (directory / "resources.json").write_text(json.dumps(resources, indent=2) + "\n")

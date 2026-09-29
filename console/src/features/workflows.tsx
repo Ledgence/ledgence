@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,7 +26,6 @@ import {
   PageControls,
   QueryError,
   Empty,
-  Tabs,
   Fields,
   Field,
   JsonView,
@@ -35,6 +35,7 @@ import { Filters } from "./filters";
 import { ExecutionContext } from "../components/execution-context";
 import { WorkflowExplorer, WorkflowInput } from "./workflow-explorer";
 import { WorkflowResources } from "./execution-resources";
+import { DetailPanels, DetailSections } from "./detail-panels";
 export function WorkflowsPage() {
   const config = useInstance();
   const [params] = useSearchParams();
@@ -168,24 +169,7 @@ export function WorkflowsPage() {
 }
 export function WorkflowDetailPage() {
   const { workflowId = "" } = useParams();
-  const [params] = useSearchParams();
   const config = useInstance();
-  const requestedTab = params.get("tab") ?? "Execution";
-  const tab = [
-    "Execution",
-    "Input",
-    "Output",
-    "Resources",
-    "Advanced",
-    "Recorded work",
-    "Waits",
-    "Local steps",
-    "History",
-    "Result",
-    "Context",
-  ].includes(requestedTab)
-    ? requestedTab
-    : "Execution";
   const query = useResource(
     "workflows/inspect",
     { workflow_id: workflowId },
@@ -262,152 +246,195 @@ export function WorkflowDetailPage() {
               terminal.
             </p>
           )}
-          <Tabs
-            values={["Execution", "Input", "Output", "Resources", "Advanced"]}
-            current={
-              [
-                "Advanced",
-                "Recorded work",
-                "Waits",
-                "Local steps",
-                "History",
-                "Context",
-              ].includes(tab)
-                ? "Advanced"
-                : tab === "Result"
-                  ? "Output"
-                  : tab
-            }
-          />
-          {tab === "Execution" && (
-            <WorkflowExplorer
-              key={workflowId}
-              workflowId={workflowId}
-              active={!dto.terminal(detail.summary.workflow.state)}
-            />
-          )}
-          {tab === "Input" && (
-            <WorkflowInput key={workflowId} workflowId={workflowId} />
-          )}
-          {tab === "Output" && <WorkflowResult workflowId={workflowId} />}
-          {tab === "Resources" && (
-            <WorkflowResources
-              key={workflowId}
-              workflowId={workflowId}
-              active={!dto.terminal(detail.summary.workflow.state)}
-            />
-          )}
-          {[
-            "Advanced",
-            "Recorded work",
-            "Waits",
-            "Local steps",
-            "History",
-            "Context",
-          ].includes(tab) && (
-            <div className="diagnostic-navigation">
-              <Tabs
-                values={[
-                  "Recorded work",
-                  "Waits",
-                  "Local steps",
-                  "History",
-                  "Context",
-                ]}
-                current={tab === "Advanced" ? "History" : tab}
-              />
-            </div>
-          )}
-          {tab === "Advanced" && (
-            <>
-              <h2>Diagnostic history</h2>
-              <p className="muted">
-                Inspect controller attempts, recorded waits, accepted local
-                results and durable transitions.
-              </p>
-              <WorkflowHistory workflowId={workflowId} />
-            </>
-          )}
-          {tab === "Recorded work" && (
-            <RecordedWork
-              workflowId={workflowId}
-              active={!dto.terminal(detail.summary.workflow.state)}
-            />
-          )}{" "}
-          {tab === "Waits" && (
-            <Waits
-              workflowId={workflowId}
-              active={!dto.terminal(detail.summary.workflow.state)}
-            />
-          )}{" "}
-          {tab === "Local steps" && (
-            <LocalSteps
-              workflowId={workflowId}
-              currentActivation={detail.summary.workflow.activation_id}
-            />
-          )}{" "}
-          {tab === "History" && <WorkflowHistory workflowId={workflowId} />}{" "}
-          {tab === "Result" && <WorkflowResult workflowId={workflowId} />}{" "}
-          {tab === "Context" && (
-            <section className="card">
-              <Fields>
-                <Field label="Controller">
-                  {detail.summary.controller.program.id} /{" "}
-                  {detail.summary.controller.program.version}
-                </Field>
-                <Field label="Digest">
-                  <CopyText value={detail.summary.controller.digest} />
-                </Field>
-                <Field label="Queue">{detail.summary.queue}</Field>
-                <Field label="Continuation">{detail.continuation}</Field>
-                <Field label="Revision">
-                  {detail.summary.workflow.revision}
-                </Field>
-                <Field label="Observed">
-                  <When value={detail.observed_at} />
-                </Field>
-                <Field label="Current activation">
-                  {detail.summary.workflow.activation_id ? (
-                    <Link
-                      to={`/executions/${encodeURIComponent(detail.summary.workflow.activation_id)}`}
-                    >
-                      {detail.summary.workflow.activation_id}
-                    </Link>
-                  ) : (
-                    "None"
-                  )}
-                </Field>
-                <Field label="Parent">
-                  {detail.summary.workflow.parent_workflow_id ? (
-                    <Link
-                      to={`/workflows/${encodeURIComponent(detail.summary.workflow.parent_workflow_id)}`}
-                    >
-                      {detail.summary.workflow.parent_workflow_id}
-                    </Link>
-                  ) : (
-                    "Root workflow"
-                  )}
-                </Field>
-                <Field label="Root">
-                  {detail.summary.workflow.root_workflow_id ? (
-                    <Link
-                      to={`/workflows/${encodeURIComponent(detail.summary.workflow.root_workflow_id)}`}
-                    >
-                      {detail.summary.workflow.root_workflow_id}
-                    </Link>
-                  ) : (
-                    workflowId
-                  )}
-                </Field>
-                <Field label="Submitted">
-                  <When value={detail.summary.workflow.submitted_at} />
-                </Field>
-                <Field label="Terminal">
-                  <When value={detail.summary.workflow.terminal_at} />
-                </Field>
-              </Fields>
-            </section>
-          )}
+          <DetailPanels kind="workflow">
+            {({ tab, section, openSection }) => (
+              <>
+                <div hidden={tab === "General"}>
+                  <WorkflowExplorer
+                    key={workflowId}
+                    workflowId={workflowId}
+                    active={!dto.terminal(detail.summary.workflow.state)}
+                    visible={tab !== "General"}
+                    view={tab === "Trace" ? "trace" : "graph"}
+                  />
+                </div>
+                {tab === "General" && (
+                  <DetailSections
+                    current={section}
+                    onChange={openSection}
+                    sections={[
+                      {
+                        id: "identity",
+                        title: "Workflow details",
+                        description:
+                          "Program, entrypoint, identity and timing.",
+                        content: (
+                          <section className="card">
+                            <Fields>
+                              <Field label="Controller">
+                                {detail.summary.controller.program.id} /{" "}
+                                {detail.summary.controller.program.version}
+                              </Field>
+                              <Field label="Digest">
+                                <CopyText
+                                  value={detail.summary.controller.digest}
+                                />
+                              </Field>
+                              <Field label="Queue">
+                                {detail.summary.queue}
+                              </Field>
+                              <Field label="Next entrypoint">
+                                {detail.continuation}
+                              </Field>
+                              <Field label="Revision">
+                                {detail.summary.workflow.revision}
+                              </Field>
+                              <Field label="Observed">
+                                <When value={detail.observed_at} />
+                              </Field>
+                              <Field label="Current activation">
+                                {detail.summary.workflow.activation_id ? (
+                                  <Link
+                                    to={`/executions/${encodeURIComponent(detail.summary.workflow.activation_id)}`}
+                                  >
+                                    {detail.summary.workflow.activation_id}
+                                  </Link>
+                                ) : (
+                                  "None"
+                                )}
+                              </Field>
+                              <Field label="Parent">
+                                {detail.summary.workflow.parent_workflow_id ? (
+                                  <Link
+                                    to={`/workflows/${encodeURIComponent(detail.summary.workflow.parent_workflow_id)}`}
+                                  >
+                                    {detail.summary.workflow.parent_workflow_id}
+                                  </Link>
+                                ) : (
+                                  "Root workflow"
+                                )}
+                              </Field>
+                              <Field label="Root">
+                                {detail.summary.workflow.root_workflow_id ? (
+                                  <Link
+                                    to={`/workflows/${encodeURIComponent(detail.summary.workflow.root_workflow_id)}`}
+                                  >
+                                    {detail.summary.workflow.root_workflow_id}
+                                  </Link>
+                                ) : (
+                                  workflowId
+                                )}
+                              </Field>
+                              <Field label="Submitted">
+                                <When
+                                  value={detail.summary.workflow.submitted_at}
+                                />
+                              </Field>
+                              <Field label="Terminal">
+                                <When
+                                  value={detail.summary.workflow.terminal_at}
+                                />
+                              </Field>
+                            </Fields>
+                          </section>
+                        ),
+                      },
+                      {
+                        id: "input",
+                        title: "Input",
+                        description:
+                          "Original input and current durable state.",
+                        content: (
+                          <WorkflowInput
+                            key={workflowId}
+                            workflowId={workflowId}
+                          />
+                        ),
+                      },
+                      {
+                        id: "output",
+                        title: "Output",
+                        description:
+                          "The final result or failure of this workflow.",
+                        content: <WorkflowResult workflowId={workflowId} />,
+                      },
+                      {
+                        id: "resources",
+                        title: "Resources",
+                        description:
+                          "Observed runtime and process measurements.",
+                        content: (
+                          <WorkflowResources
+                            key={workflowId}
+                            workflowId={workflowId}
+                            active={
+                              !dto.terminal(detail.summary.workflow.state)
+                            }
+                          />
+                        ),
+                      },
+                      {
+                        id: "waits",
+                        title: "Waits and events",
+                        description:
+                          "Registered waits, deadlines and event delivery.",
+                        content: (
+                          <Waits
+                            workflowId={workflowId}
+                            active={
+                              !dto.terminal(detail.summary.workflow.state)
+                            }
+                          />
+                        ),
+                      },
+                      {
+                        id: "work",
+                        title: "Recorded work",
+                        description:
+                          "Controller activations and direct child records.",
+                        content: (
+                          <RecordedWork
+                            workflowId={workflowId}
+                            active={
+                              !dto.terminal(detail.summary.workflow.state)
+                            }
+                          />
+                        ),
+                      },
+                      {
+                        id: "local",
+                        title: "Local checkpoints",
+                        description:
+                          "Accepted local results associated with an activation.",
+                        content: (
+                          <LocalSteps
+                            workflowId={workflowId}
+                            currentActivation={
+                              detail.summary.workflow.activation_id
+                            }
+                          />
+                        ),
+                      },
+                      {
+                        id: "history",
+                        title: "Lifecycle",
+                        description:
+                          "Recorded workflow transitions and decisions.",
+                        content: (
+                          <WorkflowHistory
+                            workflowId={workflowId}
+                            active={
+                              !dto.terminal(detail.summary.workflow.state)
+                            }
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                )}
+              </>
+            )}
+          </DetailPanels>
         </>
       )}
     </>
@@ -479,7 +506,6 @@ function RecordedWork({
   return (
     <section className="recorded-work">
       <div className="section-heading">
-        <h2>Recorded work</h2>
         <label className="check-label">
           <input
             type="checkbox"
@@ -808,12 +834,29 @@ function LocalSteps({
     </>
   );
 }
-function WorkflowHistory({ workflowId }: { workflowId: string }) {
+function WorkflowHistory({
+  workflowId,
+  active,
+}: {
+  workflowId: string;
+  active: boolean;
+}) {
+  const config = useInstance();
   const paging = usePagination();
   const query = useResource(
     "workflows/history",
     { workflow_id: workflowId, limit: paging.limit, cursor: paging.cursor },
     dto.workflowHistoryPage,
+    {
+      interval:
+        active && !paging.cursor ? config.polling.waiting_workflow_ms : false,
+    },
+  );
+  useTerminalRefresh(
+    active,
+    [workflowId, paging.cursor, paging.limit],
+    query,
+    !paging.cursor,
   );
   return (
     <>

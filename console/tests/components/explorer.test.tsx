@@ -4,7 +4,7 @@ import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import { workflowDetail } from "../../src/api/resources";
@@ -13,7 +13,7 @@ import { InstanceContext } from "../../src/app/instance";
 import { NavigationMemory } from "../../src/app/navigation";
 import { WorkflowDetailPage } from "../../src/features/workflows";
 import { AttemptResources } from "../../src/features/execution-resources";
-import { fixtureNodes, phase } from "../explorer-fixture";
+import { fixtureNodes, entrypoint } from "../explorer-fixture";
 import "../../src/styles/global.css";
 
 const fixture = parseUserJson(raw, 2 * 1024 * 1024);
@@ -28,13 +28,13 @@ const clients: QueryClient[] = [];
 afterEach(() => {
   for (const client of clients.splice(0)) client.clear();
   vi.restoreAllMocks();
-  localStorage.removeItem("ledgence-explorer-view");
+  localStorage.removeItem("ledgence-explorer-view-v3");
 });
 function response(value: unknown) {
   return new Response(stringifyUserJson(value), {
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "2",
+      "Ledgence-Console-Contract": "3",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -79,7 +79,7 @@ function routes(
         page: {
           items:
             id === "wf_review"
-              ? [phase("review_phase", "review")]
+              ? [entrypoint("review_activation", "review")]
               : (options.nodes ?? fixtureNodes()),
           observed_at: detail(id).observed_at,
           next_cursor: options.next ?? null,
@@ -137,7 +137,7 @@ async function mount(url = "/workflows/wf_invoice_1042?view=graph") {
   );
   return { view, client };
 }
-it("synchronizes Graph and Timeline selection with one evidence inspector", async () => {
+it("synchronizes Graph and Trace selection with one evidence inspector", async () => {
   routes();
   const { view } = await mount();
   await view
@@ -156,9 +156,9 @@ it("synchronizes Graph and Timeline selection with one evidence inspector", asyn
     .element(inspector.getByText("Durable result accepted", { exact: true }))
     .toBeVisible();
   await expect
-    .element(inspector.getByRole("link", { name: "Open execution" }))
+    .element(inspector.getByRole("link", { name: "Open workflow" }))
     .not.toBeInTheDocument();
-  await view.getByRole("button", { name: "Timeline", exact: true }).click();
+  await view.getByRole("button", { name: "Trace", exact: true }).click();
   await expect
     .element(inspector.getByRole("heading", { name: "tests:0" }))
     .toBeVisible();
@@ -170,23 +170,20 @@ it("drills into a subworkflow and restores parent view and selection with Up", a
   routes();
   const { view } = await mount();
   await view
-    .getByRole("button", { name: "Collapse phase collect", exact: true })
-    .click();
-  await view
     .getByRole("button", {
       name: "review:0 · Subworkflow · succeeded",
       exact: true,
     })
     .click();
-  await view.getByRole("button", { name: "Timeline", exact: true }).click();
-  await view.getByRole("link", { name: "Open execution" }).click();
+  await view.getByRole("button", { name: "Trace", exact: true }).click();
+  await view.getByRole("link", { name: "Open workflow" }).click();
   await expect
     .element(view.getByRole("link", { name: "Up to parent" }))
     .toBeVisible();
   await view.getByRole("link", { name: "Up to parent" }).click();
   await expect
-    .element(view.getByRole("button", { name: "Timeline", exact: true }))
-    .toHaveAttribute("aria-pressed", "true");
+    .element(view.getByRole("button", { name: "Trace", exact: true }))
+    .toHaveAttribute("aria-current", "page");
   await expect
     .element(
       view
@@ -195,11 +192,10 @@ it("drills into a subworkflow and restores parent view and selection with Up", a
     )
     .toBeVisible();
   await view.getByRole("button", { name: "Graph", exact: true }).click();
+  expect(document.querySelector(".graph-phase-area")).toBeNull();
   await expect
-    .element(
-      view.getByRole("button", { name: "Expand phase collect", exact: true }),
-    )
-    .toHaveAttribute("aria-expanded", "false");
+    .poll(() => document.querySelectorAll(".react-flow__node").length)
+    .toBe(fixtureNodes().length);
 });
 it("distinguishes unloaded records and an unavailable selection from expiry", async () => {
   routes({ next: "next-page" });
@@ -278,7 +274,7 @@ it("does not poll missing measurements for terminal or legacy attempts", async (
 it("anchors a selected timeline row when earlier evidence arrives, unless following activity", async () => {
   const local = fixtureNodes().find((node) => node.kind === "local")!;
   let nodes: ReturnType<typeof fixtureNodes> = [
-    phase(),
+    entrypoint(),
     ...Array.from({ length: 40 }, (_, index) =>
       explorerNode({
         ...local,
@@ -374,9 +370,6 @@ it("maximizes the mounted workspace, contains focus, and restores selection on E
   routes();
   const { view } = await mount();
   await view
-    .getByRole("button", { name: "Collapse phase collect", exact: true })
-    .click();
-  await view
     .getByRole("button", {
       name: "tests:0 · Local step · accepted",
       exact: true,
@@ -397,7 +390,10 @@ it("maximizes the mounted workspace, contains focus, and restores selection on E
     .toBeVisible();
   expect(document.querySelector(".explorer-canvas")).toBe(canvas);
   expect(document.body.style.overflow).toBe("hidden");
-  const graphButton = view.getByRole("button", { name: "Graph", exact: true });
+  const graphButton = view.getByRole("textbox", {
+    name: "Find recorded work on this page",
+    exact: true,
+  });
   graphButton.element().focus();
   await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
   expect(
@@ -419,11 +415,10 @@ it("maximizes the mounted workspace, contains focus, and restores selection on E
     .toHaveFocus();
   expect(document.body.style.overflow).toBe(previousOverflow);
   expect(document.querySelector("[inert]")).toBeNull();
-  await expect
-    .element(
-      view.getByRole("button", { name: "Expand phase collect", exact: true }),
-    )
-    .toHaveAttribute("aria-expanded", "false");
+  expect(document.querySelector(".graph-phase-area")).toBeNull();
+  expect(document.querySelectorAll(".react-flow__node").length).toBe(
+    fixtureNodes().length,
+  );
   await expect
     .element(
       view.getByRole("complementary").getByRole("heading", { name: "tests:0" }),
@@ -462,7 +457,7 @@ it("keeps supplementary work and time controls behind explicit disclosures", asy
       view.getByRole("checkbox", { name: "Follow activity", exact: true }),
     )
     .not.toBeInTheDocument();
-  await view.getByRole("button", { name: "Timeline", exact: true }).click();
+  await view.getByRole("button", { name: "Trace", exact: true }).click();
   await expect
     .element(view.getByLabelText("From", { exact: true }))
     .not.toBeVisible();

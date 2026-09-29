@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import type { GraphPresentation } from "../features/explorer/layout";
 export type Position = {
   x: number;
   y: number;
@@ -29,7 +30,7 @@ export function restorationKey(state: unknown): string | null {
     : null;
 }
 export type ExplorerViewState = {
-  collapsed: string[];
+  graph?: GraphPresentation;
   start: string;
   end: string;
   search: string;
@@ -43,7 +44,6 @@ export function readExplorerState(
   return (
     explorerStates.get(key) ??
     explorerStates.get(restorationKey(state) ?? "") ?? {
-      collapsed: [],
       start: "",
       end: "",
       search: "",

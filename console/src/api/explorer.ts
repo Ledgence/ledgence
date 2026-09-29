@@ -61,9 +61,9 @@ const base = {
 };
 const localState = s.enumeration("returned", "failed", "cancelled", "replayed");
 const rawExplorerNode = s.variant({
-  phase: s.object({
+  entrypoint: s.object({
     ...base,
-    kind: s.enumeration("phase"),
+    kind: s.enumeration("entrypoint"),
     state: s.nullable(taskState),
     availability,
     submitted_at: s.timestamp,
@@ -139,7 +139,7 @@ export const explorerNode = s.refine(
         (node.accepted_at !== null || node.observation !== null) &&
         (node.accepted_at === null) === (node.accepting_attempt_id === null)
       );
-    if (node.kind === "phase")
+    if (node.kind === "entrypoint")
       return (
         !(node.error && node.decision_kind) &&
         (!node.decision_kind || node.applied_at !== null) &&

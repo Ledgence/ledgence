@@ -1,0 +1,26 @@
+diff --git a/dist/esm/types/nodes.d.ts b/dist/esm/types/nodes.d.ts
+index 54d7c86c50bdc0c8a5eb6709a1ee5bc15fe73f63..3273ca3a67dbaa7125523af7eb867f4f29e21816 100644
+--- a/dist/esm/types/nodes.d.ts
++++ b/dist/esm/types/nodes.d.ts
+@@ -80,7 +80,7 @@ export type NodeBase<NodeData extends Record<string, unknown> = Record<string, u
+     /** Type of node defined in nodeTypes */
+     type: NodeType;
+ });
+-export type InternalNodeBase<NodeType extends NodeBase = NodeBase> = Omit<NodeType, 'measured'> & {
++export type InternalNodeBase<NodeType extends NodeBase = NodeBase> = Omit<NodeBase, 'measured'> & Omit<NodeType, 'measured'> & {
+     measured: {
+         width?: number;
+         height?: number;
+diff --git a/dist/umd/types/nodes.d.ts b/dist/umd/types/nodes.d.ts
+index 54d7c86c50bdc0c8a5eb6709a1ee5bc15fe73f63..3273ca3a67dbaa7125523af7eb867f4f29e21816 100644
+--- a/dist/umd/types/nodes.d.ts
++++ b/dist/umd/types/nodes.d.ts
+@@ -80,7 +80,7 @@ export type NodeBase<NodeData extends Record<string, unknown> = Record<string, u
+     /** Type of node defined in nodeTypes */
+     type: NodeType;
+ });
+-export type InternalNodeBase<NodeType extends NodeBase = NodeBase> = Omit<NodeType, 'measured'> & {
++export type InternalNodeBase<NodeType extends NodeBase = NodeBase> = Omit<NodeBase, 'measured'> & Omit<NodeType, 'measured'> & {
+     measured: {
+         width?: number;
+         height?: number;

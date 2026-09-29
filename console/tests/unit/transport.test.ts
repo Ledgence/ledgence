@@ -8,7 +8,7 @@ function reply(body: string, extra: HeadersInit = {}) {
   return new Response(body, {
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "2",
+      "Ledgence-Console-Contract": "3",
       "Ledgence-Instance-Id": "instance_demo",
       "Request-Id": "req-test",
       ...extra,
@@ -17,6 +17,28 @@ function reply(body: string, extra: HeadersInit = {}) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("Console transport boundaries", () => {
+  it("rejects a C2 response explicitly before decoding its body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        reply('{"id":"a"}', {
+          "Ledgence-Console-Contract": "2",
+        }),
+      ),
+    );
+    await expect(
+      request(
+        "/v1/console/tasks",
+        decode,
+        new AbortController().signal,
+        "instance_demo",
+      ),
+    ).rejects.toMatchObject({
+      name: "ContractError",
+      requestId: "req-test",
+      message: "The response has an incompatible Console contract.",
+    });
+  });
   it("rejects cross-instance responses and preserves request ID", async () => {
     vi.stubGlobal(
       "fetch",
@@ -138,7 +160,7 @@ it("treats invalid UTF-8 as a permanent protocol failure with request ID", async
       new Response(new Uint8Array([0xc3, 0x28]), {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "2",
+          "Ledgence-Console-Contract": "3",
           "Ledgence-Instance-Id": "instance_demo",
           "Request-Id": "req-encoding",
         },
