@@ -24,6 +24,8 @@ export default defineConfig({
             "lossless-json",
             "lucide-react",
             "@radix-ui/react-dialog",
+            "@xyflow/react",
+            "@dagrejs/dagre",
             "vitest-browser-react",
           ],
         },

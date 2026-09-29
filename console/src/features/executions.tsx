@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,7 +26,6 @@ import {
   PageControls,
   QueryError,
   Empty,
-  Tabs,
   Fields,
   Field,
   JsonView,
@@ -33,7 +33,8 @@ import {
 import { CommandFeedback } from "../components/command-feedback";
 import { Filters, ExecutionStatusTabs } from "./filters";
 import { ExecutionContext } from "../components/execution-context";
-import { TaskResources } from "./execution-resources";
+import { TaskResources, AttemptResources } from "./execution-resources";
+import { DetailPanels, DetailSections } from "./detail-panels";
 export function ExecutionsPage() {
   const config = useInstance();
   const [params] = useSearchParams();
@@ -171,20 +172,8 @@ export function ExecutionsPage() {
 }
 export function ExecutionDetailPage() {
   const { taskId = "" } = useParams();
-  const [params] = useSearchParams();
+  const location = useLocation();
   const config = useInstance();
-  const requestedTab = params.get("tab") ?? "Overview";
-  const tab = [
-    "Overview",
-    "Input",
-    "Output",
-    "Resources",
-    "Result",
-    "Attempts",
-    "History",
-  ].includes(requestedTab)
-    ? requestedTab
-    : "Overview";
   const query = useResource(
     "tasks/status",
     { task_id: taskId },
@@ -248,78 +237,128 @@ export function ExecutionDetailPage() {
       )}{" "}
       {task && (
         <>
-          <Tabs
-            values={[
-              "Overview",
-              "Input",
-              "Output",
-              "Resources",
-              "Attempts",
-              "History",
-            ]}
-            current={tab === "Result" ? "Output" : tab}
-          />
-          {tab === "Overview" && (
-            <section className="card">
-              <Fields>
-                <Field label="Run ID">
-                  <CopyText value={task.run_id} />
-                </Field>
-                <Field label="Queue">{task.queue}</Field>
-                <Field label="Correlation">
-                  {task.correlation_key ?? "Not set"}
-                </Field>
-                <Field label="Submitted">
-                  <When value={task.submitted_at} />
-                </Field>
-                <Field label="Available">
-                  <When value={task.available_at} />
-                </Field>
-                <Field label="Terminal">
-                  <When value={task.terminal_at} />
-                </Field>
-                <Field label="Observed">
-                  <When value={query.data?.observed_at ?? null} />
-                </Field>
-                <Field label="Attempts">{task.attempt_count}</Field>
-                <Field label="Current attempt">
-                  {task.current_attempt_id ? (
-                    <Link
-                      to={`?tab=Attempts&attempt=${encodeURIComponent(task.current_attempt_id)}`}
-                    >
-                      {task.current_attempt_id}
-                    </Link>
-                  ) : (
-                    "None"
-                  )}
-                </Field>
-                {task.workflow_id && (
-                  <Field label="Workflow">
-                    <Link
-                      to={`/workflows/${encodeURIComponent(task.workflow_id)}`}
-                    >
-                      {task.workflow_id}
-                    </Link>
-                  </Field>
-                )}
-              </Fields>
-            </section>
-          )}
-          {tab === "Input" && <ExecutionInput taskId={taskId} />}{" "}
-          {(tab === "Result" || tab === "Output") && (
-            <ExecutionResult taskId={taskId} />
-          )}{" "}
-          {tab === "Resources" && (
-            <TaskResources
-              key={taskId}
-              taskId={taskId}
-              active={!dto.terminal(task.state)}
-            />
-          )}
-          {tab === "Attempts" && (
-            <Attempts taskId={taskId} active={!dto.terminal(task.state)} />
-          )}{" "}
-          {tab === "History" && <TaskHistory taskId={taskId} />}
+          <DetailPanels kind="task">
+            {({ tab, section, openSection }) => (
+              <DetailSections
+                current={section}
+                onChange={openSection}
+                sections={
+                  tab === "Trace"
+                    ? [
+                        {
+                          id: "attempts",
+                          title: "Attempts",
+                          description:
+                            "Worker sessions, outcomes and diagnostics for each attempt.",
+                          content: (
+                            <Attempts
+                              taskId={taskId}
+                              active={!dto.terminal(task.state)}
+                            />
+                          ),
+                        },
+                        {
+                          id: "history",
+                          title: "Lifecycle",
+                          description: "Recorded changes to this task’s state.",
+                          content: (
+                            <TaskHistory
+                              taskId={taskId}
+                              active={!dto.terminal(task.state)}
+                            />
+                          ),
+                        },
+                      ]
+                    : [
+                        {
+                          id: "identity",
+                          title: "Execution details",
+                          description:
+                            "Identity, queue, timing and workflow context.",
+                          content: (
+                            <section className="card">
+                              <Fields>
+                                <Field label="Run ID">
+                                  <CopyText value={task.run_id} />
+                                </Field>
+                                <Field label="Queue">{task.queue}</Field>
+                                <Field label="Correlation">
+                                  {task.correlation_key ?? "Not set"}
+                                </Field>
+                                <Field label="Submitted">
+                                  <When value={task.submitted_at} />
+                                </Field>
+                                <Field label="Available">
+                                  <When value={task.available_at} />
+                                </Field>
+                                <Field label="Terminal">
+                                  <When value={task.terminal_at} />
+                                </Field>
+                                <Field label="Observed">
+                                  <When
+                                    value={query.data?.observed_at ?? null}
+                                  />
+                                </Field>
+                                <Field label="Attempts">
+                                  {task.attempt_count}
+                                </Field>
+                                <Field label="Current attempt">
+                                  {task.current_attempt_id ? (
+                                    <Link
+                                      to={`?tab=Trace&section=attempts&attempt=${encodeURIComponent(task.current_attempt_id)}`}
+                                      state={location.state}
+                                    >
+                                      {task.current_attempt_id}
+                                    </Link>
+                                  ) : (
+                                    "None"
+                                  )}
+                                </Field>
+                                {task.workflow_id && (
+                                  <Field label="Workflow">
+                                    <Link
+                                      to={`/workflows/${encodeURIComponent(task.workflow_id)}`}
+                                    >
+                                      {task.workflow_id}
+                                    </Link>
+                                  </Field>
+                                )}
+                              </Fields>
+                            </section>
+                          ),
+                        },
+                        {
+                          id: "input",
+                          title: "Input",
+                          description:
+                            "Submitted data, program version and retry policy.",
+                          content: <ExecutionInput taskId={taskId} />,
+                        },
+                        {
+                          id: "output",
+                          title: "Output",
+                          description:
+                            "The recorded result or failure of this task.",
+                          content: <ExecutionResult taskId={taskId} />,
+                        },
+                        {
+                          id: "resources",
+                          title: "Resources",
+                          description:
+                            "Observed runtime and process measurements.",
+                          content: (
+                            <TaskResources
+                              key={taskId}
+                              taskId={taskId}
+                              active={!dto.terminal(task.state)}
+                            />
+                          ),
+                        },
+                      ]
+                }
+              />
+            )}
+          </DetailPanels>
         </>
       )}
     </>
@@ -552,7 +591,9 @@ function AttemptDetails({ attemptId }: { attemptId: string }) {
             <Field label="Execution may have started">
               {String(query.data.attempt.execution_may_have_started)}
             </Field>
-            <Field label="Phase">{query.data.phase ?? "Not recorded"}</Field>
+            <Field label="Failure stage">
+              {query.data.phase ?? "Not recorded"}
+            </Field>
             <Field label="Consumer">{query.data.attempt.consumer_id}</Field>
             <Field label="PID">{query.data.process_id ?? "Not recorded"}</Field>
             <Field label="Process instance">
@@ -569,6 +610,10 @@ function AttemptDetails({ attemptId }: { attemptId: string }) {
                 : `${query.data.worker_elapsed_ms} ms`}
             </Field>
           </Fields>
+          <AttemptObservationDisclosure
+            attemptId={attemptId}
+            active={query.data.attempt.state === "active"}
+          />
           {query.data.application_error && (
             <JsonView
               label="Application error"
@@ -586,12 +631,42 @@ function AttemptDetails({ attemptId }: { attemptId: string }) {
     </section>
   );
 }
-function TaskHistory({ taskId }: { taskId: string }) {
+function AttemptObservationDisclosure({
+  attemptId,
+  active,
+}: {
+  attemptId: string;
+  active: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="attempt-observations"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>Resource observations</summary>
+      {open && <AttemptResources attemptId={attemptId} active={active} />}
+    </details>
+  );
+}
+function TaskHistory({ taskId, active }: { taskId: string; active: boolean }) {
+  const config = useInstance();
   const paging = usePagination();
   const query = useResource(
     "tasks/history",
     { task_id: taskId, limit: paging.limit, cursor: paging.cursor },
     dto.taskHistoryPage,
+    {
+      interval:
+        active && !paging.cursor ? config.polling.active_task_ms : false,
+    },
+  );
+  useTerminalRefresh(
+    active,
+    [taskId, paging.cursor, paging.limit],
+    query,
+    !paging.cursor,
   );
   return (
     <>

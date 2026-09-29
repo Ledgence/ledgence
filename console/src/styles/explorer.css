@@ -3,6 +3,170 @@
   --explorer-height: clamp(360px, 62dvh, 680px);
   min-width: 0;
 }
+.execution-explorer .explorer-canvas.explorer-graph {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+.workflow-flow {
+  height: 100%;
+  width: 100%;
+  position: relative;
+  isolation: isolate;
+  --xy-background-color: var(--well);
+  --xy-node-boxshadow-hover-default: none;
+  --xy-node-boxshadow-selected-default: none;
+}
+.workflow-flow .react-flow__node {
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  padding: 0;
+  text-align: left;
+}
+.work-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 4%);
+}
+.work-card strong {
+  display: block;
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-card-kind {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+}
+.work-card .status {
+  font-size: 10px;
+  line-height: 1.2;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.work-card-entrypoint .work-card-kind {
+  color: var(--focus);
+}
+.work-card-fork,
+.work-card-child_wait,
+.work-card-external_wait {
+  background: var(--side);
+}
+.workflow-flow .react-flow__node:hover .work-card {
+  border-color: var(--muted);
+}
+.workflow-flow .react-flow__node.selected .work-card,
+.workflow-flow .react-flow__node:focus-visible .work-card {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 14%, transparent);
+}
+.workflow-flow .react-flow__node:focus-visible {
+  outline: none;
+}
+.workflow-flow .graph-node-dimmed {
+  opacity: 0.3;
+}
+.workflow-flow .react-flow__handle {
+  width: 5px;
+  height: 5px;
+  min-width: 5px;
+  min-height: 5px;
+  background: var(--muted);
+  border: 1px solid var(--bg);
+  pointer-events: none;
+}
+.workflow-flow .react-flow__edge-path {
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.graph-tools {
+  position: absolute;
+  z-index: 5;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 24px);
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
+}
+.graph-tools .button {
+  min-height: 36px;
+  padding: 7px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.graph-tools .button svg {
+  width: 15px;
+  height: 15px;
+}
+.graph-tools-divider {
+  height: 18px;
+  width: 1px;
+  background: var(--line);
+  margin: 0 4px;
+}
+.graph-legend {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  display: flex;
+  gap: 15px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--well);
+  color: var(--muted);
+  font-size: 10px;
+  pointer-events: none;
+}
+.graph-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.graph-legend i {
+  width: 18px;
+  border-top: 1px solid var(--muted);
+}
+.graph-legend i.fork-line {
+  border-top-style: dashed;
+}
+.graph-routing-note {
+  position: absolute;
+  bottom: 60px;
+  left: 14px;
+  right: 14px;
+  margin: 0;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 11px;
+}
 .execution-explorer > * + * {
   margin-top: 12px;
 }
@@ -108,61 +272,6 @@
 }
 .execution-explorer .explorer-record-count > span {
   flex-shrink: 0;
-}
-.execution-explorer .explorer-graph {
-  background-image: radial-gradient(var(--line) 0.75px, transparent 0.75px);
-  background-size: 20px 20px;
-}
-.execution-explorer .semantic-graph {
-  margin: 0 auto;
-}
-.execution-explorer .graph-phase-area {
-  border-top-style: dashed;
-}
-.execution-explorer .graph-phase-area::before {
-  background: color-mix(in srgb, var(--bg) 42%, transparent);
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--line) 65%, transparent);
-}
-.execution-explorer .graph-phase-area > .button {
-  min-height: 34px;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-.execution-explorer .graph-node {
-  border-radius: 10px;
-  padding: 13px 15px;
-  box-shadow: 0 2px 4px rgb(0 0 0 / 3%);
-  transition:
-    border-color var(--motion),
-    box-shadow var(--motion);
-}
-.execution-explorer .graph-node:hover {
-  border-color: var(--muted);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 6%);
-}
-.execution-explorer .graph-node strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-.execution-explorer .graph-node .eyebrow {
-  font-size: 9px;
-  letter-spacing: 0.065em;
-}
-.execution-explorer .graph-node-phase {
-  background: var(--bg);
-  border-top: 3px solid var(--muted);
-}
-.execution-explorer .graph-node-fork,
-.execution-explorer .graph-node-child_wait,
-.execution-explorer .graph-node-external_wait {
-  background: var(--side);
-  box-shadow: none;
-}
-.execution-explorer .graph-node[aria-pressed="true"] {
-  border-color: var(--focus);
-  background: var(--bg);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--focus) 10%, transparent);
 }
 .execution-explorer .explorer-inspector {
   position: static;

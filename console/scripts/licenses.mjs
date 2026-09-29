@@ -60,6 +60,42 @@ for (const item of inventory.packages) {
       throw new Error(`Missing or changed notice: ${notice.file}`);
   }
 }
+// This declaration-only compatibility patch is reviewed separately from the
+// original npm archive. Lock/build-policy hashes bind its pnpm registration;
+// the checks below also bind the local file bytes before any notices are built.
+const expectedPatches = new Map([
+  ["@xyflow/system@0.0.83", "patches/@xyflow__system@0.0.83.patch"],
+]);
+const reviewedPatches = inventory.reviewed_patches;
+if (
+  !reviewedPatches ||
+  Array.isArray(reviewedPatches) ||
+  Object.keys(reviewedPatches).length !== expectedPatches.size
+)
+  throw new Error("Review every dependency patch before building.");
+for (const [id, file] of expectedPatches) {
+  const review = reviewedPatches[id];
+  if (!packages.has(id) || !review || review.file !== file)
+    throw new Error(`Unreviewed dependency patch path: ${id}`);
+  if (review.upstream_archive_sha256 !== packages.get(id).sha256)
+    throw new Error(
+      `Dependency patch belongs to another upstream archive: ${id}`,
+    );
+  if (digest(read(file)) !== review.sha256)
+    throw new Error(`Missing or changed dependency patch: ${file}`);
+}
+const expectedPatchFiles = new Set(expectedPatches.values());
+const patchFiles = readdirSync(new URL("patches/", root), {
+  withFileTypes: true,
+});
+if (
+  patchFiles.length !== expectedPatchFiles.size ||
+  patchFiles.some(
+    (file) => !file.isFile() || !expectedPatchFiles.has(`patches/${file.name}`),
+  )
+)
+  throw new Error("Unreviewed files in the dependency patch directory.");
+
 const store = new URL("node_modules/.pnpm/", root);
 for (const entry of readdirSync(store, { withFileTypes: true })) {
   if (!entry.isDirectory() || entry.name === "node_modules") continue;

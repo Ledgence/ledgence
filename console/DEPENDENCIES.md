@@ -14,6 +14,8 @@ is independent of the documentation site's license exceptions.
 | lossless-json          | 4.3.1   | Preserve user JSON numeric values and reject duplicate keys | MIT                                  |
 | lucide-react           | 1.48.0  | Local tree-shaken icons                                     | ISC and included Feather MIT notices |
 | @radix-ui/react-dialog | 1.1.23  | Modal focus, keyboard, dismissal semantics                  | MIT                                  |
+| @xyflow/react          | 12.12.0 | Workflow canvas, keyboard access, pan and zoom              | MIT                                  |
+| @dagrejs/dagre         | 3.1.1   | Directed automatic layout behind the Console adapter        | MIT                                  |
 
 Vite 7.3.6 with @vitejs/plugin-react 5.2.0 avoids adopting Vite 8's MPL-licensed
 Lightning CSS graph. TypeScript 6.0.3 is within typescript-eslint 8.70.1's supported
@@ -24,12 +26,29 @@ tool versions are in `package.json`.
 Six source primitives are adapted from a pinned shadcn/ui commit: Button, Input,
 Card, Dialog, Table and Skeleton. Their original paths, hashes, MIT license and
 adaptation notes are in `third_party/shadcn/provenance.json`. No generator runs at
-installation. Tailwind, class-merging libraries, external fonts and a graph-layout
-runtime are unnecessary for these views and are not included.
+installation. Tailwind and external fonts are not included.
+
+The workflow explorer uses the open-source React Flow package (`@xyflow/react`)
+for interaction and Dagre for automatic layout. Both execute locally in the
+browser. Their APIs stay behind the Console's graph/model/layout boundary: the
+server provides evidence, not renderer types or coordinates. React Flow Pro
+examples, paid services, vendor accounts and remote layout endpoints are not
+required or bundled. The actual npm archive MIT licenses for React Flow, its
+`@xyflow/system` dependency, Dagre and `@dagrejs/graphlib` are retained in the
+inventory. They require their copyright/permission notices, with no mandatory
+product logo, promotional credit or account.
+
+The 2026-09-29 graph review adds 22 exact packages: Dagre/graphlib; React Flow/system;
+D3 interaction modules and their TypeScript declarations; classcat; Zustand; and
+React's use-sync-external-store shim. Each addition has a public source repository
+and retained archive legal material under MIT, ISC or BSD-3-Clause. Archive SHA-512
+integrities match the lockfile and archive SHA-256 values identify the reviewed
+bytes. D3's BSD non-endorsement condition is retained with its other terms; it does
+not require promotional branding.
 
 ## Full dependency graph
 
-`third_party/inventory.json` records all 287 locked packages, including optional
+`third_party/inventory.json` records all 309 locked packages, including optional
 platform packages: exact npm archive, lockfile integrity, archive SHA-256,
 repository metadata, declared license, lifecycle scripts and hashes of retained
 legal material. Archive integrity was verified against the lockfile before review.
@@ -65,18 +84,37 @@ native archive without adequate upstream legal material; the latter retains a
 verifiable upstream release and full MIT notice. Remove an override only after
 reviewing the replacement graph.
 
+## Reviewed declaration compatibility patch
+
+`patches/@xyflow__system@0.0.83.patch` adds the existing `NodeBase` constraint to
+two `InternalNodeBase` declaration intersections. This resolves the upstream
+TypeScript 6 `exactOptionalPropertyTypes` compatibility issue while retaining
+`skipLibCheck: false` and the Console's strict compiler configuration.
+The ESM and UMD `.d.ts` files are the only changes: review compared all 186 files
+in the installed package against the original integrity-verified npm archive;
+runtime JavaScript, CSS and license files are unchanged.
+
+The patch is bound to that exact archive/version in `pnpm-workspace.yaml`, the
+lockfile and `third_party/inventory.json`'s `reviewed_patches` entry. The license
+gate verifies the exact patch path and SHA-256 and rejects unexpected patch files.
+Re-review the archive, types and lockfile before replacing or removing it after an
+upstream fix. Original xyflow copyright and MIT permission notices remain intact.
+
 ## Installation and distribution gates
 
 - Strict peer versions and exact Node/pnpm engines are enforced.
 - New package versions must be at least 24 hours old at resolution time.
 - Automatic peer installation is disabled.
 - Install with `--frozen-lockfile --ignore-scripts`. The only declared dependency
-  installation hook in the reviewed graph, `esbuild@0.28.2`, is explicitly denied
-  by `allowBuilds`; the verified platform package supplies the binary. No package
-  lifecycle script is required by the tested build.
+  `postinstall` hook, `esbuild@0.28.2`, is explicitly denied by `allowBuilds`;
+  the verified platform package supplies the binary. `classcat@5.0.5` also declares
+  a publisher `prepare` script; its reviewed npm archive already contains the
+  built runtime. Neither script is required by the tested build, and dependency
+  scripts remain disabled.
 - `licenses:check` rejects a changed lockfile/build policy/direct dependency set,
-  unknown installed versions, unreviewed licenses, missing notices and changed
-  notice hashes. After changing dependency versions, remove this package's own
+  unknown installed versions, unreviewed licenses, missing notices, changed
+  notice hashes and unreviewed patch bytes or paths. After changing dependency
+  versions, remove this package's own
   `node_modules` and install the new frozen graph so stale pnpm entries cannot be
   mistaken for the reviewed graph.
 - The bundler records every actual browser package. The build fails if an included

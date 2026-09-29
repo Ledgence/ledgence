@@ -69,7 +69,8 @@ export function usePagination(prefix = "") {
       key.endsWith("limit") ||
       key === "attempt" ||
       key === "node" ||
-      key === "view"
+      key === "view" ||
+      (prefix === "explorer_" && (key === "tab" || key === "section"))
     )
       filters.delete(key);
   filters.sort();

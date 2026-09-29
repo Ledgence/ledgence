@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v2.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import * as dto from "../../src/api/resources";
@@ -33,7 +33,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "2",
+      "Ledgence-Console-Contract": "3",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -336,3 +336,102 @@ it("keeps the filtered workflow return link when choosing local-step activation"
     .element(view.getByRole("link", { name: "Executions", exact: true }))
     .toHaveAttribute("href", returnTo);
 });
+
+it("uses task Trace by default and requests payloads only when their General section opens", async () => {
+  const reads: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = new URL(String(input), location.origin).pathname;
+    reads.push(path);
+    if (path.endsWith("/tasks/status")) return response(taskStatus(false));
+    if (path.endsWith("/tasks/attempts")) return response(field("attempts"));
+    if (path.endsWith("/tasks/inspect")) return response(field("task_detail"));
+    if (path.endsWith("/tasks/result"))
+      return response(field("pending_result"));
+    return response({}, 404);
+  });
+  const { view } = await mount("/executions/task_invoice_1042");
+  await expect
+    .element(view.getByRole("button", { name: "Trace", exact: true }))
+    .toHaveAttribute("aria-current", "page");
+  await expect
+    .element(view.getByRole("button", { name: "att_invoice_1", exact: true }))
+    .toBeVisible();
+  await expect
+    .element(view.getByRole("button", { name: "Graph", exact: true }))
+    .not.toBeInTheDocument();
+  expect(
+    reads.some(
+      (path) =>
+        path.endsWith("/tasks/inspect") || path.endsWith("/tasks/result"),
+    ),
+  ).toBe(false);
+  await view.getByRole("button", { name: "General", exact: true }).click();
+  await view.getByRole("button", { name: "Input", exact: true }).click();
+  await expect
+    .poll(() => reads.filter((path) => path.endsWith("/tasks/inspect")).length)
+    .toBe(1);
+  expect(reads.some((path) => path.endsWith("/tasks/result"))).toBe(false);
+  await view.getByRole("button", { name: "Output", exact: true }).click();
+  await expect
+    .poll(() => reads.filter((path) => path.endsWith("/tasks/result")).length)
+    .toBe(1);
+});
+
+for (const kind of ["task", "workflow"] as const) {
+  it(`refreshes the visible ${kind} lifecycle after the parent becomes terminal`, async () => {
+    let terminal = false;
+    let reads = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = new URL(String(input), location.origin).pathname;
+      if (path.endsWith("/tasks/status")) return response(taskStatus(terminal));
+      if (path.endsWith("/workflows/inspect")) {
+        const detail = dto.workflowDetail(field("workflow_detail"));
+        detail.summary.workflow.state = terminal ? "succeeded" : "waiting";
+        detail.summary.workflow.terminal_at = terminal
+          ? detail.observed_at
+          : null;
+        if (terminal) detail.child_wait = null;
+        return response(detail);
+      }
+      if (
+        path.endsWith(`/${kind === "task" ? "tasks" : "workflows"}/history`)
+      ) {
+        reads++;
+        // Synthetic observation tests polling only; canonical wire contracts
+        // are tested separately against Rust fixtures.
+        return response({
+          items: terminal
+            ? [
+                {
+                  sequence: "1",
+                  at: 0,
+                  reason: "completed",
+                  ...(kind === "task"
+                    ? { task_id: "task_invoice_1042", attempt_id: null }
+                    : { workflow_id: "wf_invoice_1042", activation_id: null }),
+                },
+              ]
+            : [],
+          observed_at: 0,
+          next_cursor: null,
+        });
+      }
+      return response({}, 404);
+    });
+    const route =
+      kind === "task"
+        ? "/executions/task_invoice_1042?tab=Trace&section=history"
+        : "/workflows/wf_invoice_1042?tab=General&section=history";
+    const { view, client } = await mount(route);
+    await expect.poll(() => reads).toBe(1);
+    terminal = true;
+    await refreshParent(
+      client,
+      kind === "task" ? "tasks/status" : "workflows/inspect",
+    );
+    await expect
+      .element(view.getByText("completed", { exact: true }))
+      .toBeVisible();
+    expect(reads).toBe(2);
+  });
+}

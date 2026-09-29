@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: MIT
 import {
+  lazy,
+  Suspense,
   useEffect,
-  useId,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { Link, useLocation, useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 import {
-  ArrowUpRight,
-  ChevronDown,
-  ChevronRight,
   GitFork,
   ListTree,
   Maximize2,
@@ -29,62 +26,59 @@ import {
 import { usePagination, useResource } from "../api/hooks";
 import { useTerminalRefresh } from "../api/terminal-refresh";
 import { ContractError } from "../api/codecs";
-import {
-  executionPath,
-  workflowExplorer,
-  workflowInput,
-  type ExplorerNode,
-} from "../api/explorer";
+import { workflowExplorer, workflowInput } from "../api/explorer";
 import { terminal } from "../api/resources";
 import { LoadingState } from "../components/async-state";
 import {
   Empty,
-  Field,
-  Fields,
   JsonView,
   PageControls,
   QueryError,
-  Status,
-  When,
 } from "../components/resource-ui";
 import { Button } from "../components/ui/button";
-import { AttemptResources } from "./execution-resources";
 import {
   evidenceEdges,
-  graphLayout,
-  graphEdgeRoute,
-  micros,
   nodeLabel,
   nodeStatus,
-  nodeTiming,
   nodeType,
-  phaseGroups,
-  timelineRows,
-  timelineBounds,
-  type EvidenceEdge,
 } from "./explorer-model";
+import { Trace } from "./explorer/trace";
+import { NodeInspector } from "./explorer/inspector";
+const GraphCanvas = lazy(() =>
+  import("./explorer/graph").then((module) => ({
+    default: module.GraphCanvas,
+  })),
+);
 
-function defaultView(): "graph" | "timeline" {
+function defaultView(): "graph" | "trace" {
   try {
-    const saved = localStorage.getItem("ledgence-explorer-view");
-    if (saved === "graph" || saved === "timeline") return saved;
+    const saved = localStorage.getItem("ledgence-explorer-view-v3");
+    if (saved === "graph" || saved === "trace") return saved;
   } catch {
     /* Storage can be disabled. */
   }
-  return window.matchMedia("(max-width: 768px)").matches ? "timeline" : "graph";
+  return window.matchMedia("(max-width: 768px)").matches ? "trace" : "graph";
 }
 export function WorkflowExplorer({
   workflowId,
   active,
+  view: controlledView,
+  visible = true,
 }: {
   workflowId: string;
   active: boolean;
+  view?: "graph" | "trace";
+  visible?: boolean;
 }) {
   const config = useInstance();
-  const [maximized, setMaximized] = useState(false);
+  const [expanded, setMaximized] = useState(false);
+  const maximized = expanded && visible;
   const workspace = useRef<HTMLElement>(null);
   const maximizeButton = useRef<HTMLButtonElement>(null);
   const inspector = useRef<HTMLElement>(null);
+  const requestedInspection = useRef<{ id: string; workflowId: string } | null>(
+    null,
+  );
   useEffect(() => {
     if (!maximized || !workspace.current) return;
     const element = workspace.current;
@@ -156,11 +150,12 @@ export function WorkflowExplorer({
   const paging = usePagination("explorer_");
   const [preferredView] = useState(defaultView);
   const view =
-    params.get("view") === "timeline"
-      ? "timeline"
+    controlledView ??
+    (["trace", "timeline"].includes(params.get("view") ?? "")
+      ? "trace"
       : params.get("view") === "graph"
         ? "graph"
-        : preferredView;
+        : preferredView);
   const [saved, setSaved] = useState(() => ({
     key: location.key,
     value: readExplorerState(location.key, location.state),
@@ -200,7 +195,9 @@ export function WorkflowExplorer({
       return result;
     },
     {
+      enabled: visible,
       interval: (data) =>
+        visible &&
         active &&
         !paging.cursor &&
         (!data || !terminal(data.workflow.summary.workflow.state))
@@ -208,7 +205,12 @@ export function WorkflowExplorer({
           : false,
     },
   );
-  useTerminalRefresh(active, [workflowId, paging.cursor, paging.limit], query);
+  useTerminalRefresh(
+    active,
+    [workflowId, paging.cursor, paging.limit],
+    query,
+    visible,
+  );
   const nodes = query.data?.page.items ?? [];
   const selectedId = params.get("node");
   const selected = nodes.find((node) => node.id === selectedId);
@@ -220,7 +222,6 @@ export function WorkflowExplorer({
         .toLocaleLowerCase()
         .includes(search),
   );
-  const groups = phaseGroups(filtered);
   const edges = evidenceEdges(nodes);
   function changeParam(key: string, value: string | null) {
     const next = new URLSearchParams(params);
@@ -233,22 +234,45 @@ export function WorkflowExplorer({
     });
   }
   function select(id: string) {
+    if (id === selectedId) return;
+    if (window.matchMedia("(max-width: 1080px)").matches)
+      requestedInspection.current = { id, workflowId };
     changeParam("node", id);
   }
+  useLayoutEffect(() => {
+    const request = requestedInspection.current;
+    requestedInspection.current = null;
+    if (
+      !visible ||
+      !request ||
+      request.workflowId !== workflowId ||
+      request.id !== selectedId
+    )
+      return;
+    // Only an explicit selection reveals the stacked panel. Polling and
+    // restored URL selections must not take focus or move the document.
+    const frame = requestAnimationFrame(() => {
+      const panel = inspector.current;
+      if (panel) {
+        panel.focus({ preventScroll: true });
+        panel.scrollIntoView({ block: "nearest" });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [location.key, selectedId, visible, workflowId]);
   function clearSelection() {
     const selectedButton = canvas.current?.querySelector<HTMLElement>(
       '[aria-pressed="true"]',
     );
     changeParam("node", null);
-    (selectedButton ?? canvas.current)?.focus({ preventScroll: true });
-  }
-  function collapse(id: string) {
-    updateState({
-      ...state,
-      collapsed: state.collapsed.includes(id)
-        ? state.collapsed.filter((value) => value !== id)
-        : [...state.collapsed, id],
-    });
+    if (window.matchMedia("(max-width: 1080px)").matches) {
+      requestAnimationFrame(() => {
+        canvas.current?.scrollIntoView({ block: "nearest" });
+        (selectedButton?.isConnected ? selectedButton : canvas.current)?.focus({
+          preventScroll: true,
+        });
+      });
+    } else (selectedButton ?? canvas.current)?.focus({ preventScroll: true });
   }
   const canvas = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -268,30 +292,32 @@ export function WorkflowExplorer({
       aria-label="Workflow execution"
     >
       <div className="explorer-toolbar">
-        <div className="segmented" aria-label="Execution view">
-          {(["graph", "timeline"] as const).map((mode) => (
-            <Button
-              key={mode}
-              variant="ghost"
-              aria-pressed={view === mode}
-              onClick={() => {
-                try {
-                  localStorage.setItem("ledgence-explorer-view", mode);
-                } catch {
-                  /* Optional preference. */
-                }
-                changeParam("view", mode);
-              }}
-            >
-              {mode === "graph" ? (
-                <GitFork aria-hidden="true" />
-              ) : (
-                <ListTree aria-hidden="true" />
-              )}
-              {mode === "graph" ? "Graph" : "Timeline"}
-            </Button>
-          ))}
-        </div>
+        {!controlledView && (
+          <div className="segmented" aria-label="Execution view">
+            {(["graph", "trace"] as const).map((mode) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                aria-pressed={view === mode}
+                onClick={() => {
+                  try {
+                    localStorage.setItem("ledgence-explorer-view-v3", mode);
+                  } catch {
+                    /* Optional preference. */
+                  }
+                  changeParam("view", mode);
+                }}
+              >
+                {mode === "graph" ? (
+                  <GitFork aria-hidden="true" />
+                ) : (
+                  <ListTree aria-hidden="true" />
+                )}
+                {mode === "graph" ? "Graph" : "Trace"}
+              </Button>
+            ))}
+          </div>
+        )}
         <label className="explorer-search">
           <Search aria-hidden="true" />
           <span className="sr-only">Find recorded work on this page</span>
@@ -303,7 +329,7 @@ export function WorkflowExplorer({
             }
           />
         </label>
-        {active && (
+        {active && view === "trace" && (
           <label className="check-label">
             <input
               type="checkbox"
@@ -378,7 +404,7 @@ export function WorkflowExplorer({
                 data-scroll-memory={`explorer:${workflowId}:${view}`}
                 ref={canvas}
                 tabIndex={0}
-                aria-label={`${view === "graph" ? "Graph" : "Timeline"} workspace`}
+                aria-label={`${view === "graph" ? "Graph" : "Trace"} workspace`}
               >
                 {!filtered.length ? (
                   <Empty filtered={!!search}>
@@ -387,16 +413,25 @@ export function WorkflowExplorer({
                       : "No retained execution structure is available on this page. Older or collected records cannot be reconstructed."}
                   </Empty>
                 ) : view === "graph" ? (
-                  <SemanticGraph
-                    nodes={filtered}
-                    edges={edges}
-                    collapsed={state.collapsed}
-                    selectedId={selectedId}
-                    select={select}
-                    collapse={collapse}
-                  />
+                  visible && (
+                    <Suspense fallback={<LoadingState label="Loading graph" />}>
+                      <GraphCanvas
+                        key={`${workflowId}:${paging.cursor ?? "first"}`}
+                        scope={`${workflowId}:${paging.cursor ?? "first"}`}
+                        nodes={nodes}
+                        edges={edges}
+                        selectedId={selectedId}
+                        select={select}
+                        matchingIds={
+                          search ? filtered.map((node) => node.id) : undefined
+                        }
+                        presentation={state.graph}
+                        save={(graph) => updateState({ ...state, graph })}
+                      />
+                    </Suspense>
+                  )
                 ) : (
-                  <Timeline
+                  <Trace
                     nodes={filtered}
                     observedAt={query.data.page.observed_at}
                     workflowActive={
@@ -410,9 +445,10 @@ export function WorkflowExplorer({
                 )}
               </div>
             </div>
-            {selectedId && (
+            {visible && selectedId && (
               <aside
                 ref={inspector}
+                tabIndex={-1}
                 className="explorer-inspector"
                 aria-label="Selected work details"
               >
@@ -462,9 +498,8 @@ export function WorkflowExplorer({
               <details className="explorer-relationships">
                 <summary>Recorded relationships ({edges.length})</summary>
                 <p className="muted">
-                  Phase grouping shows containment. Lines only represent
-                  recorded registration, terminal-outcome waits and scheduled
-                  resumes.
+                  Lines represent recorded registration, terminal-outcome waits
+                  and scheduled resumes. A subworkflow opens its own graph.
                 </p>
                 {edges.length ? (
                   <ul>
@@ -490,25 +525,20 @@ export function WorkflowExplorer({
               </details>
               <details className="explorer-semantic-list">
                 <summary>Accessible work list ({filtered.length})</summary>
-                {groups.map((group) => (
-                  <section key={group.activationId}>
-                    <h3>{group.label}</h3>
-                    <ul>
-                      {group.nodes.map((node) => (
-                        <li key={node.id}>
-                          <button
-                            type="button"
-                            onClick={() => select(node.id)}
-                            aria-pressed={selectedId === node.id}
-                          >
-                            {nodeLabel(node)} · {nodeType(node)} ·{" "}
-                            {nodeStatus(node)}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ))}
+                <ul>
+                  {filtered.map((node) => (
+                    <li key={node.id}>
+                      <button
+                        type="button"
+                        onClick={() => select(node.id)}
+                        aria-pressed={selectedId === node.id}
+                      >
+                        {nodeLabel(node)} · {nodeType(node)} ·{" "}
+                        {nodeStatus(node)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </details>
               <p className="muted explorer-evidence-note">
                 This view uses retained Ledgence records and works without
@@ -519,624 +549,6 @@ export function WorkflowExplorer({
               </p>
             </div>
           </details>
-        </>
-      )}
-    </section>
-  );
-}
-
-function SemanticGraph({
-  nodes,
-  edges,
-  collapsed,
-  selectedId,
-  select,
-  collapse,
-}: {
-  nodes: ExplorerNode[];
-  edges: EvidenceEdge[];
-  collapsed: string[];
-  selectedId: string | null;
-  select: (id: string) => void;
-  collapse: (id: string) => void;
-}) {
-  const marker = useId().replaceAll(":", "");
-  const layout = graphLayout(phaseGroups(nodes), collapsed);
-  const graph = useRef<HTMLDivElement>(null);
-  const anchor = useRef<{ id: string | null; x: number; y: number } | null>(
-    null,
-  );
-  const selectedPosition = selectedId
-    ? layout.positions.get(selectedId)
-    : undefined;
-  useLayoutEffect(() => {
-    const before = anchor.current;
-    const viewport = graph.current?.parentElement;
-    if (selectedPosition && selectedId === before?.id && viewport) {
-      viewport.scrollLeft += selectedPosition.x - before.x;
-      viewport.scrollTop += selectedPosition.y - before.y;
-    }
-    anchor.current = selectedPosition
-      ? { id: selectedId, x: selectedPosition.x, y: selectedPosition.y }
-      : null;
-  }, [selectedId, selectedPosition]);
-  return (
-    <div
-      className="semantic-graph"
-      ref={graph}
-      style={{ width: layout.width, height: layout.height }}
-    >
-      {layout.areas.map(({ group, y, height }) => (
-        <div
-          key={group.activationId}
-          className="graph-phase-area"
-          style={{ top: y, height }}
-        >
-          <Button
-            variant="ghost"
-            aria-expanded={!collapsed.includes(group.activationId)}
-            aria-label={`${collapsed.includes(group.activationId) ? "Expand" : "Collapse"} phase ${group.label}`}
-            onClick={() => collapse(group.activationId)}
-          >
-            {collapsed.includes(group.activationId) ? (
-              <ChevronRight aria-hidden="true" />
-            ) : (
-              <ChevronDown aria-hidden="true" />
-            )}
-            Phase · {group.label}
-            <small>
-              {group.nodes.length}{" "}
-              {group.nodes.length === 1 ? "record" : "records"}
-            </small>
-          </Button>
-          <span className="graph-lane-label">Within workflow</span>
-          <span className="graph-child-label">Child executions</span>
-        </div>
-      ))}
-      <svg
-        className="graph-edges"
-        width={layout.width}
-        height={layout.height}
-        aria-hidden="true"
-      >
-        <defs>
-          <marker
-            id={marker}
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="7"
-            markerHeight="7"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" />
-          </marker>
-        </defs>
-        {edges.map((edge) => {
-          const points = graphEdgeRoute(edge, layout.positions);
-          if (!points) return null;
-          const d = points
-            .map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`)
-            .join(" ");
-          return (
-            <path
-              key={`${edge.from}:${edge.to}:${edge.relation}`}
-              d={d}
-              data-edge-from={edge.from}
-              data-edge-to={edge.to}
-              markerEnd={`url(#${marker})`}
-              className={
-                edge.relation === "awaits terminal outcome"
-                  ? "edge-wait"
-                  : undefined
-              }
-            >
-              <title>{edge.relation}</title>
-            </path>
-          );
-        })}
-      </svg>
-      {nodes.map((node) => {
-        const position = layout.positions.get(node.id);
-        return (
-          position && (
-            <button
-              type="button"
-              key={node.id}
-              className={`graph-node graph-node-${node.kind}`}
-              style={{
-                left: position.x,
-                top: position.y,
-                width: position.width,
-                height: position.height,
-              }}
-              aria-pressed={selectedId === node.id}
-              aria-label={`${nodeLabel(node)} · ${nodeType(node)} · ${nodeStatus(node)}`}
-              data-focus-key={`node:${node.id}`}
-              onClick={() => select(node.id)}
-            >
-              <span className="eyebrow">{nodeType(node)}</span>
-              <strong>{nodeLabel(node)}</strong>
-              <Status value={nodeStatus(node)} />
-            </button>
-          )
-        );
-      })}
-    </div>
-  );
-}
-
-const rowHeight = 86;
-function Timeline({
-  nodes,
-  observedAt,
-  workflowActive,
-  selectedId,
-  select,
-  state,
-  updateState,
-}: {
-  nodes: ExplorerNode[];
-  observedAt: number;
-  workflowActive: boolean;
-  selectedId: string | null;
-  select: (id: string) => void;
-  state: ExplorerViewState;
-  updateState: (value: ExplorerViewState) => void;
-}) {
-  const [scroll, setScroll] = useState(0);
-  const rows = useMemo(() => timelineRows(nodes), [nodes]);
-  const viewport = useRef<HTMLDivElement>(null);
-  const anchor = useRef<{ id: string | null; index: number } | null>(null);
-  const selectedIndex = rows.findIndex((row) => row.node.id === selectedId);
-  useLayoutEffect(() => {
-    const element = viewport.current;
-    const previous = anchor.current;
-    if (element) {
-      if (state.follow) element.scrollTop = element.scrollHeight;
-      else if (
-        selectedIndex >= 0 &&
-        previous?.id === selectedId &&
-        previous.index >= 0
-      )
-        element.scrollTop += (selectedIndex - previous.index) * rowHeight;
-    }
-    anchor.current = { id: selectedId, index: selectedIndex };
-  }, [rows, selectedIndex, selectedId, state.follow]);
-  if (!rows.length)
-    return <Empty>No retained work is available in this timeline.</Empty>;
-  const { start: naturalStart, end: naturalEnd } = timelineBounds(
-    rows,
-    observedAt,
-    workflowActive,
-  );
-  const rangeStart = state.start ? Date.parse(state.start) : naturalStart;
-  const rangeEnd = state.end ? Date.parse(state.end) : naturalEnd;
-  const validRange =
-    Number.isFinite(rangeStart) &&
-    Number.isFinite(rangeEnd) &&
-    rangeEnd > rangeStart;
-  const start = validRange ? rangeStart : naturalStart;
-  const end = validRange ? rangeEnd : naturalEnd + 1;
-  const first = Math.max(0, Math.floor(scroll / rowHeight) - 4);
-  const last = Math.min(rows.length, first + 16);
-  return (
-    <div
-      className="execution-timeline"
-      data-timeline-start={start}
-      data-timeline-end={end}
-    >
-      <details className="timeline-range-options">
-        <summary>
-          {state.start || state.end ? "Custom time range" : "Adjust time range"}
-        </summary>
-        <div className="timeline-range">
-          <label>
-            From
-            <input
-              type="datetime-local"
-              value={state.start}
-              onChange={(event) =>
-                updateState({ ...state, start: event.target.value })
-              }
-            />
-          </label>
-          <label>
-            Until
-            <input
-              type="datetime-local"
-              value={state.end}
-              onChange={(event) =>
-                updateState({ ...state, end: event.target.value })
-              }
-            />
-          </label>
-          {(state.start || state.end) && (
-            <Button
-              variant="ghost"
-              onClick={() => updateState({ ...state, start: "", end: "" })}
-            >
-              Reset range
-            </Button>
-          )}
-        </div>
-      </details>
-      {!validRange && (state.start || state.end) && (
-        <p className="notice">
-          Choose an end after the start. Showing the full observed range.
-        </p>
-      )}
-      <p className="muted timeline-caption">
-        Bars show recorded intervals; dots show milestones.
-        Submitted-to-terminal bars include queue and waiting time.
-      </p>
-      <div className="timeline-axis">
-        <When value={start} />
-        <When value={end} />
-      </div>
-      <div
-        className="timeline-viewport"
-        ref={viewport}
-        data-scroll-memory="timeline-rows"
-        tabIndex={0}
-        aria-label="Timeline work rows"
-        onScroll={(event) => setScroll(event.currentTarget.scrollTop)}
-      >
-        <div
-          role="list"
-          aria-label="Recorded work"
-          style={{ height: rows.length * rowHeight, position: "relative" }}
-        >
-          {rows.slice(first, last).map(({ node, timing }, offset) => {
-            const open = timing.open && workflowActive;
-            const unknownEnd = timing.end === null && !open;
-            const renderedEnd =
-              timing.end ?? (open ? observedAt : timing.start);
-            const left = Math.max(
-              0,
-              Math.min(100, ((timing.start - start) / (end - start)) * 100),
-            );
-            const right = Math.max(
-              0,
-              Math.min(100, ((renderedEnd - start) / (end - start)) * 100),
-            );
-            const inRange = timing.start <= end && renderedEnd >= start;
-            return (
-              <div
-                role="listitem"
-                aria-posinset={first + offset + 1}
-                aria-setsize={rows.length}
-                key={node.id}
-                style={{
-                  position: "absolute",
-                  top: (first + offset) * rowHeight,
-                  width: "100%",
-                  height: rowHeight,
-                }}
-              >
-                <button
-                  className="timeline-row"
-                  type="button"
-                  aria-pressed={selectedId === node.id}
-                  data-focus-key={`node:${node.id}`}
-                  onClick={() => select(node.id)}
-                >
-                  <span className="timeline-row-label">
-                    <strong>{nodeLabel(node)}</strong>
-                    <small>
-                      {nodeType(node)} · {node.entrypoint}
-                    </small>
-                    <Status value={nodeStatus(node)} />
-                  </span>
-                  <span className="timeline-track" aria-label={timing.label}>
-                    {unknownEnd && (
-                      <span className="timeline-unknown">End not recorded</span>
-                    )}
-                    {inRange && (
-                      <span
-                        className={
-                          timing.milestone || unknownEnd
-                            ? "timeline-milestone"
-                            : `timeline-bar${open ? " timeline-open" : ""}`
-                        }
-                        style={{
-                          left: `${left}%`,
-                          width:
-                            timing.milestone || unknownEnd
-                              ? undefined
-                              : `${Math.max(0.4, right - left)}%`,
-                        }}
-                      />
-                    )}
-                    <span className="sr-only">
-                      {timing.label}: {new Date(timing.start).toISOString()}
-                      {timing.end !== null
-                        ? ` to ${new Date(timing.end).toISOString()}`
-                        : "; end not recorded"}
-                    </span>
-                  </span>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function NodeInspector({
-  node,
-  workflowId,
-}: {
-  node: ExplorerNode;
-  workflowId: string;
-}) {
-  const timing = nodeTiming(node);
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <>
-      <div className="explorer-node-heading">
-        <p className="eyebrow">{nodeType(node)}</p>
-        <h2>{nodeLabel(node)}</h2>
-        <Status value={nodeStatus(node)} />
-      </div>
-      {node.kind === "child" &&
-        (node.availability === "available" ? (
-          <Link
-            className="button button-primary"
-            to={executionPath(node.execution.kind, node.execution.id)}
-          >
-            Open execution <ArrowUpRight aria-hidden="true" />
-          </Link>
-        ) : (
-          <p className="notice">
-            This execution is referenced by retained history, but its details
-            are unavailable. The removal reason is not recorded.
-          </p>
-        ))}
-      {node.kind === "child" &&
-        node.availability === "available" &&
-        node.execution.kind === "workflow" && (
-          <>
-            <Button
-              variant="outline"
-              aria-expanded={expanded}
-              onClick={() => setExpanded(!expanded)}
-            >
-              {expanded ? "Close child timeline" : "Preview child timeline"}
-            </Button>
-            {expanded && <ChildTimeline workflowId={node.execution.id} />}
-          </>
-        )}
-      <Fields>
-        <Field label="Phase">{node.entrypoint}</Field>
-        {"key" in node && <Field label="Key">{node.key}</Field>}
-        <Field
-          label={timing.milestone ? "Recorded milestone" : "Recorded start"}
-        >
-          <When value={timing.start} />
-        </Field>
-        {!timing.milestone && (
-          <Field label="Recorded end">
-            <When value={timing.end} />
-          </Field>
-        )}
-      </Fields>
-      <p className="muted">{timing.label}.</p>
-      {node.kind === "phase" && (
-        <>
-          <Fields>
-            <Field label="Applied decision">
-              {node.decision_kind ??
-                "No successfully applied decision recorded"}
-            </Field>
-          </Fields>
-          {node.error && (
-            <p className="notice error-notice">
-              {node.error.kind}: {node.error.message}
-            </p>
-          )}
-          <Link
-            to={`${executionPath("task", node.activation_id)}?tab=Attempts`}
-          >
-            Inspect controller attempts
-          </Link>
-          {node.resumed_activation_id && (
-            <p>
-              Resume scheduled: <code>{node.resumed_activation_id}</code>.
-              Scheduling does not prove the handler started.
-            </p>
-          )}
-        </>
-      )}
-      {node.kind === "child" && (
-        <Fields>
-          <Field label="Program / version">
-            {node.program.id} / {node.program.version}
-          </Field>
-          <Field label="Execution ID">{node.execution.id}</Field>
-          <Field label="Fork membership">
-            {node.fork_key ?? "No fork membership recorded"}
-          </Field>
-        </Fields>
-      )}
-      {node.kind === "fork" && (
-        <>
-          <p>Registration accepted. Branch execution may start later.</p>
-          <Fields>
-            <Field label="Distributed branch keys">
-              {node.branch_keys.join(", ") || "None"}
-            </Field>
-          </Fields>
-        </>
-      )}
-      {node.kind === "child_wait" && (
-        <>
-          <p>
-            Waits for terminal outcomes, including failure or cancellation. It
-            does not require every child to succeed.
-          </p>
-          <Fields>
-            <Field label="Member keys">{node.member_keys.join(", ")}</Field>
-            <Field label="Resume entrypoint">{node.resume}</Field>
-          </Fields>
-          {!node.resumed_activation_id && (
-            <p className="muted">
-              No resume is recorded. This alone does not prove the wait is still
-              active.
-            </p>
-          )}
-        </>
-      )}
-      {node.kind === "external_wait" && (
-        <>
-          <Fields>
-            <Field label="Deadline">
-              <When value={node.deadline} />
-            </Field>
-          </Fields>
-          <p>
-            {node.wake_reason
-              ? `Recorded wake: ${node.wake_reason}. Resume scheduled; execution is observed separately.`
-              : node.closed_at !== null
-                ? "The wait closed without retained wake evidence; cancellation or failure can also close waits."
-                : "Waiting for an external wake."}
-          </p>
-          <Link to={`/workflows/${encodeURIComponent(workflowId)}?tab=Waits`}>
-            Inspect waits and available actions
-          </Link>
-        </>
-      )}
-      {node.kind === "local" && (
-        <>
-          <p>
-            This operation runs inside the workflow’s process. It is not an
-            independently scheduled task.
-          </p>
-          <Fields>
-            <Field label="Callable">{node.callable}</Field>
-            <Field label="Durable result accepted">
-              <When value={node.accepted_at} />
-            </Field>
-          </Fields>
-          {node.observation ? (
-            <>
-              <Fields>
-                <Field label="Callable observation">
-                  {node.observation.state} ·{" "}
-                  {micros(node.observation.elapsed_us)}
-                </Field>
-              </Fields>
-              <p className="muted">
-                Returned means the callable returned; durable result acceptance
-                is separate. Replay reuses an accepted result.
-              </p>
-              <LocalResources attemptId={node.observation.attempt_id} />
-            </>
-          ) : (
-            <p className="notice">
-              The result was accepted; callable start, end and resource usage
-              were not recorded.
-            </p>
-          )}
-        </>
-      )}
-      <details>
-        <summary>Recorded evidence</summary>
-        <JsonView value={node} label="Explorer evidence" />
-      </details>
-    </>
-  );
-}
-
-function LocalResources({ attemptId }: { attemptId: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Process resources for this attempt</summary>
-      {open && <AttemptResources attemptId={attemptId} />}
-    </details>
-  );
-}
-
-function ChildTimeline({ workflowId }: { workflowId: string }) {
-  const config = useInstance();
-  const query = useResource(
-    "workflows/explorer",
-    { workflow_id: workflowId, limit: 25 },
-    (value) => {
-      const data = workflowExplorer(value);
-      if (data.workflow.summary.workflow.workflow_id !== workflowId)
-        throw new ContractError("Child timeline belongs to another workflow.");
-      return data;
-    },
-    {
-      interval: (data) =>
-        data && terminal(data.workflow.summary.workflow.state)
-          ? false
-          : config.polling.waiting_workflow_ms,
-    },
-  );
-  const [state, updateState] = useState<ExplorerViewState>({
-    collapsed: [],
-    start: "",
-    end: "",
-    search: "",
-    follow: false,
-  });
-  const [selection, select] = useState<string | null>(null);
-  const selected = query.data?.page.items.find((node) => node.id === selection);
-  return (
-    <section aria-label="Child timeline preview">
-      {query.isPending && <LoadingState label="Loading child timeline" />}
-      {query.error && (
-        <QueryError
-          error={query.error}
-          retry={() => void query.refetch()}
-          stale={!!query.data}
-        />
-      )}
-      {query.data && (
-        <>
-          <Timeline
-            nodes={query.data.page.items}
-            observedAt={query.data.page.observed_at}
-            workflowActive={
-              !terminal(query.data.workflow.summary.workflow.state)
-            }
-            selectedId={selection}
-            select={select}
-            state={state}
-            updateState={updateState}
-          />
-          {query.data.page.next_cursor && (
-            <p className="notice">
-              Preview limited to 25 retained records. Open this execution to
-              page through all recorded work.
-            </p>
-          )}
-          <details>
-            <summary>Child work list</summary>
-            <ul>
-              {query.data.page.items.map((node) => (
-                <li key={node.id}>
-                  <Button variant="ghost" onClick={() => select(node.id)}>
-                    {nodeLabel(node)} · {nodeStatus(node)}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </details>
-          {selected && (
-            <div className="card">
-              <NodeInspector
-                key={selected.id}
-                node={selected}
-                workflowId={workflowId}
-              />
-            </div>
-          )}
         </>
       )}
     </section>
