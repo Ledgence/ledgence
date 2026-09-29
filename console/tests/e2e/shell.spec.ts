@@ -36,7 +36,16 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
   await page.goto("/console/executions");
   const main = page.getByRole("main");
   const expandedLeft = (await main.boundingBox())!.x;
-  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  const collapse = page.getByRole("banner").getByRole("button", {
+    name: "Collapse sidebar",
+  });
+  await expect(collapse).toHaveAttribute("title", "Collapse sidebar");
+  expect((await collapse.boundingBox())!.y).toBeLessThan(80);
+  await collapse.focus();
+  await collapse.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Expand sidebar" }),
+  ).toBeFocused();
   await expect(
     page.getByRole("button", { name: "Expand sidebar" }),
   ).toHaveAttribute("aria-expanded", "false");
@@ -51,6 +60,9 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
   ).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 900 });
+  await expect(
+    page.getByRole("button", { name: "Expand sidebar" }),
+  ).toBeHidden();
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
   for (const name of ["Executions", "Programs", "Workers"]) {
     await expect(navigation.getByText(name, { exact: true })).toBeVisible();
@@ -67,7 +79,12 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
   ).toBe(true);
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole("button", { name: "Expand sidebar" }).click();
+  const expand = page.getByRole("banner").getByRole("button", {
+    name: "Expand sidebar",
+  });
+  await expect(expand).toHaveAttribute("title", "Expand sidebar");
+  expect((await expand.boundingBox())!.y).toBeLessThan(80);
+  await expand.click();
   await expect(
     page.getByRole("button", { name: "Collapse sidebar" }),
   ).toHaveAttribute("aria-expanded", "true");

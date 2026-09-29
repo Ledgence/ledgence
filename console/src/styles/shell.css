@@ -25,8 +25,7 @@
   gap: 6px;
 }
 .console-sidebar .shell-navigation a,
-.console-sidebar .shell-sidebar-footer a,
-.console-sidebar .shell-collapse {
+.console-sidebar .shell-sidebar-footer a {
   min-height: 44px;
   padding: 10px 14px;
   gap: 12px;
@@ -49,8 +48,7 @@
 .console-sidebar .shell-sidebar-footer a {
   font-size: 13px;
 }
-.console-sidebar .shell-sidebar-footer a:hover,
-.console-sidebar .shell-collapse:hover {
+.console-sidebar .shell-sidebar-footer a:hover {
   background: var(--hover);
   color: var(--ink);
 }
@@ -59,23 +57,39 @@
   height: 14px;
   margin-left: auto;
 }
-.console-sidebar .shell-collapse {
+.shell-header .shell-header-leading {
   display: flex;
   align-items: center;
-  width: 100%;
+  gap: 14px;
+  min-width: 0;
+}
+.shell-header .shell-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
   color: var(--muted);
-  background: transparent;
-  border: 0;
-  font-size: 13px;
-  text-align: left;
+}
+.shell-header .shell-collapse:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.shell-header .shell-collapse svg {
+  width: 18px;
+  height: 18px;
 }
 .console-shell[data-sidebar-collapsed="true"] .sidebar-label {
   display: none;
 }
 .console-shell[data-sidebar-collapsed="true"] .shell-brand,
 .console-shell[data-sidebar-collapsed="true"] .shell-navigation a,
-.console-shell[data-sidebar-collapsed="true"] .shell-sidebar-footer a,
-.console-shell[data-sidebar-collapsed="true"] .shell-collapse {
+.console-shell[data-sidebar-collapsed="true"] .shell-sidebar-footer a {
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
@@ -117,7 +131,8 @@
     display: contents;
   }
   .console-sidebar .shell-brand,
-  .console-sidebar .shell-sidebar-footer {
+  .console-sidebar .shell-sidebar-footer,
+  .shell-header .shell-collapse {
     display: none;
   }
   .console-shell .console-workspace {

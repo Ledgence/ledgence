@@ -119,33 +119,34 @@ export function AppShell({
               <FileText aria-hidden="true" />
               <span className="sidebar-label">Notices</span>
             </a>
-            <button
-              className="shell-collapse"
-              type="button"
-              onClick={toggleSidebar}
-              aria-expanded={!collapsed}
-              aria-controls="console-navigation"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? (
-                <PanelLeftOpen aria-hidden="true" />
-              ) : (
-                <PanelLeftClose aria-hidden="true" />
-              )}
-              <span className="sidebar-label">Collapse sidebar</span>
-            </button>
           </div>
         </aside>
         <div className="workspace console-workspace">
           <header className="instance-header shell-header">
-            <div className="instance-header-name">
-              <span
-                className="brand-mark shell-mobile-mark"
-                aria-hidden="true"
-              />
-              <Server className="shell-instance-icon" aria-hidden="true" />
-              <span title={instanceName}>{instanceName}</span>
+            <div className="shell-header-leading">
+              <button
+                className="shell-collapse"
+                type="button"
+                onClick={toggleSidebar}
+                aria-expanded={!collapsed}
+                aria-controls="console-navigation"
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {collapsed ? (
+                  <PanelLeftOpen aria-hidden="true" />
+                ) : (
+                  <PanelLeftClose aria-hidden="true" />
+                )}
+              </button>
+              <div className="instance-header-name">
+                <span
+                  className="brand-mark shell-mobile-mark"
+                  aria-hidden="true"
+                />
+                <Server className="shell-instance-icon" aria-hidden="true" />
+                <span title={instanceName}>{instanceName}</span>
+              </div>
             </div>
             <label className="theme-control">
               <Monitor aria-hidden="true" />
