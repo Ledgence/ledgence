@@ -56,11 +56,15 @@ pub(super) async fn query(
                         activation_id,
                         revision: unsigned(row, "revision_text")?,
                         entrypoint: row.try_get("entrypoint")?,
+                        relations: Vec::new(),
                         data,
                     })
                 })
                 .collect::<StoreResult<Vec<_>>>()?;
             hydrate(connection, scope, workflow_id, &mut items).await?;
+            for node in &mut items {
+                node.relations = node.derive_relations(workflow_id)?;
+            }
             let page = bounded_page(items, &workflow, scope, query, request, at)?;
             Ok(ConsoleQueryReply::Explorer(ConsoleWorkflowExplorer {
                 workflow,

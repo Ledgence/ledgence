@@ -184,6 +184,11 @@ async fn explorer_fork_local_and_join_follow_recorded_semantics_with_singleton_c
     );
     let before = all(&db, &root.workflow_id, 1).await;
     assert_eq!(
+        serde_json::to_value(&before).unwrap(),
+        serde_json::to_value(all(&db, &root.workflow_id, 100).await).unwrap(),
+        "relationships do not depend on which endpoints share a page"
+    );
+    assert_eq!(
         before.len(),
         4,
         "one entrypoint, child, fork and local occurrence despite replay"
@@ -204,10 +209,26 @@ async fn explorer_fork_local_and_join_follow_recorded_semantics_with_singleton_c
         unreachable!()
     };
     assert_eq!(branch_keys, &["review:0"]);
+    let child_node = before
+        .iter()
+        .find(|node| matches!(node.data, ConsoleExplorerData::Child { .. }))
+        .unwrap();
+    assert_eq!(child_node.relations[1], fork_node.relations[1]);
     let local_node = before
         .iter()
         .find(|node| matches!(node.data, ConsoleExplorerData::Local { .. }))
         .unwrap();
+    assert_eq!(local_node.relations.len(), 1);
+    assert_eq!(
+        local_node.relations[0].kind,
+        ConsoleExplorerRelationKind::Invokes
+    );
+    assert_eq!(
+        local_node.relations[0].source,
+        ConsoleExplorerReference::Entrypoint {
+            activation_id: assigned.lease.owner.task_id.clone()
+        }
+    );
     assert_eq!(local_node.activation_id, assigned.lease.owner.task_id);
     assert!(!serde_json::to_string(&before).unwrap().contains("private"));
     apply(
@@ -243,6 +264,16 @@ async fn explorer_fork_local_and_join_follow_recorded_semantics_with_singleton_c
             .iter()
             .all(|old| after.iter().any(|new| new.id == old.id))
     );
+    for previous in &before {
+        assert_eq!(
+            previous.relations,
+            after
+                .iter()
+                .find(|node| node.id == previous.id)
+                .unwrap()
+                .relations
+        );
+    }
     let next = db
         .store
         .workflow_status(&scope(), &root.workflow_id)
@@ -423,6 +454,13 @@ async fn explorer_external_wait_distinguishes_event_resume_from_cancellation() {
         assert!(closed_at.is_some());
         assert_eq!(*wake_reason, event.then_some(ConsoleWakeReason::Event));
         assert_eq!(resumed_activation_id.is_some(), event);
+        assert_eq!(wait.relations.len(), if event { 2 } else { 1 });
+        assert_eq!(
+            wait.relations
+                .iter()
+                .any(|relation| relation.kind == ConsoleExplorerRelationKind::Resumes),
+            event
+        );
         rebuild_historical_projection(&db).await;
         assert_eq!(
             serde_json::to_value(all(&db, &root.workflow_id, 1).await).unwrap(),
@@ -571,6 +609,10 @@ async fn explorer_unavailable_children_keep_identity_without_reading_application
         .unwrap();
     let refreshed = all(&db, &root.workflow_id, 1).await;
     let missing = refreshed.iter().find(|node| node.id == child.id).unwrap();
+    assert_eq!(
+        missing.relations, child.relations,
+        "target retention does not erase recorded invocation/membership"
+    );
     assert!(
         matches!(&missing.data, ConsoleExplorerData::Child { availability: ConsoleEvidenceAvailability::Unavailable, state: None, execution, .. } if execution == &identity)
     );
@@ -691,6 +733,224 @@ async fn explorer_byte_limited_page_continues_without_skipping_retained_records(
     assert_eq!(
         found, expected,
         "following the real SQL cursor must preserve every record exactly once in order"
+    );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn explorer_later_join_keeps_original_invocation_and_waits_for_failed_and_cancelled_children()
+{
+    let db = TestDb::new().await;
+    let (root, first) = start(&db, "later-terminal-join").await;
+    db.store
+        .fork_workflow(&WorkflowForkCommand {
+            owner: first.lease.owner.clone(),
+            processing_trace: None,
+            fork: WorkflowForkRequest {
+                key: "fork:0".into(),
+                branches: ["failed", "cancelled"]
+                    .into_iter()
+                    .map(|key| WorkflowBranch {
+                        key: key.into(),
+                        entrypoint: "review".into(),
+                        queue: key.into(),
+                        data: json!(null),
+                        retry_policy: command().input.retry_policy,
+                        attempt_timeout_ms: 300_000,
+                    })
+                    .collect(),
+            },
+        })
+        .await
+        .unwrap();
+    let original = all(&db, &root.workflow_id, 1).await;
+    let cancelled = original
+        .iter()
+        .find_map(|node| match &node.data {
+            ConsoleExplorerData::Child { key, execution, .. } if key == "cancelled" => {
+                Some(execution.id.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    apply(
+        &db,
+        &first,
+        0,
+        WorkflowAction::Continue {
+            state: json!(null),
+            continuation: "wait_later".into(),
+            commands: vec![],
+        },
+    )
+    .await;
+    let waiter = acquire(&db, "python").await;
+    apply(
+        &db,
+        &waiter,
+        1,
+        WorkflowAction::Suspend {
+            state: json!(null),
+            continuation: "collect".into(),
+            commands: vec![],
+            until: vec!["failed".into(), "cancelled".into()],
+        },
+    )
+    .await;
+    let failed = acquire(&db, "failed").await;
+    apply(
+        &db,
+        &failed,
+        0,
+        WorkflowAction::Fail {
+            error: ApplicationError {
+                kind: "review_failed".into(),
+                message: "Test outcome".into(),
+            },
+        },
+    )
+    .await;
+    assert_eq!(
+        db.store
+            .workflow_status(&scope(), &root.workflow_id)
+            .await
+            .unwrap()
+            .state,
+        WorkflowState::Waiting
+    );
+    db.store
+        .cancel_workflow(&scope(), &cancelled)
+        .await
+        .unwrap();
+    for _ in 0..16 {
+        let work = db.store.claim_work(16).await.unwrap();
+        if work.is_empty() {
+            break;
+        }
+        for item in work {
+            db.store.apply_work(&item, &[]).await.unwrap();
+        }
+    }
+    let resumed = db
+        .store
+        .workflow_status(&scope(), &root.workflow_id)
+        .await
+        .unwrap();
+    assert_eq!(resumed.state, WorkflowState::Running);
+    let nodes = all(&db, &root.workflow_id, 1).await;
+    let wait = nodes
+        .iter()
+        .find(|node| matches!(node.data, ConsoleExplorerData::ChildWait { .. }))
+        .unwrap();
+    assert_eq!(wait.activation_id, waiter.lease.owner.task_id);
+    for child in nodes
+        .iter()
+        .filter(|node| matches!(node.data, ConsoleExplorerData::Child { .. }))
+    {
+        assert_eq!(child.activation_id, first.lease.owner.task_id);
+        assert!(matches!(
+            &child.data,
+            ConsoleExplorerData::Child {
+                state: Some(ConsoleExecutionState::Failed | ConsoleExecutionState::Cancelled),
+                ..
+            }
+        ));
+        assert!(wait.relations.iter().any(|relation| relation.kind
+            == ConsoleExplorerRelationKind::AwaitsTerminal
+            && relation.source
+                == ConsoleExplorerReference::Child {
+                    key: child.data.key().into()
+                }));
+    }
+    assert_eq!(
+        wait.relations.last().unwrap().target,
+        ConsoleExplorerReference::Entrypoint {
+            activation_id: resumed.activation_id.unwrap()
+        }
+    );
+    assert_eq!(
+        serde_json::to_value(&nodes).unwrap(),
+        serde_json::to_value(all(&db, &root.workflow_id, 100).await).unwrap()
+    );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn explorer_relation_bytes_shorten_pages_without_losing_unloaded_member_references() {
+    let db = TestDb::new().await;
+    let (root, _) = start(&db, "relation-page-bound").await;
+    let data = ConsoleExplorerData::ChildWait {
+        member_keys: (0..WORKFLOW_MAX_COMMANDS)
+            .map(|index| format!("{index:02}{}", "\"".repeat(126)))
+            .collect(),
+        resume: "resume".into(),
+        applied_at: 20,
+        resumed_activation_id: Some("future_activation".into()),
+    };
+    data.validate().unwrap();
+    // Typed retained evidence isolates the pagination boundary without inventing
+    // a currently supported path that creates 100 simultaneous waits.
+    sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT $1,n,'child_wait','','retained_'||lpad(n::text,3,'0'),'review',$2 FROM generate_series(1,100) n")
+        .bind(&root.workflow_id).bind(codec::encode(&data).unwrap()).execute(&db.store.pool).await.unwrap();
+    let mut request = ConsolePagination {
+        limit: 100,
+        cursor: None,
+    };
+    let mut nodes = Vec::new();
+    let mut pages = 0;
+    loop {
+        let ConsoleQueryReply::Explorer(reply) = db
+            .store
+            .query_console(
+                &scope(),
+                &ConsoleQuery::Explorer {
+                    workflow_id: root.workflow_id.clone(),
+                    page: request.clone(),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("explorer response");
+        };
+        assert!(codec::encode(&reply).unwrap().len() <= CONSOLE_METADATA_MAX_BYTES);
+        assert!(!reply.page.items.is_empty());
+        if pages == 0 {
+            assert!(reply.page.items.len() < 100);
+        }
+        for node in &reply.page.items {
+            if matches!(node.data, ConsoleExplorerData::ChildWait { .. }) {
+                assert_eq!(node.relations.len(), CONSOLE_EXPLORER_MAX_RELATIONS);
+                assert_eq!(
+                    node.relations
+                        .iter()
+                        .filter(
+                            |relation| relation.kind == ConsoleExplorerRelationKind::AwaitsTerminal
+                        )
+                        .count(),
+                    WORKFLOW_MAX_COMMANDS
+                );
+            }
+        }
+        nodes.extend(reply.page.items);
+        request.cursor = reply.page.next_cursor;
+        pages += 1;
+        if request.cursor.is_none() {
+            break;
+        }
+        assert!(pages < 20, "pagination must make bounded progress");
+    }
+    assert!(pages > 1);
+    assert_eq!(nodes.len(), 101);
+    assert_eq!(
+        nodes
+            .iter()
+            .map(|node| &node.id)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        101
     );
     db.finish().await;
 }

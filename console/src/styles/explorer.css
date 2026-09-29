@@ -352,6 +352,10 @@
 .execution-explorer .explorer-semantic-list h3 {
   font-size: 12px;
 }
+.execution-explorer .explorer-relationships li,
+.execution-explorer .explorer-relationships button {
+  overflow-wrap: anywhere;
+}
 .execution-explorer .explorer-evidence-note {
   max-width: 80ch;
   font-size: 12px;

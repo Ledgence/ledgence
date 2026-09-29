@@ -100,7 +100,7 @@ fn query_url(running: &Running, path: &str, parameters: &[(&str, &str)]) -> reqw
 }
 fn assert_headers(response: &reqwest::Response) {
     assert_eq!(response.headers()["ledgence-instance-id"], "local-console");
-    assert_eq!(response.headers()["ledgence-console-contract"], "3");
+    assert_eq!(response.headers()["ledgence-console-contract"], "4");
     assert_eq!(response.headers()["cache-control"], "no-store");
     assert_eq!(response.headers()["content-type"], "application/json");
     assert_eq!(response.headers()["x-content-type-options"], "nosniff");
@@ -130,11 +130,11 @@ fn workflow_snapshot() -> WorkflowSnapshot {
 }
 
 #[tokio::test]
-async fn explorer_http_preserves_canonical_c3_entrypoints_and_relationship_evidence() {
+async fn explorer_http_preserves_canonical_c4_entrypoints_and_relationship_evidence() {
     let mock = Arc::new(Mock::default());
     let queries = Arc::new(Queries::default());
     let fixtures: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v3.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v4.json"
     ))
     .unwrap();
     let explorer: ConsoleWorkflowExplorer =
@@ -183,38 +183,83 @@ async fn explorer_http_rejects_every_old_cursor_kind_before_querying_the_store()
     }
     .binding(&scope())
     .unwrap();
-    old_binding.endpoint = "workflows/explorer";
-    for (kind, key) in [
-        ("phase", "phase"),
-        ("child", "child:0"),
-        ("fork", "fork:0"),
-        ("local", "local:0"),
-        ("child_wait", "child_wait"),
-        ("external_wait", "wait:0"),
-    ] {
-        let cursor = page
-            .next_cursor(
-                &old_binding,
-                &vec![
-                    ConsoleKey::Number(ConsoleU64(0)),
-                    ConsoleKey::Text(kind.into()),
-                    ConsoleKey::Text(key.into()),
-                ],
-            )
+    for endpoint in ["workflows/explorer", "workflows/explorer/v3"] {
+        old_binding.endpoint = endpoint;
+        for (kind, key) in [
+            ("phase", "phase"),
+            ("entrypoint", "entrypoint"),
+            ("child", "child:0"),
+            ("fork", "fork:0"),
+            ("local", "local:0"),
+            ("child_wait", "child_wait"),
+            ("external_wait", "wait:0"),
+        ] {
+            let cursor = page
+                .next_cursor(
+                    &old_binding,
+                    &vec![
+                        ConsoleKey::Number(ConsoleU64(0)),
+                        ConsoleKey::Text(kind.into()),
+                        ConsoleKey::Text(key.into()),
+                    ],
+                )
+                .unwrap();
+            let response = reqwest::Client::new()
+                .get(query_url(
+                    &running,
+                    "/v1/console/workflows/explorer",
+                    &[("workflow_id", "wf_old"), ("cursor", &cursor)],
+                ))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 400, "old {kind} cursor");
+            assert_headers(&response);
+        }
+    }
+    assert!(queries.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn explorer_http_rejects_missing_or_fabricated_relations_from_query_adapters() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let running = setup(&mock, &queries).await;
+    let fixtures: Value = serde_json::from_str(include_str!(
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v4.json"
+    ))
+    .unwrap();
+    let explorer: ConsoleWorkflowExplorer =
+        serde_json::from_value(fixtures["explorer_cases"]["mixed_local"].clone()).unwrap();
+    for fabricate in [false, true] {
+        let mut invalid = explorer.clone();
+        let local = invalid
+            .page
+            .items
+            .iter_mut()
+            .find(|node| matches!(node.data, ConsoleExplorerData::Local { .. }))
             .unwrap();
+        if fabricate {
+            local.relations[0].kind = ConsoleExplorerRelationKind::AwaitsTerminal;
+        } else {
+            local.relations.clear();
+        }
+        *queries.reply.lock().unwrap() = Some(ConsoleQueryReply::Explorer(invalid));
         let response = reqwest::Client::new()
             .get(query_url(
                 &running,
                 "/v1/console/workflows/explorer",
-                &[("workflow_id", "wf_old"), ("cursor", &cursor)],
+                &[(
+                    "workflow_id",
+                    &explorer.workflow.summary.workflow.workflow_id,
+                )],
             ))
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), 400, "old {kind} cursor");
+        assert_eq!(response.status(), 503);
         assert_headers(&response);
     }
-    assert!(queries.calls.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -387,7 +432,7 @@ async fn console_configuration_and_errors_identify_instance_without_exposing_sco
     let bytes = response.bytes().await.unwrap();
     let config: ConsoleConfig = decode_unique_json(&bytes, CONSOLE_METADATA_MAX_BYTES).unwrap();
     assert_eq!(config.instance_id, "local-console");
-    assert_eq!(config.contract_version, 3);
+    assert_eq!(config.contract_version, 4);
     assert!(config.capabilities.executions);
     assert!(!config.capabilities.programs);
     assert!(!config.capabilities.workers);

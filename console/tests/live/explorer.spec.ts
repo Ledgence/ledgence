@@ -3,7 +3,11 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { executionPage, workflowExplorer } from "../../src/api/explorer";
 import { parseUserJson } from "../../src/api/json";
-import { evidenceEdges } from "../../src/features/explorer-model";
+import {
+  evidenceEdges,
+  graphEdges,
+  recordedRelations,
+} from "../../src/features/explorer-model";
 async function get<T>(
   request: APIRequestContext,
   path: string,
@@ -42,6 +46,45 @@ test("real fork graph distinguishes parent locals, explores review, and restores
     throw Error("Native local/fork/subworkflow evidence is missing.");
   expect(fork.branch_keys).toEqual(["review:0"]);
   expect(local.activation_id).toBe(fork.activation_id);
+  const localInvocation = local.relations.find(
+    (relation) =>
+      relation.kind === "invokes" && relation.target.kind === "local",
+  );
+  expect(localInvocation).toBeDefined();
+  expect(localInvocation?.source).toEqual({
+    kind: "entrypoint",
+    activation_id: local.activation_id,
+  });
+  expect(localInvocation?.target).toEqual({
+    kind: "local",
+    activation_id: local.activation_id,
+    key: "tests:0",
+  });
+  // A real one-record API page preserves the relation even without its source.
+  let cursor: string | null = null;
+  let checkedLocalPage = false;
+  for (let index = 0; index < evidence.page.items.length; index++) {
+    const query = new URLSearchParams({ workflow_id: root.id, limit: "1" });
+    if (cursor) query.set("cursor", cursor);
+    const partial = await get(
+      request,
+      `workflows/explorer?${query}`,
+      workflowExplorer,
+    );
+    expect(partial.page.items).toHaveLength(1);
+    if (partial.page.items[0]?.id === local.id) {
+      expect(partial.page.items[0].relations).toContainEqual(localInvocation);
+      expect(recordedRelations(partial.page.items)).toContainEqual(
+        expect.objectContaining({ source: null, evidenceIds: [local.id] }),
+      );
+      expect(evidenceEdges(partial.page.items)).toEqual([]);
+      checkedLocalPage = true;
+      break;
+    }
+    cursor = partial.page.next_cursor;
+    if (!cursor) break;
+  }
+  expect(checkedLocalPage).toBe(true);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 1050 });
@@ -51,6 +94,28 @@ test("real fork graph distinguishes parent locals, explores review, and restores
   await expect(page.locator(".graph-node")).toHaveCount(
     evidence.page.items.length,
   );
+  await expect
+    .poll(async () =>
+      (
+        await page
+          .locator("[data-edge-id]")
+          .evaluateAll((edges) =>
+            edges.map((edge) => edge.getAttribute("data-edge-id")),
+          )
+      ).sort(),
+    )
+    .toEqual(
+      graphEdges(evidenceEdges(evidence.page.items))
+        .map((edge) => edge.id)
+        .sort(),
+    );
+  expect(
+    await page
+      .locator("[data-edge-id]")
+      .evaluateAll((edges) =>
+        edges.map((edge) => edge.getAttribute("data-edge-id")),
+      ),
+  ).toContain(localInvocation!.id);
   const geometry = await page.locator(".workflow-flow").evaluate((graph) => {
     const cards = Array.from(
       graph.querySelectorAll<HTMLElement>(".graph-node"),
@@ -262,6 +327,21 @@ test("real four-branch release navigates one workflow level through review and p
     `/console/workflows/${encodeURIComponent(root.id)}?tab=Graph&explorer_limit=100`,
   );
   await expect(page.locator(".react-flow__node")).toHaveCount(nodes.length);
+  await expect
+    .poll(async () =>
+      (
+        await page
+          .locator("[data-edge-id]")
+          .evaluateAll((edges) =>
+            edges.map((edge) => edge.getAttribute("data-edge-id")),
+          )
+      ).sort(),
+    )
+    .toEqual(
+      graphEdges(evidenceEdges(nodes))
+        .map((edge) => edge.id)
+        .sort(),
+    );
   await expect(page.locator("[data-obstructed]")).toHaveCount(0);
   expect(await page.locator(".graph-phase-area").count()).toBe(0);
   await page

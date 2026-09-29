@@ -18,13 +18,19 @@ import {
   nodeType,
   nodeStatus,
   nodeTiming,
+  type RecordedRelation,
 } from "../explorer-model";
+import { RelationList } from "./relations";
 export function NodeInspector({
   node,
   workflowId,
+  relations,
+  select,
 }: {
   node: ExplorerNode;
   workflowId: string;
+  relations: RecordedRelation[];
+  select: (id: string) => void;
 }) {
   const location = useLocation();
   const [params] = useSearchParams();
@@ -160,8 +166,9 @@ export function NodeInspector({
         <>
           <p>
             This operation runs inside the workflow’s process. It is not an
-            independently scheduled task. Its association with this entrypoint
-            does not establish a causal connection to another local step.
+            independently scheduled task. An invocation records which entrypoint
+            requested it; it does not prove completion or a dependency on
+            another local step.
           </p>
           <Fields>
             <Field label="Callable">{node.callable}</Field>
@@ -191,6 +198,10 @@ export function NodeInspector({
           )}
         </>
       )}
+      <details className="explorer-relationships">
+        <summary>Recorded relationships ({relations.length})</summary>
+        <RelationList relations={relations} select={select} />
+      </details>
       <details>
         <summary>Recorded evidence</summary>
         <JsonView value={node} label="Explorer evidence" />

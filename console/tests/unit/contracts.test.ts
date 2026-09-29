@@ -9,12 +9,13 @@ import { decimal } from "../../src/api/schema";
 import * as explorer from "../../src/api/explorer";
 import {
   evidenceEdges,
+  recordedRelations,
   nodeStatus,
   nodeTiming,
 } from "../../src/features/explorer-model";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json",
     import.meta.url,
   ),
   "utf8",
@@ -27,7 +28,7 @@ function field(name: string): unknown {
 }
 describe("Rust-produced Console contract", () => {
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(3);
+    expect(decodeConfig(field("config")).contract_version).toBe(4);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );
@@ -100,13 +101,35 @@ const cases = record(field("explorer_cases"), [
   "repeated_entrypoint",
   "retry",
   "unavailable_child",
+  "mixed_local",
+  "observed_local_failure",
 ]);
 for (const [name, value] of Object.entries(cases))
   it(`decodes Rust Explorer case ${name}`, () => {
     expect(() => explorer.workflowExplorer(value)).not.toThrow();
   });
 
-describe("Rust-produced Explorer C3", () => {
+describe("Rust-produced Explorer C4", () => {
+  it("retains local invocation evidence without claiming completion or ordering sibling operations", () => {
+    for (const name of ["mixed_local", "observed_local_failure"] as const) {
+      const nodes = explorer.workflowExplorer(cases[name]).page.items;
+      const local = nodes.find((node) => node.kind === "local")!;
+      const invoked = evidenceEdges(nodes).filter(
+        (edge) => edge.to === local.id,
+      );
+      expect(invoked).toEqual([
+        expect.objectContaining({ kind: "invokes", evidenceIds: [local.id] }),
+      ]);
+      expect(evidenceEdges(nodes).some((edge) => edge.from === local.id)).toBe(
+        false,
+      );
+      if (name === "observed_local_failure") {
+        expect(local.accepted_at).toBeNull();
+        expect(local.observation?.state).toBe("failed");
+        expect(nodeStatus(local)).toBe("failed");
+      }
+    }
+  });
   it("preserves branch failures and a declined review without assuming a successful business outcome", () => {
     for (const [name, state] of [
       ["branch_failed", "failed"],
@@ -121,7 +144,7 @@ describe("Rust-produced Explorer C3", () => {
       expect(evidenceEdges(response.page.items)).toContainEqual(
         expect.objectContaining({
           from: branch.id,
-          relation: "awaits terminal outcome",
+          relation: "terminal outcome awaited by",
         }),
       );
       expect(response.workflow.summary.workflow.state).toBe("failed");
@@ -164,7 +187,9 @@ describe("Rust-produced Explorer C3", () => {
     expect(child.page.items.every((node) => !parentIds.has(node.id))).toBe(
       true,
     );
-    expect(evidenceEdges(child.page.items)).toEqual([]);
+    expect(evidenceEdges(child.page.items)).toEqual([
+      expect.objectContaining({ kind: "invokes" }),
+    ]);
   });
 
   it("decodes the full fork4 story without a fabricated branch-to-parent relationship", () => {
@@ -231,6 +256,16 @@ describe("Rust-produced Explorer C3", () => {
           (edge) => loaded.has(edge.from) && loaded.has(edge.to),
         ),
       ).toBe(true);
+      const records = recordedRelations(response.page.items);
+      expect(records.map((relation) => relation.record.id).sort()).toEqual(
+        [
+          ...new Set(
+            response.page.items.flatMap((node) =>
+              node.relations.map((relation) => relation.id),
+            ),
+          ),
+        ].sort(),
+      );
       expectedCursor = response.page.next_cursor;
     }
     expect(expectedCursor).toBeNull();
@@ -272,7 +307,9 @@ describe("Rust-produced Explorer C3", () => {
       "failed",
     ]);
     expect(retry.filter((node) => node.kind === "local")).toHaveLength(1);
-    expect(evidenceEdges(retry)).toEqual([]);
+    expect(evidenceEdges(retry)).toEqual([
+      expect.objectContaining({ kind: "invokes" }),
+    ]);
   });
 
   it("distinguishes continue, event, timer and timeout resumes from a closed wait", () => {
@@ -306,7 +343,7 @@ describe("Rust-produced Explorer C3", () => {
     expect(evidenceEdges(nodes)).toContainEqual(
       expect.objectContaining({
         from: child.id,
-        relation: "awaits terminal outcome",
+        relation: "terminal outcome awaited by",
       }),
     );
     const rejected = explorer.workflowExplorer(cases.rejected).page.items;
@@ -339,11 +376,11 @@ describe("Rust-produced Explorer C3", () => {
     expect(ancestry.execution).toEqual(ancestry.path.at(-1)!.execution);
   });
 
-  it("rejects C2 configuration and any old phase node inside the C3 envelope", () => {
+  it("rejects C3 configuration and nodes without relations inside the C4 envelope", () => {
     const historical = parseUserJson(
       readFileSync(
         new URL(
-          "../../../crates/ledgence-orchestration-api/tests/fixtures/historical/console-v2.json",
+          "../../../crates/ledgence-orchestration-api/tests/fixtures/historical/console-v3.json",
           import.meta.url,
         ),
         "utf8",
@@ -351,7 +388,7 @@ describe("Rust-produced Explorer C3", () => {
       2 * 1024 * 1024,
     );
     if (!historical || typeof historical !== "object")
-      throw new Error("Missing C2 history");
+      throw new Error("Missing C3 history");
     expect(() => decodeConfig(Reflect.get(historical, "config"))).toThrow(
       "incompatible",
     );
@@ -362,10 +399,56 @@ describe("Rust-produced Explorer C3", () => {
         page: {
           ...current.page,
           items: current.page.items.map((node) =>
-            node.kind === "entrypoint" ? { ...node, kind: "phase" } : node,
+            Object.fromEntries(
+              Object.entries(node).filter(([key]) => key !== "relations"),
+            ),
           ),
         },
       }),
-    ).toThrow("variant");
+    ).toThrow("contract");
+  });
+
+  it("strictly rejects unknown, untyped, oversized and conflicting relation records", () => {
+    const current = explorer.workflowExplorer(field("explorer"));
+    const node = current.page.items.find((item) => item.relations.length > 0)!;
+    const relation = node.relations[0]!;
+    for (const invalid of [
+      { ...relation, kind: "guessed_dependency" },
+      { ...relation, source: "opaque-node-id" },
+      {
+        ...relation,
+        target: { kind: "child", key: "prepare:0", activation_id: "extra" },
+      },
+      { ...relation, trace_parent: "not-structural-evidence" },
+    ])
+      expect(() =>
+        explorer.explorerNode({ ...node, relations: [invalid] }),
+      ).toThrow();
+    expect(() =>
+      explorer.explorerNode({
+        ...node,
+        relations: Array.from({ length: 67 }, () => relation),
+      }),
+    ).toThrow();
+    expect(() =>
+      explorer.workflowExplorer({
+        ...current,
+        page: {
+          ...current.page,
+          items: [
+            node,
+            {
+              ...node,
+              relations: [
+                {
+                  ...relation,
+                  kind: relation.kind === "invokes" ? "registers" : "invokes",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow("Conflicting");
   });
 });

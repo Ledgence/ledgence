@@ -356,11 +356,11 @@ export function GraphCanvas({
       <div className="graph-legend" aria-label="Relationship legend">
         <span>
           <i />
-          Parent flow
+          Invocation / registration / wait / resume
         </span>
         <span>
           <i className="fork-line" />
-          Fork branch
+          Branch membership
         </span>
       </div>
       {renderedEdges.some((edge) => edge.data?.obstructed) && (

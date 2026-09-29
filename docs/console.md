@@ -182,16 +182,23 @@ No migration deletes or reassigns them. Rollback to an older binary that ignores
 the persisted binding requires an offline plan; never run it concurrently against
 the bound database. Catalog retention is independent of execution-history cleanup.
 
-The execution explorer requires Console contract version 3 and matching server
-and assets. `kind: "entrypoint"` replaces the C2 `phase` discriminator and changes
-those opaque node IDs. Every old Explorer cursor is rejected; restart traversal
-from the first page. Other endpoint cursors and SDK execution protocols retain
-their contracts. Useful `/agents` and workflow deep links remain available.
+The execution explorer requires Console contract version 4 and matching server
+and assets. Nodes include typed invocation, registration, fork-membership,
+terminal-wait and resumption relations from the backend. The browser resolves
+their references to loaded nodes; timestamps do not establish dependencies.
+Local steps connect to their invoking entrypoint without becoming fork or join
+members. Retries remain attempts of the same logical node. See the
+[query model](console-query-model.md) for identity scopes and evidence limits.
 
-An additional transactional migration converts retained Console records without
+Upgrading from C3 adds no database migration and preserves existing node IDs.
+Every older Explorer cursor is rejected; restart traversal from the first page.
+Other endpoint cursors and SDK execution protocols retain their contracts.
+Useful `/agents` and workflow deep links remain available.
+
+When upgrading from C2, a transactional migration converts retained Console records without
 changing authoritative workflow, task, input/output or settlement records. Earlier
 migration checksums are unchanged. Budget maintenance time for write locks; do not
-mix C2 writers/readers or assets with C3. `serve` only verifies schema. If migration
+mix historical writers/readers or incompatible assets. `serve` only verifies schema. If migration
 fails, its transaction rolls back; downgrade requires matching offline backups.
 
 ## Qualification

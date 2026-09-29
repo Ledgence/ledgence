@@ -317,7 +317,7 @@ async fn entrypoint_migration_rejects_missing_top_level_discriminator_atomically
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
-async fn entrypoint_explorer_rejects_every_console_two_cursor_kind() {
+async fn entrypoint_explorer_rejects_every_previous_console_cursor_kind() {
     let db = TestDb::new().await;
     let (root, _) = start(&db, "cursor-upgrade").await;
     let request = ConsoleQuery::Explorer {
@@ -325,42 +325,45 @@ async fn entrypoint_explorer_rejects_every_console_two_cursor_kind() {
         page: ConsolePagination::default(),
     };
     let mut old_binding = request.binding(&scope()).unwrap();
-    assert_eq!(old_binding.endpoint, "workflows/explorer/v3");
-    old_binding.endpoint = "workflows/explorer";
-    for kind in [
-        "phase",
-        "child",
-        "fork",
-        "local",
-        "child_wait",
-        "external_wait",
-    ] {
-        let position = vec![
-            ConsoleKey::Number(ConsoleU64(0)),
-            ConsoleKey::Text(kind.into()),
-            ConsoleKey::Text(if matches!(kind, "phase" | "child_wait") {
-                kind.into()
-            } else {
-                "key:0".into()
-            }),
-        ];
-        let cursor = ConsolePagination::default()
-            .next_cursor(&old_binding, &position)
-            .unwrap();
-        let query = ConsoleQuery::Explorer {
-            workflow_id: root.workflow_id.clone(),
-            page: ConsolePagination {
-                limit: 1,
-                cursor: Some(cursor),
-            },
-        };
-        assert!(
-            matches!(
-                db.store.query_console(&scope(), &query).await,
-                Err(ContractError::InvalidInput(_))
-            ),
-            "C2 {kind} cursor must not survive the new kind ordering"
-        );
+    assert_eq!(old_binding.endpoint, "workflows/explorer/v4");
+    for endpoint in ["workflows/explorer", "workflows/explorer/v3"] {
+        old_binding.endpoint = endpoint;
+        for kind in [
+            "entrypoint",
+            "phase",
+            "child",
+            "fork",
+            "local",
+            "child_wait",
+            "external_wait",
+        ] {
+            let position = vec![
+                ConsoleKey::Number(ConsoleU64(0)),
+                ConsoleKey::Text(kind.into()),
+                ConsoleKey::Text(if matches!(kind, "phase" | "child_wait") {
+                    kind.into()
+                } else {
+                    "key:0".into()
+                }),
+            ];
+            let cursor = ConsolePagination::default()
+                .next_cursor(&old_binding, &position)
+                .unwrap();
+            let query = ConsoleQuery::Explorer {
+                workflow_id: root.workflow_id.clone(),
+                page: ConsolePagination {
+                    limit: 1,
+                    cursor: Some(cursor),
+                },
+            };
+            assert!(
+                matches!(
+                    db.store.query_console(&scope(), &query).await,
+                    Err(ContractError::InvalidInput(_))
+                ),
+                "{endpoint} {kind} cursor must not survive the new relation contract"
+            );
+        }
     }
     assert_eq!(all(&db, &root.workflow_id, 1).await.len(), 1);
     db.finish().await;

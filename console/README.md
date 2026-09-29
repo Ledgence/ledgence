@@ -85,7 +85,7 @@ namespace or scope. Every response is checked against the configured instance
 identity and Console contract version before entering query state.
 
 The canonical Rust serialization fixture is
-[`console-v3.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json).
+[`console-v4.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json).
 Strict runtime decoders consume that fixture in tests. Unknown fields or result
 variants fail explicitly. Metadata u64 values remain decimal strings; JSON input,
 output and CloudEvents use `lossless-json` to preserve integer/floating tokens and
@@ -138,23 +138,29 @@ nodes are positioned without moving existing cards. These adjustments are held i
 bounded history memory, not persisted as workflow data or stored in the backend.
 An initial readable view can require panning; Fit can show the whole loaded graph.
 
-Continuous connections represent evidenced parent flow; dashed connections mark
-fork membership and fork outcomes entering a join. Applied decisions, waits and
-recorded resumes establish relationships. Locals without causal evidence remain
-independent cards attributed to their entrypoint in the inspector. No dependency
-is inferred from timestamps, proximity, trace parentage or correlation. A join
-waits for terminal outcomes, which may include failure or cancellation. A closed
+Connections come exclusively from typed relations supplied by the server:
+invocation, registration, branch membership, terminal-outcome wait and resume.
+The client resolves their references to loaded nodes; it does not reconstruct
+relations from node metadata. Dashed connections mark branch membership. Where
+a complete entrypoint-to-fork-to-child path is visible, the graph omits the
+redundant direct invocation line; that invocation remains in the inspector and
+accessible evidence list. Local invocation identifies its entrypoint without
+claiming completion or local-to-local execution order. No dependency is inferred
+from timestamps, proximity, trace parentage or correlation. A join waits for
+terminal outcomes, which may include failure or cancellation. A closed
 external wait without a recorded wake remains unknown. These views work without
 OpenTelemetry export. Worker failure diagnostics retain their separate wire field
 `phase`, labeled **Failure stage** in the interface.
 
-Explorer pages remain bounded and identify partial views. Missing targets may be
-on another page or unavailable; the Console does not infer deletion or expiry.
+Explorer pages remain bounded and identify partial views. Relations with unloaded
+endpoints retain their typed references and evidence-carrier IDs in the accessible
+list; no placeholder execution is fabricated. Missing targets may be on another
+page or unavailable; the Console does not infer deletion or expiry.
 Trace rows are virtualized, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-The browser and server use Console contract **3**; deploy matching assets together.
+The browser and server use Console contract **4**; deploy matching assets together.
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
 
 Resources shows per-attempt runtime and Python-process CPU where recorded.

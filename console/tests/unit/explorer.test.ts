@@ -7,6 +7,8 @@ import {
 } from "../../src/api/explorer";
 import {
   evidenceEdges,
+  graphEdges,
+  recordedRelations,
   nodeLabel,
   nodeStatus,
   nodeTiming,
@@ -15,7 +17,7 @@ import {
   timelineRows,
   timelineBounds,
 } from "../../src/features/explorer-model";
-import { fixtureNodes, entrypoint } from "../explorer-fixture";
+import { fixtureNodes, entrypoint, relation } from "../explorer-fixture";
 
 function select<K extends ExplorerNode["kind"]>(
   nodes: ExplorerNode[],
@@ -27,129 +29,103 @@ function select<K extends ExplorerNode["kind"]>(
   if (!node) throw new Error(`Missing ${kind} fixture`);
   return node;
 }
-function relations(nodes: ExplorerNode[]) {
-  return evidenceEdges(nodes).map(({ from, to, relation, style }) => ({
-    from,
-    to,
-    relation,
-    style,
-  }));
-}
-
-it("keeps a flat graph with verified parent, fork and resume relations and retained provenance", () => {
+it("resolves only server relations, preserving semantic kinds and carrier provenance", () => {
   const nodes = fixtureNodes();
   const edges = evidenceEdges(nodes);
-  expect(relations(nodes)).toEqual(
-    expect.arrayContaining([
-      {
-        from: "entrypoint:activation_validate",
-        to: "fork:validate",
-        relation: "registers",
-        style: "parent",
-      },
-      {
-        from: "fork:validate",
-        to: "child:review",
-        relation: "registers",
-        style: "fork",
-      },
-      {
-        from: "entrypoint:activation_validate",
-        to: "join:validate",
-        relation: "registers",
-        style: "parent",
-      },
-      {
-        from: "child:review",
-        to: "join:validate",
-        relation: "awaits terminal outcome",
-        style: "fork",
-      },
-      {
-        from: "join:validate",
-        to: "entrypoint:activation_collect",
-        relation: "resumes",
-        style: "parent",
-      },
-    ]),
+  expect(edges).toHaveLength(7);
+  expect(new Set(edges.map((edge) => edge.kind))).toEqual(
+    new Set(["invokes", "registers", "branch", "awaits_terminal", "resumes"]),
   );
-  expect(edges).toHaveLength(5);
-  expect(
-    edges.every(
-      (edge) =>
-        edge.evidenceIds.includes(edge.from) &&
-        edge.evidenceIds.includes(edge.to),
-    ),
-  ).toBe(true);
-  expect(
-    edges.some(
-      (edge) => edge.from === "local:tests" || edge.to === "local:tests",
-    ),
-  ).toBe(false);
-  expect(
-    timelineRows(nodes).some(({ node }) => node.id === "local:tests"),
-  ).toBe(true);
-  expect(nodeType(select(nodes, "entrypoint"))).toBe("Entrypoint");
-  expect(evidenceEdges([...nodes].reverse())).toEqual(edges);
-  expect(evidenceEdges([...nodes, ...nodes])).toEqual(edges);
-});
-
-it("models fork4 plus parent work and joins without inventing a fork-to-parent-task arrow", () => {
-  const nodes = fixtureNodes();
-  const fork = select(nodes, "fork");
-  const child = select(nodes, "child");
-  const wait = select(nodes, "child_wait");
-  fork.branch_keys = ["security:0", "tests:0", "dependencies:0", "docs:0"];
-  child.key = fork.branch_keys[0]!;
-  const branches = fork.branch_keys.slice(1).map((key, index) =>
-    explorerNode({
-      ...child,
-      id: `child:${key}`,
-      key,
-      execution: { kind: "workflow", id: `wf_branch_${index}` },
-      state: index === 0 ? "failed" : index === 1 ? "cancelled" : "succeeded",
-    }),
-  );
-  const parentTask = explorerNode({
-    ...child,
-    id: "child:prepare",
-    key: "prepare:0",
-    fork_key: null,
-    execution: { kind: "task", id: "task_prepare" },
-  });
-  wait.member_keys = [...fork.branch_keys];
-  nodes.push(...branches, parentTask);
-  const edges = evidenceEdges(nodes);
-  expect(
-    edges.filter((edge) => edge.from === fork.id && edge.style === "fork"),
-  ).toHaveLength(4);
-  expect(
-    edges.filter(
-      (edge) =>
-        edge.to === wait.id && edge.relation === "awaits terminal outcome",
-    ),
-  ).toHaveLength(4);
   expect(edges).toContainEqual(
     expect.objectContaining({
       from: "entrypoint:activation_validate",
-      to: parentTask.id,
-      style: "parent",
+      to: "local:tests",
+      relation: "invokes",
+      evidenceIds: ["local:tests"],
     }),
   );
-  expect(
-    edges.some((edge) => edge.from === fork.id && edge.to === parentTask.id),
-  ).toBe(false);
-  expect(branches.map(nodeStatus)).toEqual([
-    "failed",
-    "cancelled",
-    "succeeded",
-  ]);
-  expect(
-    edges.some((edge) => edge.from === parentTask.id && edge.to === wait.id),
-  ).toBe(false);
+  expect(edges).toContainEqual(
+    expect.objectContaining({
+      from: "fork:validate",
+      to: "child:review",
+      relation: "includes branch",
+      style: "fork",
+      evidenceIds: ["child:review", "fork:validate"],
+    }),
+  );
+  expect(edges).toContainEqual(
+    expect.objectContaining({
+      from: "child:review",
+      to: "join:validate",
+      relation: "terminal outcome awaited by",
+      evidenceIds: ["join:validate"],
+    }),
+  );
+  expect(evidenceEdges([...nodes].reverse())).toEqual(edges);
+  expect(evidenceEdges([...nodes, ...nodes])).toEqual(edges);
+  expect(nodeType(select(nodes, "entrypoint"))).toBe("Entrypoint");
 });
 
-it("uses activation identity for repeated entrypoint names and never interprets opaque IDs", () => {
+it("does not manufacture edges from ownership, fork keys, decisions, waits, or timestamps", () => {
+  const nodes = fixtureNodes().map((node) => ({ ...node, relations: [] }));
+  expect(evidenceEdges(nodes)).toEqual([]);
+  expect(recordedRelations(nodes)).toEqual([]);
+  const source = select(nodes, "entrypoint");
+  source.decision_kind = "continue";
+  source.resumed_activation_id = "activation_collect";
+  expect(evidenceEdges(nodes)).toEqual([]);
+});
+
+it("retains unresolved references without fabricating nodes or substituting a parent edge", () => {
+  const nodes = fixtureNodes().filter((node) => node.kind === "child");
+  const records = recordedRelations(nodes);
+  expect(records).toHaveLength(2);
+  expect(
+    records.every(
+      (record) =>
+        record.source === null && record.target?.id === "child:review",
+    ),
+  ).toBe(true);
+  expect(
+    records.every((record) => record.evidenceIds.join() === "child:review"),
+  ).toBe(true);
+  expect(evidenceEdges(nodes)).toEqual([]);
+  const full = fixtureNodes();
+  expect(evidenceEdges([...nodes, ...full])).toEqual(evidenceEdges(full));
+});
+
+it("simplifies a fully loaded fork path while retaining direct invocation evidence and page fallback", () => {
+  const nodes = fixtureNodes();
+  const edges = evidenceEdges(nodes);
+  expect(
+    edges.some(
+      (edge) =>
+        edge.from === "entrypoint:activation_validate" &&
+        edge.to === "child:review",
+    ),
+  ).toBe(true);
+  expect(graphEdges(edges)).toHaveLength(6);
+  expect(
+    graphEdges(edges).some(
+      (edge) =>
+        edge.from === "entrypoint:activation_validate" &&
+        edge.to === "child:review",
+    ),
+  ).toBe(false);
+  const partial = evidenceEdges(nodes.filter((node) => node.kind !== "fork"));
+  expect(
+    graphEdges(partial).some(
+      (edge) =>
+        edge.from === "entrypoint:activation_validate" &&
+        edge.to === "child:review",
+    ),
+  ).toBe(true);
+  expect(graphEdges(edges).some((edge) => edge.to === "local:tests")).toBe(
+    true,
+  );
+});
+
+it("uses typed activation identities for repeated entrypoints and leaves opaque relation IDs uninterpreted", () => {
   const first = select(
     [entrypoint("activation_review_one", "review")],
     "entrypoint",
@@ -159,119 +135,78 @@ it("uses activation identity for repeated entrypoint names and never interprets 
     "entrypoint",
   );
   first.id = 'entrypoint:["review",1]';
-  first.decision_kind = "continue";
-  first.resumed_activation_id = second.activation_id;
-  second.decision_kind = "complete";
-  second.resumed_activation_id = null;
-  const nodes = [first, second];
-  expect(timelineRows(nodes).map(({ node }) => nodeLabel(node))).toEqual([
-    "review",
-    "review",
-  ]);
-  expect(evidenceEdges(nodes)).toHaveLength(1);
-  expect(evidenceEdges(nodes)[0]).toMatchObject({
-    from: first.id,
-    to: second.id,
-    relation: "resumes",
-  });
-  expect(JSON.parse(evidenceEdges(nodes)[0]!.id)).toEqual([
-    first.id,
-    second.id,
-    "resumes",
-  ]);
-});
-
-it("never invents edges across partial evidence, timestamps or activation ownership", () => {
-  const nodes = fixtureNodes().filter(
-    (node) => node.kind !== "fork" && node.kind !== "child_wait",
-  );
-  expect(evidenceEdges(nodes)).toEqual([]);
-  const partial = fixtureNodes().filter(
-    (node) => node.kind !== "fork" && node.kind !== "entrypoint",
-  );
-  expect(relations(partial)).toEqual([
+  first.relations = [
     {
-      from: "child:review",
-      to: "join:validate",
-      relation: "awaits terminal outcome",
-      style: "fork",
+      ...relation(
+        "resumes",
+        { kind: "entrypoint", activation_id: first.activation_id },
+        { kind: "entrypoint", activation_id: second.activation_id },
+      ),
+      id: "opaque:server-relation",
     },
+  ];
+  expect(evidenceEdges([first, second])).toEqual([
+    expect.objectContaining({
+      id: "opaque:server-relation",
+      from: first.id,
+      to: second.id,
+      relation: "resumes",
+      evidenceIds: [first.id],
+    }),
   ]);
   expect(
-    evidenceEdges(fixtureNodes().filter((node) => node.kind === "local")),
-  ).toEqual([]);
+    timelineRows([first, second]).map(({ node }) => nodeLabel(node)),
+  ).toEqual(["review", "review"]);
 });
 
-it("requires matching fork membership and never substitutes a direct registration edge", () => {
-  const nodes = fixtureNodes();
-  const fork = select(nodes, "fork");
-  fork.branch_keys = ["other:0"];
+it("resolves same-key local operations by activation without drawing local-to-local order", () => {
+  const first = select(fixtureNodes(), "local");
+  const second = explorerNode({
+    ...first,
+    id: "local:second",
+    activation_id: "activation_collect",
+    relations: [
+      relation(
+        "invokes",
+        { kind: "entrypoint", activation_id: "activation_collect" },
+        { kind: "local", activation_id: "activation_collect", key: first.key },
+      ),
+    ],
+  });
+  const nodes = [
+    entrypoint(),
+    entrypoint("activation_collect", "collect"),
+    first,
+    second,
+  ];
   const edges = evidenceEdges(nodes);
-  expect(edges.some((edge) => edge.to === "child:review")).toBe(false);
-});
-
-it("requires an applied, accepted decision for direct child and wait registration", () => {
-  const nodes = fixtureNodes();
-  const first = select(nodes, "entrypoint");
-  select(nodes, "child").fork_key = null;
-  expect(
-    evidenceEdges(nodes)
-      .filter((edge) => edge.from === first.id)
-      .map((edge) => edge.to),
-  ).toEqual(["child:review", "fork:validate", "join:validate"]);
-  first.decision_kind = null;
-  first.applied_at = null;
-  expect(
-    evidenceEdges(nodes)
-      .filter((edge) => edge.from === first.id)
-      .map((edge) => edge.to),
-  ).toEqual(["fork:validate"]);
-  first.applied_at = 1200;
-  first.error = { kind: "invalid_decision", message: "rejected" };
-  expect(
-    evidenceEdges(nodes).some(
-      (edge) => edge.from === first.id && edge.to === "join:validate",
-    ),
-  ).toBe(false);
-});
-
-it("only directly resumes from a successfully applied continue decision", () => {
-  const first = select([entrypoint()], "entrypoint");
-  first.decision_kind = "continue";
-  const nodes = [first, entrypoint("activation_collect", "collect")];
-  expect(evidenceEdges(nodes)).toContainEqual(
+  expect(edges).toHaveLength(2);
+  expect(edges).toContainEqual(
     expect.objectContaining({
-      from: first.id,
-      to: "entrypoint:activation_collect",
-      relation: "resumes",
+      from: "entrypoint:activation_collect",
+      to: "local:second",
     }),
   );
-  first.applied_at = null;
-  expect(evidenceEdges(nodes)).toEqual([]);
-  first.applied_at = 1200;
-  first.error = { kind: "invalid_decision", message: "rejected" };
-  expect(evidenceEdges(nodes)).toEqual([]);
-  first.error = null;
-  for (const decision of ["suspend", "wait"] as const) {
-    first.decision_kind = decision;
-    expect(evidenceEdges(nodes)).toEqual([]);
-  }
+  expect(edges.every((edge) => edge.kind === "invokes")).toBe(true);
 });
 
-it("keeps pending joins visible without claiming completion or an absent destination", () => {
+it("keeps pending joins visible without treating an unloaded resume as absent", () => {
   const nodes = fixtureNodes();
   const wait = select(nodes, "child_wait");
-  wait.resumed_activation_id = null;
-  expect(nodeStatus(wait)).toBe("wait registered");
+  wait.resumed_activation_id = "activation_not_loaded";
+  wait.relations = [
+    relation(
+      "resumes",
+      { kind: "child_wait", activation_id: wait.activation_id },
+      { kind: "entrypoint", activation_id: wait.resumed_activation_id },
+    ),
+  ];
+  expect(nodeStatus(wait)).toBe("resume scheduled");
   expect(nodeTiming(wait)).toMatchObject({
     milestone: true,
     label: "Join decision applied · closing time not recorded",
   });
-  expect(evidenceEdges(nodes).some((edge) => edge.from === wait.id)).toBe(
-    false,
-  );
-  wait.resumed_activation_id = "activation_not_loaded";
-  expect(nodeStatus(wait)).toBe("resume scheduled");
+  expect(recordedRelations([wait])[0]?.target).toBeNull();
   expect(evidenceEdges(nodes).some((edge) => edge.from === wait.id)).toBe(
     false,
   );
@@ -366,12 +301,15 @@ it("keeps the same logical local identity and truthful timing for replay", () =>
   expect(replay.id).toBe(local.id);
   expect(nodeStatus(replay)).toBe("accepted");
   expect(nodeTiming(replay).label).toContain("callable was not run");
-  expect(evidenceEdges([entrypoint(), replay])).toEqual([]);
+  expect(evidenceEdges([entrypoint(), replay])).toEqual([
+    expect.objectContaining({ relation: "invokes", to: replay.id }),
+  ]);
 });
 
 function externalWait() {
   return explorerNode({
     kind: "external_wait",
+    relations: [],
     id: "wait:approval",
     activation_id: "activation_validate",
     revision: "1",
@@ -385,7 +323,7 @@ function externalWait() {
     resumed_activation_id: null,
   });
 }
-it("requires frozen wake evidence, not closure, for external resumption", () => {
+it("does not infer external resumption from closure or wake metadata without a server relation", () => {
   const node = select([externalWait()], "external_wait");
   const nodes = [
     entrypoint(),
@@ -399,6 +337,14 @@ it("requires frozen wake evidence, not closure, for external resumption", () => 
   for (const reason of ["event", "timer", "timeout"] as const) {
     node.wake_reason = reason;
     node.resumed_activation_id = "activation_collect";
+    expect(evidenceEdges(nodes)).toEqual([]);
+    node.relations = [
+      relation(
+        "resumes",
+        { kind: "external_wait", key: node.key },
+        { kind: "entrypoint", activation_id: "activation_collect" },
+      ),
+    ];
     expect(evidenceEdges(nodes)).toContainEqual(
       expect.objectContaining({
         from: node.id,
@@ -406,10 +352,11 @@ it("requires frozen wake evidence, not closure, for external resumption", () => 
         relation: "resumes",
       }),
     );
+    node.relations = [];
   }
 });
 
-it("strictly rejects C2 controller nodes and contradictory or unknown C3 evidence", () => {
+it("strictly rejects old controller nodes and contradictory or unknown C4 evidence", () => {
   expect(() => explorerNode({ ...entrypoint(), kind: "phase" })).toThrow();
   expect(() =>
     explorerNode({

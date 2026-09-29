@@ -125,7 +125,11 @@ Do not rewrite API failures or missing assets into HTML. The orchestrator handle
 
 ## Upgrades
 
-The execution explorer uses Console contract version 3. Start matching server and assets; C2 bundles fail explicitly. `kind: "entrypoint"` replaces `phase` in explorer records, including their opaque IDs. The new migration converts only the Console projection, preserving workflow/task identities, payloads, revisions, errors and timestamps. Old migration files retain their checksums. Every C2 Explorer cursor is rejected, including cursors ending at another node kind: restart from the first page. Other endpoint cursor bindings and SDK execution protocols are unchanged. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
+The execution explorer uses Console contract version 4. Start matching server and assets; older Console bundles fail explicitly. Each node carries typed invocation, registration, branch-membership, terminal-wait and resumption relations from the backend. References remain available when an endpoint is outside the loaded page. A local connects to its invoking entrypoint; that connection does not imply completion or membership in a fork or join. Joins wait for terminal outcomes, including failure and cancellation.
+
+Upgrading from C3 preserves node IDs and requires no additional database migration. Restart Explorer traversal because older Explorer cursors are rejected. Other endpoint cursor bindings and SDK execution protocols are unchanged. When upgrading from C2, the existing migration also converts Console `phase` records into `entrypoint`, preserving workflow/task identities, payloads, revisions, errors and timestamps. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
+
+The graph uses retained Ledgence records and works without an OTel backend. Local results are recorded durably on completion; abrupt process loss before result acceptance or a retained attempt report may leave no local node. Optional timing and tracing evidence must not be interpreted as a complete record of every started operation.
 
 Existing `/agents` and workflow links remain supported. Migrations can lock writes, so budget maintenance time according to database size. This is a coordinated upgrade, not a rolling upgrade.
 

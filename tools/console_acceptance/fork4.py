@@ -3,6 +3,7 @@ from pathlib import Path
 
 from http_acceptance.harness import eventually
 from .workflows import event
+from .explorer import relation_map, require_relation
 
 
 PROGRAM = "explorer-release-workflow"
@@ -28,6 +29,7 @@ def paginated(d, workflow_id):
         assert all(row["kind"] != "phase" for row in rows), "legacy Console node kind"
         assert all(type(row["revision"]) is str and row["revision"].isdigit() for row in rows)
     assert [row["id"] for row in pages[0]] == [row["id"] for row in pages[1]]
+    assert relation_map(pages[0]) == relation_map(pages[1]), "page size changed graph relationships"
     return pages[0]
 
 
@@ -121,6 +123,9 @@ def assert_structure(d, root, mode):
             assert identity["kind"] == "workflow" and child["fork_key"] == fork["key"]
             assert child["program"] == {"id": PROGRAM, "version": "1.0.0"}
             assert child["activation_id"] == entries["start"]["activation_id"]
+            branch_relation = require_relation(child, "branch", {"kind": "fork", "key": fork["key"]},
+                                               {"kind": "child", "key": key})
+            assert branch_relation in fork["relations"], "fork/child evidence has different relation identities"
             branch_state = mode.removeprefix("branch_") if key == "security:0" and mode.startswith("branch_") else "succeeded"
             assert child["state"] == branch_state
             outcome = d.workflow_result(identity["id"], branch_state)["outcome"]
@@ -134,6 +139,7 @@ def assert_structure(d, root, mode):
                 wait, = [node for node in nested if node["kind"] == "external_wait"]
                 assert wait["closed_at"] is not None
                 assert wait["wake_reason"] is None and wait["resumed_activation_id"] is None
+                assert not any(relation["kind"] == "resumes" for relation in wait["relations"])
         else:
             assert identity["kind"] == "task" and child["fork_key"] is None
             assert child["state"] == "succeeded"
@@ -154,6 +160,10 @@ def assert_structure(d, root, mode):
         assert set(join["member_keys"]) == set(keys)
         assert join["resume"] == resume
         assert join["resumed_activation_id"] == target["activation_id"]
+        assert {relation["source"]["key"] for relation in join["relations"]
+                if relation["kind"] == "awaits_terminal"} == set(keys)
+        require_relation(join, "resumes", {"kind": "child_wait", "activation_id": join["activation_id"]},
+                         {"kind": "entrypoint", "activation_id": target["activation_id"]})
         assert current["decision_kind"] == "suspend" and current["applied_at"] is not None
         assert current["resumed_activation_id"] == target["activation_id"]
     assert entries[names[-1]]["decision_kind"] == ("complete" if successful else "fail")

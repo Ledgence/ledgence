@@ -12,7 +12,7 @@ import { GraphCanvas } from "../../src/features/explorer/graph";
 import type { GraphPresentation } from "../../src/features/explorer/layout";
 import { entrypoint } from "../explorer-fixture";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v3.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { workflowExplorer } from "../../src/api/explorer";
@@ -40,6 +40,7 @@ function GraphHost() {
     from: "a",
     to: id,
     relation: "registers" as const,
+    kind: "registers" as const,
     style: "parent" as const,
     evidenceIds: ["a", id],
   }));
@@ -133,7 +134,7 @@ it("restores the saved camera when Back changes selection within the same workfl
       new Response(stringifyUserJson(explorer), {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "3",
+          "Ledgence-Console-Contract": "4",
           "Ledgence-Instance-Id": config.instance_id,
         },
       }),
@@ -221,6 +222,7 @@ async function mountVisibility(query = "tab=Trace", withLocal = false) {
   if (withLocal)
     explorer.page.items.push({
       kind: "local",
+      relations: [],
       id: "local:resource",
       activation_id: "act_resource",
       revision: "1",
@@ -255,7 +257,7 @@ async function mountVisibility(query = "tab=Trace", withLocal = false) {
       {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "3",
+          "Ledgence-Console-Contract": "4",
           "Ledgence-Instance-Id": config.instance_id,
         },
       },
