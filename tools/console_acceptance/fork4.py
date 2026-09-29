@@ -34,12 +34,25 @@ def paginated(d, workflow_id):
 def attempt(d, task_id):
     attempts = d.rows("tasks/attempts", task_id=task_id, limit=1)
     assert len(attempts) == 1, (task_id, attempts)
-    observed = d.api("GET", "attempts/inspect", attempt_id=attempts[0]["attempt_id"])
-    assert observed["attempt"]["task_id"] == task_id
-    assert observed["attempt"]["finished_at"] is not None
-    assert observed["attempt"]["execution_may_have_started"] is True
-    assert observed["process_instance_id"] is not None
-    return observed["attempt"]["attempt_id"]
+    identifier = attempts[0]["attempt_id"]
+    observed = d.api("GET", "attempts/inspect", attempt_id=identifier)
+    return completed_attempt(observed, task_id, identifier)
+
+
+def completed_attempt(observed, task_id, attempt_id):
+    summary = observed["attempt"]
+    assert summary["task_id"] == task_id and summary["attempt_id"] == attempt_id
+    assert summary["state"] == "succeeded"
+    assert summary["finished_at"] is not None
+    assert summary["execution_may_have_started"] is True
+    assert summary["worker_session_id"]
+    # attempts/inspect derives PID/reuse/elapsed from the accepted settlement.
+    # It does not join the optional invocation-observation process identity;
+    # process_instance_id may therefore be null. A PID is not that identity.
+    assert type(observed["process_id"]) is int and observed["process_id"] > 0
+    assert type(observed["reused_process"]) is bool
+    assert observed["worker_elapsed_ms"] is not None and int(observed["worker_elapsed_ms"]) >= 0
+    return summary["attempt_id"]
 
 
 def submit(d, mode):

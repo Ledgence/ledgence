@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sdk/python"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ledgence.worker.workflow import WorkflowContext, _workflow
-from console_acceptance.fork4 import BRANCH_ENTRIES, BRANCH_KEYS, SEQUENCE
+from console_acceptance.fork4 import BRANCH_ENTRIES, BRANCH_KEYS, SEQUENCE, completed_attempt
 from console_acceptance.test_explorer import task_result
 
 
@@ -19,6 +19,38 @@ def workflow_result(output=None, state="succeeded"):
     elif state == "failed":
         outcome["error"] = {"kind": "check_failed", "message": "Check failed"}
     return {"kind": "workflow", "workflow_id": "check-workflow", "state": state, "outcome": outcome}
+
+
+class AttemptEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        # Unit metadata only; native acceptance still reads the real API. The
+        # projection's durable completed report can lack process_instance_id.
+        self.detail = {
+            "attempt": {"task_id": "task-1", "attempt_id": "attempt-1", "state": "succeeded",
+                        "finished_at": 1000, "execution_may_have_started": True,
+                        "worker_session_id": "worker-1"},
+            "process_id": 42, "process_instance_id": None,
+            "reused_process": False, "worker_elapsed_ms": "0",
+        }
+
+    def test_completed_settlement_does_not_require_optional_process_identity(self):
+        self.assertEqual(completed_attempt(self.detail, "task-1", "attempt-1"), "attempt-1")
+
+    def test_missing_execution_or_terminal_evidence_still_fails(self):
+        for field, value in (("state", "active"), ("finished_at", None),
+                             ("execution_may_have_started", False), ("worker_session_id", ""),
+                             ("task_id", "other"), ("attempt_id", "other")):
+            with self.subTest(field=field):
+                detail = {**self.detail, "attempt": {**self.detail["attempt"], field: value}}
+                with self.assertRaises(AssertionError):
+                    completed_attempt(detail, "task-1", "attempt-1")
+
+    def test_missing_completed_report_evidence_still_fails(self):
+        for field, value in (("process_id", None), ("process_id", 0),
+                             ("reused_process", None), ("worker_elapsed_ms", None)):
+            with self.subTest(field=field, value=value):
+                with self.assertRaises(AssertionError):
+                    completed_attempt({**self.detail, field: value}, "task-1", "attempt-1")
 
 
 class ReleaseWorkflowFixtureTests(unittest.IsolatedAsyncioTestCase):
