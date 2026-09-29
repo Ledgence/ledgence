@@ -118,6 +118,9 @@ test("real fork graph distinguishes parent locals, explores review, and restores
       .getByRole("complementary", { name: "Selected work details" })
       .getByText("Callable observation", { exact: true }),
   ).toBeVisible();
+  // The canvas pans independently of document scrolling. Bring the complete
+  // loaded graph into view after the inspector changes its available width.
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
   await page
     .getByRole("button", {
       name: "review:0 · Subworkflow · succeeded",

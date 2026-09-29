@@ -70,21 +70,26 @@ export function routeEdge(
       (p, i) => !i || !boxes.some((box) => crossesBox(points[i - 1]!, p, box)),
     );
   const middle = (a.y + b.y) / 2;
-  const candidates: Point[][] = [
+  // Each primary path has the Manhattan lower-bound length. The first clear
+  // one is therefore already shortest, with the same tie order as a stable
+  // sort of every candidate. Avoid testing all obstacle corridors in this case.
+  const primary: Point[][] = [
     [a, { x: a.x, y: middle }, { x: b.x, y: middle }, b],
     [a, { x: b.x, y: a.y }, b],
     [a, { x: a.x, y: b.y }, b],
-    ...boxes
-      .flatMap((box) => [
-        box.x - 22 - (lane % 3) * 6,
-        box.x + box.width + 22 + (lane % 3) * 6,
-      ])
-      .map((x) => [a, { x, y: a.y }, { x, y: b.y }, b]),
   ];
-  const direct = candidates
-    .filter(clear)
-    .sort((x, y) => length(x) - length(y))[0];
-  const routed = direct ?? findRoute(a, b, boxes);
+  const direct = primary.find(clear);
+  if (direct)
+    return { points: compact([start, ...direct, end]), obstructed: false };
+  const candidates = boxes
+    .flatMap((box) => [
+      box.x - 22 - (lane % 3) * 6,
+      box.x + box.width + 22 + (lane % 3) * 6,
+    ])
+    .map((x) => [a, { x, y: a.y }, { x, y: b.y }, b]);
+  const routed =
+    candidates.filter(clear).sort((x, y) => length(x) - length(y))[0] ??
+    findRoute(a, b, boxes);
   return {
     points: compact([start, ...(routed ?? [a, { x: a.x, y: b.y }, b]), end]),
     obstructed: !routed,
