@@ -14,7 +14,7 @@ The new API serializes revision and sequence values as decimal strings. Program 
 
 ## Unified discovery and execution explorer
 
-Console contract version 2 adds endpoints without changing the legacy DTOs:
+Console contract version 3 reuses the existing discovery and inspection endpoints:
 
 - `GET /v1/console/executions` merges tasks and workflows in a stable descending
   order of submission time, kind and immutable ID. Each typed index seek is
@@ -23,7 +23,7 @@ Console contract version 2 adds endpoints without changing the legacy DTOs:
   kind, rather than the editable program summary. Compact membership flags and
   immutable program/version columns support indexed filtering.
 - `GET /v1/console/workflows/explorer` supplies bounded observed graph records to
-  both Graph and Timeline. A response includes its observation time and a cursor
+  both Graph and Trace. A response includes its observation time and a cursor
   for records not yet loaded. The parent workflow revision is not a change cursor.
 - `GET /v1/console/executions/ancestry` follows recorded ownership through the
   supported depth, including explicit unavailable references where identity survives.
@@ -39,7 +39,7 @@ inclusive at its start and exclusive at its end. Filter changes invalidate curso
 live inserts or status changes can affect later pages, which are not a frozen
 snapshot of an entire traversal.
 
-The explorer projection stores compact phases, children, forks, accepted local
+The explorer projection stores compact entrypoint invocations, children, forks, accepted local
 results, applied child waits and external waits at existing transaction boundaries.
 Only successfully applied decisions create decision/resumption edges. An accepted
 controller result, rejected decision, closed wait or matching correlation does not
@@ -58,6 +58,63 @@ is backfilled only from retained authoritative records; already removed identiti
 and unrecorded observations are not reconstructed. Target unavailability alone
 does not establish the cause of removal.
 
-These migrations require stopped writers and can hold locks while backfilling
-metadata or building indexes. Start matching version-2 server and Console assets
-after migration. Old bundles fail compatibility validation explicitly.
+## Entrypoint identity and causal evidence
+
+Each `kind: "entrypoint"` record represents one logical invocation, identified by
+`activation_id`. Its handler name is descriptive: re-entering the same name creates
+another activation, while attempts and replay of one activation retain one node.
+The opaque ID is canonically encoded from `[kind, workflow_id, activation_id, key]`.
+Revisions and other u64 metadata remain decimal strings; timestamps are UTC Unix
+milliseconds. Worker failure `phase` remains a separate wire field (Failure stage).
+
+The browser builds edges from retained evidence, never from timestamps or array
+order. No coordinates, presentation labels or additional edges DTO are persisted.
+
+| Relationship | Required evidence |
+| --- | --- |
+| Entrypoint → fork | Accepted fork associated with that activation. |
+| Fork → child | Matching `fork_key` and membership in `branch_keys`. |
+| Entrypoint → child outside a fork | Same creating activation and an applied decision without error. |
+| Entrypoint → child wait | Same activation and recorded `applied_at`. |
+| Child → child wait | Child key included in `member_keys`; terminal does not imply success. |
+| Child wait → entrypoint | Explicit `resumed_activation_id`. |
+| Entrypoint → external wait | Recorded wait associated with the activation. |
+| External wait → entrypoint | Recorded wake and explicit resumed activation; closure alone is insufficient. |
+| Entrypoint → entrypoint | Applied `continue`, no error and explicit resumed activation. |
+
+Locals retain their activation attribution and callable/acceptance observations.
+These do not establish local-to-local or local-to-join dependencies. A parent task
+registered after a fork is still direct work of its entrypoint, not a fork member.
+Each explorer query covers one workflow and direct child references. Opening a
+child queries that workflow independently; correlation does not establish ancestry.
+
+An already resumed single-child wait can be visually compacted only when the full
+child/wait/destination chain is evidenced. The wait and evidence IDs remain in
+Trace and inspection. Multi-member joins, pending waits and partial chains are not
+compacted into invented edges. Missing records on a page do not prove absence.
+
+Discovery time bounds are `[submitted_from, submitted_until)`. Inclusive UTC day
+filters convert the last day to the next UTC midnight before querying. Invalid
+ranges and incompatible kind/state combinations are rejected. Without a kind,
+a state unique to tasks or workflows narrows discovery to that resource type.
+
+## Contract 2 to 3 upgrade
+
+Migration [`20260929000000_console_entrypoints.sql`](../crates/ledgence-adapter-postgres/migrations/20260929000000_console_entrypoints.sql)
+transforms only the persisted Console projection:
+both `kind='phase'` and its JSON discriminator become `entrypoint`. Activation and
+workflow IDs, revisions, timestamps, errors and application payloads are preserved,
+including legal escaped U+0000. Existing migration files and checksums are retained.
+The new constraint rejects `phase` after conversion.
+
+Changing the kind changes explorer sort order and node IDs. All prior Explorer
+cursors are rejected using the new internal binding `workflows/explorer/v3`, even
+if their last record was a child or fork. Start Explorer again from its first page.
+The HTTP route remains `/v1/console/workflows/explorer`; unrelated cursor bindings
+and SDK execution protocols are unchanged.
+
+Stop all writers and back up the database and artifact store before explicit
+migration. Start matching version-3 server and assets afterwards. The migration
+is transactional and may hold write locks. `serve` verifies schema without
+migrating it. C2 assets fail validation, and an older binary cannot be rolled back
+onto the new schema; restore matching backups for an offline rollback.

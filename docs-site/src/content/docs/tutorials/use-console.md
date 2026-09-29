@@ -64,11 +64,11 @@ docker compose -f deploy/local/compose.yaml run --rm --no-deps demo
 
 The final JSON contains `passed: true`, two task IDs, a workflow ID, and a workflow output. Keep those IDs visible.
 
-In **Executions**, open either invoice task by its ID. Use **Input** to see the invoice request and **Output** to inspect the returned invoice ID, process ID, and invocation counter. **Attempts** records the actual attempt; **History** records durable transitions.
+In **Executions**, open either invoice task by its ID. In **General**, open **Input** to see the invoice request and **Output** to inspect the returned invoice ID, process ID, and invocation counter. **Trace** contains the attempts and durable history.
 
-In **Executions**, select the **Workflows** filter and open the workflow ID printed by the demo. Its **Execution** view offers **Graph** and **Timeline**. The recorded local page-fetch steps appear inside their controller phase, and `summarize` appears as a child task. Select a node or row to inspect it; select **Open execution** on the child to inspect its input and output. Use Back or Up to return and explore another part of the workflow. Completed work stays visible; these views reflect work that happened and do not predict future steps.
+In **Executions**, select the **Workflows** filter and open the workflow ID printed by the demo. Its detail offers **Graph**, **Trace** and **General**. Graph shows entrypoint invocation nodes, the recorded local page-fetch steps and the child task `summarize`. Select a node or Trace row to inspect it; select **Open execution** on the child to inspect its input and output. Local records identify their entrypoint invocation without claiming dependencies between the local calls. Use Back or Up to return and explore another part of the workflow. A subworkflow opens its own graph, one level at a time. Completed work stays visible; these views reflect work that happened and do not predict future steps.
 
-Under **Output**, expect:
+Under **General → Output**, expect:
 
 ```json
 {

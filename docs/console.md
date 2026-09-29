@@ -22,8 +22,8 @@ server. There is no workspace, tenant or namespace selector in the browser.
 - **Executions**: one history for tasks and workflows, filtered by type, status,
   program/version, queue, correlation, exact execution ID and submission time.
   Inspect input, output, attempts, resources and history; submit a program, run it
-  again as new work, or request cancellation. Workflow details include Graph and
-  Timeline views, local steps and recorded waits.
+  again as new work, or request cancellation. Tasks offer Trace and General;
+  workflows also offer Graph for entrypoints, children, local steps and waits.
 - **Programs**: inspect registered packages, exact opaque versions, digests and
   runtime requirements. Registration is explicit and independent of execution.
 - **Workers**: inspect server-received observations, stable process slots and
@@ -44,20 +44,26 @@ any registered version; mixed kinds and unspecified kinds stay explicit.
 
 ## Explore a workflow
 
-Graph and Timeline use the same durable execution records. Select a node or row to
+Graph and Trace use the same durable execution records. Select a node or row to
 inspect it, then use **Open execution** to drill into a task or subworkflow. Back
 restores the previous navigation entry; Up follows ownership. Breadcrumbs provide
 direct access to ancestors. A child deep link works without visiting its parent.
 
-Graph shows the observed path: controller phases, children, local operations,
-fork registration, joins and external waits. It does not reconstruct arbitrary
-Python statements or predict unexecuted branches. Local work remains inside its
-controller phase. A fork's distributed members come from recorded branch keys;
-nearby local work is not invented as another distributed branch. Edges describe
-registration, waiting for terminal outcomes, and recorded resumption. Correlation
-and timestamp order never establish a dependency.
+Graph shows one workflow and its direct children: entrypoint invocations, tasks,
+opaque subworkflow nodes, local operations, forks, joins and external waits. Each
+entrypoint invocation is a node, not a group or band. Re-entry to the same handler
+has its own activation ID; retries of one activation retain that identity. Opening
+a subworkflow displays its own graph rather than recursively expanding the parent.
 
-Timeline distinguishes recorded intervals from acceptance milestones. Submission
+The graph does not reconstruct arbitrary Python statements or predict unexecuted
+branches. A fork's members come from recorded branch keys. A task registered by
+the parent after the fork remains direct work of its entrypoint. Local nodes
+record observations and activation attribution, without fabricated causal edges
+to another local or a join. Edges describe registration, waiting for terminal
+outcomes, and recorded resumption. Correlation and timestamp order never establish
+a dependency. The [query model](console-query-model.md) lists the required evidence.
+
+Trace distinguishes recorded intervals from acceptance milestones. Submission
 to terminal includes queue and wait time; an accepted local result alone does not
 provide its runtime interval. A closed wait alone does not prove a successful
 wake. Rejected controller decisions do not create execution edges, and workflow
@@ -176,11 +182,17 @@ No migration deletes or reassigns them. Rollback to an older binary that ignores
 the persisted binding requires an offline plan; never run it concurrently against
 the bound database. Catalog retention is independent of execution-history cleanup.
 
-The execution explorer requires Console contract version 2 and matching server
-and assets. Existing API DTOs and useful `/agents` and workflow deep links remain
-available, but incompatible asset bundles are rejected explicitly. New database
-projections are installed by explicit migrations; budget maintenance time for
-backfilling retained execution metadata and building indexes.
+The execution explorer requires Console contract version 3 and matching server
+and assets. `kind: "entrypoint"` replaces the C2 `phase` discriminator and changes
+those opaque node IDs. Every old Explorer cursor is rejected; restart traversal
+from the first page. Other endpoint cursors and SDK execution protocols retain
+their contracts. Useful `/agents` and workflow deep links remain available.
+
+An additional transactional migration converts retained Console records without
+changing authoritative workflow, task, input/output or settlement records. Earlier
+migration checksums are unchanged. Budget maintenance time for write locks; do not
+mix C2 writers/readers or assets with C3. `serve` only verifies schema. If migration
+fails, its transaction rolls back; downgrade requires matching offline backups.
 
 ## Qualification
 
