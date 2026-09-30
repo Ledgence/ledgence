@@ -182,33 +182,39 @@ export function PageControls({
   observedAt,
   refresh,
   fetching,
+  navigationOnly = false,
 }: {
   pagination: ReturnType<typeof usePagination>;
   nextCursor: string | null;
   observedAt: number;
   refresh: () => void;
   fetching: boolean;
+  navigationOnly?: boolean;
 }) {
   return (
     <div className="page-controls">
       <span className="muted">
         Observed <When value={observedAt} />
       </span>
-      <label>
-        Rows{" "}
-        <select
-          value={pagination.limit}
-          onChange={(e) => pagination.size(Number(e.target.value))}
-        >
-          {[25, 50, 100].map((n) => (
-            <option key={n}>{n}</option>
-          ))}
-        </select>
-      </label>
-      <Button variant="outline" onClick={refresh} disabled={fetching}>
-        <RefreshCw aria-hidden="true" />
-        Refresh
-      </Button>
+      {!navigationOnly && (
+        <>
+          <label>
+            Rows{" "}
+            <select
+              value={pagination.limit}
+              onChange={(e) => pagination.size(Number(e.target.value))}
+            >
+              {[25, 50, 100].map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+          <Button variant="outline" onClick={refresh} disabled={fetching}>
+            <RefreshCw aria-hidden="true" />
+            Refresh
+          </Button>
+        </>
+      )}
       {(pagination.cursor || nextCursor) && (
         <>
           <Button

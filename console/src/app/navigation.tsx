@@ -27,7 +27,16 @@ export function NavigationMemory() {
           element.scrollTop = position.y;
         } else ready = false;
       }
-      if (entry) window.scrollTo(entry.x, entry.y);
+      if (entry) {
+        window.scrollTo(entry.x, entry.y);
+        // Cached list pages can mount after the route itself. A clamped scroll
+        // is not restored yet, even when no focused row was remembered.
+        if (
+          Math.abs(window.scrollX - entry.x) > 1 ||
+          Math.abs(window.scrollY - entry.y) > 1
+        )
+          ready = false;
+      }
       if (!entry?.focus) return ready;
       const target = Array.from(
         content?.querySelectorAll<HTMLElement>("[data-focus-key],a[href]") ??
@@ -71,6 +80,14 @@ export function NavigationMemory() {
       once: true,
     });
     document.addEventListener("keydown", interruptRestoration, { once: true });
+    document.addEventListener("wheel", interruptRestoration, {
+      once: true,
+      passive: true,
+    });
+    document.addEventListener("touchstart", interruptRestoration, {
+      once: true,
+      passive: true,
+    });
     const track = (event: FocusEvent) => {
       if (
         event.target instanceof HTMLElement &&
@@ -95,6 +112,8 @@ export function NavigationMemory() {
       document.removeEventListener("scroll", rememberScroll, true);
       document.removeEventListener("pointerdown", interruptRestoration);
       document.removeEventListener("keydown", interruptRestoration);
+      document.removeEventListener("wheel", interruptRestoration);
+      document.removeEventListener("touchstart", interruptRestoration);
       for (const element of content?.querySelectorAll<HTMLElement>(
         "[data-scroll-memory]",
       ) ?? [])

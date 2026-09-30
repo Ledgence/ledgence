@@ -29,6 +29,7 @@ const clients: QueryClient[] = [];
 afterEach(() => {
   for (const client of clients.splice(0)) client.clear();
   vi.restoreAllMocks();
+  config.polling.waiting_workflow_ms = 60000;
   localStorage.removeItem("ledgence-explorer-view-v3");
 });
 function response(value: unknown) {
@@ -138,9 +139,25 @@ async function mount(url = "/workflows/wf_invoice_1042?view=graph") {
   );
   return { view, client };
 }
+async function observeExplorer(client: QueryClient) {
+  await client.invalidateQueries({
+    predicate: (query) =>
+      query.queryKey.some(
+        (part) =>
+          typeof part === "string" &&
+          part.startsWith("/v1/console/workflows/explorer?"),
+      ),
+  });
+}
 it("synchronizes Graph and Trace selection with one evidence inspector", async () => {
   routes();
   const { view } = await mount();
+  await expect
+    .element(view.getByRole("button", { name: "Refresh", exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(view.getByRole("combobox", { name: "Rows", exact: true }))
+    .not.toBeInTheDocument();
   await view
     .getByRole("button", {
       name: "tests:0 · Local step · accepted",
@@ -160,6 +177,12 @@ it("synchronizes Graph and Trace selection with one evidence inspector", async (
     .element(inspector.getByRole("link", { name: "Open workflow" }))
     .not.toBeInTheDocument();
   await view.getByRole("button", { name: "Trace", exact: true }).click();
+  await expect
+    .element(view.getByRole("button", { name: "Refresh", exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(view.getByRole("combobox", { name: "Rows", exact: true }))
+    .not.toBeInTheDocument();
   await expect
     .element(inspector.getByRole("heading", { name: "tests:0" }))
     .toBeVisible();
@@ -279,11 +302,13 @@ it("distinguishes unloaded records and an unavailable selection from expiry", as
     )
     .toBeVisible();
 });
-it("refreshes new local work without relying on parent workflow revision", async () => {
+it("polls new local work without relying on parent workflow revision or a Refresh control", async () => {
+  config.polling.waiting_workflow_ms = 1000;
   let nodes: ReturnType<typeof fixtureNodes> = fixtureNodes().filter(
     (node) => node.kind !== "local",
   );
   const options = {
+    running: true,
     get nodes() {
       return nodes;
     },
@@ -296,7 +321,6 @@ it("refreshes new local work without relying on parent workflow revision", async
     )
     .toBeVisible();
   nodes = fixtureNodes();
-  await view.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect
     .element(
       view.getByRole("button", { name: "tests:0 · Local step · accepted" }),
@@ -351,7 +375,7 @@ it("anchors a selected timeline row when earlier evidence arrives, unless follow
       return nodes;
     },
   });
-  const { view } = await mount(
+  const { view, client } = await mount(
     "/workflows/wf_invoice_1042?view=timeline&node=local:24",
   );
   await expect
@@ -377,7 +401,7 @@ it("anchors a selected timeline row when earlier evidence arrives, unless follow
       accepted_at: 900,
     }),
   ];
-  await view.getByRole("button", { name: "Refresh", exact: true }).click();
+  await observeExplorer(client);
   await expect.poll(() => viewport.scrollTop).toBe(scrollBefore + 86);
   expect(
     selectedRow().getBoundingClientRect().top -
@@ -399,7 +423,7 @@ it("anchors a selected timeline row when earlier evidence arrives, unless follow
       accepted_at: 5000,
     }),
   ];
-  await view.getByRole("button", { name: "Refresh", exact: true }).click();
+  await observeExplorer(client);
   await expect.poll(() => viewport.scrollHeight).toBe(heightBefore + 86);
   await expect
     .poll(

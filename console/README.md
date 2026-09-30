@@ -92,8 +92,17 @@ output and CloudEvents use `lossless-json` to preserve integer/floating tokens a
 negative zero across inspection, formatting and submission.
 
 Lists use bounded keyset pages, exact filters and server observation timestamps.
-Only the first live page polls; older pages refresh explicitly. Previous cursors
-are held in bounded process memory rather than accumulated in URLs. Active
+Execution history appends the next page automatically near the end of the list,
+without Refresh, row-count selectors, or page-navigation controls. Failed loads
+retain the visible rows and offer a retry. Filters start a new traversal; returning
+from a detail restores the cached rows and scroll position. The initial page polls
+until loading older executions starts, then the loaded traversal stays stable.
+Each row retains its own page's observation timestamp. Cached inactive queries
+expire after five minutes; a browser reload starts a fresh traversal.
+Workflow detail keeps observation timestamps and navigation for additional pages,
+without Refresh or row-count selectors. Other paginated views retain their manual
+controls. Previous cursors are held in bounded process memory rather than
+accumulated in URLs. Active
 resource polling stops when a terminal outcome is observed and pauses while the
 page is hidden. Query cancellation is passed through to `fetch`; query keys include
 origin, contract, instance, resource and complete query parameters.
@@ -180,7 +189,9 @@ missing reports never become fabricated process slots.
 ## Interface and dependencies
 
 The shell has a persistent collapsible desktop sidebar, compact mobile navigation,
-and light/dark/system appearance. Execution headers group identity and status;
+and light/dark/system appearance. Collapse from the sidebar header; its Ledgence
+mark expands it again without navigating. Execution details share one header for
+the instance, ancestry and title, with status and timing directly below;
 primary date/type/status filters stay visible and advanced exact filters expand on demand. The explorer can expand to
 full screen with Escape to exit, keeps selection and canvas state, and opens its
 inspector only when work is selected. Secondary evidence remains available in an

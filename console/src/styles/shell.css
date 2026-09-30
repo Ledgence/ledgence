@@ -11,10 +11,49 @@
   gap: 32px;
   padding: 20px 12px 14px;
 }
+.console-sidebar .shell-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
 .console-sidebar .shell-brand {
-  min-height: 36px;
-  padding: 0 14px;
-  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  gap: 10px;
+}
+.console-sidebar .shell-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+.console-sidebar .shell-collapse:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.console-sidebar .shell-collapse svg {
+  width: 18px;
+  height: 18px;
+}
+.console-sidebar .shell-collapse--brand {
+  width: 44px;
+  height: 44px;
+}
+.console-sidebar .shell-collapse--brand:hover .brand-mark {
+  border-color: var(--ink);
+}
+.console-shell[data-sidebar-collapsed="true"] .shell-sidebar-header {
+  justify-content: center;
 }
 .console-sidebar .brand-mark {
   flex-shrink: 0;
@@ -60,29 +99,16 @@
 .shell-header .shell-header-leading {
   display: flex;
   align-items: center;
+  flex: 1;
   gap: 14px;
   min-width: 0;
 }
-.shell-header .shell-collapse {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--muted);
+.shell-header .shell-page-heading {
+  flex: 1;
+  min-width: 0;
 }
-.shell-header .shell-collapse:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-.shell-header .shell-collapse svg {
-  width: 18px;
-  height: 18px;
+.shell-header .shell-page-heading:empty {
+  display: none;
 }
 .console-shell[data-sidebar-collapsed="true"] .sidebar-label {
   display: none;
@@ -101,7 +127,12 @@
   color: var(--muted);
 }
 .shell-header .instance-header-name {
+  flex: 0 1 auto;
+  max-width: min(28ch, 30vw);
   font-size: 13px;
+}
+.shell-header .shell-instance-icon {
+  flex-shrink: 0;
 }
 .shell-header .instance-header-name > span:last-child {
   overflow: hidden;
@@ -130,9 +161,8 @@
   .console-shell .console-sidebar {
     display: contents;
   }
-  .console-sidebar .shell-brand,
-  .console-sidebar .shell-sidebar-footer,
-  .shell-header .shell-collapse {
+  .console-sidebar .shell-sidebar-header,
+  .console-sidebar .shell-sidebar-footer {
     display: none;
   }
   .console-shell .console-workspace {
@@ -145,6 +175,7 @@
     gap: 12px;
   }
   .shell-header .instance-header-name {
+    max-width: min(28ch, 48vw);
     color: var(--ink);
     gap: 12px;
   }

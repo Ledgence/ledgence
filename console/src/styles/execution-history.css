@@ -108,9 +108,37 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.history-table-panel > .page-controls {
-  padding: 14px 18px;
+.history-load-more {
+  min-height: 62px;
+  display: grid;
+  align-items: center;
+  padding: 16px 20px;
   border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.history-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.history-load-error p {
+  margin: 0;
+  flex: 1 1 240px;
+}
+.history-load-error .button {
+  flex: 0 0 auto;
+}
+.history-loading::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--focus);
 }
 .history-table-panel > .notice {
   margin: 16px;
@@ -146,7 +174,7 @@
     padding-left: 14px;
     min-width: 205px;
   }
-  .history-table-panel > .page-controls {
+  .history-load-more {
     padding: 14px;
   }
   .history-table-panel .history-table .execution-id {

@@ -10,9 +10,11 @@ import { QueryError } from "./resource-ui";
 export function ExecutionContext({
   kind,
   id,
+  title,
 }: {
   kind: "task" | "workflow";
   id: string;
+  title?: string;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -32,8 +34,19 @@ export function ExecutionContext({
     /^\/(executions|workflows)(\?|$)/.test(location.state.returnTo)
       ? (location.state.returnTo as string)
       : null;
+  const returnNavigationKey =
+    location.state &&
+    typeof location.state.returnNavigationKey === "string" &&
+    location.state.returnNavigationKey.length > 0
+      ? (location.state.returnNavigationKey as string)
+      : null;
   const listDestination = returnTo
-    ? { to: returnTo }
+    ? {
+        to: returnTo,
+        ...(returnNavigationKey
+          ? { state: { restoreNavigationKey: returnNavigationKey } }
+          : {}),
+      }
     : contextDestination("/executions");
   const itemLink = (item: (typeof path)[number]) => (
     <Link
@@ -46,27 +59,31 @@ export function ExecutionContext({
     </Link>
   );
   return (
-    <div className="execution-context">
+    <div
+      className={`execution-context${title ? " execution-heading-context" : ""}`}
+    >
       <div className="context-actions">
         <Button
           variant="ghost"
+          title={title ? "Back" : undefined}
           onClick={() => {
             if (location.key !== "default") void navigate(-1);
             else void navigate("/executions");
           }}
         >
           <ArrowLeft aria-hidden="true" />
-          Back
+          <span className={title ? "sr-only" : undefined}>Back</span>
         </Button>
         {parent && (
           <Link
             className="back-link"
+            title={title ? "Up to parent" : undefined}
             {...contextDestination(
               executionPath(parent.execution.kind, parent.execution.id),
             )}
           >
             <ArrowUp aria-hidden="true" />
-            Up to parent
+            <span className={title ? "sr-only" : undefined}>Up to parent</span>
           </Link>
         )}
       </div>
@@ -100,7 +117,11 @@ export function ExecutionContext({
             ))
           )}
           <li aria-current="page">
-            {current?.program?.id ?? (kind === "task" ? "Task" : "Workflow")}
+            {title ? (
+              <h1 title={title}>{title}</h1>
+            ) : (
+              (current?.program?.id ?? (kind === "task" ? "Task" : "Workflow"))
+            )}
           </li>
         </ol>
       </nav>

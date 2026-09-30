@@ -273,6 +273,7 @@ export function WorkflowResources({
             <Empty>No controller attempts are available on this page.</Empty>
           )}
           <PageControls
+            navigationOnly
             pagination={paging}
             nextCursor={query.data.next_cursor}
             observedAt={query.data.observed_at}
