@@ -24,7 +24,7 @@ fn python() -> String {
 async fn command_output(args: &[&str]) -> Output {
     let output = tokio::time::timeout(
         Duration::from_secs(30),
-        Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+        Command::new(env!("CARGO_BIN_EXE_ledgence"))
             .args(args)
             .env("RUST_LOG", "warn")
             .kill_on_drop(true)
@@ -54,6 +54,7 @@ impl Fixture {
         let temp = tempfile::tempdir().unwrap();
         let example = temp.path().join("example");
         command_output(&[
+            "program",
             "example",
             "--directory",
             example.to_str().unwrap(),
@@ -103,6 +104,7 @@ def handle(event):
         std::fs::write(tasks_path, serde_json::to_vec(&tasks).unwrap()).unwrap();
         let store = temp.path().join("store");
         command_output(&[
+            "program",
             "publish",
             "--source",
             example.join("program").to_str().unwrap(),
@@ -123,8 +125,8 @@ def handle(event):
     fn spawn(&self, concurrency: &str, timeout_ms: &str, logs: bool) -> RunningWorker {
         let runner = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../sdk/python/ledgence/worker/bootstrap.py");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
-            .args(["run", "--tasks"])
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ledgence"))
+            .args(["worker", "run", "--tasks"])
             .arg(self.example.join("tasks.json"))
             .arg("--store")
             .arg(&self.store)

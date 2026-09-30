@@ -5,7 +5,7 @@ This parent starts the page-processing workflow from the [checkpoint example](..
 Prepare and publish the checkpoint example's `workflow-example` 1.0.1 and `workflow-summary` 1.0.0 packages first, then start its orchestrator, page server and worker. Reuse its exported `workflow_demo` directory and `LEDGENCE_PYTHON` interpreter. From the repository root, publish this parent:
 
 ```sh
-./target/debug/ledgence-worker example --directory "$workflow_demo/owned" --python "$LEDGENCE_PYTHON"
+./target/debug/ledgence program example --directory "$workflow_demo/owned" --python "$LEDGENCE_PYTHON"
 "$LEDGENCE_PYTHON" - <<'PYTHON'
 import json, os, shutil
 from pathlib import Path
@@ -17,7 +17,7 @@ value["runtime"]["protocol"] = 3
 manifest.write_text(json.dumps(value))
 shutil.copyfile("examples/owned-subworkflows/program.py", package / "program.py")
 PYTHON
-./target/debug/ledgence-worker publish --source "$workflow_demo/owned/program" --store "$workflow_demo/store"
+./target/debug/ledgence program publish --source "$workflow_demo/owned/program" --store "$workflow_demo/store"
 ```
 
 Submit the parent with the Python client, using the checkpoint example's `acme` tenant and `demo` namespace:

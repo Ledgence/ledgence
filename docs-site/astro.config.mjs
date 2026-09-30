@@ -36,6 +36,7 @@ export default defineConfig({
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
       ] },
       { label: 'Reference', items: [
+        { label: 'Command-line interface', slug: 'reference/cli' },
         { label: 'Console', slug: 'reference/console' },
         { label: 'Workflow context', slug: 'reference/workflow-context' },
         { label: 'Python client', slug: 'reference/python-client' },

@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix="ledgence-publish-") as temporary:
         ("workflow-summary", "1.0.0", 2, "child"),
     ]:
         directory = Path(temporary) / name
-        subprocess.run(["ledgence-worker", "example", "--directory", directory,
+        subprocess.run(["ledgence", "program", "example", "--directory", directory,
                         "--python", "/usr/local/bin/python3"], check=True)
         package = directory / "program"
         manifest = package / "ledgence-program.json"
@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="ledgence-publish-") as temporary:
             shutil.copyfile(Path("/opt/ledgence/examples/checkpoint-workflow") / source / "program.py", package / "program.py")
         else:
             (package / "program.py").write_text(TASK)
-        subprocess.run(["ledgence-worker", "publish", "--source", package, "--store", "/programs"], check=True)
+        subprocess.run(["ledgence", "program", "publish", "--source", package, "--store", "/programs"], check=True)
 
         # Artifact publication is immutable and precedes catalog registration.
         # A failed registration leaves a valid artifact; rerun this command to

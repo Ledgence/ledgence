@@ -90,6 +90,9 @@ lives beside the implementation so documentation can evolve with the code.
 
 For the complete self-hosted stack, use the [local Compose deployment](docs/local-deployment.md).
 The example below exercises program publication, local execution, and process reuse.
+The current source tree provides one `ledgence` executable; see the
+[CLI command groups and migration guide](docs/cli.md). Published release bundles
+retain the command layout documented with their release.
 The [bundle packaging guide](docs/releasing.md) describes qualification and artifact
 preparation for maintainers.
 
@@ -99,14 +102,14 @@ From the repository root:
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
-cargo build --workspace --locked
+cargo build -p ledgence-cli --locked
 
 demo_dir="$(mktemp -d)"
-cargo run --locked -p ledgence-worker -- example \
+cargo run --locked -p ledgence-cli -- program example \
   --directory "$demo_dir/example" --python "$LEDGENCE_PYTHON"
-cargo run --locked -p ledgence-worker -- publish \
+cargo run --locked -p ledgence-cli -- program publish \
   --source "$demo_dir/example/program" --store "$demo_dir/store"
-cargo run --locked -p ledgence-worker -- run \
+cargo run --locked -p ledgence-cli -- worker run \
   --tasks "$demo_dir/example/tasks.json" \
   --store "$demo_dir/store" --cache "$demo_dir/cache" \
   --python "$LEDGENCE_PYTHON" \
@@ -163,7 +166,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --lock
 cargo deny --locked check
 ```
 
-Install the reviewed dependency checker with `cargo install cargo-deny --version 0.20.2 --locked`. Tests include real Python subprocesses, archive integrity and limits, cache recovery, cancellation, process capacity, and the full publish-to-execution flow. Delivery fault tests exercise lease expiry and uncertain replies. Real PostgreSQL/Python delivery tests run separately through the [database gate](docs/postgres.md#verification); ordinary workspace tests leave those explicitly ignored. The [HTTP acceptance gate](docs/http-orchestration.md#verification) runs separate server, worker, and CLI binaries with a real database and fault proxy. Git integration follows feature branches from `develop`, passing checks before merging back; `main` is reserved for stable releases.
+Install the reviewed dependency checker with `cargo install cargo-deny --version 0.20.2 --locked`. Tests include real Python subprocesses, archive integrity and limits, cache recovery, cancellation, process capacity, and the full publish-to-execution flow. Delivery fault tests exercise lease expiry and uncertain replies. Real PostgreSQL/Python delivery tests run separately through the [database gate](docs/postgres.md#verification); ordinary workspace tests leave those explicitly ignored. The [HTTP acceptance gate](docs/http-orchestration.md#verification) runs separate server, worker, and task-client processes using the `ledgence` executable with a real database and fault proxy. Git integration follows feature branches from `develop`, passing checks before merging back; `main` is reserved for stable releases.
 
 ## License
 

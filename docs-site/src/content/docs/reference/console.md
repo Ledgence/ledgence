@@ -103,8 +103,8 @@ Create an instance configuration file:
 With `DATABASE_URL` set for the intended PostgreSQL database, run from the source checkout:
 
 ```sh
-cargo run --locked -p ledgence-orchestrator -- migrate
-cargo run --locked -p ledgence-orchestrator -- serve \
+cargo run --locked -p ledgence-cli -- orchestrator migrate
+cargo run --locked -p ledgence-cli -- orchestrator serve \
   --store /absolute/path/to/program-store \
   --bind 127.0.0.1:8080 \
   --instance-config /absolute/path/to/instance.json \

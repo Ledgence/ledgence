@@ -101,13 +101,13 @@ binding before starting; see [binding and migration](self-hosted-instance.md).
 With `DATABASE_URL` set for the intended database, from a source checkout:
 
 ```sh
-cargo run -p ledgence-orchestrator -- migrate
-cargo run -p ledgence-orchestrator -- serve --store /path/to/program-store \
+cargo run -p ledgence-cli -- orchestrator migrate
+cargo run -p ledgence-cli -- orchestrator serve --store /path/to/program-store \
   --bind 127.0.0.1:8080 --instance-config /path/to/instance.json \
   --console-dir console/dist
 ```
 
-For an extracted native bundle use `bin/ledgence-orchestrator` and
+For a newly built native bundle use `bin/ledgence orchestrator serve` and
 `--console-dir /absolute/path/to/bundle/console`. Keep `--instance-config` on every
 startup, even if assets are disabled by omitting `--console-dir`. A missing,
 modified or incompatible static asset fails startup before coordinators begin.

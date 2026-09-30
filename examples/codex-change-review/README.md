@@ -52,7 +52,7 @@ one slot by routing its test-owned packages through one queue.
 
 ## Requirements
 
-- Current Ledgence source containing this directory, matching Rust binaries and
+- Current Ledgence source containing this directory, a matching `ledgence` executable and
   all migrations, including workflow forks. Published `v0.1.1` source/native
   artifacts do not provide this example's workflow API.
 - CPython **3.13** on a supported macOS or Linux host. Prepare packages on the
@@ -78,7 +78,7 @@ Commands below run from the repository root.
 Build Ledgence and install the reviewed client dependencies in a virtual environment:
 
 ```sh
-cargo build --workspace --locked
+cargo build -p ledgence-cli --locked
 export CHANGE_HOME="$HOME/.local/share/ledgence-change-review"
 python3.13 -m venv "$CHANGE_HOME/client"
 "$CHANGE_HOME/client/bin/python" -m pip install --require-hashes --only-binary=:all: \
@@ -145,8 +145,8 @@ existing store.
 ```sh
 python3.13 examples/codex-change-review/prepare.py --directory "$CHANGE_HOME/prepared"
 export DATABASE_URL="$LEDGENCE_POSTGRES_URL"
-target/debug/ledgence-orchestrator migrate
-target/debug/ledgence-orchestrator serve --bind 127.0.0.1:8084 \
+target/debug/ledgence orchestrator migrate
+target/debug/ledgence orchestrator serve --bind 127.0.0.1:8084 \
   --store "$CHANGE_HOME/prepared/store" \
   --instance-config "$CHANGE_HOME/prepared/instance.json"
 ```
@@ -169,7 +169,7 @@ target/debug/ledgence program register --server http://127.0.0.1:8084 \
 Start the control worker, reusing the same `CHANGE_HOME`:
 
 ```sh
-target/debug/ledgence-worker connect --server http://127.0.0.1:8084 \
+target/debug/ledgence worker connect --server http://127.0.0.1:8084 \
   --tenant acme --namespace demo --queue change-review \
   --store "$CHANGE_HOME/prepared/store" --cache "$CHANGE_HOME/cache-control" \
   --python "$(command -v python3.13)" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
@@ -180,7 +180,7 @@ In a separate terminal, start the agent worker. Export `LEDGENCE_CODEX_BIN` to
 the same authenticated executable there:
 
 ```sh
-target/debug/ledgence-worker connect --server http://127.0.0.1:8084 \
+target/debug/ledgence worker connect --server http://127.0.0.1:8084 \
   --tenant acme --namespace demo --queue change-review-agents \
   --store "$CHANGE_HOME/prepared/store" --cache "$CHANGE_HOME/cache-agents" \
   --python "$(command -v python3.13)" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \

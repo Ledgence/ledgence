@@ -9,10 +9,10 @@ This guide applies to the Console implementation in the current source tree. The
 
 ## Publish the package first
 
-Prepare the application, its dependencies, and `ledgence-program.json` for the worker's target Python version and platform. Publish with a `ledgence-worker` built from the same source checkout:
+Prepare the application, its dependencies, and `ledgence-program.json` for the worker's target Python version and platform. Publish with the `ledgence` CLI built from the same source checkout:
 
 ```sh
-cargo run --locked -p ledgence-worker -- publish \
+cargo run --locked -p ledgence-cli -- program publish \
   --source /absolute/path/to/prepared-package \
   --store /absolute/path/to/program-store
 ```
@@ -33,7 +33,7 @@ cargo run --locked -p ledgence-cli -- program register \
   --program invoice-issuer --version 1.0.0 --kind task
 ```
 
-With matching built binaries on your path, the equivalent command begins with `ledgence program register`.
+With the matching `ledgence` executable on your path, the equivalent command begins with `ledgence program register`.
 
 Choose the intended use explicitly:
 

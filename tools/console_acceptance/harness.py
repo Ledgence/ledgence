@@ -36,7 +36,7 @@ class ConsoleDeployment(Deployment):
         port = port or self.server_port
         self.counter += 1
         process = Process([
-            str(self.binaries / "ledgence-orchestrator"), "serve", "--bind", f"127.0.0.1:{port}",
+            str(self.binaries / "ledgence"), "orchestrator", "serve", "--bind", f"127.0.0.1:{port}",
             "--store", self.artifacts.url, "--instance-config", str(self.instance_file),
             "--console-dir", str(self.console_dist),
         ], self.directory, f"server-{self.counter}", self.environment)

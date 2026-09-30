@@ -444,7 +444,7 @@ def main():
             )
         )
         subprocess.run(
-            [str(d.binaries / 'ledgence-orchestrator'), 'migrate'],
+            [str(d.binaries / 'ledgence'), 'orchestrator', 'migrate'],
             env=d.environment,
             check=True,
             capture_output=True,

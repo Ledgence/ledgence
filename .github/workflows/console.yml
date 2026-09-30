@@ -59,10 +59,10 @@ jobs:
         run: |
           pnpm --dir console test
           pnpm --dir console test:e2e
-      - name: Build source-qualified static assets and Rust executables
+      - name: Build source-qualified static assets and the Ledgence executable
         run: |
           pnpm --dir console build
-          cargo build --locked --all-features --bins -p ledgence-cli -p ledgence-orchestrator -p ledgence-worker
+          cargo build --locked --all-features -p ledgence-cli --bin ledgence
       - name: Exercise Console with real PostgreSQL, HTTP, workers and browsers
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}

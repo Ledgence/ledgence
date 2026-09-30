@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real Rust HTTP/PostgreSQL/Python acceptance for Ledgence Console.
 
-Requires an explicitly prepared --console-dist, native binaries, CPython >=3.11,
+Requires an explicitly prepared --console-dist, the ledgence executable, CPython >=3.11,
 psql and LEDGENCE_POSTGRES_URL naming a disposable server that permits database
 creation. Creates and drops only a unique test database; never restarts that
 server. Browser behavior, container recreation and relocated release bundles have
@@ -56,7 +56,7 @@ def main():
     parser.add_argument("--console-dist", type=Path, required=True,
                         help="existing compiled Console directory; no Node build is implicit")
     parser.add_argument("--binaries", type=Path, required=True,
-                        help="directory containing ledgence, ledgence-worker and ledgence-orchestrator")
+                        help="directory containing the ledgence executable")
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--evidence", type=Path, help="new directory for logs, resources and results")
     parser.add_argument("--hold-seconds", type=int, default=0,
@@ -75,7 +75,7 @@ def main():
         parser.error("use either --browser-command or --hold-seconds")
     root = Path(__file__).resolve().parents[1]
     binaries, dist = args.binaries.resolve(), args.console_dist.resolve()
-    for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator"):
+    for name in ("ledgence",):
         if not (binaries / name).is_file():
             parser.error(f"missing executable: {binaries / name}")
     if not (dist / "index.html").is_file() or not (dist / "assets").is_dir():
@@ -112,7 +112,7 @@ def main():
         deployment = ConsoleDeployment(root, directory, binaries, python, database_url, args.psql, console_dist=prepared_dist)
         workflow_gate = runpy.run_path(str(root / "tools/check-workflows.py"))
         delay = workflow_gate["DelayServer"]()
-        migration = subprocess.run([str(binaries / "ledgence-orchestrator"), "migrate"],
+        migration = subprocess.run([str(binaries / "ledgence"), "orchestrator", "migrate"],
                                    env=deployment.environment, capture_output=True, timeout=60)
         assert migration.returncode == 0, migration.stderr.decode(errors="replace")[-3000:]
         deployment.server, _ = deployment.start_server()
@@ -122,7 +122,7 @@ def main():
             "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip(),
             "working_tree": subprocess.check_output(["git", "status", "--short"], cwd=root).decode(),
             "binaries": {name: hashlib.sha256((binaries / name).read_bytes()).hexdigest()
-                         for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator")},
+                         for name in ("ledgence",)},
             "console_assets": {str(path.relative_to(prepared_dist)): hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in sorted(prepared_dist.rglob("*")) if path.is_file()},
             "source_fixtures": ["tools/http_acceptance/harness.py", "tools/check-workflows.py",

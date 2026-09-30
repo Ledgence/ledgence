@@ -9,8 +9,6 @@ use ledgence_orchestration_api::{
 use ledgence_worker_api::ProgramRef;
 use std::{collections::HashMap, path::PathBuf};
 
-pub const HELP: &str = "Ledgence task administration\n\nCommands:\n  program register --server URL --program ID --version VERSION [--kind task|workflow|unspecified] [--display-name NAME] [--description TEXT] [--update-metadata true]\n  task submit --server URL --file FILE\n  task list --server URL --tenant ID --namespace ID [--state STATE] [--queue NAME] [--correlation-key KEY] [--submitted-from MS] [--submitted-until MS] [--limit N] [--cursor CURSOR]\n  task inspect --server URL --tenant ID --namespace ID --task ID\n  task status --server URL --tenant ID --namespace ID --task ID\n  task result --server URL --tenant ID --namespace ID --task ID\n  task attempt --server URL --tenant ID --namespace ID --task ID --attempt ID\n  task history --server URL --tenant ID --namespace ID --task ID [--after N]\n  task cancel --server URL --tenant ID --namespace ID --task ID\n\nsubmit reads the complete SubmitCommand JSON, including its idempotency_key.\nEach command makes one bounded HTTP exchange without automatic retries.\nJSON results go to stdout; diagnostics and Request-Id go to stderr.\nExit 0 means accepted operation, 2 means invalid input/usage, 1 means failure.\nA successful submit confirms acceptance, not successful task execution.\n";
-
 #[derive(Debug)]
 pub enum Command {
     Help,

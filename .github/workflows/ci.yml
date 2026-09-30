@@ -64,7 +64,7 @@ jobs:
       - name: Check Codex descendant cleanup without model requests
         if: matrix.python == '3.13'
         run: |
-          cargo build -p ledgence-worker --locked
+          cargo build -p ledgence-cli --bin ledgence --locked
           python examples/codex-support-agent/check_cleanup.py --binaries target/debug
       - name: Test Rust documentation
         run: cargo test --workspace --doc --all-features --locked
@@ -176,7 +176,7 @@ jobs:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
-          cargo build --workspace --bins --all-features --locked
+          cargo build -p ledgence-cli --bin ledgence --all-features --locked
           python tools/check-sqs.py --endpoint http://127.0.0.1:9324 \
             --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
             --evidence "$RUNNER_TEMP/ledgence-sqs-evidence"

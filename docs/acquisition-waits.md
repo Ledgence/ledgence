@@ -1,6 +1,6 @@
 # Acquisition waits
 
-Workers use the existing `POST /v1/acquisitions` route with `wait_ms: 20000` by default. Omitting the field means immediate completion. `ledgence-worker connect --acquire-wait-ms 0` selects immediate operation, including compatibility with older servers that reject additional fields. There is still one execution concurrency parameter: N consumers and at most N managed subprocesses per worker.
+Workers use the existing `POST /v1/acquisitions` route with `wait_ms: 20000` by default. Omitting the field means immediate completion. `ledgence worker connect --acquire-wait-ms 0` selects immediate operation, including compatibility with older servers that reject additional fields. There is still one execution concurrency parameter: N consumers and at most N managed subprocesses per worker.
 
 An acquisition key is scope, queue, session, consumer and sequence. Wait preference is separate from that identity. A latest completed Empty stays Empty after another task arrives. Replaying an assignment returns its immutable event and descriptor with fresh authority; it never returns a cached TTL. An older sequence becomes obsolete after its successor completes.
 

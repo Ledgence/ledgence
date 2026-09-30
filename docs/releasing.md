@@ -42,16 +42,20 @@ verification described above.
 Offline mode requires the prepared, reviewed static build as well as Cargo/Python
 caches; it never silently fetches frontend dependencies.
 
-The output directory must be new and outside checkout. The tool builds optimized
-binaries with `--locked`, packages the worker helper, rebuilds the SDK wheel from
+The output directory must be new and outside checkout. The tool builds an optimized
+`ledgence` executable with `--locked`, packages the worker helper, rebuilds the SDK wheel from
 its sdist, runs the existing installed-client base/optional-OTel tests and legal
 gates, inventories the selected normal/build Cargo graph and Rust toolchain
-copyrights, and exercises the relocated binaries/helper with a real host Python
+copyrights, and exercises the relocated executable/helper with a real host Python
 process. It rejects a changed or dirty source tree before finalizing.
+
+Bundles built from the current source contain one public executable. The already
+published native `0.1.0` bundle retains its three original executables; see its
+own documentation. The [CLI migration guide](cli.md) maps the command prefixes.
 
 The archive contains:
 
-- `bin/ledgence`, `bin/ledgence-orchestrator`, `bin/ledgence-worker`;
+- `bin/ledgence`, the unified CLI for program, worker, orchestrator and task commands;
 - `console/` containing verified static assets, manifest and retained notices (unless explicitly headless);
 - `runtime/ledgence/worker/`, preserving the native Python namespace;
 - `python-client/` with the tested wheel and source distribution;
@@ -61,7 +65,7 @@ The archive contains:
   and a checksum inventory for every included file.
 
 The actual archive is extracted, its complete file inventory and checksums verified,
-and its relocated binaries/helper executed again before the tool reports success. A Console bundle additionally starts its extracted orchestrator against a uniquely created disposable PostgreSQL database and verifies all assets, notices, deep links and actual Console APIs.
+and its relocated executable/helper executed again before the tool reports success. A Console bundle additionally starts its extracted orchestrator against a uniquely created disposable PostgreSQL database and verifies all assets, notices, deep links and actual Console APIs.
 You can repeat this check with `python3 tools/release/verify.py --archive ARCHIVE`.
 
 The release directory has an outer `SHA256SUMS` for the archive. After extracting,

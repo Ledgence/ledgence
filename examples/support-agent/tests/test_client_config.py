@@ -58,6 +58,8 @@ class ClientConfigTests(unittest.TestCase):
                     self.assertEqual(arguments[arguments.index("--queue") + 1], expected)
                     self.assertEqual(arguments[arguments.index("--concurrency") + 1], "1")
                     self.assertEqual(executable, arguments[0])
+                    self.assertEqual(Path(executable).name, "ledgence")
+                    self.assertEqual(arguments[1:3], ["worker", "connect"])
                     self.assertEqual(environment, {"DEMO_TEST": "yes"})
 
     def test_credentials_are_read_as_data_and_only_in_worker_environment(self):

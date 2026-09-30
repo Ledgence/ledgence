@@ -52,8 +52,8 @@ def prepare(directory, binaries):
     directory, binaries = directory.resolve(), binaries.resolve()
     if directory.is_relative_to(ROOT):
         raise ValueError("choose a new output directory outside the repository")
-    if not (binaries / "ledgence-worker").is_file():
-        raise ValueError("build the Ledgence binaries first")
+    if not (binaries / "ledgence").is_file():
+        raise ValueError("build the Ledgence CLI first")
     directory.mkdir(parents=True, exist_ok=False)
     descriptors, sizes = {}, {}
     for kind, name, protocol in (("agent", "codex-support-agent", 2),
@@ -68,7 +68,7 @@ def prepare(directory, binaries):
                     "platform": {"os": operating_system, "arch": architecture}}
         (package / "ledgence-program.json").write_text(json.dumps(manifest, indent=2) + "\n")
         sizes[kind] = validate_package(package)
-        result = subprocess.run([str(binaries / "ledgence-worker"), "publish", "--source", str(package),
+        result = subprocess.run([str(binaries / "ledgence"), "program", "publish", "--source", str(package),
                                  "--store", str(directory / "store")],
                                 capture_output=True, text=True, check=True, timeout=60)
         descriptors[kind] = json.loads(result.stdout)

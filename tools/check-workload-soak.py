@@ -228,7 +228,7 @@ def main():
         cli.error('PostgreSQL URL must not override database in query')
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries.resolve()
-    hashes = {name: PERFORMANCE['digest'](binaries / name) for name in ('ledgence', 'ledgence-worker', 'ledgence-orchestrator')}
+    hashes = {name: PERFORMANCE['digest'](binaries / name) for name in ('ledgence',)}
     directory = args.evidence or Path(tempfile.mkdtemp(prefix='ledgence-workload-soak-'))
     if args.evidence:
         directory.mkdir(parents=True, exist_ok=False)
@@ -273,7 +273,7 @@ def main():
         receiver = Receiver(directory / 'callbacks.jsonl', math.ceil(args.max_operations / 7))
         d.completion_config = directory / 'completions.json'
         d.completion_config.write_text(json.dumps(dict(destinations=[dict(scope=d.scope, destination='soak', url=receiver.url)])))
-        subprocess.run([str(binaries / 'ledgence-orchestrator'), 'migrate'], env=d.environment,
+        subprocess.run([str(binaries / 'ledgence'), 'orchestrator', 'migrate'], env=d.environment,
                        check=True, capture_output=True, timeout=650)
         d.server, _ = d.start_server()
         workers = [d.start_worker(concurrency=args.concurrency, cache=f'cache-{index}') for index in range(args.workers)]

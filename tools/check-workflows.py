@@ -180,7 +180,7 @@ class DelayServer:
 
 def publish(d, name, source, version='1.0.0'):
     directory = d.directory / ('source-' + name)
-    info = d.command('ledgence-worker', ['example', '--directory', str(directory), '--python', d.python])
+    info = d.command('ledgence', ['program', 'example', '--directory', str(directory), '--python', d.python])
     package = Path(info['program'])
     manifest_file = package / 'ledgence-program.json'
     manifest = json.loads(manifest_file.read_text())
@@ -188,7 +188,7 @@ def publish(d, name, source, version='1.0.0'):
     manifest['runtime']['protocol'] = 3
     manifest_file.write_text(json.dumps(manifest))
     (package / 'program.py').write_text(source)
-    return d.command('ledgence-worker', ['publish', '--source', str(package), '--store', str(d.store)])
+    return d.command('ledgence', ['program', 'publish', '--source', str(package), '--store', str(d.store)])
 
 
 def records(d, tag, kind=None):
@@ -620,7 +620,7 @@ def artifact_metadata(root, binaries, python, d):
             aggregate_sha256=hashlib.sha256(encoded).hexdigest(),file_hashes='source-sha256.json'),
         binaries=dict(directory=str(binaries),profile_hint=binaries.name if binaries.name in ('debug','release') else 'custom',
             profile_hint_basis='directory name only; compiler options are not inferred',
-            sha256={name:sha256(binaries/name) for name in ('ledgence','ledgence-worker','ledgence-orchestrator')}),
+            sha256={name:sha256(binaries/name) for name in ('ledgence',)}),
         hardware=dict(os=platform.platform(),machine=platform.machine(),model=hardware,processor=processor,
             logical_cpus=os.cpu_count(),memory_bytes=memory),
         software=dict(rustc=command(['rustc','--version']),cargo=command(['cargo','--version']),
@@ -687,14 +687,14 @@ def main():
     python = os.environ.get('LEDGENCE_PYTHON',sys.executable)
     binaries = args.binaries
     if binaries is None:
-        command = ['cargo','build','--workspace','--bins','--locked']
+        command = ['cargo','build','-p','ledgence-cli','--bin','ledgence','--locked']
         if args.endpoint:
             command.append('--all-features')
         subprocess.run(command,cwd=root,check=True)
         metadata = json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1','--locked'],cwd=root))
         binaries = Path(metadata['target_directory'])/'debug'
     binaries = binaries.resolve()
-    for binary in ('ledgence','ledgence-worker','ledgence-orchestrator'):
+    for binary in ('ledgence',):
         if not (binaries/binary).is_file():
             parser.error(f'missing executable {binaries/binary}')
     temporary = not args.evidence
@@ -746,7 +746,7 @@ def main():
             'mixed-workflow':publish(deployment,'mixed-workflow',(root/'examples/mixed-workflow/program.py').read_text(),version='1.0.1'),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
-        migration = subprocess.run([str(binaries/'ledgence-orchestrator'),'migrate'],env=deployment.environment,capture_output=True,timeout=40)
+        migration = subprocess.run([str(binaries/'ledgence'),'orchestrator','migrate'],env=deployment.environment,capture_output=True,timeout=40)
         assert migration.returncode==0,migration.stderr.decode(errors='replace')[-3000:]
         deployment.server,_ = deployment.start_server()
         delay = DelayServer()

@@ -3,7 +3,10 @@
 Start with a Python program, explore durable workflow patterns, or run an agent
 with an optional provider integration. This catalog also includes client and
 transport examples. Follow each linked setup before running the code; commands
-normally run from the repository root.
+normally run from the repository root. Current-source examples use one
+`ledgence` executable, built with `cargo build -p ledgence-cli --locked`. The
+[CLI guide](../docs/cli.md) maps commands from earlier releases. Example tooling
+accepts `--binaries DIRECTORY` pointing to the directory containing `ledgence`.
 
 ## Programs and workflows
 

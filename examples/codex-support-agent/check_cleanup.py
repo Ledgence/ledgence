@@ -66,9 +66,9 @@ def task(number):
 
 def check(binaries):
     operating_system, architecture = target()
-    binary = binaries.resolve() / "ledgence-worker"
+    binary = binaries.resolve() / "ledgence"
     if not binary.is_file():
-        raise ValueError("build ledgence-worker first")
+        raise ValueError("build ledgence first")
     with tempfile.TemporaryDirectory(prefix="ledgence-codex-retirement-") as temporary:
         scratch = Path(temporary)
         package = scratch / "package"
@@ -86,14 +86,14 @@ def check(binaries):
         environment = {name: value for name, value in os.environ.items()
                        if name in {"HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL"}}
         environment.update(LEDGENCE_CODEX_BIN=str(fake), PYTHONDONTWRITEBYTECODE="1")
-        publication = subprocess.run([str(binary), "publish", "--source", str(package),
+        publication = subprocess.run([str(binary), "program", "publish", "--source", str(package),
                                       "--store", str(scratch / "store")], env=environment,
                                      capture_output=True, timeout=20)
         if publication.returncode:
             raise ValueError("offline fixture publication failed")
         try:
             result = subprocess.run([
-                str(binary), "run", "--tasks", str(tasks), "--store", str(scratch / "store"),
+                str(binary), "worker", "run", "--tasks", str(tasks), "--store", str(scratch / "store"),
                 "--cache", str(scratch / "cache"), "--python", sys.executable,
                 "--runner", str(ROOT / "sdk/python/ledgence/worker/bootstrap.py"),
                 "--concurrency", "1", "--timeout-ms", "10000",

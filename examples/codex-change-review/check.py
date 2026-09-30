@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Native acceptance with owned databases; offline unless --live-codex is explicit (MIT).
 
-Requires CPython 3.13, built binaries, the installed Python client, and an existing
+Requires CPython 3.13, a built ledgence executable, the installed Python client, and an existing
 PostgreSQL server allowing CREATE DATABASE through LEDGENCE_POSTGRES_URL. The gate
 never restarts that server. Each deployment owns a unique database and processes.
 """
@@ -94,14 +94,14 @@ class ChangeDeployment(Deployment):
             if kind == "workflow" and variant != "production":
                 with (package / "program.py").open("a") as output:
                     output.write(fixture_wrapper(config_path, one_slot=variant == "one-slot-fixture"))
-            self.descriptors[kind] = self.command("ledgence-worker", [
-                "publish", "--source", str(package), "--store", str(self.store)])
+            self.descriptors[kind] = self.command("ledgence", [
+                "program", "publish", "--source", str(package), "--store", str(self.store)])
         self.environment.update(PYTHONDONTWRITEBYTECODE="1", LEDGENCE_CODEX_BIN=str(args.codex_bin))
         self.server = None
 
     def start_server(self, port=None):
         self.counter += 1
-        process = Process([str(self.binaries / "ledgence-orchestrator"), "serve", "--bind",
+        process = Process([str(self.binaries / "ledgence"), "orchestrator", "serve", "--bind",
                            f"127.0.0.1:{port or self.server_port}", "--store", self.artifacts.url,
                            "--instance-config", str(self.instance_file)],
                           self.directory, f"server-{self.counter}", self.environment)
@@ -182,7 +182,7 @@ def deployment(args, evidence, prepared, config_path, variant):
     admin(f'CREATE DATABASE "{database}"')
     try:
         owned = ChangeDeployment(directory, args, url, prepared, config_path, variant=variant)
-        owned.command("ledgence-orchestrator", ["migrate"])
+        owned.command("ledgence", ["orchestrator", "migrate"])
         dump(directory / "resources.json", {"database": database, "package_variant": variant,
              "packages": owned.descriptors, "worker_capacity_each": 1, "live_codex": args.live_codex})
         owned.start_server()
@@ -338,7 +338,7 @@ def main():
     try:
         from ledgence.client import AsyncClient  # Fail before starting services if the client is missing.
         binaries = {name: hashlib.sha256((args.binaries / name).read_bytes()).hexdigest()
-                    for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator")}
+                    for name in ("ledgence",)}
         fixture_sources = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                            for path in (Path(__file__), HERE / "tests/fake_codex.py",
                                         ROOT / "tools/http_acceptance/harness.py")}

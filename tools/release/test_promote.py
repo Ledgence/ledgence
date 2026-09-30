@@ -37,8 +37,7 @@ class PromotionTests(unittest.TestCase):
         self.stage = self.root / self.label
         self.stage.mkdir()
         self.payload = {
-            "bin/ledgence": b"cli\x00bytes\n", "bin/ledgence-worker": b"worker\x00bytes\n",
-            "bin/ledgence-orchestrator": b"orchestrator\x00bytes\n",
+            "bin/ledgence": b"cli\x00bytes\n",
             "runtime/ledgence/worker/bootstrap.py": b"# unchanged helper\n",
             "python-client/ledgence_client-0.1.0-py3-none-any.whl": b"unchanged wheel",
             "python-client/ledgence_client-0.1.0.tar.gz": b"unchanged sdist",
@@ -131,6 +130,27 @@ class PromotionTests(unittest.TestCase):
         for name, data in originals.items():
             self.assertEqual((stable / name).read_bytes(), data)
 
+    def test_rejects_retired_or_extra_binary_even_with_valid_checksums(self):
+        for name in ("ledgence-worker", "ledgence-orchestrator", "extra"):
+            with self.subTest(name=name):
+                path = self.stage / "bin" / name
+                path.write_bytes(b"unexpected executable")
+                path.chmod(0o755)
+                self.manifest()
+                self.rearchive()
+                with self.assertRaisesRegex(ValueError, "exactly bin/ledgence"):
+                    self.run_promotion()
+                self.assertFalse(self.output.exists())
+                path.unlink()
+
+    def test_rejects_missing_unified_binary_even_with_valid_checksums(self):
+        (self.stage / "bin/ledgence").unlink()
+        self.manifest()
+        self.rearchive()
+        with self.assertRaisesRegex(ValueError, "exactly bin/ledgence"):
+            self.run_promotion()
+        self.assertFalse(self.output.exists())
+
     def test_rejects_wrong_outer_checksum_without_output(self):
         with self.archive.open("ab") as stream:
             stream.write(b"tampered")
@@ -140,7 +160,7 @@ class PromotionTests(unittest.TestCase):
         self.verifier.assert_not_called()
 
     def test_rejects_tampered_payload_even_with_matching_outer_checksum(self):
-        (self.stage / "bin/ledgence-worker").write_bytes(b"replaced binary")
+        (self.stage / "bin/ledgence").write_bytes(b"replaced binary")
         self.rearchive()
         with self.assertRaisesRegex(ValueError, "checksum mismatch"):
             self.run_promotion()
@@ -183,7 +203,7 @@ class PromotionTests(unittest.TestCase):
 
     def test_rejects_changed_archive_after_metadata_comparison(self):
         def corrupted_archive(stage, destination, epoch):
-            (stage / "bin/ledgence-worker").write_bytes(b"unexpected modification")
+            (stage / "bin/ledgence").write_bytes(b"unexpected modification")
             (stage / "SHA256SUMS").write_text("".join(f"{checksum(path)}  {path.relative_to(stage)}\n"
                 for path in sorted(stage.rglob("*")) if path.is_file() and path != stage / "SHA256SUMS"))
             archive_tree(stage, destination, epoch)
@@ -212,7 +232,7 @@ class PromotionTests(unittest.TestCase):
                        for entry in archive.getmembers()]
         with tarfile.open(self.archive, "w:gz") as archive:
             for entry, content in entries:
-                if entry.name == self.label + "/bin/ledgence-worker":
+                if entry.name == self.label + "/bin/ledgence":
                     entry.mode = 0o777
                 archive.addfile(entry, io.BytesIO(content) if content is not None else None)
         with self.assertRaisesRegex(ValueError, "noncanonical mode"):

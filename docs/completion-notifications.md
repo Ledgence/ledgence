@@ -32,9 +32,9 @@ Apply the explicit migrations, then start the orchestrator using the same
 program store and database as the [HTTP quickstart](http-orchestration.md):
 
 ```sh
-cargo build -p ledgence-orchestrator --locked
-target/debug/ledgence-orchestrator migrate
-target/debug/ledgence-orchestrator serve \
+cargo build -p ledgence-cli --locked
+target/debug/ledgence orchestrator migrate
+target/debug/ledgence orchestrator serve \
   --store /absolute/path/to/program-store \
   --bind 127.0.0.1:8080 \
   --completion-config /absolute/path/to/completion.json
@@ -262,7 +262,7 @@ disposable PostgreSQL server whose role can create databases, and set
 Install the reviewed client wheel into a new environment, then run:
 
 ```sh
-cargo build --workspace --bins --locked
+cargo build -p ledgence-cli --locked
 python3 tools/check-python-client.py \
   --venv-dir /absolute/path/to/new-client-environment \
   --evidence /absolute/path/to/client-package-evidence.json

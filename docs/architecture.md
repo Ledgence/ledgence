@@ -1,6 +1,6 @@
 # Architecture
 
-Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The [HTTP composition](http-orchestration.md) supplies an orchestrator executable, connected worker command, and task administration CLI. Integrated acquisition uses [bounded long polling](acquisition-waits.md) coordinated through portable storage probes and optional wake hints. The optional [dispatch source](dispatch-delivery.md) receives readiness references from SQS Standard or ElasticMQ, then requests a targeted durable claim over HTTP before acknowledging the broker record.
+Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The [HTTP composition](http-orchestration.md) supplies orchestrator, worker, program, and task administration commands in one `ledgence` executable, with separate processes for each running service. Integrated acquisition uses [bounded long polling](acquisition-waits.md) coordinated through portable storage probes and optional wake hints. The optional [dispatch source](dispatch-delivery.md) receives readiness references from SQS Standard or ElasticMQ, then requests a targeted durable claim over HTTP before acknowledging the broker record.
 
 ## Crate boundaries
 
@@ -12,15 +12,15 @@ Ledgence provides a worker, a transport-independent delivery driver, and a Rust 
 | `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
-| `ledgence-worker` | Local fixture and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
+| `ledgence-worker` | Internal library for program packaging, local fixture execution and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
 | `ledgence-orchestration-api` | Submission, delivery, lease, receipt, and service contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
 | `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 | `ledgence-adapter-sqs` | Optional SQS Standard publishing, receiving, acknowledgment and deployment configuration | Orchestration API, worker API |
 | `ledgence-adapter-http` | Optional HTTP client/server implementations of `TaskService` | Orchestration API, worker API |
-| `ledgence-orchestrator` | HTTP serving, explicit migrations, readiness, supervised recovery and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
-| `ledgence-cli` | `ledgence task` submission, discovery, inspection, history and cancellation | Orchestration API, worker API, HTTP adapter, optional OTel adapter |
+| `ledgence-orchestrator` | Internal library for HTTP serving, explicit migrations, readiness, supervised recovery and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
+| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator and task commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel adapter |
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
 

@@ -1,6 +1,6 @@
 # Worker delivery
 
-`ledgence-worker-delivery` connects an existing `Worker` to `Arc<dyn TaskService>`. It manages service registration, bounded acquisition, dispatch permission, lease monitoring, local execution, and durable report reconciliation. It is a Rust library, composed with the HTTP client by `ledgence-worker connect`. See the [HTTP quickstart](http-orchestration.md#run-a-task). The `ledgence-worker run` command also supports local fixtures. Acquisition uses bounded long polling by default, with an explicit immediate mode.
+`ledgence-worker-delivery` connects an existing `Worker` to `Arc<dyn TaskService>`. It manages service registration, bounded acquisition, dispatch permission, lease monitoring, local execution, and durable report reconciliation. It is a Rust library, composed with the HTTP client by `ledgence worker connect`. See the [HTTP quickstart](http-orchestration.md#run-a-task). The `ledgence worker run` command also supports local fixtures. Acquisition uses bounded long polling by default, with an explicit immediate mode.
 
 ## Composition
 
@@ -92,7 +92,7 @@ The existing `Worker::shutdown(grace, cleanup)` API provides explicit grace and 
 
 ## Restart and validation boundaries
 
-The driver has no local durable journal. An operating-system process crash loses its in-memory cursor and pending report. A replacement worker opens a new session; service-side expiry recovery and the task's retry policy recover unfinished work. `ledgence-orchestrator` periodically invokes `RecoveryStore::expire_batch`; custom service compositions must schedule it themselves. A lost reply from session creation can leave an unused session that expires normally.
+The driver has no local durable journal. An operating-system process crash loses its in-memory cursor and pending report. A replacement worker opens a new session; service-side expiry recovery and the task's retry policy recover unfinished work. The orchestrator periodically invokes `RecoveryStore::expire_batch`; custom service compositions must schedule it themselves. A lost reply from session creation can leave an unused session that expires normally.
 
 An expired or unknown session stops the current driver and drains owned work. It does not automatically create a replacement session or transplant old cursors. Lease expiry cannot establish that arbitrary external effects did not happen, and a recovered task may run another attempt.
 

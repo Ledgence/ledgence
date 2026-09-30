@@ -7,7 +7,7 @@ publication runs at a time. An unavailable observation endpoint does not block
 task acquisition, lease renewal, settlement, or worker shutdown. Shutdown requests
 one final best-effort publication without waiting for the endpoint.
 
-Add `--display-name "Billing worker"` to `ledgence-worker connect` to set an
+Add `--display-name "Billing worker"` to `ledgence worker connect` to set an
 optional visible name. The name is limited to 128 UTF-8 bytes. No hostname, cache
 path, environment, command arguments, or task payload is included in snapshots.
 Without an explicit name, the Console uses the session identity.

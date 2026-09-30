@@ -10,7 +10,7 @@ import subprocess
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-BINS = ["ledgence-worker", "ledgence-orchestrator", "ledgence-cli"]
+PACKAGES = ["ledgence-cli"]
 
 
 def run(*args):
@@ -30,7 +30,7 @@ def collect(output, target):
     metadata = json.loads(run("cargo", "metadata", "--locked", "--offline", "--all-features", "--format-version", "1", "--filter-platform", target))
     args = ["cargo", "tree", "--locked", "--offline", "--all-features", "--target", target,
             "--edges", "normal,build", "--prefix", "none", "--format", "{p}"]
-    for package in BINS:
+    for package in PACKAGES:
         args.extend(["-p", package])
     selected = {tuple(line.split()[:2]) for line in run(*args).splitlines()}
     lock = tomllib.loads((ROOT / "Cargo.lock").read_text())
@@ -72,7 +72,7 @@ def collect(output, target):
             shutil.copyfile(source, destination)
     shutil.copyfile(ROOT / "LICENSE", output / "LEDGENCE-LICENSE")
     (output / "inventory.json").write_text(json.dumps({"format": 1, "target": target,
-        "scope": "Selected normal and build dependencies for all three binaries with all features; build dependencies may not be linked. Rust toolchain inventories cover standard-library and incorporated native code. Host system libraries and CPython are not bundled.",
+        "scope": "Selected normal and build dependencies for the ledgence binary with all features; build dependencies may not be linked. Rust toolchain inventories cover standard-library and incorporated native code. Host system libraries and CPython are not bundled.",
         "rustc": run("rustc", "-vV"), "packages": packages}, indent=2) + "\n")
     (output / "NOTICE.md").write_text("# Third-party components\n\nLedgence-owned code is MIT. Each dependency retains its own terms; the included exact license and notice material is not relicensed. inventory.json identifies the selected Cargo graph, including build dependencies conservatively. Rust's copyright inventories and licenses are retained separately. Binary release bundles require a host CPython and system libraries; those are not included. Uploaded programs have their own dependency obligations.\n")
     return packages

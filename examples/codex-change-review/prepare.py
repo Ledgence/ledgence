@@ -30,9 +30,9 @@ def prepare(directory, binaries):
     directory, binaries = Path(directory).resolve(), Path(binaries).resolve()
     if directory.is_relative_to(ROOT):
         raise ValueError("choose a new output directory outside the repository")
-    publisher = binaries / "ledgence-worker"
+    publisher = binaries / "ledgence"
     if not publisher.is_file():
-        raise ValueError("build the Ledgence binaries first")
+        raise ValueError("build the Ledgence CLI first")
     directory.mkdir(parents=True, exist_ok=False)
     descriptors = {}
     for kind, (name, handler) in PROGRAMS.items():
@@ -46,7 +46,7 @@ def prepare(directory, binaries):
                     "runtime": {"kind": "python", "python": "3.13", "protocol": 3}, "handler": handler,
                     "platform": {"os": operating_system, "arch": architecture}}
         (package / "ledgence-program.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        result = subprocess.run([str(publisher), "publish", "--source", str(package),
+        result = subprocess.run([str(publisher), "program", "publish", "--source", str(package),
                                  "--store", str(directory / "store")],
                                 capture_output=True, text=True, check=True, timeout=60)
         descriptors[kind] = json.loads(result.stdout)

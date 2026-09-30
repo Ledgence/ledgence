@@ -101,7 +101,7 @@ def promote(archive, expected_sha256, output, repository, release_ref, version, 
         if ADDED_METADATA.intersection(original_inventory):
             raise ValueError("candidate already contains reserved promotion metadata")
         required = {"README.md", "LICENSE", "Cargo.lock", "python-client-validation.json", "runtime/ledgence/worker/bootstrap.py",
-                    "bin/ledgence", "bin/ledgence-worker", "bin/ledgence-orchestrator"}
+                    "bin/ledgence"}
         if not required.issubset(original_inventory) or not any(name.endswith(".whl") and name.startswith("python-client/") for name in original_inventory):
             raise ValueError("candidate lacks required native/runtime/client payload")
         provenance, original_provenance = candidate_identity(candidate, repository, version)
@@ -131,11 +131,11 @@ def promote(archive, expected_sha256, output, repository, release_ref, version, 
         (stable / "provenance.json").write_text(json.dumps(promoted, indent=2) + "\n")
         (stable / "README.md").write_text(
             f"# Ledgence {version}\n\nThis stable release bundle was promoted from {provenance['candidate']}. "
-            f"Its native binaries, Python distributions, worker helper, documentation and legal material retain the exact candidate bytes. "
+            f"Its native binary, Python distributions, worker helper, documentation and legal material retain the exact candidate bytes. "
             f"The original build source is {source_commit}; the source-equivalent release commit is {release_commit} (intended tag v{version}). "
             "The tag and publication are separate operations. See provenance.json and candidate-provenance.json for the promotion and original build records.\n\n"
-            f"Use bin/ledgence-orchestrator, bin/ledgence-worker and bin/ledgence. Supply a compatible host CPython 3.11–3.14 "
-            f"and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. Native binaries target {provenance['target']}; "
+            f"Use bin/ledgence with the program, worker, orchestrator and task command groups. Supply a compatible host CPython 3.11–3.14 "
+            f"and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. The native binary targets {provenance['target']}; "
             "CPython, PostgreSQL, brokers and host system libraries are not bundled. The unchanged client wheel and sdist are in python-client/. "
             "See docs/local-deployment.md and docs/releasing.md. The installed-SDK Compose companion is examples/local-compose-client.py; "
             "start and publish its programs from the matching source checkout first.\n\n"
