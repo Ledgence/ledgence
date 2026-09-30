@@ -50,6 +50,11 @@
   min-width: 900px;
   table-layout: auto;
 }
+/* Keep the table chrome recessed against the raised rows. */
+.history-table-panel .history-table thead,
+.history-table-panel .history-load-more {
+  background: var(--input-bg);
+}
 .history-table-panel .history-table th,
 .history-table-panel .history-table td {
   padding: 16px 18px;
