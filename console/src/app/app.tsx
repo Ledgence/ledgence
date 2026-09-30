@@ -7,7 +7,7 @@ import { createQueryClient } from "../app/query-client";
 import { getConfig } from "../api/client";
 import { consoleContractVersion } from "../api/contracts";
 import { ApiError } from "../api/errors";
-import { NavigationMemory } from "./navigation";
+import { NavigationHistoryProvider, NavigationMemory } from "./navigation";
 import { InstanceContext } from "./instance";
 import { ExecutionDetailPage } from "../features/executions";
 import {
@@ -100,7 +100,9 @@ export function App() {
   return (
     <QueryClientProvider client={client}>
       <BrowserRouter basename="/console">
-        <Console />
+        <NavigationHistoryProvider>
+          <Console />
+        </NavigationHistoryProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

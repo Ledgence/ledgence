@@ -9,9 +9,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment, Process, eventually
 from http_acceptance.scenarios import report
 
@@ -43,12 +43,15 @@ def main():
     parent_url = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent_url:
         parser.error("LEDGENCE_POSTGRES_URL must name a disposable PostgreSQL server")
+    database = "ledgence_otel_" + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     root = Path(__file__).resolve().parents[1]
     directory = args.evidence.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     binaries = args.binaries.resolve()
-    database = "ledgence_otel_" + uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(urllib.parse.urlsplit(parent_url)._replace(path="/" + database))
     def admin(sql):
         result = subprocess.run([args.psql, "--dbname", parent_url, "-X", "--set", "ON_ERROR_STOP=1", "--command", sql], capture_output=True, timeout=40)
         assert result.returncode == 0, "owned database administration failed"

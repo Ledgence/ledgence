@@ -44,7 +44,7 @@ export function LegacyWorkflowsRedirect() {
 export function ExecutionsPage() {
   const config = useInstance();
   const location = useLocation();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const navigationType = useNavigationType();
   const size = Number(params.get("limit") ?? config.limits.default_page_size);
   const limit =
@@ -58,7 +58,7 @@ export function ExecutionsPage() {
   const filters = Object.fromEntries(
     executionFilterKeys.map((key) => [key, params.get(key)]),
   );
-  const { query, rows } = useExecutionHistory(
+  const { query, rows, refresh } = useExecutionHistory(
     {
       ...filters,
       include_children: includesChildren ? "true" : "false",
@@ -136,10 +136,30 @@ export function ExecutionsPage() {
         description="Follow your tasks and workflows, from submission to result."
         actions={
           (config.capabilities.executions || config.capabilities.workflows) && (
-            <Link className="button button-primary" to="/executions/new">
-              <Plus aria-hidden="true" />
-              New execution
-            </Link>
+            <>
+              {query.data && (
+                <Button
+                  variant="outline"
+                  disabled={query.isFetching}
+                  onClick={() => {
+                    void refresh();
+                    if (params.has("cursor")) {
+                      const next = new URLSearchParams(params);
+                      next.delete("cursor");
+                      next.delete("previous");
+                      setParams(next, { state: location.state });
+                    }
+                    window.scrollTo(0, 0);
+                  }}
+                >
+                  Refresh executions
+                </Button>
+              )}
+              <Link className="button button-primary" to="/executions/new">
+                <Plus aria-hidden="true" />
+                New execution
+              </Link>
+            </>
           )
         }
       />
@@ -149,6 +169,13 @@ export function ExecutionsPage() {
           ? "Root and child executions."
           : "Root workflows and standalone tasks."}{" "}
         <span>Submitted dates are shown in UTC.</span>
+        {(pageCount > 1 || params.has("cursor")) && (
+          <span>
+            {" "}
+            Automatic updates are paused while browsing older results. Refresh
+            for the latest executions.
+          </span>
+        )}
       </p>
       {!config.capabilities.executions && !config.capabilities.workflows ? (
         <Empty>Executions are unavailable on this server.</Empty>

@@ -27,6 +27,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from http_acceptance.harness import Deployment, Process, eventually, exchange
+from postgres_fixture import owned_database_url
 
 
 def dump(path, value):
@@ -169,7 +170,7 @@ class ChangeDeployment(Deployment):
 def deployment(args, evidence, prepared, config_path, variant):
     parent_url = os.environ["LEDGENCE_POSTGRES_URL"]
     database = "ledgence_change_" + uuid.uuid4().hex
-    url = urllib.parse.urlunsplit(urllib.parse.urlsplit(parent_url)._replace(path="/" + database))
+    url = owned_database_url(parent_url, database)
     directory = evidence / variant
     directory.mkdir()
     owned = None

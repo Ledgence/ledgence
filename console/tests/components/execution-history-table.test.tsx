@@ -153,7 +153,7 @@ async function mount(query = "", continuation?: typeof records) {
       </InstanceContext.Provider>
     </QueryClientProvider>,
   );
-  return { view, router, paths };
+  return { view, router, paths, client };
 }
 it("appends execution pages automatically and preserves filtered list context across a detail link", async () => {
   const query = "kind=workflow&state=waiting&limit=25";
@@ -299,3 +299,70 @@ it("contains mobile table scrolling and keeps the calendar fields usable at 390p
   ).toBeGreaterThanOrEqual(205);
   await page.screenshot();
 });
+
+it.each(["", "cursor=legacy-anchor&"])(
+  "restarts frozen history at live results while preserving filters: %s",
+  async (anchor) => {
+    const { view, router, client } = await mount(
+      `${anchor}kind=workflow&limit=25`,
+      [{ ...records[0]!, id: "wf_older", correlation_key: "Older workflow" }],
+    );
+    await expect
+      .element(
+        view.getByText(
+          anchor
+            ? "1 execution loaded · End of list"
+            : "3 executions loaded · End of list",
+          { exact: true },
+        ),
+      )
+      .toBeVisible();
+    let title = "Newly submitted workflow";
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            items: [{ ...records[0]!, id: "wf_new", correlation_key: title }],
+            next_cursor: null,
+            observed_at: submittedAt + 600000,
+          }),
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Ledgence-Console-Contract": String(consoleContractVersion),
+              "Ledgence-Instance-Id": config.instance_id,
+            },
+          },
+        ),
+    );
+    const before = fetch.mock.calls.length;
+    await client.invalidateQueries();
+    expect(fetch.mock.calls).toHaveLength(before);
+    await view
+      .getByRole("button", { name: "Refresh executions", exact: true })
+      .click();
+    await expect
+      .element(view.getByRole("link", { name: title, exact: true }))
+      .toBeVisible();
+    await expect
+      .element(
+        view.getByText("1 execution loaded · End of list", { exact: true }),
+      )
+      .toBeVisible();
+    expect(
+      new URL(
+        String(fetch.mock.calls.at(-1)?.[0]),
+        location.origin,
+      ).searchParams.has("cursor"),
+    ).toBe(false);
+    expect(router.state.location.search).toBe("?kind=workflow&limit=25");
+    await expect
+      .element(view.getByRole("link", { name: "Older workflow", exact: true }))
+      .not.toBeInTheDocument();
+    title = "Updated live workflow";
+    await client.invalidateQueries();
+    await expect
+      .element(view.getByRole("link", { name: title, exact: true }))
+      .toBeVisible();
+  },
+);

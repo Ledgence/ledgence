@@ -20,6 +20,7 @@ import unittest
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment, eventually
 from http_acceptance.sqs import SqsDeployment
 
@@ -523,12 +524,11 @@ def main():
     parent_url = os.environ.get('LEDGENCE_POSTGRES_URL')
     if not args.disposable_postgres or not parent_url:
         parser.error('--disposable-postgres and LEDGENCE_POSTGRES_URL are both required')
-    parsed = urllib.parse.urlsplit(parent_url)
-    if parsed.scheme not in ('postgres', 'postgresql') or not parsed.hostname:
-        parser.error('LEDGENCE_POSTGRES_URL must be a PostgreSQL URL with a hostname')
-    # A query-string dbname could override the owned path. Reject it before any DDL.
-    if any(key.lower() in ('dbname', 'database') for key, _ in urllib.parse.parse_qsl(parsed.query)):
-        parser.error('database overrides in PostgreSQL URL query parameters are not allowed')
+    database = 'ledgence_perf_' + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries
     if binaries is None:
@@ -554,8 +554,6 @@ def main():
     report = metadata(root, args, binaries)
     report.update(result='failed', expected_arrivals=expected, delivery_config_sha256=config_digest)
     (directory / 'metadata.json').write_text(json.dumps(report, indent=2) + '\n')
-    database = 'ledgence_perf_' + uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(parsed._replace(path='/' + database))
     deployment, sampler, submitter, created = None, None, None, False
     failures = []
     interrupted = False

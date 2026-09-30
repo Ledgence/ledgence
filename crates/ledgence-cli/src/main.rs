@@ -59,6 +59,11 @@ fn run_admin(arguments: Vec<String>) -> ExitCode {
         } => (server, RunOperation::Program(registration)),
         Command::Help => return write_stdout(routing::HELP),
     };
+    // Validate the endpoint before optional telemetry or output services start.
+    let client = match HttpTaskService::new(&server) {
+        Ok(client) => client,
+        Err(error) => return diagnose(error, None),
+    };
     let mut logs = match logging::Logs::stderr() {
         Ok(logs) => logs,
         Err(error) => return diagnose(ContractError::Unavailable(error.to_string()), None),
@@ -81,7 +86,7 @@ fn run_admin(arguments: Vec<String>) -> ExitCode {
             return result;
         }
     };
-    let result = run_task(&server, operation, telemetry.bridge(), &logs.sink);
+    let result = run_task(client, operation, telemetry.bridge(), &logs.sink);
     // Application runtime is already destroyed. Only optional telemetry and
     // bounded stderr delivery remain; neither changes the operation outcome.
     if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -104,7 +109,7 @@ enum RunOperation {
 }
 
 fn run_task(
-    server: &str,
+    client: HttpTaskService,
     operation: RunOperation,
     trace: Arc<dyn ledgence_worker_api::TraceBridge>,
     sink: &logging::Sink,
@@ -112,16 +117,13 @@ fn run_task(
     let diagnose = |error, request_id| diagnose_into(error, request_id, Some(sink));
     let request_id = Arc::new(Mutex::new(None));
     let observed = request_id.clone();
-    let client = match HttpTaskService::new(server) {
-        Ok(client) => client
-            .with_trace_bridge(trace)
-            .with_observer(move |metadata| {
-                *observed
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = metadata.request_id.clone();
-            }),
-        Err(error) => return diagnose(error, None),
-    };
+    let client = client
+        .with_trace_bridge(trace)
+        .with_observer(move |metadata| {
+            *observed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = metadata.request_id.clone();
+        });
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

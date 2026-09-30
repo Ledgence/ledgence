@@ -2,7 +2,7 @@ name: Agent examples
 
 on:
   push:
-    paths: ['examples/**', 'sdk/python/**', 'sdk/python-client/**', '.github/workflows/examples.yml']
+    paths: ['examples/**', 'sdk/python/**', 'sdk/python-client/**', 'tools/postgres_fixture.py', '.github/workflows/examples.yml']
   workflow_dispatch:
   workflow_call:
 

@@ -17,6 +17,7 @@ import traceback
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment
 from http_acceptance.scenarios import SCENARIOS
 
@@ -31,6 +32,11 @@ def main():
     parent_url = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent_url:
         parser.error("LEDGENCE_POSTGRES_URL must name a disposable test PostgreSQL server")
+    database = "ledgence_http_" + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     python = os.environ.get("LEDGENCE_PYTHON", sys.executable)
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries
@@ -51,9 +57,6 @@ def main():
     else:
         temporary = tempfile.mkdtemp(prefix="ledgence-http-acceptance-")
         directory = Path(temporary)
-    database = "ledgence_http_" + uuid.uuid4().hex
-    parsed = urllib.parse.urlsplit(parent_url)
-    database_url = urllib.parse.urlunsplit(parsed._replace(path="/" + database))
 
     def admin(sql):
         result = subprocess.run([args.psql, "--dbname", parent_url, "-X", "--set", "ON_ERROR_STOP=1",

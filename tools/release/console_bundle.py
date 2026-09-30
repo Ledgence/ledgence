@@ -11,12 +11,16 @@ import re
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from postgres_fixture import owned_database_url
 
 
 def digest(path):
@@ -133,13 +137,12 @@ def smoke(bundle, store, temporary):
         raise RuntimeError('Console bundle verification requires LEDGENCE_POSTGRES_URL for a disposable database')
     psql = os.environ.get('LEDGENCE_PSQL', 'psql')
     database = 'ldg_console_bundle_' + uuid.uuid4().hex
+    url = owned_database_url(admin_url, database)
     def admin(statement):
         result = subprocess.run([psql, '--dbname', admin_url, '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-f', '-'],
                                 input=statement, text=True, capture_output=True, timeout=30)
         if result.returncode:
             raise RuntimeError('disposable Console database administration failed')
-    parsed = urllib.parse.urlsplit(admin_url)
-    url = urllib.parse.urlunsplit(parsed._replace(path='/' + database))
     environment = dict(os.environ, DATABASE_URL=url)
     instance = temporary / 'instance.json'
     instance.write_text(json.dumps({'instance_id': database, 'name': 'Relocated Console'}))

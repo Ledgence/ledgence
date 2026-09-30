@@ -753,3 +753,45 @@ async fn console_attempt_inspection_distinguishes_application_and_runtime_failur
         db.finish().await;
     }
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn console_activations_preserve_maximum_valid_rejection_errors() {
+    let db = TestDb::new().await;
+    // Custom workflow coordinators can reject work through the public store
+    // contract. Its error bound is UTF-8 bytes, before JSON escaping.
+    for (index, character) in ['\0', '\"', '\\'].into_iter().enumerate() {
+        let (workflow, assigned) = workflow(&db, &format!("escaped-error-{index}")).await;
+        db.store
+            .settle(&completed(&assigned, Quiescence::Confirmed, Value::Null))
+            .await
+            .unwrap();
+        let work = db.store.claim_work(16).await.unwrap();
+        let work = work
+            .iter()
+            .find(|work| work.workflow_id == workflow.workflow_id)
+            .expect("completed activation should produce work");
+        let error = ApplicationError {
+            kind: "\"".repeat(128),
+            message: character.to_string().repeat(4096),
+        };
+        validate_workflow_error(&error).unwrap();
+        assert!(codec::encode(&error).unwrap().len() > 8192);
+        db.store.reject_work(work, &error).await.unwrap();
+        let ConsoleQueryReply::Activations(activations) = query(
+            &db,
+            ConsoleQuery::Activations {
+                workflow_id: workflow.workflow_id,
+                page: pagination(),
+            },
+        )
+        .await
+        else {
+            panic!("expected activation metadata");
+        };
+        assert_eq!(activations.items.len(), 1);
+        assert_eq!(activations.items[0].error.as_ref(), Some(&error));
+        assert!(activations.items[0].applied_at.is_some());
+    }
+    db.finish().await;
+}

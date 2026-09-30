@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MIT
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, RouterProvider, Outlet } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
-import { NavigationMemory } from "../../src/app/navigation";
+import {
+  NavigationHistoryProvider,
+  NavigationMemory,
+} from "../../src/app/navigation";
 import { positions, recentPaths } from "../../src/app/navigation-state";
+import { DetailPanels } from "../../src/features/detail-panels";
 import { ExecutionContext } from "../../src/components/execution-context";
 import { InstanceContext } from "../../src/app/instance";
 import { decodeConfig } from "../../src/api/codecs";
@@ -170,3 +174,152 @@ for (const returnNavigationKey of ["saved-list", undefined, 123, ""]) {
     );
   });
 }
+
+for (const kind of ["task", "workflow"] as const) {
+  it(`uses a safe list fallback after canonicalizing a directly opened ${kind}`, async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    clients.push(client);
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("Ancestry unavailable"),
+    );
+    const path = kind === "task" ? "/executions/direct" : "/workflows/direct";
+    const router = createMemoryRouter(
+      [
+        {
+          element: (
+            <NavigationHistoryProvider>
+              <Outlet />
+            </NavigationHistoryProvider>
+          ),
+          children: [
+            { path: "/executions", element: <h1>Execution list</h1> },
+            {
+              path,
+              element: (
+                <>
+                  <ExecutionContext kind={kind} id="direct" />
+                  <DetailPanels kind={kind}>
+                    {() => <p>Detail contents</p>}
+                  </DetailPanels>
+                </>
+              ),
+            },
+          ],
+        },
+      ],
+      { initialEntries: [path] },
+    );
+    routers.push(router);
+    const view = await render(
+      <QueryClientProvider client={client}>
+        <InstanceContext.Provider value={config}>
+          <RouterProvider router={router} />
+        </InstanceContext.Provider>
+      </QueryClientProvider>,
+    );
+    await expect.poll(() => router.state.location.search).toContain("tab=");
+    expect(router.state.location.key).not.toBe("default");
+    await view.getByRole("button", { name: "Back", exact: true }).click();
+    await expect
+      .element(view.getByRole("heading", { name: "Execution list" }))
+      .toBeVisible();
+    // A real in-app push creates a predecessor; canonical replacement preserves it.
+    await router.navigate(path);
+    await expect.poll(() => router.state.location.search).toContain("tab=");
+    await view.getByRole("button", { name: "Back", exact: true }).click();
+    await expect
+      .element(view.getByRole("heading", { name: "Execution list" }))
+      .toBeVisible();
+    // Forward/Back continue to use the recorded stack instead of key heuristics.
+    await router.navigate(1);
+    await expect
+      .element(view.getByText("Detail contents", { exact: true }))
+      .toBeVisible();
+    await view.getByRole("button", { name: "Back", exact: true }).click();
+    await expect
+      .element(view.getByRole("heading", { name: "Execution list" }))
+      .toBeVisible();
+  });
+}
+
+it.each([
+  [
+    "/executions?kind=workflow&state=failed",
+    "/executions?kind=workflow&state=failed",
+  ],
+  ["/workflows?state=failed", "/workflows?state=failed"],
+  ["https://example.invalid/executions", "/executions"],
+  ["//example.invalid/executions", "/executions"],
+  ["/executions/another-task", "/executions"],
+  ["/programs", "/executions"],
+  [null, "/executions"],
+])(
+  "restores only a validated saved list destination after reload: %s",
+  async (returnTo, expected) => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    clients.push(client);
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("Ancestry unavailable"),
+    );
+    const router = createMemoryRouter(
+      [
+        {
+          element: (
+            <NavigationHistoryProvider>
+              <Outlet />
+            </NavigationHistoryProvider>
+          ),
+          children: [
+            { path: "/executions", element: <h1>Execution list</h1> },
+            { path: "/workflows", element: <h1>Execution list</h1> },
+            {
+              path: "/executions/reloaded",
+              element: (
+                <>
+                  <ExecutionContext kind="task" id="reloaded" />
+                  <DetailPanels kind="task">
+                    {() => <p>Reloaded detail</p>}
+                  </DetailPanels>
+                </>
+              ),
+            },
+          ],
+        },
+      ],
+      {
+        initialEntries: [
+          {
+            pathname: "/executions/reloaded",
+            key: "persisted-detail-key",
+            state: { returnTo, returnNavigationKey: "saved-filtered-list" },
+          },
+        ],
+      },
+    );
+    routers.push(router);
+    const view = await render(
+      <QueryClientProvider client={client}>
+        <InstanceContext.Provider value={config}>
+          <RouterProvider router={router} />
+        </InstanceContext.Provider>
+      </QueryClientProvider>,
+    );
+    await expect.poll(() => router.state.location.search).toContain("tab=");
+    await view.getByRole("button", { name: "Back", exact: true }).click();
+    await expect
+      .element(view.getByRole("heading", { name: "Execution list" }))
+      .toBeVisible();
+    expect(router.state.location.pathname + router.state.location.search).toBe(
+      expected,
+    );
+    expect(router.state.location.state).toEqual(
+      returnTo === expected
+        ? { restoreNavigationKey: "saved-filtered-list" }
+        : null,
+    );
+  },
+);

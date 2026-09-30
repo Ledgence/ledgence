@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT
+import { createContext } from "react";
+
 import type { GraphPresentation } from "../features/explorer/layout";
+
+export const NavigationHistoryContext = createContext(false);
 export type Position = {
   x: number;
   y: number;

@@ -70,6 +70,8 @@ jobs:
         run: cargo test --workspace --doc --all-features --locked
       - name: Build Rust documentation
         run: cargo doc --workspace --all-features --no-deps --locked
+      - name: Check disposable database isolation before any resource creation
+        run: python -m unittest discover -s tools -p 'test_postgres_fixture.py' -v
       - name: Test the local HTTP fixtures
         run: python tools/check-http-fixtures.py
       - name: Test the performance measurement harness

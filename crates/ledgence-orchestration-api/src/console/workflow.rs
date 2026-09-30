@@ -168,6 +168,9 @@ impl ConsoleRecord for ConsoleActivation {
         if let Some(at) = self.applied_at {
             timestamp(at)?;
         }
+        if let Some(error) = &self.error {
+            validate_workflow_error(error)?;
+        }
         Ok(())
     }
 }

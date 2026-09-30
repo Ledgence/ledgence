@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
+import { useContext } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { ArrowLeft, ArrowUp } from "lucide-react";
 import { useResource } from "../api/hooks";
 import { ancestry, executionPath } from "../api/explorer";
 import { ContractError } from "../api/codecs";
-import { contextDestination } from "../app/navigation-state";
+import {
+  contextDestination,
+  NavigationHistoryContext,
+} from "../app/navigation-state";
 import { Button } from "./ui/button";
 import { QueryError } from "./resource-ui";
 export function ExecutionContext({
@@ -18,6 +22,7 @@ export function ExecutionContext({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const canGoBack = useContext(NavigationHistoryContext);
   const query = useResource("executions/ancestry", { kind, id }, (value) => {
     const result = ancestry(value);
     if (result.execution.kind !== kind || result.execution.id !== id)
@@ -67,8 +72,11 @@ export function ExecutionContext({
           variant="ghost"
           title={title ? "Back" : undefined}
           onClick={() => {
-            if (location.key !== "default") void navigate(-1);
-            else void navigate("/executions");
+            if (canGoBack) void navigate(-1);
+            else
+              void navigate(listDestination.to, {
+                state: listDestination.state,
+              });
           }}
         >
           <ArrowLeft aria-hidden="true" />

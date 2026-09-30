@@ -19,6 +19,12 @@ pub const WORKFLOW_LOCAL_RECORD_MAX_BYTES: usize = 128 * 1024;
 pub const WORKFLOW_LOCAL_LEDGER_MAX_BYTES: usize = 256 * 1024;
 pub const WORKFLOW_CONTEXT_MAX_BYTES: usize = 640 * 1024;
 pub const WORKFLOW_MAX_WORK_BATCH: u32 = 16;
+pub const WORKFLOW_ERROR_KIND_MAX_BYTES: usize = 128;
+pub const WORKFLOW_ERROR_MESSAGE_MAX_BYTES: usize = 4096;
+/// A conservative JSON bound: each accepted UTF-8 byte may become a six-byte
+/// Unicode escape, plus the two-field ApplicationError object framing.
+pub const WORKFLOW_ERROR_ENCODED_MAX_BYTES: usize =
+    6 * (WORKFLOW_ERROR_KIND_MAX_BYTES + WORKFLOW_ERROR_MESSAGE_MAX_BYTES) + 24;
 
 /// Controller results include a platform decision envelope around application
 /// values. Ordinary task output retains its depth-64 contract; registered
@@ -340,8 +346,8 @@ pub fn validate_workflow_error(error: &ApplicationError) -> Result<()> {
     validate_error(error)
 }
 fn validate_error(error: &ApplicationError) -> Result<()> {
-    validate_text(&error.kind, 128)?;
-    if error.message.len() > 4096 {
+    validate_text(&error.kind, WORKFLOW_ERROR_KIND_MAX_BYTES)?;
+    if error.message.len() > WORKFLOW_ERROR_MESSAGE_MAX_BYTES {
         return Err(invalid("workflow error message exceeds 4096 bytes"));
     }
     Ok(())
