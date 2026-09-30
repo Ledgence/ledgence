@@ -23,6 +23,7 @@ import time
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment, exchange
 
 FLOW = """from ledgence.worker.workflow import workflow_context
@@ -376,16 +377,17 @@ def main():
     parent = os.environ.get('LEDGENCE_POSTGRES_URL')
     if not parent:
         parser.error('LEDGENCE_POSTGRES_URL must name an owned disposable server')
+    database = 'ledgence_completions_' + uuid.uuid4().hex
+    try:
+        url = owned_database_url(parent, database)
+    except ValueError as error:
+        parser.error(str(error))
 
     root = Path(__file__).resolve().parents[1]
     directory = args.evidence or Path(tempfile.mkdtemp(prefix='ledgence-completions-'))
     if args.evidence:
         directory.mkdir(parents=True, exist_ok=False)
     directory = directory.resolve()
-    database = 'ledgence_completions_' + uuid.uuid4().hex
-    url = urllib.parse.urlunsplit(
-        urllib.parse.urlsplit(parent)._replace(path='/' + database)
-    )
 
     def admin(sql):
         subprocess.run(

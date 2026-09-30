@@ -14,9 +14,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment
 
 
@@ -274,13 +274,16 @@ def main():
     parent_url = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent_url:
         parser.error("LEDGENCE_POSTGRES_URL must name a disposable test server")
+    database = "ledgence_client_" + uuid.uuid4().hex
+    try:
+        url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     root = Path(__file__).resolve().parents[1]
     directory = args.evidence or Path(tempfile.mkdtemp(prefix="ledgence-python-client-e2e-"))
     if args.evidence:
         directory.mkdir(parents=True, exist_ok=False)
     directory = directory.resolve()
-    database = "ledgence_client_" + uuid.uuid4().hex
-    url = urllib.parse.urlunsplit(urllib.parse.urlsplit(parent_url)._replace(path="/" + database))
     def admin(sql):
         subprocess.run([args.psql, "--dbname", parent_url, "-X", "--set", "ON_ERROR_STOP=1",
                         "--command", sql], check=True, capture_output=True, timeout=40)

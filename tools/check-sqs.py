@@ -25,6 +25,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import eventually
 from http_acceptance.sqs import SqsDeployment
 from http_acceptance.sqs_startup import failed_startup_preserves_integrated_delivery
@@ -193,6 +194,11 @@ def main():
     parent_url = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent_url:
         parser.error("LEDGENCE_POSTGRES_URL must name an owned disposable test PostgreSQL server")
+    database = "ledgence_sqs_" + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries
     if binaries is None:
@@ -210,9 +216,6 @@ def main():
     else:
         temporary = tempfile.mkdtemp(prefix="ledgence-sqs-acceptance-")
         directory = Path(temporary)
-    parsed = urllib.parse.urlsplit(parent_url)
-    database = "ledgence_sqs_" + uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(parsed._replace(path="/" + database))
     admin = QueueAdmin(args.endpoint, args.region, args.aws_cli)
     queue_name = (args.aws_queue_prefix or "ledgence-test-local") + "-" + uuid.uuid4().hex
     queue_url = None

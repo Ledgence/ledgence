@@ -132,5 +132,18 @@ export function useExecutionHistory(parameters: Parameters, enabled: boolean) {
     ),
   );
   const result = useMemo(() => executionHistoryRows(query.data), [query.data]);
-  return { query, ...result };
+  // Restart at the live first page, including when a legacy cursor anchored
+  // this traversal. Resetting discards old boundaries before fetching again.
+  const refresh = () =>
+    client.resetQueries({
+      queryKey: executionHistoryOptions(
+        config,
+        { ...parameters, cursor: null },
+        enabled,
+        client,
+        location.origin,
+      ).queryKey,
+      exact: true,
+    });
+  return { query, refresh, ...result };
 }

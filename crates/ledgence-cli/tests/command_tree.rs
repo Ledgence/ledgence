@@ -186,3 +186,49 @@ fn usage_errors_keep_their_exit_status_when_stderr_is_closed() {
         assert!(output.stdout.is_empty(), "{args:?}: {output:?}");
     }
 }
+
+#[test]
+fn admin_rejects_invalid_server_urls_before_optional_telemetry() {
+    for server in [
+        "invalid-url",
+        "file:///tmp/orchestrator",
+        "http://user:password@localhost:8080",
+        "http://localhost:8080?scope=other",
+        "http://localhost:8080#fragment",
+    ] {
+        for args in [
+            vec![
+                "task",
+                "status",
+                "--server",
+                server,
+                "--tenant",
+                "tenant",
+                "--namespace",
+                "namespace",
+                "--task",
+                "task",
+            ],
+            vec![
+                "program",
+                "register",
+                "--server",
+                server,
+                "--program",
+                "program",
+                "--version",
+                "1.0.0",
+            ],
+        ] {
+            let result = invoke(&args);
+            assert_eq!(result.status.code(), Some(2), "{args:?}: {result:?}");
+            assert!(result.stdout.is_empty(), "{args:?}: {result:?}");
+            let diagnostics = String::from_utf8(result.stderr).unwrap();
+            assert!(
+                diagnostics.contains("server URL"),
+                "{args:?}: {diagnostics}"
+            );
+            assert!(!diagnostics.contains("OTLP"), "{args:?}: {diagnostics}");
+        }
+    }
+}

@@ -29,6 +29,7 @@ import traceback
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment, Process, eventually, exchange
 from http_acceptance.sqs import SqsDeployment
 from workflow_acceptance import fork_scenarios, owned_scenarios
@@ -682,6 +683,11 @@ def main():
     parent_url = os.environ.get('LEDGENCE_POSTGRES_URL')
     if not parent_url:
         parser.error('LEDGENCE_POSTGRES_URL must name an owned disposable PostgreSQL server')
+    database = 'ledgence_workflow_'+uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0,str(root/'sdk/python-client/src'))
     python = os.environ.get('LEDGENCE_PYTHON',sys.executable)
@@ -701,8 +707,6 @@ def main():
     directory = args.evidence.resolve() if args.evidence else Path(tempfile.mkdtemp(prefix='ledgence-workflows-'))
     if args.evidence:
         directory.mkdir(parents=True,exist_ok=False)
-    database = 'ledgence_workflow_'+uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(urllib.parse.urlsplit(parent_url)._replace(path='/'+database))
     deployment = delay = queue_admin = queue_url = capture = None
     queue_name = 'ledgence-test-workflow-'+uuid.uuid4().hex
     created = queue_started = succeeded = False

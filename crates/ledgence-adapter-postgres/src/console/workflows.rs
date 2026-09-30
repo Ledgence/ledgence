@@ -25,9 +25,11 @@ pub(super) async fn query(
         } => {
             require_workflow(connection, scope, workflow_id).await?;
             let mut sql = QueryBuilder::<Postgres>::new(
-                "SELECT a.workflow_id,a.activation_id,a.task_id,trunc(a.revision)::text AS revision_text,t.state,a.applied_at_ms,octet_length(a.error_bytes) AS error_size,CASE WHEN octet_length(a.error_bytes)<=8192 THEN a.error_bytes ELSE NULL END AS error_bytes FROM workflow_activations a JOIN tasks t ON t.task_id=a.task_id WHERE a.workflow_id=",
+                "SELECT a.workflow_id,a.activation_id,a.task_id,trunc(a.revision)::text AS revision_text,t.state,a.applied_at_ms,octet_length(a.error_bytes) AS error_size,CASE WHEN octet_length(a.error_bytes)<=",
             );
-            sql.push_bind(workflow_id.clone())
+            sql.push_bind(WORKFLOW_ERROR_ENCODED_MAX_BYTES as i64)
+                .push(" THEN a.error_bytes ELSE NULL END AS error_bytes FROM workflow_activations a JOIN tasks t ON t.task_id=a.task_id WHERE a.workflow_id=")
+                .push_bind(workflow_id.clone())
                 .push(" AND t.tenant_id=")
                 .push_bind(scope.tenant_id.clone())
                 .push(" AND t.namespace=")
@@ -47,7 +49,7 @@ pub(super) async fn query(
                 .iter()
                 .map(|r| {
                     if r.try_get::<Option<i32>, _>("error_size")?
-                        .is_some_and(|n| n > 8192)
+                        .is_some_and(|n| i64::from(n) > WORKFLOW_ERROR_ENCODED_MAX_BYTES as i64)
                     {
                         return Err(corrupt("activation error size").into());
                     }

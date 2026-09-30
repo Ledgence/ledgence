@@ -13,6 +13,8 @@ import threading
 import time
 import urllib.parse
 
+from postgres_fixture import owned_database_url
+
 
 def eventually(predicate, timeout=30, description="condition"):
     deadline = time.monotonic() + timeout
@@ -434,7 +436,7 @@ class Deployment:
     def sql(self, statement, administrative=False):
         url = self.database_url
         if administrative:
-            url = urllib.parse.urlunsplit(urllib.parse.urlsplit(url)._replace(path="/postgres"))
+            url = owned_database_url(url, "postgres")
         result = subprocess.run([self.psql, "--dbname", url, "-X", "-A", "-t",
                                  "--set", "ON_ERROR_STOP=1", "--command", statement],
                                 capture_output=True, timeout=35)

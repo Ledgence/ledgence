@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit, urlunsplit
 
+from yarl import URL
+
 from . import codec
 from .errors import ClientClosed, InputError
 from .models import Scope
@@ -18,7 +20,14 @@ def _endpoint(value: str) -> str:
             raise ValueError("invalid endpoint")
         if parsed.query or parsed.fragment:
             raise ValueError("endpoint cannot contain query or fragment")
-        host = parsed.hostname.encode("idna").decode("ascii").lower()
+        host = parsed.hostname
+        if not host.isascii():
+            # Match aiohttp's IDNA normalization. Python's legacy IDNA codec
+            # can map a Unicode hostname to a different registered domain.
+            host = URL(value).raw_host
+            if host is None:
+                raise ValueError("invalid endpoint host")
+        host = host.lower()
         if ":" in host:
             host = f"[{host}]"
         port = parsed.port

@@ -74,6 +74,8 @@ struct Resources {
     child: Child,
     artifact: Option<PreparedArtifact>,
     workspace: Option<PathBuf>,
+    /// Keep non-abortable disk cleanup owned if a close waiter is cancelled.
+    workspace_cleanup: Option<JoinHandle<std::io::Result<()>>>,
     logs: Option<JoinHandle<()>>,
     reaped: bool,
     /// The signal outcome is committed before wait() can suspend. Reaping may
@@ -183,6 +185,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                 child,
                 artifact: Some(artifact),
                 workspace: Some(workspace.keep()),
+                workspace_cleanup: None,
                 logs: None,
                 reaped: false,
                 group_signal_attempted: false,
@@ -957,14 +960,30 @@ async fn terminate(resources: &mut Resources) -> Result<()> {
         return Err(failure.error.clone());
     }
     if let Some(path) = resources.workspace.as_ref() {
-        std::fs::remove_dir_all(path)
-            .or_else(|error| {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    Ok(())
-                } else {
-                    Err(error)
-                }
-            })
+        // Programs can leave arbitrarily large working trees. Removing them on
+        // a runtime thread would stall unrelated invocations and lease timers.
+        // Store the handle before awaiting it: cancelling close must neither
+        // detach disk cleanup from its owner nor start a duplicate removal.
+        if resources.workspace_cleanup.is_none() {
+            let path = path.clone();
+            resources.workspace_cleanup = Some(tokio::task::spawn_blocking(move || {
+                std::fs::remove_dir_all(path).or_else(|error| {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        Ok(())
+                    } else {
+                        Err(error)
+                    }
+                })
+            }));
+        }
+        let result = resources
+            .workspace_cleanup
+            .as_mut()
+            .expect("workspace cleanup is owned")
+            .await;
+        resources.workspace_cleanup = None;
+        result
+            .map_err(|_| Error::new(ErrorKind::Io, "workspace cleanup task failed"))?
             .map_err(|error| {
                 Error::new(
                     ErrorKind::Io,
@@ -1031,6 +1050,7 @@ mod tests {
             child,
             artifact: Some(artifact),
             workspace: Some(tempfile::tempdir().unwrap().keep()),
+            workspace_cleanup: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,
@@ -1039,6 +1059,55 @@ mod tests {
             group_signal_attempts: 0,
         };
         (artifact_root, resources, weak)
+    }
+
+    #[test]
+    fn cancelled_workspace_cleanup_retains_ownership_without_blocking_runtime() {
+        // Occupy the only blocking thread. Cleanup must queue there while the
+        // async close deadline remains responsive, then survive cancellation.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (release, held) = std::sync::mpsc::channel();
+            let (started, entered) = oneshot::channel();
+            let occupied = tokio::task::spawn_blocking(move || {
+                let _ = started.send(());
+                let _ = held.recv();
+            });
+            entered.await.unwrap();
+            let child = Command::new("/bin/sh")
+                .args(["-c", "sleep 30"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(0)
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
+            let (_artifact, mut resources, pin) = cleanup_resources(child);
+            let workspace = resources.workspace.clone().unwrap();
+            let pending =
+                tokio::time::timeout(Duration::from_millis(50), terminate(&mut resources))
+                    .await
+                    .is_err();
+            let retained = pin.upgrade().is_some() && workspace.is_dir();
+            release.send(()).unwrap();
+            occupied.await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), terminate(&mut resources))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(pending, "disk cleanup must run on the blocking executor");
+            assert!(
+                retained,
+                "a cancelled waiter must retain workspace and artifact ownership"
+            );
+            assert!(!workspace.exists());
+            assert!(pin.upgrade().is_none());
+        });
     }
 
     #[tokio::test]
@@ -1203,6 +1272,7 @@ mod tests {
             child,
             artifact: Some(artifact),
             workspace: Some(workspace.clone()),
+            workspace_cleanup: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,
@@ -1284,6 +1354,7 @@ mod tests {
             child,
             artifact: Some(artifact),
             workspace: Some(workspace.clone()),
+            workspace_cleanup: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,

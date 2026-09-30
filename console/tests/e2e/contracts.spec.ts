@@ -126,6 +126,55 @@ async function mount(page: Page, result = "pending_result") {
   });
   return requests;
 }
+for (const kind of ["task", "workflow"] as const) {
+  test(`header Back leaves a directly opened ${kind} after canonical URL replacement`, async ({
+    page,
+  }) => {
+    await mount(page);
+    const task = dto.observedTask(fixture("task_status")).task;
+    const workflow = dto.workflowDetail(fixture("workflow_detail")).summary
+      .workflow;
+    const path =
+      kind === "task"
+        ? `/console/executions/${task.task_id}`
+        : `/console/workflows/${workflow.workflow_id}?tab=Overview`;
+    await page.goto(path);
+    await expect(page).toHaveURL(/tab=(Trace|General)&section=/);
+    await page
+      .locator(".shell-header")
+      .getByRole("button", { name: "Back", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/console\/executions$/);
+    await expect(
+      page.getByRole("heading", { name: "Executions", exact: true }),
+    ).toBeVisible();
+  });
+}
+
+test("header Back preserves the filtered list after reloading a detail", async ({
+  page,
+}) => {
+  await mount(page);
+  const list = "/console/executions?kind=task&state=active&limit=25";
+  await page.goto(list);
+  await page.locator(".execution-name").first().click();
+  await expect(page).toHaveURL(
+    /\/executions\/[^?]+\?tab=Trace&section=attempts/,
+  );
+  await page.reload();
+  await page
+    .locator(".shell-header")
+    .getByRole("button", { name: "Back", exact: true })
+    .click();
+  await expect(page).toHaveURL(new URL(list, page.url()).href);
+  await expect(
+    page.getByRole("combobox", { name: "Status", exact: true }),
+  ).toHaveValue("active");
+  await expect(
+    page.getByRole("combobox", { name: "Type", exact: true }),
+  ).toHaveValue("task");
+});
+
 for (const width of [320, 390, 1280]) {
   for (const kind of ["task", "workflow"] as const) {
     test(`unified execution header keeps ${kind} identity and controls usable at ${width}px`, async ({

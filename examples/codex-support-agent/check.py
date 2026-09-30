@@ -26,6 +26,7 @@ import zipfile
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import ArtifactServer, Process, eventually, exchange, unused_port
 
 SCOPE = {"tenant_id": "acme", "namespace": "demo"}
@@ -52,13 +53,10 @@ def require(condition, description):
 
 def database_url(parent, database):
     require(re.fullmatch(r"ldg_support_demo_[0-9a-f]{32}", database), "invalid owned database name")
-    parsed = urllib.parse.urlsplit(parent)
-    require(parsed.scheme in ("postgres", "postgresql") and parsed.hostname,
-            "database parent must be a PostgreSQL URI")
-    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-    require(not any(key in ("dbname", "service") for key, _ in query),
-            "database URI must not override its database through query parameters")
-    return urllib.parse.urlunsplit(parsed._replace(path="/" + database))
+    try:
+        return owned_database_url(parent, database)
+    except ValueError as error:
+        raise CheckFailure(str(error)) from None
 
 
 def server_environment(inherited, secrets=()):

@@ -31,7 +31,7 @@ An unset correlation filter differs from filtering for an empty correlation stri
 
 Pages default to **50** items and are capped at **100**. Opaque keyset cursors are bound to the resource and filters. Each response is coherent at its read, while later pages may see newer committed data. There are no synthetic total counts or a frozen snapshot across navigation.
 
-Execution discovery refreshes its first live page automatically; older pages refresh explicitly. Worker pages refresh the latest observations. The program catalog does not poll on an interval. Hidden and offline pages pause polling. Terminal outcomes stop active execution and workflow polling. Input and output bodies load on demand, so ordinary refreshes do not repeatedly fetch execution payloads.
+Execution discovery refreshes its first live page automatically. Loading older pages pauses automatic updates to preserve your place; **Refresh executions** restarts at the latest matching results while keeping your filters. Worker pages refresh the latest observations. The program catalog does not poll on an interval. Hidden and offline pages pause polling. Terminal outcomes stop active execution and workflow polling. Input and output bodies load on demand, so ordinary refreshes do not repeatedly fetch execution payloads.
 
 The browser checks the instance identity and Console contract version before accepting a response. A compatibility error is explicit rather than silently interpreting another version's fields.
 

@@ -25,6 +25,7 @@ import traceback
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from console_acceptance.harness import ConsoleDeployment
 from console_acceptance.scenarios import run
 
@@ -67,6 +68,11 @@ def main():
     parent_url = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent_url:
         parser.error("LEDGENCE_POSTGRES_URL must identify a disposable PostgreSQL server")
+    database = "ledgence_console_" + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     if not 0 <= args.hold_seconds <= 1800:
         parser.error("--hold-seconds must be between 0 and 1800")
     if args.browser_command is not None and not args.browser_command:
@@ -85,8 +91,6 @@ def main():
     directory = args.evidence.resolve() if args.evidence else Path(tempfile.mkdtemp(prefix="ledgence-console-acceptance-"))
     if args.evidence:
         directory.mkdir(parents=True, exist_ok=False)
-    database = "ledgence_console_" + uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(urllib.parse.urlsplit(parent_url)._replace(path="/" + database))
     deployment = delay = None
     created = succeeded = False
     results = []

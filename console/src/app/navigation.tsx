@@ -1,13 +1,48 @@
 // SPDX-License-Identifier: MIT
-import { useLayoutEffect, useRef } from "react";
-import { useLocation } from "react-router";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigationType } from "react-router";
 import {
   positions,
   recentPaths,
+  NavigationHistoryContext,
   restorationKey,
   trim,
   type Position,
 } from "./navigation-state";
+// Only entries observed inside Console establish a safe Back destination.
+// Replacing a URL changes its router key but does not create a predecessor.
+export function NavigationHistoryProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const { key } = useLocation();
+  const action = useNavigationType();
+  const [history, setHistory] = useState({ entries: [key], index: 0 });
+  if (history.entries[history.index] !== key) {
+    setHistory((previous) => {
+      if (previous.entries[previous.index] === key) return previous;
+      if (action === "PUSH")
+        return {
+          entries: [...previous.entries.slice(0, previous.index + 1), key],
+          index: previous.index + 1,
+        };
+      if (action === "REPLACE") {
+        const entries = [...previous.entries];
+        entries[previous.index] = key;
+        return { entries, index: previous.index };
+      }
+      const index = previous.entries.indexOf(key);
+      return index < 0 ? { entries: [key], index: 0 } : { ...previous, index };
+    });
+  }
+  return (
+    <NavigationHistoryContext.Provider value={history.index > 0}>
+      {children}
+    </NavigationHistoryContext.Provider>
+  );
+}
+
 export function NavigationMemory() {
   const location = useLocation();
   const previousPath = useRef(location.pathname);
