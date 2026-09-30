@@ -15,6 +15,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  DialogTrigger,
 } from "../components/ui/dialog";
 import { LoadingState } from "../components/async-state";
 import {
@@ -32,7 +33,7 @@ import {
 } from "../components/resource-ui";
 import { CommandFeedback } from "../components/command-feedback";
 import { Filters } from "./filters";
-import { ExecutionContext } from "../components/execution-context";
+import { ExecutionHeading } from "../components/execution-heading";
 import { WorkflowExplorer, WorkflowInput } from "./workflow-explorer";
 import { WorkflowResources } from "./execution-resources";
 import { DetailPanels, DetailSections } from "./detail-panels";
@@ -184,8 +185,9 @@ export function WorkflowDetailPage() {
   const detail = query.data;
   return (
     <>
-      <ExecutionContext kind="workflow" id={workflowId} />
-      <PageHeading
+      <ExecutionHeading
+        kind="workflow"
+        id={workflowId}
         title={
           detail?.summary.workflow.correlation_key ||
           detail?.summary.controller.program.id ||
@@ -574,6 +576,7 @@ function RecordedWork({
           )}
           <h3>Activation pages</h3>
           <PageControls
+            navigationOnly
             pagination={activations}
             nextCursor={aq.data.next_cursor}
             observedAt={aq.data.observed_at}
@@ -603,6 +606,7 @@ function RecordedWork({
             {showCompleted ? "included" : "collapsed"}.
           </p>
           <PageControls
+            navigationOnly
             pagination={children}
             nextCursor={cq.data.next_cursor}
             observedAt={cq.data.observed_at}
@@ -723,6 +727,7 @@ function Waits({
             <Empty>No external waits were recorded on this page.</Empty>
           )}
           <PageControls
+            navigationOnly
             pagination={paging}
             nextCursor={query.data.page.next_cursor}
             observedAt={query.data.page.observed_at}
@@ -821,6 +826,7 @@ function LocalSteps({
                 </tbody>
               </Table>
               <PageControls
+                navigationOnly
                 pagination={paging}
                 nextCursor={query.data.next_cursor}
                 observedAt={query.data.observed_at}
@@ -876,6 +882,7 @@ function WorkflowHistory({
             ))}
           </ol>
           <PageControls
+            navigationOnly
             pagination={paging}
             nextCursor={query.data.next_cursor}
             observedAt={query.data.observed_at}
@@ -937,15 +944,15 @@ function CancelWorkflow({ workflowId }: { workflowId: string }) {
   });
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
-        Cancel workflow
-      </Button>
       <Dialog
         open={open}
         onOpenChange={(next) => {
           if (!command.mutation.isPending) setOpen(next);
         }}
       >
+        <DialogTrigger asChild>
+          <Button variant="outline">Cancel workflow</Button>
+        </DialogTrigger>
         <DialogContent>
           <DialogTitle>Cancel this workflow?</DialogTitle>
           <DialogDescription>

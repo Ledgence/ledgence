@@ -90,6 +90,8 @@ async function mount(
     rootCase ? explorerCase(rootCase) : workflowExplorer(field("explorer"));
   const rootId = root().workflow.summary.workflow.workflow_id;
   const explorerReads: string[] = [];
+  const liveObservations =
+    delayedObservation || Number.isFinite(initialVisible);
   let settled = !delayedObservation;
   let visibleNodes = initialVisible;
   await page.route("**/v1/console/**", async (route) => {
@@ -103,12 +105,21 @@ async function mount(
     if (path === "config")
       body = {
         ...config,
-        polling: { ...config.polling, waiting_workflow_ms: 60000 },
+        polling: {
+          ...config.polling,
+          waiting_workflow_ms: liveObservations ? 1000 : 60000,
+        },
       };
     else if (path === "workflows/explorer" || path === "workflows/inspect") {
       if (id !== rootId && id !== branchId)
         throw Error(`Unexpected workflow scope ${id}`);
       const snapshot = id === branchId ? branch() : root();
+      // Keep controlled observations live so updates arrive through the real
+      // server-configured polling path, without a manual Refresh control.
+      if (id === rootId && liveObservations) {
+        snapshot.workflow.summary.workflow.state = "running";
+        snapshot.workflow.summary.workflow.terminal_at = null;
+      }
       // This controlled delayed child observation exercises UI refresh only.
       // The canonical Rust fixture supplies every identity and relationship;
       // this mutation is not evidence of real orchestration behavior.
@@ -161,6 +172,14 @@ async function mount(
       visibleNodes = count;
     },
   };
+}
+async function expectNoManualWorkflowControls(page: Page) {
+  await expect(
+    page.getByRole("button", { name: "Refresh", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: "Rows", exact: true }),
+  ).toHaveCount(0);
 }
 async function openGraph(page: Page) {
   await page.goto(`${parentUrl}?tab=Graph`);
@@ -548,6 +567,7 @@ test("dragging and panning survive observation refresh, view switches and fullsc
   const source = await mount(page, true);
   await page.setViewportSize({ width: 1440, height: 1080 });
   await openGraph(page);
+  await expectNoManualWorkflowControls(page);
   const initial = await positions(page);
   const start = page.getByRole("button", {
     name: "start · Entrypoint · succeeded",
@@ -589,7 +609,6 @@ test("dragging and panning survive observation refresh, view switches and fullsc
   const camera = await viewport(page);
   source.settle();
   const reads = source.explorerReads.length;
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect.poll(() => source.explorerReads.length).toBeGreaterThan(reads);
   await expect(
     page.getByRole("button", {
@@ -601,6 +620,7 @@ test("dragging and panning survive observation refresh, view switches and fullsc
   expect(await positions(page)).toEqual(placed);
   expect(await viewport(page)).toBe(camera);
   await page.getByRole("button", { name: "Trace", exact: true }).click();
+  await expectNoManualWorkflowControls(page);
   await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(20);
@@ -737,7 +757,6 @@ test("two record-growth updates preserve manual and newly assigned positions", a
   const camera = await viewport(page);
   for (const count of [12, 20]) {
     source.reveal(count);
-    await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(page.locator(".react-flow__node")).toHaveCount(count);
     const expanded = await positions(page);
     for (const [id, point] of Object.entries(placed))

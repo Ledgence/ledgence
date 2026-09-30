@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: MIT
-import { useState } from "react";
-import { Link, Navigate, useLocation, useSearchParams } from "react-router";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigationType,
+  useSearchParams,
+} from "react-router";
 import { Plus } from "lucide-react";
 import { useInstance } from "../app/instance";
-import { usePagination, useResource } from "../api/hooks";
-import { executionPage, executionPath } from "../api/explorer";
+import { executionPath } from "../api/explorer";
+import { useExecutionHistory } from "./use-execution-history";
 import { LoadingState } from "../components/async-state";
 import {
   Empty,
-  PageControls,
   PageHeading,
   QueryError,
   Status,
@@ -38,8 +43,14 @@ export function LegacyWorkflowsRedirect() {
 }
 export function ExecutionsPage() {
   const config = useInstance();
+  const location = useLocation();
   const [params] = useSearchParams();
-  const paging = usePagination();
+  const navigationType = useNavigationType();
+  const size = Number(params.get("limit") ?? config.limits.default_page_size);
+  const limit =
+    [25, 50, 100].includes(size) && size <= config.limits.max_page_size
+      ? size
+      : config.limits.default_page_size;
   const includesChildren =
     params.get("include_children") === "true" ||
     !!params.get("program_id") ||
@@ -47,20 +58,74 @@ export function ExecutionsPage() {
   const filters = Object.fromEntries(
     executionFilterKeys.map((key) => [key, params.get(key)]),
   );
-  const query = useResource(
-    "executions",
+  const { query, rows } = useExecutionHistory(
     {
       ...filters,
       include_children: includesChildren ? "true" : "false",
-      limit: paging.limit,
-      cursor: paging.cursor,
+      limit,
+      cursor: params.get("cursor"),
     },
-    executionPage,
-    {
-      enabled: config.capabilities.executions || config.capabilities.workflows,
-      interval: paging.cursor ? false : config.polling.lists_ms,
-    },
+    config.capabilities.executions || config.capabilities.workflows,
   );
+  const sentinel = useRef<HTMLDivElement>(null);
+  const loadingNext = useRef<string | null>(null);
+  const listKey = JSON.stringify({
+    ...filters,
+    includesChildren,
+    limit,
+    cursor: params.get("cursor"),
+  });
+  const previousListKey = useRef(listKey);
+  const { hasNextPage, isFetching, error, fetchNextPage } = query;
+  const pageCount = query.data?.pages.length ?? 0;
+  useLayoutEffect(() => {
+    // Newly applied filters start at the top. Browser Back owns its saved scroll.
+    if (previousListKey.current !== listKey && navigationType !== "POP")
+      window.scrollTo(0, 0);
+    previousListKey.current = listKey;
+  }, [listKey, navigationType]);
+  useEffect(() => {
+    const target = sentinel.current;
+    if (!target || !hasNextPage || isFetching || error) return;
+    const load = () => {
+      if (loadingNext.current === listKey) return;
+      loadingNext.current = listKey;
+      void fetchNextPage({ cancelRefetch: false }).finally(() => {
+        if (loadingNext.current === listKey) loadingNext.current = null;
+      });
+    };
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) load();
+        },
+        { rootMargin: "0px 0px 400px 0px" },
+      );
+      observer.observe(target);
+      return () => observer.disconnect();
+    }
+    // Keyboard scrolling and environments without IntersectionObserver retain
+    // automatic loading, without requiring a separate pagination control.
+    const check = () => {
+      const box = target.getBoundingClientRect();
+      if (box.top <= window.innerHeight + 400 && box.bottom >= 0) load();
+    };
+    check();
+    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    return () => {
+      window.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+    };
+  }, [
+    listKey,
+    pageCount,
+    rows.length,
+    hasNextPage,
+    isFetching,
+    error,
+    fetchNextPage,
+  ]);
   const filtered =
     executionFilterKeys.some((key) => params.has(key)) ||
     params.get("include_children") === "true";
@@ -90,7 +155,7 @@ export function ExecutionsPage() {
       ) : (
         <div className="table-panel history-table-panel">
           {query.isPending && <LoadingState label="Loading executions" />}
-          {query.error && (
+          {query.error && !query.data && (
             <QueryError
               error={query.error}
               retry={() => void query.refetch()}
@@ -99,11 +164,12 @@ export function ExecutionsPage() {
           )}
           {query.data && (
             <>
-              {query.data.items.length ? (
+              {rows.length ? (
                 <div
                   className="history-table-scroll"
                   role="region"
                   aria-label="Execution history"
+                  data-scroll-memory="execution-history"
                   tabIndex={0}
                 >
                   <table className="table execution-table history-table">
@@ -129,16 +195,14 @@ export function ExecutionsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {query.data.items.map((item) => {
-                        const elapsed = historyElapsed(
-                          item,
-                          query.data!.observed_at,
-                        );
+                      {rows.map(({ item, observedAt }) => {
+                        const elapsed = historyElapsed(item, observedAt);
                         return (
                           <tr key={`${item.kind}:${item.id}`}>
                             <td>
                               <Link
                                 className="execution-name"
+                                data-focus-key={`execution:${item.kind}:${item.id}`}
                                 title={
                                   item.correlation_key ||
                                   item.descriptor.program.id
@@ -146,6 +210,7 @@ export function ExecutionsPage() {
                                 to={executionPath(item.kind, item.id)}
                                 state={{
                                   returnTo: `/executions${params.size ? `?${params}` : ""}`,
+                                  returnNavigationKey: location.key,
                                 }}
                               >
                                 {item.correlation_key ||
@@ -169,6 +234,7 @@ export function ExecutionsPage() {
                             <td>
                               <Link
                                 className="execution-program"
+                                data-focus-key={`execution-program:${item.kind}:${item.id}`}
                                 title={item.descriptor.program.id}
                                 to={`/programs/${encodeURIComponent(item.descriptor.program.id)}/versions/${encodeURIComponent(item.descriptor.program.version)}`}
                               >
@@ -206,6 +272,7 @@ export function ExecutionsPage() {
                               <td>
                                 {item.parent_workflow_id ? (
                                   <Link
+                                    data-focus-key={`execution-parent:${item.kind}:${item.id}`}
                                     to={executionPath(
                                       "workflow",
                                       item.parent_workflow_id,
@@ -224,18 +291,54 @@ export function ExecutionsPage() {
                     </tbody>
                   </table>
                 </div>
-              ) : (
+              ) : !query.hasNextPage ? (
                 <Empty filtered={filtered}>
                   Submit an execution or adjust the exact filters.
                 </Empty>
+              ) : null}
+              {(rows.length > 0 || query.hasNextPage || query.error) && (
+                <div className="history-load-more" ref={sentinel}>
+                  {query.error ? (
+                    <div className="history-load-error">
+                      <p role="alert">
+                        Unable to load{" "}
+                        {query.isFetchNextPageError
+                          ? "more executions"
+                          : "execution updates"}
+                        . Your loaded executions are still available.
+                      </p>
+                      <Button
+                        variant="outline"
+                        disabled={query.isFetching}
+                        onClick={() => {
+                          if (query.isFetchNextPageError)
+                            void query.fetchNextPage({ cancelRefetch: false });
+                          else void query.refetch();
+                        }}
+                      >
+                        Retry loading
+                      </Button>
+                    </div>
+                  ) : (
+                    <div role="status" aria-live="polite" aria-atomic="true">
+                      {query.isFetchingNextPage ? (
+                        <span className="history-loading">
+                          Loading more executions…
+                        </span>
+                      ) : rows.length > 0 ? (
+                        <span>
+                          {rows.length}{" "}
+                          {rows.length === 1 ? "execution" : "executions"}{" "}
+                          loaded
+                          {!query.hasNextPage ? " · End of list" : ""}
+                        </span>
+                      ) : query.hasNextPage ? (
+                        "Loading executions…"
+                      ) : null}
+                    </div>
+                  )}
+                </div>
               )}
-              <PageControls
-                pagination={paging}
-                nextCursor={query.data.next_cursor}
-                observedAt={query.data.observed_at}
-                refresh={() => void query.refetch()}
-                fetching={query.isFetching}
-              />
             </>
           )}
         </div>

@@ -9,10 +9,10 @@ import {
   Layers2,
   Monitor,
   PanelLeftClose,
-  PanelLeftOpen,
   Server,
 } from "lucide-react";
 import { applyTheme, readTheme, type Theme } from "../app/theme";
+import { ShellHeaderTargetContext } from "../app/header-slot-context";
 import "../styles/shell.css";
 
 const sidebarStorageKey = "ledgence.console.sidebar-collapsed";
@@ -40,6 +40,7 @@ export function AppShell({
   const location = useLocation();
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
   function changeTheme(value: string) {
     if (value !== "system" && value !== "light" && value !== "dark") return;
     setTheme(value);
@@ -55,7 +56,7 @@ export function AppShell({
     }
   }
   return (
-    <>
+    <ShellHeaderTargetContext.Provider value={headerTarget}>
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
@@ -64,15 +65,34 @@ export function AppShell({
         data-sidebar-collapsed={collapsed}
       >
         <aside className="sidebar console-sidebar" aria-label="Console sidebar">
-          <Link
-            className="brand shell-brand"
-            to="/executions"
-            aria-label="Ledgence Console home"
-            title={collapsed ? "Ledgence Console home" : undefined}
-          >
-            <span className="brand-mark" aria-hidden="true" />
-            <span className="sidebar-label">ledgence</span>
-          </Link>
+          <div className="shell-sidebar-header">
+            {!collapsed && (
+              <Link
+                className="brand shell-brand"
+                to="/executions"
+                aria-label="Ledgence Console home"
+              >
+                <span className="brand-mark" aria-hidden="true" />
+                <span className="sidebar-label">ledgence</span>
+              </Link>
+            )}
+            {/* Keep this button mounted so keyboard focus survives either shape. */}
+            <button
+              className={`shell-collapse${collapsed ? " shell-collapse--brand" : ""}`}
+              type="button"
+              onClick={toggleSidebar}
+              aria-expanded={!collapsed}
+              aria-controls="console-navigation"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {collapsed ? (
+                <span className="brand-mark" aria-hidden="true" />
+              ) : (
+                <PanelLeftClose aria-hidden="true" />
+              )}
+            </button>
+          </div>
           <nav
             id="console-navigation"
             className="navigation shell-navigation"
@@ -124,21 +144,6 @@ export function AppShell({
         <div className="workspace console-workspace">
           <header className="instance-header shell-header">
             <div className="shell-header-leading">
-              <button
-                className="shell-collapse"
-                type="button"
-                onClick={toggleSidebar}
-                aria-expanded={!collapsed}
-                aria-controls="console-navigation"
-                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              >
-                {collapsed ? (
-                  <PanelLeftOpen aria-hidden="true" />
-                ) : (
-                  <PanelLeftClose aria-hidden="true" />
-                )}
-              </button>
               <div className="instance-header-name">
                 <span
                   className="brand-mark shell-mobile-mark"
@@ -147,6 +152,7 @@ export function AppShell({
                 <Server className="shell-instance-icon" aria-hidden="true" />
                 <span title={instanceName}>{instanceName}</span>
               </div>
+              <div className="shell-page-heading" ref={setHeaderTarget} />
             </div>
             <label className="theme-control">
               <Monitor aria-hidden="true" />
@@ -176,6 +182,6 @@ export function AppShell({
           </main>
         </div>
       </div>
-    </>
+    </ShellHeaderTargetContext.Provider>
   );
 }

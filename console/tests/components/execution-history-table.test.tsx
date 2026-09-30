@@ -13,6 +13,7 @@ import {
   consoleContractVersion,
   type ConsoleConfig,
 } from "../../src/api/contracts";
+import type { Execution } from "../../src/api/explorer";
 import { InstanceContext } from "../../src/app/instance";
 import { AppShell } from "../../src/components/app-shell";
 import { BackLink } from "../../src/components/resource-ui";
@@ -58,7 +59,7 @@ const descriptor = {
   size: "512",
 };
 const submittedAt = Date.parse("2026-09-29T12:30:00Z");
-const records = [
+const records: Execution[] = [
   {
     kind: "workflow",
     id: "wf_release",
@@ -102,15 +103,16 @@ function Detail() {
     </>
   );
 }
-async function mount(query = "") {
+async function mount(query = "", continuation?: typeof records) {
   const paths: URL[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = new URL(String(input), location.origin);
     paths.push(url);
     return new Response(
       JSON.stringify({
-        items: records,
-        next_cursor: url.searchParams.has("cursor") ? null : "page-2",
+        items: url.searchParams.has("cursor") ? (continuation ?? []) : records,
+        next_cursor:
+          continuation && !url.searchParams.has("cursor") ? "page-2" : null,
         observed_at: submittedAt + 300000,
       }),
       {
@@ -153,39 +155,84 @@ async function mount(query = "") {
   );
   return { view, router, paths };
 }
-it("uses one execution endpoint and preserves filtered page context across a detail link", async () => {
-  const { view, paths } = await mount("kind=workflow&state=waiting&limit=25");
+it("appends execution pages automatically and preserves filtered list context across a detail link", async () => {
+  const query = "kind=workflow&state=waiting&limit=25";
+  const { view, router, paths } = await mount(query, [
+    {
+      ...records[0]!,
+      id: "wf_publish",
+      root_workflow_id: "wf_publish",
+      correlation_key: "Publish deployment",
+    },
+  ]);
+  const listNavigationKey = router.state.location.key;
   await expect
     .element(view.getByRole("link", { name: "Release readiness", exact: true }))
     .toBeVisible();
-  expect(paths[0]?.pathname).toBe("/v1/console/executions");
-  expect(paths[0]?.searchParams.get("kind")).toBe("workflow");
-  expect(paths[0]?.searchParams.get("state")).toBe("waiting");
-  expect(paths[0]?.searchParams.get("include_children")).toBe("false");
-  await view.getByRole("button", { name: "Next", exact: true }).click();
+  // Let the real IntersectionObserver see the end of the current table.
+  view.getByRole("table").element().scrollIntoView({ block: "end" });
   await expect
-    .poll(() => paths.at(-1)?.searchParams.get("cursor"))
-    .toBe("page-2");
+    .element(
+      view.getByText("3 executions loaded · End of list", { exact: true }),
+    )
+    .toBeVisible();
+  expect(paths.map((url) => url.pathname)).toEqual([
+    "/v1/console/executions",
+    "/v1/console/executions",
+  ]);
+  for (const url of paths) {
+    expect(url.searchParams.get("kind")).toBe("workflow");
+    expect(url.searchParams.get("state")).toBe("waiting");
+    expect(url.searchParams.get("limit")).toBe("25");
+    expect(url.searchParams.get("include_children")).toBe("false");
+  }
+  expect(paths[0]?.searchParams.get("cursor")).toBeNull();
+  expect(paths[1]?.searchParams.get("cursor")).toBe("page-2");
+  expect(router.state.location.search).toBe(`?${query}`);
+  expect(router.state.location.key).toBe(listNavigationKey);
   await view
-    .getByRole("link", { name: "Release readiness", exact: true })
+    .getByRole("link", { name: "Publish deployment", exact: true })
     .click();
   await expect
     .element(view.getByRole("heading", { name: "Execution detail" }))
     .toBeVisible();
+  expect(router.state.location.pathname).toBe("/workflows/wf_publish");
+  expect(router.state.location.state).toEqual({
+    returnTo: `/executions?${query}`,
+    returnNavigationKey: listNavigationKey,
+  });
   await expect
     .element(view.getByRole("link", { name: "Back to executions" }))
-    .toHaveAttribute(
-      "href",
-      "/executions?kind=workflow&state=waiting&limit=25&cursor=page-2",
-    );
+    .toHaveAttribute("href", `/executions?${query}`);
   await view.getByRole("link", { name: "Back to executions" }).click();
   await expect
     .element(view.getByRole("combobox", { name: "Status", exact: true }))
     .toHaveValue("waiting");
   await expect
-    .element(view.getByRole("button", { name: "Previous", exact: true }))
+    .element(view.getByRole("combobox", { name: "Type", exact: true }))
+    .toHaveValue("workflow");
+  await expect
+    .element(view.getByRole("link", { name: "Release readiness", exact: true }))
     .toBeVisible();
+  await expect
+    .element(
+      view.getByRole("link", { name: "Publish deployment", exact: true }),
+    )
+    .toBeVisible();
+  await expect
+    .element(
+      view.getByText("3 executions loaded · End of list", { exact: true }),
+    )
+    .toBeVisible();
+  expect(paths).toHaveLength(2);
+  await expect
+    .element(view.getByRole("button", { name: /^(Next|Previous|Refresh)$/ }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(view.getByRole("combobox", { name: "Rows", exact: true }))
+    .not.toBeInTheDocument();
 });
+
 it("shows observed elapsed time and makes task/workflow destinations real links", async () => {
   const { view } = await mount();
   await expect

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import * as dto from "../../src/api/resources";
+import { decodeConfig } from "../../src/api/codecs";
 import {
   keyboardDialog,
   reducedMotionDialog,
@@ -125,6 +126,152 @@ async function mount(page: Page, result = "pending_result") {
   });
   return requests;
 }
+for (const width of [320, 390, 1280]) {
+  for (const kind of ["task", "workflow"] as const) {
+    test(`unified execution header keeps ${kind} identity and controls usable at ${width}px`, async ({
+      page,
+    }, testInfo) => {
+      await mount(page);
+      await page.setViewportSize({ width, height: 900 });
+      const task = dto.observedTask(fixture("task_status")).task;
+      const workflow = dto.workflowDetail(fixture("workflow_detail")).summary
+        .workflow;
+      const id = kind === "task" ? task.task_id : workflow.workflow_id;
+      const title = (
+        kind === "task" ? task.correlation_key : workflow.correlation_key
+      )!;
+      const instanceName = decodeConfig(fixture("config")).instance_name;
+      await page.goto(
+        `/console/${kind === "task" ? "executions" : "workflows"}/${id}?tab=General`,
+      );
+      const header = page.locator(".shell-header");
+      const heading = header.getByRole("heading", {
+        level: 1,
+        name: title,
+        exact: true,
+      });
+      const ancestry = header.getByRole("navigation", {
+        name: "Execution ancestry",
+      });
+      await expect(heading).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+      await expect(header.locator(".instance-header-name")).toHaveText(
+        instanceName,
+      );
+      await expect(
+        ancestry.getByRole("link", { name: "Executions", exact: true }),
+      ).toBeVisible();
+      await expect(
+        header.getByRole("button", { name: "Back", exact: true }),
+      ).toBeVisible();
+      await expect(
+        header.getByRole("combobox", { name: "Appearance" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "General", exact: true }),
+      ).toHaveAttribute("aria-current", "page");
+      await expect(
+        page.getByRole("button", { name: "Trace", exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", {
+          name: kind === "task" ? "Copy task ID" : "Copy workflow ID",
+          exact: true,
+        }),
+      ).toBeVisible();
+      const status = kind === "task" ? task.state : workflow.state;
+      await expect(page.locator(".execution-summary .status")).toHaveText(
+        status,
+      );
+      if (kind === "task") {
+        await expect(
+          page.getByRole("link", { name: "Run again", exact: true }),
+        ).toHaveAttribute("href", `/console/executions/new?source_task=${id}`);
+        await expect(
+          page.getByRole("button", { name: "Graph", exact: true }),
+        ).toHaveCount(0);
+      } else {
+        await expect(
+          page.getByRole("button", { name: "Graph", exact: true }),
+        ).toBeVisible();
+        const cancel = page.getByRole("button", {
+          name: "Cancel workflow",
+          exact: true,
+        });
+        await cancel.focus();
+        await cancel.press("Enter");
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(
+          page.getByRole("button", { name: "Cancel workflow", exact: true }),
+        ).toBeFocused();
+      }
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(width);
+      const headerBox = (await header.boundingBox())!;
+      const titleBox = (await heading.boundingBox())!;
+      expect(titleBox.x).toBeGreaterThanOrEqual(headerBox.x);
+      expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(
+        headerBox.x + headerBox.width,
+      );
+      expect(titleBox.width).toBeGreaterThan(0);
+      expect(
+        await heading.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+      expect(
+        await heading.evaluate((element) =>
+          parseFloat(getComputedStyle(element).fontSize),
+        ),
+      ).toBeGreaterThanOrEqual(15);
+      if (width >= 768) {
+        const instanceBox = (await header
+          .locator(".instance-header-name")
+          .boundingBox())!;
+        const ancestryBox = (await ancestry.boundingBox())!;
+        expect(
+          Math.abs(
+            instanceBox.y +
+              instanceBox.height / 2 -
+              titleBox.y -
+              titleBox.height / 2,
+          ),
+        ).toBeLessThanOrEqual(2);
+        expect(instanceBox.x + instanceBox.width).toBeLessThan(ancestryBox.x);
+        expect(headerBox.height).toBeLessThanOrEqual(80);
+      } else {
+        expect(headerBox.height).toBeLessThanOrEqual(120);
+        expect(
+          (await header
+            .getByRole("button", { name: "Back", exact: true })
+            .boundingBox())!.height,
+        ).toBeGreaterThanOrEqual(44);
+      }
+      if (
+        testInfo.project.name === "chromium" &&
+        (width === 390 || width === 1280)
+      )
+        await page.screenshot({
+          path: testInfo.outputPath(`header-${kind}-${width}.png`),
+          animations: "disabled",
+        });
+      await ancestry
+        .getByRole("link", { name: "Executions", exact: true })
+        .click();
+      await expect(
+        page.getByRole("heading", {
+          level: 1,
+          name: "Executions",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(header.getByRole("heading", { level: 1 })).toHaveCount(0);
+    });
+  }
+}
+
 test("execution metadata loads without eager input or result calls", async ({
   page,
 }) => {
@@ -530,7 +677,7 @@ test("accepted cancellation stays pending until an observed terminal state", asy
       exact: true,
     }),
   ).toBeVisible();
-  await expect(page.locator(".summary-line .status")).toHaveText("active");
+  await expect(page.locator(".execution-summary .status")).toHaveText("active");
   await expect(
     page.getByRole("heading", { name: "Execution cancelled" }),
   ).toHaveCount(0);
@@ -541,7 +688,9 @@ test("accepted cancellation stays pending until an observed terminal state", asy
   await expect
     .poll(() => reads, { timeout: 15000 })
     .toBeGreaterThan(pendingRead);
-  await expect(page.locator(".summary-line .status")).toHaveText("cancelled");
+  await expect(page.locator(".execution-summary .status")).toHaveText(
+    "cancelled",
+  );
   await expect(
     page.getByText("Cancellation requested; awaiting final state", {
       exact: true,

@@ -15,6 +15,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  DialogTrigger,
 } from "../components/ui/dialog";
 import { LoadingState } from "../components/async-state";
 import {
@@ -32,7 +33,7 @@ import {
 } from "../components/resource-ui";
 import { CommandFeedback } from "../components/command-feedback";
 import { Filters, ExecutionStatusTabs } from "./filters";
-import { ExecutionContext } from "../components/execution-context";
+import { ExecutionHeading } from "../components/execution-heading";
 import { TaskResources, AttemptResources } from "./execution-resources";
 import { DetailPanels, DetailSections } from "./detail-panels";
 export function ExecutionsPage() {
@@ -186,8 +187,9 @@ export function ExecutionDetailPage() {
   const task = query.data?.task;
   return (
     <>
-      <ExecutionContext kind="task" id={taskId} />
-      <PageHeading
+      <ExecutionHeading
+        kind="task"
+        id={taskId}
         title={task?.correlation_key || "Task execution"}
         metadata={
           <>
@@ -706,15 +708,15 @@ function CancelTask({ taskId }: { taskId: string }) {
   });
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
-        Cancel execution
-      </Button>
       <Dialog
         open={open}
         onOpenChange={(next) => {
           if (!command.mutation.isPending) setOpen(next);
         }}
       >
+        <DialogTrigger asChild>
+          <Button variant="outline">Cancel execution</Button>
+        </DialogTrigger>
         <DialogContent>
           <DialogTitle>Cancel this execution?</DialogTitle>
           <DialogDescription>

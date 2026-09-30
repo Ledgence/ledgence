@@ -495,6 +495,7 @@ export function WorkflowExplorer({
             )}
           </div>
           <PageControls
+            navigationOnly
             pagination={paging}
             nextCursor={query.data.page.next_cursor}
             observedAt={query.data.page.observed_at}
