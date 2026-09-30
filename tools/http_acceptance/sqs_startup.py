@@ -68,7 +68,7 @@ def failed_startup_preserves_integrated_delivery(external):
             if name == "activation-rejected":
                 preexisting = integrated.submit(integrated.submission(name + "-before"))["task_id"]
             failed = subprocess.run([
-                str(integrated.binaries / "ledgence-orchestrator"), "serve",
+                str(integrated.binaries / "ledgence"), "orchestrator", "serve",
                 "--bind", f"127.0.0.1:{port or unused_port()}", "--store", store,
                 "--delivery-config", str(config_path),
             ], env=dict(integrated.environment, **overrides), capture_output=True, timeout=40)

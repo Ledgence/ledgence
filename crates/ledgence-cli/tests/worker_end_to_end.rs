@@ -11,7 +11,7 @@ fn python() -> String {
 }
 
 async fn invoke(args: &[&str]) -> Output {
-    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"));
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"));
     command
         .args(args)
         .env("RUST_LOG", "warn")
@@ -47,6 +47,7 @@ impl Fixture {
         let example = temp.path().join("example");
         success(
             &invoke(&[
+                "program",
                 "example",
                 "--directory",
                 example.to_str().unwrap(),
@@ -69,6 +70,7 @@ impl Fixture {
     }
     async fn publish(&self) -> Output {
         invoke(&[
+            "program",
             "publish",
             "--source",
             self.example.join("program").to_str().unwrap(),
@@ -82,6 +84,7 @@ impl Fixture {
     }
     async fn run_with_timeout(&self, timeout: &str) -> Output {
         invoke(&[
+            "worker",
             "run",
             "--tasks",
             self.example.join("tasks.json").to_str().unwrap(),
@@ -128,7 +131,7 @@ async fn published_dependencies_are_downloaded_cached_and_reused_with_immutable_
         "VERSION = 'second'\n",
     )
     .unwrap();
-    assert!(!fixture.publish().await.status.success());
+    assert_eq!(fixture.publish().await.status.code(), Some(1));
     let manifest_path = program.join("ledgence-program.json");
     let mut manifest: Value =
         serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
@@ -191,7 +194,7 @@ async fn duplicate_attempts_and_changed_task_bindings_are_rejected_before_dispat
     tasks[1]["event"]["ldgattemptid"] = tasks[0]["event"]["ldgattemptid"].clone();
     write_json(&tasks_path, &tasks);
     let duplicate = fixture.run().await;
-    assert!(!duplicate.status.success());
+    assert_eq!(duplicate.status.code(), Some(1));
     assert!(
         duplicate.stdout.is_empty(),
         "no invocation may start before fixture validation completes"
@@ -208,7 +211,7 @@ async fn duplicate_attempts_and_changed_task_bindings_are_rejected_before_dispat
     tasks[1]["program"]["version"] = "2.0.0".into();
     write_json(tasks_path, &tasks);
     let changed = fixture.run().await;
-    assert!(!changed.status.success());
+    assert_eq!(changed.status.code(), Some(1));
     assert!(changed.stdout.is_empty());
     assert!(String::from_utf8_lossy(&changed.stderr).contains("bound program"));
 }
@@ -333,9 +336,9 @@ async fn signal_stops_owned_processes(signal: nix::sys::signal::Signal, during_s
     };
     std::fs::write(fixture.example.join("program/program.py"), source).unwrap();
     success(&fixture.publish().await);
-    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"));
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"));
     command
-        .args(["run", "--tasks"])
+        .args(["worker", "run", "--tasks"])
         .arg(fixture.example.join("tasks.json"))
         .arg("--store")
         .arg(&fixture.store)
@@ -468,9 +471,9 @@ async fn second_shutdown_signal_forces_exit_while_fetch_is_retained() {
             }
         }
     });
-    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"));
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"));
     command
-        .args(["run", "--tasks"])
+        .args(["worker", "run", "--tasks"])
         .arg(fixture.example.join("tasks.json"))
         .args(["--store", &url])
         .arg("--cache")
@@ -563,9 +566,9 @@ async fn first_shutdown_signal_waits_for_preparation_then_skips_dispatch() {
             .unwrap();
         stream.write_all(&descriptor).await.unwrap();
     });
-    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"));
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"));
     command
-        .args(["run", "--tasks"])
+        .args(["worker", "run", "--tasks"])
         .arg(fixture.example.join("tasks.json"))
         .args(["--store", &url])
         .arg("--cache")

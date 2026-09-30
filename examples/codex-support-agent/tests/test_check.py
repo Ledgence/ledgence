@@ -270,7 +270,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
                     (target / "program.py").write_text("# validated by a separate prepared-source test\n")
                 (prepared / "prepared.json").write_text("{}")
                 binaries.mkdir()
-                for binary in ("ledgence-worker", "ledgence-orchestrator"):
+                for binary in ("ledgence",):
                     (binaries / binary).touch()
                 configuration = SimpleNamespace(worker_environment=Mock(side_effect=error))
                 with patch.object(check, "load", return_value=configuration), \

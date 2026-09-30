@@ -16,7 +16,7 @@ python3 tools/check-performance.py --disposable-postgres --psql /path/to/psql \
   --evidence /absolute/path/to/new-evidence-directory
 ```
 
-By default, it builds the workspace binaries with the release profile, offers 5,000,000 / 86,400 = **57.87037 submissions/second** for 60 seconds, uses N=16 subprocesses, 16 HTTP submitter threads, 1,024 padding bytes, and 100 milliseconds of sleeping work. Startup and warmup are excluded. A ten-minute migration budget and a 120-second post-load drain are separate from the arrival window. Evidence is always retained, including on failure. Without `--evidence`, the tool prints a newly created temporary directory.
+By default, it builds the `ledgence` executable with the release profile, offers 5,000,000 / 86,400 = **57.87037 submissions/second** for 60 seconds, uses N=16 subprocesses, 16 HTTP submitter threads, 1,024 padding bytes, and 100 milliseconds of sleeping work. Startup and warmup are excluded. A ten-minute migration budget and a 120-second post-load drain are separate from the arrival window. Evidence is always retained, including on failure. Without `--evidence`, the tool prints a newly created temporary directory.
 
 A tiny functional smoke run:
 
@@ -38,7 +38,7 @@ python3 tools/check-performance.py --disposable-postgres --psql /path/to/psql \
 
 N remains Ledgence's single worker concurrency setting. `--submitters` bounds the external benchmark client, not the worker. Choose N from the workload and available hardware: roughly arrival rate × mean task duration slots are needed even before orchestration and headroom. The illustrative burst command may overload a small laptop, the load generator, or the database. Overload is a result to retain and inspect, not a reason to silently lower the offered rate.
 
-Supply `--binaries /absolute/path/to/binaries --profile debug|release` to skip building. That profile is a declaration by the operator. The report hashes the actual executables and records the workspace commit/dirty status, but it cannot prove that externally built binaries came from that commit or profile. Preserve a clean build and its source revision when comparing changes. A debug run can validate the harness; use release builds for performance comparisons.
+Supply `--binaries /absolute/path/to/binaries --profile debug|release` to skip building. That profile is a declaration by the operator. The report hashes the actual `ledgence` executable and records the workspace commit/dirty status, but it cannot prove that an externally built executable came from that commit or profile. Preserve a clean build and its source revision when comparing changes. A debug run can validate the harness; use release builds for performance comparisons.
 
 ## Comparing SQS delivery
 
@@ -51,9 +51,9 @@ python3 tools/check-performance.py --disposable-postgres --psql /path/to/psql \
   --evidence /absolute/path/to/new-sqs-evidence-directory
 ```
 
-The configuration is read with a 16 KiB cap before database creation and passed unchanged to both binaries. The worker's scope and queue come from its explicit route. The Rust adapter validates the complete schema, queue configuration, and access at startup. The harness records a SHA-256 fingerprint and fails if the file differs at the final check; retain the original configuration separately and keep it unchanged throughout the run. The file itself is not copied into evidence. AWS credentials remain in the normal external credential chain. For ElasticMQ, use the explicit local endpoint and local credential option described in the delivery guide.
+The configuration is read with a 16 KiB cap before database creation and passed unchanged to the orchestrator and worker processes. The worker's scope and queue come from its explicit route. The Rust adapter validates the complete schema, queue configuration, and access at startup. The harness records a SHA-256 fingerprint and fails if the file differs at the final check; retain the original configuration separately and keep it unchanged throughout the run. The file itself is not copied into evidence. AWS credentials remain in the normal external credential chain. For ElasticMQ, use the explicit local endpoint and local credential option described in the delivery guide.
 
-Without `--binaries`, the harness builds with both executable `sqs` features when a configuration is present. Supplied binaries must already include those features. SQS results use the same task census, timing, and process-reuse checks as the integrated mode. Queue publication, receives, acknowledgements, and redelivery add work; record broker request counts and resource settings separately. Local ElasticMQ results describe that local experiment and do not establish AWS capacity or service behavior.
+Without `--binaries`, the harness builds `ledgence-cli` with its `sqs` feature when a configuration is present. A supplied `ledgence` executable must already include that feature. SQS results use the same task census, timing, and process-reuse checks as the integrated mode. Queue publication, receives, acknowledgements, and redelivery add work; record broker request counts and resource settings separately. Local ElasticMQ results describe that local experiment and do not establish AWS capacity or service behavior.
 
 ## Optional PostgreSQL query counters
 
@@ -145,7 +145,7 @@ python tools/check-workflows.py --endpoint http://127.0.0.1:9324 \
 ```
 
 Provide `LEDGENCE_POSTGRES_URL`, a supported `LEDGENCE_PYTHON`, and the Python
-client's dependencies. Supplied binaries must include the SQS feature for the
+client's dependencies. The supplied `ledgence` executable must include the SQS feature for the
 ElasticMQ mode. The harness imports the client from the checkout; the separate
 installed-client gate verifies wheel packaging. It creates and drops a unique
 database and, in ElasticMQ mode, a unique local queue. It restarts only its owned
@@ -184,7 +184,7 @@ the final database census must exactly match all expected tasks, attempts,
 workflows, local results, and subscriptions. Business exceptions remain terminal;
 the retry fixture deliberately terminates its process to exercise process recovery.
 
-Use release binaries from the same reviewed source and the Python interpreter
+Use a release build of `ledgence` from the same reviewed source and the Python interpreter
 in an environment containing the installed client wheel:
 
 ```sh

@@ -16,7 +16,7 @@ import tarfile
 import tempfile
 import tomllib
 
-from notices import BINS, ROOT, collect
+from notices import ROOT, collect
 from console_bundle import validate as validate_console
 
 
@@ -98,9 +98,8 @@ def main():
     epoch = int(read("git", "show", "-s", "--format=%ct", commit))
     env = dict(os.environ, SQLX_OFFLINE="true", SOURCE_DATE_EPOCH=str(epoch), PYTHONDONTWRITEBYTECODE="1")
     # No extra build/dependency versions are introduced by the release tool.
-    build = ["cargo", "build", "--release", "--locked", "--all-features", "--bins", "--target", target]
-    for package in BINS:
-        build.extend(["-p", package])
+    build = ["cargo", "build", "--release", "--locked", "--all-features",
+             "-p", "ledgence-cli", "--bin", "ledgence", "--target", target]
     if args.offline:
         build.append("--offline")
     command(build, env=env)
@@ -109,7 +108,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="ledgence-candidate-") as temporary:
         stage = Path(temporary) / label
         (stage / "bin").mkdir(parents=True)
-        for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator"):
+        for name in ("ledgence",):
             shutil.copyfile(binaries / name, stage / "bin" / name)
             (stage / "bin" / name).chmod(0o755)
         shutil.copytree(ROOT / "sdk/python/ledgence", stage / "runtime/ledgence",
@@ -129,15 +128,15 @@ def main():
         if args.offline:
             sdk.append("--offline")
         command(sdk, env=env)
-        (stage / "README.md").write_text(f"# {label}\n\nThis is a release candidate assembled from commit {commit}, not a stable release. Embedded Rust and Python package versions remain {version}.\n\nUse bin/ledgence-orchestrator, bin/ledgence-worker and bin/ledgence. Supply a compatible host CPython 3.11–3.14 and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. Native binaries target {target}; they require host system libraries and do not include CPython, PostgreSQL or a broker. The client wheel and sdist are in python-client/; installing the wheel resolves the reviewed pinned dependencies. See docs/local-deployment.md and docs/releasing.md. The installed-SDK Compose companion is examples/local-compose-client.py; start and publish its programs from the matching source checkout first.\n\nThe console/ directory, when included, is served with --instance-config PATH --console-dir <bundle>/console; see docs/console.md. A headless build explicitly omits it.\n\nKeep LICENSE and legal/ with redistributed binaries; Python distributions carry their own retained legal files. Third-party software retains its original licenses.\n")
+        (stage / "README.md").write_text(f"# {label}\n\nThis is a release candidate assembled from commit {commit}, not a stable release. Embedded Rust and Python package versions remain {version}.\n\nUse bin/ledgence with the program, worker, orchestrator and task command groups. Supply a compatible host CPython 3.11–3.14 and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. The native binary targets {target}; it requires host system libraries and does not include CPython, PostgreSQL or a broker. The client wheel and sdist are in python-client/; installing the wheel resolves the reviewed pinned dependencies. See docs/local-deployment.md and docs/releasing.md. The installed-SDK Compose companion is examples/local-compose-client.py; start and publish its programs from the matching source checkout first.\n\nThe console/ directory, when included, is served with bin/ledgence orchestrator serve --instance-config PATH --console-dir <bundle>/console; see docs/console.md. A headless build explicitly omits it.\n\nKeep LICENSE and legal/ with redistributed binaries; Python distributions carry their own retained legal files. Third-party software retains its original licenses.\n")
         # Captures dependency/toolchain identity, not a claim of byte-identical compilation.
         linker = ["otool", "-L"] if sys.platform == "darwin" else ["ldd"]
-        linked = {name: read(*linker, str(stage / "bin" / name)) for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator")}
+        linked = {name: read(*linker, str(stage / "bin" / name)) for name in ("ledgence",)}
         provenance = {"format": 1, "candidate": label, "source_commit": commit,
                       "source_tree_clean": True, "source_date_epoch": epoch,
                       "package_version": version, "target": target, "rustc": rustc, "console": console_record,
                       "cargo": read("cargo", "-V"), "python_builder": sys.version,
-                      "host": platform.platform(), "features": "all features of the three executable packages",
+                      "host": platform.platform(), "features": "all features of ledgence-cli", "executables": ["ledgence"],
                       "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),
                       "build_command": list(map(str, build)), "dynamic_libraries": linked,
                       "rustflags": os.environ.get("RUSTFLAGS"),

@@ -9,7 +9,7 @@ Use a fork when parts of the same workflow package need independent execution, r
 
 ## Prepare the source deployment
 
-Start with the current-source [checkpoint workflow setup](https://github.com/Ledgence/ledgence/blob/develop/examples/checkpoint-workflow/README.md). It builds the binaries, applies database migrations, starts PostgreSQL-backed orchestration and a connected worker, and installs the client from the same checkout. The instructions define `LEDGENCE_PYTHON` and `workflow_demo`; retain those values for the commands below.
+Start with the current-source [checkpoint workflow setup](https://github.com/Ledgence/ledgence/blob/develop/examples/checkpoint-workflow/README.md). It builds the `ledgence` executable, applies database migrations, starts PostgreSQL-backed orchestration and a connected worker, and installs the client from the same checkout. The instructions define `LEDGENCE_PYTHON` and `workflow_demo`; retain those values for the commands below.
 
 The source checkout must contain migration `20260928000000_workflow_forks.sql`, and the deployment must have applied all migrations. Upgrade workers and orchestrators together. The host supplies CPython 3.11 or newer; use the same Python major/minor and target platform when preparing and running the package.
 
@@ -136,7 +136,7 @@ From the repository root, with the source deployment above still running:
 
 ```sh
 "$LEDGENCE_PYTHON" examples/mixed-workflow/prepare.py "$workflow_demo/mixed/program"
-./target/debug/ledgence-worker publish \
+./target/debug/ledgence program publish \
   --source "$workflow_demo/mixed/program" --store "$workflow_demo/store"
 ```
 

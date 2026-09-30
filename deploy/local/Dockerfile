@@ -23,7 +23,7 @@ COPY crates ./crates
 COPY .sqlx ./.sqlx
 COPY examples/python ./examples/python
 ENV SQLX_OFFLINE=true
-RUN cargo build --release --locked --bins --all-features -p ledgence-worker -p ledgence-orchestrator -p ledgence-cli
+RUN cargo build --release --locked --all-features -p ledgence-cli --bin ledgence
 COPY tools/release ./tools/release
 COPY legal ./legal
 COPY LICENSE ./LICENSE
@@ -35,7 +35,7 @@ LABEL org.opencontainers.image.title="Ledgence local candidate" \
       org.opencontainers.image.source="https://github.com/Ledgence/ledgence" \
       org.opencontainers.image.revision=$SOURCE_REVISION
 WORKDIR /opt/ledgence
-COPY --from=builder /src/target/release/ledgence /src/target/release/ledgence-worker /src/target/release/ledgence-orchestrator /usr/local/bin/
+COPY --from=builder /src/target/release/ledgence /usr/local/bin/
 COPY --from=builder /legal /opt/ledgence/legal
 COPY --from=console-builder /src/console/dist /opt/ledgence/console
 COPY sdk/python/ledgence /opt/ledgence/runtime/ledgence
@@ -45,4 +45,4 @@ COPY LICENSE /opt/ledgence/LICENSE
 RUN mkdir -p /programs /cache /demo-state && python3 /opt/ledgence/local/image-inventory.py
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 STOPSIGNAL SIGTERM
-CMD ["ledgence-orchestrator", "--help"]
+CMD ["ledgence", "--help"]

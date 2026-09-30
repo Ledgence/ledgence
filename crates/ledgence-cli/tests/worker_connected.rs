@@ -133,8 +133,9 @@ fn spawn_worker(directory: &Path, server: &str, concurrency: &str) -> Child {
     std::fs::create_dir_all(&store).unwrap();
     let runner =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/python/ledgence/worker/bootstrap.py");
-    tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+    tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"))
         .args([
+            "worker",
             "connect",
             "--server",
             server,
@@ -306,8 +307,9 @@ async fn repeated_shutdown_wait_retains_unknown_acquisition_until_explicit_secon
 #[tokio::test]
 async fn connect_rejects_a_second_concurrency_setting_and_out_of_range_capacity() {
     for option in ["--pollers", "--timeout-ms"] {
-        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"))
             .args([
+                "worker",
                 "connect",
                 "--server",
                 "http://127.0.0.1:1",
@@ -332,7 +334,7 @@ async fn connect_rejects_a_second_concurrency_setting_and_out_of_range_capacity(
             .output()
             .await
             .unwrap();
-        assert!(!output.status.success());
+        assert_eq!(output.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&output.stderr).contains("unknown options"));
     }
     for concurrency in ["0", "1025"] {
@@ -344,7 +346,7 @@ async fn connect_rejects_a_second_concurrency_setting_and_out_of_range_capacity(
         .await
         .unwrap()
         .unwrap();
-        assert!(!output.status.success());
+        assert_eq!(output.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&output.stderr).contains("concurrency"));
     }
 }
@@ -357,8 +359,9 @@ async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait
     let directory = tempfile::tempdir().unwrap();
     let example = directory.path().join("example");
     let python = std::env::var("LEDGENCE_PYTHON").unwrap_or_else(|_| "python3".into());
-    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"))
         .args([
+            "program",
             "example",
             "--directory",
             example.to_str().unwrap(),
@@ -380,8 +383,9 @@ async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait
     )
     .unwrap();
     let store = directory.path().join("store");
-    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"))
         .args([
+            "program",
             "publish",
             "--source",
             example.join("program").to_str().unwrap(),

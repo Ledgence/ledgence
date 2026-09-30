@@ -26,6 +26,8 @@ license = "MIT"
 repository = "https://github.com/Ledgence/ledgence"
 
 [workspace.dependencies]
+ledgence-worker = { version = "0.1.1", path = "crates/ledgence-worker", default-features = false }
+ledgence-orchestrator = { version = "0.1.1", path = "crates/ledgence-orchestrator", default-features = false }
 ledgence-adapter-sqs = { version = "0.1.1", path = "crates/ledgence-adapter-sqs" }
 ledgence-adapter-otel = { version = "0.1.1", path = "crates/ledgence-adapter-otel" }
 opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace"] }

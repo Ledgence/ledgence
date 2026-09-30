@@ -54,8 +54,8 @@ def validate_package(directory: Path) -> dict:
 def prepare(directory: Path, binaries: Path, wheelhouse: Path | None = None) -> dict:
     selected, operating_system, architecture = target()
     binaries = binaries.resolve()
-    if not (binaries / "ledgence-worker").is_file():
-        raise ValueError("build the Ledgence binaries first, or supply --binaries")
+    if not (binaries / "ledgence").is_file():
+        raise ValueError("build the Ledgence CLI first, or supply --binaries")
     directory = directory.resolve()
     if directory.is_relative_to(ROOT):
         raise ValueError("choose a build directory outside the Git repository")
@@ -97,7 +97,7 @@ def prepare(directory: Path, binaries: Path, wheelhouse: Path | None = None) -> 
     sizes = {kind: validate_package(package) for kind, package in (("agent", agent), ("workflow", workflow))}
     descriptors = {}
     for kind, package in (("agent", agent), ("workflow", workflow)):
-        result = subprocess.run([str(binaries / "ledgence-worker"), "publish", "--source", str(package),
+        result = subprocess.run([str(binaries / "ledgence"), "program", "publish", "--source", str(package),
                                  "--store", str(directory / "store")], capture_output=True, text=True, check=True)
         descriptors[kind] = json.loads(result.stdout)
     instance = {"instance_id": "support-demo", "name": "Support agent demo",

@@ -22,6 +22,7 @@ use ledgence_orchestration_service::ApplicationService;
 use ledgence_worker_api::{ProgramStore, TraceBridge};
 use std::{
     future::{Future, IntoFuture},
+    io::Write,
     process::ExitCode,
     sync::Arc,
     time::Duration,
@@ -31,15 +32,21 @@ use tracing::instrument::WithSubscriber;
 
 const DRAIN_OBSERVATION: Duration = Duration::from_secs(35);
 
-fn main() -> ExitCode {
-    let command = match command::parse(std::env::args().skip(1)) {
+/// Runs an orchestrator command in the current process.
+///
+/// Arguments begin with the orchestrator subcommand and omit the executable and
+/// `orchestrator` group names. This entrypoint owns the service runtime, signal
+/// subscriptions, and telemetry through shutdown.
+pub fn entrypoint(args: Vec<String>) -> ExitCode {
+    let command = match command::parse(args) {
         Ok(Command::Help) => {
             print!("{}", command::HELP);
             return ExitCode::SUCCESS;
         }
         Ok(command) => command,
         Err(error) => {
-            eprintln!("{error}");
+            // A closed diagnostic stream must not replace the usage result with a panic.
+            let _ = writeln!(std::io::stderr(), "{error}");
             return ExitCode::from(2);
         }
     };

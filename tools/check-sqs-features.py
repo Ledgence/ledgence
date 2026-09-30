@@ -9,7 +9,7 @@ import subprocess
 def main():
     root = Path(__file__).resolve().parents[1]
     cargo = os.environ.get("CARGO", "cargo")
-    for package in ("ledgence-worker", "ledgence-orchestrator"):
+    for package in ("ledgence-worker", "ledgence-orchestrator", "ledgence-cli"):
         for defaults in ([], ["--no-default-features"]):
             selection = ["-p", package, *defaults, "--locked"]
             tree = subprocess.check_output(

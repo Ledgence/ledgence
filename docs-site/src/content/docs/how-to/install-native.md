@@ -7,6 +7,10 @@ Install Ledgence's prebuilt tools on a Mac with Apple silicon. This guide uses t
 
 For a complete stack on Linux or macOS, follow [Run Ledgence locally](/tutorials/run-locally). That tutorial builds the 0.1.1 source with Docker Compose. Neither published version includes Console; use [Explore Ledgence Console](/tutorials/use-console) for the current source implementation.
 
+The current source tree uses one `ledgence` executable with grouped commands.
+The [CLI reference](/reference/cli) explains that newer command layout; the
+commands below intentionally match the published 0.1.0 archive.
+
 ## Before you start
 
 You need macOS on `arm64`, `curl`, and a separately installed CPython 3.11–3.14. The archive supplies the native tools and Ledgence worker helper; it does not bundle Python, PostgreSQL, or a broker.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise relocated candidate executables and runtime helper on this host."""
+"""Exercise the relocated candidate executable and runtime helper on this host."""
 import argparse
 import json
 import os
@@ -24,12 +24,15 @@ def main():
         return subprocess.check_output(list(map(str, command)), cwd=temporary, env=env, timeout=60, text=True)
     with tempfile.TemporaryDirectory(prefix="ledgence-bundle-smoke-") as directory:
         temporary = Path(directory)
-        for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator"):
-            assert "Ledgence" in run(bundle / "bin" / name, "--help")
-        worker = bundle / "bin/ledgence-worker"
-        run(worker, "example", "--directory", temporary / "example", "--python", sys.executable)
-        run(worker, "publish", "--source", temporary / "example/program", "--store", temporary / "store")
-        output = run(worker, "run", "--tasks", temporary / "example/tasks.json", "--store", temporary / "store",
+        assert {path.name for path in (bundle / "bin").iterdir()} == {"ledgence"}
+        executable = bundle / "bin/ledgence"
+        assert "Ledgence" in run(executable, "--help")
+        assert "ledgence" in run(executable, "--version").lower()
+        for group in ("program", "worker", "orchestrator", "task"):
+            assert group in run(executable, group, "--help")
+        run(executable, "program", "example", "--directory", temporary / "example", "--python", sys.executable)
+        run(executable, "program", "publish", "--source", temporary / "example/program", "--store", temporary / "store")
+        output = run(executable, "worker", "run", "--tasks", temporary / "example/tasks.json", "--store", temporary / "store",
                      "--cache", temporary / "cache", "--python", sys.executable,
                      "--runner", bundle / "runtime/ledgence/worker/bootstrap.py", "--concurrency", "1")
         reports = [json.loads(line) for line in output.splitlines()]
@@ -39,7 +42,7 @@ def main():
         for report in reports:
             assert report["report"]["outcome"]["status"] == "success", report
         console_smoke(bundle, temporary / "store", temporary)
-    print("Relocated binaries, dynamic publication/cache, helper and warm process reuse passed")
+    print("Relocated binary, dynamic publication/cache, helper and warm process reuse passed")
 
 
 if __name__ == "__main__":

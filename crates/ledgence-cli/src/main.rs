@@ -1,11 +1,12 @@
-//! Single-exchange task administration over the portable HTTP client adapter.
+//! Unified entry point for program administration and platform services.
 
 mod args;
 mod logging;
+mod routing;
 mod submission;
 mod telemetry;
 
-use args::{Command, HELP, Operation};
+use args::{Command, Operation};
 use ledgence_adapter_http::HttpTaskService;
 use ledgence_orchestration_api::{ContractError, Result, TaskService};
 use serde::Serialize;
@@ -25,7 +26,28 @@ fn main() -> ExitCode {
                 .map_err(|_| args::invalid("arguments must be valid UTF-8"))
         })
         .collect::<Result<Vec<_>>>();
-    let command = match arguments.and_then(Command::parse) {
+    match arguments.and_then(routing::parse) {
+        Ok(routing::Route::Help(help)) => write_stdout(&help),
+        Ok(routing::Route::Version) => {
+            write_stdout(concat!("ledgence ", env!("CARGO_PKG_VERSION"), "\n"))
+        }
+        Ok(routing::Route::Worker(arguments)) => ledgence_worker::entrypoint(arguments),
+        Ok(routing::Route::Orchestrator(arguments)) => ledgence_orchestrator::entrypoint(arguments),
+        Ok(routing::Route::Admin(arguments)) => run_admin(arguments),
+        Err(error) => diagnose(error, None),
+    }
+}
+
+fn write_stdout(text: &str) -> ExitCode {
+    if std::io::stdout().write_all(text.as_bytes()).is_ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn run_admin(arguments: Vec<String>) -> ExitCode {
+    let command = match Command::parse(arguments) {
         Ok(command) => command,
         Err(error) => return diagnose(error, None),
     };
@@ -35,13 +57,7 @@ fn main() -> ExitCode {
             server,
             registration,
         } => (server, RunOperation::Program(registration)),
-        Command::Help => {
-            return if std::io::stdout().write_all(HELP.as_bytes()).is_ok() {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::FAILURE
-            };
-        }
+        Command::Help => return write_stdout(routing::HELP),
     };
     let mut logs = match logging::Logs::stderr() {
         Ok(logs) => logs,

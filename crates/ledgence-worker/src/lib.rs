@@ -15,8 +15,9 @@ use serde_json::json;
 use signals::{ShutdownSignals, forced_exit};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
+    process::ExitCode,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -25,20 +26,40 @@ use std::{
 };
 use tokio::{sync::Mutex, task::JoinSet};
 
-const HELP: &str = "Ledgence worker\n\nCommands:\n  example --directory DIR --python EXE\n  publish --source DIR --store DIR\n  run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
+const HELP: &str = "Ledgence worker\n\nCommands:\n  ledgence program example --directory DIR --python EXE\n  ledgence program publish --source DIR --store DIR\n  ledgence worker run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  ledgence worker connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
 
-fn main() -> std::process::ExitCode {
+/// Runs a worker or local program command in the current process.
+///
+/// Arguments begin with `run`, `connect`, `example`, or `publish` and omit the
+/// executable and public command group names. This entrypoint owns the worker
+/// runtime, signal subscriptions, and output delivery through shutdown.
+pub fn entrypoint(args: Vec<String>) -> ExitCode {
+    let command = match parse(args) {
+        Ok(command) => command,
+        Err(error) => {
+            // A closed diagnostic stream must not replace the usage result with a panic.
+            let _ = writeln!(
+                std::io::stderr(),
+                "{}",
+                json!({"level":"ERROR", "message":error.to_string()})
+            );
+            return if error.kind == ErrorKind::InvalidInput {
+                ExitCode::from(2)
+            } else {
+                ExitCode::FAILURE
+            };
+        }
+    };
     let mut outputs = match Outputs::new() {
         Ok(outputs) => outputs,
         // No output service exists if descriptor setup failed. Exit without a
         // fallback blocking write to the same unavailable destination.
-        Err(_) => return std::process::ExitCode::FAILURE,
+        Err(_) => return ExitCode::FAILURE,
     };
     let telemetry = match telemetry::Telemetry::start("ledgence-worker", outputs.stderr.clone()) {
         Ok(telemetry) => telemetry,
         Err(error) => {
             // Existing nonblocking log sink; bounded startup diagnostic.
-            use std::io::Write;
             use tracing_subscriber::fmt::MakeWriter;
             let _ = writeln!(
                 outputs.stderr.make_writer(),
@@ -53,7 +74,7 @@ fn main() -> std::process::ExitCode {
                     let _ = tokio::time::timeout(Duration::from_secs(1), outputs.finish()).await;
                 });
             }
-            return std::process::ExitCode::FAILURE;
+            return ExitCode::FAILURE;
         }
     };
     let trace = telemetry.bridge();
@@ -63,13 +84,20 @@ fn main() -> std::process::ExitCode {
     {
         Ok(runtime) => runtime,
         Err(_) => {
-            return std::process::ExitCode::FAILURE;
+            return ExitCode::FAILURE;
         }
     };
     let result = runtime.block_on(async {
         let mut signals = ShutdownSignals::new()?;
         let mut interrupted = false;
-        let result = dispatch(&outputs.stdout, &mut signals, &mut interrupted, trace).await;
+        let result = dispatch(
+            command,
+            &outputs.stdout,
+            &mut signals,
+            &mut interrupted,
+            trace,
+        )
+        .await;
         if signals::FORCE_EXIT.load(Ordering::Acquire) {
             return result;
         }
@@ -129,23 +157,34 @@ fn main() -> std::process::ExitCode {
         drop(runtime);
     }
     match result {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(_) => std::process::ExitCode::FAILURE,
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE,
     }
 }
 
-async fn dispatch(
-    output: &Sink,
-    signals: &mut ShutdownSignals,
-    interrupted: &mut bool,
-    trace: Arc<dyn TraceBridge>,
-) -> Result<()> {
-    let mut args = std::env::args().skip(1);
+enum Command {
+    Help,
+    Example { directory: PathBuf, python: String },
+    Publish { source: PathBuf, store: PathBuf },
+    Run(RunOptions),
+    Connect(Box<connect::ConnectOptions>),
+}
+
+fn parse(args: Vec<String>) -> Result<Command> {
+    let mut args = args.into_iter();
     let Some(command) = args.next() else {
-        return output.write(HELP.as_bytes().to_vec()).await;
+        return Ok(Command::Help);
     };
     if ["--help", "-h", "help"].contains(&command.as_str()) {
-        return output.write(HELP.as_bytes().to_vec()).await;
+        if args.next().is_some() {
+            return Err(input("help does not take options"));
+        }
+        return Ok(Command::Help);
+    }
+    if !["example", "publish", "run", "connect"].contains(&command.as_str()) {
+        return Err(input(format!(
+            "unknown command {command}; use ledgence --help"
+        )));
     }
     let mut options = HashMap::new();
     while let Some(key) = args.next() {
@@ -155,29 +194,28 @@ async fn dispatch(
         let value = args
             .next()
             .ok_or_else(|| input(format!("missing value for {key}")))?;
+        if value.is_empty() || value.starts_with("--") {
+            return Err(input(format!("missing value for {key}")));
+        }
         if options.insert(key.clone(), value).is_some() {
             return Err(input(format!("duplicate option {key}")));
         }
     }
     match command.as_str() {
-        "connect" => {
-            let config = connect::ConnectOptions::parse(options)?;
-            connect::run(config, output, signals, interrupted, trace).await
-        }
+        "connect" => Ok(Command::Connect(Box::new(connect::ConnectOptions::parse(
+            options,
+        )?))),
         "example" => {
-            let directory = required(&mut options, "--directory")?;
+            let directory = required(&mut options, "--directory")?.into();
             let python = required(&mut options, "--python")?;
             check_empty(options)?;
-            make_example(Path::new(&directory), &python, output).await
+            Ok(Command::Example { directory, python })
         }
         "publish" => {
-            let source = required(&mut options, "--source")?;
-            let store = required(&mut options, "--store")?;
+            let source = required(&mut options, "--source")?.into();
+            let store = required(&mut options, "--store")?.into();
             check_empty(options)?;
-            let descriptor = publish_directory(source, store, &ArtifactLimits::default())?;
-            output
-                .line(serde_json::to_string(&descriptor).map_err(|e| input(e.to_string()))?)
-                .await
+            Ok(Command::Publish { source, store })
         }
         "run" => {
             let config = RunOptions {
@@ -195,9 +233,32 @@ async fn dispatch(
                     "concurrency must be at most 1024 and timeout at most one day",
                 ));
             }
-            run(config, output, signals, interrupted, trace).await
+            Ok(Command::Run(config))
         }
-        _ => Err(input(format!("unknown command {command}; use --help"))),
+        _ => unreachable!("command validated before option parsing"),
+    }
+}
+
+async fn dispatch(
+    command: Command,
+    output: &Sink,
+    signals: &mut ShutdownSignals,
+    interrupted: &mut bool,
+    trace: Arc<dyn TraceBridge>,
+) -> Result<()> {
+    match command {
+        Command::Help => output.write(HELP.as_bytes().to_vec()).await,
+        Command::Connect(config) => {
+            connect::run(*config, output, signals, interrupted, trace).await
+        }
+        Command::Example { directory, python } => make_example(&directory, &python, output).await,
+        Command::Publish { source, store } => {
+            let descriptor = publish_directory(source, store, &ArtifactLimits::default())?;
+            output
+                .line(serde_json::to_string(&descriptor).map_err(|e| input(e.to_string()))?)
+                .await
+        }
+        Command::Run(config) => run(config, output, signals, interrupted, trace).await,
     }
 }
 

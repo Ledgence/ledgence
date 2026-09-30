@@ -206,7 +206,7 @@ class Deployment:
         return json.loads(completed.stdout) if completed.stdout.strip() else None
 
     def prepare(self):
-        self.command("ledgence-orchestrator", ["migrate"], "migrate")
+        self.command("ledgence", ["orchestrator", "migrate"], "migrate")
         probe = self.scratch / "probe-package"
         probe.mkdir()
         manifest = json.loads((self.args.directory / "packages/workflow/ledgence-program.json").read_text())
@@ -217,7 +217,7 @@ class Deployment:
         (probe / "program.py").write_text(
             'def handle(event):\n    return {"probe": "slot-released", "token": event["data"]["token"]}\n'
         )
-        self.command("ledgence-worker", ["publish", "--source", str(probe), "--store", str(self.store)], "publish-probe")
+        self.command("ledgence", ["program", "publish", "--source", str(probe), "--store", str(self.store)], "publish-probe")
         self.artifacts = ArtifactServer(self.store)
 
     def request(self, path, body=None, **query):
@@ -229,7 +229,7 @@ class Deployment:
     def start_server(self):
         self.counter += 1
         address = urllib.parse.urlsplit(self.server_url).netloc
-        self.server = Process([str(self.args.binaries / "ledgence-orchestrator"), "serve",
+        self.server = Process([str(self.args.binaries / "ledgence"), "orchestrator", "serve",
                                "--bind", address, "--store", self.artifacts.url,
                                "--instance-config", str(self.instance)],
                               self.scratch, f"server-{self.counter}", self.environment)
@@ -246,7 +246,7 @@ class Deployment:
     def start_worker(self):
         self.counter += 1
         self.worker = Process([
-            str(self.args.binaries / "ledgence-worker"), "connect", "--server", self.server_url,
+            str(self.args.binaries / "ledgence"), "worker", "connect", "--server", self.server_url,
             "--tenant", SCOPE["tenant_id"], "--namespace", SCOPE["namespace"], "--queue", QUEUE,
             "--store", self.artifacts.url, "--cache", str(self.scratch / "cache"),
             "--python", sys.executable, "--runner", str(ROOT / "sdk/python/ledgence/worker/bootstrap.py"),
@@ -524,7 +524,7 @@ def main(argv=None):
         require(not args.evidence.exists(), "evidence directory must be new")
         validate_prepared_sources(args.directory)
         prepared = json.loads((args.directory / "prepared.json").read_text())
-        for binary in ("ledgence-worker", "ledgence-orchestrator"):
+        for binary in ("ledgence",):
             require((args.binaries / binary).is_file(), "required binary is missing")
         parent = os.environ.get("LEDGENCE_POSTGRES_URL") or os.environ.get("DATABASE_URL")
         require(parent, "set DATABASE_URL or LEDGENCE_POSTGRES_URL for a disposable PostgreSQL parent")

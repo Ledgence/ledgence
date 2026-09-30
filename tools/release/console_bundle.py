@@ -147,18 +147,18 @@ def smoke(bundle, store, temporary):
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
     base = f'http://127.0.0.1:{port}'
-    executable = bundle / 'bin/ledgence-orchestrator'
+    executable = bundle / 'bin/ledgence'
     created = False
     process = None
     with tempfile.TemporaryFile() as log:
         try:
             admin(f'CREATE DATABASE "{database}"')
             created = True
-            migrated = subprocess.run([executable, 'migrate'], cwd=temporary, env=environment,
+            migrated = subprocess.run([executable, 'orchestrator', 'migrate'], cwd=temporary, env=environment,
                                       stdout=log, stderr=log, timeout=60)
             if migrated.returncode:
                 raise RuntimeError('relocated Console migrations failed')
-            process = subprocess.Popen([executable, 'serve', '--bind', f'127.0.0.1:{port}',
+            process = subprocess.Popen([executable, 'orchestrator', 'serve', '--bind', f'127.0.0.1:{port}',
                                         '--store', store, '--instance-config', instance,
                                         '--console-dir', bundle / 'console'],
                                        cwd=temporary, env=environment, stdout=log, stderr=log)

@@ -4,7 +4,7 @@ Ledgence exports optional platform traces and [operational metrics](metrics.md) 
 
 ## Enable tracing
 
-The executables include the optional `otel` Cargo feature by default. Tracing is off until an explicit traces endpoint is configured:
+The `ledgence` executable includes the optional `otel` Cargo feature by default, forwarded to the worker and orchestrator libraries. Tracing is off until an explicit traces endpoint is configured:
 
 ```sh
 export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
@@ -27,7 +27,7 @@ This is the full endpoint, including its path; Ledgence does not append `/v1/tra
 
 Unknown `OTEL_` settings, unsupported protocols, and invalid configuration fail startup clearly. An unavailable collector after startup does not change task outcomes or existing contexts. This first adapter does not support exporter authentication headers, custom certificates, or OTLP log export. Use an operator-managed collector for routing and backend credentials.
 
-To compile an executable without any OpenTelemetry dependency, use `cargo build -p ledgence-worker --no-default-features --locked` (likewise for `ledgence-orchestrator` or `ledgence-cli`). Such a build rejects a configured traces or metrics endpoint. `tools/check-otel-features.py` checks all three dependency graphs and compilation paths.
+To compile `ledgence` without any OpenTelemetry dependency, use `cargo build -p ledgence-cli --no-default-features --locked`. Such a build rejects a configured traces or metrics endpoint. `tools/check-otel-features.py` checks the CLI and its worker/orchestrator library dependency graphs and compilation paths. Telemetry service names continue to identify the command role: `ledgence-worker`, `ledgence-orchestrator`, or `ledgence-cli`.
 
 ## Identity and causal relationships
 

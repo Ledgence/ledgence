@@ -16,7 +16,7 @@ use tokio::process::{Child, Command};
 async fn fixture_command(args: &[&str]) {
     let output = tokio::time::timeout(
         Duration::from_secs(20),
-        Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
+        Command::new(env!("CARGO_BIN_EXE_ledgence"))
             .args(args)
             .env_remove("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
             .env("RUST_LOG", "warn")
@@ -46,6 +46,7 @@ impl Fixture {
         let cache = directory.path().join("cache");
         let python = std::env::var("LEDGENCE_PYTHON").unwrap_or_else(|_| "python3".into());
         fixture_command(&[
+            "program",
             "example",
             "--directory",
             example.to_str().unwrap(),
@@ -63,6 +64,7 @@ impl Fixture {
         tasks.truncate(1);
         std::fs::write(&tasks_path, serde_json::to_vec(&tasks).unwrap()).unwrap();
         fixture_command(&[
+            "program",
             "publish",
             "--source",
             example.join("program").to_str().unwrap(),
@@ -72,8 +74,8 @@ impl Fixture {
         .await;
         let runner = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../sdk/python/ledgence/worker/bootstrap.py");
-        let child = Command::new(env!("CARGO_BIN_EXE_ledgence-worker"))
-            .arg("run")
+        let child = Command::new(env!("CARGO_BIN_EXE_ledgence"))
+            .args(["worker", "run"])
             .arg("--tasks")
             .arg(tasks_path)
             .arg("--store")

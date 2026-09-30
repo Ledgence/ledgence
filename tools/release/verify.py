@@ -35,6 +35,10 @@ def verify_files(directory):
     for name, digest in expected.items():
         if checksum(directory / name) != digest:
             raise ValueError(f"candidate checksum mismatch: {name}")
+    # Current packages expose one executable. Historical multi-binary archives
+    # keep their original release tooling and immutable qualification records.
+    if {name for name in actual if name.startswith("bin/")} != {"bin/ledgence"}:
+        raise ValueError("current bundle must contain exactly bin/ledgence")
     verify_bundle(directory)
 
 

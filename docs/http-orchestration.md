@@ -1,6 +1,6 @@
 # HTTP orchestration
 
-Ledgence provides three Rust executables: `ledgence-orchestrator` serves the durable task/workflow APIs and runs expiry and workflow recovery, `ledgence-worker connect` executes assignments, and `ledgence` submits and inspects tasks. PostgreSQL 18 stores orchestration state. Program packages remain in a separate filesystem or HTTPS store and are downloaded into each worker's verified cache on demand.
+Ledgence provides one Rust executable, `ledgence`: `ledgence orchestrator serve` serves the durable task/workflow APIs and runs expiry and workflow recovery, `ledgence worker connect` executes assignments, and `ledgence task` submits and inspects tasks. Each service runs in its own process. See the [CLI migration guide](cli.md) when updating an earlier installation. PostgreSQL 18 stores orchestration state. Program packages remain in a separate filesystem or HTTPS store and are downloaded into each worker's verified cache on demand.
 
 This version supports bounded HTTP/JSON long polling. Workers request up to 20 seconds of waiting, with optional PostgreSQL notifications and periodic queue checks. Immediate acquisition remains available with `--acquire-wait-ms 0`. gRPC and a package upload API remain later work. [Retention maintenance](retention.md) is an explicit scoped operator command. Optional tracing uses the OTLP HTTP/protobuf exporter; acquisition semantics remain independent of telemetry availability. The API is versioned under `/v1` but has no stable-release compatibility promise yet.
 
@@ -11,22 +11,22 @@ Build from the repository root with the pinned Rust toolchain and CPython 3.11 o
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
 export DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:5432/ledgence'
-cargo build --workspace --bins --locked
+cargo build -p ledgence-cli --locked
 
 demo_dir="$(mktemp -d)"
-./target/debug/ledgence-worker example \
+./target/debug/ledgence program example \
   --directory "$demo_dir/example" --python "$LEDGENCE_PYTHON"
-./target/debug/ledgence-worker publish \
+./target/debug/ledgence program publish \
   --source "$demo_dir/example/program" --store "$demo_dir/store"
-./target/debug/ledgence-orchestrator migrate
-./target/debug/ledgence-orchestrator serve \
+./target/debug/ledgence orchestrator migrate
+./target/debug/ledgence orchestrator serve \
   --bind 127.0.0.1:8080 --store "$demo_dir/store"
 ```
 
 Keep the server running. In another terminal, use the same absolute `demo_dir` path and interpreter, then start a worker:
 
 ```sh
-./target/debug/ledgence-worker connect \
+./target/debug/ledgence worker connect \
   --server http://127.0.0.1:8080 \
   --tenant tenant_example --namespace demo --queue python-demo \
   --store "$demo_dir/store" --cache "$demo_dir/cache" \
@@ -71,7 +71,7 @@ Use `task list` to find tasks by state, queue, submission time, or exact busines
 
 Replace `TASK_ID` with the submitted snapshot's `task_id`. Use `task status` for compact scheduling metadata and `task result` for the authoritative logical outcome; see [task results](task-results.md). Status includes `latest_attempt_id` for diagnostic attempt inspection. Task inspection returns scheduling state and input; attempt inspection returns the accepted report, which can precede logical finalization. History returns up to 100 records; request the next page using the last record's `sequence`. An empty page only means no later records exist at that moment.
 
-`ledgence` writes one JSON result to stdout and request diagnostics to stderr. Exit `0` means the operation was accepted, `2` means input/usage rejection, and `1` means a service or transport failure. Successful submission does not mean successful execution. Each command makes one bounded exchange. If submission has an uncertain outcome, resubmit the same file/key; do not generate a replacement key. Matching replays preserve the first accepted input, descriptor, and origin context. Changed normalized input under the same scoped key conflicts. The [delivery contract](delivery-contract.md) defines normalization and deduplication scope.
+`ledgence task` commands and `ledgence program register` write one JSON result to stdout and request diagnostics to stderr. Exit `0` means the operation was accepted, `2` means input/usage rejection, and `1` means a service or transport failure. Successful submission does not mean successful execution. Each task administration or registration command makes one bounded exchange. If submission has an uncertain outcome, resubmit the same file/key; do not generate a replacement key. Matching replays preserve the first accepted input, descriptor, and origin context. Changed normalized input under the same scoped key conflicts. The [delivery contract](delivery-contract.md) defines normalization and deduplication scope.
 
 The submission is a command, not the invocation event. Python receives the generated [CloudEvent](events.md), with the exact logical application `data` value and platform identifiers in the envelope. Programs must make their external effects idempotent across attempts.
 
@@ -194,7 +194,7 @@ python3 tools/check-http.py --psql /path/to/psql \
   --evidence /absolute/path/to/new-evidence-directory
 ```
 
-`LEDGENCE_POSTGRES_URL` supplies the disposable server connection and `LEDGENCE_PYTHON` selects Python. The HTTP gate creates/drops its own unique database and starts separate orchestrator, worker, and CLI binaries, a program server, and a fault proxy. It builds binaries unless `--binaries DIRECTORY` is supplied. Use `--scenario NAME` to select a case; omit it for the full gate. The proxy drops responses after consuming upstream committed replies, allowing tests to check real socket uncertainty and durable replay. Runtime fault tests and controlled cleanup tests remain separate from deployment tests; they are not substitutes for one another.
+`LEDGENCE_POSTGRES_URL` supplies the disposable server connection and `LEDGENCE_PYTHON` selects Python. The HTTP gate creates/drops its own unique database and starts separate orchestrator, worker, and task-client processes using the `ledgence` executable, a program server, and a fault proxy. It builds `ledgence` unless `--binaries DIRECTORY` is supplied. Use `--scenario NAME` to select a case; omit it for the full gate. The proxy drops responses after consuming upstream committed replies, allowing tests to check real socket uncertainty and durable replay. Runtime fault tests and controlled cleanup tests remain separate from deployment tests; they are not substitutes for one another.
 
 The feature gate checks the HTTP adapter with no features, client only, and server only, and verifies that client dependencies do not pull in Axum and server dependencies do not pull in reqwest or SQLx. The Linux PostgreSQL CI job runs network acceptance after the database gate. CI configuration describes required checks; it is not evidence of a completed hosted run. Long-poll verification includes cross-replica completion, notification fallback, replay and shutdown. Database failover remains outside this version's validation scope.
 

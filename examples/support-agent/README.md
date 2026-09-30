@@ -68,7 +68,7 @@ the checkout. These commands use port **8082**, leaving a stack on 8080 alone.
 ## 1. Build the programs
 
 ```sh
-cargo build --workspace --locked
+cargo build -p ledgence-cli --locked
 export DEMO_HOME="$HOME/.local/share/ledgence-support-demo"
 mkdir -p "$DEMO_HOME"
 python3.13 examples/support-agent/prepare.py --directory "$DEMO_HOME/prepared"
@@ -109,8 +109,8 @@ docker run --detach --name ledgence-support-demo-postgres \
   postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
 docker exec ledgence-support-demo-postgres pg_isready -U postgres -d ledgence
 export DATABASE_URL='postgres://postgres:demo-local@127.0.0.1:55432/ledgence'
-target/debug/ledgence-orchestrator migrate
-target/debug/ledgence-orchestrator serve --bind 127.0.0.1:8082 \
+target/debug/ledgence orchestrator migrate
+target/debug/ledgence orchestrator serve --bind 127.0.0.1:8082 \
   --store "$DEMO_HOME/prepared/store" \
   --instance-config "$DEMO_HOME/prepared/instance.json"
 ```

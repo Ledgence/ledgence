@@ -43,7 +43,7 @@ def worker_environment(env_file: Path | None, inherited=None) -> dict[str, str]:
 
 def command(args) -> list[str]:
     return [
-        str(args.binaries.resolve() / "ledgence-worker"), "connect",
+        str(args.binaries.resolve() / "ledgence"), "worker", "connect",
         "--server", args.server, "--tenant", args.tenant, "--namespace", args.namespace,
         "--queue", args.queue, "--store", str(args.directory.resolve() / "store"),
         "--cache", str(args.directory.resolve() / "cache"), "--python", sys.executable,

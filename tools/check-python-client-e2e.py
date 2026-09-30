@@ -311,7 +311,7 @@ def handle(event):
             time.sleep(0.02)
     return data['value']
 ''')
-        subprocess.run([str(deployment.binaries / "ledgence-orchestrator"), "migrate"],
+        subprocess.run([str(deployment.binaries / "ledgence"), "orchestrator", "migrate"],
                        env=deployment.environment, check=True, capture_output=True, timeout=40)
         deployment.server, _ = deployment.start_server()
         asyncio.run(scenarios(deployment, record))

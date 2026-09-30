@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
   migrate:
     <<: *runtime
-    command: [ledgence-orchestrator, migrate]
+    command: [ledgence, orchestrator, migrate]
     depends_on:
       postgres: {condition: service_healthy}
     restart: "no"
@@ -44,7 +44,7 @@ services:
     restart: unless-stopped
   orchestrator:
     <<: *runtime
-    command: [ledgence-orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console]
+    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console]
     ports: ["127.0.0.1:${LEDGENCE_HTTP_PORT:-8080}:8080"]
     volumes: [programs:/programs:ro]
     configs:
@@ -61,7 +61,7 @@ services:
     restart: unless-stopped
   worker:
     <<: *runtime
-    command: [ledgence-worker, connect, --server, "http://orchestrator:8080", --tenant, acme, --namespace, demo, --queue, demo, --store, /programs, --cache, /cache, --python, /usr/local/bin/python3, --runner, /opt/ledgence/runtime/ledgence/worker/bootstrap.py, --concurrency, "${LEDGENCE_CONCURRENCY:-1}"]
+    command: [ledgence, worker, connect, --server, "http://orchestrator:8080", --tenant, acme, --namespace, demo, --queue, demo, --store, /programs, --cache, /cache, --python, /usr/local/bin/python3, --runner, /opt/ledgence/runtime/ledgence/worker/bootstrap.py, --concurrency, "${LEDGENCE_CONCURRENCY:-1}"]
     volumes: [programs:/programs:ro, cache:/cache]
     depends_on:
       orchestrator: {condition: service_healthy}

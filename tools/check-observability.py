@@ -64,7 +64,7 @@ def main():
         created = True
         d = Deployment(root, directory, binaries, os.environ.get("LEDGENCE_PYTHON", sys.executable), database_url, args.psql)
         d.environment["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = endpoint
-        d.command("ledgence-orchestrator", ["migrate"])
+        d.command("ledgence", ["orchestrator", "migrate"])
         for orchestrator_on, worker_on in ((True, True), (False, True), (True, False), (False, False)):
             d.environment["OTEL_SDK_DISABLED"] = str(not orchestrator_on).lower()
             d.server, _ = d.start_server()

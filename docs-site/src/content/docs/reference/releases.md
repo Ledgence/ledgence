@@ -31,6 +31,15 @@ Typed Python `Workflow` entrypoints and acknowledged `fork` / `join` operations 
 
 [Mix local work and workflow branches](/how-to/fork-workflow-branches) shows the complete source example, publication, and submission. The [workflow context reference](/reference/workflow-context) marks the new methods and their limits. Public submissions start at a workflow's default entrypoint; branch creation and resume decisions select named handlers. These source features do not change the published distribution versions above.
 
+## Unified CLI in current source
+
+The current source tree builds one executable, `ledgence`, with `program`,
+`worker`, `orchestrator`, and `task` command groups. Build it with
+`cargo build --locked -p ledgence-cli`; use `ledgence --help` and
+`ledgence --version` to inspect it. The worker and orchestrator still run as
+separate processes. See the [CLI reference and migration table](/reference/cli).
+This change does not alter the published source tag or native archive below.
+
 ## Native tools
 
 The 0.1.0 archive contains three executables:
@@ -71,7 +80,7 @@ These are libraries, not `cargo install` packages. Implementation crates and ser
 
 ## Version and operating scope
 
-The release tutorials and client references describe source and client version **0.1.1**, except where a page explicitly targets the native **0.1.0** release. Console guides and the explicitly marked workflow entrypoint/fork sections target the newer current source implementation. Example programs with version `1.0.0` use their own application version; that number is separate from the Ledgence platform version.
+The release tutorials and client references describe source and client version **0.1.1**, except where a page explicitly targets the native **0.1.0** release. Console guides, the CLI reference, and the explicitly marked workflow entrypoint/fork sections target the newer current source implementation. Example programs with version `1.0.0` use their own application version; that number is separate from the Ledgence platform version.
 
 The 0.1 API can evolve. Pin the versions you use and review release changes before upgrading. Use matching platform components and explicit database migrations, and preserve a tested backup before changing a durable deployment.
 

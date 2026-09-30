@@ -14,7 +14,7 @@ Create an instance configuration file (it contains no credentials):
 }
 ```
 
-For a new database, omitting `scope` selects the fixed internal `default/default` binding. To adopt existing data, explicitly configure its existing binding. Run the explicit database migration, then supply `--instance-config instance.json` to `ledgence-orchestrator serve`. This flag is required on every subsequent start, including headless operation. Turning off assets does not turn off the binding. Display names and queue suggestions may change; the persisted instance ID and scope cannot change.
+For a new database, omitting `scope` selects the fixed internal `default/default` binding. To adopt existing data, explicitly configure its existing binding. Run the explicit database migration, then supply `--instance-config instance.json` to `ledgence orchestrator serve`. This flag is required on every subsequent start, including headless operation. Turning off assets does not turn off the binding. Display names and queue suggestions may change; the persisted instance ID and scope cannot change.
 
 Stop every orchestrator and other writer before migrating or binding an existing database. A database containing work, sessions, dispatch destinations, completion destinations or retention state from another binding is rejected. No records are deleted or reassigned. Use a separate database or an explicitly planned offline migration. Older orchestrators must not share a bound database. Rolling back to a version that ignores the binding requires a coordinated offline operational plan; simply removing the configuration flag does not restore legacy operation.
 

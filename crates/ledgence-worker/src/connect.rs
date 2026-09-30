@@ -17,6 +17,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 pub struct ConnectOptions {
     server: String,
+    client: HttpTaskService,
     scope: Scope,
     queue: String,
     store: String,
@@ -43,37 +44,51 @@ impl ConnectOptions {
         if acquire_wait_ms > LONG_POLL_WAIT_MS {
             return Err(input("acquisition wait must be between 0 and 20000 ms"));
         }
-        let config = Self {
-            server: required(&mut options, "--server")?,
-            scope: Scope {
-                tenant_id: required(&mut options, "--tenant")?,
-                namespace: required(&mut options, "--namespace")?,
-            },
-            queue: required(&mut options, "--queue")?,
-            store: required(&mut options, "--store")?,
-            cache: required(&mut options, "--cache")?.into(),
-            python: required(&mut options, "--python")?.into(),
-            runner: required(&mut options, "--runner")?.into(),
-            concurrency: number(options.remove("--concurrency"), 4, "concurrency")?,
-            acquire_wait: Duration::from_millis(acquire_wait_ms),
-            delivery_config: options.remove("--delivery-config").map(PathBuf::from),
-            display_name: options.remove("--display-name"),
+        let server = required(&mut options, "--server")?;
+        let scope = Scope {
+            tenant_id: required(&mut options, "--tenant")?,
+            namespace: required(&mut options, "--namespace")?,
         };
+        let queue = required(&mut options, "--queue")?;
+        let store = required(&mut options, "--store")?;
+        let cache = required(&mut options, "--cache")?.into();
+        let python = required(&mut options, "--python")?.into();
+        let runner = required(&mut options, "--runner")?.into();
+        let concurrency = number(options.remove("--concurrency"), 4, "concurrency")?;
+        let delivery_config = options.remove("--delivery-config").map(PathBuf::from);
+        let display_name = options.remove("--display-name");
         check_empty(options)?;
         #[cfg(not(feature = "sqs"))]
-        if config.delivery_config.is_some() {
+        if delivery_config.is_some() {
             return Err(input(
                 "--delivery-config requires a binary built with the sqs feature",
             ));
         }
-        config.scope.validate().map_err(contract_error)?;
-        validate_text(&config.queue, 128).map_err(contract_error)?;
-        if let Some(name) = &config.display_name {
+        scope.validate().map_err(contract_error)?;
+        validate_text(&queue, 128).map_err(contract_error)?;
+        if let Some(name) = &display_name {
             validate_text(name, 128).map_err(contract_error)?;
         }
-        if config.concurrency > 1024 {
+        if concurrency > 1024 {
             return Err(input("concurrency must be at most 1024"));
         }
+        // Reuse the adapter's URL validation before runtime/telemetry startup.
+        // The constructor does not connect; retain the client for execution.
+        let client = HttpTaskService::new(&server).map_err(contract_error)?;
+        let config = Self {
+            server,
+            client,
+            scope,
+            queue,
+            store,
+            cache,
+            python,
+            runner,
+            concurrency,
+            acquire_wait: Duration::from_millis(acquire_wait_ms),
+            delivery_config,
+            display_name,
+        };
         Ok(config)
     }
 }
@@ -85,11 +100,7 @@ pub async fn run(
     interrupted: &mut bool,
     trace: Arc<dyn TraceBridge>,
 ) -> Result<()> {
-    let client = Arc::new(
-        HttpTaskService::new(&config.server)
-            .map_err(contract_error)?
-            .with_trace_bridge(trace.clone()),
-    );
+    let client = Arc::new(config.client.clone().with_trace_bridge(trace.clone()));
     let broker_source = prepare_broker(&config, client.clone(), signals, interrupted).await?;
     // Reporting has its own bounded JSON executor and connection pool, so a slow
     // observation exchange cannot consume execution-control admission.

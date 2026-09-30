@@ -2,7 +2,7 @@ use ledgence_adapter_postgres::MigrationOptions;
 use ledgence_orchestration_api::{RetentionPolicy, Scope};
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, time::Duration};
 
-pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  migrate [--timeout-ms 600000]\n  retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun migrate to reconcile.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
+pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -38,7 +38,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         return Ok(Command::Help);
     }
     if !["migrate", "serve", "retain"].contains(&command.as_str()) {
-        return Err("unknown command; use --help".into());
+        return Err("unknown command; use ledgence orchestrator --help".into());
     }
     let mut options = HashMap::new();
     let mut apply = false;
@@ -130,7 +130,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
     };
     if !options.is_empty() {
-        return Err("unknown option; use --help".into());
+        return Err("unknown option; use ledgence orchestrator --help".into());
     }
     Ok(parsed)
 }

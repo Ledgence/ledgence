@@ -14,11 +14,11 @@ newer and a disposable PostgreSQL 18 database:
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
 export DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:5432/ledgence'
-cargo build --workspace --bins --locked
+cargo build -p ledgence-cli --locked
 export workflow_demo="$(mktemp -d)"
 printf '%s\n' "$workflow_demo"
-./target/debug/ledgence-worker example --directory "$workflow_demo/controller" --python "$LEDGENCE_PYTHON"
-./target/debug/ledgence-worker example --directory "$workflow_demo/child" --python "$LEDGENCE_PYTHON"
+./target/debug/ledgence program example --directory "$workflow_demo/controller" --python "$LEDGENCE_PYTHON"
+./target/debug/ledgence program example --directory "$workflow_demo/child" --python "$LEDGENCE_PYTHON"
 
 "$LEDGENCE_PYTHON" - <<'PY'
 import json, os, shutil
@@ -40,10 +40,10 @@ for folder, name, version, protocol in [
 (demo / "pages" / "page.txt").write_text("Hello from Ledgence!\n")
 PY
 
-./target/debug/ledgence-worker publish --source "$workflow_demo/controller/program" --store "$workflow_demo/store"
-./target/debug/ledgence-worker publish --source "$workflow_demo/child/program" --store "$workflow_demo/store"
-./target/debug/ledgence-orchestrator migrate
-./target/debug/ledgence-orchestrator serve --bind 127.0.0.1:8080 --store "$workflow_demo/store"
+./target/debug/ledgence program publish --source "$workflow_demo/controller/program" --store "$workflow_demo/store"
+./target/debug/ledgence program publish --source "$workflow_demo/child/program" --store "$workflow_demo/store"
+./target/debug/ledgence orchestrator migrate
+./target/debug/ledgence orchestrator serve --bind 127.0.0.1:8080 --store "$workflow_demo/store"
 ```
 
 Leave the orchestrator running. In separate terminals, reuse the printed absolute
@@ -54,7 +54,7 @@ Leave the orchestrator running. In separate terminals, reuse the printed absolut
 ```
 
 ```sh
-./target/debug/ledgence-worker connect \
+./target/debug/ledgence worker connect \
   --server http://127.0.0.1:8080 --tenant acme --namespace demo --queue workflows \
   --store "$workflow_demo/store" --cache "$workflow_demo/cache" \
   --python "$LEDGENCE_PYTHON" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \

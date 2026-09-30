@@ -6,7 +6,7 @@ Use current-source orchestrator and workers with workflow fork support and the d
 
 ```sh
 "$LEDGENCE_PYTHON" examples/mixed-workflow/prepare.py "$workflow_demo/mixed/program"
-./target/debug/ledgence-worker publish --source "$workflow_demo/mixed/program" --store "$workflow_demo/store"
+./target/debug/ledgence program publish --source "$workflow_demo/mixed/program" --store "$workflow_demo/store"
 ```
 
 Submit it using the configured Python client:

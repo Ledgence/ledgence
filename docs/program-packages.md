@@ -72,7 +72,7 @@ schema and runtime protocols are unchanged.
 
 ## Publication and identity
 
-`ledgence-worker publish --source DIR --store DIR` creates deterministic archive bytes and publishes:
+`ledgence program publish --source DIR --store DIR` creates deterministic archive bytes and publishes:
 
 ```text
 programs/<program-id>/<version>/descriptor.json

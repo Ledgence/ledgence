@@ -196,11 +196,11 @@ def main():
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries
     if binaries is None:
-        subprocess.run(["cargo", "build", "--workspace", "--bins", "--all-features", "--locked"], cwd=root, check=True)
+        subprocess.run(["cargo", "build", "-p", "ledgence-cli", "--bin", "ledgence", "--all-features", "--locked"], cwd=root, check=True)
         metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"], cwd=root))
         binaries = Path(metadata["target_directory"]) / "debug"
     binaries = binaries.resolve()
-    for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator"):
+    for name in ("ledgence",):
         if not (binaries / name).is_file():
             parser.error(f"missing executable {binaries / name}")
     temporary = None
@@ -236,7 +236,7 @@ def main():
         created = True
         deployment = SqsDeployment(root, directory, binaries, os.environ.get("LEDGENCE_PYTHON", sys.executable), database_url, args.psql,
             queue_url=queue_url, endpoint=args.endpoint, region=args.region)
-        result = subprocess.run([str(binaries / "ledgence-orchestrator"), "migrate"], env=deployment.environment, capture_output=True, timeout=40)
+        result = subprocess.run([str(binaries / "ledgence"), "orchestrator", "migrate"], env=deployment.environment, capture_output=True, timeout=40)
         if result.returncode:
             raise RuntimeError("explicit migration failed: " + result.stderr.decode(errors="replace")[-3000:])
         deployment.server, _ = deployment.start_server()

@@ -6,7 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Ledgence worker executable and composition"
+autobins = false
+description = "Ledgence worker service composition for the unified CLI"
 
 [features]
 default = ["otel"]
@@ -31,13 +32,9 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-sha2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["fs"] }
-
-[target.'cfg(unix)'.dev-dependencies]
-nix = { version = "=0.31.3", features = ["signal", "process"] }
 
 [lints]
 workspace = true

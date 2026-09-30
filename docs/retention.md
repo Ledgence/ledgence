@@ -10,9 +10,9 @@ Operators can invoke the maintenance command from their existing job scheduler.
 Apply the current schema explicitly before using maintenance:
 
 ```sh
-ledgence-orchestrator migrate
-ledgence-orchestrator retain --tenant acme --namespace billing
-ledgence-orchestrator retain --tenant acme --namespace billing --apply
+ledgence orchestrator migrate
+ledgence orchestrator retain --tenant acme --namespace billing
+ledgence orchestrator retain --tenant acme --namespace billing --apply
 ```
 
 `DATABASE_URL` selects the PostgreSQL deployment. Both scope flags are required;
