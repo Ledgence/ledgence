@@ -137,6 +137,12 @@ restores automatic card positions. Status updates preserve the view; newly loade
 nodes are positioned without moving existing cards. These adjustments are held in
 bounded history memory, not persisted as workflow data or stored in the backend.
 An initial readable view can require panning; Fit can show the whole loaded graph.
+Entrypoints, work cards, and compact fork/join controls have distinct shapes and
+dimensions. Layout and connector routing use those same bounds. Cards show
+recorded status; child durations include queue and wait time, while local durations
+describe the observed callable interval. Replayed locals display Replay instead
+of suggesting that the callable ran again. Selecting a node highlights its
+connections without moving the canvas.
 
 Connections come exclusively from typed relations supplied by the server:
 invocation, registration, branch membership, terminal-outcome wait and resume.

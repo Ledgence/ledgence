@@ -4,8 +4,6 @@ import {
   ReactFlow,
   Background,
   BaseEdge,
-  Handle,
-  Position,
   MarkerType,
   type Node,
   type NodeProps,
@@ -13,22 +11,10 @@ import {
   type EdgeProps,
   type ReactFlowInstance,
 } from "@xyflow/react";
-import {
-  Box,
-  GitFork,
-  GitMerge,
-  Play,
-  Timer,
-  Workflow,
-  ZoomIn,
-  ZoomOut,
-  Scan,
-  LayoutGrid,
-} from "lucide-react";
+import { ZoomIn, ZoomOut, Scan, LayoutGrid } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 import type { ExplorerNode } from "../../api/explorer";
 import { Button } from "../../components/ui/button";
-import { Status } from "../../components/resource-ui";
 import {
   nodeLabel,
   nodeStatus,
@@ -36,40 +22,17 @@ import {
   type EvidenceEdge,
 } from "../explorer-model";
 import { arrangeGraph, reconcilePositions } from "./dagre-layout";
-import { nodeSize, type GraphPresentation } from "./layout";
+import { graphNodeSize, type GraphPresentation } from "./layout";
 import { routeEdge, edgePath } from "./routing";
+import { WorkCard } from "./node-card";
 
 type WorkNode = Node<{ record: ExplorerNode }, "work">;
 type WorkEdge = Edge<
   { path: string; relation: string; obstructed: boolean },
   "evidence"
 >;
-function WorkCard({ data }: NodeProps<WorkNode>) {
-  const node = data.record;
-  const Icon =
-    node.kind === "entrypoint"
-      ? Play
-      : node.kind === "fork"
-        ? GitFork
-        : node.kind === "child_wait"
-          ? GitMerge
-          : node.kind === "external_wait"
-            ? Timer
-            : node.kind === "child" && node.execution.kind === "workflow"
-              ? Workflow
-              : Box;
-  return (
-    <div className={`work-card work-card-${node.kind}`}>
-      <Handle type="target" position={Position.Top} isConnectable={false} />
-      <div className="work-card-kind">
-        <Icon size={14} aria-hidden="true" />
-        <span>{nodeType(node)}</span>
-      </div>
-      <strong title={nodeLabel(node)}>{nodeLabel(node)}</strong>
-      <Status value={nodeStatus(node)} />
-      <Handle type="source" position={Position.Bottom} isConnectable={false} />
-    </div>
-  );
+function WorkNodeCard({ data }: NodeProps<WorkNode>) {
+  return <WorkCard node={data.record} />;
 }
 function EvidenceLine({
   id,
@@ -98,7 +61,7 @@ function EvidenceLine({
     </g>
   );
 }
-const nodeTypes = { work: WorkCard };
+const nodeTypes = { work: WorkNodeCard };
 const edgeTypes = { evidence: EvidenceLine };
 
 export function GraphCanvas({
@@ -123,6 +86,11 @@ export function GraphCanvas({
   const container = useRef<HTMLDivElement>(null);
   const flow = useRef<ReactFlowInstance<WorkNode, WorkEdge> | null>(null);
   const current = presentation?.scope === scope ? presentation : undefined;
+  const dimensions = useMemo(
+    () =>
+      Object.fromEntries(nodes.map((node) => [node.id, graphNodeSize(node)])),
+    [nodes],
+  );
   useLayoutEffect(() => {
     const instance = flow.current;
     const restored = current?.viewport;
@@ -143,8 +111,9 @@ export function GraphCanvas({
         nodes.map((n) => n.id),
         edges,
         current?.positions ?? {},
+        dimensions,
       ),
-    [nodes, edges, current?.positions],
+    [nodes, edges, current?.positions, dimensions],
   );
   useEffect(() => {
     // Record incremental positions as soon as they are observed, before the
@@ -167,12 +136,12 @@ export function GraphCanvas({
     type: "work",
     position: positions[record.id]!,
     data: { record },
-    width: nodeSize.width,
-    height: nodeSize.height,
+    width: dimensions[record.id]!.width,
+    height: dimensions[record.id]!.height,
     // Fixed-size cards must retain their measurement across controlled updates.
     // Otherwise React Flow discards measured handle bounds on a new node object
     // even though its DOM size has not changed enough to notify ResizeObserver.
-    measured: nodeSize,
+    measured: dimensions[record.id]!,
     selected: record.id === selectedId,
     ariaRole: "button",
     ariaLabel: `${nodeLabel(record)} · ${nodeType(record)} · ${nodeStatus(record)}`,
@@ -189,8 +158,16 @@ export function GraphCanvas({
   const renderedEdges: WorkEdge[] = useMemo(
     () =>
       edges.flatMap((edge, index) => {
-        const route = routeEdge(edge.from, edge.to, positions, index);
+        const route = routeEdge(
+          edge.from,
+          edge.to,
+          positions,
+          index,
+          dimensions,
+        );
         if (!route) return [];
+        const highlighted = edge.from === selectedId || edge.to === selectedId;
+        const color = highlighted ? "var(--focus)" : "var(--graph-connector)";
         return [
           {
             id: edge.id,
@@ -204,13 +181,13 @@ export function GraphCanvas({
             },
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              width: 14,
-              height: 14,
-              color: "var(--muted)",
+              width: 12,
+              height: 12,
+              color,
             },
             style: {
-              stroke: "var(--muted)",
-              strokeWidth: 1.5,
+              stroke: color,
+              strokeWidth: highlighted ? 1.8 : 1.4,
               ...(edge.style === "fork" ? { strokeDasharray: "6 5" } : {}),
             },
             selectable: false,
@@ -219,7 +196,7 @@ export function GraphCanvas({
           },
         ];
       }),
-    [edges, positions],
+    [edges, positions, dimensions, selectedId],
   );
   function persist(next = positions) {
     const viewport = flow.current?.getViewport() ?? current?.viewport;
@@ -238,7 +215,11 @@ export function GraphCanvas({
           if (!current?.viewport) {
             const values = Object.values(positions);
             const left = Math.min(...values.map((p) => p.x)),
-              right = Math.max(...values.map((p) => p.x + nodeSize.width));
+              right = Math.max(
+                ...nodes.map(
+                  (n) => positions[n.id]!.x + dimensions[n.id]!.width,
+                ),
+              );
             const top = Math.min(...values.map((p) => p.y));
             const width = Math.max(container.current?.clientWidth || 900, 80);
             // Start at a readable scale near the top. Fit is an explicit action
@@ -248,12 +229,13 @@ export function GraphCanvas({
               .filter((node) => node.kind === "entrypoint")
               .sort((a, b) => positions[a.id]!.y - positions[b.id]!.y)[0];
             const anchor = root ? positions[root.id]! : { x: left, y: top };
+            const anchorWidth = root ? dimensions[root.id]!.width : 232;
             const zoom = tooNarrow
-              ? Math.min(1, (width - 56) / nodeSize.width)
+              ? Math.min(1, (width - 56) / anchorWidth)
               : Math.max(0.65, Math.min(1, (width - 64) / (right - left)));
             const viewport = {
               x: tooNarrow
-                ? (width - nodeSize.width * zoom) / 2 - anchor.x * zoom
+                ? (width - anchorWidth * zoom) / 2 - anchor.x * zoom
                 : (width - (right - left) * zoom) / 2 - left * zoom,
               y: 52 - top * zoom,
               zoom,
@@ -345,6 +327,7 @@ export function GraphCanvas({
               arrangeGraph(
                 nodes.map((n) => n.id),
                 edges,
+                dimensions,
               ),
             )
           }
@@ -356,11 +339,11 @@ export function GraphCanvas({
       <div className="graph-legend" aria-label="Relationship legend">
         <span>
           <i />
-          Invocation / registration / wait / resume
+          Local flow
         </span>
         <span>
           <i className="fork-line" />
-          Branch membership
+          Fork branches
         </span>
       </div>
       {renderedEdges.some((edge) => edge.data?.obstructed) && (

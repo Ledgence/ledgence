@@ -12,14 +12,16 @@
   width: 100%;
   position: relative;
   isolation: isolate;
-  --xy-background-color: var(--well);
+  --graph-surface: color-mix(in srgb, var(--bg) 72%, var(--well));
+  --graph-connector: color-mix(in srgb, var(--muted) 65%, var(--line));
+  --xy-background-color: var(--graph-surface);
   --xy-node-boxshadow-hover-default: none;
   --xy-node-boxshadow-selected-default: none;
 }
 .workflow-flow .react-flow__node {
   border: 0;
   background: transparent;
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 0;
   text-align: left;
 }
@@ -28,20 +30,44 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--muted));
+  border-radius: 10px;
   background: var(--bg);
   color: var(--ink);
-  box-shadow: 0 2px 6px rgb(0 0 0 / 4%);
+  box-shadow:
+    0 2px 3px rgb(0 0 0 / 3%),
+    0 5px 14px rgb(0 0 0 / 3%);
+  transition:
+    border-color var(--motion),
+    box-shadow var(--motion);
+}
+.work-card-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  padding: 12px;
+}
+.work-card-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  height: 30px;
+  border-radius: 7px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--side) 72%, var(--bg));
+}
+.work-card-content {
+  flex: 1;
+  min-width: 0;
 }
 .work-card strong {
   display: block;
   max-width: 100%;
-  font-size: 13px;
-  line-height: 1.25;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -50,26 +76,130 @@
 .work-card-kind {
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
   color: var(--muted);
-  font-size: 10px;
-  line-height: 1;
+  font-size: 11px;
+  line-height: 14px;
 }
-.work-card .status {
-  font-size: 10px;
-  line-height: 1.2;
-  max-width: 100%;
+.work-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  border-radius: 0 0 10px 10px;
+  background: color-mix(in srgb, var(--side) 35%, var(--bg));
+  font-size: 11px;
+  line-height: 15px;
+}
+.work-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-transform: capitalize;
 }
-.work-card-entrypoint .work-card-kind {
+.work-card-status svg {
+  flex-shrink: 0;
+}
+.work-card-duration {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.work-card .tone-success {
+  color: var(--success);
+}
+.work-card .tone-failure {
+  color: var(--failure);
+}
+.work-card .tone-waiting {
+  color: var(--waiting);
+}
+.work-card .tone-neutral {
+  color: var(--muted);
+}
+.work-card-compact .work-card-main {
+  padding: 9px 12px;
+}
+.work-card-status-mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 50%;
+}
+.work-card-entrypoint {
+  border-color: color-mix(in srgb, var(--focus) 35%, var(--line));
+  box-shadow: 0 2px 5px rgb(0 0 0 / 3%);
+}
+.work-card-entrypoint .work-card-icon {
   color: var(--focus);
+  background: color-mix(in srgb, var(--focus) 9%, var(--bg));
 }
-.work-card-fork,
-.work-card-child_wait,
+.work-card-entrypoint strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 500;
+}
+.work-card-revision {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.work-card-gate {
+  border-radius: 24px;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--bg) 70%, var(--side));
+}
+.work-card-gate .work-card-main {
+  gap: 7px;
+  padding: 7px 13px;
+}
+.work-card-gate .work-card-icon {
+  flex-basis: 24px;
+  height: 24px;
+  background: none;
+}
+.work-card-gate strong {
+  font-size: 12px;
+  line-height: 16px;
+}
+.work-card-gate .work-card-status-mark {
+  flex-basis: 16px;
+  height: 16px;
+  width: 16px;
+  border: 0;
+}
+.work-card-gate-caption {
+  display: block;
+  margin: 1px 0 0;
+  white-space: nowrap;
+}
+.work-card-local .work-card-main {
+  padding: 7px 12px;
+}
+.work-card-local .work-card-icon {
+  background: none;
+  flex-basis: 24px;
+}
+.work-card-local strong {
+  font-size: 13px;
+}
 .work-card-external_wait {
-  background: var(--side);
+  border-style: dashed;
+  box-shadow: none;
+}
+.work-card-external_wait .work-card-icon {
+  color: var(--waiting);
+  background: color-mix(in srgb, var(--waiting) 8%, var(--bg));
 }
 .workflow-flow .react-flow__node:hover .work-card {
   border-color: var(--muted);
@@ -77,7 +207,9 @@
 .workflow-flow .react-flow__node.selected .work-card,
 .workflow-flow .react-flow__node:focus-visible .work-card {
   border-color: var(--focus);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 14%, transparent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--focus) 13%, transparent),
+    0 4px 12px rgb(0 0 0 / 5%);
 }
 .workflow-flow .react-flow__node:focus-visible {
   outline: none;
@@ -86,12 +218,12 @@
   opacity: 0.3;
 }
 .workflow-flow .react-flow__handle {
-  width: 5px;
-  height: 5px;
-  min-width: 5px;
-  min-height: 5px;
-  background: var(--muted);
-  border: 1px solid var(--bg);
+  width: 6px;
+  height: 6px;
+  min-width: 6px;
+  min-height: 6px;
+  background: var(--bg);
+  border: 1px solid var(--graph-connector);
   pointer-events: none;
 }
 .workflow-flow .react-flow__edge-path {
@@ -102,8 +234,7 @@
   position: absolute;
   z-index: 5;
   bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 14px;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -138,9 +269,9 @@
   gap: 15px;
   padding: 5px 8px;
   border-radius: 6px;
-  background: var(--well);
+  background: var(--graph-surface);
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   pointer-events: none;
 }
 .graph-legend span {
@@ -237,17 +368,6 @@
 .execution-explorer .explorer-body.has-selection {
   grid-template-columns: minmax(0, 1fr) 310px;
 }
-.execution-explorer .explorer-stage-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 40px;
-  padding: 10px 18px;
-  border-bottom: 1px solid var(--line);
-  font-size: 11px;
-  color: var(--muted);
-}
 .execution-explorer .explorer-canvas {
   height: var(--explorer-height);
   max-height: none;
@@ -261,6 +381,8 @@
   align-items: center;
   gap: 14px;
   min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 .execution-explorer .explorer-record-count strong {
   color: var(--ink);
@@ -276,7 +398,7 @@
 .execution-explorer .explorer-inspector {
   position: static;
   top: auto;
-  max-height: calc(var(--explorer-height) + 40px);
+  max-height: var(--explorer-height);
   padding: 0 20px 22px;
   border-top: 0;
   border-left: 1px solid var(--line);
@@ -428,7 +550,13 @@
   top: -20px;
   z-index: 5;
   background: var(--bg);
-  padding: 8px 0;
+  padding: 0;
+}
+.execution-explorer.explorer-maximized > * + * {
+  margin-top: 8px;
+}
+.execution-explorer.explorer-maximized > .page-controls {
+  padding: 4px 0;
 }
 .execution-explorer.explorer-maximized .explorer-body.has-selection {
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -470,16 +598,22 @@
     margin-left: 0;
     width: 100%;
     max-width: none;
+    grid-column: 1 / -1;
   }
   .execution-explorer .explorer-toolbar .check-label {
     font-size: 11px;
     gap: 5px;
   }
-  .execution-explorer .explorer-stage-heading {
-    padding: 10px 12px;
+  .execution-explorer .explorer-record-count {
+    flex-wrap: wrap;
+    gap: 4px 10px;
   }
-  .execution-explorer .explorer-stage-heading > span:last-child {
-    display: none;
+  .execution-explorer .explorer-record-count strong {
+    max-width: 180px;
+  }
+  .graph-tools {
+    left: 10px;
+    bottom: 10px;
   }
   .execution-explorer .execution-timeline {
     padding: 12px 8px;
