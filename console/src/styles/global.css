@@ -247,9 +247,9 @@ a {
   min-height: 44px;
   max-width: 120px;
   padding: 6px;
-  background: var(--bg);
+  background: var(--input-bg);
   color: var(--ink);
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 7px;
 }
 .main-content {
@@ -289,8 +289,8 @@ a {
   color: var(--on-primary);
 }
 .button-outline {
-  border-color: var(--line);
-  background: var(--bg);
+  border-color: var(--control-line);
+  background: var(--input-bg);
 }
 .button-ghost {
   background: transparent;
@@ -307,10 +307,10 @@ a {
   min-height: 44px;
   width: 100%;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   padding: 10px 12px;
-  background: var(--bg);
+  background: var(--input-bg);
   color: var(--ink);
 }
 .input::placeholder {
@@ -323,7 +323,7 @@ a {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 22px;
-  background: var(--bg);
+  background: var(--surface);
   min-width: 0;
 }
 .card-header {
@@ -409,7 +409,7 @@ a {
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
   overflow: auto;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 26px;
@@ -634,9 +634,9 @@ textarea {
   min-width: 0;
   max-width: 100%;
   min-height: 44px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 7px;
-  background: var(--bg);
+  background: var(--input-bg);
   color: var(--ink);
   padding: 10px 12px;
 }
@@ -1077,7 +1077,7 @@ summary {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--bg);
+  background: var(--surface);
   width: 260px;
   display: grid;
   gap: 10px;
@@ -1179,7 +1179,7 @@ summary {
 }
 .execution-timeline {
   padding: 16px;
-  background: var(--bg);
+  background: var(--surface);
 }
 .timeline-range {
   display: flex;
@@ -1471,7 +1471,7 @@ summary {
   padding: 16px 18px 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--bg);
+  background: var(--surface);
 }
 .filter-primary {
   display: grid;
@@ -1524,7 +1524,7 @@ summary {
   font-size: 11px;
 }
 .table-panel {
-  background: var(--bg);
+  background: var(--surface);
 }
 .table th {
   font-size: 11px;
@@ -1537,7 +1537,10 @@ summary {
   border-bottom: 0;
 }
 .table tbody tr:hover {
-  background: color-mix(in srgb, var(--well) 65%, transparent);
+  background: light-dark(
+    color-mix(in srgb, var(--well) 65%, transparent),
+    var(--hover)
+  );
 }
 .table td a {
   text-decoration: none;

@@ -281,7 +281,7 @@ export function GraphCanvas({
             "Select a card to inspect its recorded execution.",
         }}
       >
-        <Background color="var(--line)" gap={22} size={1} />
+        <Background color="var(--graph-grid)" gap={22} size={1} />
       </ReactFlow>
       <div className="graph-tools" role="toolbar" aria-label="Graph navigation">
         <Button

@@ -72,7 +72,7 @@
   z-index: 20;
   top: 56px;
   max-width: min(480px, 85vw);
-  background: var(--bg);
+  background: var(--surface);
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
