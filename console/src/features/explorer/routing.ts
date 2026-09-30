@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { nodeSize, type Box, type Point } from "./layout";
+import { nodeSize, type Box, type NodeDimensions, type Point } from "./layout";
 
 export function crossesBox(a: Point, b: Point, box: Box, padding = 6) {
   const left = box.x - padding,
@@ -52,19 +52,26 @@ export function routeEdge(
   to: string,
   positions: Record<string, Point>,
   lane = 0,
+  sizes?: NodeDimensions,
 ) {
   const source = positions[from],
     target = positions[to];
   if (!source || !target) return null;
+  const sourceSize = sizes?.[from] ?? nodeSize,
+    targetSize = sizes?.[to] ?? nodeSize;
   const start = {
-    x: source.x + nodeSize.width / 2,
-    y: source.y + nodeSize.height,
+    x: source.x + sourceSize.width / 2,
+    y: source.y + sourceSize.height,
   };
-  const end = { x: target.x + nodeSize.width / 2, y: target.y };
-  const lead = 18 + (lane % 4) * 6;
+  const end = { x: target.x + targetSize.width / 2, y: target.y };
+  const gap = end.y - start.y;
+  const lead = Math.min(18 + (lane % 4) * 6, gap > 12 ? gap / 2 : Infinity);
   const a = { x: start.x, y: start.y + lead },
     b = { x: end.x, y: end.y - lead };
-  const boxes = Object.values(positions).map((p) => ({ ...p, ...nodeSize }));
+  const boxes = Object.entries(positions).map(([id, p]) => ({
+    ...p,
+    ...(sizes?.[id] ?? nodeSize),
+  }));
   const clear = (points: Point[]) =>
     points.every(
       (p, i) => !i || !boxes.some((box) => crossesBox(points[i - 1]!, p, box)),

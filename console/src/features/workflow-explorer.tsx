@@ -299,6 +299,20 @@ export function WorkflowExplorer({
       aria-label="Workflow execution"
     >
       <div className="explorer-toolbar">
+        {query.data && (
+          <div className="explorer-record-count">
+            {maximized && (
+              <strong title={workflowId}>
+                {query.data.workflow.summary.controller.program.id ||
+                  workflowId}
+              </strong>
+            )}
+            <span>
+              {nodes.length} recorded {nodes.length === 1 ? "item" : "items"}
+              {search ? ` · ${filtered.length} matching` : ""}
+            </span>
+          </div>
+        )}
         {!controlledView && (
           <div className="segmented" aria-label="Execution view">
             {(["graph", "trace"] as const).map((mode) => (
@@ -388,28 +402,6 @@ export function WorkflowExplorer({
           )}
           <div className={`explorer-body${selectedId ? " has-selection" : ""}`}>
             <div className="explorer-stage">
-              <div className="explorer-stage-heading">
-                <div className="explorer-record-count">
-                  {maximized && (
-                    <strong
-                      title={`${query.data.workflow.summary.controller.program.id} · ${workflowId}`}
-                    >
-                      {query.data.workflow.summary.controller.program.id ||
-                        workflowId}
-                    </strong>
-                  )}
-                  <span>
-                    {nodes.length} recorded{" "}
-                    {nodes.length === 1 ? "item" : "items"}
-                    {search ? ` · ${filtered.length} matching` : ""}
-                  </span>
-                </div>
-                <span>
-                  {selectedId
-                    ? "Select another item to inspect"
-                    : "Select an item to inspect"}
-                </span>
-              </div>
               <div
                 className={`explorer-canvas explorer-${view}`}
                 data-scroll-memory={`explorer:${workflowId}:${view}`}

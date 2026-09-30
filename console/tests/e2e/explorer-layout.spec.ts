@@ -60,11 +60,14 @@ function field(name: string): unknown {
     throw Error(`Missing Rust fixture ${name}`);
   return Reflect.get(fixture, name);
 }
-function branch() {
+function explorerCase(name: string) {
   const cases = field("explorer_cases");
   if (!cases || typeof cases !== "object")
     throw Error("Missing Rust explorer cases");
-  return workflowExplorer(Reflect.get(cases, "branch_security"));
+  return workflowExplorer(Reflect.get(cases, name));
+}
+function branch() {
+  return explorerCase("branch_security");
 }
 const parent = workflowExplorer(field("explorer"));
 const parentId = parent.workflow.summary.workflow.workflow_id;
@@ -81,7 +84,11 @@ async function mount(
   page: Page,
   delayedObservation = false,
   initialVisible = Infinity,
+  rootCase?: string,
 ) {
+  const root = () =>
+    rootCase ? explorerCase(rootCase) : workflowExplorer(field("explorer"));
+  const rootId = root().workflow.summary.workflow.workflow_id;
   const explorerReads: string[] = [];
   let settled = !delayedObservation;
   let visibleNodes = initialVisible;
@@ -91,7 +98,7 @@ async function mount(
     const id =
       url.searchParams.get("workflow_id") ??
       url.searchParams.get("id") ??
-      parentId;
+      rootId;
     let body: unknown;
     if (path === "config")
       body = {
@@ -99,10 +106,9 @@ async function mount(
         polling: { ...config.polling, waiting_workflow_ms: 60000 },
       };
     else if (path === "workflows/explorer" || path === "workflows/inspect") {
-      if (id !== parentId && id !== branchId)
+      if (id !== rootId && id !== branchId)
         throw Error(`Unexpected workflow scope ${id}`);
-      const snapshot =
-        id === branchId ? branch() : workflowExplorer(field("explorer"));
+      const snapshot = id === branchId ? branch() : root();
       // This controlled delayed child observation exercises UI refresh only.
       // The canonical Rust fixture supplies every identity and relationship;
       // this mutation is not evidence of real orchestration behavior.
@@ -130,8 +136,14 @@ async function mount(
           ? value
           : {
               ...value,
-              execution: value.path[0]!.execution,
-              path: value.path.slice(0, 1),
+              execution: { kind: "workflow", id: rootId },
+              path: [
+                {
+                  ...value.path[0]!,
+                  execution: { kind: "workflow", id: rootId },
+                  program: root().workflow.summary.controller.program,
+                },
+              ],
             };
     } else throw Error(`Unexpected Console read ${path}`);
     await route.fulfill({
@@ -183,6 +195,184 @@ async function shot(page: Page, testInfo: TestInfo, name: string) {
   const path = testInfo.outputPath(`${name}.png`);
   await page.screenshot({ path, fullPage: true, animations: "disabled" });
   await testInfo.attach(name, { path, contentType: "image/png" });
+}
+
+// These product dimensions are deliberately independent of graphNodeSize so a
+// uniform-card regression cannot make both the implementation and test pass.
+const nodeDimensions = {
+  entrypoint: [232, 64],
+  child: [224, 100],
+  local: [212, 84],
+  fork: [200, 48],
+  child_wait: [200, 48],
+  external_wait: [224, 64],
+} as const;
+
+async function expectReadableGeometry(
+  page: Page,
+  snapshot: ReturnType<typeof workflowExplorer>,
+) {
+  const nodes = await page
+    .locator(".react-flow__node")
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const node = element as HTMLElement;
+        const card = node.querySelector<HTMLElement>(".work-card")!;
+        const cardBox = card.getBoundingClientRect();
+        return {
+          id: node.dataset.id!,
+          position: {
+            x: Number(node.dataset.positionX),
+            y: Number(node.dataset.positionY),
+          },
+          size: [node.offsetWidth, node.offsetHeight],
+          cardSize: [card.offsetWidth, card.offsetHeight],
+          clippedLabels: [
+            ...card.querySelectorAll<HTMLElement>(
+              "strong, .work-card-kind, .work-card-count, .work-card-status, .work-card-duration",
+            ),
+          ]
+            .filter((label) => {
+              const box = label.getBoundingClientRect();
+              return (
+                label.scrollWidth > label.clientWidth + 1 ||
+                label.scrollHeight > label.clientHeight + 1 ||
+                box.left < cardBox.left - 1 ||
+                box.right > cardBox.right + 1 ||
+                box.top < cardBox.top - 1 ||
+                box.bottom > cardBox.bottom + 1
+              );
+            })
+            .map((label) => label.textContent),
+        };
+      }),
+    );
+  expect(nodes).toHaveLength(snapshot.page.items.length);
+  for (const node of nodes) {
+    const record = snapshot.page.items.find((item) => item.id === node.id)!;
+    expect(node.size, `${record.kind} wrapper size`).toEqual(
+      nodeDimensions[record.kind],
+    );
+    expect(node.cardSize, `${record.kind} card size`).toEqual(
+      nodeDimensions[record.kind],
+    );
+    expect(node.clippedLabels, `Clipped labels in ${node.id}`).toEqual([]);
+    expect(
+      Number.isFinite(node.position.x) && Number.isFinite(node.position.y),
+    ).toBe(true);
+  }
+  for (let index = 0; index < nodes.length; index++) {
+    const a = nodes[index]!;
+    for (const b of nodes.slice(index + 1)) {
+      const overlap =
+        a.position.x < b.position.x + b.size[0]! &&
+        a.position.x + a.size[0]! > b.position.x &&
+        a.position.y < b.position.y + b.size[1]! &&
+        a.position.y + a.size[1]! > b.position.y;
+      expect(overlap, `Overlapping cards ${a.id} and ${b.id}`).toBe(false);
+    }
+  }
+}
+
+async function expectCompleteConnectors(page: Page, ids: string[]) {
+  await expect(page.locator("[data-edge-id]")).toHaveCount(ids.length);
+  const connections = await page
+    .locator("[data-edge-id]")
+    .evaluateAll((edges) => {
+      const nodes = new Map(
+        [...document.querySelectorAll<HTMLElement>(".react-flow__node")].map(
+          (node) => [node.dataset.id, node],
+        ),
+      );
+      return edges.map((edge) => {
+        const from = nodes.get(edge.getAttribute("data-edge-from")!)!;
+        const to = nodes.get(edge.getAttribute("data-edge-to")!)!;
+        const path = edge.querySelector<SVGPathElement>(
+          ".react-flow__edge-path",
+        )!;
+        const length = path.getTotalLength();
+        const start = path.getPointAtLength(0);
+        const end = path.getPointAtLength(length);
+        const expectedStart = {
+          x: Number(from.dataset.positionX) + from.offsetWidth / 2,
+          y: Number(from.dataset.positionY) + from.offsetHeight,
+        };
+        const expectedEnd = {
+          x: Number(to.dataset.positionX) + to.offsetWidth / 2,
+          y: Number(to.dataset.positionY),
+        };
+        return {
+          id: edge.getAttribute("data-edge-id"),
+          connected:
+            length > 0 &&
+            Boolean(path.getAttribute("marker-end")) &&
+            Math.abs(start.x - expectedStart.x) < 1 &&
+            Math.abs(start.y - expectedStart.y) < 1 &&
+            Math.abs(end.x - expectedEnd.x) < 1 &&
+            Math.abs(end.y - expectedEnd.y) < 1,
+        };
+      });
+    });
+  expect(connections.map((edge) => edge.id).sort()).toEqual(ids);
+  expect(connections.filter((edge) => !edge.connected)).toEqual([]);
+  await expect(page.locator('[data-obstructed="true"]')).toHaveCount(0);
+}
+
+for (const scenario of [
+  { label: "fork, join and child", fixture: undefined, edges: 27 },
+  { label: "local step", fixture: "branch_security", edges: 1 },
+  { label: "external waits", fixture: "external_waits", edges: 7 },
+] as const) {
+  test(`differentiated ${scenario.label} cards remain readable and connected after selection and Reorganize`, async ({
+    page,
+  }) => {
+    await mount(page, false, Infinity, scenario.fixture);
+    await page.setViewportSize({ width: 1440, height: 1080 });
+    const snapshot = scenario.fixture ? explorerCase(scenario.fixture) : parent;
+    const workflowId = snapshot.workflow.summary.workflow.workflow_id;
+    await page.goto(
+      `/console/workflows/${encodeURIComponent(workflowId)}?tab=Graph`,
+    );
+    await expect(page.locator(".react-flow__node")).toHaveCount(
+      snapshot.page.items.length,
+    );
+    await expect(page.locator("[data-edge-id]")).toHaveCount(scenario.edges);
+    // Check the cards near their natural size, rather than hiding clipping in
+    // a Fit view that scales a long workflow down to a thumbnail.
+    const zoom = () =>
+      page
+        .locator(".react-flow__viewport")
+        .evaluate(
+          (node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
+        );
+    for (let step = 0; step < 3 && (await zoom()) < 0.99; step++)
+      await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+    expect(await zoom()).toBeGreaterThanOrEqual(0.99);
+    expect(await zoom()).toBeLessThanOrEqual(1.21);
+    await expectReadableGeometry(page, snapshot);
+    const automaticPositions = await positions(page);
+    const edgeIds = await page
+      .locator("[data-edge-id]")
+      .evaluateAll((edges) =>
+        edges.map((edge) => edge.getAttribute("data-edge-id")!).sort(),
+      );
+    await expectCompleteConnectors(page, edgeIds);
+    const selected = page
+      .locator(".react-flow__node:has(.work-card-entrypoint)")
+      .first();
+    await selected.focus();
+    await selected.press("Enter");
+    await expect(selected).toHaveAttribute("aria-pressed", "true");
+    await expectCompleteConnectors(page, edgeIds);
+    await expectReadableGeometry(page, snapshot);
+    await selected.press("ArrowRight");
+    await expect.poll(() => positions(page)).not.toEqual(automaticPositions);
+    await expectCompleteConnectors(page, edgeIds);
+    await page.getByRole("button", { name: "Reorganize", exact: true }).click();
+    await expect.poll(() => positions(page)).toEqual(automaticPositions);
+    await expectCompleteConnectors(page, edgeIds);
+    await expectReadableGeometry(page, snapshot);
+  });
 }
 
 for (const theme of ["light", "dark"] as const) {
