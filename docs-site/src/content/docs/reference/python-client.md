@@ -5,20 +5,20 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers `ledgence-client` **0.1.1**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The 0.1 API can evolve, so pin versions and review changes before upgrading.
+This reference covers `ledgence-client` **0.2.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
 ## Installation
 
 In a virtual environment:
 
 ```sh
-python3 -m pip install "ledgence-client==0.1.1"
+python3 -m pip install "ledgence-client==0.2.0"
 ```
 
 The optional `otel` extra adds the tracing API integration:
 
 ```sh
-python3 -m pip install "ledgence-client[otel]==0.1.1"
+python3 -m pip install "ledgence-client[otel]==0.2.0"
 ```
 
 The client does not include a server, worker, or Python worker helper. Use [Run Ledgence locally](/tutorials/run-locally) for a complete stack and [Releases and packages](/reference/releases) for the available distributions.
@@ -139,6 +139,6 @@ Prepare and persist commands before awaiting if they must survive caller cancell
 
 Both task and workflow handles expose `prepare_subscribe(destination=..., idempotency_key=...)` and `await subscribe(...)`. The destination is an operator-configured alias. Registration is separate from submission; its guarantee starts after acceptance.
 
-Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/v0.1.1/sdk/python-client/README.md#durable-completion-subscriptions) for delivery status, explicit redelivery, and uncertainty handling.
+Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python-client/README.md#durable-completion-subscriptions) for delivery status, explicit redelivery, and uncertainty handling.
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/v0.1.1/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.1.1/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.2.0/sdk/python-client/src/ledgence/client)

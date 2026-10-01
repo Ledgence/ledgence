@@ -31,6 +31,7 @@ export default defineConfig({
       { label: 'How-to guides', items: [
         { label: 'Register an agent', slug: 'how-to/register-agent' },
         { label: 'Install the native release', slug: 'how-to/install-native' },
+        { label: 'Upgrade to 0.2.0', slug: 'how-to/upgrade-to-0-2' },
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
         { label: 'Mix local work and branches', slug: 'how-to/fork-workflow-branches' },
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },

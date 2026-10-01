@@ -4,11 +4,11 @@ Portable Rust contracts for Ledgence worker adapters: immutable program identity
 artifact preparation and cache leases, CloudEvents, cancellation and monotonic
 deadlines, reusable execution sessions, runtime requests, metrics and tracing.
 
-Available on [crates.io](https://crates.io/crates/ledgence-worker-api/0.1.1) at **0.1.1**.
+Available on [crates.io](https://crates.io/crates/ledgence-worker-api/0.2.0) at **0.2.0**.
 
 ```toml
 [dependencies]
-ledgence-worker-api = "0.1.1"
+ledgence-worker-api = "0.2.0"
 ```
 
 ```rust
@@ -27,7 +27,7 @@ and release bundles. Initial program execution assumes operator-trusted code.
 
 Requires Rust 1.98 or newer. The pre-1.0 API may change between minor versions;
 matching Ledgence components should use the same release series. See the
-[API documentation](https://docs.rs/ledgence-worker-api/0.1.1),
+[API documentation](https://docs.rs/ledgence-worker-api/0.2.0),
 [program package contract](https://github.com/Ledgence/ledgence/blob/main/docs/program-packages.md)
 and [release reference](https://docs.ledgence.com/reference/releases).
 The [source repository](https://github.com/Ledgence/ledgence) contains the

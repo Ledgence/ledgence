@@ -16,11 +16,11 @@ accepts `--binaries DIRECTORY` pointing to the directory containing `ledgence`.
 | [Python application spans](python-otel/README.md) | An application span inherits the worker's processing context and records into an in-memory buffer. | Package the reviewed OpenTelemetry dependencies listed in the example. See [worker tracing](../docs/observability.md); this example does not export Python spans over the network. |
 | [Checkpoint workflow](checkpoint-workflow/README.md) | Typed entrypoints, bounded concurrent page fetches, acknowledged local results, and explicit summary-task failure handling. | Rust, host CPython 3.11+, PostgreSQL 18, and the local HTTP server described in the guide. Completes with worker concurrency one. |
 | [Owned subworkflows](owned-subworkflows/README.md) | A typed parent joins a nested page-processing workflow and an ordinary task, then handles failed or cancelled children. | Build on the checkpoint example's published packages, orchestrator, page server, and worker. |
-| [Mixed local and distributed workflow](mixed-workflow/README.md) | Validated input, typed entrypoints, acknowledged same-package forks, local work, an independent branch timer, and terminal-outcome handling after a durable join. | Current-source orchestrator and workers with all migrations applied; reuse the checkpoint example's setup. Completes with one worker slot; extra capacity permits overlap. |
+| [Mixed local and distributed workflow](mixed-workflow/README.md) | Validated input, typed entrypoints, acknowledged same-package forks, local work, an independent branch timer, and terminal-outcome handling after a durable join. | Matching 0.2.0 orchestrator and workers with all migrations applied; reuse the checkpoint example's setup. Completes with one worker slot; extra capacity permits overlap. |
 
-Typed entrypoints and forks require the current source implementation. Check
-[their availability and contract](../docs/workflow-entrypoints.md) before using
-older published binaries or packages.
+Typed entrypoints and forks require Ledgence 0.2.0 components and migrations.
+The historical 0.1 releases do not include these APIs; check
+[their contract](../docs/workflow-entrypoints.md) before upgrading.
 
 ## Agent workflows
 

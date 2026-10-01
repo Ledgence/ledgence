@@ -30,12 +30,19 @@ class PackageCliTests(unittest.TestCase):
                 package.main()
             build.assert_not_called()
 
-    def test_candidate_workflow_invocation_reaches_source_validation(self):
+    def test_candidate_workflow_invocations_reach_source_validation(self):
         workflow = (package.ROOT / ".github/workflows/candidate.yml").read_text()
-        invocations = re.findall(r"(?m)^\s*run:\s*(python(?:3)?\s+tools/release/package\.py\s+[^\n]+)$", workflow)
-        self.assertEqual(len(invocations), 1, "exercise the actual candidate packaging workflow command")
-        command = shlex.split(invocations[0].replace("$RUNNER_TEMP", str(self.root)))
-        self.assert_reaches_source_validation(command[2:])
+        # Shell continuations and environment variables are expanded by Actions.
+        workflow = workflow.replace("\\\n", "")
+        invocations = re.findall(r"(?m)^\s*(?:run:\s*)?(python(?:3)?\s+tools/release/package\.py\s+[^\n]+)$", workflow)
+        self.assertEqual(len(invocations), 2, "exercise both actual candidate packaging workflow commands")
+        modes = []
+        for invocation in invocations:
+            command = shlex.split(invocation.replace("$RUNNER_TEMP", str(self.root)).replace("$CANDIDATE", "rc.1"))
+            modes.append("--headless" if "--headless" in command else "--console-dist")
+            with self.subTest(command=command):
+                self.assert_reaches_source_validation(command[2:])
+        self.assertCountEqual(modes, ["--headless", "--console-dist"])
 
     def test_both_explicit_distribution_modes_reach_source_validation(self):
         for mode in (["--headless"], ["--console-dist", str(self.root / "console")]):

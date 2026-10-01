@@ -5,7 +5,7 @@ description: Self-hosted Console views, query semantics, command behavior, proce
 
 Console is the operator interface for **one self-hosted Ledgence instance**. The Rust orchestrator serves its static assets at `/console/`, and the browser uses same-origin `/v1/console/*` APIs. A deployed Console needs no Node process, hosted frontend service, or vendor account.
 
-**Availability:** these features are implemented in the current source tree. They are not part of the published `v0.1.1` source tag or `0.1.0` native bundle. [Explore Ledgence Console](/tutorials/use-console) uses a source checkout that contains the implementation; [Releases and packages](/reference/releases) lists published artifacts separately.
+**Availability:** Console is included in Ledgence 0.2.0 source and Console-enabled native bundles. Use matching contract 4 server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.2.0](/how-to/upgrade-to-0-2) covers existing deployments.
 
 ## Views and actions
 
@@ -21,7 +21,7 @@ Workflow **Graph** and **Trace** use the same retained execution records. Graph 
 
 Every entrypoint invocation is a node identified by its activation ID. Re-entering the same handler creates a distinct invocation; retrying one activation does not. There are no phase containers. Local work remains visible as evidence attributed to an activation; it does not gain causal edges based on code order or timestamps. Only recorded branch members belong to a distributed fork. A separate parent task is not another branch. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
 
-Edges distinguish registering work, waiting for terminal outcomes, and resuming an entrypoint. A resumed single-child wait may be compacted visually when the entire child/wait/destination chain is known; its coordination record remains inspectable and appears in Trace. Multi-member joins and incomplete evidence retain their coordination nodes. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/develop/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
+Edges distinguish registering work, waiting for terminal outcomes, and resuming an entrypoint. A resumed single-child wait may be compacted visually when the entire child/wait/destination chain is known; its coordination record remains inspectable and appears in Trace. Multi-member joins and incomplete evidence retain their coordination nodes. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
 
 ## Filters and pagination
 
@@ -64,7 +64,7 @@ Resources show available measurements for one attempt. Runtime elapsed excludes 
 
 Memory is labeled **process lifetime peak memory**. Reused processes can retain peaks from earlier invocations; this is not an invocation peak and peaks must not be summed. Unavailable counters are distinct from zero. No provider billing estimate is inferred.
 
-Local start, elapsed, failure and replay observations are delivered with the accepted attempt report. They are not a live stream of running functions. The accepted-result journal remains authoritative: a callable returning does not prove its result was durably committed, and replay does not execute it again. Older workers, interrupted processes and lost reports can leave measurements unavailable. See the [execution observation contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-observations.md).
+Local start, elapsed, failure and replay observations are delivered with the accepted attempt report. They are not a live stream of running functions. The accepted-result journal remains authoritative: a callable returning does not prove its result was durably committed, and replay does not execute it again. Older workers, interrupted processes and lost reports can leave measurements unavailable. See the [execution observation contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/execution-observations.md).
 
 ## Worker process observations
 
@@ -84,11 +84,11 @@ Slot IDs stay stable within a session. Reuse preserves a process instance identi
 
 Detail pages contain at most 100 slots. Detailed reports support up to **1024** slots and a **2 MiB** snapshot. An embedded worker with greater capacity still reports its real capacity with detailed observation unsupported; unavailable reports never become invented empty slots. Only the latest normalized snapshot is stored, not an unbounded history.
 
-See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/develop/docs/worker-observations.md) for reporter, identity, and retention details.
+See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/worker-observations.md) for reporter, identity, and retention details.
 
 ## Serving Console
 
-The [local tutorial](/tutorials/use-console) builds and serves Console through Compose. For a native source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/develop/console/README.md). A regular Cargo build does not run frontend tooling.
+The [local tutorial](/tutorials/use-console) builds and serves Console through Compose. For a native source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.2.0/console/README.md). A regular Cargo build does not run frontend tooling.
 
 Create an instance configuration file:
 

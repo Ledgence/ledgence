@@ -5,7 +5,7 @@ description: Entrypoint registration, context properties, child operations, deci
 
 This reference covers protocol **3** workflow handlers and their worker-supplied context.
 
-**Current-source additions:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker source builds and all database migrations, including `20260928000000_workflow_forks.sql`. They are not included in the published `v0.1.1` source tag, `0.1.0` native bundle, or published API crates. The existing `workflow_context()` interface and string continuations remain supported. See [Releases and packages](/reference/releases#workflow-entrypoints-and-forks-in-current-source).
+**Added in 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.2.0](/how-to/upgrade-to-0-2).
 
 A handler can obtain the context directly:
 
@@ -19,7 +19,7 @@ async def handle(event):
 
 `workflow_context()` returns the active `WorkflowContext`. Application code does not construct this object. The handler receives the original CloudEvent; workflow control state is separate from `event["data"]`.
 
-## Entrypoint registration (current source)
+## Entrypoint registration (0.2.0)
 
 ```python
 from enum import StrEnum
@@ -98,7 +98,7 @@ Both operations use the following options:
 
 | Argument | Contract |
 | --- | --- |
-| `key` | Child identity within the parent workflow; shared across task and workflow children, including fork branches in current source. |
+| `key` | Child identity within the parent workflow; shared across task and workflow children, including fork branches in 0.2.0. |
 | `program`, `version` | Published program ID/version; lowercase portable path components, at most 128 bytes each. |
 | `queue` | Queue for the child execution. |
 | `data` | User-owned JSON input. |
@@ -109,13 +109,13 @@ Both operations use the following options:
 
 An identical binding for an existing key reuses the original child. Changing its kind, program, input, or scheduling options conflicts. Use a new iteration key for new work.
 
-### `branch(key, *, entrypoint, queue, data, retry_policy=None, attempt_timeout_ms=300000)` (current source)
+### `branch(key, *, entrypoint, queue, data, retry_policy=None, attempt_timeout_ms=300000)` (0.2.0)
 
 Builds an immutable `BranchSpec` in the current context. It performs no RPC, schedules nothing, and adds no staged child command. `entrypoint` selects a registered handler. The branch uses the parent's exact pinned program descriptor, so there is no `program` or `version` argument and no new program lookup.
 
 `queue`, `data`, retry policy, and attempt timeout follow the options above. The explicit `data` becomes the branch's user-owned input. Entrypoint and execution metadata remain outside CloudEvent `data`. The branch's workflow ID, activation attempts, checkpoints, local journal, and event/timer waits are independent of the parent's.
 
-### `await fork(key, *, branches)` (current source)
+### `await fork(key, *, branches)` (0.2.0)
 
 Atomically registers an ordered list of 1–64 branch specifications and the children's durable scheduling obligations. It returns a `ForkRef` only after acknowledgment. The parent stays in the same activation, revision, and process and can continue local work. Child execution can begin after commit; acknowledgment does not establish that a child has started or completed.
 
@@ -202,6 +202,6 @@ Bounds use compact encoded JSON, not Python object memory size. The server's JSO
 
 Application JSON supports at most 64 nested containers, finite numbers, and string object keys. Use application-controlled storage references for payloads larger than the inline limits.
 
-**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.1.1/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.1.1/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.1.1/docs/subworkflows.md)
+**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/subworkflows.md)
 
-**Current-source additions:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/ledgence/worker/workflow.py)
+**Current-source additions:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python/ledgence/worker/workflow.py)

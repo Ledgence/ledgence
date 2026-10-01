@@ -4,9 +4,8 @@ Console is the self-hosted operator UI for one Ledgence instance. It serves stat
 files from the Rust orchestrator and calls the same instance's APIs. Production
 needs no Node process, CDN, vendor account or hosted web service.
 
-Console is implemented in the current source tree. The published `v0.1.1` source
-tag and `0.1.0` native bundle predate it. Use a checkout containing `console/` and
-the updated deployment files; the [guided Console tutorial](https://docs.ledgence.com/tutorials/use-console)
+Console is included in Ledgence 0.2.0 source and Console-enabled native bundles.
+The historical `v0.1.1` source tag and `0.1.0` native bundle predate it. The [guided Console tutorial](https://docs.ledgence.com/tutorials/use-console)
 walks through startup and real executions. The [public reference](https://docs.ledgence.com/reference/console)
 covers the interface and operational behavior.
 
@@ -84,7 +83,7 @@ for scope, bounds, replay and unavailable-measurement behavior.
 ## Native startup
 
 Build assets explicitly with the pinned toolchain in [Console build guide](https://github.com/Ledgence/ledgence/blob/develop/console/README.md),
-or use the `console/` directory from a future qualified native bundle that explicitly includes these assets. The published native `0.1.0` bundle does not. A regular Cargo
+or use the `console/` directory from the matching 0.2.0 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
 build/test does not run frontend tooling. Create a server-only instance file:
 
 ```json

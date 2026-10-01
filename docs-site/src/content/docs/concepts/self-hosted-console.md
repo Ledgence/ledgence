@@ -5,7 +5,7 @@ description: Understand the Console deployment boundary, program catalog, and di
 
 A self-hosted Ledgence installation is one operating environment. Console opens into unified task/workflow executions and a program registry, with workers under Operations. There is no tenant administration, workspace switcher, or organization model to configure.
 
-Console is implemented in the current source tree; the published `v0.1.1` source and `0.1.0` native bundle predate it. The [Console tutorial](/tutorials/use-console) explains how to start a compatible source checkout.
+Console is included in Ledgence 0.2.0. The [Console tutorial](/tutorials/use-console) explains how to start a matching deployment; the historical 0.1 releases predate it.
 
 ## The interface belongs to the instance
 

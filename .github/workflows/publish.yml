@@ -78,6 +78,14 @@ jobs:
     needs: source
     uses: ./.github/workflows/docs.yml
 
+  console:
+    needs: source
+    uses: ./.github/workflows/console.yml
+
+  examples:
+    needs: source
+    uses: ./.github/workflows/examples.yml
+
   python-package:
     name: Qualify Python registry artifacts
     needs: source
@@ -131,7 +139,7 @@ jobs:
 
   pypi:
     name: Publish and verify PyPI installation
-    needs: [source, quality, documentation, python-package, rust-packages]
+    needs: [source, quality, documentation, console, examples, python-package, rust-packages]
     if: inputs.publish && (inputs.registry == 'both' || inputs.registry == 'pypi')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -179,7 +187,7 @@ jobs:
 
   crates:
     name: Publish and verify crates.io installation
-    needs: [source, quality, documentation, python-package, rust-packages]
+    needs: [source, quality, documentation, console, examples, python-package, rust-packages]
     if: inputs.publish && (inputs.registry == 'both' || inputs.registry == 'crates')
     runs-on: ubuntu-24.04
     timeout-minutes: 20

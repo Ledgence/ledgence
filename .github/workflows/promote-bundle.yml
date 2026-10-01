@@ -1,0 +1,98 @@
+name: Promote native bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run:
+        description: Actions run ID containing the qualified Linux Console candidate
+        type: string
+        required: true
+      candidate_sha256:
+        description: Expected SHA256 of the selected candidate archive
+        type: string
+        required: true
+      version:
+        description: Stable version already embedded in the candidate (x.y.z)
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  promote:
+    name: Promote qualified Console bundle (Linux x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ledgence-test
+          POSTGRES_DB: ledgence
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ledgence"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      LEDGENCE_POSTGRES_URL: postgres://postgres:ledgence-test@127.0.0.1:5432/ledgence
+      CANDIDATE_RUN: ${{ inputs.candidate_run }}
+      CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out the selected release ref with full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up CPython
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Validate explicit candidate identity and annotated release tag on main
+        run: |
+          if [[ ! "$CANDIDATE_RUN" =~ ^[1-9][0-9]*$ || ! "$CANDIDATE_SHA256" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "Provide a positive candidate run ID and a 64-character lowercase SHA256." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/tags/v$VERSION" ]]; then
+            echo "Dispatch this workflow on the matching version tag." >&2
+            exit 1
+          fi
+          source_version=$(python tools/release/registry.py source --publish)
+          test "$source_version" = "$VERSION"
+      - name: Download the selected candidate from this repository
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: candidate-console-linux-x86_64
+          path: ${{ runner.temp }}/ledgence-candidate
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run }}
+      - name: Check candidate digest and promote with relocated Linux execution
+        run: |
+          shopt -s nullglob
+          archives=("$RUNNER_TEMP/ledgence-candidate/"*.tar.gz)
+          if [[ "${#archives[@]}" != 1 ]]; then
+            echo "The selected artifact must contain exactly one candidate archive." >&2
+            exit 1
+          fi
+          printf '%s  %s\n' "$CANDIDATE_SHA256" "${archives[0]}" | sha256sum -c -
+          python tools/release/promote.py --archive "${archives[0]}" \
+            --sha256 "$CANDIDATE_SHA256" --release-ref "$GITHUB_REF" \
+            --version "$VERSION" --output "$RUNNER_TEMP/ledgence-stable"
+      - name: Verify stable archive checksum
+        working-directory: ${{ runner.temp }}/ledgence-stable
+        run: sha256sum -c SHA256SUMS
+      - name: Retain the verified stable bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stable-linux-x86_64
+          path: ${{ runner.temp }}/ledgence-stable/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+# Metadata-only promotion of qualified bytes; no rebuild, tags or public release.
