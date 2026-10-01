@@ -21,7 +21,7 @@ tableOfContents: false
   </div>
 </div>
 
-Explore a complete agent workflow: [from bug report to reviewed change](/tutorials/codex-change-review). Codex proposes a fix while Ledgence coordinates independent branches, measured checks, and a human decision.
+Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/codex-change-review). Follow the problem, the animated workflow replay, and the code behind independent branches, measured checks, and a human decision.
 
 ## Find your way
 

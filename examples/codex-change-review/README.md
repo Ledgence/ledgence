@@ -1,20 +1,24 @@
-# From a $5 bug to an approved change
+# From an empty page to a reviewed fix
 
-A $100 order should receive free shipping. Instead, the calculator charges $5.
-Codex proposes a small fix; Ledgence sends the **same immutable candidate into
-three branches**, measures the behavior locally, joins the evidence, and waits
-for a person's decision.
+**The problem:** a document search shows two pages for exactly 100 results,
+even though every result fits on the first page. The second page is empty.
 
-This example is designed for a short, understandable product demo. Start with
-the visible business problem, follow real execution in Console, and finish with
-a portable review report. See [the recording guide](DEMO.md) for a shot list
-and narration. The workflow also runs without a provider using an explicitly
-labelled offline fixture.
+**The solution:** Codex proposes a small pagination fix. Ledgence checks the
+same candidate in three independent branches, compares the behavior, and waits
+for a person's decision before completing the change.
 
-**Version:** application packages `1.1.0` in the current source, using the
-Ledgence **0.2.0** runtime and Python client. The original example shipped in
-0.2.0 uses application `1.0.0` and does not include the three-branch approval
-flow described here. Do not mix its packages with these instructions.
+The demo presentation in `review.html` explains this path with an animated
+workflow, short contextual code snippets, and details you can open as needed.
+Playback is an **illustrative replay of a saved result**, not a live connection
+to Ledgence. Offline fixture output is labelled separately. Use Console to
+follow actual execution, and see [the recording guide](DEMO.md) for the video
+story and shot list.
+
+**Version:** application packages `1.2.0` in the current source, using the
+Ledgence **0.2.0** runtime and Python client. These example changes have not
+shipped in a Ledgence release. The original example in the `v0.2.0` tag uses
+application `1.0.0`; application `1.1.0` uses the previous fixture. Prepare fresh
+`1.2.0` packages for these instructions rather than replacing an existing version.
 
 ```mermaid
 flowchart TD
@@ -46,7 +50,7 @@ Read [`program.py`](program.py) for the orchestration. Six main entrypoints
 | --- | --- | --- |
 | Propose | A task invokes Codex on `change-review-agents`. | Source, canonical diff, base/candidate digests and Codex metadata. |
 | Fork | Three owned workflows use the parent's exact program descriptor. | Tests on `change-review`; independent review and draft note on `change-review-agents`. |
-| Keep working | After the fork is acknowledged, the parent runs `compare:0` locally. | Actual before/after values for $99.99, $100 and $100.01 orders. |
+| Keep working | After the fork is acknowledged, the parent runs `compare:0` locally. | Measured page counts for 99, 100 and 101 documents. |
 | Join | The parent checkpoints its state and waits for every branch to finish. | The same candidate SHA-256 in every report. |
 | Inspect | The `prepare:0` task validates and assembles the review packet. | A task result accessible while the parent waits for approval. |
 | Decide | `wait_event` resumes on a candidate-bound approve/reject event or a deadline. | Decision, event identity and candidate digest. |
@@ -79,7 +83,7 @@ again after an interruption.
 
 The application uses the Python standard library. Ledgence supplies its worker
 helper, and the host supplies Codex. Credentials are not packaged or included
-in workflow data. Real runs send the synthetic calculator, requirements and
+in workflow data. Real runs send the synthetic pagination module, requirements and
 candidate to OpenAI and consume the account's Codex allowance. See official
 [non-interactive execution](https://learn.chatgpt.com/docs/non-interactive-mode)
 and [authentication](https://learn.chatgpt.com/docs/auth) documentation.
@@ -145,8 +149,8 @@ Inspect the exported files under the evidence directory's `bundle/`:
 
 | File | Contents |
 | --- | --- |
-| `review.html` | Portable visual report, including measured before/after, three branch results and decision. |
-| `shipping.py` | Exact candidate source. |
+| `review.html` | Guided problem/solution presentation with an animated workflow replay, contextual code and expandable evidence. |
+| `pagination.py` | Exact candidate source. |
 | `change.patch` | Diff against the bundled original. |
 | `review.json` | Candidate identity, tests, independent review, release note, comparison, decision and execution metadata. |
 | `pull-request.md` | Title and body ready for human review. |
@@ -154,16 +158,16 @@ Inspect the exported files under the evidence directory's `bundle/`:
 ## Run interactively and inspect Console
 
 Prepare fresh immutable program packages. All three use application version
-`1.1.0`; changing their code requires a new version when publishing to an
+`1.2.0`; changing their code requires a new version when publishing to an
 existing store.
 
 ```sh
-python3.13 examples/codex-change-review/prepare.py --directory "$CHANGE_HOME/prepared-1.1.0"
+python3.13 examples/codex-change-review/prepare.py --directory "$CHANGE_HOME/prepared-1.2.0"
 export DATABASE_URL="$LEDGENCE_POSTGRES_URL"
 target/debug/ledgence orchestrator migrate
 target/debug/ledgence orchestrator serve --bind 127.0.0.1:8084 \
-  --store "$CHANGE_HOME/prepared-1.1.0/store" \
-  --instance-config "$CHANGE_HOME/prepared-1.1.0/instance.json"
+  --store "$CHANGE_HOME/prepared-1.2.0/store" \
+  --instance-config "$CHANGE_HOME/prepared-1.2.0/instance.json"
 ```
 
 For Console, build it using [its README](../../console/README.md), add
@@ -174,11 +178,11 @@ Keep the orchestrator running. In another terminal, register the programs:
 
 ```sh
 target/debug/ledgence program register --server http://127.0.0.1:8084 \
-  --program codex-change-review --version 1.1.0 --kind workflow
+  --program codex-change-review --version 1.2.0 --kind workflow
 target/debug/ledgence program register --server http://127.0.0.1:8084 \
-  --program codex-change-implement --version 1.1.0 --kind task
+  --program codex-change-implement --version 1.2.0 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8084 \
-  --program codex-change-finalize --version 1.1.0 --kind task
+  --program codex-change-finalize --version 1.2.0 --kind task
 ```
 
 Start the control worker, reusing the same `CHANGE_HOME`:
@@ -186,7 +190,7 @@ Start the control worker, reusing the same `CHANGE_HOME`:
 ```sh
 target/debug/ledgence worker connect --server http://127.0.0.1:8084 \
   --tenant acme --namespace demo --queue change-review \
-  --store "$CHANGE_HOME/prepared-1.1.0/store" --cache "$CHANGE_HOME/cache-control" \
+  --store "$CHANGE_HOME/prepared-1.2.0/store" --cache "$CHANGE_HOME/cache-control" \
   --python "$(command -v python3.13)" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
   --concurrency 1
 ```
@@ -198,7 +202,7 @@ the same authenticated executable there:
 ```sh
 target/debug/ledgence worker connect --server http://127.0.0.1:8084 \
   --tenant acme --namespace demo --queue change-review-agents \
-  --store "$CHANGE_HOME/prepared-1.1.0/store" --cache "$CHANGE_HOME/cache-agents" \
+  --store "$CHANGE_HOME/prepared-1.2.0/store" --cache "$CHANGE_HOME/cache-agents" \
   --python "$(command -v python3.13)" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
   --concurrency 2
 ```
@@ -207,7 +211,7 @@ Submit once and retain the returned workflow ID:
 
 ```sh
 "$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py submit \
-  --change-id shipping-100 --idempotency-key shipping-100:1
+  --change-id pagination-100 --idempotency-key pagination-100:1
 ```
 
 Open that workflow in Console. Follow **Graph** as the candidate is created,
@@ -223,15 +227,19 @@ When the workflow waits for approval, find the **`prepare:0`** task under
   --task PREPARE_TASK_ID --output "$CHANGE_HOME/review-1"
 ```
 
-Open `$CHANGE_HOME/review-1/review.html` in your browser. Review the measured
-shipping values, exact patch, test output, independent findings and draft note.
-The command prints the workflow ID and complete candidate SHA-256. These must
-match the candidate you approve:
+Open `$CHANGE_HOME/review-1/review.html` in your browser. Start with the brief
+problem and solution, then play or step through the workflow. Selecting a node
+pauses playback at its step and reveals the relevant explanation and code; use
+**Play** to resume. The evidence section contains the measured
+page counts, exact patch, test output, independent findings and draft note.
+Playback controls only change this local presentation; they cannot approve or
+submit work. The command prints the workflow ID and complete candidate SHA-256.
+These must match the candidate you approve:
 
 ```sh
 "$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py approve \
   --workflow WORKFLOW_ID --candidate-sha256 CANDIDATE_SHA256 \
-  --event-id shipping-100:decision:1
+  --event-id pagination-100:decision:1
 "$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py result \
   --workflow WORKFLOW_ID --timeout 300 --output "$CHANGE_HOME/result-1"
 ```
@@ -244,7 +252,9 @@ observe `result` to confirm it. The default approval deadline is one hour;
 `submit --approval-timeout-ms` accepts 0 through 86,400,000 milliseconds.
 
 The final `review.html` records the decision. The earlier review file stays a
-snapshot of the pending packet; it does not update itself. Console's **Send
+snapshot of the pending packet; it does not fetch a newer result. An animation
+in either file explains the saved evidence rather than reporting current service
+activity. Console's **Send
 event** is a generic JSON action, not a dedicated Approve button. The companion
 commands provide the correctly bound decision event.
 
@@ -263,7 +273,7 @@ new work. `status` and `cancel` also accept `--workflow`.
 
 By default, even an approved run stops at the evidence bundle. To enable a draft
 PR, create a **dedicated sample repository** containing the original
-[`shipping.py`](change_review/fixtures/shipping.py) at its root, commit and push
+[`pagination.py`](change_review/fixtures/pagination.py) at its root, commit and push
 it, and record the full base commit. Ledgence's product repository is excluded.
 
 On the control worker host, configure an authorized GitHub CLI login. Create a
@@ -271,7 +281,7 @@ publication JSON file outside the checkout:
 
 ```json
 {
-  "repository": "YOUR_ACCOUNT/shipping-example",
+  "repository": "YOUR_ACCOUNT/pagination-example",
   "base_branch": "main",
   "base_commit": "REPLACE_WITH_THE_FULL_40_CHARACTER_COMMIT_SHA"
 }
@@ -302,7 +312,11 @@ A failed provider invocation, invalid response, cancelled branch or infrastructu
 error fails the workflow; it is not converted into a negative review or a passing
 check. Each branch result is validated before it can reach human approval.
 
-The calculator uses integer cents. Tests are fixed independently of the model.
+The pagination module uses a fixed page size of 100. `page_count(item_count)`
+accepts non-negative integers, rejects booleans and non-integers with `TypeError`,
+and rejects negative integers with `ValueError`. The regression is visible at
+exact page boundaries: zero documents need zero pages, and 100 documents need
+one. Tests are fixed independently of the model.
 The comparison and test runner execute candidate code in fresh, bounded
 subprocesses with a minimal environment. This is an **operator-trusted local
 example**, not an untrusted-code security sandbox. Codex itself produces
@@ -310,9 +324,11 @@ structured source/review/note output in fresh, read-only, tool-free sessions;
 it does not modify the Ledgence checkout.
 
 Candidate JSON is bounded to 24 KiB, source to 6 KiB, and the assembled packet
-below the platform's 64 KiB checkpoint limit. The HTML report escapes all model
-text and contains no scripts, network requests or external assets. It includes
-an offline-fixture label when the fixture generated the candidate or reports.
+below the platform's 64 KiB checkpoint limit. The HTML presentation escapes
+model text. Embedded JavaScript handles local playback; the page makes no
+network requests and loads no external assets. It includes an explicit replay label and identifies offline fixtures when they generated the
+candidate or reports. Full source, patch and JSON evidence remain available
+alongside the presentation.
 
 Stable task, fork, branch, local-step and event identities reconcile recovery.
 An interrupted provider call may already have consumed usage; accepted results

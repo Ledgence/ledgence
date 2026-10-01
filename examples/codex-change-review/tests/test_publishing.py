@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from change_review import candidate, publishing, steps
 
 GIT = shutil.which("git")
-REPOSITORY = "sample-owner/shipping-demo"
+REPOSITORY = "sample-owner/pagination-demo"
 
 
 def bundle():
@@ -26,20 +26,20 @@ def bundle():
                  "thread_id": "fixture-thread", "cli_invocations": 1,
                  "usage": {"input_tokens": 10, "cached_input_tokens": 0,
                            "output_tokens": 20, "reasoning_output_tokens": None}}
-    change = candidate.make_candidate("shipping-1", candidate.BASE_SOURCE.replace("> 10000", ">= 10000"),
-                                      "Include the threshold in free shipping", execution)
+    source = candidate.BASE_SOURCE.replace("item_count // 100 + 1", "(item_count + 99) // 100")
+    change = candidate.make_candidate("document-pages", source, "Avoid empty pages in document search", execution)
     measured = {"started_at_ms": 100, "finished_at_ms": 101, "pid": 1}
     identity = {"candidate_sha256": change["sha256"], **measured}
     return steps.assemble_bundle({
-        "workflow_id": "wf-shipping-1", "candidate": change,
+        "workflow_id": "wf-document-pages", "candidate": change,
         "comparison": {**identity, "cases": [
-            {"total_cents": total, "expected_cents": expected,
+            {"item_count": item_count, "expected_pages": expected,
              "before": {"value": before, "error": None}, "after": {"value": expected, "error": None}}
-            for total, before, expected in ((9999, 500, 500), (10000, 500, 0), (10001, 0, 0))]},
+            for item_count, before, expected in ((99, 1, 1), (100, 2, 1), (101, 2, 2))]},
         "tests": {**identity, "passed": True, "total": 6, "failures": 0, "errors": 0, "output": "6 fixture tests"},
         "review": {**identity, "verdict": "approve", "summary": "Fixture review", "findings": [], "execution": execution},
-        "note": {**identity, "title": "Free shipping from $100", "body": "Orders at $100 qualify.", "execution": execution},
-        "decision": {"workflow_id": "wf-shipping-1", "candidate_sha256": change["sha256"],
+        "note": {**identity, "title": "No more empty search pages", "body": "Exactly 100 results now fit on one page.", "execution": execution},
+        "decision": {"workflow_id": "wf-document-pages", "candidate_sha256": change["sha256"],
                      "outcome": "approved", "event_id": "approval-fixture"}})
 
 
@@ -80,10 +80,10 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
                             GIT_COMMITTER_NAME="fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid",
                             GIT_AUTHOR_DATE="1600000000 +0000", GIT_COMMITTER_DATE="1600000000 +0000")
         self.git("init", "--quiet", "--initial-branch=main")
-        (self.remote / "shipping.py").write_text(candidate.BASE_SOURCE)
+        (self.remote / "pagination.py").write_text(candidate.BASE_SOURCE)
         (self.remote / "README.md").write_text("Keep this file unchanged.\n")
-        self.git("add", "shipping.py", "README.md")
-        self.git("commit", "--quiet", "-m", "Base shipping fixture")
+        self.git("add", "pagination.py", "README.md")
+        self.git("commit", "--quiet", "-m", "Base pagination fixture")
         self.base = self.git("rev-parse", "HEAD")
         self.publication = {"repository": REPOSITORY, "base_commit": self.base, "base_branch": "main"}
         self.calls, self.creations, self.pulls = [], [], []
@@ -161,8 +161,8 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(steps.validate_bundle(result), result)
         self.assertEqual(receipt["head_commit"], self.git("rev-parse", receipt["branch"]))
         self.assertEqual(self.git("rev-parse", receipt["head_commit"] + "^"), self.base)
-        self.assertEqual(self.git("diff", "--name-only", self.base, receipt["head_commit"]), "shipping.py")
-        self.assertEqual(self.git("show", receipt["head_commit"] + ":shipping.py") + "\n", value["candidate"]["source"])
+        self.assertEqual(self.git("diff", "--name-only", self.base, receipt["head_commit"]), "pagination.py")
+        self.assertEqual(self.git("show", receipt["head_commit"] + ":pagination.py") + "\n", value["candidate"]["source"])
         self.assertEqual(self.git("show", receipt["head_commit"] + ":README.md"), "Keep this file unchanged.")
         self.assertEqual(self.git("rev-parse", "main"), self.base)
         self.assertEqual(len(self.writes()), 2)
@@ -192,8 +192,8 @@ class PublishingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.writes(), [])
 
     async def test_base_content_or_base_branch_drift_prevents_publication(self):
-        (self.remote / "shipping.py").write_text("different shipping implementation\n")
-        self.git("add", "shipping.py")
+        (self.remote / "pagination.py").write_text("different pagination implementation\n")
+        self.git("add", "pagination.py")
         self.git("commit", "--quiet", "-m", "Changed base")
         changed = self.git("rev-parse", "HEAD")
         with self.assertRaisesRegex(publishing.PublicationError, "differs from the bundled"):

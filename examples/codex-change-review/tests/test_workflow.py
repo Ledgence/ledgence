@@ -42,8 +42,8 @@ def candidate():
                  "thread_id": "thread-fixture", "cli_invocations": 1,
                  "usage": {"input_tokens": 1, "cached_input_tokens": 0,
                            "output_tokens": 1, "reasoning_output_tokens": None}}
-    return make_candidate("change-1", BASE_SOURCE.replace("total_cents > 10000", "total_cents >= 10000"),
-                          "Include the free-shipping threshold.", execution)
+    return make_candidate("change-1", BASE_SOURCE.replace("item_count // 100 + 1", "(item_count + 99) // 100"),
+                          "Avoid empty pages in document search.", execution)
 
 
 def packet(*, status="waiting_for_approval"):
@@ -54,7 +54,7 @@ def packet(*, status="waiting_for_approval"):
             "candidate": value, "comparison": {"candidate_sha256": value["sha256"]},
             "tests": {"candidate_sha256": value["sha256"], "passed": status != "needs_changes"},
             "review": {"candidate_sha256": value["sha256"], "verdict": "approve"},
-            "note": {"candidate_sha256": value["sha256"], "text": "Shipping is free at $100."},
+            "note": {"candidate_sha256": value["sha256"], "text": "Exactly 100 results fit on one page."},
             "decision": None, "pull_request": {"title": "Fixture", "body": "Evidence", "url": None}}
 
 

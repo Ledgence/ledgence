@@ -41,7 +41,7 @@ def main():
     with (marker / "codex.jsonl").open("a") as stream:
         stream.write(json.dumps(started) + "\n")
     if phase == "implement":
-        value = {"source": config["source"], "summary": "Offline fixture candidate for the shipping change."}
+        value = {"source": config["source"], "summary": "Offline fixture candidate removing an empty document page."}
     else:
         source = config["source"].rstrip("\n") + "\n"
         digest = hashlib.sha256(source.encode()).hexdigest()
@@ -72,7 +72,7 @@ def main():
         findings = ([{"severity": "medium", "line": 1,
                       "message": "Offline fixture requests a follow-up clarification."}]
                     if config.get("findings") else [])
-        value = ({"title": "Free shipping at $100", "body": "Orders of $100 or more now qualify for free shipping. Offline fixture note; no provider called."}
+        value = ({"title": "No more empty document pages", "body": "Document lists now end on the last populated page, including exactly 100 documents. Offline fixture note; no provider called."}
                  if phase == "note" else
                  {"verdict": "request_changes" if findings else "approve",
                   "summary": "Offline fixture review; no model or provider was called.",

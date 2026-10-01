@@ -1,4 +1,4 @@
-"""Optional, reconciled GitHub publication for the fixed shipping example (MIT).
+"""Optional, reconciled GitHub publication for the fixed pagination example (MIT).
 
 The operator supplies Git, an authenticated gh CLI, and an explicit sample
 repository. No checkout, force push, merge, or global Git configuration is used.
@@ -122,15 +122,15 @@ class _Publisher:
         base = self.publication["base_commit"]
         await self.git_command("init", "--bare", "--quiet", "--object-format=sha1", ".")
         await self.git_command("fetch", "--quiet", "--depth=1", self.remote, base, action="base fetch")
-        original = await self.git_command("cat-file", "blob", base + ":shipping.py")
+        original = await self.git_command("cat-file", "blob", base + ":pagination.py")
         if hashlib.sha256(original).hexdigest() != BASE_SHA256 or candidate["base_sha256"] != BASE_SHA256:
-            raise PublicationError("shipping.py at base_commit differs from the bundled example")
-        entry = await self.git_command("ls-tree", "-z", base, "--", "shipping.py")
-        if not re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\tshipping.py\x00", entry):
-            raise PublicationError("shipping.py must be an ordinary tracked file")
+            raise PublicationError("pagination.py at base_commit differs from the bundled example")
+        entry = await self.git_command("ls-tree", "-z", base, "--", "pagination.py")
+        if not re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\tpagination.py\x00", entry):
+            raise PublicationError("pagination.py must be an ordinary tracked file")
         blob = _oid(await self.git_command("hash-object", "-w", "--stdin", data=candidate["source"].encode("utf-8")))
         await self.git_command("read-tree", base)
-        await self.git_command("update-index", "--cacheinfo", entry[:6].decode() + "," + blob + ",shipping.py")
+        await self.git_command("update-index", "--cacheinfo", entry[:6].decode() + "," + blob + ",pagination.py")
         tree = _oid(await self.git_command("write-tree"))
         timestamp = (await self.git_command("show", "-s", "--format=%ct", base)).decode().strip()
         if not timestamp.isdecimal():
@@ -141,8 +141,8 @@ class _Publisher:
         message = f"{title}\n\nLedgence change: {candidate['change_id']}\nCandidate-SHA256: {candidate['sha256']}\n"
         commit = _oid(await self.git_command("commit-tree", tree, "-p", base, data=message.encode("utf-8")))
         changed = await self.git_command("diff-tree", "--no-commit-id", "--name-only", "-z", "-r", base, commit)
-        if changed != b"shipping.py\x00":
-            raise PublicationError("the candidate must change shipping.py and no other file")
+        if changed != b"pagination.py\x00":
+            raise PublicationError("the candidate must change pagination.py and no other file")
         return commit
 
     async def existing(self, branch, commit):
