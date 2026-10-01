@@ -33,7 +33,27 @@
   function showCode(name) {
     if (shownCode === name) return;
     shownCode = name;
-    document.getElementById('code').textContent = snippets[name].text;
+    const fragment = document.createDocumentFragment();
+    const tokenKinds = new Set(['plain','string','comment','number','constant','keyword','type','call','marker']);
+    for (const row of data.highlighted[name]) {
+      const line = document.createElement('span');
+      line.className = 'code-line' + ({add:' diff-add',remove:' diff-remove',meta:' diff-meta'}[row.kind] || '');
+      let ending = '';
+      for (const [index, token] of row.tokens.entries()) {
+        const span = document.createElement('span');
+        span.className = 'syntax-' + (tokenKinds.has(token.kind) ? token.kind : 'plain');
+        let text = token.text;
+        if (index === row.tokens.length - 1) {
+          ending = text.match(/(?:\r\n|\n|\r)$/)?.[0] || '';
+          if (ending) text = text.slice(0, -ending.length);
+        }
+        span.textContent = text;
+        line.appendChild(span);
+      }
+      fragment.appendChild(line);
+      if (ending) fragment.appendChild(document.createTextNode(ending));
+    }
+    document.getElementById('code').replaceChildren(fragment);
     document.getElementById('code-note').textContent = snippets[name].note;
     root.querySelectorAll('[data-code]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.code === name)));
   }

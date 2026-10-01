@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from .steps import validate_bundle
+from .syntax import highlight_snippet
 
 ASSETS = Path(__file__).with_name('presentation')
 
@@ -48,7 +49,9 @@ def render_report(value):
     csp = "default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-" + script_hash + "'; base-uri 'none'; form-action 'none'"
     flags = ['fixture' in item['execution']['cli_version'] for item in (candidate, bundle['review'], bundle['note'])]
     provenance = 'Simulated agent output' if all(flags) else 'Includes simulated output' if any(flags) else 'Recorded Codex output'
-    payload = {**bundle, 'snippets': {'fix':candidate['patch'] or 'No source changes.', 'fork':FORK_CODE, 'wait':WAIT_CODE}}
+    snippets = {'fix':candidate['patch'] or 'No source changes.', 'fork':FORK_CODE, 'wait':WAIT_CODE}
+    payload = {**bundle, 'snippets': snippets, 'highlighted': {
+        name: highlight_snippet(code, diff=name == 'fix') for name, code in snippets.items()}}
     node_defs = [('propose','Propose a fix',0),('tests','Run tests',2),('review','Review code',2),
                  ('note','Draft note',2),('compare','Compare behavior',2),('join','Join evidence',3),('decide','Your decision',4)]
     nodes = ''.join(f'''<button class="node" id="node-{identity}" type="button" data-node="{identity}" data-step="{step}" data-state="idle" aria-label="Inspect {title.lower()}"><span class="node-icon" aria-hidden="true"><svg viewBox="0 0 16 16">{ICONS[identity]}</svg></span><span class="node-copy"><span class="node-title">{title}</span><span class="node-meta"><i class="status-dot" aria-hidden="true"></i><span class="node-status">Waiting</span></span></span></button>''' for identity,title,step in node_defs)
