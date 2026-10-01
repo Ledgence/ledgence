@@ -5,7 +5,7 @@ description: Understand what survives an activation retry, why explicit continua
 
 A checkpoint records the information needed for the next workflow activation. It does not snapshot the Python process.
 
-That boundary makes recovery explicit: your controller chooses a continuation label, saves JSON state, and identifies the work it needs before resuming. Ledgence persists that decision and later schedules a fresh activation.
+That boundary makes recovery explicit: your controller chooses the next entrypoint, saves JSON state, and identifies the work it needs before resuming. Ledgence persists that decision and later schedules a fresh activation.
 
 ## What survives
 
@@ -13,7 +13,9 @@ A checkpoint records the next continuation and state together with staged child 
 
 A resumed handler receives the original CloudEvent and a separate workflow context. The context contains the saved state and frozen outcomes for that activation. Python locals, open sockets, coroutine stacks, and in-memory clients are not restored.
 
-This is why the handler branches on `ctx.continuation` and returns `ctx.suspend(...)` rather than awaiting a distributed child reference in the same coroutine.
+Register each handler with `@workflow.entrypoint(...)` and select the next enum member in `ctx.join(...)`, `ctx.suspend(...)`, or another decision. Ledgence invokes that handler when the next activation starts. Existing handlers that route on the string `ctx.continuation` remain supported.
+
+A distributed child reference is not awaitable in the current coroutine. Returning a wait decision saves the required state and releases the invocation instead.
 
 ## Local results reduce repeated work
 
@@ -22,6 +24,14 @@ This is why the handler branches on `ctx.continuation` and returns `ctx.suspend(
 Ordinary code around those steps still executes from the current continuation. Put all changing inputs in the local step's explicit arguments so that its durable binding describes the operation. A closure or mutable process global is not part of that binding.
 
 A local step must not issue workflow control commands or stage children. Replaying its stored result would skip those commands. Keep coordination in the controller after awaiting the local result.
+
+## Acknowledged forks survive the parent invocation
+
+`await ctx.fork(...)` durably registers the branch workflows before the parent checkpoints. The parent can continue local work after the acknowledgment. If it then stops unexpectedly, the accepted branches remain registered.
+
+On retry, the same fork key and ordered branch bindings reconcile those children instead of launching replacements. An uncertain acknowledgment prevents a successful final decision; it must not be treated as an empty or successful fork. Use a new fork key and new child keys for a new loop iteration.
+
+`return ctx.join(...)` saves the parent's state and waits for all branch outcomes, including failure and cancellation. A branch that finished before the join was recorded still contributes its retained outcome. The resumed entrypoint decides whether to recover or fail; the join itself does not fail fast.
 
 ## A checkpoint does not make external effects exactly once
 
@@ -41,9 +51,11 @@ There are several useful identity scopes:
 
 | Identity | Scope and purpose |
 | --- | --- |
-| Submission idempotency key | Identifies a task or workflow submission within its tenant and namespace; task and workflow submission keys are separate. |
+| Submission idempotency key | Identifies a task or workflow submission within the instance's fixed compatibility binding; task and workflow submission keys are separate. |
+| Activation ID | Identifies one logical entrypoint invocation across its task attempts. A later visit to the same entrypoint gets a new activation. |
 | Local step key | Identifies work within one logical activation and its retries. |
-| Child key | Identifies an owned task or subworkflow throughout its parent workflow. |
+| Child key | Identifies an owned task or subworkflow throughout its parent workflow, including fork branches. |
+| Fork key | Identifies one immutable ordered branch registration throughout the parent workflow. |
 | Event/timer wait key | Identifies one one-shot wait throughout the workflow. |
 
 Reusing a key with the same binding can reconcile existing work. Reusing it for different work conflicts. Iteration identifiers such as `summary:round-2` make a new operation explicit.

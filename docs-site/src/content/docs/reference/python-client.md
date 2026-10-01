@@ -73,12 +73,14 @@ Send a prepared command with `await client.tasks.submit(submission)` or `await c
 ```python
 workflow = await client.workflows.submit(
     program="workflow-example",
-    version="1.0.0",
+    version="1.0.1",
     queue="demo",
     data={"urls": ["http://receiver:8091/page.txt"] * 4, "queue": "demo"},
     idempotency_key="docs:workflow:1",
 )
 ```
+
+This uses the `workflow-example@1.0.1` package published by the [local stack tutorial](/tutorials/run-locally). Application package versions are independent of the Ledgence client version.
 
 The returned handle has an `id`. Construct a handle for an existing execution with `client.tasks.handle(task_id)` or `client.workflows.handle(workflow_id)`; construction makes no network request.
 

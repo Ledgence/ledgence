@@ -30,7 +30,7 @@ def main():
     config = json.loads(Path(config_path).read_text())
     schema_path = Path(sys.argv[sys.argv.index("--output-schema") + 1])
     properties = json.loads(schema_path.read_text())["properties"]
-    phase = "implement" if "source" in properties else "review"
+    phase = "implement" if "source" in properties else ("note" if "body" in properties else "review")
     prompt = sys.stdin.read()
     if phase.upper() not in prompt:
         raise RuntimeError("expected an explicit phase in the Codex prompt")
@@ -41,21 +41,22 @@ def main():
     with (marker / "codex.jsonl").open("a") as stream:
         stream.write(json.dumps(started) + "\n")
     if phase == "implement":
-        value = {"source": config["source"], "summary": "Offline fixture candidate for the shipping change."}
+        value = {"source": config["source"], "summary": "Offline fixture candidate removing an empty document page."}
     else:
         source = config["source"].rstrip("\n") + "\n"
         digest = hashlib.sha256(source.encode()).hexdigest()
         if ("CANDIDATE_SHA256: " + digest not in prompt
                 or "CANDIDATE_SOURCE:\n" + source + "\nCANONICAL_PATCH:\n" not in prompt):
-            raise RuntimeError("review did not receive the exact immutable implementation candidate")
+            raise RuntimeError("branch did not receive the exact immutable implementation candidate")
         if config.get("synchronize"):
             wait_for(marker / "tests-started")
-        (marker / "review-started").write_text(json.dumps(started))
+        (marker / (phase + "-started")).write_text(json.dumps(started))
         if config.get("synchronize"):
+            wait_for(marker / ("note-started" if phase == "review" else "review-started"))
             wait_for(marker / "tests-finished")
-        if config.get("hold_review"):
+        if phase == "review" and config.get("hold_review"):
             wait_for(marker / "release-review")
-        if config.get("review_failure"):
+        if phase == "review" and config.get("review_failure"):
             # A deliberately abandoned descendant stays in the helper's process
             # group. The real Rust worker must drain it when this turn fails.
             descendant = marker / "descendant.json"
@@ -71,9 +72,11 @@ def main():
         findings = ([{"severity": "medium", "line": 1,
                       "message": "Offline fixture requests a follow-up clarification."}]
                     if config.get("findings") else [])
-        value = {"verdict": "request_changes" if findings else "approve",
-                 "summary": "Offline fixture review; no model or provider was called.",
-                 "findings": findings}
+        value = ({"title": "No more empty document pages", "body": "Document lists now end on the last populated page, including exactly 100 documents. Offline fixture note; no provider called."}
+                 if phase == "note" else
+                 {"verdict": "request_changes" if findings else "approve",
+                  "summary": "Offline fixture review; no model or provider was called.",
+                  "findings": findings})
     events = [
         {"type": "thread.started", "thread_id": "offline-fixture-" + phase},
         {"type": "turn.started"},

@@ -6,47 +6,48 @@ import sys
 import unittest
 
 
-class ShippingAcceptance(unittest.TestCase):
+class PaginationAcceptance(unittest.TestCase):
     def setUp(self):
-        spec = importlib.util.spec_from_file_location("shipping_candidate", Path(__file__).with_name("shipping.py"))
+        spec = importlib.util.spec_from_file_location("pagination_candidate", Path(__file__).with_name("pagination.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.shipping_cost = module.shipping_cost
+        self.page_count = module.page_count
 
-    def test_below_threshold(self):
-        for value in (0, 1, 9999):
-            result = self.shipping_cost(value)
+    def test_empty_and_partial_page(self):
+        for value, expected in ((0, 0), (1, 1), (99, 1)):
+            result = self.page_count(value)
             self.assertIs(type(result), int)
-            self.assertEqual(result, 500)
+            self.assertEqual(result, expected)
 
-    def test_exact_threshold(self):
-        result = self.shipping_cost(10000)
-        self.assertIs(type(result), int)
-        self.assertEqual(result, 0)
-
-    def test_above_threshold(self):
-        for value in (10001, 20000):
-            result = self.shipping_cost(value)
+    def test_exact_page_boundaries(self):
+        for value in (100, 200, 10**30):
+            result = self.page_count(value)
             self.assertIs(type(result), int)
-            self.assertEqual(result, 0)
+            self.assertEqual(result, value // 100)
+
+    def test_extra_page(self):
+        for value, expected in ((101, 2), (199, 2), (201, 3)):
+            result = self.page_count(value)
+            self.assertIs(type(result), int)
+            self.assertEqual(result, expected)
 
     def test_negative_integer(self):
         with self.assertRaises(ValueError):
-            self.shipping_cost(-1)
+            self.page_count(-1)
 
     def test_boolean(self):
         for value in (True, False):
             with self.assertRaises(TypeError):
-                self.shipping_cost(value)
+                self.page_count(value)
 
     def test_non_integer(self):
-        for value in (1.0, "10000", None, [], {}):
+        for value in (1.0, "100", None, [], {}):
             with self.assertRaises(TypeError):
-                self.shipping_cost(value)
+                self.page_count(value)
 
 
 if __name__ == "__main__":
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ShippingAcceptance)
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(PaginationAcceptance)
     result = unittest.TextTestRunner(stream=sys.stderr, verbosity=2).run(suite)
     print(json.dumps({"passed": result.wasSuccessful(), "total": result.testsRun,
                       "failures": len(result.failures), "errors": len(result.errors)}))

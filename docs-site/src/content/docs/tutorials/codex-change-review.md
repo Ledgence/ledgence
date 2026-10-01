@@ -1,67 +1,157 @@
 ---
-title: From bug report to reviewed change
-description: Let Codex propose a fix while Ledgence coordinates local tests, an independent distributed review, and an optional draft pull request.
+title: From an empty page to a reviewed fix
+description: Follow a small Codex change through an animated workflow replay, three independent branches, and a human decision.
 ---
 
-A useful coding agent needs more than a convincing patch. It needs tests against the intended behavior, an independent review of the same code, and a clear result a person can inspect.
+**The problem:** a document search offers two pages for exactly 100 results.
+Every result fits on the first page; the second page is empty.
 
-This example fixes a small shipping calculator: orders of exactly **$100** should receive free shipping, but the original implementation charges **$5**. The workflow creates a candidate, runs two checks in parallel, joins their results, and prepares the change for human review.
+**The solution:** Codex proposes a small pagination fix. Ledgence coordinates
+three independent checks, measures the behavior, and waits for a person's
+decision tied to that exact candidate.
 
-**Availability:** this example is included in Ledgence 0.2.0. Use its [`examples/codex-change-review/`](https://github.com/Ledgence/ledgence/tree/v0.2.0/examples/codex-change-review) directory, matching workers and orchestrator, and all database migrations. See [releases and packages](/reference/releases).
+The exported `review.html` leads with this problem and solution, then explains
+the workflow through an animated diagram and short code excerpts. You can pause
+or step through the explanation. Selecting a node pauses playback at that step;
+use **Play** to resume. This is an **illustrative replay of saved evidence**,
+not a live service connection.
+Offline fixture output has its own visible label.
 
-## Follow the work
+**Availability:** this tutorial follows application packages **1.2.0** in the
+[current source](https://github.com/Ledgence/ledgence/tree/develop/examples/codex-change-review),
+using the **Ledgence 0.2.0 runtime and client**. These example changes have not
+shipped in a Ledgence release. The original `v0.2.0` tag uses application 1.0.0;
+application 1.1.0 uses the previous fixture. Prepare fresh packages from the
+current example rather than replacing an existing immutable version. See
+[releases and packages](/reference/releases).
 
-| Stage | Execution | Result |
-| --- | --- | --- |
-| Implement | A task asks Codex for a small change to the bundled Python module. | Candidate source, canonical patch, base and candidate digests, and reported Codex usage. |
-| Test | The parent runs predefined regression tests locally. | Actual test results for the exact candidate. |
-| Review | A distributed branch starts a fresh Codex session. | Structured findings about that same candidate. |
-| Join | Ledgence saves the local result and waits for the review outcome. | Both results available to the next entrypoint. |
-| Finalize | A final task assembles the evidence and PR description. | `ready_for_review` or `needs_changes`; optionally a GitHub draft PR. |
+## Understand the change
 
-The local test branch occupies its current worker slot while testing. The review has its own workflow identity and runs on the agent queue. Two available worker slots permit overlap; a fork acknowledgment confirms durable registration, not that a reviewer has already started. Once the parent returns its join, waiting does not occupy a parent invocation slot.
-
-## Read the workflow
-
-The [complete workflow](https://github.com/Ledgence/ledgence/blob/v0.2.0/examples/codex-change-review/program.py) uses enum-addressed handlers for `START`, `VALIDATE`, `REVIEW`, `COLLECT`, and `FINISH`. Implementation, testing, review, and publication helpers are separate from orchestration.
-
-The central pattern is:
+The bundled `pagination.py` uses a fixed page size of 100. Its original
+`page_count(item_count)` adds an extra page at exact boundaries:
 
 ```python
-reviews = await ctx.fork("validate:0", branches=[
-    ctx.branch("review:0", entrypoint=Entry.REVIEW, queue=AGENT_QUEUE,
-               data={"candidate": candidate, "model": model}),
-])
-tests = await ctx.local("tests:0", run_tests, candidate=candidate)
-return ctx.join(reviews, resume=Entry.COLLECT,
-                state={"candidate": candidate, "tests": tests})
+return item_count // 100 + 1     # Original counting logic
+return (item_count + 99) // 100   # Intended counting logic
 ```
 
-The runnable handler also sets an explicit review attempt limit and timeout. `ctx.local()` persists the test result before returning. `ctx.join()` saves that result and waits for the remote branch; local work is not a second queue item. A review that finishes before the parent joins is still observed. Read the [fork and join contract](/how-to/fork-workflow-branches) for the precise lifecycle.
+Codex proposes the candidate; the application runs fixed tests and measures both
+versions in bounded subprocesses. The comparison covers 99, 100 and 101
+documents: the intended page counts are **1, 1 and 2** respectively. Regression
+tests also cover zero documents and invalid inputs.
 
-The candidate travels as bounded JSON, tied to a bundled base and verified by digest in each step. Workers need no shared writable checkout. The tests are supplied by the example, independently of the generated code, and each execution uses a fresh temporary directory. The final task verifies that the test and review reports identify the same candidate before deciding its status.
+## Follow the workflow
 
-## Run it
+| Step | What happens | What you can inspect |
+| --- | --- | --- |
+| Propose | A task asks Codex for the small change. | Source and the exact patch. |
+| Fork | Three branches run tests, an independent Codex review and a Codex release-note draft. | A separate result for each branch. |
+| Continue locally | The parent compares both source versions after its fork is acknowledged. | Measured page counts before and after. |
+| Join | The parent checkpoints and waits for every branch's terminal outcome. | All reports bound to the same candidate. |
+| Decide | A passing candidate waits for an approval or rejection event. | The reviewed candidate and the recorded decision. |
+| Finish | A final task assembles the evidence. | The outcome and a portable presentation. |
 
-Follow the [example README](https://github.com/Ledgence/ledgence/blob/v0.2.0/examples/codex-change-review/README.md) for preparation, local PostgreSQL, worker commands, the client, and verification.
+Failed tests, an incorrect measured result or requested review changes produce
+`needs_changes` before the human wait. Provider or execution failures remain
+failed executions. No result is promoted to a passing check for the demo.
 
-The example has two explicit execution modes:
+## Fork, then keep working
 
-- **Offline acceptance:** real Ledgence orchestration and workers, with a deterministic Codex protocol fixture. It checks coordination and recovery without a provider account.
-- **Live Codex:** the real host-installed CLI proposes and reviews the change using its existing ChatGPT sign-in and configured model. Account access and usage limits apply. The synthetic calculator and instructions are sent to OpenAI.
+The [workflow source](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/program.py)
+uses explicit entrypoints. The central pattern is short:
 
-The standard-library application packages need no application dependency installation. The host supplies CPython 3.13 and Codex. The companion uses the public `ledgence.client` SDK.
+```python
+checks = await ctx.fork("checks:0", branches=[
+    ctx.branch("tests:0", entrypoint=Entry.RUN_TESTS, queue=CONTROL_QUEUE,
+               data={"candidate": candidate}),
+    ctx.branch("review:0", entrypoint=Entry.REVIEW_CODE, queue=AGENT_QUEUE,
+               data={"candidate": candidate, "model": model}),
+    ctx.branch("note:0", entrypoint=Entry.DRAFT_NOTE, queue=AGENT_QUEUE,
+               data={"candidate": candidate, "model": model}),
+])
+comparison = await ctx.local("compare:0", compare_candidate, candidate=candidate)
+```
 
-## Inspect the outcome
+The runnable handlers add attempt limits, timeouts and validation. `fork`
+acknowledges durable registration before local work continues. It does not
+promise that all branches have already started. One control slot and two agent
+slots allow work to overlap; limited capacity can serialize branches.
+See [fork and join](/how-to/fork-workflow-branches).
 
-The exported review bundle contains the proposed `shipping.py`, `change.patch`, `review.json`, and `pull-request.md`. Passing tests plus an approving review yield `ready_for_review`. A failed assertion or requested change yields `needs_changes`. Provider or execution failures remain explicit failed tasks or branches; they are not reported as successful reviews.
+## Join the evidence
 
-Inspect the workflow in [Console](/tutorials/use-console) to follow the implementation task, owned review branch, acknowledged local test result, finalization task, and terminal result. Execution and tracing identifiers stay in Ledgence's envelope; `change_id` is application data and also the submission's correlation key.
+```python
+return ctx.join(checks, resume=Entry.PREPARE_REVIEW,
+                state={"candidate": candidate, "comparison": comparison})
+```
 
-## Publish deliberately
+`join` releases the parent invocation and resumes the named entrypoint after
+every branch is terminal, including failed or cancelled branches. The handler
+checks those outcomes before building the review packet. Every report validates
+the same candidate SHA-256.
 
-The default result is a local review bundle. An explicit publication configuration enables a draft PR against a dedicated GitHub sample repository and a pinned base commit. The publisher changes only `shipping.py`, checks its base content, and reconciles a deterministic branch and matching PR after an uncertain response. Human review and merging remain separate actions.
+## Wait for a person's decision
 
-Accepted task and local-step results survive workflow recovery. A provider call interrupted before its result is accepted can still have consumed usage. External GitHub effects require reconciliation; a durable workflow does not turn them into exactly-once operations.
+After successful checks, the parent waits for a bound event:
 
-Start with one candidate per run. A later repair iteration should create a new candidate identity and repeat both validation branches so test evidence and review always describe the code being proposed.
+```python
+return ctx.wait_event("approval:0", continuation=Entry.ON_DECISION,
+                      state={"bundle": bundle}, timeout_ms=approval_timeout_ms)
+```
+
+The next entrypoint checks the workflow identity, candidate digest and boolean
+decision against the saved packet. Approval cannot replace the candidate or
+override failed evidence. A rejection or expired deadline never enables
+publication.
+
+The full parent path has six entrypoints: `start`, `check_candidate`,
+`prepare_review`, `await_decision`, `on_decision` and `finish`. The branch
+entrypoints—`run_tests`, `review_code` and `draft_note`—run one level below it.
+
+## Run and inspect it
+
+Follow the [example README](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/README.md)
+for packaging, local PostgreSQL, worker commands and the companion client.
+It uses CPython 3.13, the public Python client, and the standard library. Codex
+is an optional host integration.
+
+- **Offline acceptance** uses real Ledgence services and a labelled Codex
+  protocol fixture to check orchestration and recovery without a provider.
+- **Live Codex** uses the authenticated host CLI to propose, review and describe
+  the change. The synthetic source and prompts are sent to OpenAI; account
+  access and usage limits apply. The normal path has three CLI invocations.
+
+In [Console](/tutorials/use-console), follow actual execution in the parent graph
+and enter a branch to inspect its level. When `prepare:0` succeeds, copy its
+Children task ID and run `client.py review --task TASK_ID --output NEW_DIRECTORY`.
+This retrieves a public task result while the parent waits for approval.
+
+Open `review.html` and explore the guided replay. The presentation keeps full
+evidence in an expandable section, with source, patch and JSON files alongside
+it. Its controls only navigate the explanation. Use the companion `approve` or
+`reject` command with the exact workflow ID, candidate digest and a stable event
+ID to record a decision. Console's generic **Send event** action is not a
+dedicated approval UI.
+
+Export `result` afterward to view the final presentation. The earlier pending
+HTML remains a snapshot and does not fetch a newer result. The animation uses
+editorial pacing and must not be presented as real execution timing.
+
+## What this demonstrates
+
+Workers do not share a mutable checkout. Codex returns structured source and
+text; the application runs predefined tests and a comparison in bounded
+subprocesses. This assumes operator-trusted code, not an untrusted-code sandbox.
+
+Waiting for branches or a human event holds no parent invocation slot, although
+a healthy process can remain warm. Accepted results survive recovery; a provider
+call interrupted before acceptance may already have consumed usage. Stable
+command identities and recovery checks do not make external effects exactly-once.
+
+Approval stops at the local evidence bundle by default. An explicit target
+configuration can publish a reconciled draft PR to a dedicated sample repository
+after human approval. Nothing merges or deploys automatically.
+
+The [recording guide](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/DEMO.md)
+turns the brief problem, workflow and code excerpts into a short demo. It keeps
+illustrative playback, offline fixtures and actual Console execution distinct.

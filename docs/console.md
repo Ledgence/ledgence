@@ -12,8 +12,8 @@ covers the interface and operational behavior.
 ## Open the local deployment
 
 Follow [local deployment](local-deployment.md), including the explicit publication
-command, then open [Console](http://127.0.0.1:8080/console/). Executions and Programs
-are the primary sections; Workers is available under Operations. These views use
+command, then open [Console](http://127.0.0.1:8080/console/). The navigation contains
+Executions, Programs and Workers. These views use
 durable execution records, registered programs and actual worker observations.
 The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
@@ -29,10 +29,22 @@ server. There is no workspace, tenant or namespace selector in the browser.
   validated execution links. Fresh/stale/no-recent-report describes the age of
   information; it does not establish process death or task authority.
 
-Lists are live keyset pages, not a transaction frozen across navigation. There
-are no synthetic fleet totals. Inputs and terminal results load on demand; normal
-refreshes read bounded metadata. Hidden/offline pages pause polling. The browser
-validates instance identity and contract version before accepting responses.
+Execution history loads more rows automatically as you scroll, without a row-count
+selector or page-navigation controls. Its first page updates automatically. Loading
+older results pauses those updates to preserve your place; **Refresh executions**
+returns to the latest matching results with the same filters. Failed loads retain
+the visible rows and offer **Retry loading**. Returning from a detail restores
+cached rows and the previous scroll position.
+
+Each keyset page reflects its own server read, not a snapshot frozen across all
+pages. There are no synthetic fleet totals. Inputs and terminal results load on
+demand; normal updates read bounded metadata. Hidden/offline pages pause polling.
+The browser validates instance identity and contract version before accepting
+responses.
+
+Use **Collapse sidebar** in its header to make room for inspection; the Ledgence
+mark expands it again. **Appearance** offers System, Light and Dark. The browser
+remembers these preferences without storing execution payloads.
 
 The global history starts with root workflows and standalone tasks. **Include
 child executions** adds ordinary child tasks and subworkflows; controller
@@ -54,13 +66,24 @@ entrypoint invocation is a node, not a group or band. Re-entry to the same handl
 has its own activation ID; retries of one activation retain that identity. Opening
 a subworkflow displays its own graph rather than recursively expanding the parent.
 
+Pan or zoom to inspect a larger graph. **Fit** shows the loaded graph; **Reorganize**
+restores automatic card positions. Dragging a card changes only its presentation.
+**Full screen** expands the explorer, with Escape to return. Selection, camera and
+positions survive this change, and incoming status updates do not recenter the
+canvas. Select a node to open its inspector or switch to **Trace** for recorded
+intervals and milestones. Workflow details expose navigation to additional pages
+without a row-count selector or Refresh control.
+
 The graph does not reconstruct arbitrary Python statements or predict unexecuted
 branches. A fork's members come from recorded branch keys. A task registered by
 the parent after the fork remains direct work of its entrypoint. Local nodes
-record observations and activation attribution, without fabricated causal edges
-to another local or a join. Edges describe registration, waiting for terminal
-outcomes, and recorded resumption. Correlation and timestamp order never establish
-a dependency. The [query model](console-query-model.md) lists the required evidence.
+connect to the entrypoint that invoked them; they do not gain dependencies on
+another local or a join based on their position. Typed edges distinguish invocation,
+registration, branch membership, terminal-outcome waits and resumption. Dashed
+lines identify fork branches; other recorded relationships use solid lines. A
+complete entrypoint-to-fork-to-child path replaces its redundant direct invocation
+line in the canvas, while the inspector retains both recorded relations.
+Correlation and timestamp order never establish a dependency. The [query model](console-query-model.md) lists the required evidence.
 
 Trace distinguishes recorded intervals from acceptance milestones. Submission
 to terminal includes queue and wait time; an accepted local result alone does not

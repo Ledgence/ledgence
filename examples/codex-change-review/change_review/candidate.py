@@ -6,7 +6,7 @@ from pathlib import Path
 from .config import MAX_CANDIDATE_BYTES
 from .validation import bounded_json, execution, fields, text
 
-BASE_SOURCE = (Path(__file__).with_name("fixtures") / "shipping.py").read_text(encoding="utf-8")
+BASE_SOURCE = (Path(__file__).with_name("fixtures") / "pagination.py").read_text(encoding="utf-8")
 BASE_SHA256 = hashlib.sha256(BASE_SOURCE.encode("utf-8")).hexdigest()
 
 
@@ -16,7 +16,7 @@ def source_digest(source):
 
 def canonical_patch(source):
     return "".join(difflib.unified_diff(BASE_SOURCE.splitlines(keepends=True), source.splitlines(keepends=True),
-                                        fromfile="a/shipping.py", tofile="b/shipping.py"))
+                                        fromfile="a/pagination.py", tofile="b/pagination.py"))
 
 
 def validate_candidate(value):

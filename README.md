@@ -49,8 +49,8 @@ original commands and do not include Console.
 - **Coordinate durable workflows.** Combine concurrent local Python steps,
   distributed tasks, and owned subworkflows using
   [typed entrypoints and durable forks](docs/workflow-entrypoints.md).
-  Checkpoint state, release the worker while waiting for a task, timer, or
-  external event, then resume at a registered handler.
+  Checkpoint state, release the invocation’s worker slot while waiting for a task,
+  timer, or external event, then resume at a registered handler.
 - **Inspect execution and deliver results.** Submit, discover, cancel, and observe
   tasks with the CLI or Python client. PostgreSQL stores task ownership, attempts,
   leases, and results; optional completion callbacks retain their delivery state
@@ -181,12 +181,24 @@ Operational metrics are available through the optional OTLP adapter; see [metric
 
 ## Self-hosted Console
 
-[Ledgence Console](docs/console.md) provides Executions, Workflows, Agents, and
-Workers from durable records and server-received process observations. Build the
-[local deployment](docs/local-deployment.md) from a checkout containing Console,
-publish and register its examples, then open `http://127.0.0.1:8080/console/`. The
-[guided tutorial](https://docs.ledgence.com/tutorials/use-console) follows real work
-through all four sections.
+[Ledgence Console](docs/console.md) brings **Executions**, **Programs**, and
+**Workers** into one self-hosted interface. Follow tasks and workflows in a
+filterable execution table with infinite scrolling. Inspect a workflow one level
+at a time in Graph, follow its recorded intervals in Trace, and open General for
+inputs, outputs and resources. Task Trace shows attempts and lifecycle history.
+Child workflows open their own graph;
+recorded fork, join and entrypoint relationships remain visible after completion.
+
+The graph supports pan, zoom, automatic layout and full-screen inspection. A
+collapsible sidebar and light, dark or system appearance keep the same operator
+views usable across screen sizes. Registered programs and worker process slots
+connect package identity and observed capacity to the work you are inspecting.
+
+Console ships in the 0.2.0 native bundles and the
+[local Compose deployment](docs/local-deployment.md). Publish and register the
+local examples, then open `http://127.0.0.1:8080/console/`. The
+[guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through
+registration, submission and inspection.
 
 Static assets are served by Rust; Node is only a separate frontend build tool.
 One server-owned instance binding replaces browser scope selection. Existing

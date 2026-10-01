@@ -12,7 +12,7 @@ tableOfContents: false
   <div>
     <span class="ld-eyebrow">Ledgence 0.2.0 · self-hosted Console</span>
     <h2>See your work in motion.</h2>
-    <p>Start a self-hosted instance, inspect real executions, and explore its workflows, registered agents, and worker processes.</p>
+    <p>Start a self-hosted instance, inspect real executions, and explore the workflow graph, registered programs, and worker processes.</p>
     <div class="ld-start-actions"><a class="ld-start-link" href="/tutorials/use-console">Explore Console <span aria-hidden="true">↗</span></a><a class="ld-install-link" href="/tutorials/run-locally">Run the released stack <span aria-hidden="true">→</span></a></div>
   </div>
   <div class="ld-worker-card" aria-label="Illustration of a worker with six process slots">
@@ -21,7 +21,7 @@ tableOfContents: false
   </div>
 </div>
 
-Explore a complete agent workflow: [from bug report to reviewed change](/tutorials/codex-change-review). Codex proposes a fix while Ledgence coordinates local tests, distributed review, and a durable result.
+Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/codex-change-review). Follow the problem, the animated workflow replay, and the code behind independent branches, measured checks, and a human decision.
 
 ## Find your way
 
@@ -34,7 +34,7 @@ Explore a complete agent workflow: [from bug report to reviewed change](/tutoria
 
 ## A few names to know
 
-Your **agent** is application code. You publish that code and its prepared dependencies as a **program package**. A **task** asks a worker to execute it. A **workflow** coordinates work through explicit checkpoints and continuations.
+Your **agent** is application code. You publish that code and its prepared dependencies as a **program package**. A **task** asks a worker to execute it. A **workflow** coordinates tasks and branches through registered **entrypoints**. Checkpoints save the state needed to resume at the next entrypoint.
 
 Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
 
