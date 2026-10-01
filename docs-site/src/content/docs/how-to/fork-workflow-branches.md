@@ -5,11 +5,11 @@ description: Register typed entrypoints, start durable branches in the same pack
 
 Use a fork when parts of the same workflow package need independent execution, retries, and checkpoints while the parent continues local work. Each branch is an owned workflow. Register its entrypoint with a Python decorator and explicitly save the state needed after a durable wait.
 
-**Availability:** typed `Workflow` entrypoints and `branch`, `fork`, and `join` are available in the current source tree. They are not included in the published `v0.1.1` source tag, `0.1.0` native bundle, or published API crates. Use matching orchestrator and worker builds from a checkout containing `examples/mixed-workflow/`. Runtime protocol **3** remains the package contract. See [Releases and packages](/reference/releases#workflow-entrypoints-and-forks-in-current-source) for the distinction between source features and published artifacts.
+**Availability:** typed `Workflow` entrypoints and `branch`, `fork`, and `join` are available in Ledgence 0.2.0. Use matching orchestrator and worker versions and all database migrations. Runtime protocol **3** remains the package contract. See [Upgrade to 0.2.0](/how-to/upgrade-to-0-2) before changing an existing deployment.
 
 ## Prepare the source deployment
 
-Start with the current-source [checkpoint workflow setup](https://github.com/Ledgence/ledgence/blob/develop/examples/checkpoint-workflow/README.md). It builds the `ledgence` executable, applies database migrations, starts PostgreSQL-backed orchestration and a connected worker, and installs the client from the same checkout. The instructions define `LEDGENCE_PYTHON` and `workflow_demo`; retain those values for the commands below.
+Start with the 0.2.0 [checkpoint workflow setup](https://github.com/Ledgence/ledgence/blob/v0.2.0/examples/checkpoint-workflow/README.md). It builds the `ledgence` executable, applies database migrations, starts PostgreSQL-backed orchestration and a connected worker, and installs the client from the same checkout. The instructions define `LEDGENCE_PYTHON` and `workflow_demo`; retain those values for the commands below.
 
 The source checkout must contain migration `20260928000000_workflow_forks.sql`, and the deployment must have applied all migrations. Upgrade workers and orchestrators together. The host supplies CPython 3.11 or newer; use the same Python major/minor and target platform when preparing and running the package.
 
@@ -17,7 +17,7 @@ The example works with worker concurrency **1**. The worker and client use the s
 
 ## Register the handlers
 
-The [complete mixed workflow example](https://github.com/Ledgence/ledgence/blob/develop/examples/mixed-workflow/README.md) has one local computation and two distributed branches. Its double branch saves a timer checkpoint before completing; its triple branch completes directly. The parent collects both terminal outcomes.
+The [complete mixed workflow example](https://github.com/Ledgence/ledgence/blob/v0.2.0/examples/mixed-workflow/README.md) has one local computation and two distributed branches. Its double branch saves a timer checkpoint before completing; its triple branch completes directly. The parent collects both terminal outcomes.
 
 ```python
 from enum import StrEnum
@@ -189,4 +189,4 @@ Checkpoint state is limited to **64 KiB**. Existing journal, result, and activat
 
 A durable join or timer retains no sleeping invocation or database connection. One worker concurrency setting bounds N consumers and at most N managed subprocesses across all programs, including warm sessions. Local async calls share their invocation's slot. These bounded mechanisms do not promise unbounded fan-out, exactly-once effects, or a particular throughput.
 
-**Current-source contracts:** [Typed entrypoints and forks](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-entrypoints.md) · [Checkpoint workflows](https://github.com/Ledgence/ledgence/blob/develop/docs/workflows.md)
+**Release contracts:** [Typed entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/workflow-entrypoints.md) · [Checkpoint workflows](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/workflows.md)

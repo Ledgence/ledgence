@@ -18,11 +18,11 @@ Self-host without a required vendor account.
 
 - **Choose an example:** browse the [example catalog](examples/README.md) for Python programs,
   workflow patterns, client usage, and optional provider integrations.
-- **Explore Console from current source:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
+- **Explore Console:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
   to inspect executions, workflows, registered agents, and worker process slots in your browser.
 - **Run the complete stack:** follow the [local tutorial](https://docs.ledgence.com/tutorials/run-locally)
   to start PostgreSQL, the orchestrator, a worker, and example programs with Docker Compose.
-- **Try the native worker:** [install the macOS Apple Silicon bundle](https://docs.ledgence.com/how-to/install-native)
+- **Try the native worker:** [install the Linux x86_64 or macOS Apple Silicon bundle](https://docs.ledgence.com/how-to/install-native)
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
@@ -30,15 +30,16 @@ Self-host without a required vendor account.
   with ChatGPT sign-in, documentation tools and durable human review, or the
   [Google ADK and Gemini variant](examples/support-agent/README.md).
 
-The first public native bundle is **v0.1.0 for macOS arm64**. The Python client
-and Rust API crates are published separately at **0.1.1**. See the
-[release reference](https://docs.ledgence.com/reference/releases) for available
-artifacts, requirements, and version guidance. Before 1.0, public APIs may evolve;
-pin the versions you use and review release notes before upgrading.
+**Ledgence 0.2.0** brings the unified CLI, self-hosted Console, and typed workflow
+entrypoints with durable forks. Native bundles target **Linux x86_64/glibc** and
+**macOS arm64** and include Console; the Python client and Rust API crates share
+version **0.2.0**. See the [release notes](docs/releases/0.2.0.md),
+[upgrade guide](docs/upgrading-to-0.2.md), and
+[release reference](https://docs.ledgence.com/reference/releases). Before 1.0,
+public APIs may evolve; pin versions and review changes before upgrading.
 
-Console is implemented in the current source tree and is not included in the
-published `v0.1.1` source tag or native `v0.1.0` bundle. Its tutorial uses a checkout
-containing `console/` and the updated Compose configuration.
+The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
+original commands and do not include Console.
 
 ## What you can build
 
@@ -90,7 +91,7 @@ lives beside the implementation so documentation can evolve with the code.
 
 For the complete self-hosted stack, use the [local Compose deployment](docs/local-deployment.md).
 The example below exercises program publication, local execution, and process reuse.
-The current source tree provides one `ledgence` executable; see the
+Ledgence 0.2.0 provides one `ledgence` executable; see the
 [CLI command groups and migration guide](docs/cli.md). Published release bundles
 retain the command layout documented with their release.
 The [bundle packaging guide](docs/releasing.md) describes qualification and artifact

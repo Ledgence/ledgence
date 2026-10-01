@@ -1,9 +1,8 @@
 {
   "console": {
-    "availability": "source-checkout",
-    "sourceRef": "develop",
-    "sourceRevision": "50df11a3f3cfcaaf41815febbbe0635ac849e3f7",
-    "verifiedOn": "2026-09-26",
+    "availability": "release",
+    "sourceRef": "v0.2.0",
+    "verifiedOn": "2026-10-01",
     "guide": "/tutorials/use-console"
   }
 }

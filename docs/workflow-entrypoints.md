@@ -5,10 +5,11 @@ decorator. A workflow has exactly one default entrypoint. A branch, timer,
 callback, or join resumes at a registered handler; no string-routing `if` chain,
 graph declaration, or serialized Python stack is required.
 
-This capability is available in the current source tree. Upgrade the
-orchestrator and workers together and apply all migrations, including
-`20260928000000_workflow_forks.sql`. Existing published native binaries and API
-packages do not include it. Runtime protocol 3 remains the package contract.
+This capability is available in Ledgence 0.2.0. Upgrade the orchestrator and
+workers together and apply all migrations, including
+`20260928000000_workflow_forks.sql`; follow the [upgrade guide](upgrading-to-0.2.md).
+The historical 0.1 releases do not include it. Runtime protocol 3 remains the
+package contract.
 
 ## Register handlers
 

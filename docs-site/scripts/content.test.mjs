@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pageMetadata, writeMarkdownExports } from './check-content.mjs';
+import { pageMetadata, releaseRevision, writeMarkdownExports } from './check-content.mjs';
 import { checkMarkdownExports, checkStaticArtifact, resolveLocalLink } from './check-build.mjs';
 
 test('published content requires useful metadata and rejects unfinished drafts', () => {
@@ -77,5 +77,27 @@ test('Markdown index advertises only exported files and removes obsolete exports
     assert.equal(checkMarkdownExports(directory), 1);
     assert.doesNotMatch(readFileSync(join(directory, 'llms.txt'), 'utf8'), /component\.mdx|old\.md/);
     assert.throws(() => readFileSync(join(directory, 'markdown/reference/old.md')), /ENOENT/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test('release provenance omits unknown product SHA instead of substituting documentation HEAD', () => {
+  const metadata = { sourceRef: 'v0.2.0' };
+  assert.equal(releaseRevision(metadata, () => { throw new Error('tag not created'); }), undefined);
+  assert.equal(releaseRevision(metadata, ref => {
+    assert.equal(ref, 'v0.2.0');
+    return 'verified-tag-commit';
+  }), 'verified-tag-commit');
+  assert.equal(releaseRevision({ ...metadata, sourceRevision: 'explicit-commit' }, () => {
+    throw new Error('explicit provenance must not require a local tag');
+  }), 'explicit-commit');
+  const directory = mkdtempSync(join(tmpdir(), 'ledgence-doc-provenance-'));
+  try {
+    writeMarkdownExports(directory, [], 'documentation-checkout', null);
+    const index = readFileSync(join(directory, 'llms.txt'), 'utf8');
+    assert.match(index, /Product source: v0\.2\.0\. Documentation checkout: documentation-checkout/);
+    assert.match(index, /x86_64-unknown-linux-gnu, aarch64-apple-darwin/);
+    assert.match(index, /Console is included/);
+    assert.doesNotMatch(index, /undefined|not included|source checkout;|v0\.1\.1/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

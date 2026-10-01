@@ -229,7 +229,13 @@
   border-style: dashed;
   box-shadow: none;
 }
+.work-card-external_wait .work-card-main {
+  gap: 6px;
+  padding-inline: 10px;
+}
 .work-card-external_wait .work-card-icon {
+  flex-basis: 24px;
+  height: 24px;
   color: var(--waiting);
   background: color-mix(in srgb, var(--waiting) 8%, var(--bg));
 }

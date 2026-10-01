@@ -1,13 +1,13 @@
 # Command-line interface
 
-The current source tree builds one public executable, `ledgence`, from the
+Ledgence 0.2.0 builds one public executable, `ledgence`, from the
 `ledgence-cli` crate. It provides program packaging, worker execution,
 orchestrator operation, and task administration under command groups. Worker and
 orchestrator processes still run separately and can run on different hosts.
 
-This command layout is newer than the published `v0.1.1` source tag and native
-`0.1.0` bundle. Those artifacts retain their original executables and commands;
-use their bundled documentation when operating them.
+This replaces the command layout in the historical `v0.1.1` source tag and
+native `0.1.0` bundle. Those artifacts retain their original executables and
+commands; use their bundled documentation when operating them.
 
 ## Build and inspect
 

@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: console-${{ github.ref }}
+  group: ${{ github.workflow }}-console-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   console:

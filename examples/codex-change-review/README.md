@@ -52,8 +52,8 @@ one slot by routing its test-owned packages through one queue.
 
 ## Requirements
 
-- Current Ledgence source containing this directory, a matching `ledgence` executable and
-  all migrations, including workflow forks. Published `v0.1.1` source/native
+- Ledgence 0.2.0 source, a matching `ledgence` executable and all migrations,
+  including workflow forks. The historical `v0.1.1` source and `v0.1.0` native
   artifacts do not provide this example's workflow API.
 - CPython **3.13** on a supported macOS or Linux host. Prepare packages on the
   same OS, architecture, and Python major/minor as their workers.

@@ -1,91 +1,66 @@
 ---
 title: Releases and packages
-description: Published Ledgence versions, installation channels, supported platforms, and the scope of each distribution.
+description: Ledgence 0.2.0 distribution channels, supported native targets, upgrade requirements, and historical releases.
 ---
 
-Ledgence 0.1 is publicly available as source, a native release, a Python client, and Rust adapter contracts. Choose the distribution for the work you need; their currently published versions differ.
+Ledgence 0.2.0 adds the unified CLI, self-hosted Console, and typed workflow entrypoints with durable forks. Source, native bundles, the Python client, and Rust API crates use version **0.2.0**. Public APIs may evolve before 1.0; pin versions and review the [upgrade guide](/how-to/upgrade-to-0-2).
 
-## Available distributions
+## Distributions
 
-| Distribution | Version |
+| Distribution | Version and scope |
 | --- | --- |
-| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.1.1) | `v0.1.1` |
-| [Native bundle](https://github.com/Ledgence/ledgence/releases/tag/v0.1.0) | `0.1.0` |
-| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.1.1/) | `0.1.1` |
-| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.1.1) | `0.1.1` |
-| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.1.1) | `0.1.1` |
+| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.2.0) | `v0.2.0`: platform, Console, Compose deployment, examples, and contracts. |
+| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.2.0) | `0.2.0`: Linux x86_64/glibc and macOS arm64, with Console. |
+| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.2.0/) | `ledgence-client==0.2.0` |
+| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.2.0) | `ledgence-worker-api = "=0.2.0"` |
+| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.2.0) | `ledgence-orchestration-api = "=0.2.0"` |
 
-The source distribution includes the platform code, local Compose deployment, examples, and detailed contracts.
+The Linux native target is `x86_64-unknown-linux-gnu`, built and qualified on Ubuntu 24.04. The macOS target is `aarch64-apple-darwin`. Archive provenance records actual dynamic-library requirements; Linux qualification is not a claim of compatibility with every distribution. The source-based [Compose tutorial](/tutorials/run-locally) builds its own Linux container image and does not require a published Ledgence container image.
 
-The `v0.1.1` tag does not include a downloadable native bundle. The published native target is `aarch64-apple-darwin`; use the [source-based Compose tutorial](/tutorials/run-locally) on Linux or macOS. Compose builds an image locally; these instructions do not depend on a published Ledgence container image.
+## Unified CLI
 
-## Console in the current source tree
+The native bundle contains one executable, `bin/ledgence`, with `program`, `worker`, `orchestrator`, and `task` command groups. Inspect it with `ledgence --help` and `ledgence --version`. Worker and orchestrator still run as separate processes. Build from source with `cargo build --locked -p ledgence-cli`; see the [CLI reference and migration table](/reference/cli).
 
-The self-hosted Console is implemented after the releases listed above. It is not included in the `v0.1.1` source tag or the native `0.1.0` archive. Do not use those artifacts for a Console setup.
+## Console
 
-[Explore Ledgence Console](/tutorials/use-console) starts from an existing source checkout containing `console/` and the updated Compose deployment. The [Console reference](/reference/console) covers the operator interface, single-instance configuration, and matching asset requirements. These source features do not change the independently published client or crate versions above.
+Console assets ship under `console/` in the native bundles and are built by the source Compose deployment. The Rust orchestrator serves them alongside its API; Node is only needed to build frontend source. Use matching Console contract **4** server and assets, and retain the server's immutable instance binding. Follow [Explore Ledgence Console](/tutorials/use-console) or [install native tools](/how-to/install-native).
 
-## Workflow entrypoints and forks in current source
+## Workflow entrypoints and forks
 
-Typed Python `Workflow` entrypoints and acknowledged `fork` / `join` operations are available in the current source tree. They are not included in the published source tag, native bundle, or API crates listed above. Use a checkout containing `examples/mixed-workflow/`, build matching orchestrator and worker components, and explicitly apply all migrations, including `20260928000000_workflow_forks.sql`. Runtime protocol 3 remains the workflow package contract.
+Register Python `Workflow` handlers with typed entrypoints and use acknowledged `fork` / `join` operations for independently checkpointed branches in the same immutable package. Upgrade orchestrator and workers together and apply all database migrations. Runtime protocol **3** remains the workflow package contract; existing `workflow_context()` controllers and string continuations remain supported.
 
-[Mix local work and workflow branches](/how-to/fork-workflow-branches) shows the complete source example, publication, and submission. The [workflow context reference](/reference/workflow-context) marks the new methods and their limits. Public submissions start at a workflow's default entrypoint; branch creation and resume decisions select named handlers. These source features do not change the published distribution versions above.
-
-## Unified CLI in current source
-
-The current source tree builds one executable, `ledgence`, with `program`,
-`worker`, `orchestrator`, and `task` command groups. Build it with
-`cargo build --locked -p ledgence-cli`; use `ledgence --help` and
-`ledgence --version` to inspect it. The worker and orchestrator still run as
-separate processes. See the [CLI reference and migration table](/reference/cli).
-This change does not alter the published source tag or native archive below.
-
-## Native tools
-
-The 0.1.0 archive contains three executables:
-
-| Executable | Purpose |
-| --- | --- |
-| `ledgence` | Submit and inspect tasks through the HTTP API. |
-| `ledgence-orchestrator` | Run the PostgreSQL-backed orchestration service and explicit migrations. |
-| `ledgence-worker` | Publish packages, execute local fixtures, or connect a reusable worker to the service. |
-
-CPython 3.11–3.14, PostgreSQL, brokers, and host system libraries are supplied separately. The release contains the small worker helper under `runtime/ledgence/worker/`; select a CPython interpreter matching each program's declared Python major/minor and OS/architecture.
-
-The [native installation guide](/how-to/install-native) verifies both the archive checksum and its internal inventory before running an example. Keep the bundled source provenance and third-party legal notices with the installation.
+[Mix local work and workflow branches](/how-to/fork-workflow-branches) shows the example and its execution limits. Public submissions select a workflow's default entrypoint. Branch creation and resume decisions can select named handlers.
 
 ## Python client
 
 ```sh
-python3 -m pip install "ledgence-client==0.1.1"
+python3 -m pip install "ledgence-client==0.2.0"
 ```
 
-Import it with `from ledgence.client import AsyncClient`. The client requires Python 3.11 or newer. Its qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. An optional `otel` extra provides tracing API integration.
-
-The client communicates with an existing service. It does not install a server, upload program packages, or provide `ledgence.worker`. See [Python client](/reference/python-client) for API contracts.
+Import `from ledgence.client import AsyncClient`. The client requires Python 3.11 or newer; the supported qualification matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The optional `otel` extra integrates tracing. This client communicates with an existing service; it does not install a server, upload packages, or provide `ledgence.worker`.
 
 ## Rust adapter contracts
 
-The two published crates expose the interfaces used to integrate Ledgence with other Rust applications. They require Rust 1.98 or newer. Add the contracts your integration uses:
+The two API crates expose integration interfaces and require Rust 1.98 or newer:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "=0.1.1"
-ledgence-orchestration-api = "=0.1.1"
+ledgence-worker-api = "=0.2.0"
+ledgence-orchestration-api = "=0.2.0"
 ```
 
-Read their generated API documentation on docs.rs: [worker API 0.1.1](https://docs.rs/ledgence-worker-api/0.1.1/ledgence_worker_api/) and [orchestration API 0.1.1](https://docs.rs/ledgence-orchestration-api/0.1.1/ledgence_orchestration_api/).
+Read the [worker API](https://docs.rs/ledgence-worker-api/0.2.0/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.2.0/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.2 contracts and account for the new workflow and observation interfaces.
 
-These are libraries, not `cargo install` packages. Implementation crates and service binaries are built from source or obtained from the native bundle.
+## Historical releases
 
-## Version and operating scope
+The first native release, **0.1.0**, shipped only for macOS arm64 with three executables: `ledgence`, `ledgence-worker`, and `ledgence-orchestrator`. Its Python client wheel also remains 0.1.0. The later **0.1.1** source and registry packages did not include a native archive. Both releases predate Console, typed entrypoints, and durable forks. Their original archives and tags are unchanged; use their own bundled documentation when operating them.
 
-The release tutorials and client references describe source and client version **0.1.1**, except where a page explicitly targets the native **0.1.0** release. Console guides, the CLI reference, and the explicitly marked workflow entrypoint/fork sections target the newer current source implementation. Example programs with version `1.0.0` use their own application version; that number is separate from the Ledgence platform version.
+The `ledgence.worker` import namespace was already present in 0.1.1. The move from the older `ledgence_worker` spelling is not a new 0.2.0 migration. Example versions such as `1.0.0` and `1.0.1` identify application packages independently of platform releases.
 
-The 0.1 API can evolve. Pin the versions you use and review release changes before upgrading. Use matching platform components and explicit database migrations, and preserve a tested backup before changing a durable deployment.
+## Operating scope
 
-Ledgence runs operator-trusted programs. The local Compose setup uses loopback networking and demonstration credentials. Process reuse, durable checkpoints, and retries do not provide isolation for hostile code or exactly-once external effects; see [How work runs](/concepts/execution-model) and [Checkpoints and recovery](/concepts/checkpoints-and-recovery).
+CPython, PostgreSQL, brokers, and host libraries are supplied separately. Ledgence executes operator-trusted code; reusable subprocesses do not isolate hostile programs. Checkpoints and retries do not provide exactly-once external effects. Preserve tested backups before upgrading a durable deployment.
 
-Ledgence-owned code is MIT licensed. Self-hosting requires no vendor account, and applications can remain proprietary. Third-party components retain their licenses and required notices.
+Ledgence-owned code is MIT licensed and supports self-hosting without a mandatory vendor account. Applications can remain proprietary; third-party components retain their licenses and notices.
 
-**Source:** [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry distribution contract](https://github.com/Ledgence/ledgence/blob/v0.1.1/docs/registry-packages.md)
+**Source:** [0.2.0 release notes](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/releases/0.2.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/registry-packages.md)

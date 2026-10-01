@@ -141,10 +141,19 @@ export async function doubledLayout(page: Page) {
   expect((scaled?.height ?? 0) / (original?.height ?? 1)).toBeCloseTo(2, 1);
   for (const title of ["Executions", "Programs", "Workers"]) {
     await page.getByRole("link", { name: title, exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: title, exact: true }),
-    ).toBeVisible();
+    const pageHeading = page.getByRole("heading", { name: title, exact: true });
+    await expect(pageHeading).toBeVisible();
     await expect(page.locator(".loading-state")).toHaveCount(0);
+    // Loaded action buttons must not squeeze a short title into vertical text.
+    await expect
+      .poll(() =>
+        pageHeading.evaluate(
+          (element) =>
+            element.clientHeight /
+            parseFloat(getComputedStyle(element).lineHeight),
+        ),
+      )
+      .toBeLessThanOrEqual(1.1);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

@@ -360,7 +360,9 @@ it("unmounts expanded inspector resources while General is visible", async () =>
     .element(view.getByRole("heading", { name: "Attempt resources" }))
     .toBeVisible();
   await view.getByRole("button", { name: "Show General" }).click();
-  expect(document.querySelector(".explorer-inspector")).toBeNull();
+  await expect
+    .poll(() => document.querySelector(".explorer-inspector"))
+    .toBeNull();
   await expect
     .poll(() =>
       client

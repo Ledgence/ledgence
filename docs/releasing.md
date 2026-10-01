@@ -35,9 +35,19 @@ python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc-offl
 
 Use `--headless` instead of `--console-dist` to explicitly omit web assets. A
 headless bundle makes no Console distribution claim. The manual Candidate
-packaging workflow validates this headless distribution on Linux and macOS. To
-qualify a bundle containing Console, use the prepared static build and PostgreSQL
-verification described above.
+packaging workflow always builds and verifies headless candidates on Linux x86_64
+and macOS arm64. By default it also builds a Linux x86_64 candidate containing
+Console, using the pinned frontend toolchain and a disposable PostgreSQL 18.6
+service for relocated verification. Set `include_console=false` to run only the
+headless jobs; set `candidate=rc.N` to select the candidate label.
+
+Each successful job retains its verified archive, `SHA256SUMS` and provenance as
+an Actions artifact for 30 days. Artifact names distinguish the headless targets
+from `candidate-console-linux-x86_64`. These are reviewable candidates; the
+workflow does not create tags, promote branches or publish GitHub Releases.
+For a macOS bundle containing Console, use the local static build and PostgreSQL
+verification described above. Integration and capacity qualification remain
+separate required gates.
 
 Offline mode requires the prepared, reviewed static build as well as Cargo/Python
 caches; it never silently fetches frontend dependencies.
@@ -132,7 +142,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.1.1 --output /tmp/ledgence-stable
+  --version 0.2.0 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -151,6 +161,26 @@ source tree, original candidate digest and preserved payload inventory. This is
 an artifact preparation step; the matching version tag, `main` promotion and public
 release remain separate decisions and operations. Preserve the candidate and its
 qualification reports alongside the new archive.
+
+Promotion executes the bundled binary, so promote Linux candidates on Linux.
+The manual `promote-bundle.yml` workflow downloads
+`candidate-console-linux-x86_64` from an explicit Actions run in this repository
+and requires the selected archive's expected SHA256. Dispatch it on the matching
+annotated release tag after that commit is included in `main`:
+
+```sh
+gh workflow run promote-bundle.yml --ref v0.2.0 \
+  -f candidate_run=RUN_ID \
+  -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
+  -f version=0.2.0
+```
+
+It checks the clean tag identity and source-equivalent candidate, promotes the
+existing bytes without rebuilding, and runs relocated execution with CPython
+3.14 and disposable PostgreSQL 18.6. Only after promotion and verification pass
+does it retain `stable-linux-x86_64` with the stable archive, checksums and
+provenance for 30 days. It does not create tags or publish releases or packages.
+The candidate's integration and capacity qualification must already be complete.
 
 Run the promotion regression tests with
 `python3 -m unittest discover -s tools/release -p 'test_*.py' -v`.

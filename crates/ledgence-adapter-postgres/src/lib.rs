@@ -147,7 +147,7 @@ impl PostgresStore {
             .await
             .map_err(|_| {
                 ContractError::Unavailable(
-                    "schema verification failed; run ledgence-orchestrator migrate explicitly"
+                    "schema verification failed; run ledgence orchestrator migrate explicitly"
                         .into(),
                 )
             })?;

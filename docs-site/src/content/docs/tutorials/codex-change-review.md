@@ -7,7 +7,7 @@ A useful coding agent needs more than a convincing patch. It needs tests against
 
 This example fixes a small shipping calculator: orders of exactly **$100** should receive free shipping, but the original implementation charges **$5**. The workflow creates a candidate, runs two checks in parallel, joins their results, and prepares the change for human review.
 
-**Availability:** use the current source checkout containing [`examples/codex-change-review/`](https://github.com/Ledgence/ledgence/tree/develop/examples/codex-change-review), with matching workers, orchestrator, and all database migrations. The typed entrypoint and fork APIs used here are not in the published `v0.1.1` source tag or `0.1.0` native bundle. See [releases and packages](/reference/releases).
+**Availability:** this example is included in Ledgence 0.2.0. Use its [`examples/codex-change-review/`](https://github.com/Ledgence/ledgence/tree/v0.2.0/examples/codex-change-review) directory, matching workers and orchestrator, and all database migrations. See [releases and packages](/reference/releases).
 
 ## Follow the work
 
@@ -23,7 +23,7 @@ The local test branch occupies its current worker slot while testing. The review
 
 ## Read the workflow
 
-The [complete workflow](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/program.py) uses enum-addressed handlers for `START`, `VALIDATE`, `REVIEW`, `COLLECT`, and `FINISH`. Implementation, testing, review, and publication helpers are separate from orchestration.
+The [complete workflow](https://github.com/Ledgence/ledgence/blob/v0.2.0/examples/codex-change-review/program.py) uses enum-addressed handlers for `START`, `VALIDATE`, `REVIEW`, `COLLECT`, and `FINISH`. Implementation, testing, review, and publication helpers are separate from orchestration.
 
 The central pattern is:
 
@@ -43,7 +43,7 @@ The candidate travels as bounded JSON, tied to a bundled base and verified by di
 
 ## Run it
 
-Follow the [example README](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/README.md) for preparation, local PostgreSQL, worker commands, the client, and verification.
+Follow the [example README](https://github.com/Ledgence/ledgence/blob/v0.2.0/examples/codex-change-review/README.md) for preparation, local PostgreSQL, worker commands, the client, and verification.
 
 The example has two explicit execution modes:
 

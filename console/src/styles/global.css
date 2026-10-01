@@ -548,6 +548,7 @@ a {
 }
 .page-heading {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: 20px;
@@ -1351,7 +1352,7 @@ summary {
 
 /* Content hierarchy: useful information leads; diagnostic detail stays nearby. */
 .page-heading > div:first-child {
-  min-width: 0;
+  min-width: min(100%, 20rem);
   flex: 1;
 }
 .page-heading h1 {
@@ -1364,6 +1365,7 @@ summary {
 }
 .page-heading .actions {
   flex-shrink: 0;
+  max-width: 100%;
 }
 .heading-metadata {
   display: flex;
