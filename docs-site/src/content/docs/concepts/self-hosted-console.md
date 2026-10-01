@@ -3,7 +3,7 @@ title: One self-hosted instance
 description: Understand the Console deployment boundary, program catalog, and distinction between durable execution state and worker observations.
 ---
 
-A self-hosted Ledgence installation is one operating environment. Console opens into unified task/workflow executions and a program registry, with workers under Operations. There is no tenant administration, workspace switcher, or organization model to configure.
+A self-hosted Ledgence installation is one operating environment. Console organizes work into **Executions**, **Programs** and **Workers**. Executions combines task and workflow history, Programs holds registered immutable packages, and Workers shows process observations. There is no tenant administration, workspace switcher, or organization model to configure.
 
 Console is included in Ledgence 0.2.0. The [Console tutorial](/tutorials/use-console) explains how to start a matching deployment; the historical 0.1 releases predate it.
 
@@ -48,6 +48,8 @@ This also explains why Console separates consumer counts from process slots. A c
 ## A workflow view records decisions already made
 
 A workflow can decide its next work dynamically. Console shows accepted activations, created children, recorded local steps, and actual waits. It links children using durable ownership and creation relationships, rather than guessing from matching correlation strings.
+
+Each graph shows one workflow and its direct children. Opening a child workflow moves to its own graph, so a large subworkflow does not crowd its parent's canvas. Entrypoint invocations, local calls, fork members, joins and resumptions connect through typed relations recorded by Ledgence. The graph does not need an OpenTelemetry backend or infer dependencies from span parents.
 
 This is a record of execution, not a workflow designer or future dependency graph. When a controller checkpoints and waits, its invocation ends and releases its worker reservation. A warm process can remain available in the ordinary pool while the workflow waits durably.
 

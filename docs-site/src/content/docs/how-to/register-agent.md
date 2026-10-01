@@ -9,10 +9,10 @@ This guide applies to Ledgence 0.2.0. Start a matching instance using [Explore L
 
 ## Publish the package first
 
-Prepare the application, its dependencies, and `ledgence-program.json` for the worker's target Python version and platform. Publish with the `ledgence` CLI built from the same source checkout:
+Prepare the application, its dependencies, and `ledgence-program.json` for the worker's target Python version and platform. Publish with the matching `ledgence` executable from the native bundle or a source build:
 
 ```sh
-cargo run --locked -p ledgence-cli -- program publish \
+ledgence program publish \
   --source /absolute/path/to/prepared-package \
   --store /absolute/path/to/program-store
 ```
@@ -28,12 +28,12 @@ If you are following the Compose tutorial, its `publish` command already publish
 Assuming the published manifest identifies `invoice-issuer` version `1.0.0`:
 
 ```sh
-cargo run --locked -p ledgence-cli -- program register \
+ledgence program register \
   --server http://127.0.0.1:8080 \
   --program invoice-issuer --version 1.0.0 --kind task
 ```
 
-With the matching `ledgence` executable on your path, the equivalent command begins with `ledgence program register`.
+If you are working from source without installing the executable, replace `ledgence` with `cargo run --locked -p ledgence-cli --` in these commands and run them at the repository root.
 
 Choose the intended use explicitly:
 
@@ -64,7 +64,7 @@ This form registers an existing reference in the configured store. It does not u
 Registering the same reference, bytes, and metadata again is idempotent. To deliberately replace an existing registration's descriptive fields:
 
 ```sh
-cargo run --locked -p ledgence-cli -- program register \
+ledgence program register \
   --server http://127.0.0.1:8080 \
   --program invoice-issuer --version 1.0.0 --kind task \
   --display-name "Invoice issuer" \

@@ -15,13 +15,23 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 | Programs | Registered program references, versions, digests, manifests, declared kinds and descriptive metadata. | Register a published reference, update descriptive metadata explicitly, open a submission form or matching execution history. |
 | Workers | Worker sessions, configured capacity, observation freshness, process slots, and validated task/attempt links. | Inspect the latest available observation and follow execution links. |
 
-**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. Workers is under Operations; worker inspection does not provide a drain, kill, or scaling command.
+**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs** and **Workers** are the three navigation destinations. Worker inspection does not provide a drain, kill, or scaling command.
 
 Workflow **Graph** and **Trace** use the same retained execution records. Graph shows one workflow and its direct children; a subworkflow is an opaque node that opens its own graph. Select work to inspect it; open a child execution to drill in. Back restores the previous navigation entry, Up follows ownership, and breadcrumbs select ancestors. Completed work remains visible. Correlation keys and timestamps do not prove dependencies. The graph does not predict future branches or edit a workflow definition.
 
-Every entrypoint invocation is a node identified by its activation ID. Re-entering the same handler creates a distinct invocation; retrying one activation does not. There are no phase containers. Local work remains visible as evidence attributed to an activation; it does not gain causal edges based on code order or timestamps. Only recorded branch members belong to a distributed fork. A separate parent task is not another branch. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
+Every entrypoint invocation is a node identified by its activation ID. Re-entering the same handler creates a distinct invocation; retrying one activation does not. There are no phase containers. A recorded local step connects to the entrypoint that invoked it; that relation does not imply an execution order between local calls. Only recorded branch members belong to a distributed fork. A separate parent task is not another branch. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
 
-Edges distinguish registering work, waiting for terminal outcomes, and resuming an entrypoint. A resumed single-child wait may be compacted visually when the entire child/wait/destination chain is known; its coordination record remains inspectable and appears in Trace. Multi-member joins and incomplete evidence retain their coordination nodes. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
+Edges distinguish invocation, registration, branch membership, waiting for terminal outcomes, and resuming an entrypoint. Dashed lines identify fork branches; other recorded relationships use solid lines. When a complete entrypoint-to-fork-to-child path is loaded, the canvas omits its redundant direct invocation line. The inspector and accessible relationship list retain the underlying evidence. Joins and waits remain their own records. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
+
+## Navigation and graph controls
+
+Collapse the desktop sidebar with its header control; select the Ledgence mark to expand it again. **Appearance** offers System, Light and Dark. The instance, ancestry and execution title share one header so the detail view leaves room for the work itself.
+
+In Graph, pan, zoom or drag cards to inspect the recorded execution. **Fit** frames the loaded nodes; **Reorganize** restores automatic positions. Dragging does not change the workflow or its dependencies. Incoming status updates preserve the camera and existing card positions.
+
+**Full screen** expands the explorer; select **Exit full screen** or press Escape to return. Selection and canvas state are retained. Select a node to open its inspector, or switch to **Trace** to compare recorded intervals and acceptance milestones. Child-workflow navigation opens another level instead of expanding nested graphs inside the current canvas.
+
+Node shapes distinguish entrypoint invocations, work, and compact fork/join records. Child durations run from submission to terminal outcome, including queue and wait time. Local durations describe the observed callable interval; **Replay** means the recorded result was reused.
 
 ## Filters and pagination
 
@@ -29,7 +39,9 @@ Execution discovery supports task/workflow kind, exact state, program/version, q
 
 An unset correlation filter differs from filtering for an empty correlation string. Enable the form's correlation checkbox when applying either a nonempty or empty exact value. These are exact filters, not full-text search.
 
-Pages default to **50** items and are capped at **100**. Opaque keyset cursors are bound to the resource and filters. Each response is coherent at its read, while later pages may see newer committed data. There are no synthetic total counts or a frozen snapshot across navigation.
+Execution history uses infinite scrolling: reaching the end loads the next page without a row-count selector or numbered pages. If loading fails, existing rows remain visible and **Retry loading** retries the read. Changing filters starts a new traversal; returning from a detail restores cached rows and scroll position. Inactive cached queries expire after five minutes, and reloading the browser starts a fresh traversal.
+
+The API still uses bounded keyset pages, defaulting to **50** items with a maximum of **100**. Opaque cursors are bound to the resource and filters. Each response is coherent at its read, while later pages may see newer committed data. There are no synthetic total counts or a frozen snapshot across navigation. Workflow details retain navigation to additional pages, without a row-count selector or Refresh control.
 
 Execution discovery refreshes its first live page automatically. Loading older pages pauses automatic updates to preserve your place; **Refresh executions** restarts at the latest matching results while keeping your filters. Worker pages refresh the latest observations. The program catalog does not poll on an interval. Hidden and offline pages pause polling. Terminal outcomes stop active execution and workflow polling. Input and output bodies load on demand, so ordinary refreshes do not repeatedly fetch execution payloads.
 
@@ -56,7 +68,7 @@ Console does not automatically retry writes. A transport timeout can happen afte
 
 Cancellation is a request. Active process cleanup and workflow child draining may continue after the request is accepted. Likewise, an accepted external event does not mean the workflow has already resumed. Use the actual recorded wait and its exact key; preserve the event identity when reconciling an uncertain send.
 
-Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Appearance and Graph/Trace preferences may persist. Filters and resource identifiers can appear in navigation URLs; scroll, selection and graph presentation are retained for navigation.
+Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Appearance, sidebar collapse and Graph/Trace preferences may persist. Filters, resource identifiers and selected nodes can appear in navigation URLs; scroll, focus and graph presentation are retained in bounded navigation memory.
 
 ## Attempt resources and local observations
 
@@ -88,7 +100,7 @@ See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/
 
 ## Serving Console
 
-The [local tutorial](/tutorials/use-console) builds and serves Console through Compose. For a native source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.2.0/console/README.md). A regular Cargo build does not run frontend tooling.
+The [local tutorial](/tutorials/use-console) builds and serves Console through Compose. The 0.2.0 [native bundles](/how-to/install-native) include a matching `console/` directory, so you do not need to build frontend assets when using those bundles. For a source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.2.0/console/README.md). A regular Cargo build does not run frontend tooling.
 
 Create an instance configuration file:
 

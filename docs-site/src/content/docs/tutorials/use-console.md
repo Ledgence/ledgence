@@ -34,9 +34,11 @@ docker compose -f deploy/local/compose.yaml up -d --wait --wait-timeout 120
 
 Compose starts PostgreSQL, runs the explicit migration, then starts the orchestrator, a worker, and the example callback receiver. The Rust orchestrator serves the built Console; there is no separate frontend server to start.
 
-Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/). You should see **Local instance**, **Executions** and **Programs**, with **Workers** under Operations. This is one self-hosted instance, with no tenant or workspace selection.
+Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/). You should see **Local instance** with **Executions**, **Programs** and **Workers** in the navigation. This is one self-hosted instance, with no tenant or workspace selection.
 
 The lists can be empty at this point. Leave the worker's default concurrency at **one** so the example can check process reuse.
+
+On desktop, use **Collapse sidebar** in the sidebar header to give the content more room; the Ledgence mark expands it again. Choose **System**, **Light** or **Dark** from **Appearance** in the header.
 
 ## 3. Publish and register the examples
 
@@ -66,7 +68,11 @@ The final JSON contains `passed: true`, two task IDs, a workflow ID, and a workf
 
 In **Executions**, open either invoice task by its ID. In **General**, open **Input** to see the invoice request and **Output** to inspect the returned invoice ID, process ID, and invocation counter. **Trace** contains the attempts and durable history.
 
-In **Executions**, select the **Workflows** filter and open the workflow ID printed by the demo. Its detail offers **Graph**, **Trace** and **General**. Graph shows entrypoint invocation nodes, the recorded local page-fetch steps and the child task `summarize`. Select a node or Trace row to inspect it; select **Open execution** on the child to inspect its input and output. Local records identify their entrypoint invocation without claiming dependencies between the local calls. Use Back or Up to return and explore another part of the workflow. A subworkflow opens its own graph, one level at a time. Completed work stays visible; these views reflect work that happened and do not predict future steps.
+As the history grows, scroll to load older rows. Filter by type, status and submitted date; **More filters** contains exact program/version and execution ID filters. The table updates automatically on its first page. Browsing older results pauses those updates; **Refresh executions** returns to the latest matching work with your filters retained.
+
+In **Executions**, set **Type** to **Workflow**, select **Apply filters**, and open the workflow ID printed by the demo. Its detail offers **Graph**, **Trace** and **General**. Graph shows entrypoint invocation nodes, the recorded local page-fetch steps and the child task `summarize`. Select a node or Trace row to inspect it; select **Open task** on the child to inspect its input and output. Local records connect to their invoking entrypoint without claiming dependencies between the local calls. Use Back or Up to return and explore another part of the workflow. A subworkflow opens its own graph, one level at a time. Completed work stays visible; these views reflect work that happened and do not predict future steps.
+
+Try **Full screen** in the explorer. Pan or zoom, use **Fit** to see the loaded graph, and choose **Reorganize** to restore its automatic layout after moving a card. These controls change only the view. Press Escape to return without losing the selected node or camera position.
 
 Under **General → Output**, expect:
 
