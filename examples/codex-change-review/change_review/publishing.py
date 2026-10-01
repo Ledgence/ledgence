@@ -175,10 +175,15 @@ class _Publisher:
 
 
 async def publish(bundle, publication):
-    """Publish only a ready bundle; reconcile uncertain writes without force pushes."""
+    """Publish only human-approved evidence; reconcile without force pushes."""
+    from .steps import validate_bundle
     publication = validate_publication(publication)
-    if type(bundle) is not dict or bundle.get("status") != "ready_for_review":
-        raise PublicationError("only a ready_for_review bundle may be published")
+    try:
+        bundle = validate_bundle(bundle)
+    except (ValueError, KeyError, TypeError):
+        raise PublicationError("publication requires a valid approved evidence bundle") from None
+    if bundle["status"] != "approved":
+        raise PublicationError("only a human-approved bundle may be published")
     candidate = validate_candidate(bundle.get("candidate"))
     if bundle.get("change_id") != candidate["change_id"]:
         raise PublicationError("bundle and candidate change identities differ")

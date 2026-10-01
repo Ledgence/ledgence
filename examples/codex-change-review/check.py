@@ -68,9 +68,9 @@ async def _acceptance_tests(*, candidate):
     (markers / "tests-started").touch()
     if config.get("synchronize"):
         deadline = _acceptance_time.monotonic() + 45
-        while not (markers / "review-started").exists():
+        while not all((markers / name).exists() for name in ("review-started", "note-started")):
             if _acceptance_time.monotonic() >= deadline:
-                raise RuntimeError("offline review rendezvous was not reached")
+                raise RuntimeError("offline parallel branch rendezvous was not reached")
             await _acceptance_asyncio.sleep(.01)
     try:
         return await _acceptance_tests_original(candidate=candidate)
@@ -119,11 +119,11 @@ class ChangeDeployment(Deployment):
         self.server = process
         return process, self.server_url
 
-    def worker(self, queue, server=None):
+    def worker(self, queue, server=None, *, concurrency=1):
         previous = self.queue
         try:
             self.queue = queue
-            return self.start_worker(server=server, concurrency=1, cache="cache-" + queue)
+            return self.start_worker(server=server, concurrency=concurrency, cache="cache-" + queue)
         finally:
             self.queue = previous
 
@@ -185,7 +185,7 @@ def deployment(args, evidence, prepared, config_path, variant):
         owned = ChangeDeployment(directory, args, url, prepared, config_path, variant=variant)
         owned.command("ledgence", ["orchestrator", "migrate"])
         dump(directory / "resources.json", {"database": database, "package_variant": variant,
-             "packages": owned.descriptors, "worker_capacity_each": 1, "live_codex": args.live_codex})
+             "packages": owned.descriptors, "worker_capacity": {"control": 1, "agents": 0 if variant == "one-slot-fixture" else 2}, "live_codex": args.live_codex})
         owned.start_server()
         yield owned
     finally:
@@ -201,23 +201,64 @@ def verify_bundle(bundle, topology, expected, *, physical_separation):
     candidate = validate_candidate(bundle["candidate"])
     digest = source_digest(candidate["source"])
     assert bundle["status"] == expected, bundle["status"]
-    assert bundle["tests"]["candidate_sha256"] == bundle["review"]["candidate_sha256"] == digest
-    assert candidate["execution"]["cli_invocations"] == bundle["review"]["execution"]["cli_invocations"] == 1
+    assert all(bundle[name]["candidate_sha256"] == digest for name in ("comparison", "tests", "review", "note"))
+    assert all(item["execution"]["cli_invocations"] == 1 for item in (candidate, bundle["review"], bundle["note"]))
+    assert len({item["execution"]["thread_id"] for item in (candidate, bundle["review"], bundle["note"])}) == 3
     assert bundle["pull_request"]["url"] is None, "the acceptance gate must not publish to GitHub"
     assert bundle["pull_request"]["title"] and bundle["pull_request"]["body"]
-    assert {child["key"] for child in topology["children"]} == {"implement:0", "finalize:0"}
+    expected_children = {"implement:0", "prepare:0"}
+    if expected != "needs_changes":
+        expected_children.add("finalize:0")
+    assert {child["key"] for child in topology["children"]} == expected_children, topology
     assert all(child["state"] == "succeeded" and child["attempts"] == 1 for child in topology["children"])
-    assert len(topology["branches"]) == topology["forks"] == 1
-    branch = topology["branches"][0]
-    assert branch["key"] == "review:0" and branch["fork_key"] == "validate:0"
-    assert branch["same_descriptor"] and branch["terminal"], branch
-    assert sorted(record["key"] for record in topology["local_results"]) == ["review:0", "tests:0"]
+    assert len(topology["branches"]) == 3 and topology["forks"] == 1, topology
+    assert {branch["key"] for branch in topology["branches"]} == {"tests:0", "review:0", "note:0"}
+    assert all(branch["fork_key"] == "checks:0" and branch["same_descriptor"] and branch["terminal"]
+               for branch in topology["branches"]), topology
+    assert sorted(record["key"] for record in topology["local_results"]) == ["compare:0", "note:0", "review:0", "tests:0"]
     if physical_separation:
-        assert bundle["tests"]["pid"] != bundle["review"]["pid"], "review and tests must execute in separate Python processes"
+        assert bundle["tests"]["pid"] != bundle["review"]["pid"], "separate queues must use separate Python processes"
+
+
+def public_inspection(d, identity):
+    query = urllib.parse.urlencode({"workflow_id": identity})
+    status, _, result = exchange(d.server_url, "GET", "/v1/console/workflows/inspect?" + query)
+    assert status == 200, (status, result)
+    return result
+
+
+def approval_or_terminal(d, identity):
+    inspection = public_inspection(d, identity)
+    if inspection["summary"]["workflow"]["state"] in ("succeeded", "failed", "cancelled"):
+        return inspection
+    return inspection if inspection.get("external_wait_key") == "approval:0" else None
+
+
+def prepared_packet(d, identity):
+    # Locate the public prepare task, then read its immutable public result. No
+    # private checkpoint inspection is used to manufacture the decision payload.
+    query = urllib.parse.urlencode({"workflow_id": identity})
+    status, _, page = exchange(d.server_url, "GET", "/v1/console/workflows/children?" + query)
+    assert status == 200 and page["next_cursor"] is None, (status, page)
+    matches = [child for child in page["items"] if child.get("kind") == "task" and child["command_key"] == "prepare:0"]
+    assert len(matches) == 1, page
+    task_id = matches[0]["target_id"]
+    query = urllib.parse.urlencode(dict(d.scope, task_id=task_id))
+    status, _, result = exchange(d.server_url, "GET", "/v1/tasks/result?" + query)
+    assert status == 200 and result["task"]["state"] == "succeeded", (status, result)
+    return task_id, result["outcome"]["output"]
+
+
+def decision_command(identity, digest, approved, event_id):
+    return {"scope": {"tenant_id": "acme", "namespace": "demo"}, "workflow_id": identity, "key": "approval:0",
+            "event": {"specversion": "1.0", "id": event_id, "source": "urn:ledgence:demo:change-review",
+                      "type": "com.ledgence.demo.change.reviewed.v1", "datacontenttype": "application/json",
+                      "data": {"workflow_id": identity, "candidate_sha256": digest, "approved": approved}}}
 
 
 def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patch=False,
-             findings=False, review_failure=False, restart=False, lost_ack=False, export=None):
+             findings=False, review_failure=False, restart=False, lost_ack=False, export=None,
+             decision="approve", approval_restart=False, slot_probe=False):
     from change_review.candidate import BASE_SOURCE
     markers = evidence / (tag + "-markers")
     markers.mkdir()
@@ -225,15 +266,18 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
     assert source != BASE_SOURCE or bad_patch, "offline repair no longer matches the bundled exercise"
     dump(config_path, {"markers": str(markers), "source": source, "synchronize": synchronize,
                        "hold_review": restart, "findings": findings, "review_failure": review_failure})
-    d.gates.add(markers / "release-review")
-    d.gates.add(markers / "tests-finished")
-    d.gates.add(markers / "review-started")
+    for name in ("release-review", "tests-finished", "review-started", "note-started"):
+        d.gates.add(markers / name)
     proxy = d.proxy() if lost_ack else None
-    lost = (proxy.lose_once("/v1/workflows/forks") if proxy else None)
+    lost = proxy.lose_once("/v1/workflows/forks") if proxy else None
     control = d.worker("change-review", proxy.url if proxy else None)
-    agent = None if d.variant == "one-slot-fixture" else d.worker("change-review-agents")
+    agent = None if d.variant == "one-slot-fixture" else d.worker("change-review-agents", concurrency=2)
+    approval_evidence = None
     try:
-        accepted = d.companion(["submit", "--change-id", tag, "--idempotency-key", tag], tag + "-submit")
+        arguments = ["submit", "--change-id", tag, "--idempotency-key", tag]
+        if decision == "expire":
+            arguments.extend(["--approval-timeout-ms", "0"])
+        accepted = d.companion(arguments, tag + "-submit")
         identity = accepted["workflow_id"]
         if restart:
             eventually(lambda: (markers / "review-started").exists() and d.workflow(identity)["state"] == "waiting",
@@ -242,25 +286,95 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
             d.start_server()
             assert d.workflow(identity)["state"] == "waiting"
             (markers / "release-review").touch()
+        if not review_failure and decision != "expire":
+            inspection = eventually(lambda: approval_or_terminal(d, identity), timeout=420 if args.live_codex else 120,
+                                    description="review packet or negative terminal outcome")
+            if inspection.get("external_wait_key") == "approval:0":
+                prepare_task, packet = prepared_packet(d, identity)
+                assert packet["workflow_id"] == identity and packet["status"] == "waiting_for_approval", packet
+                approval_evidence = {"prepare_task_id": prepare_task, "packet": packet, "automated_gate_decision": True}
+                if export:
+                    preview = export.with_name(export.name + "-waiting")
+                    inspected = d.companion(["review", "--task", prepare_task, "--output", str(preview)], tag + "-review")
+                    assert inspected["candidate_sha256"] == packet["candidate"]["sha256"]
+                    assert (preview / "review.html").is_file()
+                    assert json.loads((preview / "review.json").read_text()) == packet
+                if slot_probe:
+                    probe = d.submit(d.submission(tag + "-slot-probe", mode="success"))
+                    probe_task, _ = d.terminal(probe["task_id"])
+                    assert probe_task["attempt_count"] == 1
+                    assert public_inspection(d, identity)["external_wait_key"] == "approval:0"
+                    approval_evidence["slot_probe_task_id"] = probe["task_id"]
+                if approval_restart:
+                    before = public_inspection(d, identity)
+                    query = urllib.parse.urlencode({"workflow_id": identity})
+                    wait_status, _, waits_before = exchange(d.server_url, "GET", "/v1/console/workflows/waits?" + query)
+                    assert wait_status == 200, (wait_status, waits_before)
+                    for worker in (agent, control):
+                        if worker is not None:
+                            worker.stop()
+                    d.server.stop()
+                    d.start_server()
+                    control = d.worker("change-review", proxy.url if proxy else None)
+                    agent = None if d.variant == "one-slot-fixture" else d.worker("change-review-agents", concurrency=2)
+                    restored = public_inspection(d, identity)
+                    assert restored["external_wait_key"] == before["external_wait_key"] == "approval:0"
+                    wait_status, _, waits_after = exchange(d.server_url, "GET", "/v1/console/workflows/waits?" + query)
+                    assert wait_status == 200 and waits_after["page"]["items"] == waits_before["page"]["items"], "approval deadline changed across restart"
+                    approval_evidence["waits_before_restart"] = waits_before
+                    approval_evidence["waits_after_restart"] = waits_after
+                    assert prepared_packet(d, identity) == (prepare_task, packet), "accepted packet changed across restart"
+                digest = "0" * 64 if decision == "wrong-candidate" else packet["candidate"]["sha256"]
+                command = decision_command(identity, digest, decision != "reject", tag + "-decision")
+                if decision == "wrong-workflow":
+                    command["event"]["data"]["workflow_id"] = "wf_wrong-candidate-owner"
+                if decision in ("wrong-candidate", "wrong-workflow"):
+                    status, _, receipt = exchange(d.server_url, "POST", "/v1/workflows/events", command)
+                    assert status == 200, (status, receipt)
+                else:
+                    arguments = [decision, "--workflow", identity, "--candidate-sha256", digest, "--event-id", tag + "-decision"]
+                    receipt = d.companion(arguments, tag + "-decision")
+                    duplicate = d.companion(arguments, tag + "-decision-duplicate")
+                    assert receipt["already_accepted"] is False and duplicate["already_accepted"] is True
+                    assert {**receipt, "already_accepted": True} == duplicate, "approval receipt identity changed"
+                    approval_evidence["receipts"] = [receipt, duplicate]
         result = d.result(identity, timeout=420 if args.live_codex else 120)
         topology = d.topology(identity)
         if review_failure:
             assert result["workflow"]["state"] == "failed", result
-            assert result["outcome"]["error"]["kind"] == "review_failed", result
+            assert result["outcome"]["error"]["kind"] == "check_failed", result
             assert [child["key"] for child in topology["children"]] == ["implement:0"]
-            assert topology["forks"] == len(topology["branches"]) == 1
+            assert topology["forks"] == 1 and len(topology["branches"]) == 3
+            assert all(branch["terminal"] for branch in topology["branches"]), "join must await all terminal branches"
             assert (markers / "descendant.json").is_file(), "the descendant cleanup fixture did not run"
             eventually(lambda: not descendant_running(markers), timeout=20,
                        description="Rust worker drains failed Codex descendants")
+        elif decision in ("wrong-candidate", "wrong-workflow"):
+            assert result["workflow"]["state"] == "failed", result
+            assert result["outcome"]["error"]["kind"] == "invalid_decision", result
+            assert {child["key"] for child in topology["children"]} == {"implement:0", "prepare:0"}
         else:
             assert result["workflow"]["state"] == "succeeded", result
             bundle = result["outcome"]["output"]
-            expected = ("ready_for_review" if bundle["tests"]["passed"] and bundle["review"]["verdict"] == "approve"
-                        else "needs_changes") if args.live_codex else ("needs_changes" if bad_patch or findings else "ready_for_review")
+            compared = all(case["after"]["error"] is None and case["after"]["value"] == case["expected_cents"]
+                           for case in bundle["comparison"]["cases"])
+            expected = "needs_changes" if not bundle["tests"]["passed"] or bundle["review"]["verdict"] != "approve" or not compared else {
+                "approve": "approved", "reject": "rejected", "expire": "expired"}[decision]
+            if not args.live_codex:
+                assert (expected == "needs_changes") == (bad_patch or findings)
             verify_bundle(bundle, topology, expected, physical_separation=d.variant != "one-slot-fixture")
+            if approval_evidence:
+                for name in ("candidate", "comparison", "tests", "review", "note"):
+                    assert bundle[name] == approval_evidence["packet"][name], "approved evidence was regenerated"
+            boundary = next(case for case in bundle["comparison"]["cases"] if case["total_cents"] == 10000)
+            assert boundary["before"] == {"value": 500, "error": None}
+            if not args.live_codex:
+                assert boundary["after"] == {"value": 500 if bad_patch else 0, "error": None}
             if synchronize:
-                tests, review = bundle["tests"], bundle["review"]
-                assert review["started_at_ms"] <= tests["started_at_ms"] <= tests["finished_at_ms"] <= review["finished_at_ms"]
+                tests, review, note = bundle["tests"], bundle["review"], bundle["note"]
+                assert max(tests["started_at_ms"], review["started_at_ms"], note["started_at_ms"]) <= min(
+                    tests["finished_at_ms"], review["finished_at_ms"], note["finished_at_ms"]), "all three branches must overlap"
+                assert review["pid"] != note["pid"], "two Codex branches require separate agent slots"
                 assert len((markers / "local-calls.jsonl").read_text().splitlines()) == 1
             if bad_patch:
                 assert not bundle["tests"]["passed"] and bundle["tests"]["failures"] > 0
@@ -271,6 +385,7 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
                                         "--output", str(export)], tag + "-result")
                 assert exported["candidate_sha256"] == bundle["candidate"]["sha256"]
                 assert (export / "shipping.py").read_text() == bundle["candidate"]["source"]
+                assert (export / "review.html").is_file()
                 assert json.loads((export / "review.json").read_text()) == bundle
         if lost:
             assert lost.is_set(), "fork response-loss fault was not reached"
@@ -279,20 +394,20 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
             assert all(item["json"]["fork"] == requests[0]["json"]["fork"] for item in requests)
         if not args.live_codex:
             cli_calls = [json.loads(line) for line in (markers / "codex.jsonl").read_text().splitlines()]
-            assert [item["phase"] for item in cli_calls] == ["implement", "review"], cli_calls
+            assert cli_calls[0]["phase"] == "implement" and sorted(item["phase"] for item in cli_calls) == ["implement", "note", "review"], cli_calls
             assert all(item["offline_fixture"] for item in cli_calls)
         record = {"scenario": tag, "passed": True, "live_codex": args.live_codex,
                   "package_variant": d.variant, "workflow_id": identity, "result": result,
                   "topology": topology, "deterministic_overlap": synchronize,
-                  "orchestrator_restarted_while_waiting": restart, "lost_fork_ack_reconciled": lost_ack,
-                  "failed_review_descendant_drained": review_failure}
+                  "orchestrator_restarted_while_joined": restart, "lost_fork_ack_reconciled": lost_ack,
+                  "failed_review_descendant_drained": review_failure, "approval": approval_evidence,
+                  "approval_restart": approval_restart, "single_control_slot_released": slot_probe}
         dump(evidence / (tag + ".json"), record)
         print("PASS " + tag, flush=True)
         return record
     finally:
-        (markers / "release-review").touch()
-        (markers / "tests-finished").touch()
-        (markers / "review-started").touch()
+        for name in ("release-review", "tests-finished", "review-started", "note-started"):
+            (markers / name).touch()
         try:
             for worker in (agent, control):
                 if worker is not None and worker.process.poll() is None:
@@ -309,7 +424,7 @@ def main():
     parser.add_argument("--binaries", type=Path, default=ROOT / "target/debug")
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--evidence", type=Path, help="new output directory outside the repository")
-    parser.add_argument("--live-codex", action="store_true", help="explicitly make two real Codex CLI generations")
+    parser.add_argument("--live-codex", action="store_true", help="explicitly make three real Codex CLI generations; gate approval is automated")
     parser.add_argument("--codex-bin", type=Path, help="absolute executable for explicitly enabled live Codex")
     args = parser.parse_args()
     if sys.version_info[:2] != (3, 13):
@@ -352,7 +467,7 @@ def main():
                                     export=evidence / "bundle"))
         if not args.live_codex:
             with deployment(args, evidence, prepared, config_path, "one-slot-fixture") as d:
-                records.append(scenario(d, args, config_path, evidence, "offline-one-slot"))
+                records.append(scenario(d, args, config_path, evidence, "offline-one-slot", slot_probe=True, approval_restart=True))
             with deployment(args, evidence, prepared, config_path, "fault-fixture") as d:
                 for tag, options in (
                     ("offline-overlap", {"synchronize": True}),
@@ -360,6 +475,10 @@ def main():
                     ("offline-review-findings", {"findings": True}),
                     ("offline-review-failure", {"review_failure": True}),
                     ("offline-restart-lost-ack", {"restart": True, "lost_ack": True}),
+                    ("offline-rejected", {"decision": "reject"}),
+                    ("offline-expired", {"decision": "expire"}),
+                    ("offline-wrong-candidate", {"decision": "wrong-candidate"}),
+                    ("offline-wrong-workflow", {"decision": "wrong-workflow"}),
                 ):
                     records.append(scenario(d, args, config_path, evidence, tag, **options))
         dump(evidence / "result.json", {"passed": True, "live_codex": args.live_codex,
