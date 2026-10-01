@@ -14,7 +14,7 @@ a:focus-visible,summary:focus-visible{outline:2px solid var(--green);outline-off
 header,.brand,.header-right,.section-head,.meta,.amounts,.file-head{display:flex;align-items:center;gap:16px}
 header{justify-content:space-between;margin-bottom:68px}
 .brand{font-size:19px;font-weight:650;letter-spacing:-.6px}
-.mark{width:29px;height:29px;border-radius:9px;background:linear-gradient(145deg,#e7e9ed,#939daa);color:#15171d;display:grid;place-items:center;font-size:18px}
+.mark{flex-shrink:0;width:29px;height:29px;border-radius:9px;background:linear-gradient(145deg,#e7e9ed,#939daa);color:#15171d;display:grid;place-items:center;font-size:18px}
 .header-right{flex-wrap:wrap;justify-content:flex-end;font-size:12px;color:var(--muted)}
 .pill{border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:12px;white-space:nowrap}
 .pill.good{color:var(--green);border-color:#465950;background:#18211e}
@@ -25,12 +25,12 @@ header{justify-content:space-between;margin-bottom:68px}
 h1{font-size:clamp(32px,4.3vw,51px);line-height:1.08;letter-spacing:-2px;margin:14px 0 18px;font-weight:620;max-width:600px}
 p{margin:0;color:var(--muted)}
 .lead{max-width:500px;font-size:17px}
-.comparison{background:radial-gradient(ellipse at top right,#2d333d,transparent 75%),var(--panel);border:1px solid #3b414d;border-radius:22px;padding:28px 28px 23px;box-shadow:0 20px 60px #0003}
+.comparison{min-width:0;background:radial-gradient(ellipse at top right,#2d333d,transparent 75%),var(--panel);border:1px solid #3b414d;border-radius:22px;padding:28px 28px 23px;box-shadow:0 20px 60px #0003}
 .comparison .eyebrow{color:#c4c8d1}
 .amounts{justify-content:space-between;margin:22px 0}
-.amounts>div{flex:1}
+.amounts>div{flex:1;min-width:0}
 .amounts small{display:block;color:var(--muted);font-size:12px;margin-bottom:3px}
-.amount{font-size:42px;font-weight:600;line-height:1.2;letter-spacing:-1.5px}
+.amount{font-size:42px;font-weight:600;line-height:1.2;letter-spacing:-1.5px;overflow-wrap:anywhere}
 .amount.after{color:var(--green)}
 .arrow{font-size:22px;color:#9097a5;padding-right:14px}
 .comparison-note{border-top:1px solid #3b414d;padding-top:15px;font-size:12px;color:#c3c7d0}
@@ -39,8 +39,8 @@ p{margin:0;color:var(--muted)}
 .section-head span{font-size:12px;color:var(--muted)}
 .branches{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .branch{border:1px solid var(--line);border-radius:16px;padding:23px;background:var(--panel);min-width:0}
-.branch-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:22px}
-.number{font-variant-numeric:tabular-nums;color:#c0c5cf;font-size:12px}
+.branch-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:22px}
+.number{white-space:nowrap;font-variant-numeric:tabular-nums;color:#c0c5cf;font-size:12px}
 .branch h3{font-size:18px;margin:0 0 7px;letter-spacing:-.4px}
 .branch p{font-size:13px;line-height:1.65;overflow-wrap:anywhere}
 .branch .origin{display:block;font-size:11px;color:#a6adb9;margin-top:18px}
@@ -58,7 +58,7 @@ p{margin:0;color:var(--muted)}
 .diff-line.remove{color:#efc4c6;background:#36292e}
 .diff-line.location{color:#b5c0d4}
 .note{padding:22px}
-.note h3{font-size:17px;margin:12px 0 9px;letter-spacing:-.3px}
+.note h3{overflow-wrap:anywhere;font-size:17px;margin:12px 0 9px;letter-spacing:-.3px}
 .note p{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .note .caption{margin-top:22px;font-size:11px;color:#b7becb}
 .table-scroll{overflow-x:auto}
@@ -72,13 +72,17 @@ details{border-top:1px solid var(--line)}
 details:first-child{border:0}
 summary{padding:17px 20px;cursor:pointer;font-size:13px;color:#e0e3e9}
 details pre{margin:0;padding:0 20px 20px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;color:#b9bfca}
-ul.findings{font-size:13px;padding:0 28px 18px 38px;color:var(--muted)}
+ul.findings{overflow-wrap:anywhere;font-size:13px;padding:0 28px 18px 38px;color:var(--muted)}
 .identity{margin:30px 0 0;padding-top:23px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .identity p{font-size:11px}
 .identity code{display:block;font:11px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;color:#c7ccd6;overflow-wrap:anywhere;margin-top:5px}
 .downloads{display:flex;flex-wrap:wrap;gap:20px;margin:25px 0 14px;font-size:12px}
 footer{font-size:11px;color:#979eac;max-width:880px}
 .offline{color:var(--amber)}
+
+@media(max-width:960px){.hero{grid-template-columns:1fr;gap:25px}
+.branch-top{flex-direction:column;align-items:flex-start}
+}
 
 @media(max-width:760px){main{padding:24px 20px 40px}
 header{margin-bottom:42px}
@@ -90,15 +94,24 @@ h1{font-size:39px;letter-spacing:-1.5px}
 .comparison{padding:24px}
 .branches{grid-template-columns:1fr}
 .branch{padding:19px;display:grid;grid-template-columns:1fr auto;gap:5px 20px}
-.branch-top{grid-column:1/-1;margin-bottom:10px}
+.branch-top{flex-direction:row;align-items:center;grid-column:1/-1;margin-bottom:10px}
 .branch p{grid-column:1/-1}
 .branch .origin{grid-column:1/-1;margin-top:9px}
 .details-grid,.identity{grid-template-columns:1fr}
 .section-head{align-items:flex-start;gap:12px}
 .section-head span{text-align:right;max-width:130px}
 .decision{padding:20px;align-items:flex-start}
-.amount{font-size:38px}
+.amount{font-size:clamp(28px,9vw,38px)}
+.amounts{gap:10px}
+.arrow{padding-right:0}
 .comparison-note{font-size:11px}
+}
+
+@media(max-width:520px){header{flex-direction:column;align-items:flex-start;gap:14px}
+.header-right{justify-content:flex-start;gap:8px 12px}
+h1{font-size:clamp(32px,9.5vw,39px)}
+.section-head{flex-direction:column;gap:5px}
+.section-head span{text-align:left;max-width:none}
 }
 
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}
@@ -155,14 +168,16 @@ def render_report(bundle):
     after_ok = at_threshold["after"] == {"value": 0, "error": None}
     after_class = " after" if after_ok else ""
     test_label = f'{tests["total"] - tests["failures"] - tests["errors"]}/{tests["total"]} passed'
-    review_label = "Approved by Codex" if review["verdict"] == "approve" else "Changes requested"
+    review_label = "Review passed" if review["verdict"] == "approve" else "Changes requested"
+    review_origin = "Offline fixture" if fixture_flags[1] else "Fresh Codex session"
+    note_origin = "Offline fixture" if fixture_flags[2] else "Fresh Codex session"
     note_label = "Included" if status == "approved" else "Draft"
     note_help = "Included with the approved candidate. No release was published." if status == "approved" else "Draft wording. This is not a published release note."
     lines = []
     for line in candidate["patch"].splitlines():
         kind = "add" if line.startswith("+") and not line.startswith("+++") else "remove" if line.startswith("-") and not line.startswith("---") else "location" if line.startswith("@@") else ""
         lines.append(f'<span class="diff-line {kind}">{escape(line)}</span>')
-    patch = "\n".join(lines) or '<span class="diff-line">No source changes.</span>'
+    patch = "".join(lines) or '<span class="diff-line">No source changes.</span>'
     rows, comparison_errors = [], []
     for row in bundle["comparison"]["cases"]:
         for side in ("before", "after"):
@@ -183,8 +198,8 @@ def render_report(bundle):
 <div class="section-head"><h2>Three branches. The same candidate.</h2><span>Independent work, joined by Ledgence</span></div>
 <section class="branches" aria-label="Branch results">
 <article class="branch"><div class="branch-top"><span class="number">01 / Tests</span><span class="pill {'good' if tests['passed'] else 'bad'}">{test_label}</span></div><h3>Verify the behavior</h3><p>Six predefined tests check the threshold, amounts around it, and invalid inputs.</p><span class="origin">Fixed regression suite · separate branch</span></article>
-<article class="branch"><div class="branch-top"><span class="number">02 / Review</span><span class="pill {'good' if review['verdict']=='approve' else 'bad'}">{review_label}</span></div><h3>Get a second look</h3><p>{escape(review['summary'])}</p><span class="origin">Fresh Codex session · separate branch</span></article>
-<article class="branch"><div class="branch-top"><span class="number">03 / Release note</span><span class="pill">{note_label}</span></div><h3>Explain the change</h3><p>A short note describes this candidate while the other branches check it.</p><span class="origin">Fresh Codex session · separate branch</span></article>
+<article class="branch"><div class="branch-top"><span class="number">02 / Review</span><span class="pill {'good' if review['verdict']=='approve' else 'bad'}">{review_label}</span></div><h3>Get a second look</h3><p>{escape(review['summary'])}</p><span class="origin">{review_origin} · separate branch</span></article>
+<article class="branch"><div class="branch-top"><span class="number">03 / Release note</span><span class="pill">{note_label}</span></div><h3>Explain the change</h3><p>A short note describes this candidate while the other branches check it.</p><span class="origin">{note_origin} · separate branch</span></article>
 </section>
 <section class="decision" aria-labelledby="decision-title"><span class="decision-icon" aria-hidden="true">{symbol}</span><div><h2 id="decision-title">{decision_title}</h2><p>{decision_text}</p></div></section>
 <div class="details-grid"><section class="panel" aria-label="Exact proposed patch"><div class="file-head"><strong>shipping.py</strong><span>Exact proposed patch</span></div><pre class="diff"><code>{patch}</code></pre></section><section class="panel note" aria-labelledby="note-title"><div class="eyebrow">Release note / {note_label}</div><h3 id="note-title">{escape(note['title'])}</h3><p>{escape(note['body'])}</p><p class="caption">{note_help}</p></section></div>
