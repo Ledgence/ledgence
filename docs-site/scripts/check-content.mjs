@@ -6,6 +6,18 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const source = join(root, 'src/content/docs');
+const release = JSON.parse(readFileSync(join(root, 'release.json'), 'utf8'));
+const sourceFeatures = JSON.parse(readFileSync(join(root, 'source-features.json'), 'utf8'));
+
+export function releaseRevision(metadata = release, resolveTag = ref => execFileSync(
+  'git', ['rev-parse', '--verify', `refs/tags/${ref}^{commit}`],
+  { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+).trim()) {
+  if (metadata.sourceRevision) return metadata.sourceRevision;
+  try { return resolveTag(metadata.sourceRef); }
+  catch { return undefined; }
+}
+
 export function contentFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const path = join(directory, entry.name);
@@ -26,7 +38,7 @@ export function pageMetadata(text, path) {
   return { title: title.replace(/^['"]|['"]$/g, ''), description: description.replace(/^['"]|['"]$/g, ''), body };
 }
 
-export function writeMarkdownExports(directory, pages, revision) {
+export function writeMarkdownExports(directory, pages, revision, productRevision = releaseRevision()) {
   mkdirSync(directory, { recursive: true });
   rmSync(join(directory, 'markdown'), { recursive: true, force: true });
   const exported = pages.filter(page => page.path.endsWith('.md'));
@@ -35,7 +47,8 @@ export function writeMarkdownExports(directory, pages, revision) {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, `# ${page.title}\n\n${page.description}\n\n${page.body}`);
   }
-  const list = ['# Ledgence documentation', '', '> Development documentation for Ledgence, an open-source agent and workflow orchestration platform.', '', `Product source revision: ${revision}. Public APIs are evolving.`, ''];
+  const productIdentity = productRevision ? `${release.sourceRef} (${productRevision})` : release.sourceRef;
+  const list = ['# Ledgence documentation', '', `> Documentation for the Ledgence ${release.series} release series: open-source agent and workflow orchestration.`, '', `Product source: ${productIdentity}. Documentation checkout: ${revision}.`, '', `Native bundles: ${release.nativeVersion} (${release.nativeTargets.join(', ')}). Python client: ${release.clientVersion}. Rust API crates: ${release.rustApiVersion}.`, `Console is included in source ${sourceFeatures.console.sourceRef} and Console-enabled native bundles; qualification date ${sourceFeatures.console.verifiedOn}. See https://docs.ledgence.com${sourceFeatures.console.guide}.`, '', 'Public APIs may change before 1.0. See the release reference for installation choices, host-library requirements, and supported scope.', ''];
   for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {
     list.push(`## ${section === 'how-to' ? 'How-to guides' : section[0].toUpperCase() + section.slice(1)}`, '');
     for (const page of exported.filter(page => page.slug.startsWith(`${section}/`))) {
@@ -56,12 +69,20 @@ export function prepareContent() {
     if (!pages.some(page => page.slug.startsWith(`${section}/`))) throw new Error(`Missing ${section} content`);
   }
   const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-  const sourceInfo = { revision, channel: 'development', repository: 'https://github.com/Ledgence/ledgence' };
+  const productRevision = releaseRevision();
+  const sourceInfo = {
+    ...(productRevision ? { revision: productRevision } : {}),
+    ref: release.sourceRef, documentationRevision: revision,
+    channel: 'release', sourceFeatures, series: release.series, nativeVersion: release.nativeVersion,
+    clientVersion: release.clientVersion, rustApiVersion: release.rustApiVersion,
+    nativeTargets: release.nativeTargets, verifiedOn: release.verifiedOn,
+    repository: 'https://github.com/Ledgence/ledgence',
+  };
   mkdirSync(join(root, 'src/generated'), { recursive: true });
   mkdirSync(join(root, 'public'), { recursive: true });
   writeFileSync(join(root, 'src/generated/source.json'), JSON.stringify(sourceInfo, null, 2) + '\n');
   writeFileSync(join(root, 'public/source.json'), JSON.stringify(sourceInfo, null, 2) + '\n');
-  writeMarkdownExports(join(root, 'public'), pages, revision);
+  writeMarkdownExports(join(root, 'public'), pages, revision, productRevision);
   console.log(`Validated ${pages.length} documentation pages; generated Markdown and source metadata.`);
   return pages;
 }

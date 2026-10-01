@@ -5,6 +5,7 @@ impl PostgresStore {
         &self,
         owner: &LeaseOwner,
     ) -> StoreResult<WorkflowActivationContext> {
+        self.require_scope(&owner.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let (workflow, authority) = lock_activation(&mut tx, owner).await?;
@@ -39,6 +40,7 @@ impl PostgresStore {
     ) -> StoreResult<LocalResultReceipt> {
         command.record.validate()?;
         let owner = &command.owner;
+        self.require_scope(&command.owner.scope)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let (workflow, authority) = lock_activation(&mut tx, owner).await?;
@@ -72,9 +74,10 @@ impl PostgresStore {
         {
             return Err(invalid("local step ledger exceeds supported limit").into());
         }
-        sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms) VALUES($1,$2,$3,$4,$5)")
-            .bind(&owner.task_id).bind(&command.record.key).bind(bytes).bind(&owner.attempt_id).bind(codec::ms(now)?)
+        sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable) VALUES($1,$2,$3,$4,$5,$6)")
+            .bind(&owner.task_id).bind(&command.record.key).bind(bytes).bind(&owner.attempt_id).bind(codec::ms(now)?).bind(&command.record.callable)
             .execute(&mut *tx).await?;
+        explorer::local(&mut tx, command, now).await?;
         tx.commit().await?;
         Ok(LocalResultReceipt {
             key: command.record.key.clone(),
@@ -86,7 +89,7 @@ impl PostgresStore {
 /// The first membership lookup is immutable and unlocked. All mutable checks
 /// happen after workflow -> task locks, so cancellation and attempt replacement
 /// cannot race a newly acknowledged result into an obsolete continuation.
-struct ActivationAuthority {
+pub(super) struct ActivationAuthority {
     task_state: TaskState,
     current_attempt_id: Option<String>,
     cancellation_requested: bool,
@@ -97,7 +100,7 @@ struct ActivationAuthority {
     execution_deadline: u64,
     execution_may_have_started: bool,
 }
-async fn lock_activation(
+pub(super) async fn lock_activation(
     connection: &mut PgConnection,
     owner: &LeaseOwner,
 ) -> StoreResult<(WorkflowSnapshot, ActivationAuthority)> {
@@ -152,7 +155,7 @@ async fn lock_activation(
         },
     ))
 }
-fn check_live(
+pub(super) fn check_live(
     workflow: &WorkflowSnapshot,
     authority: &ActivationAuthority,
     owner: &LeaseOwner,

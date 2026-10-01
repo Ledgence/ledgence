@@ -1,11 +1,12 @@
-//! Single-exchange task administration over the portable HTTP client adapter.
+//! Unified entry point for program administration and platform services.
 
 mod args;
 mod logging;
+mod routing;
 mod submission;
 mod telemetry;
 
-use args::{Command, HELP, Operation};
+use args::{Command, Operation};
 use ledgence_adapter_http::HttpTaskService;
 use ledgence_orchestration_api::{ContractError, Result, TaskService};
 use serde::Serialize;
@@ -25,16 +26,43 @@ fn main() -> ExitCode {
                 .map_err(|_| args::invalid("arguments must be valid UTF-8"))
         })
         .collect::<Result<Vec<_>>>();
-    let command = match arguments.and_then(Command::parse) {
+    match arguments.and_then(routing::parse) {
+        Ok(routing::Route::Help(help)) => write_stdout(&help),
+        Ok(routing::Route::Version) => {
+            write_stdout(concat!("ledgence ", env!("CARGO_PKG_VERSION"), "\n"))
+        }
+        Ok(routing::Route::Worker(arguments)) => ledgence_worker::entrypoint(arguments),
+        Ok(routing::Route::Orchestrator(arguments)) => ledgence_orchestrator::entrypoint(arguments),
+        Ok(routing::Route::Admin(arguments)) => run_admin(arguments),
+        Err(error) => diagnose(error, None),
+    }
+}
+
+fn write_stdout(text: &str) -> ExitCode {
+    if std::io::stdout().write_all(text.as_bytes()).is_ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn run_admin(arguments: Vec<String>) -> ExitCode {
+    let command = match Command::parse(arguments) {
         Ok(command) => command,
         Err(error) => return diagnose(error, None),
     };
-    let Command::Task { server, operation } = command else {
-        return if std::io::stdout().write_all(HELP.as_bytes()).is_ok() {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::FAILURE
-        };
+    let (server, operation) = match command {
+        Command::Task { server, operation } => (server, RunOperation::Task(operation)),
+        Command::Program {
+            server,
+            registration,
+        } => (server, RunOperation::Program(registration)),
+        Command::Help => return write_stdout(routing::HELP),
+    };
+    // Validate the endpoint before optional telemetry or output services start.
+    let client = match HttpTaskService::new(&server) {
+        Ok(client) => client,
+        Err(error) => return diagnose(error, None),
     };
     let mut logs = match logging::Logs::stderr() {
         Ok(logs) => logs,
@@ -58,7 +86,7 @@ fn main() -> ExitCode {
             return result;
         }
     };
-    let result = run_task(&server, operation, telemetry.bridge(), &logs.sink);
+    let result = run_task(client, operation, telemetry.bridge(), &logs.sink);
     // Application runtime is already destroyed. Only optional telemetry and
     // bounded stderr delivery remain; neither changes the operation outcome.
     if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -75,25 +103,27 @@ fn main() -> ExitCode {
     result
 }
 
+enum RunOperation {
+    Task(Operation),
+    Program(ledgence_orchestration_api::console::RegisterProgram),
+}
+
 fn run_task(
-    server: &str,
-    operation: Operation,
+    client: HttpTaskService,
+    operation: RunOperation,
     trace: Arc<dyn ledgence_worker_api::TraceBridge>,
     sink: &logging::Sink,
 ) -> ExitCode {
     let diagnose = |error, request_id| diagnose_into(error, request_id, Some(sink));
     let request_id = Arc::new(Mutex::new(None));
     let observed = request_id.clone();
-    let client = match HttpTaskService::new(server) {
-        Ok(client) => client
-            .with_trace_bridge(trace)
-            .with_observer(move |metadata| {
-                *observed
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = metadata.request_id.clone();
-            }),
-        Err(error) => return diagnose(error, None),
-    };
+    let client = client
+        .with_trace_bridge(trace)
+        .with_observer(move |metadata| {
+            *observed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = metadata.request_id.clone();
+        });
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -106,7 +136,12 @@ fn run_task(
             );
         }
     };
-    let result = runtime.block_on(execute(&client, operation));
+    let result = runtime.block_on(async {
+        match operation {
+            RunOperation::Task(operation) => execute(&client, operation).await,
+            RunOperation::Program(command) => encode(client.register_program(&command).await?),
+        }
+    });
     let request_id = request_id
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

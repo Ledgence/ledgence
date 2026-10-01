@@ -41,7 +41,7 @@ class SqsDeployment(Deployment):
         extra = (["--completion-config", str(self.completion_config)]
                  if getattr(self, "completion_config", None) else [])
         process = Process([
-            str(self.binaries / "ledgence-orchestrator"), "serve", "--bind", f"127.0.0.1:{port}",
+            str(self.binaries / "ledgence"), "orchestrator", "serve", "--bind", f"127.0.0.1:{port}",
             "--store", self.artifacts.url, "--delivery-config", str(self.delivery_config),
         ] + extra, self.directory, f"server-{self.counter}", self.environment)
         self.processes.append(process)
@@ -67,7 +67,7 @@ class SqsDeployment(Deployment):
     def start_worker(self, server=None, concurrency=1, cache="cache"):
         self.counter += 1
         args = [
-            str(self.binaries / "ledgence-worker"), "connect", "--server", server or self.server_url,
+            str(self.binaries / "ledgence"), "worker", "connect", "--server", server or self.server_url,
             "--tenant", self.scope["tenant_id"], "--namespace", self.scope["namespace"],
             "--queue", self.queue, "--store", self.artifacts.url,
             "--cache", str(self.directory / cache), "--python", self.python,

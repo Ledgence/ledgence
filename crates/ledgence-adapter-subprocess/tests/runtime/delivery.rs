@@ -158,6 +158,7 @@ fn settle_outcome(claimed: &Claimed, outcome: ProgramOutcome, pid: u32) -> usize
         owner: claimed.attempt.lease.owner.clone(),
         operation_id: maximum_text(9),
         report: AttemptReport::Completed(ExecutionReport {
+            observations: None,
             context: Box::new(ExecutionContext {
                 identity: InvocationIdentity::from(&claimed.assignment.event),
                 program: claimed.assignment.descriptor.program.clone(),

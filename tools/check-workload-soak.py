@@ -23,9 +23,9 @@ import sys
 import tempfile
 import time
 import unittest
-import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment
 from http_acceptance.sqs import SqsDeployment
 from workload_acceptance.observations import CENSUS, resources, summarize, process_tree
@@ -221,14 +221,14 @@ def main():
     parent = os.environ.get('LEDGENCE_POSTGRES_URL')
     if not args.disposable_postgres or not parent or args.binaries is None:
         cli.error('--disposable-postgres, LEDGENCE_POSTGRES_URL, and --binaries are required')
-    parsed = urllib.parse.urlsplit(parent)
-    if parsed.scheme not in ('postgres', 'postgresql') or not parsed.hostname:
-        cli.error('invalid PostgreSQL URL')
-    if any(key.lower() in ('dbname', 'database') for key, _ in urllib.parse.parse_qsl(parsed.query)):
-        cli.error('PostgreSQL URL must not override database in query')
+    database = 'ledgence_soak_' + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent, database)
+    except ValueError as error:
+        cli.error(str(error))
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries.resolve()
-    hashes = {name: PERFORMANCE['digest'](binaries / name) for name in ('ledgence', 'ledgence-worker', 'ledgence-orchestrator')}
+    hashes = {name: PERFORMANCE['digest'](binaries / name) for name in ('ledgence',)}
     directory = args.evidence or Path(tempfile.mkdtemp(prefix='ledgence-workload-soak-'))
     if args.evidence:
         directory.mkdir(parents=True, exist_ok=False)
@@ -244,8 +244,6 @@ def main():
                      'Process-family RSS excludes PostgreSQL, broker, OS page cache and harness.',
                      'Database grows during this test; retention correctness is a separate aged-data gate.',
                      'Short local run does not prove absence of leaks or production capacity.'])
-    database = 'ledgence_soak_' + uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(parsed._replace(path='/' + database))
     d = receiver = None
     created = False
     failures = []
@@ -273,7 +271,7 @@ def main():
         receiver = Receiver(directory / 'callbacks.jsonl', math.ceil(args.max_operations / 7))
         d.completion_config = directory / 'completions.json'
         d.completion_config.write_text(json.dumps(dict(destinations=[dict(scope=d.scope, destination='soak', url=receiver.url)])))
-        subprocess.run([str(binaries / 'ledgence-orchestrator'), 'migrate'], env=d.environment,
+        subprocess.run([str(binaries / 'ledgence'), 'orchestrator', 'migrate'], env=d.environment,
                        check=True, capture_output=True, timeout=650)
         d.server, _ = d.start_server()
         workers = [d.start_worker(concurrency=args.concurrency, cache=f'cache-{index}') for index in range(args.workers)]

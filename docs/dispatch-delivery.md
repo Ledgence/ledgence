@@ -159,21 +159,21 @@ measured daily execution capacity.
 Build optional SQS support explicitly; the default executable builds have no AWS SDK dependency:
 
 ```sh
-cargo build --workspace --bins --features ledgence-orchestrator/sqs,ledgence-worker/sqs --locked
+cargo build -p ledgence-cli --features sqs --locked
 ```
 
-Both `ledgence-orchestrator serve` and `ledgence-worker connect` accept `--delivery-config FILE`. They reject this option explicitly when built without `sqs`. Omitting it preserves integrated PostgreSQL acquisition. The file contains one route and one SQS Standard queue configuration, bounded to 16 KiB including whitespace. Unknown and duplicate fields are rejected. Worker tenant, namespace, and logical queue must match the file exactly before it registers a session.
+Both `ledgence orchestrator serve` and `ledgence worker connect` accept `--delivery-config FILE`. They reject this option explicitly when built without `sqs`. Omitting it preserves integrated PostgreSQL acquisition. The file contains one route and one SQS Standard queue configuration, bounded to 16 KiB including whitespace. Unknown and duplicate fields are rejected. Worker tenant, namespace, and logical queue must match the file exactly before it registers a session.
 
 The committed [local configuration](../examples/delivery-sqs-local.json) matches the HTTP quickstart's `tenant_example/demo/python-demo` scope and expects an **already created**, dedicated Standard queue named `ledgence` on a local SQS-compatible server at port 9324. Adjust its queue URL to the server's actual returned URL. Ledgence does not create queues or start a broker.
 
 Add the same configuration file to the two HTTP quickstart commands:
 
 ```sh
-./target/debug/ledgence-orchestrator serve \
+./target/debug/ledgence orchestrator serve \
   --bind 127.0.0.1:8080 --store "$demo_dir/store" \
   --delivery-config "$PWD/examples/delivery-sqs-local.json"
 
-./target/debug/ledgence-worker connect \
+./target/debug/ledgence worker connect \
   --server http://127.0.0.1:8080 \
   --tenant tenant_example --namespace demo --queue python-demo \
   --store "$demo_dir/store" --cache "$demo_dir/cache" \

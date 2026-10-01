@@ -1,24 +1,101 @@
 # Ledgence
 
-Open-source task orchestration with portable programs, reusable workers, and traceable execution.
+Run your agents and data pipelines on infrastructure you control.
 
-Ledgence is being built in Rust. Its worker can publish a Python program with its application dependencies, fetch and verify it on demand, cache it, and run complete CloudEvents through a bounded pool of reusable subprocesses.
+Ledgence is an open-source orchestration platform built in Rust, with a Python
+client and runtime. Publish your code with its dependencies, run it on reusable
+workers, and coordinate tasks through workflows that checkpoint, wait, and resume.
+Self-host without a required vendor account.
 
-Run `ledgence-orchestrator` for the PostgreSQL-backed HTTP task service, `ledgence-worker connect` for reusable workers, and `ledgence task` to submit and inspect tasks. The [Python client](sdk/python-client/README.md) exposes `from ledgence.client import AsyncClient` for submission, [task discovery](docs/task-discovery.md), bounded waiting, and [task results](docs/task-results.md). The delivery driver acquires assignments, renews leases, executes programs, and reconciles durable results. The local `run` command also supports task fixtures. See the [HTTP quickstart and contract](docs/http-orchestration.md), [worker delivery](docs/worker-delivery.md), and [delivery contract](docs/delivery-contract.md). This is an early development version with bounded HTTP long polling and optional PostgreSQL wake notifications. Optional [SQS Standard and ElasticMQ delivery](docs/dispatch-delivery.md) separates queue transport from durable task ownership; PostgreSQL remains the task authority. Optional [OpenTelemetry traces and correlated Python logs](docs/observability.md) are available. There is no stable public API commitment yet.
+[Documentation](https://docs.ledgence.com) ·
+[Quickstart](https://docs.ledgence.com/tutorials/run-locally) ·
+[Examples](examples/README.md) ·
+[Console guide](https://docs.ledgence.com/tutorials/use-console) ·
+[Releases](https://github.com/Ledgence/ledgence/releases) ·
+[Python client](https://pypi.org/project/ledgence-client/)
 
-[Checkpoint workflows](docs/workflows.md), [external events/timers](docs/workflow-events.md), and [owned subworkflows](docs/subworkflows.md) combine concurrent durable local Python steps with explicitly distributed tasks. A workflow checkpoints and releases its invocation while waiting, then resumes an explicit continuation from persisted state. The Python client exposes these operations through `client.workflows`. Optional [durable completion callbacks](docs/completion-notifications.md) notify configured HTTP receivers when tasks or workflows finish, with persisted retries and delivery status.
+## Get started
 
-Optional [retention maintenance](docs/retention.md) previews and collects expired execution history in bounded, resumable batches. It requires an explicit tenant and namespace, preserves the minimum 90-day terminal window, and protects active workflows, current worker cursors, and unfinished callbacks.
+- **Choose an example:** browse the [example catalog](examples/README.md) for Python programs,
+  workflow patterns, client usage, and optional provider integrations.
+- **Explore Console:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
+  to inspect executions, workflows, registered agents, and worker process slots in your browser.
+- **Run the complete stack:** follow the [local tutorial](https://docs.ledgence.com/tutorials/run-locally)
+  to start PostgreSQL, the orchestrator, a worker, and example programs with Docker Compose.
+- **Try the native worker:** [install the Linux x86_64 or macOS Apple Silicon bundle](https://docs.ledgence.com/how-to/install-native)
+  and run a Python program without building Rust.
+- **Connect an application:** install the [Python client](sdk/python-client/README.md)
+  to submit tasks and workflows to your Ledgence service.
+- **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
+  with ChatGPT sign-in, documentation tools and durable human review, or the
+  [Google ADK and Gemini variant](examples/support-agent/README.md).
+
+**Ledgence 0.2.0** brings the unified CLI, self-hosted Console, and typed workflow
+entrypoints with durable forks. Native bundles target **Linux x86_64/glibc** and
+**macOS arm64** and include Console; the Python client and Rust API crates share
+version **0.2.0**. See the [release notes](docs/releases/0.2.0.md),
+[upgrade guide](docs/upgrading-to-0.2.md), and
+[release reference](https://docs.ledgence.com/reference/releases). Before 1.0,
+public APIs may evolve; pin versions and review changes before upgrading.
+
+The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
+original commands and do not include Console.
+
+## What you can build
+
+- **Run tasks on reusable workers.** Workers fetch and verify immutable program
+  packages on demand, cache them locally, and share a bounded pool of Python
+  subprocesses across programs. Healthy processes are reused for matching work.
+- **Coordinate durable workflows.** Combine concurrent local Python steps,
+  distributed tasks, and owned subworkflows using
+  [typed entrypoints and durable forks](docs/workflow-entrypoints.md).
+  Checkpoint state, release the worker while waiting for a task, timer, or
+  external event, then resume at a registered handler.
+- **Inspect execution and deliver results.** Submit, discover, cancel, and observe
+  tasks with the CLI or Python client. PostgreSQL stores task ownership, attempts,
+  leases, and results; optional completion callbacks retain their delivery state
+  and retry after failures.
+- **Operate one self-hosted instance.** Console serves from the Rust orchestrator:
+  follow recorded workflow relationships, inspect task attempts and results,
+  register immutable agent versions, and explore actual worker process observations.
+  There is no tenant management or required frontend hosting service.
+- **Choose optional integrations.** Use HTTP worker delivery or SQS Standard /
+  ElasticMQ transport. Export OpenTelemetry traces and metrics, and write
+  correlated Python logs to stderr. PostgreSQL remains the task authority in
+  either delivery mode.
+
+Ledgence currently executes **operator-trusted Python code**. Workers manage
+process lifecycles; they do not provide a hostile-code sandbox. Programs must
+manage their own idempotent external effects. See the
+[execution model](https://docs.ledgence.com/concepts/execution-model) and
+[delivery guarantees](docs/delivery-contract.md) before designing recovery behavior.
 
 ## Documentation
 
-The [documentation website](docs-site/README.md) organizes guided tutorials, how-to guides, reference, and concepts using Diátaxis. Its content and static site live in `docs-site/`; local preview and publishing instructions are in that directory. The detailed contracts in `docs/` remain available as documentation coverage expands.
+The [documentation site](https://docs.ledgence.com) separates tutorials, how-to
+guides, reference, and concepts. Start with a tutorial, then use the detailed
+contracts for [programs](docs/program-packages.md), [HTTP orchestration](docs/http-orchestration.md),
+[workflows](docs/workflows.md), [events and timers](docs/workflow-events.md),
+[subworkflows](docs/subworkflows.md), and [completion callbacks](docs/completion-notifications.md).
 
-## Try it
+Console documentation covers [operation](https://docs.ledgence.com/reference/console),
+[agent registration](https://docs.ledgence.com/how-to/register-agent), and
+[the single-instance model](https://docs.ledgence.com/concepts/self-hosted-console).
 
-For a complete self-hosted stack with explicit migrations, durable state, dynamic
-program publication, workflows and callbacks, use the [local Compose deployment](docs/local-deployment.md).
-The [candidate packaging procedure](docs/releasing.md) produces reviewable native artifacts without publishing them.
+Operational guides cover [worker delivery](docs/worker-delivery.md),
+[queue transport](docs/dispatch-delivery.md), [observability](docs/observability.md),
+and [retention maintenance](docs/retention.md). The [docs-site source](docs-site/README.md)
+lives beside the implementation so documentation can evolve with the code.
+
+## Run a program from source
+
+For the complete self-hosted stack, use the [local Compose deployment](docs/local-deployment.md).
+The example below exercises program publication, local execution, and process reuse.
+Ledgence 0.2.0 provides one `ledgence` executable; see the
+[CLI command groups and migration guide](docs/cli.md). Published release bundles
+retain the command layout documented with their release.
+The [bundle packaging guide](docs/releasing.md) describes qualification and artifact
+preparation for maintainers.
 
 Requirements: Rust through rustup, CPython 3.11 or newer, and Linux or macOS on x86_64 or aarch64. The repository pins its Rust toolchain. A program declares the exact Python major/minor and OS/architecture it targets; the worker supplies that interpreter. The examples below use `python3.12`.
 
@@ -26,14 +103,14 @@ From the repository root:
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
-cargo build --workspace --locked
+cargo build -p ledgence-cli --locked
 
 demo_dir="$(mktemp -d)"
-cargo run --locked -p ledgence-worker -- example \
+cargo run --locked -p ledgence-cli -- program example \
   --directory "$demo_dir/example" --python "$LEDGENCE_PYTHON"
-cargo run --locked -p ledgence-worker -- publish \
+cargo run --locked -p ledgence-cli -- program publish \
   --source "$demo_dir/example/program" --store "$demo_dir/store"
-cargo run --locked -p ledgence-worker -- run \
+cargo run --locked -p ledgence-cli -- worker run \
   --tasks "$demo_dir/example/tasks.json" \
   --store "$demo_dir/store" --cache "$demo_dir/cache" \
   --python "$LEDGENCE_PYTHON" \
@@ -54,7 +131,8 @@ def handle(event):
 All public Python imports share the `ledgence` namespace: use
 `from ledgence.client import AsyncClient` in callers,
 `from ledgence.worker import current_invocation, get_logger` in programs, and
-`from ledgence.worker.workflow import workflow_context` in workflows. The client
+`from ledgence.worker.workflow import Workflow` for registered workflow handlers
+(`workflow_context` remains available for existing controllers). The client
 SDK and worker helper remain separate components. Existing programs using the
 legacy `ledgence_worker` imports must update and republish their packages; see
 [the import migration](docs/program-packages.md#python-import-namespace).
@@ -89,7 +167,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --lock
 cargo deny --locked check
 ```
 
-Install the reviewed dependency checker with `cargo install cargo-deny --version 0.20.2 --locked`. Tests include real Python subprocesses, archive integrity and limits, cache recovery, cancellation, process capacity, and the full publish-to-execution flow. Delivery fault tests exercise lease expiry and uncertain replies. Real PostgreSQL/Python delivery tests run separately through the [database gate](docs/postgres.md#verification); ordinary workspace tests leave those explicitly ignored. The [HTTP acceptance gate](docs/http-orchestration.md#verification) runs separate server, worker, and CLI binaries with a real database and fault proxy. Git integration follows feature branches from `develop`, passing checks before merging back; `main` is reserved for stable releases.
+Install the reviewed dependency checker with `cargo install cargo-deny --version 0.20.2 --locked`. Tests include real Python subprocesses, archive integrity and limits, cache recovery, cancellation, process capacity, and the full publish-to-execution flow. Delivery fault tests exercise lease expiry and uncertain replies. Real PostgreSQL/Python delivery tests run separately through the [database gate](docs/postgres.md#verification); ordinary workspace tests leave those explicitly ignored. The [HTTP acceptance gate](docs/http-orchestration.md#verification) runs separate server, worker, and task-client processes using the `ledgence` executable with a real database and fault proxy. Git integration follows feature branches from `develop`, passing checks before merging back; `main` is reserved for stable releases.
 
 ## License
 
@@ -100,3 +178,19 @@ Ledgence-owned code is [MIT licensed](LICENSE). Your applications and programs c
 The Rust application service and PostgreSQL 18 adapter implement transactional task submission, attempts, leases, result acceptance, cancellation, inspection, and expiry recovery. See [PostgreSQL setup and guarantees](docs/postgres.md). The HTTP executable schedules recovery and exposes readiness; embedding applications can also supply the service directly to the [delivery driver](docs/worker-delivery.md). The driver depends on the portable `TaskService` interface and does not depend on PostgreSQL or a particular transport.
 
 Operational metrics are available through the optional OTLP adapter; see [metrics configuration and counting semantics](docs/metrics.md).
+
+## Self-hosted Console
+
+[Ledgence Console](docs/console.md) provides Executions, Workflows, Agents, and
+Workers from durable records and server-received process observations. Build the
+[local deployment](docs/local-deployment.md) from a checkout containing Console,
+publish and register its examples, then open `http://127.0.0.1:8080/console/`. The
+[guided tutorial](https://docs.ledgence.com/tutorials/use-console) follows real work
+through all four sections.
+
+Static assets are served by Rust; Node is only a separate frontend build tool.
+One server-owned instance binding replaces browser scope selection. Existing
+SDK, CLI, and worker scope fields must match that binding; they do not introduce
+multi-tenant administration. [Instance binding](docs/self-hosted-instance.md),
+[query contracts](docs/console-query-model.md), and
+[worker observations](docs/worker-observations.md) describe the operational boundaries.

@@ -747,3 +747,57 @@ async fn unwritable_cache_parent_cannot_partially_delete_a_live_entry() {
     let reopened = FileArtifactCache::new(root.path(), limits).unwrap();
     assert!(reopened.lookup(&first).await.unwrap().is_some());
 }
+
+#[test]
+fn catalog_verification_checks_all_members_without_executing_them() {
+    use ledgence_adapter_artifact::verify_program_package;
+    let (descriptor, bytes) = archive(
+        "release-a",
+        &[
+            ("app.py", b"raise RuntimeError('must never run')"),
+            ("dependency.bin", b"unique-corruptible-bytes"),
+        ],
+    );
+    let value =
+        verify_program_package(bytes.clone(), &descriptor, &ArtifactLimits::default()).unwrap();
+    assert_eq!(value.program, descriptor.program);
+    let marker = b"unique-corruptible-bytes";
+    let position = bytes
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .unwrap();
+    let mut corrupt = bytes;
+    corrupt[position] ^= 1;
+    let descriptor = describe(descriptor.program, &corrupt);
+    assert!(
+        verify_program_package(corrupt, &descriptor, &ArtifactLimits::default()).is_err(),
+        "a matching outer digest must not hide a broken ZIP member CRC"
+    );
+}
+#[test]
+fn catalog_registration_verifies_other_targets_without_host_compatibility_gate() {
+    use ledgence_adapter_artifact::verify_program_package;
+    let mut value = manifest("release-other");
+    value.platform.os = if std::env::consts::OS == "macos" {
+        "linux"
+    } else {
+        "macos"
+    }
+    .into();
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    writer
+        .start_file(
+            "ledgence-program.json",
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+        )
+        .unwrap();
+    writer
+        .write_all(&serde_json::to_vec(&value).unwrap())
+        .unwrap();
+    let bytes = writer.finish().unwrap().into_inner();
+    let descriptor = describe(value.program.clone(), &bytes);
+    assert_eq!(
+        verify_program_package(bytes, &descriptor, &ArtifactLimits::default()).unwrap(),
+        value
+    );
+}

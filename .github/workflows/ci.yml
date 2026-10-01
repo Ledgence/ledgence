@@ -61,10 +61,17 @@ jobs:
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
         run: cargo test --workspace --all-targets --all-features --locked
+      - name: Check Codex descendant cleanup without model requests
+        if: matrix.python == '3.13'
+        run: |
+          cargo build -p ledgence-cli --bin ledgence --locked
+          python examples/codex-support-agent/check_cleanup.py --binaries target/debug
       - name: Test Rust documentation
         run: cargo test --workspace --doc --all-features --locked
       - name: Build Rust documentation
         run: cargo doc --workspace --all-features --no-deps --locked
+      - name: Check disposable database isolation before any resource creation
+        run: python -m unittest discover -s tools -p 'test_postgres_fixture.py' -v
       - name: Test the local HTTP fixtures
         run: python tools/check-http-fixtures.py
       - name: Test the performance measurement harness
@@ -171,7 +178,7 @@ jobs:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
-          cargo build --workspace --bins --all-features --locked
+          cargo build -p ledgence-cli --bin ledgence --all-features --locked
           python tools/check-sqs.py --endpoint http://127.0.0.1:9324 \
             --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
             --evidence "$RUNNER_TEMP/ledgence-sqs-evidence"
@@ -224,7 +231,7 @@ jobs:
             --endpoint http://127.0.0.1:9324 --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries target/debug --evidence "$RUNNER_TEMP/ledgence-workflow-sqs-evidence"
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py \
-            --scenario events --scenario owned-tree --capture target/debug/examples/otlp-capture \
+            --scenario events --scenario owned-tree --scenario fork-mixed --capture target/debug/examples/otlp-capture \
             --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
             --evidence "$RUNNER_TEMP/ledgence-workflow-events-otel-evidence"
 

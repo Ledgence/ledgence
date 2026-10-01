@@ -13,7 +13,7 @@ pub use ledgence_worker_api::{
 };
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc, Mutex as StdMutex, Weak,
         atomic::{AtomicBool, Ordering},
@@ -22,6 +22,8 @@ use std::{
 };
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, oneshot};
 use tracing::{Instrument, instrument::WithSubscriber};
+mod observation;
+use observation::{SlotEntry, SlotToken};
 mod reservation;
 pub use reservation::ConsumerReservation;
 use reservation::{ConsumerOwnership, ConsumerPermit};
@@ -99,14 +101,16 @@ struct AttemptKey {
 }
 #[derive(Default)]
 struct Pool {
-    occupied: usize,
+    slots: BTreeMap<usize, SlotEntry>,
+    next_process_instance: u64,
     idle: Vec<Idle>,
     quarantined: Vec<Idle>,
     /// Start panicked before returning a cleanup handle. Capacity and the
     /// artifact remain reserved; shutdown cannot certify these starts stopped.
-    unresolved_starts: Vec<(PreparedArtifact, Option<Arc<ConsumerOwnership>>)>,
+    unresolved_starts: Vec<(PreparedArtifact, Option<Arc<ConsumerOwnership>>, SlotToken)>,
 }
 struct Idle {
+    slot: SlotToken,
     key: SessionKey,
     /// Retain failed-attempt context through cleanup by a separate shutdown task.
     processing: Option<TraceContext>,
@@ -507,16 +511,7 @@ impl Worker {
         );
         // Keep this owner outside every adapter future. A panicking poll only
         // unwinds a borrow of the session; retirement still has its real handle.
-        ownership.session = Some(Idle {
-            key,
-            processing: processing.cloned(),
-            session,
-            _artifact: artifact,
-            _consumer: ownership
-                .permit
-                .as_ref()
-                .and_then(ConsumerPermit::reservation),
-        });
+        ownership.session = Some(session);
         if let Err(error) = control.check() {
             let cleanup = self.retire_owned(ownership, &context.identity).await.err();
             return Err(with_cleanup(
@@ -542,6 +537,11 @@ impl Worker {
                 ));
             }
         };
+        self.inner.pool.lock().await.executing(
+            &ownership.session.as_ref().expect("session acquired").slot,
+            pid,
+            &context.identity,
+        );
         ownership.stage = InvocationStage::Execution;
         tracing::info!(pid, reused, phase = "execution", "invoking program");
         let execution_span = operation_span("execute");
@@ -600,6 +600,18 @@ impl Worker {
             execution_span.record("otel.status_code", "ERROR");
         }
         drop(execution_span);
+        let observations = catch_call(|| {
+            ownership
+                .session
+                .as_mut()
+                .expect("session acquired")
+                .session
+                .take_observations()
+        })
+        .ok()
+        .flatten()
+        .filter(|value| value.validate().is_ok())
+        .map(Box::new);
         match outcome {
             Ok(outcome) => {
                 let mut idle = ownership.session.take().expect("session acquired");
@@ -607,10 +619,15 @@ impl Worker {
                 // pool, not by the previous delivery's settlement reservation.
                 idle._consumer = None;
                 idle.processing = None;
-                self.inner.pool.lock().await.idle.push(idle);
+                {
+                    let mut pool = self.inner.pool.lock().await;
+                    pool.warm(&idle.slot);
+                    pool.idle.push(idle);
+                }
                 ownership.stage = InvocationStage::Settled;
                 tracing::info!(pid, phase = "completed", "program returned");
                 Ok(ExecutionReport {
+                    observations,
                     context: Box::new(context.clone()),
                     process_id: pid,
                     reused_process: reused,
@@ -620,10 +637,10 @@ impl Worker {
             }
             Err(error) => {
                 let cleanup = self.retire_owned(ownership, &context.identity).await.err();
-                Err(with_cleanup(
-                    failure(error, Phase::Execution, true, context),
-                    cleanup,
-                ))
+                let mut failure =
+                    with_cleanup(failure(error, Phase::Execution, true, context), cleanup);
+                failure.observations = observations;
+                Err(failure)
             }
         }
     }
@@ -747,17 +764,24 @@ impl Worker {
         identity: &InvocationIdentity,
         processing: Option<&TraceContext>,
         reservation: Option<Arc<ConsumerOwnership>>,
-    ) -> Result<(Box<dyn ExecutionSession>, bool)> {
-        let retired = {
+    ) -> Result<(Idle, bool)> {
+        let (reserved, retired) = {
             let mut pool = self.inner.pool.lock().await;
             if let Some(index) = pool.idle.iter().position(|idle| idle.key == *key) {
-                return Ok((pool.idle.swap_remove(index).session, true));
+                let mut idle = pool.idle.swap_remove(index);
+                idle.processing = processing.cloned();
+                idle._consumer = reservation;
+                // Selected but not yet dispatched; not available for another caller.
+                pool.state(&idle.slot, ProcessSlotState::Unknown);
+                return Ok((idle, true));
             }
-            if pool.occupied < self.inner.config.concurrency {
-                pool.occupied += 1;
-                None
+            if pool.slots.len() < self.inner.config.concurrency {
+                (
+                    Some(pool.reserve_slot(self.inner.config.concurrency)?),
+                    None,
+                )
             } else if let Some(idle) = pool.idle.pop() {
-                Some(idle)
+                (None, Some(idle))
             } else {
                 return Err(Error::new(
                     ErrorKind::Capacity,
@@ -765,21 +789,33 @@ impl Worker {
                 ));
             }
         };
-        if let Some(mut idle) = retired {
+        let slot = if let Some(mut idle) = retired {
             idle.processing = processing.cloned();
             idle._consumer = reservation.clone();
             if let Err(error) = self.close_session(&mut idle, Some(identity)).await {
                 if let Some(owner) = &idle._consumer {
                     owner.retain_cleanup();
                 }
-                self.inner.pool.lock().await.quarantined.push(idle);
+                let mut pool = self.inner.pool.lock().await;
+                pool.state(&idle.slot, ProcessSlotState::CleanupPending);
+                pool.quarantined.push(idle);
                 return Err(error);
             }
-        }
-        // Keep this reservation until the replacement is started or fails.
+            idle.slot
+        } else {
+            reserved.expect("new or replacement reservation")
+        };
+        // Replacement retains the same slot until startup or confirmed failure.
         if let Err(error) = control.check() {
-            self.inner.pool.lock().await.occupied -= 1;
+            self.inner.pool.lock().await.release(&slot);
             return Err(error);
+        }
+        {
+            let mut pool = self.inner.pool.lock().await;
+            if let Err(error) = pool.starting(&slot, key, &artifact, identity) {
+                pool.release(&slot);
+                return Err(error);
+            }
         }
         let span = operation_span("start");
         self.trace.set_parent(&span, processing);
@@ -796,22 +832,35 @@ impl Worker {
         }
         drop(span);
         match started {
-            Ok(Ok(StartOutcome::Ready(session))) => Ok((session, false)),
-            Ok(Ok(StartOutcome::CleanupRequired { error, session })) => {
-                if let Some(owner) = &reservation {
-                    owner.retain_cleanup();
-                }
-                self.inner.pool.lock().await.quarantined.push(Idle {
+            Ok(Ok(StartOutcome::Ready(session))) => Ok((
+                Idle {
+                    slot,
                     key: key.clone(),
                     processing: processing.cloned(),
                     session,
                     _artifact: artifact,
-                    _consumer: reservation.clone(),
+                    _consumer: reservation,
+                },
+                false,
+            )),
+            Ok(Ok(StartOutcome::CleanupRequired { error, session })) => {
+                if let Some(owner) = &reservation {
+                    owner.retain_cleanup();
+                }
+                let mut pool = self.inner.pool.lock().await;
+                pool.state(&slot, ProcessSlotState::CleanupPending);
+                pool.quarantined.push(Idle {
+                    slot,
+                    key: key.clone(),
+                    processing: processing.cloned(),
+                    session,
+                    _artifact: artifact,
+                    _consumer: reservation,
                 });
                 Err(error)
             }
             Ok(Err(error)) => {
-                self.inner.pool.lock().await.occupied -= 1;
+                self.inner.pool.lock().await.release(&slot);
                 Err(error)
             }
             Err(error) => {
@@ -819,12 +868,9 @@ impl Worker {
                 if let Some(owner) = &reservation {
                     owner.retain_unresolved_operation();
                 }
-                self.inner
-                    .pool
-                    .lock()
-                    .await
-                    .unresolved_starts
-                    .push((artifact, reservation));
+                let mut pool = self.inner.pool.lock().await;
+                pool.state(&slot, ProcessSlotState::Unknown);
+                pool.unresolved_starts.push((artifact, reservation, slot));
                 Err(error)
             }
         }
@@ -835,6 +881,11 @@ impl Worker {
         idle: &mut Idle,
         identity: Option<&InvocationIdentity>,
     ) -> Result<()> {
+        self.inner
+            .pool
+            .lock()
+            .await
+            .state(&idle.slot, ProcessSlotState::Retiring);
         let span = operation_span("cleanup");
         let processing = idle
             .processing
@@ -879,14 +930,16 @@ impl Worker {
         let owned = ownership.session.take().expect("owned session to retire");
         match result {
             Ok(()) => {
-                self.inner.pool.lock().await.occupied -= 1;
+                self.inner.pool.lock().await.release(&owned.slot);
                 Ok(())
             }
             Err(error) => {
                 if let Some(owner) = &owned._consumer {
                     owner.retain_cleanup();
                 }
-                self.inner.pool.lock().await.quarantined.push(owned);
+                let mut pool = self.inner.pool.lock().await;
+                pool.state(&owned.slot, ProcessSlotState::CleanupPending);
+                pool.quarantined.push(owned);
                 Err(error)
             }
         }
@@ -895,14 +948,16 @@ impl Worker {
     async fn retire(&self, mut idle: Idle, identity: Option<&InvocationIdentity>) -> Result<()> {
         match self.close_session(&mut idle, identity).await {
             Ok(()) => {
-                self.inner.pool.lock().await.occupied -= 1;
+                self.inner.pool.lock().await.release(&idle.slot);
                 Ok(())
             }
             Err(error) => {
                 if let Some(owner) = &idle._consumer {
                     owner.retain_cleanup();
                 }
-                self.inner.pool.lock().await.quarantined.push(idle);
+                let mut pool = self.inner.pool.lock().await;
+                pool.state(&idle.slot, ProcessSlotState::CleanupPending);
+                pool.quarantined.push(idle);
                 Err(error)
             }
         }
@@ -932,7 +987,7 @@ impl Worker {
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         WorkerStats {
-            process_slots: pool.occupied,
+            process_slots: pool.slots.len(),
             warm_processes: pool.idle.len(),
             active_consumers: self.inner.config.concurrency
                 - self.inner.consumers.available_permits(),
@@ -1041,17 +1096,19 @@ impl Worker {
                 None => self.close_session(&mut idle, None).await,
             };
             match result {
-                Ok(()) => self.inner.pool.lock().await.occupied -= 1,
+                Ok(()) => self.inner.pool.lock().await.release(&idle.slot),
                 Err(error) => {
                     if let Some(owner) = &idle._consumer {
                         owner.retain_cleanup();
                     }
-                    self.inner.pool.lock().await.quarantined.push(idle);
+                    let mut pool = self.inner.pool.lock().await;
+                    pool.state(&idle.slot, ProcessSlotState::CleanupPending);
+                    pool.quarantined.push(idle);
                     return Err(error);
                 }
             }
         }
-        if self.inner.pool.lock().await.occupied != 0
+        if !self.inner.pool.lock().await.slots.is_empty()
             || self
                 .inner
                 .registry
@@ -1135,6 +1192,7 @@ fn failure(
     context: &ExecutionContext,
 ) -> ExecutionFailure {
     ExecutionFailure {
+        observations: None,
         context: Box::new(context.clone()),
         error,
         cleanup_error: None,

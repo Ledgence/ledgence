@@ -1,5 +1,11 @@
 #![cfg(all(feature = "client", feature = "server"))]
 
+#[path = "contract/instance.rs"]
+mod instance;
+
+#[path = "contract/console.rs"]
+mod console;
+
 #[path = "contract/completion.rs"]
 mod completion;
 
@@ -256,6 +262,7 @@ fn settlement(output: Value) -> SettleCommand {
         quiescence: Quiescence::Confirmed,
         processing_trace: None,
         report: AttemptReport::Completed(ExecutionReport {
+            observations: None,
             context: Box::new(ExecutionContext::from(&ExecutionRequest {
                 descriptor: descriptor(),
                 event: event(Value::Null),

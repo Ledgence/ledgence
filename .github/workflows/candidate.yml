@@ -2,22 +2,33 @@ name: Candidate packaging
 
 on:
   workflow_dispatch:
+    inputs:
+      candidate:
+        description: Candidate label (rc.N)
+        type: string
+        default: rc.1
+      include_console:
+        description: Also build a Linux x86_64 candidate with Console
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
+env:
+  SQLX_OFFLINE: 'true'
+  PYTHONDONTWRITEBYTECODE: '1'
+  CANDIDATE: ${{ inputs.candidate }}
+
 jobs:
   candidate:
-    name: Candidate bundle (${{ matrix.os }})
+    name: Headless candidate bundle (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-14]
-    env:
-      SQLX_OFFLINE: 'true'
-      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - name: Check out committed source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -30,9 +41,73 @@ jobs:
       - name: Select the repository Rust toolchain
         run: rustup show active-toolchain
       - name: Build and verify candidate artifacts
-        run: python tools/release/package.py --candidate rc.1 --output "$RUNNER_TEMP/ledgence-candidate"
+        run: python tools/release/package.py --candidate "$CANDIDATE" --headless --output "$RUNNER_TEMP/ledgence-candidate"
       - name: Verify candidate archive checksum
         working-directory: ${{ runner.temp }}/ledgence-candidate
         run: shasum -a 256 -c SHA256SUMS
-# Intentionally no upload, tag, push, release creation or branch promotion.
+      - name: Retain verified headless candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-headless-${{ matrix.os }}
+          path: ${{ runner.temp }}/ledgence-candidate/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  console:
+    name: Console candidate bundle (Linux x86_64)
+    if: inputs.include_console
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ledgence-test
+          POSTGRES_DB: ledgence
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ledgence"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      LEDGENCE_POSTGRES_URL: postgres://postgres:ledgence-test@127.0.0.1:5432/ledgence
+    steps:
+      - name: Check out committed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Set up the repository Node toolchain
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version-file: console/.nvmrc
+      - name: Install the exact reviewed Console toolchain and graph
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+          pnpm --dir console install --frozen-lockfile --ignore-scripts
+      - name: Build source-qualified Console assets
+        run: pnpm --dir console build
+      - name: Select the repository Rust toolchain
+        run: rustup show active-toolchain
+      - name: Build and verify candidate artifacts with relocated Console
+        run: |
+          python tools/release/package.py --candidate "$CANDIDATE" \
+            --console-dist console/dist --output "$RUNNER_TEMP/ledgence-candidate"
+      - name: Verify candidate archive checksum
+        working-directory: ${{ runner.temp }}/ledgence-candidate
+        run: shasum -a 256 -c SHA256SUMS
+      - name: Retain verified Console candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-console-linux-x86_64
+          path: ${{ runner.temp }}/ledgence-candidate/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+# Retained Actions artifacts are candidates, not public GitHub Releases.
 # Integration and capacity qualification remain separate required gates.

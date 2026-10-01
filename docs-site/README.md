@@ -20,15 +20,15 @@ pnpm build
 pnpm preview
 ```
 
-The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors and assets. `public/source.json` records the product checkout revision. Before public deployment, ensure that revision is pushed to the product repository and the tutorials match it. Development documentation is explicitly marked; this site does not imply a stable release.
+The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors and assets. `release.json` records the 0.2 release tag, native targets and independently published package versions. `public/source.json` keeps release identity separate from the documentation checkout revision. The product SHA is optional: the build resolves the local release tag when it exists and otherwise omits the unknown SHA instead of substituting HEAD or a historical hash. `source-features.json` records Console as part of the same release; generated provenance uses the `release` channel. Native documentation targets Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64, with dynamic requirements preserved in bundle provenance. Complete release qualification and verify the published artifacts before deploying updated release documentation. A public release does not imply a stable 1.0 API.
 
 ## Authoring
 
 Edit `src/content/docs/`. Every page needs a `title` and `description`. Begin body headings at `##`. Keep one reader need per page; link across types for additional context. The four sections already contain real content: do not add empty placeholders. Use `agent` in approachable prose while preserving exact `program`, task, workflow and worker API names.
 
-The initial site is an incremental Diátaxis pilot. Existing `../docs/` contracts remain the detailed source for features outside that pilot. Move and link material deliberately as coverage grows; never present code snippets as runnable unless prerequisites and package publication are described.
+The site provides Diátaxis learning paths and release installation guidance. Existing `../docs/` contracts remain the detailed source for features outside those paths. Move and link material deliberately as coverage grows; never present code snippets as runnable unless prerequisites and package publication are described.
 
-Code examples must follow the checked-in SDK and examples. Do not invent a registry install command, a hosted dashboard, exactly-once effects, or public multi-tenant isolation. Review the local trusted-code boundary where relevant.
+Code examples must follow the checked-in SDK and examples. Only advertise verified registry versions and native targets. The self-hosted Console serves one instance and has no tenant administration or scope selectors. Describe the retained CLI/SDK fields as a fixed compatibility binding. Do not imply a vendor-hosted dashboard, exactly-once effects, or public multi-tenant isolation. Review the local trusted-code boundary where relevant.
 
 `astro.config.mjs` owns sidebar labels and clean URL routing. `src/styles/docs.css` adapts the neutral Ledgence palette. Search is entirely static; no vendor account, external search service or runtime server is required. System light/dark appearance, keyboard search, mobile navigation, heading links and copyable code are supplied by Starlight.
 

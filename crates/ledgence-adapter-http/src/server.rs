@@ -1,7 +1,9 @@
 //! Axum composition boundary. Application and persistence remain behind
 //! [`TaskService`]; readiness and database lifecycle belong to the executable.
 
+pub mod assets;
 mod completion;
+pub mod console;
 mod workflow;
 
 use crate::{RESPONSE_MAX_BYTES, wire::*};
@@ -32,6 +34,8 @@ struct Server {
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     completions: Option<Arc<dyn CompletionService>>,
+    instance: Option<SelfHostedInstanceContext>,
+    console: Option<console::ConsoleServices>,
     stopping: Arc<AtomicBool>,
     blocking: Arc<Semaphore>,
     request_prefix: Arc<str>,
@@ -61,7 +65,7 @@ pub fn router_with_observability(
     stopping: Arc<AtomicBool>,
     trace_bridge: Arc<dyn TraceBridge>,
 ) -> Router {
-    build_router(service, None, None, stopping, trace_bridge)
+    build_router(service, None, None, None, None, stopping, trace_bridge)
 }
 
 /// Add independently supplied workflow operations to the task transport.
@@ -71,7 +75,15 @@ pub fn router_with_workflows(
     stopping: Arc<AtomicBool>,
     trace_bridge: Arc<dyn TraceBridge>,
 ) -> Router {
-    build_router(service, Some(workflows), None, stopping, trace_bridge)
+    build_router(
+        service,
+        Some(workflows),
+        None,
+        None,
+        None,
+        stopping,
+        trace_bridge,
+    )
 }
 
 /// Add durable external completion subscriptions to task and workflow operations.
@@ -86,15 +98,64 @@ pub fn router_with_completions(
         service,
         Some(workflows),
         Some(completions),
+        None,
+        None,
         stopping,
         trace_bridge,
     )
+}
+
+/// Bind legacy commands and queries to the server's fixed instance. ID-only
+/// session operations also require a bound store that validates the stored row
+/// inside its mutation transaction; checking a returned session is insufficient.
+pub fn router_with_instance(
+    service: Arc<dyn TaskService>,
+    workflows: Arc<dyn WorkflowService>,
+    completions: Arc<dyn CompletionService>,
+    instance: SelfHostedInstanceContext,
+    stopping: Arc<AtomicBool>,
+    trace_bridge: Arc<dyn TraceBridge>,
+) -> Result<Router> {
+    instance.validate()?;
+    Ok(build_router(
+        service,
+        Some(workflows),
+        Some(completions),
+        Some(instance),
+        None,
+        stopping,
+        trace_bridge,
+    ))
+}
+
+/// Bind optional console services while preserving every legacy constructor.
+pub fn router_with_console(
+    service: Arc<dyn TaskService>,
+    workflows: Arc<dyn WorkflowService>,
+    completions: Arc<dyn CompletionService>,
+    console: console::ConsoleServices,
+    stopping: Arc<AtomicBool>,
+    trace_bridge: Arc<dyn TraceBridge>,
+) -> Result<Router> {
+    let instance = console.instance.context();
+    instance.validate()?;
+    Ok(build_router(
+        service,
+        Some(workflows),
+        Some(completions),
+        Some(instance),
+        Some(console),
+        stopping,
+        trace_bridge,
+    ))
 }
 
 fn build_router(
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     completions: Option<Arc<dyn CompletionService>>,
+    instance: Option<SelfHostedInstanceContext>,
+    console: Option<console::ConsoleServices>,
     stopping: Arc<AtomicBool>,
     trace_bridge: Arc<dyn TraceBridge>,
 ) -> Router {
@@ -102,6 +163,8 @@ fn build_router(
         service,
         workflows,
         completions,
+        instance,
+        console,
         stopping,
         blocking: Arc::new(Semaphore::new(4)),
         request_prefix: format!(
@@ -118,7 +181,7 @@ fn build_router(
         invalid_trace_headers: Arc::new(AtomicU64::new(0)),
     };
     let mut router = Router::new();
-    for (path, _) in ROUTES {
+    for (path, _) in ROUTES.iter().chain(console::ROUTES) {
         router = router.route(path, any(handle));
     }
     router.fallback(handle).with_state(state)
@@ -135,6 +198,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("/v1/workflows/events", "POST"),
     ("/v1/workflows/activations/context", "POST"),
     ("/v1/workflows/local-results", "POST"),
+    ("/v1/workflows/forks", "POST"),
     ("/v1/tasks", "GET, POST"),
     ("/v1/tasks/inspect", "GET"),
     ("/v1/tasks/status", "GET"),
@@ -186,6 +250,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
     let method = request.method().as_str().to_owned();
     let route = ROUTES
         .iter()
+        .chain(console::ROUTES)
         .find(|(path, _)| *path == request.uri().path());
     let route_label = route.map_or("unmatched", |(path, _)| *path);
     let span = tracing::info_span!(
@@ -313,6 +378,23 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
             "request-id",
             HeaderValue::from_str(&request_id).expect("generated ASCII request ID"),
         );
+        response.headers_mut().insert(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        );
+        if route_label.starts_with("/v1/console/")
+            && let Some(console) = &server.console
+        {
+            if let Ok(identity) = HeaderValue::from_str(&console.instance.instance_id) {
+                response
+                    .headers_mut()
+                    .insert("ledgence-instance-id", identity);
+            }
+            response.headers_mut().insert(
+                "ledgence-console-contract",
+                HeaderValue::from(ledgence_orchestration_api::console::CONSOLE_CONTRACT_VERSION),
+            );
+        }
         if status == 405 {
             response.headers_mut().insert(
                 header::ALLOW,
@@ -407,6 +489,20 @@ fn invalid_trace_diagnostic(invalid_count: &AtomicU64) {
 }
 
 impl Server {
+    fn require_scope(&self, scope: &Scope) -> Result<()> {
+        scope.validate()?;
+        if let Some(instance) = &self.instance {
+            instance.require_scope(scope)?;
+        }
+        Ok(())
+    }
+    fn require_submission_scope(&self, command: &SubmitCommand) -> Result<()> {
+        self.require_scope(&Scope {
+            tenant_id: command.input.tenant_id.clone(),
+            namespace: command.input.namespace.clone(),
+        })
+    }
+
     async fn blocking<T: Send + 'static>(
         &self,
         job: impl FnOnce() -> std::result::Result<T, Failure> + Send + 'static,
@@ -477,6 +573,16 @@ async fn dispatch(
     if Instant::now() >= deadline {
         return Err(unavailable("server request deadline exceeded before dispatch").into());
     }
+    if request.method() != axum::http::Method::GET
+        && let Some(console) = &server.console
+    {
+        console.check_origin(request.headers())?;
+    }
+    if request.uri().path().starts_with("/v1/console/")
+        || request.uri().path() == "/v1/worker-observations"
+    {
+        return console::dispatch(server, request).await;
+    }
     let (parts, body) = request.into_parts();
     let path = parts.uri.path();
     if parts.method == axum::http::Method::GET {
@@ -488,7 +594,7 @@ async fn dispatch(
             tenant_id: fields["tenant_id"].clone(),
             namespace: fields["namespace"].clone(),
         };
-        scope.validate()?;
+        server.require_scope(&scope)?;
         if path == "/v1/tasks" {
             record_scope(&scope);
             let query = list_query(&fields)?;
@@ -611,6 +717,7 @@ async fn dispatch(
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
         "/v1/workflows/events" => WORKFLOW_EVENT_COMMAND_MAX_BYTES,
+        "/v1/workflows/forks" => WORKFLOW_FORK_COMMAND_MAX_BYTES,
         "/v1/completion-subscriptions" | "/v1/completion-subscriptions/retry" => {
             COMPLETION_COMMAND_MAX_BYTES
         }
@@ -647,6 +754,7 @@ async fn dispatch(
                         .map_err(|_| invalid("malformed submission command").into())
                 })
                 .await?;
+            server.require_submission_scope(&command)?;
             let span = tracing::Span::current();
             span.record("ledgence.tenant.id", &command.input.tenant_id);
             span.record("ledgence.namespace", &command.input.namespace);
@@ -669,7 +777,7 @@ async fn dispatch(
         }
         "/v1/worker-sessions" => {
             let command: OpenSession = server.decode(bytes, maximum).await?;
-            command.scope.validate()?;
+            server.require_scope(&command.scope)?;
             validate_text(&command.queue, 128)?;
             if command.concurrency == 0 {
                 return Err(invalid("concurrency must be positive").into());
@@ -707,7 +815,7 @@ async fn dispatch(
         }
         "/v1/tasks/cancel" => {
             let command: Cancel = server.decode(bytes, maximum).await?;
-            command.scope.validate()?;
+            server.require_scope(&command.scope)?;
             validate_text(&command.task_id, 128)?;
             tracing::Span::current().record("ledgence.task.id", &command.task_id);
             record_scope(&command.scope);
@@ -733,6 +841,8 @@ async fn dispatch(
                         .map_err(|_| invalid("malformed dispatch claim command").into())
                 })
                 .await?;
+            server.require_scope(&command.dispatch.scope)?;
+            server.require_scope(&command.acquisition.scope)?;
             record_scope(&command.dispatch.scope);
             let span = tracing::Span::current();
             span.record(
@@ -781,7 +891,7 @@ async fn dispatch(
             let options =
                 AcquireOptions::new(Duration::from_millis(request.wait_ms), deadline.into_std())?;
             let command = request.into_command();
-            command.scope.validate()?;
+            server.require_scope(&command.scope)?;
             validate_text(&command.queue, 128)?;
             validate_text(&command.worker_session_id, 128)?;
             tracing::Span::current()
@@ -813,6 +923,7 @@ async fn dispatch(
         }
         "/v1/renewals" => {
             let command: RenewCommand = server.decode(bytes, maximum).await?;
+            server.require_scope(&command.owner.scope)?;
             log_owner(&command.owner)?;
             tracing::info!(sequence = command.sequence, intent = ?command.intent, "HTTP renewal");
             server.encode(server.service.renew(&command).await?).await
@@ -824,12 +935,14 @@ async fn dispatch(
                         .map_err(|_| invalid("malformed settlement command").into())
                 })
                 .await?;
+            server.require_scope(&command.owner.scope)?;
             log_owner(&command.owner)?;
             tracing::info!(operation_id = command.operation_id, "HTTP settlement");
             server.encode(server.service.settle(&command).await?).await
         }
         "/v1/quiescence-confirmations" => {
             let owner: LeaseOwner = server.decode(bytes, maximum).await?;
+            server.require_scope(&owner.scope)?;
             log_owner(&owner)?;
             server
                 .encode(server.service.confirm_quiescence(&owner).await?)

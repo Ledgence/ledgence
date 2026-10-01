@@ -150,6 +150,7 @@ async fn codec_accepted_receipt_and_report_bindings_are_checked_before_replay() 
         owner: assigned.lease.owner.clone(),
         operation_id: "codec-settlement".into(),
         report: AttemptReport::Completed(ExecutionReport {
+            observations: None,
             context: Box::new(ExecutionContext::from(&ExecutionRequest {
                 descriptor: assigned.descriptor,
                 event: assigned.event,

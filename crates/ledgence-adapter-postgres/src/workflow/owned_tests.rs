@@ -27,7 +27,7 @@ async fn make_due(store: &PostgresStore) {
     sqlx::query("UPDATE workflow_work SET available_at_ms=0 WHERE processed_at_ms IS NULL AND lease_token IS NULL")
         .execute(&store.pool).await.unwrap();
 }
-async fn recover(store: &PostgresStore) {
+pub(super) async fn recover(store: &PostgresStore) {
     for _ in 0..80 {
         make_due(store).await;
         let batch = store.claim_work(16).await.unwrap();
@@ -48,11 +48,12 @@ async fn recover(store: &PostgresStore) {
     }
     panic!("owned workflow recovery exceeded bounded fixture");
 }
-async fn failed_attempt(store: &PostgresStore, assigned: &Assignment) {
+pub(super) async fn failed_attempt(store: &PostgresStore, assigned: &Assignment) {
     let failed = SettleCommand {
         owner: assigned.lease.owner.clone(),
         operation_id: "retry-controller".into(),
         report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: Box::new(ExecutionContext {
                 identity: InvocationIdentity::from(&assigned.event),
                 program: assigned.descriptor.program.clone(),

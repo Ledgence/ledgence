@@ -20,6 +20,7 @@ import unittest
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment, eventually
 from http_acceptance.sqs import SqsDeployment
 
@@ -464,7 +465,7 @@ def metadata(root, args, binaries):
             'logical_cpus': os.cpu_count(), 'physical_memory_bytes': memory,
             'python_harness': sys.version, 'settings': settings,
             'binaries': {name: {'path': str(binaries / name), 'sha256': digest(binaries / name)}
-                         for name in ('ledgence', 'ledgence-worker', 'ledgence-orchestrator')},
+                         for name in ('ledgence',)},
             'caps': {'arrivals': MAX_TASKS, 'estimated_total_input_bytes': MAX_INPUT_BYTES,
                      'pending_http': args.submitters, 'response_bytes': RESPONSE_LIMIT},
             'limitations': ['Fresh local database; no retention, replication, or failover qualification.',
@@ -523,18 +524,17 @@ def main():
     parent_url = os.environ.get('LEDGENCE_POSTGRES_URL')
     if not args.disposable_postgres or not parent_url:
         parser.error('--disposable-postgres and LEDGENCE_POSTGRES_URL are both required')
-    parsed = urllib.parse.urlsplit(parent_url)
-    if parsed.scheme not in ('postgres', 'postgresql') or not parsed.hostname:
-        parser.error('LEDGENCE_POSTGRES_URL must be a PostgreSQL URL with a hostname')
-    # A query-string dbname could override the owned path. Reject it before any DDL.
-    if any(key.lower() in ('dbname', 'database') for key, _ in urllib.parse.parse_qsl(parsed.query)):
-        parser.error('database overrides in PostgreSQL URL query parameters are not allowed')
+    database = 'ledgence_perf_' + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries
     if binaries is None:
-        build = ['cargo', 'build', '--workspace', '--bins', '--locked']
+        build = ['cargo', 'build', '-p', 'ledgence-cli', '--bin', 'ledgence', '--locked']
         if args.delivery_config:
-            build.extend(['--features', 'ledgence-worker/sqs,ledgence-orchestrator/sqs'])
+            build.extend(['--features', 'sqs'])
         if args.profile == 'release':
             build.append('--release')
         subprocess.run(build, cwd=root, check=True)
@@ -542,7 +542,7 @@ def main():
             ['cargo', 'metadata', '--no-deps', '--format-version', '1', '--locked'], cwd=root))
         binaries = Path(cargo_metadata['target_directory']) / args.profile
     binaries = binaries.resolve()
-    for name in ('ledgence', 'ledgence-worker', 'ledgence-orchestrator'):
+    for name in ('ledgence',):
         if not (binaries / name).is_file():
             parser.error(f'missing binary {binaries / name}')
     if args.evidence:
@@ -554,8 +554,6 @@ def main():
     report = metadata(root, args, binaries)
     report.update(result='failed', expected_arrivals=expected, delivery_config_sha256=config_digest)
     (directory / 'metadata.json').write_text(json.dumps(report, indent=2) + '\n')
-    database = 'ledgence_perf_' + uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(parsed._replace(path='/' + database))
     deployment, sampler, submitter, created = None, None, None, False
     failures = []
     interrupted = False
@@ -591,7 +589,7 @@ def main():
         deployment.publish('performance', '1.0.0', program_source=PROGRAM)
         stage = 'migration'
         with (directory / 'migration.stdout').open('wb') as out, (directory / 'migration.stderr').open('wb') as err:
-            subprocess.run([str(binaries / 'ledgence-orchestrator'), 'migrate'],
+            subprocess.run([str(binaries / 'ledgence'), 'orchestrator', 'migrate'],
                            env=deployment.environment, stdout=out, stderr=err, check=True, timeout=650)
         report['postgres'] = sql_json(deployment, "SELECT json_build_object('version',version(),"
                                     "'max_connections',current_setting('max_connections'),"

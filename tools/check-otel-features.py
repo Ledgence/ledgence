@@ -1,4 +1,4 @@
-"""Prove executable builds can exclude every OpenTelemetry dependency."""
+"""Prove the CLI and composition libraries can exclude every OpenTelemetry dependency."""
 import os
 from pathlib import Path
 import re

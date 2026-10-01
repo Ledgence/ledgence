@@ -81,6 +81,7 @@ fn failed(assignment: &Assignment) -> SettleCommand {
         owner: assignment.lease.owner.clone(),
         operation_id: "retry_failure".into(),
         report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: Box::new(execution_context(assignment)),
             phase: Phase::Execution,
             error: Error::new(ErrorKind::Io, "retryable failure"),

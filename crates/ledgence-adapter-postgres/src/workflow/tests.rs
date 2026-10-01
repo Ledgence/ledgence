@@ -688,6 +688,7 @@ async fn local_journal_survives_retry_and_exact_receipts_outlive_authority() {
         owner: first.lease.owner.clone(),
         operation_id: "failed_activation".into(),
         report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: Box::new(ExecutionContext {
                 identity: InvocationIdentity::from(&first.event),
                 program: first.descriptor.program.clone(),
@@ -789,7 +790,7 @@ async fn compact_reads_do_not_decode_submission_checkpoint_or_controller_payload
         .unwrap();
     // Deliberately corrupt excluded columns: this verifies the compact read path
     // has no hidden dependency on decoding large application payloads.
-    sqlx::query("UPDATE workflow_runs SET submission_bytes=$2,controller_bytes=$2,checkpoint_bytes=$2 WHERE workflow_id=$1").bind(&workflow.workflow_id).bind(b"invalid".as_slice()).execute(&db.store.pool).await.unwrap();
+    sqlx::query("UPDATE workflow_runs SET submission_bytes=$2,controller_bytes=$2,checkpoint_bytes=$2 WHERE workflow_id=$1").bind(&workflow.workflow_id).bind(b"{}".as_slice()).execute(&db.store.pool).await.unwrap();
     assert_json_eq!(
         db.store
             .workflow_status(&scope(), &workflow.workflow_id)
@@ -1131,7 +1132,7 @@ async fn child_completion_and_local_receipt_do_not_hydrate_unneeded_payloads() {
         .execute(&db.store.pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE workflow_runs SET submission_bytes=$2,controller_bytes=$2,checkpoint_bytes=$2 WHERE workflow_id=$1").bind(&workflow.workflow_id).bind(b"invalid".as_slice()).execute(&db.store.pool).await.unwrap();
+    sqlx::query("UPDATE workflow_runs SET submission_bytes=$2,controller_bytes=$2,checkpoint_bytes=$2 WHERE workflow_id=$1").bind(&workflow.workflow_id).bind(b"{}".as_slice()).execute(&db.store.pool).await.unwrap();
     sqlx::query("UPDATE tasks SET input_bytes=$2 WHERE task_id=$1")
         .bind(&current.lease.owner.task_id)
         .bind(b"invalid".as_slice())
@@ -1167,5 +1168,7 @@ fn task_input_id(input: &WorkflowChildResult) -> &str {
         _ => panic!("expected task input"),
     }
 }
+#[path = "fork_tests.rs"]
+mod forks;
 #[path = "owned_tests.rs"]
 mod owned;

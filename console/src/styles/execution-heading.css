@@ -1,0 +1,175 @@
+/* SPDX-License-Identifier: MIT */
+.execution-context.execution-heading-context {
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+.execution-heading-context .context-actions {
+  gap: 0;
+}
+.execution-heading-context .context-actions .button,
+.execution-heading-context .context-actions .back-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 36px;
+  min-height: 36px;
+  padding: 6px;
+  margin: 0;
+  border-radius: 6px;
+}
+.execution-heading-context .context-actions .back-link:hover {
+  background: var(--hover);
+}
+.execution-heading-context .breadcrumbs {
+  flex: 1;
+}
+.execution-heading-context .breadcrumbs > ol {
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+}
+.execution-heading-context .breadcrumbs > ol > li {
+  min-width: 0;
+  max-width: 15ch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 1;
+}
+.execution-heading-context .breadcrumbs > ol > li:first-child {
+  flex-shrink: 0;
+}
+.execution-heading-context .breadcrumbs > ol > li:last-child {
+  flex: 1;
+  max-width: none;
+}
+.execution-heading-context .breadcrumbs li + li::before {
+  margin: 0;
+  flex-shrink: 0;
+}
+.execution-heading-context .breadcrumbs > ol > li > a,
+.execution-heading-context h1 {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.execution-heading-context h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: -0.4px;
+}
+.execution-heading-context .context-error {
+  position: relative;
+  flex-shrink: 0;
+}
+.execution-heading-context .context-error[open] {
+  position: absolute;
+  z-index: 20;
+  top: 56px;
+  max-width: min(480px, 85vw);
+  background: var(--surface);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.shell-header:has(.execution-heading-context) .instance-header-name {
+  max-width: 20ch;
+  flex-shrink: 1;
+}
+.shell-header:has(.execution-heading-context) .shell-page-heading {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+.console-workspace:has(.execution-heading-context) .main-content {
+  padding-top: 8px;
+}
+.execution-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 12px;
+}
+.execution-summary-metadata {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 6px 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.execution-program-description {
+  overflow-wrap: anywhere;
+}
+.execution-summary .copy-value {
+  min-width: 0;
+  font-size: 11px;
+}
+.execution-summary .copy-value code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(42ch, 60vw);
+}
+.execution-summary .copy-value .button {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 6px;
+}
+.execution-summary .copy-value svg {
+  width: 14px;
+  height: 14px;
+}
+.execution-summary .actions {
+  flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  .shell-header:has(.execution-heading-context) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 12px;
+  }
+  .shell-header:has(.execution-heading-context) .shell-header-leading {
+    display: contents;
+  }
+  .shell-header:has(.execution-heading-context) .instance-header-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .shell-header:has(.execution-heading-context) .theme-control {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .shell-header:has(.execution-heading-context) .shell-page-heading {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    border: 0;
+    padding: 0;
+  }
+  .execution-heading-context .context-actions .button,
+  .execution-heading-context .context-actions .back-link {
+    width: 36px;
+    height: 44px;
+    min-height: 44px;
+  }
+  .execution-heading-context h1 {
+    font-size: 15px;
+  }
+  .execution-heading-context .breadcrumbs > ol > li {
+    max-width: 9ch;
+  }
+  .execution-summary-metadata {
+    gap: 4px 12px;
+  }
+  .execution-summary .copy-value .button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

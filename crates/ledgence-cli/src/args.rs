@@ -1,15 +1,21 @@
 //! Strict command parsing without changing operator-provided identities.
 
+use ledgence_orchestration_api::console::{
+    ConsoleProgramKind, ProgramDisplayMetadata, RegisterProgram,
+};
 use ledgence_orchestration_api::{
     ContractError, Result, Scope, TaskFilters, TaskListQuery, validate_text,
 };
+use ledgence_worker_api::ProgramRef;
 use std::{collections::HashMap, path::PathBuf};
-
-pub const HELP: &str = "Ledgence task administration\n\nCommands:\n  task submit --server URL --file FILE\n  task list --server URL --tenant ID --namespace ID [--state STATE] [--queue NAME] [--correlation-key KEY] [--submitted-from MS] [--submitted-until MS] [--limit N] [--cursor CURSOR]\n  task inspect --server URL --tenant ID --namespace ID --task ID\n  task status --server URL --tenant ID --namespace ID --task ID\n  task result --server URL --tenant ID --namespace ID --task ID\n  task attempt --server URL --tenant ID --namespace ID --task ID --attempt ID\n  task history --server URL --tenant ID --namespace ID --task ID [--after N]\n  task cancel --server URL --tenant ID --namespace ID --task ID\n\nsubmit reads the complete SubmitCommand JSON, including its idempotency_key.\nEach command makes one bounded HTTP exchange without automatic retries.\nJSON results go to stdout; diagnostics and Request-Id go to stderr.\nExit 0 means accepted operation, 2 means invalid input/usage, 1 means failure.\nA successful submit confirms acceptance, not successful task execution.\n";
 
 #[derive(Debug)]
 pub enum Command {
     Help,
+    Program {
+        server: String,
+        registration: RegisterProgram,
+    },
     Task {
         server: String,
         operation: Operation,
@@ -62,6 +68,9 @@ impl Command {
                 return Err(invalid("unexpected arguments after help"));
             }
             return Ok(Self::Help);
+        }
+        if command == "program" {
+            return parse_program(args);
         }
         if command != "task" {
             return Err(invalid("expected task command; use --help"));
@@ -184,4 +193,95 @@ fn number(options: &mut HashMap<String, String>, key: &str) -> Result<Option<u64
                 .map_err(|_| invalid(format!("{key} exceeds supported range")))
         })
         .transpose()
+}
+
+fn parse_program(mut args: impl Iterator<Item = String>) -> Result<Command> {
+    if args.next().as_deref() != Some("register") {
+        return Err(invalid("expected program register; use --help"));
+    }
+    let mut options = HashMap::new();
+    while let Some(key) = args.next() {
+        if !key.starts_with("--") {
+            return Err(invalid("expected a --name value option"));
+        }
+        let value = args
+            .next()
+            .ok_or_else(|| invalid(format!("missing value for {key}")))?;
+        if options.insert(key.clone(), value).is_some() {
+            return Err(invalid(format!("duplicate option {key}")));
+        }
+    }
+    let server = required(&mut options, "--server")?;
+    let registration = RegisterProgram {
+        program: ProgramRef {
+            id: required(&mut options, "--program")?,
+            version: required(&mut options, "--version")?,
+        },
+        metadata: ProgramDisplayMetadata {
+            display_name: options.remove("--display-name"),
+            description: options.remove("--description"),
+            kind: match options.remove("--kind").as_deref() {
+                None | Some("unspecified") => ConsoleProgramKind::Unspecified,
+                Some("task") => ConsoleProgramKind::Task,
+                Some("workflow") => ConsoleProgramKind::Workflow,
+                _ => return Err(invalid("invalid program kind")),
+            },
+        },
+        update_metadata: match options.remove("--update-metadata").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            _ => return Err(invalid("update-metadata must be true or false")),
+        },
+    };
+    registration.validate()?;
+    if !options.is_empty() {
+        return Err(invalid("unknown program register option"));
+    }
+    Ok(Command::Program {
+        server,
+        registration,
+    })
+}
+#[cfg(test)]
+mod program_tests {
+    use super::*;
+    #[test]
+    fn registration_is_explicit_and_has_no_browser_scope() {
+        let args = [
+            "program",
+            "register",
+            "--server",
+            "http://127.0.0.1:8080",
+            "--program",
+            "invoice-issuer",
+            "--version",
+            "release-a",
+            "--kind",
+            "workflow",
+        ]
+        .map(str::to_owned);
+        let Command::Program { registration, .. } = Command::parse(args).unwrap() else {
+            panic!("program command")
+        };
+        assert_eq!(registration.metadata.kind, ConsoleProgramKind::Workflow);
+        assert!(!registration.update_metadata);
+        for suffix in [
+            ["--tenant", "other"],
+            ["--version", "other"],
+            ["--kind", "unknown"],
+        ] {
+            let mut args = vec![
+                "program",
+                "register",
+                "--server",
+                "http://localhost:8080",
+                "--program",
+                "p",
+                "--version",
+                "v",
+            ];
+            args.extend(suffix);
+            assert!(Command::parse(args.into_iter().map(str::to_owned)).is_err());
+        }
+    }
 }

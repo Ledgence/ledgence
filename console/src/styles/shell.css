@@ -1,0 +1,251 @@
+/* SPDX-License-Identifier: MIT */
+.console-shell.console-shell--adaptive {
+  grid-template-columns: 224px minmax(0, 1fr);
+}
+.console-shell.console-shell--adaptive[data-sidebar-collapsed="true"] {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+.console-shell .console-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 20px 12px 14px;
+}
+.console-sidebar .shell-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.console-sidebar .shell-brand {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  gap: 10px;
+}
+.console-sidebar .shell-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+.console-sidebar .shell-collapse:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.console-sidebar .shell-collapse svg {
+  width: 18px;
+  height: 18px;
+}
+.console-sidebar .shell-collapse--brand {
+  width: 44px;
+  height: 44px;
+}
+.console-sidebar .shell-collapse--brand:hover .brand-mark {
+  border-color: var(--ink);
+}
+.console-shell[data-sidebar-collapsed="true"] .shell-sidebar-header {
+  justify-content: center;
+}
+.console-sidebar .brand-mark {
+  flex-shrink: 0;
+}
+.console-sidebar .shell-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.console-sidebar .shell-navigation a,
+.console-sidebar .shell-sidebar-footer a {
+  min-height: 44px;
+  padding: 10px 14px;
+  gap: 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.console-sidebar .shell-navigation a {
+  font-size: 14px;
+}
+.console-sidebar .shell-navigation a.active,
+.console-sidebar .shell-navigation a[aria-current="page"] {
+  background: var(--surface);
+  box-shadow:
+    inset 2px 0 var(--focus),
+    0 1px 3px color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.console-sidebar .shell-sidebar-footer {
+  padding: 28px 0 0;
+  display: grid;
+  gap: 2px;
+}
+.console-sidebar .shell-sidebar-footer a {
+  font-size: 13px;
+}
+.console-sidebar .shell-sidebar-footer a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.console-sidebar .shell-sidebar-footer a > svg:last-child:not(:first-child) {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+}
+.shell-header .shell-header-leading {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 14px;
+  min-width: 0;
+}
+.shell-header .shell-page-heading {
+  flex: 1;
+  min-width: 0;
+}
+.shell-header .shell-page-heading:empty {
+  display: none;
+}
+.console-shell[data-sidebar-collapsed="true"] .sidebar-label {
+  display: none;
+}
+.console-shell[data-sidebar-collapsed="true"] .shell-brand,
+.console-shell[data-sidebar-collapsed="true"] .shell-navigation a,
+.console-shell[data-sidebar-collapsed="true"] .shell-sidebar-footer a {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+.console-workspace .shell-header {
+  min-height: 64px;
+  padding: 10px 32px;
+  border-bottom: 0;
+  color: var(--muted);
+}
+.shell-header .instance-header-name {
+  flex: 0 1 auto;
+  max-width: min(28ch, 30vw);
+  font-size: 13px;
+}
+.shell-header .shell-instance-icon {
+  flex-shrink: 0;
+}
+.shell-header .instance-header-name > span:last-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.shell-header .theme-control select {
+  min-height: 36px;
+  padding: 6px 8px;
+  border-color: transparent;
+  font-size: 12px;
+  color: var(--muted);
+}
+.shell-header .theme-control select:hover {
+  background: var(--well);
+}
+.shell-header .shell-mobile-mark {
+  display: none;
+}
+@media (max-width: 768px) {
+  .console-shell.console-shell--adaptive,
+  .console-shell.console-shell--adaptive[data-sidebar-collapsed="true"] {
+    display: flex;
+    flex-direction: column;
+  }
+  .console-shell .console-sidebar {
+    display: contents;
+  }
+  .console-sidebar .shell-sidebar-header,
+  .console-sidebar .shell-sidebar-footer {
+    display: none;
+  }
+  .console-shell .console-workspace {
+    display: contents;
+  }
+  .console-workspace .shell-header {
+    order: -2;
+    min-height: 60px;
+    padding: 8px 20px;
+    gap: 12px;
+  }
+  .shell-header .instance-header-name {
+    max-width: min(28ch, 48vw);
+    color: var(--ink);
+    gap: 12px;
+  }
+  .shell-header .shell-instance-icon {
+    display: none;
+  }
+  .shell-header .shell-mobile-mark {
+    display: block;
+    width: 14px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+  .shell-header .theme-control select {
+    min-height: 44px;
+  }
+  .console-sidebar .shell-navigation {
+    order: -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0 20px 8px;
+    padding: 4px;
+    gap: 4px;
+    background: var(--side);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .console-shell .shell-navigation a {
+    flex-direction: row;
+    justify-content: center;
+    padding: 10px 6px;
+    gap: 7px;
+    font-size: 13px;
+  }
+  .console-shell[data-sidebar-collapsed="true"]
+    .shell-navigation
+    .sidebar-label {
+    display: inline;
+  }
+  .console-shell .main-content {
+    width: 100%;
+  }
+  .console-workspace .mobile-notices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 40px;
+  }
+  .console-workspace .mobile-notices a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+@media (max-width: 374px) {
+  .console-workspace .shell-header {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .console-sidebar .shell-navigation {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+  .console-shell .shell-navigation a {
+    gap: 5px;
+    font-size: 12px;
+  }
+  .console-shell .shell-navigation a > svg {
+    width: 16px;
+    height: 16px;
+  }
+}

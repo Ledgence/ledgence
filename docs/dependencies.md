@@ -1,5 +1,43 @@
 # Dependency policy
 
+## Optional Codex support-agent demo
+
+The [Codex support-agent demo](../examples/codex-support-agent/README.md) contains
+MIT-licensed Python code using the standard library. Its packages do not vendor
+Codex, Google ADK, or an OpenAI API SDK. The operator supplies CPython and a Codex
+CLI installation, which retains its own Apache-2.0 license and dependency notices.
+The CLI is a separate host application; its distribution remains responsible for
+its bundled components. No new dependency enters the Rust platform or Python client.
+
+This optional integration uses Codex's supported ChatGPT sign-in and the account's
+usage limits. It requires an eligible account and model access; neither is needed
+to self-host Ledgence. Subscription access and model-service terms are separate
+from the licenses of Ledgence and Codex. The Gemini demo below retains its own
+reviewed dependency graph and legal files.
+
+## Optional support-agent demo
+
+The [support-agent demo](../examples/support-agent/README.md) pins Google ADK 2.10.0
+and 47 transitive distributions for CPython 3.13 on macOS arm64 and Linux x86_64.
+This is a separately reviewed application graph, not a dependency of the Rust
+platform or public Python client. Its [inventory and notices](../examples/support-agent/third_party/NOTICE.md)
+record exact wheels, source provenance, bundled native components and legal files.
+Preparation verifies hashes and retains notices in the published application
+package. No optional ADK extras are selected.
+
+This review approves **certifi 2026.7.22 specifically**, under MPL-2.0, for this
+demo. Its unmodified Python and certificate data files are distributed in source
+form and match the recorded upstream source archive. Its license, notices and
+source availability must be preserved; modifying or redistributing that component
+requires complying with its component-scoped MPL terms. This does not require
+disclosure of Ledgence-owned code or an application's separate code, and does not
+change Cargo's allowlist or approve other copyleft dependencies. The other reviewed
+terms and bundled native-code notices are detailed in the demo's inventory.
+
+The demo remains an optional Gemini integration. Core self-hosting and execution
+do not require a Google account. Model-service terms and provider billing are
+separate from open-source dependency licenses.
+
 Ledgence-owned code is MIT-licensed. Applications and programs that use Ledgence may remain proprietary, including commercial and hosted uses. MIT does not require publishing their source or modifications. Copyright and permission notices must remain with copies or substantial portions of MIT-covered software; third-party components retain their own terms. See the [MIT license](https://opensource.org/license/mit).
 
 Dependency choices must preserve this product model: no required commercial service, license key, product branding, advertising credit, or disclosure of users' application/program source. Required legal notices may accompany source and binary distributions in notice files. A license scan is a selection gate, not a replacement for fulfilling the selected licenses.
@@ -109,7 +147,7 @@ Axum `0.8.9` disables defaults and enables only `http1` and `tokio`. The `ledgen
 
 ## Optional Rust telemetry adapter
 
-`ledgence-adapter-otel` confines the OpenTelemetry API/SDK, tracing bridge, and OTLP HTTP/protobuf exporter. Platform executables select the adapter through the `otel` feature. It is enabled in ordinary builds; `--no-default-features` preserves the tracing-disabled build. Runtime export remains off unless an explicit trace or metrics endpoint is configured; the two signals are independently optional. No provider or exporter SDK type appears in portable execution or orchestration DTOs.
+`ledgence-adapter-otel` confines the OpenTelemetry API/SDK, tracing bridge, and OTLP HTTP/protobuf exporter. The `ledgence` executable selects the adapter through the `otel` feature and forwards it to its worker and orchestrator libraries. It is enabled in ordinary builds; `--no-default-features` preserves the tracing-disabled build. Runtime export remains off unless an explicit trace or metrics endpoint is configured; the two signals are independently optional. No provider or exporter SDK type appears in portable execution or orchestration DTOs.
 
 All direct telemetry dependencies disable their default features: `opentelemetry =0.32.0` (`trace,metrics`), `opentelemetry_sdk =0.32.1` (`trace,metrics`), `tracing-opentelemetry =0.33.0` (no features), and `opentelemetry-otlp =0.32.0` (`trace,metrics,http-proto,reqwest-blocking-client,internal-logs`). The adapter reuses `reqwest =0.13.4` with `blocking,rustls`. Its bounded HTTP client also uses the already selected `opentelemetry-http =0.32.0` and `async-trait =0.1.92`. The ordinary SDK batch processor owns trace export and the periodic metrics reader owns a separate bounded-cadence blocking export thread. No experimental async processor, retry feature, tonic transport, or logs exporter is configured. Metrics use a closed Ledgence observation vocabulary, fixed histograms and explicit cardinality limits rather than the generic tracing metrics layer. Enabling the reviewed SDK metrics features introduces no new package or version in the lockfile. `prost =0.14.4` and `opentelemetry-proto =0.32.0` decode bounded collector acknowledgements and actual OTLP requests in the capture fixture. [OTLP manifest](https://docs.rs/crate/opentelemetry-otlp/0.32.0/source/Cargo.toml), [SDK batch processor](https://docs.rs/crate/opentelemetry_sdk/0.32.1/source/src/trace/span_processor.rs).
 
@@ -183,6 +221,6 @@ The published archive checksum is recorded in `Cargo.lock`.
 
 ## Candidate notice collection and local image runtime
 
-`tools/release/notices.py` inventories the target-selected normal/build graph of the three executable packages with all features, retains exact legal files (including nested native-code license directories), records crate archive checksums from Cargo.lock, and includes the pinned Rust distribution's COPYRIGHT-library.html, COPYRIGHT.html and license directory. Missing legal material fails collection; version-specific files already reviewed under legal/third-party can fill omissions in published archives. Development-only and other-target dependencies are not described as linked into the candidate. The full cargo-deny gate still checks the broader selected workspace graph.
+`tools/release/notices.py` inventories the target-selected normal/build graph of `ledgence-cli` and its dependencies with all features, retains exact legal files (including nested native-code license directories), records crate archive checksums from Cargo.lock, and includes the pinned Rust distribution's COPYRIGHT-library.html, COPYRIGHT.html and license directory. Missing legal material fails collection; version-specific files already reviewed under legal/third-party can fill omissions in published archives. Development-only and other-target dependencies are not described as linked into the candidate. The full cargo-deny gate still checks the broader selected workspace graph.
 
 The local Dockerfile pins the official Rust 1.98.1/bookworm and CPython 3.14/bookworm image indexes. CPython's full supplied license and Debian's package inventory are retained alongside their original base-image notices. Debian utilities and system libraries can have copyleft or source-availability distribution obligations separate from Ledgence's library dependency policy. This is a locally built operator runtime, not an approval to redistribute an OCI image without satisfying those obligations. No image is published by the candidate tooling. Native bundles continue to use externally supplied CPython/system libraries. See [local deployment](local-deployment.md) and [candidate contents](releasing.md).

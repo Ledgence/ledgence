@@ -75,7 +75,7 @@ async def run(d, delay, names, record, records, snapshot):
     if 'owned-example' in names:
         worker = d.start_worker(concurrency=1)
         async with AsyncClient(d.server_url,**options) as client:
-            handle = await client.workflows.submit(program='owned-example',version='1.0.0',queue=d.queue,
+            handle = await client.workflows.submit(program='owned-example',version='1.0.1',queue=d.queue,
                 data={'urls':[delay.url+'?owned='+str(index) for index in range(4)],'queue':d.queue},
                 idempotency_key='owned-public-example')
             result = await handle.result(timeout=110)

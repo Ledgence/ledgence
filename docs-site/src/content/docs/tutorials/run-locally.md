@@ -3,13 +3,15 @@ title: Run Ledgence locally
 description: Start a local stack, publish its example agents, and observe real task and workflow results.
 ---
 
-Run a complete Ledgence stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator, a worker, and a small callback receiver.
+Run a complete Ledgence 0.2.0 stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator serving Console, a worker, and a small callback receiver.
+
+This tutorial uses the `v0.2.0` source release. Its invoice and summary programs use application version `1.0.0`; its typed workflow controller uses `1.0.1`. Use a fresh deployment, or follow [Upgrade to 0.2.0](/how-to/upgrade-to-0-2) before adopting existing data.
 
 Allow extra time for the first image build. You do not need a hosted account, Rust, or Python installed on your computer for this tutorial.
 
 ## Before you start
 
-You need Git and Docker Engine or Docker Desktop with Compose v2 supporting `up --wait`. Docker must run Linux containers on `amd64` or `arm64`. The first build downloads its pinned images and Rust dependencies.
+You need Git and Docker Engine or Docker Desktop with Compose 2.23.1 or newer supporting `up --wait` and inline configs. Docker must run Linux containers on `amd64` or `arm64`. The first build downloads its pinned images, Rust dependencies, and frontend dependencies.
 
 The example binds its API to `127.0.0.1:8080`. It uses local demo credentials and runs trusted code; use it on your own machine rather than exposing it as a public service.
 
@@ -18,17 +20,17 @@ The example binds its API to `127.0.0.1:8080`. It uses local demo credentials an
 In a directory where you keep projects:
 
 ```sh
-git clone --branch develop https://github.com/Ledgence/ledgence.git
+git clone --branch v0.2.0 --depth 1 https://github.com/Ledgence/ledgence.git
 cd ledgence
-git checkout 82d2173862a0a379c467b46977b91327258aee15
 ```
 
-This checkout matches the product revision used by these tutorials. Run the remaining commands from this repository root. If you already have a checkout, use a separate clone to follow along without changing work in progress.
+This checks out the published `v0.2.0` source tag. Git may report a detached HEAD; that is expected when following a release tag. Compose builds the image locally from this version. Run the remaining commands from this repository root. If you already have a checkout, use a separate clone to follow along without changing work in progress.
 
 ## 2. Start the stack
 
 ```sh
 export LEDGENCE_SOURCE_REVISION="$(git rev-parse HEAD)"
+export LEDGENCE_SOURCE_DIRTY="$(test -z "$(git status --porcelain)" && echo false || echo true)"
 docker compose -f deploy/local/compose.yaml build
 docker compose -f deploy/local/compose.yaml up -d --wait --wait-timeout 120
 ```
@@ -51,7 +53,7 @@ docker compose -f deploy/local/compose.yaml run --rm --no-deps publish
 
 This prepares three immutable packages for the container's Python version and platform: `invoice-issuer`, `workflow-example`, and `workflow-summary`.
 
-Publishing makes their code available in the shared program store. The worker fetches and verifies a package when it needs to execute it.
+Publishing makes their code available in the shared program store and registers the verified references in Console. Open [Console](http://127.0.0.1:8080/console/) to inspect **Programs** and **Executions**. The worker fetches and verifies a package when it needs to execute it.
 
 ## 4. Run the example
 
@@ -67,7 +69,7 @@ The command submits two invoice tasks, runs a workflow, and checks their complet
   "workflow_output": {
     "page_count": 4,
     "summary": {
-      "characters": 80,
+      "characters": 84,
       "pages": 4
     }
   }
@@ -82,7 +84,7 @@ You can run `demo` again: each invocation uses fresh submission keys. Publishing
 
 ## 5. Keep the stack for the next tutorial
 
-Continue with [your first workflow](/tutorials/first-workflow) to submit the published workflow yourself and understand its two continuations.
+Continue with [your first workflow](/tutorials/first-workflow) to submit the published workflow yourself and understand its two typed entrypoints. Use [Explore Ledgence Console](/tutorials/use-console) to inspect its recorded graph, trace, input, and output.
 
 When you finish, stop the local services:
 
@@ -102,6 +104,6 @@ docker compose -f deploy/local/compose.yaml logs --tail 100 orchestrator worker
 
 Confirm that the publication command completed and that no other application uses port 8080. To choose a different port, set `LEDGENCE_HTTP_PORT` before starting the stack and use that port for client connections.
 
-The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/develop/docs/local-deployment.md) covers its lifecycle and deployment options.
+The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/local-deployment.md) covers its lifecycle and deployment options.
 
-**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/develop/deploy/local/compose.yaml) · [Example assertions](https://github.com/Ledgence/ledgence/blob/develop/deploy/local/demo.py)
+**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.2.0/deploy/local/compose.yaml) · [Example assertions](https://github.com/Ledgence/ledgence/blob/v0.2.0/deploy/local/demo.py)

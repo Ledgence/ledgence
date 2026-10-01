@@ -33,7 +33,10 @@ def violations(graph):
             "ledgence-adapter-http", "ledgence-adapter-artifact", "ledgence-adapter-postgres",
             "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
         },
-        "ledgence-cli": {"ledgence-adapter-otel","ledgence-adapter-http", "ledgence-orchestration-api", "ledgence-worker-api"},
+        "ledgence-cli": {
+            "ledgence-adapter-otel", "ledgence-adapter-http", "ledgence-orchestration-api",
+            "ledgence-worker-api", "ledgence-worker", "ledgence-orchestrator",
+        },
         "ledgence-worker": {
             "ledgence-adapter-otel", "ledgence-adapter-sqs",
             "ledgence-worker-api", "ledgence-worker-core",
@@ -44,6 +47,12 @@ def violations(graph):
     members = set(graph["workspace_members"])
     packages = {p["name"]: p for p in graph["packages"] if p["id"] in members}
     errors = []
+    binaries = {(package["name"], target["name"])
+                for package in packages.values() for target in package["targets"]
+                if "bin" in target["kind"]}
+    if binaries != {("ledgence-cli", "ledgence")}:
+        errors.append("production executable targets must be exactly ledgence-cli:ledgence; "
+                      f"found {sorted(binaries)}")
     for name, package in packages.items():
         if name not in allowed:
             errors.append(f"{name}: declare its architectural boundary in this check")

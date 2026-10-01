@@ -2,7 +2,7 @@ use ledgence_adapter_postgres::MigrationOptions;
 use ledgence_orchestration_api::{RetentionPolicy, Scope};
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, time::Duration};
 
-pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  migrate [--timeout-ms 600000]\n  retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun migrate to reconcile.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
+pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -21,6 +21,8 @@ pub enum Command {
         store: String,
         delivery_config: Option<PathBuf>,
         completion_config: Option<PathBuf>,
+        instance_config: Option<PathBuf>,
+        console_dir: Option<PathBuf>,
     },
 }
 
@@ -36,7 +38,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         return Ok(Command::Help);
     }
     if !["migrate", "serve", "retain"].contains(&command.as_str()) {
-        return Err("unknown command; use --help".into());
+        return Err("unknown command; use ledgence orchestrator --help".into());
     }
     let mut options = HashMap::new();
     let mut apply = false;
@@ -109,6 +111,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             .map_err(|_| "bind must be an IP address and port")?;
         let delivery_config = options.remove("--delivery-config").map(PathBuf::from);
         let completion_config = options.remove("--completion-config").map(PathBuf::from);
+        let instance_config = options.remove("--instance-config").map(PathBuf::from);
+        let console_dir = options.remove("--console-dir").map(PathBuf::from);
+        if console_dir.is_some() && instance_config.is_none() {
+            return Err("--console-dir requires --instance-config".into());
+        }
         #[cfg(not(feature = "sqs"))]
         if delivery_config.is_some() {
             return Err("--delivery-config requires a binary built with the sqs feature".into());
@@ -118,10 +125,12 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             store,
             delivery_config,
             completion_config,
+            instance_config,
+            console_dir,
         }
     };
     if !options.is_empty() {
-        return Err("unknown option; use --help".into());
+        return Err("unknown option; use ledgence orchestrator --help".into());
     }
     Ok(parsed)
 }
@@ -146,6 +155,55 @@ mod tests {
 
     fn arguments(args: &[&str]) -> Result<Command, String> {
         parse(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn console_requires_explicit_instance_configuration_but_headless_binding_is_valid() {
+        assert!(
+            arguments(&[
+                "serve",
+                "--store",
+                "programs",
+                "--console-dir",
+                "console/dist"
+            ])
+            .is_err()
+        );
+        let parsed = arguments(&[
+            "serve",
+            "--store",
+            "programs",
+            "--instance-config",
+            "instance.json",
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed,
+            Command::Serve {
+                instance_config: Some(_),
+                console_dir: None,
+                ..
+            }
+        ));
+        let parsed = arguments(&[
+            "serve",
+            "--store",
+            "programs",
+            "--instance-config",
+            "instance.json",
+            "--console-dir",
+            "console/dist",
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed,
+            Command::Serve {
+                instance_config: Some(_),
+                console_dir: Some(_),
+                ..
+            }
+        ));
+        assert!(arguments(&["migrate", "--instance-config", "instance.json"]).is_err());
     }
 
     #[test]
@@ -205,6 +263,8 @@ mod tests {
                 store: "./programs".into(),
                 delivery_config: None,
                 completion_config: None,
+                instance_config: None,
+                console_dir: None,
             }
         );
         assert!(arguments(&["serve"]).is_err());

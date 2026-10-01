@@ -19,6 +19,12 @@ pub const WORKFLOW_LOCAL_RECORD_MAX_BYTES: usize = 128 * 1024;
 pub const WORKFLOW_LOCAL_LEDGER_MAX_BYTES: usize = 256 * 1024;
 pub const WORKFLOW_CONTEXT_MAX_BYTES: usize = 640 * 1024;
 pub const WORKFLOW_MAX_WORK_BATCH: u32 = 16;
+pub const WORKFLOW_ERROR_KIND_MAX_BYTES: usize = 128;
+pub const WORKFLOW_ERROR_MESSAGE_MAX_BYTES: usize = 4096;
+/// A conservative JSON bound: each accepted UTF-8 byte may become a six-byte
+/// Unicode escape, plus the two-field ApplicationError object framing.
+pub const WORKFLOW_ERROR_ENCODED_MAX_BYTES: usize =
+    6 * (WORKFLOW_ERROR_KIND_MAX_BYTES + WORKFLOW_ERROR_MESSAGE_MAX_BYTES) + 24;
 
 /// Controller results include a platform decision envelope around application
 /// values. Ordinary task output retains its depth-64 contract; registered
@@ -340,8 +346,8 @@ pub fn validate_workflow_error(error: &ApplicationError) -> Result<()> {
     validate_error(error)
 }
 fn validate_error(error: &ApplicationError) -> Result<()> {
-    validate_text(&error.kind, 128)?;
-    if error.message.len() > 4096 {
+    validate_text(&error.kind, WORKFLOW_ERROR_KIND_MAX_BYTES)?;
+    if error.message.len() > WORKFLOW_ERROR_MESSAGE_MAX_BYTES {
         return Err(invalid("workflow error message exceeds 4096 bytes"));
     }
     Ok(())
@@ -467,6 +473,20 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    /// Atomically register a sealed, same-definition fork and its owned runs.
+    /// New work requires live dispatched activation authority. The original
+    /// accepting owner may reconcile its exact durable receipt after expiry;
+    /// other owners require current live authority. Parent state stays frozen.
+    fn fork_workflow<'a>(
+        &'a self,
+        _command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow forks are unsupported by this adapter".into(),
+            ))
+        })
+    }
     /// Accept a directly addressed, one-shot event after committing its receipt.
     /// Exact source/ID/key/payload replays must reconcile before terminal checks.
     /// Implementations serialize acceptance and wait resolution under workflow
@@ -533,6 +553,16 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    fn fork_workflow<'a>(
+        &'a self,
+        _command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow forks are unsupported by this adapter".into(),
+            ))
+        })
+    }
     /// Accept a directly addressed, one-shot event after committing its receipt.
     /// Exact source/ID/key/payload replays must reconcile before terminal checks.
     /// Implementations serialize acceptance and wait resolution under workflow

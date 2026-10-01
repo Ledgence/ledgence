@@ -589,6 +589,7 @@ async fn retryable_execution_failures_only_notify_after_retry_policy_exhaustion(
             unreachable!()
         };
         report.report = AttemptReport::Failed(ExecutionFailure {
+            observations: None,
             context: original.context,
             error: Error::new(ErrorKind::Runtime, "transient fixture"),
             phase: Phase::Execution,

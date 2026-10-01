@@ -13,7 +13,7 @@ services:
       elasticmq: {condition: service_started}
     restart: "no"
   orchestrator:
-    command: [ledgence-orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --delivery-config, /opt/ledgence/local/delivery.json]
+    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --delivery-config, /opt/ledgence/local/delivery.json, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console]
     environment:
       AWS_ACCESS_KEY_ID: ledgence-local
       AWS_SECRET_ACCESS_KEY: ledgence-local
@@ -21,7 +21,7 @@ services:
     depends_on:
       broker-ready: {condition: service_completed_successfully}
   worker:
-    command: [ledgence-worker, connect, --server, "http://orchestrator:8080", --tenant, acme, --namespace, demo, --queue, demo, --store, /programs, --cache, /cache, --python, /usr/local/bin/python3, --runner, /opt/ledgence/runtime/ledgence/worker/bootstrap.py, --concurrency, "${LEDGENCE_CONCURRENCY:-1}", --delivery-config, /opt/ledgence/local/delivery.json]
+    command: [ledgence, worker, connect, --server, "http://orchestrator:8080", --tenant, acme, --namespace, demo, --queue, demo, --store, /programs, --cache, /cache, --python, /usr/local/bin/python3, --runner, /opt/ledgence/runtime/ledgence/worker/bootstrap.py, --concurrency, "${LEDGENCE_CONCURRENCY:-1}", --delivery-config, /opt/ledgence/local/delivery.json]
     environment:
       AWS_ACCESS_KEY_ID: ledgence-local
       AWS_SECRET_ACCESS_KEY: ledgence-local

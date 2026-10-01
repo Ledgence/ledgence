@@ -7,7 +7,7 @@ Use an external event wait when another application needs to resume a specific w
 
 ## Prerequisites
 
-Use the matching orchestrator, worker, and database migrations from the current checkout. Package your controller with runtime protocol **3**, publish it, and connect a worker to its queue. To send events, use the [Python client](/reference/python-client) with the same server, tenant, and namespace as the workflow.
+Use the matching orchestrator, worker, and database migrations from the `v0.2.0` source tag, as in [Run Ledgence locally](/tutorials/run-locally). Package your controller with runtime protocol **3**, publish it, and connect a worker to its queue. To send events, use the [Python client](/reference/python-client) with the same server, tenant, and namespace as the workflow.
 
 The controller below is application code to package and publish, not a preinstalled example.
 
@@ -95,4 +95,4 @@ An event must be accepted strictly before an installed deadline to win. At or af
 
 Complete encoded events are limited to 64 KiB. Wait keys and event IDs are limited to 128 UTF-8 bytes. See the [workflow context reference](/reference/workflow-context) for duration and activation limits.
 
-**Source:** [External event contract](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-events.md) · [Client event API](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#external-workflow-events)
+**Source:** [External event contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/workflow-events.md) · [Client event API](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python-client/README.md#external-workflow-events)

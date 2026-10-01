@@ -9,7 +9,7 @@ impl TaskStore for PostgresStore {
         key: &'a str,
     ) -> ContractFuture<'a, Option<TaskSnapshot>> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(key, 255)?;
             let row = sqlx::query(
                 "SELECT * FROM tasks WHERE tenant_id=$1 AND namespace=$2 AND idempotency_key=$3",
@@ -29,6 +29,7 @@ impl TaskStore for PostgresStore {
     ) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(self.run(move || async move {
             core::validate_submission(command)?;
+            self.require_submission_scope(command)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;
             let destination = crate::dispatch_intents::submission_destination(&mut tx, command).await?;
@@ -74,6 +75,7 @@ impl TaskStore for PostgresStore {
         concurrency: u32,
     ) -> ContractFuture<'a, WorkerSession> {
         Box::pin(self.run(move || async move {
+            self.require_scope(scope)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;
             let id = db::id(&mut tx,"ws").await?;
@@ -95,6 +97,7 @@ impl TaskStore for PostgresStore {
                 .await?
                 .ok_or(ContractError::UnknownSession)?;
             let current = codec::session(&row)?;
+            self.require_session_scope(&current.scope)?;
             let session = core::extend_session(&current, db::now(&mut tx).await?)?;
             let at = codec::ms(session.expires_at)?;
             sqlx::query!(
@@ -118,7 +121,7 @@ impl TaskStore for PostgresStore {
 
     fn status<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskStatus> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(id, 128)?;
             let row = sqlx::query(include_str!("../queries/task_status.sql"))
                 .bind(&scope.tenant_id)
@@ -133,7 +136,7 @@ impl TaskStore for PostgresStore {
 
     fn result<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskResult> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(id, 128)?;
             // One statement snapshot binds scheduling state to the latest attempt
             // and its immutable report even while another transaction finalizes.
@@ -156,7 +159,7 @@ impl TaskStore for PostgresStore {
 
     fn inspect<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(id, 128)?;
             let mut connection = self.pool.acquire().await?;
             db::load_task(&mut connection, scope, id, false).await
@@ -169,7 +172,7 @@ impl TaskStore for PostgresStore {
         attempt_id: &'a str,
     ) -> ContractFuture<'a, AttemptSnapshot> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(task_id, 128)?;
             validate_text(attempt_id, 128)?;
             let mut connection = self.transaction_connection().await?;
@@ -187,7 +190,7 @@ impl TaskStore for PostgresStore {
         after: u64,
     ) -> ContractFuture<'a, Vec<RecordedHistoryEvent>> {
         Box::pin(self.run(move || async move {
-            scope.validate()?; validate_text(task_id,128)?;
+            self.require_scope(scope)?; validate_text(task_id,128)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_read().await?;
             db::load_task(&mut tx,scope,task_id,false).await?;
@@ -227,7 +230,7 @@ impl TaskStore for PostgresStore {
     }
     fn confirm_quiescence<'a>(&'a self, owner: &'a LeaseOwner) -> ContractFuture<'a, TaskState> {
         Box::pin(self.run(move || async move {
-            owner.scope.validate()?;
+            self.require_scope(&owner.scope)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;
             let task = db::load_task(&mut tx, &owner.scope, &owner.task_id, true).await?;
@@ -242,7 +245,7 @@ impl TaskStore for PostgresStore {
     }
     fn cancel<'a>(&'a self, scope: &'a Scope, id: &'a str) -> ContractFuture<'a, TaskState> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(id, 128)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;

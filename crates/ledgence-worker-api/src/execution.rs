@@ -34,6 +34,8 @@ impl From<&ExecutionRequest> for ExecutionContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observations: Option<Box<crate::InvocationObservations>>,
     #[serde(flatten)]
     pub context: Box<ExecutionContext>,
     pub process_id: u32,
@@ -54,6 +56,8 @@ pub enum Phase {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionFailure {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observations: Option<Box<crate::InvocationObservations>>,
     #[serde(flatten)]
     pub context: Box<ExecutionContext>,
     pub error: Error,

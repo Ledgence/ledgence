@@ -5,17 +5,25 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers the core client operations. The current client is an early development API with no stable-release compatibility promise. Python 3.11–3.14 is the configured test matrix.
+This reference covers `ledgence-client` **0.2.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
-## Installation from source
+## Installation
 
-From the Ledgence repository root, in a virtual environment:
+In a virtual environment:
 
 ```sh
-python3 -m pip install ./sdk/python-client
+python3 -m pip install "ledgence-client==0.2.0"
 ```
 
-You can also install a locally built candidate wheel. These instructions do not assume a published package-registry release.
+The optional `otel` extra adds the tracing API integration:
+
+```sh
+python3 -m pip install "ledgence-client[otel]==0.2.0"
+```
+
+The client does not include a server, worker, or Python worker helper. Use [Run Ledgence locally](/tutorials/run-locally) for a complete stack and [Releases and packages](/reference/releases) for the available distributions.
+
+The current self-hosted Console operates one instance. Older client scope fields remain for compatibility; they must match the server binding and do not provide tenant administration. The Compose example uses `acme/demo`; a new instance with an omitted binding uses `default/default`. See [One self-hosted instance](/concepts/self-hosted-console).
 
 ## `AsyncClient`
 
@@ -35,8 +43,8 @@ async with AsyncClient(
 | Argument | Meaning |
 | --- | --- |
 | `base_url` | HTTP API endpoint. |
-| `tenant` | Required tenant scope. |
-| `namespace` | Required namespace scope. |
+| `tenant` | Required compatibility value; match the self-hosted instance binding. |
+| `namespace` | Required compatibility value; match the self-hosted instance binding. |
 | `request_timeout` | Per-request deadline in seconds; defaults to `30.0`. |
 
 Open the client with `async with`, reuse it across calls, and keep it on its owning event loop. It exposes `tasks`, `workflows`, and `completions`. Handles retain their scoped client; reconnect through a new client after the original closes.
@@ -131,6 +139,6 @@ Prepare and persist commands before awaiting if they must survive caller cancell
 
 Both task and workflow handles expose `prepare_subscribe(destination=..., idempotency_key=...)` and `await subscribe(...)`. The destination is an operator-configured alias. Registration is separate from submission; its guarantee starts after acceptance.
 
-Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#durable-completion-subscriptions) for delivery status, explicit redelivery, and uncertainty handling.
+Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python-client/README.md#durable-completion-subscriptions) for delivery status, explicit redelivery, and uncertainty handling.
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/develop/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.2.0/sdk/python-client/src/ledgence/client)

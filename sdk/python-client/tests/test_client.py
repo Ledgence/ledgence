@@ -573,3 +573,49 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(self.client.tasks.handle("task").wait(1.5), 2)
         self.assertEqual(result_calls, 2)
         self.assertEqual(sum(r[1].endswith("status") for r in self.requests), 1)
+
+
+class EndpointTests(unittest.TestCase):
+    def client(self, url):
+        return AsyncClient(url, tenant="tenant", namespace="tests")
+
+    def test_unicode_host_matches_transport_and_frozen_command_identity(self):
+        for unicode_host, ascii_host in (
+            ("faß.de", "xn--fa-hia.de"),
+            ("ς.gr", "xn--3xa.gr"),
+            ("βόλος.gr", "xn--nxasmm1c.gr"),
+            ("BÜCHER.de", "xn--bcher-kva.de"),
+        ):
+            with self.subTest(host=unicode_host):
+                unicode_client = self.client(f"https://{unicode_host}:443/api/")
+                ascii_client = self.client(f"https://{ascii_host}/api")
+                self.assertEqual(unicode_client.base_url, ascii_client.base_url)
+                args = dict(program="echo", version="1.0.0", queue="queue", data=None,
+                            idempotency_key="submit")
+                self.assertEqual(unicode_client.tasks.prepare(**args),
+                                 ascii_client.tasks.prepare(**args))
+                self.assertEqual(unicode_client.tasks.handle("task"),
+                                 ascii_client.tasks.handle("task"))
+        self.assertNotEqual(self.client("https://faß.de").base_url,
+                            self.client("https://fass.de").base_url)
+
+    def test_normalization_preserves_path_ports_and_ascii_hosts(self):
+        for supplied, expected in (
+            ("HTTP://Example.COM:80/api///", "http://example.com/api"),
+            ("https://BÜCHER.de:8443/café/%2f/", "https://xn--bcher-kva.de:8443/café/%2f"),
+            ("https://[2001:0db8::1]:443/path/%2F/", "https://[2001:0db8::1]/path/%2F"),
+            ("http://[fe80::1%25en0]:8080/api/", "http://[fe80::1%25en0]:8080/api"),
+            ("http://service_name:80/api", "http://service_name/api"),
+        ):
+            with self.subTest(url=supplied):
+                self.assertEqual(self.client(supplied).base_url, expected)
+
+    def test_invalid_endpoint_validation_is_preserved(self):
+        for url in ("", "//example.com", "ftp://example.com", "https://user@example.com",
+                    "https://:password@example.com", "https://example.com/?q=x",
+                    "https://example.com/#fragment", " https://example.com",
+                    "https://example.com/space here", "https://example.com:65536",
+                    "https://[not-ipv6]", "https://\ud800.example"):
+            with self.subTest(url=url):
+                with self.assertRaises(InputError):
+                    self.client(url)

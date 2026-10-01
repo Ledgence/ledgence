@@ -74,6 +74,8 @@ struct Resources {
     child: Child,
     artifact: Option<PreparedArtifact>,
     workspace: Option<PathBuf>,
+    /// Keep non-abortable disk cleanup owned if a close waiter is cancelled.
+    workspace_cleanup: Option<JoinHandle<std::io::Result<()>>>,
     logs: Option<JoinHandle<()>>,
     reaped: bool,
     /// The signal outcome is committed before wait() can suspend. Reaping may
@@ -183,6 +185,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                 child,
                 artifact: Some(artifact),
                 workspace: Some(workspace.keep()),
+                workspace_cleanup: None,
                 logs: None,
                 reaped: false,
                 group_signal_attempted: false,
@@ -199,6 +202,7 @@ impl ExecutionRuntime for SubprocessRuntime {
             let (commands, receiver) = mpsc::channel(1);
             let (started, startup) = oneshot::channel();
             let (terminated, termination) = watch::channel(None);
+            let observations = Arc::new(std::sync::Mutex::new(None));
             // There is no suspension between spawn and transferring ownership to the actor.
             tokio::spawn(
                 supervise(
@@ -212,6 +216,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                     receiver,
                     started,
                     terminated,
+                    observations.clone(),
                 )
                 .with_current_subscriber(),
             );
@@ -222,6 +227,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                 owner,
                 owners: self.owners.clone(),
                 cleanup: None,
+                observations,
             });
             finish_startup(session, startup).await
         })
@@ -235,6 +241,7 @@ struct Session {
     owner: SharedResources,
     owners: ResourceRegistry,
     cleanup: Option<Result<()>>,
+    observations: Arc<std::sync::Mutex<Option<ledgence_worker_api::InvocationObservations>>>,
 }
 
 async fn finish_startup(
@@ -274,6 +281,9 @@ enum SessionCommand {
 impl ExecutionSession for Session {
     fn pid(&self) -> u32 {
         self.pid
+    }
+    fn take_observations(&mut self) -> Option<ledgence_worker_api::InvocationObservations> {
+        self.observations.lock().ok()?.take()
     }
     fn execute<'a>(
         &'a mut self,
@@ -330,6 +340,9 @@ impl Session {
         handler: Option<Arc<dyn RuntimeRequestHandler>>,
     ) -> PortFuture<'a, ProgramOutcome> {
         Box::pin(async move {
+            if let Ok(mut observations) = self.observations.lock() {
+                *observations = None;
+            }
             control.check()?;
             let sender = self.commands.as_ref().ok_or_else(retired)?;
             let (reply, response) = oneshot::channel();
@@ -369,6 +382,7 @@ async fn supervise(
     mut commands: mpsc::Receiver<SessionCommand>,
     mut started: oneshot::Sender<Result<()>>,
     terminated: watch::Sender<Option<Result<()>>>,
+    observations: Arc<std::sync::Mutex<Option<ledgence_worker_api::InvocationObservations>>>,
 ) {
     let mut resources = owner.lock().await;
     let pid = resources.child.id().expect("actor owns a new child");
@@ -469,6 +483,7 @@ async fn supervise(
                         RequestDispatch {
                             handler: handler.as_deref(),
                             control: &control,
+                            observations: &observations,
                         },
                     ),
                     &control,
@@ -592,6 +607,7 @@ struct Ready {
 struct RequestDispatch<'a> {
     handler: Option<&'a dyn RuntimeRequestHandler>,
     control: &'a RunControl,
+    observations: &'a std::sync::Mutex<Option<ledgence_worker_api::InvocationObservations>>,
 }
 
 #[derive(Deserialize)]
@@ -633,6 +649,8 @@ async fn invoke(
     }
     let event = &invocation.event;
     let mut request = json!({"v": version, "type": "invoke", "event_id": event.id(), "attempt_id": event.attempt_id(), "event": event.value()});
+    // Optional and understood by the bundled helper; legacy helpers ignore it.
+    request["observe"] = Value::Bool(true);
     if version >= 2 {
         if let Some(context) = &invocation.processing_context {
             context.validate()?;
@@ -705,6 +723,16 @@ async fn invoke(
         || response.get("attempt_id").and_then(Value::as_str) != Some(event.attempt_id())
     {
         return Err(protocol("result protocol or invocation identity mismatch"));
+    }
+    if let Some(value) = response.get("observations") {
+        // A telemetry failure must not turn valid application output into a retry.
+        let observed =
+            serde_json::from_value::<ledgence_worker_api::InvocationObservations>(value.clone())
+                .ok()
+                .filter(|value| value.validate().is_ok());
+        if let Ok(mut target) = dispatch.observations.lock() {
+            *target = observed;
+        }
     }
     match response.get("status").and_then(Value::as_str) {
         Some("success") => {
@@ -932,14 +960,30 @@ async fn terminate(resources: &mut Resources) -> Result<()> {
         return Err(failure.error.clone());
     }
     if let Some(path) = resources.workspace.as_ref() {
-        std::fs::remove_dir_all(path)
-            .or_else(|error| {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    Ok(())
-                } else {
-                    Err(error)
-                }
-            })
+        // Programs can leave arbitrarily large working trees. Removing them on
+        // a runtime thread would stall unrelated invocations and lease timers.
+        // Store the handle before awaiting it: cancelling close must neither
+        // detach disk cleanup from its owner nor start a duplicate removal.
+        if resources.workspace_cleanup.is_none() {
+            let path = path.clone();
+            resources.workspace_cleanup = Some(tokio::task::spawn_blocking(move || {
+                std::fs::remove_dir_all(path).or_else(|error| {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        Ok(())
+                    } else {
+                        Err(error)
+                    }
+                })
+            }));
+        }
+        let result = resources
+            .workspace_cleanup
+            .as_mut()
+            .expect("workspace cleanup is owned")
+            .await;
+        resources.workspace_cleanup = None;
+        result
+            .map_err(|_| Error::new(ErrorKind::Io, "workspace cleanup task failed"))?
             .map_err(|error| {
                 Error::new(
                     ErrorKind::Io,
@@ -1006,6 +1050,7 @@ mod tests {
             child,
             artifact: Some(artifact),
             workspace: Some(tempfile::tempdir().unwrap().keep()),
+            workspace_cleanup: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,
@@ -1014,6 +1059,55 @@ mod tests {
             group_signal_attempts: 0,
         };
         (artifact_root, resources, weak)
+    }
+
+    #[test]
+    fn cancelled_workspace_cleanup_retains_ownership_without_blocking_runtime() {
+        // Occupy the only blocking thread. Cleanup must queue there while the
+        // async close deadline remains responsive, then survive cancellation.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (release, held) = std::sync::mpsc::channel();
+            let (started, entered) = oneshot::channel();
+            let occupied = tokio::task::spawn_blocking(move || {
+                let _ = started.send(());
+                let _ = held.recv();
+            });
+            entered.await.unwrap();
+            let child = Command::new("/bin/sh")
+                .args(["-c", "sleep 30"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(0)
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
+            let (_artifact, mut resources, pin) = cleanup_resources(child);
+            let workspace = resources.workspace.clone().unwrap();
+            let pending =
+                tokio::time::timeout(Duration::from_millis(50), terminate(&mut resources))
+                    .await
+                    .is_err();
+            let retained = pin.upgrade().is_some() && workspace.is_dir();
+            release.send(()).unwrap();
+            occupied.await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), terminate(&mut resources))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(pending, "disk cleanup must run on the blocking executor");
+            assert!(
+                retained,
+                "a cancelled waiter must retain workspace and artifact ownership"
+            );
+            assert!(!workspace.exists());
+            assert!(pin.upgrade().is_none());
+        });
     }
 
     #[tokio::test]
@@ -1178,6 +1272,7 @@ mod tests {
             child,
             artifact: Some(artifact),
             workspace: Some(workspace.clone()),
+            workspace_cleanup: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,
@@ -1200,6 +1295,7 @@ mod tests {
             owner,
             owners: owners.clone(),
             cleanup: None,
+            observations: Arc::new(StdMutex::new(None)),
         });
         let mut session = match finish_startup(session, startup).await {
             Ok(StartOutcome::CleanupRequired { session, .. }) => session,
@@ -1258,6 +1354,7 @@ mod tests {
             child,
             artifact: Some(artifact),
             workspace: Some(workspace.clone()),
+            workspace_cleanup: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,
@@ -1274,6 +1371,7 @@ mod tests {
             owner: owner.clone(),
             owners: owners.clone(),
             cleanup: None,
+            observations: Arc::new(StdMutex::new(None)),
         };
         // Poll the actual fallback close through group signaling, then cancel at
         // an exact pre-reap suspension instead of relying on scheduler timing.

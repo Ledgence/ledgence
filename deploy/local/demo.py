@@ -38,9 +38,9 @@ def result(kind, identity):
     return value["outcome"]["output"]
 
 
-def submit(kind, name, data, key):
+def submit(kind, name, data, key, version="1.0.0"):
     command = {"idempotency_key": PREFIX + key,
-               "input": dict(SCOPE, queue="demo", program={"id": name, "version": "1.0.0"},
+               "input": dict(SCOPE, queue="demo", program={"id": name, "version": version},
                              data=data, correlation_key=PREFIX)}
     value = request(f"/v1/{kind}s", command)
     return value[kind + "_id"]
@@ -68,7 +68,7 @@ def main():
     assert one["pid"] == two["pid"] and two["invocation"] == one["invocation"] + 1, (one, two)
     task_subscription = subscribe("task", second)  # Deliberately after completion.
     workflow = submit("workflow", "workflow-example",
-                      {"urls": ["http://receiver:8091/page.txt"] * 4, "queue": "demo"}, "-workflow")
+                      {"urls": ["http://receiver:8091/page.txt"] * 4, "queue": "demo"}, "-workflow", version="1.0.1")
     output = result("workflow", workflow)
     assert output["page_count"] == 4 and output["summary"]["pages"] == 4, output
     workflow_subscription = subscribe("workflow", workflow)

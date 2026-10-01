@@ -1,4 +1,4 @@
-"""Run separate orchestrator/worker/CLI binaries against an owned disposable database.
+"""Run separate ledgence orchestrator/worker processes against an owned database.
 
 Requires LEDGENCE_POSTGRES_URL (a test server whose role can create databases),
 psql, and CPython >=3.11. Creates/drops a unique database; does not restart the
@@ -17,6 +17,7 @@ import traceback
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment
 from http_acceptance.scenarios import SCENARIOS
 
@@ -31,16 +32,21 @@ def main():
     parent_url = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent_url:
         parser.error("LEDGENCE_POSTGRES_URL must name a disposable test PostgreSQL server")
+    database = "ledgence_http_" + uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     python = os.environ.get("LEDGENCE_PYTHON", sys.executable)
     root = Path(__file__).resolve().parents[1]
     binaries = args.binaries
     if binaries is None:
-        subprocess.run(["cargo", "build", "--workspace", "--bins", "--locked"], cwd=root, check=True)
+        subprocess.run(["cargo", "build", "-p", "ledgence-cli", "--bin", "ledgence", "--locked"], cwd=root, check=True)
         metadata = json.loads(subprocess.check_output(
             ["cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"], cwd=root))
         binaries = Path(metadata["target_directory"]) / "debug"
     binaries = binaries.resolve()
-    for name in ("ledgence", "ledgence-worker", "ledgence-orchestrator"):
+    for name in ("ledgence",):
         if not (binaries / name).is_file():
             parser.error(f"missing executable {binaries / name}")
     temporary = None
@@ -51,9 +57,6 @@ def main():
     else:
         temporary = tempfile.mkdtemp(prefix="ledgence-http-acceptance-")
         directory = Path(temporary)
-    database = "ledgence_http_" + uuid.uuid4().hex
-    parsed = urllib.parse.urlsplit(parent_url)
-    database_url = urllib.parse.urlunsplit(parsed._replace(path="/" + database))
 
     def admin(sql):
         result = subprocess.run([args.psql, "--dbname", parent_url, "-X", "--set", "ON_ERROR_STOP=1",
@@ -68,7 +71,7 @@ def main():
         created = True
         deployment = Deployment(root, directory, binaries, python, database_url, args.psql)
         # Migration command may emit operational logs rather than a JSON result.
-        result = subprocess.run([str(binaries / "ledgence-orchestrator"), "migrate"],
+        result = subprocess.run([str(binaries / "ledgence"), "orchestrator", "migrate"],
                                 env=deployment.environment, capture_output=True, timeout=40)
         if result.returncode:
             raise RuntimeError("explicit migration command failed: " + result.stderr.decode(errors="replace")[-3000:])

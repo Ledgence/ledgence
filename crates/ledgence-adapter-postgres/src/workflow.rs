@@ -2,7 +2,9 @@
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
 mod data;
 mod execution;
+pub(crate) mod explorer;
 mod external;
+mod forks;
 mod owned;
 #[cfg(test)]
 mod tests;
@@ -17,13 +19,19 @@ use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::collections::BTreeMap;
 
 impl WorkflowStore for PostgresStore {
+    fn fork_workflow<'a>(
+        &'a self,
+        command: &'a WorkflowForkCommand,
+    ) -> ContractFuture<'a, WorkflowForkReceipt> {
+        Box::pin(self.run(move || self.fork_workflow_once(command)))
+    }
     fn lookup_workflow_submission<'a>(
         &'a self,
         scope: &'a Scope,
         key: &'a str,
     ) -> ContractFuture<'a, Option<WorkflowSnapshot>> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(key, 255)?;
             let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND idempotency_key=$3 AND parent_workflow_id IS NULL")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(key).fetch_optional(&self.pool).await?;
@@ -37,6 +45,7 @@ impl WorkflowStore for PostgresStore {
     ) -> ContractFuture<'a, Option<WorkflowSnapshot>> {
         Box::pin(self.run(move || async move {
             core::validate_submission(command)?;
+            self.require_submission_scope(command)?;
             let row = sqlx::query("SELECT *,trunc(revision)::text AS revision_text FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND idempotency_key=$3 AND parent_workflow_id IS NULL")
                 .bind(&command.input.tenant_id).bind(&command.input.namespace).bind(&command.idempotency_key).fetch_optional(&self.pool).await?;
             let Some(row) = row else { return Ok(None); };
@@ -53,15 +62,16 @@ impl WorkflowStore for PostgresStore {
     ) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(self.run(move || async move {
             core::validate_submission(command)?;
+            self.require_submission_scope(command)?;
             controller.validate().map_err(ContractError::from)?;
             if controller.program != command.input.program { return Err(ContractError::Conflict.into()); }
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;
             let id = db::id(&mut tx, "wf").await?;
             let now = db::now(&mut tx).await?;
-            let inserted = sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms,correlation_key) VALUES($1,$2,$3,$4,$5,$6,'running','start',$7,$8,$9) ON CONFLICT(tenant_id,namespace,idempotency_key) WHERE parent_workflow_id IS NULL DO NOTHING")
+            let inserted = sqlx::query("INSERT INTO workflow_runs(workflow_id,tenant_id,namespace,idempotency_key,submission_bytes,controller_bytes,state,continuation,checkpoint_bytes,submitted_at_ms,correlation_key,queue) VALUES($1,$2,$3,$4,$5,$6,'running','start',$7,$8,$9,$10) ON CONFLICT(tenant_id,namespace,idempotency_key) WHERE parent_workflow_id IS NULL DO NOTHING")
                 .bind(&id).bind(&command.input.tenant_id).bind(&command.input.namespace).bind(&command.idempotency_key)
-                .bind(codec::encode(command)?).bind(codec::encode(controller)?).bind(codec::encode(&Value::Null)?).bind(codec::ms(now)?).bind(&command.input.correlation_key)
+                .bind(codec::encode(command)?).bind(codec::encode(controller)?).bind(codec::encode(&Value::Null)?).bind(codec::ms(now)?).bind(&command.input.correlation_key).bind(&command.input.queue)
                 .execute(&mut *tx).await?.rows_affected();
             let mut run = load_run(&mut tx, &command_scope(command), if inserted == 1 { Some(&id) } else { None }, Some(&command.idempotency_key), true).await?;
             replay_submission(&run, command)?;
@@ -82,7 +92,7 @@ impl WorkflowStore for PostgresStore {
         id: &'a str,
     ) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(id, 128)?;
             let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(id).fetch_optional(&self.pool).await?.ok_or(ContractError::NotFound)?;
@@ -96,7 +106,7 @@ impl WorkflowStore for PostgresStore {
         id: &'a str,
     ) -> ContractFuture<'a, WorkflowResult> {
         Box::pin(self.run(move || async move {
-            scope.validate()?;
+            self.require_scope(scope)?;
             validate_text(id, 128)?;
             let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key,CASE WHEN terminal_at_ms IS NOT NULL THEN outcome_bytes ELSE NULL END AS outcome_bytes FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(id).fetch_optional(&self.pool).await?.ok_or(ContractError::NotFound)?;
@@ -150,6 +160,7 @@ impl WorkflowStore for PostgresStore {
         id: &'a str,
     ) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(self.run(move || async move {
+            self.require_scope(scope)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;
             let mut run = load_run(&mut tx, scope, Some(id), None, true).await?;

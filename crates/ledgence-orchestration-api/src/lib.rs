@@ -12,8 +12,11 @@ pub use ledgence_worker_api::TraceContext;
 
 mod acquisition;
 mod completion;
+pub mod console;
 mod delivery;
 mod discovery;
+pub mod instance;
+pub use instance::*;
 mod dispatch;
 mod observation;
 mod retention;
@@ -22,6 +25,7 @@ mod submission;
 mod workflow;
 mod workflow_children;
 mod workflow_events;
+mod workflow_forks;
 pub use acquisition::*;
 pub use completion::*;
 pub use delivery::*;
@@ -34,6 +38,7 @@ pub use submission::*;
 pub use workflow::*;
 pub use workflow_children::*;
 pub use workflow_events::*;
+pub use workflow_forks::*;
 
 use ledgence_worker_api::{Error, ErrorKind};
 use serde::{Deserialize, Serialize};

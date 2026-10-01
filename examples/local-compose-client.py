@@ -91,7 +91,7 @@ async def run(server, sdk):
             destination="demo-callback", idempotency_key=prefix + "-task-callback")
         task_event = await delivered(task_subscription, "task", second.id, prefix)
         workflow = await client.workflows.submit(
-            program="workflow-example", version="1.0.0", queue="demo",
+            program="workflow-example", version="1.0.1", queue="demo",
             data={"urls": ["http://receiver:8091/page.txt"] * 4, "queue": "demo"},
             idempotency_key=prefix + "-workflow", correlation_key=prefix)
         output = await workflow.result(timeout=90)

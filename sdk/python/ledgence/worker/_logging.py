@@ -10,6 +10,7 @@ from . import _invocation
 
 _sink = None
 _lock = threading.Lock()
+_record_lock = threading.Lock()
 _MAX_TEXT = 4096
 _MAX_ATTRIBUTES = 32
 
@@ -87,6 +88,15 @@ class _Handler(logging.Handler):
         if sink is None:
             return
         try:
+            # Propagation can visit several Ledgence handlers for the same
+            # LogRecord. Claim that event once, including a best-effort drop,
+            # without suppressing application handlers or retaining the sink.
+            # Re-dispatching the same record remains the same telemetry event;
+            # each ordinary logger call creates its own independent record.
+            with _record_lock:
+                if record.__dict__.get("_ledgence_log_processed", False):
+                    return
+                record.__dict__["_ledgence_log_processed"] = True
             # Encoding happens synchronously: mutable attributes, context changes,
             # and later delivery cannot relabel a record as another invocation.
             frame = _snapshot(record)

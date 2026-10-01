@@ -1,3 +1,4 @@
+mod catalog;
 mod completion;
 mod workflow;
 

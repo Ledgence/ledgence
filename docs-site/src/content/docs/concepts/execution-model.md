@@ -27,7 +27,7 @@ The manifest declares an exact Python major/minor and an operating system/archit
 
 A worker's concurrency setting **N** creates N consumers and permits at most N managed subprocesses across all programs. Starting, warm, running, and retiring processes count toward that limit.
 
-A healthy warm process can be reused when its artifact digest, tenant, and namespace match. Reuse avoids starting Python and importing the same package for every task. It also means module globals and scratch files can persist between invocations.
+A healthy warm process can be reused when its artifact digest and compatibility scope match. In the current [self-hosted instance model](/concepts/self-hosted-console), that scope is fixed by the server; operators do not select tenants. Reuse avoids starting Python and importing the same package for every task. It also means module globals and scratch files can persist between invocations.
 
 Each process handles one invocation at a time. Application code must finish its background work and manage state that should not leak between invocations. The current runtime executes operator-trusted code with the worker's OS permissions; the subprocess boundary is lifecycle management, not a hostile-code sandbox.
 
@@ -60,4 +60,4 @@ A client's result timeout ends its observation. It does not stop a task, undo ef
 
 Similarly, a logical outcome and physical process cleanup are separate facts. Cancellation cannot undo an external API call that already succeeded. [Checkpoints and recovery](/concepts/checkpoints-and-recovery) explains how to design around retries and uncertain effects.
 
-**Source:** [Architecture](https://github.com/Ledgence/ledgence/blob/develop/docs/architecture.md) · [Package contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md) · [Worker delivery](https://github.com/Ledgence/ledgence/blob/develop/docs/worker-delivery.md)
+**Source:** [Architecture](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/architecture.md) · [Package contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/program-packages.md) · [Worker delivery](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/worker-delivery.md)

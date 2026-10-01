@@ -48,7 +48,10 @@ This is a build-time operation; Ledgence's runtime does not invoke pip. Requirem
 ## Python import namespace
 
 Application-side client imports use `ledgence.client`; programs use
-`ledgence.worker`, including `from ledgence.worker.workflow import workflow_context`.
+`ledgence.worker`. New workflows use
+`from ledgence.worker.workflow import Workflow` to register typed entrypoints;
+see [workflow entrypoints](workflow-entrypoints.md). The lower-level
+`workflow_context` helper remains available for existing manual handlers.
 The standard-library-only worker helper is supplied by the worker and does not
 require the client SDK or its HTTP dependencies. The shared `ledgence` root is a
 native namespace package: vendored packages contributing to it must not include
@@ -69,7 +72,7 @@ schema and runtime protocols are unchanged.
 
 ## Publication and identity
 
-`ledgence-worker publish --source DIR --store DIR` creates deterministic archive bytes and publishes:
+`ledgence program publish --source DIR --store DIR` creates deterministic archive bytes and publishes:
 
 ```text
 programs/<program-id>/<version>/descriptor.json

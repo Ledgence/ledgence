@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Ledgence task administration command line"
+description = "Unified Ledgence command line for programs, tasks, workers, and orchestration"
 
 [[bin]]
 name = "ledgence"
@@ -14,9 +14,12 @@ path = "src/main.rs"
 
 [features]
 default = ["otel"]
-otel = ["dep:ledgence-adapter-otel"]
+otel = ["dep:ledgence-adapter-otel", "ledgence-worker/otel", "ledgence-orchestrator/otel"]
+sqs = ["ledgence-worker/sqs", "ledgence-orchestrator/sqs"]
 
 [dependencies]
+ledgence-worker.workspace = true
+ledgence-orchestrator.workspace = true
 ledgence-adapter-otel = { workspace = true, optional = true }
 ledgence-adapter-http = { workspace = true, features = ["client"] }
 ledgence-orchestration-api.workspace = true
@@ -32,6 +35,9 @@ nix = { version = "=0.31.3", default-features = false, features = ["fs"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["signal", "process"] }
 
 [lints]
 workspace = true

@@ -1,17 +1,19 @@
 ---
 title: Build with Ledgence.
-description: Learn to run agents, coordinate workflows, and understand the details of execution on your infrastructure.
+description: Run agents, coordinate workflows, and operate a self-hosted Ledgence instance with Console.
 tableOfContents: false
 ---
 
-<p class="ld-home-intro">From your first task to a working workflow. Learn by doing, solve a specific problem, or find the exact detail you need.</p>
+<p class="ld-home-intro">Run your agents, follow their workflows, and understand what is happening on your infrastructure.</p>
+
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.2</span> Public releases are here <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
-    <span class="ld-eyebrow">Start on your machine</span>
-    <h2>See Ledgence run.</h2>
-    <p>Start a local stack, publish the example agents, and follow their work through to a result. No vendor account required.</p>
-    <a class="ld-start-link" href="/tutorials/run-locally">Run Ledgence locally <span aria-hidden="true">↗</span></a>
+    <span class="ld-eyebrow">Ledgence 0.2.0 · self-hosted Console</span>
+    <h2>See your work in motion.</h2>
+    <p>Start a self-hosted instance, inspect real executions, and explore its workflows, registered agents, and worker processes.</p>
+    <div class="ld-start-actions"><a class="ld-start-link" href="/tutorials/use-console">Explore Console <span aria-hidden="true">↗</span></a><a class="ld-install-link" href="/tutorials/run-locally">Run the released stack <span aria-hidden="true">→</span></a></div>
   </div>
   <div class="ld-worker-card" aria-label="Illustration of a worker with six process slots">
     <span>Your worker</span>
@@ -19,13 +21,15 @@ tableOfContents: false
   </div>
 </div>
 
+Explore a complete agent workflow: [from bug report to reviewed change](/tutorials/codex-change-review). Codex proposes a fix while Ledgence coordinates local tests, distributed review, and a durable result.
+
 ## Find your way
 
 <div class="ld-doc-grid">
-  <a class="ld-doc-card" href="/tutorials/first-workflow"><span class="ld-doc-card-title">Tutorials <span aria-hidden="true">→</span></span><span>Learn through complete, guided examples with a result you can check.</span></a>
-  <a class="ld-doc-card" href="/how-to/parallel-tasks"><span class="ld-doc-card-title">How-to guides <span aria-hidden="true">→</span></span><span>Accomplish a task in your own application, from parallel work to event waits.</span></a>
-  <a class="ld-doc-card" href="/reference/workflow-context"><span class="ld-doc-card-title">Reference <span aria-hidden="true">→</span></span><span>Look up methods, fields, limits, and precise behavior.</span></a>
-  <a class="ld-doc-card" href="/concepts/execution-model"><span class="ld-doc-card-title">Concepts <span aria-hidden="true">→</span></span><span>Understand workers, checkpoints, recovery, and the choices behind them.</span></a>
+  <a class="ld-doc-card" href="/tutorials/use-console"><span class="ld-doc-card-title">Tutorials <span aria-hidden="true">→</span></span><span>Learn through complete, guided examples with a result you can check.</span></a>
+  <a class="ld-doc-card" href="/how-to/register-agent"><span class="ld-doc-card-title">How-to guides <span aria-hidden="true">→</span></span><span>Register an agent, coordinate parallel work, or wait for an external event.</span></a>
+  <a class="ld-doc-card" href="/reference/console"><span class="ld-doc-card-title">Reference <span aria-hidden="true">→</span></span><span>Look up methods, fields, limits, and precise behavior.</span></a>
+  <a class="ld-doc-card" href="/concepts/self-hosted-console"><span class="ld-doc-card-title">Concepts <span aria-hidden="true">→</span></span><span>Understand the instance boundary, worker observations, checkpoints, and recovery.</span></a>
 </div>
 
 ## A few names to know
@@ -34,4 +38,4 @@ Your **agent** is application code. You publish that code and its prepared depen
 
 Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
 
-<p class="ld-home-status">These docs describe the development branch. Start with the local, trusted-code deployment; public APIs and release compatibility are still evolving.</p>
+<p class="ld-home-status">Guides target Ledgence 0.2.0: the unified CLI, self-hosted Console, and typed workflow entrypoints with durable forks. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>

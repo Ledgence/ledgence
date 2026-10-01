@@ -1,0 +1,16 @@
+# This workspace contains Console only. Other monorepo JS packages are independent.
+packages:
+  - .
+engineStrict: true
+strictPeerDependencies: true
+autoInstallPeers: false
+verifyDepsBeforeRun: error
+minimumReleaseAge: 1440
+strictDepBuilds: true
+allowBuilds:
+  esbuild@0.28.2: false
+overrides:
+  rollup: 4.62.2
+  react-remove-scroll-bar: 2.3.7
+patchedDependencies:
+  "@xyflow/system@0.0.83": patches/@xyflow__system@0.0.83.patch

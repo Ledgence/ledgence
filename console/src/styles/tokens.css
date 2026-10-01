@@ -1,0 +1,73 @@
+/* SPDX-License-Identifier: MIT */
+:root {
+  color-scheme: light dark;
+  --bg: #fff;
+  --side: #f7f8fa;
+  --well: #f3f4f6;
+  --ink: #20252e;
+  --muted: #606b79;
+  --line: #dce0e7;
+  --hover: #eef0f4;
+  --primary: #20252e;
+  --on-primary: #fff;
+  --success: #386649;
+  --waiting: #795626;
+  --failure: #a33f48;
+  --focus: #516cbd;
+  /* Landing-inspired dark surfaces; preserve the existing light palette.
+     light-dark follows explicit appearance and the system color scheme. */
+  --surface: light-dark(var(--bg), #242832);
+  --input-bg: light-dark(var(--bg), var(--well));
+  --control-line: light-dark(var(--line), #8d98a9);
+  --selected: light-dark(var(--hover), #30343d);
+  --radius: 10px;
+  --motion: 150ms;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0c0d10;
+  --side: #0c0d10;
+  --well: #171a21;
+  --ink: #f2f2f4;
+  --muted: #a0a3ad;
+  --line: #30343d;
+  --hover: #30343d;
+  --primary: #f2f2f4;
+  --on-primary: #0c0d10;
+  --success: #adc1b4;
+  --waiting: #d5bd92;
+  --failure: #e4a0a8;
+  --focus: #b9c0ce;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0c0d10;
+    --side: #0c0d10;
+    --well: #171a21;
+    --ink: #f2f2f4;
+    --muted: #a0a3ad;
+    --line: #30343d;
+    --hover: #30343d;
+    --primary: #f2f2f4;
+    --on-primary: #0c0d10;
+    --success: #adc1b4;
+    --waiting: #d5bd92;
+    --failure: #e4a0a8;
+    --focus: #b9c0ce;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

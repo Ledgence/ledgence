@@ -298,6 +298,10 @@ pub(super) async fn schedule_activation(
         "controller",
     )
     .await?;
+    explorer::entrypoint(connection, &context, now).await?;
+    if let Some(previous) = &run.wait_activation {
+        explorer::resumed(connection, previous, &task_id, context.wake.as_ref(), now).await?;
+    }
     run.snapshot.activation_id = Some(task_id);
     run.snapshot.state = WorkflowState::Running;
     run.wait_activation = None;
@@ -314,8 +318,11 @@ pub(super) async fn link_task(
     is_activation: bool,
     key: &str,
 ) -> StoreResult<()> {
-    sqlx::query("INSERT INTO workflow_task_links(task_id,workflow_id,activation_id,is_activation,command_key) VALUES($1,$2,$3,$4,$5)")
-        .bind(task).bind(workflow).bind(activation).bind(is_activation).bind(key).execute(connection).await?;
+    let inserted = sqlx::query("INSERT INTO workflow_task_links(task_id,workflow_id,activation_id,is_activation,command_key,creating_revision) SELECT $1,$2,$3,$4,$5,revision FROM workflow_activations WHERE activation_id=$3 AND workflow_id=$2")
+        .bind(task).bind(workflow).bind(activation).bind(is_activation).bind(key).execute(connection).await?.rows_affected();
+    if inserted != 1 {
+        return Err(corrupt("missing creating activation").into());
+    }
     Ok(())
 }
 pub(super) async fn task_result(

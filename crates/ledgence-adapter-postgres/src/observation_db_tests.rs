@@ -126,6 +126,7 @@ async fn result_tracks_latest_retry_and_cancel_does_not_use_earlier_failure_as_i
         unreachable!()
     };
     failed.report = AttemptReport::Failed(ledgence_worker_api::ExecutionFailure {
+        observations: None,
         context: report.context.clone(),
         error: Error::new(ErrorKind::Io, "transient failure"),
         cleanup_error: Some(Error::new(ErrorKind::Runtime, "cleanup diagnostic")),
@@ -233,6 +234,7 @@ async fn cancellation_order_and_terminal_failure_evidence_survive_projection() {
                     unreachable!()
                 };
                 report.report = AttemptReport::Failed(ledgence_worker_api::ExecutionFailure {
+                    observations: None,
                     context: r.context.clone(),
                     error: Error::new(ErrorKind::Runtime, "runtime stopped"),
                     cleanup_error: Some(Error::new(ErrorKind::Io, "cleanup diagnostic")),

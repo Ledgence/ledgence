@@ -172,3 +172,41 @@ fn public_workflow_submission_cannot_adopt_owned_or_wrong_scope_store_replies() 
         ));
     }
 }
+
+#[tokio::test]
+async fn new_distributed_children_respect_catalog_but_persisted_bindings_are_replayed() {
+    use super::catalog::{Catalog, scope};
+    let mut fixture = Fixture::new();
+    let catalog = Arc::new(Catalog::new(Some(descriptor('a'))));
+    fixture.service = fixture
+        .service
+        .with_program_catalog(scope(), catalog.clone())
+        .unwrap();
+    let service = fixture.service.clone();
+    let item = work(json!([child("new")]));
+    let pending = tokio::spawn(async move { service.resolve_workflow_children(&item).await });
+    fixture
+        .resolution()
+        .await
+        .send(Ok(descriptor('b')))
+        .unwrap();
+    assert_eq!(
+        bounded(pending).await.unwrap().unwrap_err(),
+        ContractError::Conflict
+    );
+    let mut persisted = work(json!([child("registered")]));
+    persisted.resolved_children.push(ResolvedWorkflowChild {
+        kind: WorkflowChildKind::Task,
+        key: "registered".into(),
+        descriptor: descriptor('b'),
+    });
+    *catalog.descriptor.lock().unwrap() = Err(ContractError::Unavailable("offline".into()));
+    let result = fixture
+        .service
+        .resolve_workflow_children(&persisted)
+        .await
+        .unwrap();
+    assert_eq!(result[0].descriptor, descriptor('b'));
+    assert_eq!(catalog.reads.load(Ordering::SeqCst), 1);
+    assert!(fixture.requests.try_recv().is_err());
+}

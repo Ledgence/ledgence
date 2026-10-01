@@ -1,0 +1,9 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+.vite/
+tests/components/__screenshots__/
+
+.vitest-attachments/
+public/notices/

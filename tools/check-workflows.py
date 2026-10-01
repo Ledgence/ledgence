@@ -29,9 +29,10 @@ import traceback
 import urllib.parse
 import uuid
 
+from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment, Process, eventually, exchange
 from http_acceptance.sqs import SqsDeployment
-from workflow_acceptance import owned_scenarios
+from workflow_acceptance import fork_scenarios, owned_scenarios
 
 
 FIXTURE = r'''
@@ -178,17 +179,17 @@ class DelayServer:
         self.thread.join(timeout=5)
 
 
-def publish(d, name, source):
+def publish(d, name, source, version='1.0.0'):
     directory = d.directory / ('source-' + name)
-    info = d.command('ledgence-worker', ['example', '--directory', str(directory), '--python', d.python])
+    info = d.command('ledgence', ['program', 'example', '--directory', str(directory), '--python', d.python])
     package = Path(info['program'])
     manifest_file = package / 'ledgence-program.json'
     manifest = json.loads(manifest_file.read_text())
-    manifest['program'] = {'id': name, 'version': '1.0.0'}
+    manifest['program'] = {'id': name, 'version': version}
     manifest['runtime']['protocol'] = 3
     manifest_file.write_text(json.dumps(manifest))
     (package / 'program.py').write_text(source)
-    return d.command('ledgence-worker', ['publish', '--source', str(package), '--store', str(d.store)])
+    return d.command('ledgence', ['program', 'publish', '--source', str(package), '--store', str(d.store)])
 
 
 def records(d, tag, kind=None):
@@ -242,7 +243,7 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
     if 'examples' in names:
         worker = d.start_worker(concurrency=1)
         async with AsyncClient(d.server_url, **options) as client:
-            prepared = client.workflows.prepare(program='workflow-pages',version='1.0.0',queue=d.queue,
+            prepared = client.workflows.prepare(program='workflow-pages',version='1.0.1',queue=d.queue,
                 data={'urls':[delay.url+'?index='+str(index) for index in range(4)],'queue':d.queue},
                 idempotency_key='public-example')
             handle = await client.workflows.submit(prepared)
@@ -520,6 +521,7 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
         await asyncio.to_thread(worker.stop)
 
     await owned_scenarios.run(d,delay,names,record,records,snapshot)
+    await fork_scenarios.run(d,names,record,records,snapshot)
 
 
 def trace_rows(capture):
@@ -595,6 +597,7 @@ def artifact_metadata(root, binaries, python, d):
     sources.update(root.glob('sdk/python-client/src/**/*.py'))
     sources.update(root.glob('examples/checkpoint-workflow/**/*.py'))
     sources.update(root.glob('examples/owned-subworkflows/**/*.py'))
+    sources.update(root.glob('examples/mixed-workflow/**/*.py'))
     sources.update(root.glob('tools/workflow_acceptance/*.py'))
     sources.update(root.glob('tools/http_acceptance/*.py'))
     sources.update(root/name for name in ('Cargo.toml','Cargo.lock','tools/check-workflows.py','tools/check-sqs.py'))
@@ -618,7 +621,7 @@ def artifact_metadata(root, binaries, python, d):
             aggregate_sha256=hashlib.sha256(encoded).hexdigest(),file_hashes='source-sha256.json'),
         binaries=dict(directory=str(binaries),profile_hint=binaries.name if binaries.name in ('debug','release') else 'custom',
             profile_hint_basis='directory name only; compiler options are not inferred',
-            sha256={name:sha256(binaries/name) for name in ('ledgence','ledgence-worker','ledgence-orchestrator')}),
+            sha256={name:sha256(binaries/name) for name in ('ledgence',)}),
         hardware=dict(os=platform.platform(),machine=platform.machine(),model=hardware,processor=processor,
             logical_cpus=os.cpu_count(),memory_bytes=memory),
         software=dict(rustc=command(['rustc','--version']),cargo=command(['cargo','--version']),
@@ -634,7 +637,8 @@ def self_test(root):
     compile(FIXTURE,'workflow_fixture.py','exec')
     boundary_event()
     compile(CHILD,'child_fixture.py','exec')
-    for fixture in [root/'tools/workflow_acceptance/owned_program.py', root/'examples/owned-subworkflows/program.py']:
+    for fixture in [root/'tools/workflow_acceptance/owned_program.py', root/'examples/owned-subworkflows/program.py',
+                    root/'tools/workflow_acceptance/fork_program.py', root/'examples/mixed-workflow/program.py']:
         compile(fixture.read_text(),str(fixture),'exec')
     compile((root/'examples/checkpoint-workflow/child/program.py').read_text(),'example_child.py','exec')
     delay = DelayServer()
@@ -657,15 +661,15 @@ def main():
     parser.add_argument('--psql',default='psql')
     parser.add_argument('--binaries',type=Path)
     parser.add_argument('--evidence',type=Path)
-    parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; requires events or owned-tree scenario')
+    parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; checks events, owned-tree and fork-mixed scenarios')
     parser.add_argument('--placement-iterations',type=int,default=3,help='paired local/distributed timing iterations (1..10; default 3)')
-    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS])
+    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS])
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if args.self_test:
         return self_test(root)
-    if args.capture and (not args.capture.is_file() or (args.scenario and not {'events','owned-tree'}.intersection(args.scenario))):
-        parser.error('--capture requires an existing executable and events or owned-tree scenario')
+    if args.capture and (not args.capture.is_file() or (args.scenario and not {'events','owned-tree','fork-mixed'}.intersection(args.scenario))):
+        parser.error('--capture requires an existing executable and events, owned-tree or fork-mixed scenario')
     if not 1 <= args.placement_iterations <= 10:
         parser.error('--placement-iterations must be 1..10')
     if args.endpoint:
@@ -679,27 +683,30 @@ def main():
     parent_url = os.environ.get('LEDGENCE_POSTGRES_URL')
     if not parent_url:
         parser.error('LEDGENCE_POSTGRES_URL must name an owned disposable PostgreSQL server')
+    database = 'ledgence_workflow_'+uuid.uuid4().hex
+    try:
+        database_url = owned_database_url(parent_url, database)
+    except ValueError as error:
+        parser.error(str(error))
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0,str(root/'sdk/python-client/src'))
     python = os.environ.get('LEDGENCE_PYTHON',sys.executable)
     binaries = args.binaries
     if binaries is None:
-        command = ['cargo','build','--workspace','--bins','--locked']
+        command = ['cargo','build','-p','ledgence-cli','--bin','ledgence','--locked']
         if args.endpoint:
             command.append('--all-features')
         subprocess.run(command,cwd=root,check=True)
         metadata = json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1','--locked'],cwd=root))
         binaries = Path(metadata['target_directory'])/'debug'
     binaries = binaries.resolve()
-    for binary in ('ledgence','ledgence-worker','ledgence-orchestrator'):
+    for binary in ('ledgence',):
         if not (binaries/binary).is_file():
             parser.error(f'missing executable {binaries/binary}')
     temporary = not args.evidence
     directory = args.evidence.resolve() if args.evidence else Path(tempfile.mkdtemp(prefix='ledgence-workflows-'))
     if args.evidence:
         directory.mkdir(parents=True,exist_ok=False)
-    database = 'ledgence_workflow_'+uuid.uuid4().hex
-    database_url = urllib.parse.urlunsplit(urllib.parse.urlsplit(parent_url)._replace(path='/'+database))
     deployment = delay = queue_admin = queue_url = capture = None
     queue_name = 'ledgence-test-workflow-'+uuid.uuid4().hex
     created = queue_started = succeeded = False
@@ -729,26 +736,28 @@ def main():
                 if line.startswith('OTLP_CAPTURE_ENDPOINT=')), None), description='workflow trace capture readiness')
             deployment.environment.update(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=line.split('=',1)[1],
                 OTEL_SDK_DISABLED='false',OTEL_TRACES_SAMPLER='parentbased_always_on',OTEL_TRACES_SAMPLER_ARG='1')
-        # Exercise the public example's exact async HTTP helper in the fixture.
+        # Reuse the complete example module and override only its exported handler
+        # with the fault-injection fixture. Do not depend on a handler's source layout.
         controller = (root/'examples/checkpoint-workflow/controller/program.py').read_text()
-        fetch = controller[:controller.index('\n\nasync def handle(event):')]
         packages = {
-            'workflow-controller':publish(deployment,'workflow-controller',fetch+'\n'+FIXTURE),
+            'workflow-controller':publish(deployment,'workflow-controller',controller+'\n'+FIXTURE),
             'workflow-io':publish(deployment,'workflow-io',CHILD),
-            'workflow-pages':publish(deployment,'workflow-pages',controller),
-            'workflow-example':publish(deployment,'workflow-example',controller),
-            'owned-example':publish(deployment,'owned-example',(root/'examples/owned-subworkflows/program.py').read_text()),
+            'workflow-pages':publish(deployment,'workflow-pages',controller,version='1.0.1'),
+            'workflow-example':publish(deployment,'workflow-example',controller,version='1.0.1'),
+            'owned-example':publish(deployment,'owned-example',(root/'examples/owned-subworkflows/program.py').read_text(),version='1.0.1'),
             'owned-controller':publish(deployment,'owned-controller',(root/'tools/workflow_acceptance/owned_program.py').read_text()),
+            'fork-controller':publish(deployment,'fork-controller',(root/'tools/workflow_acceptance/fork_program.py').read_text()),
+            'mixed-workflow':publish(deployment,'mixed-workflow',(root/'examples/mixed-workflow/program.py').read_text(),version='1.0.1'),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
-        migration = subprocess.run([str(binaries/'ledgence-orchestrator'),'migrate'],env=deployment.environment,capture_output=True,timeout=40)
+        migration = subprocess.run([str(binaries/'ledgence'),'orchestrator','migrate'],env=deployment.environment,capture_output=True,timeout=40)
         assert migration.returncode==0,migration.stderr.decode(errors='replace')[-3000:]
         deployment.server,_ = deployment.start_server()
         delay = DelayServer()
         provenance = artifact_metadata(root,binaries,python,deployment)
         provenance.update(mode='elasticmq' if args.endpoint else 'integrated',database=database,queue_url=queue_url,real_aws=False,published_programs=packages)
         (directory/'resources.json').write_text(json.dumps(provenance,indent=2)+'\n')
-        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS],record,args.placement_iterations,capture))
+        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS],record,args.placement_iterations,capture))
         if capture and any(row['scenario']=='events' for row in results):
             # Workers have drained their exporters, but the server must remain
             # available while durable attempt snapshots are checked.
@@ -758,6 +767,8 @@ def main():
             record('event-traces',verify_event_traces(deployment,capture,results))
         if capture and any(row['scenario']=='owned-tree' for row in results):
             record('owned-traces',owned_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
+        if capture and any(row['scenario']=='fork-mixed' for row in results):
+            record('fork-traces',fork_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
         deployment.server.stop()
         succeeded = True
         print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}',flush=True)

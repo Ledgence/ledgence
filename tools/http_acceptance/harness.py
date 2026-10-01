@@ -13,6 +13,8 @@ import threading
 import time
 import urllib.parse
 
+from postgres_fixture import owned_database_url
+
 
 def eventually(predicate, timeout=30, description="condition"):
     deadline = time.monotonic() + timeout
@@ -302,7 +304,7 @@ class Deployment:
 
     def publish(self, name, version, startup_gate=None, program_source=PROGRAM, runtime_protocol=None):
         directory = self.directory / f"package-{name}-{version}"
-        info = self.command("ledgence-worker", ["example", "--directory", str(directory),
+        info = self.command("ledgence", ["program", "example", "--directory", str(directory),
                                                "--python", self.python])
         package = Path(info["program"])
         manifest_path = package / "ledgence-program.json"
@@ -319,7 +321,7 @@ class Deployment:
                        f"while not Path({str(startup_gate)!r}).exists():\n    time.sleep(0.05)\n" + program)
         (package / "program.py").write_text(program)
         (package / "prepared_dependency.py").write_text("VALUE = 'packaged'\n")
-        return self.command("ledgence-worker", ["publish", "--source", str(package),
+        return self.command("ledgence", ["program", "publish", "--source", str(package),
                                                "--store", str(self.store)])
 
     def start_server(self, port=None):
@@ -327,7 +329,7 @@ class Deployment:
         self.counter += 1
         extra = (["--completion-config", str(self.completion_config)]
                  if getattr(self, "completion_config", None) else [])
-        process = Process([str(self.binaries / "ledgence-orchestrator"), "serve", "--bind",
+        process = Process([str(self.binaries / "ledgence"), "orchestrator", "serve", "--bind",
                            f"127.0.0.1:{port}", "--store", self.artifacts.url] + extra,
                           self.directory, f"server-{self.counter}", self.environment)
         self.processes.append(process)
@@ -350,7 +352,7 @@ class Deployment:
 
     def start_worker(self, server=None, concurrency=1, cache="cache"):
         self.counter += 1
-        args = [str(self.binaries / "ledgence-worker"), "connect", "--server",
+        args = [str(self.binaries / "ledgence"), "worker", "connect", "--server",
                 server or self.server_url, "--tenant", self.scope["tenant_id"], "--namespace",
                 self.scope["namespace"], "--queue", self.queue, "--store", self.artifacts.url,
                 "--cache", str(self.directory / cache), "--python", self.python,
@@ -434,7 +436,7 @@ class Deployment:
     def sql(self, statement, administrative=False):
         url = self.database_url
         if administrative:
-            url = urllib.parse.urlunsplit(urllib.parse.urlsplit(url)._replace(path="/postgres"))
+            url = owned_database_url(url, "postgres")
         result = subprocess.run([self.psql, "--dbname", url, "-X", "-A", "-t",
                                  "--set", "ON_ERROR_STOP=1", "--command", statement],
                                 capture_output=True, timeout=35)

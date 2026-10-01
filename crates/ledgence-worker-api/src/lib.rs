@@ -9,7 +9,12 @@
 //! See the [program package contract](https://github.com/Ledgence/ledgence/blob/main/docs/program-packages.md)
 //! and [worker delivery contract](https://github.com/Ledgence/ledgence/blob/main/docs/worker-delivery.md).
 
+mod measurements;
 pub mod metrics;
+pub use measurements::{
+    INVOCATION_OBSERVATIONS_MAX_BYTES, InvocationObservations, LocalStepObservation,
+    LocalStepObservedState,
+};
 mod trace;
 pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;
@@ -18,6 +23,11 @@ pub use execution::{
     RuntimeExtension, RuntimeInvocation, RuntimeReply, RuntimeRequest,
 };
 mod invocation;
+mod observation;
+pub use observation::{
+    InvocationObservation, ProcessSlotState, SlotObservation, WORKER_OBSERVATION_MAX_SLOTS,
+    WorkerObservationDetailState, WorkerObservationScope, WorkerObservationSnapshot,
+};
 mod json;
 pub use json::decode_json;
 mod wire;
@@ -779,6 +789,12 @@ pub trait RuntimeRequestHandler: Send + Sync {
 
 pub trait ExecutionSession: Send {
     fn pid(&self) -> u32;
+    /// Takes optional measurements for the most recent invocation. Adapters must
+    /// clear them before executing again, including after failure. Old adapters
+    /// remain supported and explicitly provide no observations.
+    fn take_observations(&mut self) -> Option<InvocationObservations> {
+        None
+    }
     /// Runtime/protocol errors require retiring the session; business Failure may be reused.
     /// The session must retain process ownership if this future is dropped or panics,
     /// so `close` can still confirm cleanup. Adapter panics close worker admission.

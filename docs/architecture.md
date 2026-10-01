@@ -1,6 +1,6 @@
 # Architecture
 
-Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The [HTTP composition](http-orchestration.md) supplies an orchestrator executable, connected worker command, and task administration CLI. Integrated acquisition uses [bounded long polling](acquisition-waits.md) coordinated through portable storage probes and optional wake hints. The optional [dispatch source](dispatch-delivery.md) receives readiness references from SQS Standard or ElasticMQ, then requests a targeted durable claim over HTTP before acknowledging the broker record.
+Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The [HTTP composition](http-orchestration.md) supplies orchestrator, worker, program, and task administration commands in one `ledgence` executable, with separate processes for each running service. Integrated acquisition uses [bounded long polling](acquisition-waits.md) coordinated through portable storage probes and optional wake hints. The optional [dispatch source](dispatch-delivery.md) receives readiness references from SQS Standard or ElasticMQ, then requests a targeted durable claim over HTTP before acknowledging the broker record.
 
 ## Crate boundaries
 
@@ -12,15 +12,15 @@ Ledgence provides a worker, a transport-independent delivery driver, and a Rust 
 | `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
-| `ledgence-worker` | Local fixture and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
+| `ledgence-worker` | Internal library for program packaging, local fixture execution and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
 | `ledgence-orchestration-api` | Submission, delivery, lease, receipt, and service contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
 | `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 | `ledgence-adapter-sqs` | Optional SQS Standard publishing, receiving, acknowledgment and deployment configuration | Orchestration API, worker API |
 | `ledgence-adapter-http` | Optional HTTP client/server implementations of `TaskService` | Orchestration API, worker API |
-| `ledgence-orchestrator` | HTTP serving, explicit migrations, readiness, supervised recovery and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
-| `ledgence-cli` | `ledgence task` submission, discovery, inspection, history and cancellation | Orchestration API, worker API, HTTP adapter, optional OTel adapter |
+| `ledgence-orchestrator` | Internal library for HTTP serving, explicit migrations, readiness, supervised recovery and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
+| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator and task commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel adapter |
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
 
@@ -43,7 +43,7 @@ Stopping the driver closes worker admission and runs worker cleanup concurrently
 3. The cache returns a pinned artifact or the worker downloads, verifies, and publishes it. Concurrent requests for one digest share preparation. Dropping the caller does not release unfinished preparation. A fetch timeout can return a failure promptly, but the same fetch future, consumer permit, and attempt registration remain owned until its underlying I/O completes. Late download bytes are discarded after timeout; they never trigger execution. If cancellation or the invocation deadline occurs during a cache lookup, its completion remains owned, but a cache miss does not start a new download.
 4. A compatible warm process is selected first, then unused capacity. An incompatible idle process is retired only when all slots are occupied. One process accepts one invocation at a time.
 5. The runtime sends the whole event once. Response event and attempt IDs must match. A business failure is a valid response; an uncertain runtime/protocol result retires the process and is never silently retried.
-6. Healthy processes return to the warm pool. Cleanup must be confirmed before releasing their process reservation and artifact pin.
+6. Healthy processes return to the warm pool. Cleanup must be confirmed before releasing their process reservation and artifact pin. Removing a retired process's working directory runs on the blocking I/O executor; cancellation of a close waiter retains that cleanup job and its ownership until completion.
 
 `N` is the global limit for consumers and for starting/warm/running/retiring process slots, across all program versions. Cache byte limits and lifecycle timeouts are resource controls, not additional concurrency settings. Preparation happens only after consumer admission, so downloads are also bounded by `N`.
 

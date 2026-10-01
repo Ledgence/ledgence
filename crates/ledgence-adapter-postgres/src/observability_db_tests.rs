@@ -188,6 +188,7 @@ async fn durable_producer_context_survives_replay_and_retries_use_the_accepted_o
                 unreachable!()
             };
             failed.report = AttemptReport::Failed(ledgence_worker_api::ExecutionFailure {
+                observations: None,
                 context: report.context.clone(),
                 error: ledgence_worker_api::Error::new(
                     ledgence_worker_api::ErrorKind::Runtime,

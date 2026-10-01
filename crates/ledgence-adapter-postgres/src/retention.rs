@@ -12,7 +12,7 @@ impl RetentionStore for PostgresStore {
         deadline: Instant,
     ) -> ContractFuture<'a, RetentionPreview> {
         Box::pin(self.run_until(deadline, move || async move {
-            scope.validate()?; policy.validate()?;
+            self.require_scope(scope)?; policy.validate()?;
             let mut connection=self.transaction_connection().await?;
             let mut tx=connection.begin_read().await?;
             let now=db::now(&mut tx).await?;
@@ -48,7 +48,7 @@ impl PostgresStore {
         scope: &Scope,
         policy: &RetentionPolicy,
     ) -> StoreResult<RetentionProgress> {
-        scope.validate()?;
+        self.require_scope(scope)?;
         policy.validate()?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
@@ -337,7 +337,9 @@ async fn collect_workflow(
     progress: &mut RetentionProgress,
 ) -> StoreResult<()> {
     for sql in [
+        "DELETE FROM workflow_explorer_records WHERE ctid IN (SELECT ctid FROM workflow_explorer_records WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_history WHERE ctid IN (SELECT ctid FROM workflow_history WHERE workflow_id=$1 LIMIT $2)",
+        "DELETE FROM workflow_forks WHERE ctid IN (SELECT ctid FROM workflow_forks WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_events WHERE ctid IN (SELECT ctid FROM workflow_events WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_waits WHERE ctid IN (SELECT ctid FROM workflow_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",
@@ -450,6 +452,17 @@ async fn collect_session(
     let safe: bool=sqlx::query_scalar("SELECT expires_at_ms<=$2 AND NOT EXISTS(SELECT 1 FROM attempts WHERE worker_session_id=$1 AND state='active') FROM worker_sessions WHERE session_id=$1")
         .bind(id).bind(codec::ms(now)?).fetch_one(&mut *connection).await?;
     if !safe {
+        return Ok(());
+    }
+    // Latest observations follow the same protected-session decision. This is
+    // one row at most, counted against the existing collection work budget.
+    let observation = sqlx::query("DELETE FROM worker_observations WHERE session_id=$1")
+        .bind(id)
+        .execute(&mut *connection)
+        .await?
+        .rows_affected();
+    if observation != 0 {
+        progress.deleted_rows = observation as u32;
         return Ok(());
     }
     let removed=sqlx::query("DELETE FROM consumer_cursors WHERE ctid IN (SELECT ctid FROM consumer_cursors WHERE session_id=$1 LIMIT $2)")

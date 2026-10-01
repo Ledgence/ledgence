@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from console_bundle import verify_bundle
 
 
 def checksum(path):
@@ -34,6 +35,11 @@ def verify_files(directory):
     for name, digest in expected.items():
         if checksum(directory / name) != digest:
             raise ValueError(f"candidate checksum mismatch: {name}")
+    # Current packages expose one executable. Historical multi-binary archives
+    # keep their original release tooling and immutable qualification records.
+    if {name for name in actual if name.startswith("bin/")} != {"bin/ledgence"}:
+        raise ValueError("current bundle must contain exactly bin/ledgence")
+    verify_bundle(directory)
 
 
 def extract_archive(archive, destination, *, canonical_modes=False):
@@ -69,7 +75,7 @@ def verify(archive, python):
     with tempfile.TemporaryDirectory(prefix="ledgence-archive-check-") as temporary:
         directory = extract_archive(archive, Path(temporary) / "extracted")
         verify_files(directory)
-        subprocess.run([python, str(Path(__file__).with_name("smoke.py")), "--directory", str(directory)], check=True, timeout=180)
+        subprocess.run([python, str(Path(__file__).with_name("smoke.py")), "--directory", str(directory)], check=True, timeout=300)
     print("Actual bundle archive checksum inventory and relocated execution passed")
 
 

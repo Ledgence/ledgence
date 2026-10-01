@@ -1,0 +1,7 @@
+node_modules
+dist
+third_party
+public/notices
+pnpm-lock.yaml
+playwright-report
+test-results

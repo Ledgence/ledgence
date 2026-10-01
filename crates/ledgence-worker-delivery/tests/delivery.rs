@@ -61,6 +61,7 @@ struct Counts {
     hold_cleanup: AtomicBool,
     injected_outcome: Mutex<Option<ProgramOutcome>>,
     injected_error: Mutex<Option<worker_api::Error>>,
+    injected_observations: Mutex<Option<InvocationObservations>>,
     observed_events: Mutex<Vec<Value>>,
     observed_processing: Mutex<Vec<Option<TraceContext>>>,
 }
@@ -175,6 +176,10 @@ impl Drop for Session {
 impl ExecutionSession for Session {
     fn pid(&self) -> u32 {
         self.pid
+    }
+
+    fn take_observations(&mut self) -> Option<InvocationObservations> {
+        self.counts.injected_observations.lock().unwrap().take()
     }
 
     fn execute<'a>(
@@ -1187,6 +1192,72 @@ async fn adapter_panics_after_mutations_replay_the_original_operations() {
 }
 
 #[tokio::test]
+async fn optional_observations_never_replace_a_valid_result_and_retries_remain_immutable() {
+    for runtime_error in [false, true] {
+        let (worker, counts) = setup(1);
+        let content = "x".repeat(SETTLEMENT_MAX_BYTES - 32 * 1024);
+        if runtime_error {
+            *counts.injected_error.lock().unwrap() =
+                Some(worker_api::Error::new(ErrorKind::Runtime, &content));
+        } else {
+            *counts.injected_outcome.lock().unwrap() = Some(ProgramOutcome::Success {
+                output: json!({"result": content}),
+            });
+        }
+        let observations = InvocationObservations {
+            runtime_started_at_ms: 1,
+            runtime_elapsed_us: 100,
+            process_cpu_user_us: None,
+            process_cpu_system_us: None,
+            process_lifetime_peak_rss_bytes: None,
+            local_steps: (0..100)
+                .map(|n| LocalStepObservation {
+                    key: format!("local:{n}"),
+                    callable: "x".repeat(512),
+                    started_at_ms: 1,
+                    elapsed_us: 1,
+                    state: LocalStepObservedState::Returned,
+                })
+                .collect(),
+            local_steps_truncated: false,
+        };
+        observations.validate().unwrap();
+        *counts.injected_observations.lock().unwrap() = Some(observations);
+        let service = Service::new(1);
+        service.lost_settlement_replies.store(1, Ordering::SeqCst);
+        let mut handle = DeliveryDriver::new(worker, service.clone(), config())
+            .unwrap()
+            .start();
+        wait_for(|| handle.status().settled_attempts == 1).await;
+        handle.shutdown(WAIT).await.unwrap();
+        assert_eq!(counts.executions.load(Ordering::SeqCst), 1);
+        let state = service.state.lock().unwrap();
+        assert_eq!(state.settlements.len(), 2);
+        let first = serde_json::to_vec(&state.settlements[0]).unwrap();
+        assert!(first.len() < SETTLEMENT_MAX_BYTES);
+        SettleCommand::decode(&first).unwrap();
+        assert_eq!(first, serde_json::to_vec(&state.settlements[1]).unwrap());
+        match &state.accepted["att_1"].report {
+            AttemptReport::Completed(report) if !runtime_error => {
+                assert!(report.observations.is_none());
+                assert_eq!(
+                    report.outcome,
+                    ProgramOutcome::Success {
+                        output: json!({"result": content})
+                    }
+                );
+            }
+            AttemptReport::Failed(report) if runtime_error => {
+                assert!(report.observations.is_none());
+                assert_eq!(report.error.kind, ErrorKind::Runtime);
+                assert_eq!(report.error.message, content);
+            }
+            _ => panic!("optional observations changed the execution result"),
+        }
+    }
+}
+
+#[tokio::test]
 async fn oversized_success_business_failure_and_runtime_errors_are_bounded_before_settlement() {
     for kind in ["success", "business_failure", "runtime_error"] {
         let (worker, counts) = setup(1);
@@ -1784,6 +1855,9 @@ async fn malformed_initial_dispatch_stops_execution_and_reconciles_exact_sent_co
 
 #[path = "delivery/broker.rs"]
 mod broker;
+
+#[path = "delivery/observations.rs"]
+mod observations;
 
 #[path = "delivery/sqs.rs"]
 mod sqs;

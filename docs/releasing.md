@@ -15,29 +15,58 @@ additional Python artifact and execution qualification before this combined
 bundle can be produced. A pure Python client wheel alone does not demonstrate
 compatibility of its native transitive dependencies on an untested target.
 
-After the quality gates pass and the source is committed:
+After the quality gates pass and the source is committed, explicitly build
+Console with its pinned toolchain. The prepared dist must name that exact clean
+commit, version, toolchain and lock hash. Packaging never downloads Node or starts
+an implicit frontend install. Supply `LEDGENCE_POSTGRES_URL` for the disposable
+relocated Console database gate (and `LEDGENCE_PSQL` if psql is a wrapper):
 
 ```sh
-python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc
+pnpm --dir console build
+python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc --console-dist console/dist
 ```
 
 For a prepopulated reviewed wheelhouse and Cargo cache:
 
 ```sh
 python3 tools/release/package.py --candidate rc.1 --output /tmp/ledgence-rc-offline \
-  --wheelhouse /path/to/reviewed/wheelhouse --offline
+  --wheelhouse /path/to/reviewed/wheelhouse --offline --console-dist /path/to/prepared/console-dist
 ```
 
-The output directory must be new and outside checkout. The tool builds optimized
-binaries with `--locked`, packages the worker helper, rebuilds the SDK wheel from
+Use `--headless` instead of `--console-dist` to explicitly omit web assets. A
+headless bundle makes no Console distribution claim. The manual Candidate
+packaging workflow always builds and verifies headless candidates on Linux x86_64
+and macOS arm64. By default it also builds a Linux x86_64 candidate containing
+Console, using the pinned frontend toolchain and a disposable PostgreSQL 18.6
+service for relocated verification. Set `include_console=false` to run only the
+headless jobs; set `candidate=rc.N` to select the candidate label.
+
+Each successful job retains its verified archive, `SHA256SUMS` and provenance as
+an Actions artifact for 30 days. Artifact names distinguish the headless targets
+from `candidate-console-linux-x86_64`. These are reviewable candidates; the
+workflow does not create tags, promote branches or publish GitHub Releases.
+For a macOS bundle containing Console, use the local static build and PostgreSQL
+verification described above. Integration and capacity qualification remain
+separate required gates.
+
+Offline mode requires the prepared, reviewed static build as well as Cargo/Python
+caches; it never silently fetches frontend dependencies.
+
+The output directory must be new and outside checkout. The tool builds an optimized
+`ledgence` executable with `--locked`, packages the worker helper, rebuilds the SDK wheel from
 its sdist, runs the existing installed-client base/optional-OTel tests and legal
 gates, inventories the selected normal/build Cargo graph and Rust toolchain
-copyrights, and exercises the relocated binaries/helper with a real host Python
+copyrights, and exercises the relocated executable/helper with a real host Python
 process. It rejects a changed or dirty source tree before finalizing.
+
+Bundles built from the current source contain one public executable. The already
+published native `0.1.0` bundle retains its three original executables; see its
+own documentation. The [CLI migration guide](cli.md) maps the command prefixes.
 
 The archive contains:
 
-- `bin/ledgence`, `bin/ledgence-orchestrator`, `bin/ledgence-worker`;
+- `bin/ledgence`, the unified CLI for program, worker, orchestrator and task commands;
+- `console/` containing verified static assets, manifest and retained notices (unless explicitly headless);
 - `runtime/ledgence/worker/`, preserving the native Python namespace;
 - `python-client/` with the tested wheel and source distribution;
 - `examples/local-compose-client.py`, an installed-SDK companion for the published local Compose programs;
@@ -46,7 +75,7 @@ The archive contains:
   and a checksum inventory for every included file.
 
 The actual archive is extracted, its complete file inventory and checksums verified,
-and its relocated binaries/helper executed again before the tool reports success.
+and its relocated executable/helper executed again before the tool reports success. A Console bundle additionally starts its extracted orchestrator against a uniquely created disposable PostgreSQL database and verifies all assets, notices, deep links and actual Console APIs.
 You can repeat this check with `python3 tools/release/verify.py --archive ARCHIVE`.
 
 The release directory has an outer `SHA256SUMS` for the archive. After extracting,
@@ -113,7 +142,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.1.1 --output /tmp/ledgence-stable
+  --version 0.2.0 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -122,7 +151,7 @@ that digest, the original normalized archive modes, and every internal checksum
 before repackaging. It changes only the
 bundle README, `provenance.json`, and internal `SHA256SUMS`; it adds the unchanged
 original `candidate-provenance.json` and `promotion-payload-sha256.json`. All other
-files, including executables, wheel, sdist, helper, documentation and legal files,
+files, including Console assets/manifest/notices, executables, wheel, sdist, helper, documentation and legal files,
 must keep identical bytes and modes. The stable archive uses a version/target root
 without an `rc.N` suffix and receives its own outer checksum.
 
@@ -132,6 +161,26 @@ source tree, original candidate digest and preserved payload inventory. This is
 an artifact preparation step; the matching version tag, `main` promotion and public
 release remain separate decisions and operations. Preserve the candidate and its
 qualification reports alongside the new archive.
+
+Promotion executes the bundled binary, so promote Linux candidates on Linux.
+The manual `promote-bundle.yml` workflow downloads
+`candidate-console-linux-x86_64` from an explicit Actions run in this repository
+and requires the selected archive's expected SHA256. Dispatch it on the matching
+annotated release tag after that commit is included in `main`:
+
+```sh
+gh workflow run promote-bundle.yml --ref v0.2.0 \
+  -f candidate_run=RUN_ID \
+  -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
+  -f version=0.2.0
+```
+
+It checks the clean tag identity and source-equivalent candidate, promotes the
+existing bytes without rebuilding, and runs relocated execution with CPython
+3.14 and disposable PostgreSQL 18.6. Only after promotion and verification pass
+does it retain `stable-linux-x86_64` with the stable archive, checksums and
+provenance for 30 days. It does not create tags or publish releases or packages.
+The candidate's integration and capacity qualification must already be complete.
 
 Run the promotion regression tests with
 `python3 -m unittest discover -s tools/release -p 'test_*.py' -v`.

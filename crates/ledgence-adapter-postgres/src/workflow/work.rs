@@ -35,6 +35,7 @@ impl PostgresStore {
                 tenant_id: row_scope.try_get("tenant_id")?,
                 namespace: row_scope.try_get("namespace")?,
             };
+            self.require_scope(&scope)?;
             let source = work_source(&mut tx, &row).await?;
             let activation = matches!(
                 source,
@@ -98,6 +99,7 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let snapshot = load_work_snapshot(&mut tx, &work.workflow_id).await?;
+        self.require_scope(&snapshot.scope)?;
         let Some(row) = lock_work(&mut tx, work).await? else {
             tx.commit().await?;
             return Ok(WorkflowProgress::default());
@@ -294,6 +296,7 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let mut run = load_work_run(&mut tx, &work.workflow_id, true).await?;
+        self.require_scope(&run.snapshot.scope)?;
         let Some(row) = lock_work(&mut tx, work).await? else {
             tx.commit().await?;
             return Ok(());
@@ -332,6 +335,7 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let mut run = load_work_run(&mut tx, &work.workflow_id, true).await?;
+        self.require_scope(&run.snapshot.scope)?;
         let Some(row) = lock_work(&mut tx, work).await? else {
             tx.commit().await?;
             return Ok(());
@@ -448,10 +452,13 @@ pub(super) async fn apply_decision(
     // Pin causality to the accepted spawning activation, while retaining the
     // workflow's original submission carrier for its own future activations.
     let origin_trace = processing_trace.or(run.submission.origin_trace.as_ref());
+    // The parent mutation lock serializes registration. Count once only if this
+    // decision creates a new child, then account for our own inserts locally.
+    let mut registered_children = None;
     for command in decision.commands() {
         let existing_task: Option<String> = sqlx::query_scalar("SELECT task_id FROM workflow_task_links WHERE workflow_id=$1 AND NOT is_activation AND command_key=$2")
             .bind(&run.snapshot.workflow_id).bind(&command.key).fetch_optional(&mut *connection).await?;
-        let existing_workflow: Option<Vec<u8>> = sqlx::query_scalar("SELECT w.submission_bytes FROM owned_workflow_links l JOIN workflow_runs w ON w.workflow_id=l.child_workflow_id WHERE l.parent_workflow_id=$1 AND l.command_key=$2")
+        let existing_workflow: Option<(Vec<u8>, Option<String>)> = sqlx::query_as("SELECT w.submission_bytes,l.fork_key FROM owned_workflow_links l JOIN workflow_runs w ON w.workflow_id=l.child_workflow_id WHERE l.parent_workflow_id=$1 AND l.command_key=$2")
             .bind(&run.snapshot.workflow_id).bind(&command.key).fetch_optional(&mut *connection).await?;
         let input = command.submission(&run.snapshot.scope, run.snapshot.correlation_key.clone());
         if existing_task.is_some() && existing_workflow.is_some() {
@@ -471,8 +478,8 @@ pub(super) async fn apply_decision(
             }
             continue;
         }
-        if let Some(bytes) = existing_workflow {
-            if command.kind != WorkflowChildKind::Workflow {
+        if let Some((bytes, fork_key)) = existing_workflow {
+            if command.kind != WorkflowChildKind::Workflow || fork_key.is_some() {
                 return Err(ContractError::Conflict.into());
             }
             let submission: SubmitCommand = codec::decode(&bytes)?;
@@ -491,6 +498,19 @@ pub(super) async fn apply_decision(
         if resolved.kind != command.kind || resolved.descriptor.program != command.program {
             return Err(ContractError::Conflict.into());
         }
+        let registered = match registered_children {
+            Some(count) => count,
+            None => {
+                forks::registered_children(
+                    connection,
+                    &run.snapshot.workflow_id,
+                    &decision.activation_id,
+                )
+                .await?
+            }
+        };
+        forks::check_child_budget(registered, 1)?;
+        registered_children = Some(registered + 1);
         let task = if command.kind == WorkflowChildKind::Workflow {
             owned::create_child(
                 connection,
@@ -528,6 +548,7 @@ pub(super) async fn apply_decision(
                 &command.key,
             )
             .await?;
+            explorer::child(connection, &decision.activation_id, command, &id, None, now).await?;
             task
         };
         wakes.push(task);
@@ -639,6 +660,13 @@ pub(super) async fn apply_decision(
         "decision_applied",
     )
     .await?;
+    let resumed = match &decision.action {
+        WorkflowAction::Continue { .. }
+        | WorkflowAction::Suspend { .. }
+        | WorkflowAction::Wait { .. } => run.snapshot.activation_id.as_deref(),
+        WorkflowAction::Complete { .. } | WorkflowAction::Fail { .. } => None,
+    };
+    explorer::decision(connection, decision, applied_at, resumed).await?;
     Ok(AppliedDecision {
         wakes,
         at: applied_at,
