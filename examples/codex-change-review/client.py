@@ -21,7 +21,7 @@ def export_bundle(bundle, output):
     output.mkdir(parents=True, exist_ok=False)
     for name, content in {
         "review.html": html,
-        "shipping.py": bundle["candidate"]["source"],
+        "pagination.py": bundle["candidate"]["source"],
         "change.patch": bundle["candidate"]["patch"],
         "review.json": json.dumps(bundle, indent=2, ensure_ascii=False) + "\n",
         "pull-request.md": bundle["pull_request"]["title"] + "\n\n" + bundle["pull_request"]["body"] + "\n",
@@ -54,7 +54,7 @@ def parser():
     result.add_argument("--namespace", default="demo")
     commands = result.add_subparsers(dest="command", required=True)
     submit = commands.add_parser("submit")
-    submit.add_argument("--change-id", default="shipping-100")
+    submit.add_argument("--change-id", default="document-pages")
     submit.add_argument("--idempotency-key", required=True)
     submit.add_argument("--model", default=DEFAULT_MODEL)
     submit.add_argument("--approval-timeout-ms", type=int, default=3_600_000)

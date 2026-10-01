@@ -27,7 +27,7 @@ REVIEW_SCHEMA = {"type": "object", "properties": {
 NOTE_SCHEMA = {"type": "object", "properties": {
     "title": {"type": "string"}, "body": {"type": "string"}},
     "required": ["title", "body"], "additionalProperties": False}
-COMPARISON_CASES = ((9999, 500), (10000, 0), (10001, 0))
+COMPARISON_CASES = ((99, 1), (100, 1), (101, 2))
 BUNDLE_INPUTS = {"workflow_id", "candidate", "comparison", "tests", "review", "note", "decision"}
 
 
@@ -84,7 +84,8 @@ async def review_candidate(*, candidate, model=DEFAULT_MODEL):
     text(model, 128, identifier=True)
     started = now_ms()
     prompt = ("PHASE: REVIEW\nYou are an independent reviewer in a fresh session. Do not use tools or propose changes to files.\n"
-              "Return only the requested JSON. Check the full candidate against the requirements, especially the exact threshold.\n"
+              "Return only the requested JSON. Check the full candidate against the requirements, "
+              "especially zero results and exact page boundaries.\n"
               "Approve with no findings, or request_changes with 1-8 concrete findings using 1-based candidate line numbers.\n"
               + REQUIREMENTS + "\nCANDIDATE_SHA256: " + candidate["sha256"]
               + "\nCANDIDATE_SOURCE:\n" + candidate["source"] + "\nCANONICAL_PATCH:\n" + candidate["patch"])
@@ -116,7 +117,7 @@ async def run_tests(*, candidate):
     started = now_ms()
     with tempfile.TemporaryDirectory(prefix="ledgence-change-tests-") as directory:
         workdir = Path(directory)
-        (workdir / "shipping.py").write_text(candidate["source"], encoding="utf-8")
+        (workdir / "pagination.py").write_text(candidate["source"], encoding="utf-8")
         shutil.copyfile(Path(__file__).with_name("fixtures") / "acceptance.py", workdir / "acceptance.py")
         try:
             code, stdout, stderr = await collect(
@@ -184,10 +185,10 @@ def validate_comparison(value, candidate):
     cases = value["cases"]
     if type(cases) is not list or len(cases) != len(COMPARISON_CASES):
         raise ValueError("comparison requires the three fixed boundary cases")
-    for case, (total, expected) in zip(cases, COMPARISON_CASES, strict=True):
-        fields(case, {"total_cents", "expected_cents", "before", "after"})
-        if (type(case["total_cents"]) is not int or case["total_cents"] != total
-                or type(case["expected_cents"]) is not int or case["expected_cents"] != expected):
+    for case, (item_count, expected) in zip(cases, COMPARISON_CASES, strict=True):
+        fields(case, {"item_count", "expected_pages", "before", "after"})
+        if (type(case["item_count"]) is not int or case["item_count"] != item_count
+                or type(case["expected_pages"]) is not int or case["expected_pages"] != expected):
             raise ValueError("comparison case differs from the fixed requirements")
         for side in ("before", "after"):
             observation = case[side]
@@ -243,7 +244,7 @@ def assemble_bundle(data):
     tests = validate_tests(data["tests"], candidate)
     review = validate_review(data["review"], candidate)
     note = validate_note(data["note"], candidate)
-    compared = all(case["after"]["error"] is None and case["after"]["value"] == case["expected_cents"]
+    compared = all(case["after"]["error"] is None and case["after"]["value"] == case["expected_pages"]
                    for case in comparison["cases"])
     ready = tests["passed"] and review["verdict"] == "approve" and compared
     decision = data.get("decision")
@@ -261,7 +262,7 @@ def assemble_bundle(data):
         if decision["outcome"] == "approved" and not ready:
             raise ValueError("human approval cannot override failed evidence")
         status = decision["outcome"]
-    title = "Fix free-shipping threshold at 10000 cents"
+    title = "Fix empty pages in document search results"
     human = "Pending" if decision is None else decision["outcome"]
     body = ("## Change\n\n" + candidate["summary"] + "\n\n"
             "## Validation\n\n"

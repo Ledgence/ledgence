@@ -262,7 +262,7 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
     from change_review.candidate import BASE_SOURCE
     markers = evidence / (tag + "-markers")
     markers.mkdir()
-    source = BASE_SOURCE if bad_patch else BASE_SOURCE.replace("total_cents > 10000", "total_cents >= 10000")
+    source = BASE_SOURCE if bad_patch else BASE_SOURCE.replace("item_count // 100 + 1", "(item_count + 99) // 100")
     assert source != BASE_SOURCE or bad_patch, "offline repair no longer matches the bundled exercise"
     dump(config_path, {"markers": str(markers), "source": source, "synchronize": synchronize,
                        "hold_review": restart, "findings": findings, "review_failure": review_failure})
@@ -356,7 +356,7 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
         else:
             assert result["workflow"]["state"] == "succeeded", result
             bundle = result["outcome"]["output"]
-            compared = all(case["after"]["error"] is None and case["after"]["value"] == case["expected_cents"]
+            compared = all(case["after"]["error"] is None and case["after"]["value"] == case["expected_pages"]
                            for case in bundle["comparison"]["cases"])
             expected = "needs_changes" if not bundle["tests"]["passed"] or bundle["review"]["verdict"] != "approve" or not compared else {
                 "approve": "approved", "reject": "rejected", "expire": "expired"}[decision]
@@ -366,10 +366,10 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
             if approval_evidence:
                 for name in ("candidate", "comparison", "tests", "review", "note"):
                     assert bundle[name] == approval_evidence["packet"][name], "approved evidence was regenerated"
-            boundary = next(case for case in bundle["comparison"]["cases"] if case["total_cents"] == 10000)
-            assert boundary["before"] == {"value": 500, "error": None}
+            boundary = next(case for case in bundle["comparison"]["cases"] if case["item_count"] == 100)
+            assert boundary["before"] == {"value": 2, "error": None}
             if not args.live_codex:
-                assert boundary["after"] == {"value": 500 if bad_patch else 0, "error": None}
+                assert boundary["after"] == {"value": 2 if bad_patch else 1, "error": None}
             if synchronize:
                 tests, review, note = bundle["tests"], bundle["review"], bundle["note"]
                 assert max(tests["started_at_ms"], review["started_at_ms"], note["started_at_ms"]) <= min(
@@ -384,7 +384,7 @@ def scenario(d, args, config_path, evidence, tag, *, synchronize=False, bad_patc
                 exported = d.companion(["result", "--workflow", identity, "--timeout", "30",
                                         "--output", str(export)], tag + "-result")
                 assert exported["candidate_sha256"] == bundle["candidate"]["sha256"]
-                assert (export / "shipping.py").read_text() == bundle["candidate"]["source"]
+                assert (export / "pagination.py").read_text() == bundle["candidate"]["source"]
                 assert (export / "review.html").is_file()
                 assert json.loads((export / "review.json").read_text()) == bundle
         if lost:

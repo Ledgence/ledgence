@@ -20,14 +20,15 @@ def execution():
 
 
 def proposed(*, fixed=True):
-    source = candidate.BASE_SOURCE.replace("total_cents > 10000", "total_cents >= 10000") if fixed else candidate.BASE_SOURCE
-    return candidate.make_candidate("shipping-1", source, "Include the free-shipping threshold.", execution())
+    source = (candidate.BASE_SOURCE.replace("item_count // 100 + 1", "(item_count + 99) // 100")
+              if fixed else candidate.BASE_SOURCE)
+    return candidate.make_candidate("document-pages", source, "Avoid empty pages in document search.", execution())
 
 
 def reviewed(value, *, approve=True):
     return {"candidate_sha256": value["sha256"], "verdict": "approve" if approve else "request_changes",
-            "summary": "The boundary is correct." if approve else "The exact threshold is incorrect.",
-            "findings": [] if approve else [{"severity": "high", "line": 9, "message": "Include 10000 in free shipping."}],
+            "summary": "The boundary is correct." if approve else "An exact page boundary creates an empty page.",
+            "findings": [] if approve else [{"severity": "high", "line": 9, "message": "Do not add an empty page for exactly 100 results."}],
             "execution": execution(), "started_at_ms": 100, "finished_at_ms": 101, "pid": 1}
 
 
@@ -36,8 +37,8 @@ class CandidateTests(unittest.TestCase):
         value = proposed()
         copy_value = candidate.validate_candidate(value)
         self.assertEqual(value["base_sha256"], candidate.BASE_SHA256)
-        self.assertIn("-    return 0 if total_cents > 10000", value["patch"])
-        self.assertIn("+    return 0 if total_cents >= 10000", value["patch"])
+        self.assertIn("-    return item_count // 100 + 1", value["patch"])
+        self.assertIn("+    return (item_count + 99) // 100", value["patch"])
         copy_value["execution"]["usage"]["input_tokens"] = 99
         self.assertEqual(value["execution"]["usage"]["input_tokens"], 20)
 
@@ -66,7 +67,7 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
         value = proposed()
         response = {"output": {"source": value["source"], "summary": value["summary"]}, "execution": execution()}
         with patch.object(steps, "run_codex", AsyncMock(return_value=response)) as runner:
-            result = await steps.implement_task({"data": {"change_id": "shipping-1"}})
+            result = await steps.implement_task({"data": {"change_id": "document-pages"}})
         self.assertEqual(result, value)
         self.assertEqual(runner.await_count, 1)
         self.assertIn("PHASE: IMPLEMENT", runner.call_args.args[0])
@@ -75,30 +76,30 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
         for bad in ({"source": value["source"]}, {"source": value["source"], "summary": "x", "extra": 1}):
             with patch.object(steps, "run_codex", AsyncMock(return_value={"output": bad, "execution": execution()})):
                 with self.assertRaises(ValueError):
-                    await steps.implement_task({"data": {"change_id": "shipping-1"}})
+                    await steps.implement_task({"data": {"change_id": "document-pages"}})
 
-    async def test_acceptance_detects_threshold_bug_and_validates_all_input_types(self):
+    async def test_acceptance_detects_empty_pages_and_validates_all_input_types(self):
         for fixed in (False, True):
             value = proposed(fixed=fixed)
             report = await steps.run_tests(candidate=value)
             self.assertEqual(report["candidate_sha256"], value["sha256"])
             self.assertEqual(report["passed"], fixed)
             self.assertEqual(report["total"], 6)
-            self.assertEqual(report["failures"], 0 if fixed else 1)
+            self.assertEqual(report["failures"], 0 if fixed else 2)
             self.assertEqual(report["errors"], 0)
-            self.assertIn("test_exact_threshold", report["output"])
-        incomplete = candidate.make_candidate("bad-inputs", "def shipping_cost(total_cents):\n    return 0 if total_cents >= 10000 else 500\n", "Missing input validation.", execution())
+            self.assertIn("test_exact_page_boundaries", report["output"])
+        incomplete = candidate.make_candidate("bad-inputs", "def page_count(item_count):\n    return (item_count + 99) // 100\n", "Missing input validation.", execution())
         report = await steps.run_tests(candidate=incomplete)
         self.assertFalse(report["passed"])
         self.assertGreaterEqual(report["failures"] + report["errors"], 3)
 
     async def test_syntax_and_non_integer_return_are_test_data(self):
-        source = "def shipping_cost(total_cents)\n    return 0\n"
+        source = "def page_count(item_count)\n    return 0\n"
         report = await steps.run_tests(candidate=candidate.make_candidate("syntax", source, "Malformed source.", execution()))
         self.assertFalse(report["passed"])
         self.assertEqual(report["errors"], 6)
         value = proposed()
-        source = value["source"].replace("return 0 if", "return False if")
+        source = value["source"].replace("return (item_count + 99) // 100", "return False")
         report = await steps.run_tests(candidate=candidate.make_candidate("boolean-output", source, "Wrong output type.", execution()))
         self.assertFalse(report["passed"])
 
@@ -133,11 +134,11 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
 
     async def packet_data(self, *, fixed=True, approve=True):
         value = proposed(fixed=fixed)
-        return {"workflow_id": "wf-shipping-1", "candidate": value,
+        return {"workflow_id": "wf-document-pages", "candidate": value,
                 "comparison": await steps.compare_candidate(candidate=value),
                 "tests": await steps.run_tests(candidate=value), "review": reviewed(value, approve=approve),
-                "note": {"candidate_sha256": value["sha256"], "title": "Free shipping from $100",
-                         "body": "The proposed change includes orders exactly at the $100 threshold.",
+                "note": {"candidate_sha256": value["sha256"], "title": "No more empty search pages",
+                         "body": "Exactly 100 search results now fit on one page.",
                          "execution": execution(), "started_at_ms": 100, "finished_at_ms": 101, "pid": 1},
                 "decision": None}
 
@@ -150,12 +151,12 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
             value = proposed(fixed=fixed)
             report = await steps.compare_candidate(candidate=value)
             self.assertEqual(report["candidate_sha256"], value["sha256"])
-            self.assertEqual([row["before"]["value"] for row in report["cases"]], [500, 500, 0])
-            self.assertEqual([row["after"]["value"] for row in report["cases"]], [500, 0 if fixed else 500, 0])
+            self.assertEqual([row["before"]["value"] for row in report["cases"]], [1, 2, 2])
+            self.assertEqual([row["after"]["value"] for row in report["cases"]], [1, 1 if fixed else 2, 2])
             self.assertTrue(all(row["after"]["error"] is None for row in report["cases"]))
-        sources = ("def shipping_cost(total_cents)\n    return 0\n",
-                   "def shipping_cost(total_cents):\n    return False\n",
-                   "def shipping_cost(total_cents):\n    raise ValueError('measured error')\n")
+        sources = ("def page_count(item_count)\n    return 0\n",
+                   "def page_count(item_count):\n    return False\n",
+                   "def page_count(item_count):\n    raise ValueError('measured error')\n")
         for source in sources:
             value = candidate.make_candidate("bad-comparison", source, "Invalid candidate", execution())
             report = await steps.compare_candidate(candidate=value)
@@ -175,7 +176,7 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_note_is_a_bounded_fresh_turn_for_the_exact_candidate(self):
         value = proposed()
-        response = {"output": {"title": "Free shipping from $100", "body": "Includes orders exactly at $100."},
+        response = {"output": {"title": "No more empty search pages", "body": "Exactly 100 search results fit on one page."},
                     "execution": execution()}
         with patch.object(steps, "run_codex", AsyncMock(return_value=response)) as runner:
             report = await steps.draft_note(candidate=value)
@@ -226,7 +227,7 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "cannot override"):
             steps.assemble_bundle({**failed, "decision": self.decision(failed)})
         inconsistent = copy.deepcopy(data)
-        inconsistent["comparison"]["cases"][1]["after"]["value"] = 500
+        inconsistent["comparison"]["cases"][1]["after"]["value"] = 2
         self.assertEqual(steps.assemble_bundle(inconsistent)["status"], "needs_changes")
         with self.assertRaisesRegex(ValueError, "cannot override"):
             steps.assemble_bundle({**inconsistent, "decision": self.decision(inconsistent)})
@@ -234,7 +235,7 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
     async def test_report_structure_counters_and_expected_cases_cannot_be_changed(self):
         data = await self.packet_data()
         for mutate in (
-                lambda value: value["comparison"]["cases"][1].update(expected_cents=500),
+                lambda value: value["comparison"]["cases"][1].update(expected_pages=2),
                 lambda value: value["comparison"]["cases"][1]["after"].update(value=True),
                 lambda value: value["comparison"]["cases"][1]["after"].update(error="failure"),
                 lambda value: value["tests"].update(passed=False),
@@ -268,7 +269,7 @@ class StepsTests(unittest.IsolatedAsyncioTestCase):
     async def test_uncertain_codex_or_test_process_retires_session(self):
         with patch.object(steps, "run_codex", AsyncMock(side_effect=steps.CodexError("fixed failure"))):
             with self.assertRaises(SystemExit):
-                await steps.implement_task({"data": {"change_id": "shipping-1"}})
+                await steps.implement_task({"data": {"change_id": "document-pages"}})
         with patch.object(steps, "collect", AsyncMock(side_effect=ProcessError("deadline exceeded"))):
             with self.assertRaises(SystemExit):
                 await steps.run_tests(candidate=proposed())

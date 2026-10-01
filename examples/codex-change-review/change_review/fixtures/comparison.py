@@ -3,7 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-CASES = ((9999, 500), (10000, 0), (10001, 0))
+CASES = ((99, 1), (100, 1), (101, 2))
 
 
 def error_result(error):
@@ -13,18 +13,18 @@ def error_result(error):
 
 def measure(filename):
     try:
-        spec = importlib.util.spec_from_file_location("shipping_" + filename, Path(__file__).with_name(filename + ".py"))
+        spec = importlib.util.spec_from_file_location("pagination_" + filename, Path(__file__).with_name(filename + ".py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        function = module.shipping_cost
+        function = module.page_count
     except BaseException as error:
         return [error_result(error) for _ in CASES]
     values = []
-    for total, _expected in CASES:
+    for item_count, _expected in CASES:
         try:
-            value = function(total)
+            value = function(item_count)
             if type(value) is not int or not -(2**63) <= value < 2**63:
-                raise TypeError("shipping_cost must return a bounded integer")
+                raise TypeError("page_count must return a bounded integer")
             values.append({"value": value, "error": None})
         except BaseException as error:
             values.append(error_result(error))
@@ -34,5 +34,5 @@ def measure(filename):
 if __name__ == "__main__":
     before, after = measure("before"), measure("after")
     print(json.dumps({"cases": [
-        {"total_cents": total, "expected_cents": expected, "before": old, "after": new}
-        for (total, expected), old, new in zip(CASES, before, after, strict=True)]}))
+        {"item_count": item_count, "expected_pages": expected, "before": old, "after": new}
+        for (item_count, expected), old, new in zip(CASES, before, after, strict=True)]}))
