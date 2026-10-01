@@ -637,14 +637,28 @@ class GeminiHttpTests(unittest.TestCase):
 
     def test_inflight_http_request_is_cancelled_by_the_global_deadline(self):
         closed = []
+        deadlines = []
+        real_timeout = asyncio.timeout
+
+        def capture_timeout(seconds):
+            deadline = real_timeout(seconds)
+            deadlines.append(deadline)
+            return deadline
 
         async def hang(request):
+            self.assertEqual(len(deadlines), 1)
+            # Expire the actual invocation deadline only once HTTP is in flight;
+            # ADK/client initialization must not race a tiny wall-clock budget.
+            deadlines[0].reschedule(asyncio.get_running_loop().time())
             try:
                 await asyncio.Event().wait()
             finally:
                 closed.append(True)
 
-        result, error, requests = self.run_http([hang], budget_seconds=0.02)
+        with patch.object(asyncio, "timeout", side_effect=capture_timeout) as timeout:
+            result, error, requests = self.run_http([hang], budget_seconds=10)
+        timeout.assert_called_once_with(10)
+        self.assertTrue(deadlines[0].expired())
         self.assertIsNone(result)
         self.assertIn("execution budget", str(error))
         self.assertEqual(len(requests), 1)

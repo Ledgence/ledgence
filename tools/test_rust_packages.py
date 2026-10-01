@@ -81,6 +81,63 @@ class RustPackageChecks(unittest.TestCase):
                     tar.addfile(entry, io.BytesIO(b'x'))
         return path
 
+    def test_archive_requires_nested_historical_fixtures(self):
+        name, version, commit = packages.APIS[1], '0.1.1', 'a' * 40
+        historical = 'tests/fixtures/historical/console-v3.json'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'crates' / name
+            source.mkdir(parents=True)
+            (root / 'LICENSE').write_text('MIT fixture notice\n')
+            files = {
+                'src/lib.rs': b'pub fn contract() {}\n',
+                'tests/contracts.rs': b'const HISTORICAL: &str = include_str!("fixtures/historical/console-v3.json");\n',
+                historical: b'{"contract_version":3}\n',
+                'README.md': b'Portable contract fixture\n',
+                'LICENSE': (root / 'LICENSE').read_bytes(),
+                'Cargo.toml': b'[package]\nname = "ledgence-orchestration-api"\n',
+            }
+            for relative, content in files.items():
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            contents = dict(files)
+            contents['Cargo.toml.orig'] = contents['Cargo.toml']
+            contents['Cargo.toml'] = b"""[package]
+name = "ledgence-orchestration-api"
+version = "0.1.1"
+publish = ["crates-io"]
+license = "MIT"
+readme = "README.md"
+description = "Portable contracts"
+repository = "https://github.com/Ledgence/ledgence"
+documentation = "https://docs.rs/ledgence-orchestration-api"
+rust-version = "1.98"
+[dependencies.ledgence-worker-api]
+version = "0.1.1"
+"""
+            contents['Cargo.lock'] = b'[[package]]\nname = "ledgence-orchestration-api"\nversion = "0.1.1"\n'
+            contents['.cargo_vcs_info.json'] = json.dumps({
+                'git': {'sha1': commit}, 'path_in_vcs': 'crates/' + name,
+            }).encode()
+            archive = root / 'fixture.crate'
+
+            def package(omit_historical):
+                with tarfile.open(archive, 'w:gz') as tar:
+                    for relative, content in contents.items():
+                        if omit_historical and relative == historical:
+                            continue
+                        entry = tarfile.TarInfo(f'{name}-{version}/{relative}')
+                        entry.size = len(content)
+                        tar.addfile(entry, io.BytesIO(content))
+
+            package(omit_historical=True)
+            with self.assertRaisesRegex(ValueError, 'source archive inventory differs'):
+                packages.inspect_archive(archive, root, name, version, commit, False)
+            package(omit_historical=False)
+            qualified = packages.inspect_archive(archive, root, name, version, commit, False)
+            self.assertEqual(qualified['files'][historical], packages.digest(files[historical]))
+
     def test_archive_rejects_duplicate_members(self):
         archive = self.write_archive([('fixture-1.0/src/lib.rs', 'file')] * 2)
         with self.assertRaisesRegex(ValueError, 'duplicate'):
