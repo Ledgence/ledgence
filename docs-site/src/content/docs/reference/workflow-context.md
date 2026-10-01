@@ -59,7 +59,7 @@ See [Mix local work and workflow branches](/how-to/fork-workflow-branches) for a
 | `activation_id` | Current logical controller activation ID; stable across its task attempts. |
 | `revision` | Checkpoint revision supplied to this activation. |
 | `continuation` | Wire continuation string; initially `"start"` for a public submission. A branch starts at its selected entrypoint. |
-| `entrypoint` | Current source: selected enum member in a registered workflow; otherwise the legacy continuation string. |
+| `entrypoint` | Selected enum member in a registered workflow; otherwise the legacy continuation string. |
 | `state` | JSON state saved by the previous checkpoint. |
 | `inputs` | Frozen child outcomes, indexed by child key. |
 | `wake` | External event, timeout, or timer wake; otherwise `None`. |
@@ -137,7 +137,7 @@ Return one of these decisions from the controller handler:
 
 | Method | Effect when accepted |
 | --- | --- |
-| `join(fork, *, resume, state)` | Current source: save state and wait until every branch in the acknowledged `ForkRef` is terminal; returns a suspend decision. |
+| `join(fork, *, resume, state)` | Save state and wait until every branch in the acknowledged `ForkRef` is terminal; returns a suspend decision. |
 | `suspend(*, continuation, state, until=())` | Save state and wait until every listed child is terminal. Accepts distinct child references or keys; an empty wait is immediately ready. |
 | `continue_(*, continuation, state)` | Save state and schedule the next activation without waiting. |
 | `wait_event(key, *, continuation, state, timeout_ms=None)` | Save state and wait for one external event, optionally with a persisted timeout. |
@@ -187,7 +187,7 @@ Timestamps are Unix milliseconds. `inputs` remains reserved for child outcomes. 
 | Live owned subworkflows per parent | 64 |
 | Nested subworkflow depth | 16, with the root at depth zero |
 
-Current-source fork limits additionally apply:
+Fork limits additionally apply:
 
 | Resource | Limit |
 | --- | --- |

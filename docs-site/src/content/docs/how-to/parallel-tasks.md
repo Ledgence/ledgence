@@ -17,50 +17,56 @@ The example below uses the real `workflow-summary` program from [your first work
 
 ## Stage the children and save their keys
 
-Use this as the controller's handler. Publish it as a new program or version; it is not already included in the Compose example.
+Use this as the controller module, with `program:handle` as its manifest handler. Publish it as a new program or version; it is not already included in the Compose example.
 
 ```python
-from ledgence.worker.workflow import workflow_context
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow
 
-async def handle(event):
-    ctx = workflow_context()
+class Entry(StrEnum):
+    START = "start"
+    COLLECT = "collect"
 
-    if ctx.continuation == "start":
-        batches = event["data"]["batches"]
-        if len(batches) > 64:
-            return ctx.fail("too_many_batches", "Use at most 64 batches")
+workflow = Workflow(Entry)
 
-        keys = [f"summary:{index}" for index in range(len(batches))]
-        children = [
-            ctx.task(
-                key,
-                program="workflow-summary",
-                version="1.0.0",
-                queue="demo",
-                data={"pages": pages},
-            )
-            for key, pages in zip(keys, batches)
-        ]
-        return ctx.suspend(
-            continuation="collect",
-            state={"keys": keys},
-            until=children,
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    batches = event["data"]["batches"]
+    if len(batches) > 64:
+        return ctx.fail("too_many_batches", "Use at most 64 batches")
+
+    keys = [f"summary:{index}" for index in range(len(batches))]
+    children = [
+        ctx.task(
+            key,
+            program="workflow-summary",
+            version="1.0.0",
+            queue="demo",
+            data={"pages": pages},
         )
+        for key, pages in zip(keys, batches)
+    ]
+    return ctx.suspend(
+        continuation=Entry.COLLECT,
+        state={"keys": keys},
+        until=children,
+    )
 
-    if ctx.continuation == "collect":
-        keys = ctx.state["keys"]
-        inputs = ctx.inputs
-        unsuccessful = [
-            key for key in keys
-            if inputs[key]["outcome"]["kind"] != "succeeded"
-        ]
-        if unsuccessful:
-            return ctx.fail("batch_failed", "A summary task did not succeed")
-        return ctx.complete({
-            "summaries": [ctx.get_result(key) for key in keys],
-        })
+@workflow.entrypoint(Entry.COLLECT)
+def collect(event, ctx):
+    keys = ctx.state["keys"]
+    inputs = ctx.inputs
+    unsuccessful = [
+        key for key in keys
+        if inputs[key]["outcome"]["kind"] != "succeeded"
+    ]
+    if unsuccessful:
+        return ctx.fail("batch_failed", "A summary task did not succeed")
+    return ctx.complete({
+        "summaries": [ctx.get_result(key) for key in keys],
+    })
 
-    return ctx.fail("unknown_continuation", ctx.continuation)
+handle = workflow.build()
 ```
 
 For example, submit the controller with:
@@ -73,6 +79,8 @@ For example, submit the controller with:
   ]
 }
 ```
+
+`workflow.build()` validates the registered entrypoints. The initial submission invokes `start`; the accepted checkpoint schedules `collect` after the children finish. Existing string-based controllers remain supported.
 
 After packaging and publication, submit it through `client.workflows.submit(...)` using your controller's program ID and version. See the [Python client reference](/reference/python-client) for the submission fields and the [package contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/program-packages.md) for publication.
 

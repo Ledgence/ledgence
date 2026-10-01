@@ -39,18 +39,23 @@ Each process handles one invocation at a time. Application code must finish its 
 | `ctx.local(...)` | Current controller process and package | An individually acknowledged local result within the activation. |
 | `ctx.task(...)` | Independently scheduled task | A child task with its own attempts, lease, and outcome. |
 | `ctx.workflow(...)` | Independently scheduled owned workflow | A child workflow's checkpoints and terminal outcome. |
+| `await ctx.fork(..., branches=[ctx.branch(...)])` | Independently scheduled workflows in the parent's exact package | Acknowledged branch registration, then each branch's own checkpoints and outcome. |
 
 Local asynchronous work is useful for overlapping I/O without creating a distributed task for every request. Its invocation still occupies a worker slot. A synchronous local function does not become parallel merely by wrapping it in `ctx.local`.
 
-Distributed children are useful when work needs separate scheduling, a different package, or independent attempts. Staging children does not mean unlimited parallelism: their actual concurrency depends on available matching workers.
+Distributed children are useful when work needs separate scheduling, a different package, or independent attempts. `task` and `workflow` stage commands for the next accepted checkpoint. A `fork` registers its branches before returning, so the parent can continue local work while matching workers execute those branches. Available worker capacity determines actual overlap; one slot can run the same workflow sequentially. See [Mix local work and branches](/how-to/fork-workflow-branches).
+
+Keep coordination in workflows. A task runs its handler again on retry; journaled local operations belong to the workflow controller that invoked them. A branch is a child workflow with its own identity, state, and entrypoint invocations.
 
 ## Workflows release capacity while waiting
 
-A workflow controller runs as a leased task. It performs local work, stages children, and returns a decision describing what should happen next.
+A workflow controller runs as a leased task. Its registered entrypoint handler performs local work, coordinates children, and returns a decision describing what should happen next.
 
 A checkpoint can wait for children, an external event, or a timer. Once that decision is accepted, the invocation has ended. The durable wait holds no coroutine, worker reservation, or database connection. A warm subprocess may remain in the ordinary reusable pool.
 
-When the condition is satisfied, Ledgence schedules a new activation with the saved continuation, JSON state, and selected outcomes. The workflow continues from an explicit label, not a suspended Python stack.
+When the condition is satisfied, Ledgence schedules a new activation at the saved entrypoint with JSON state and selected outcomes. Each activation has its own identity; revisiting the same entrypoint in a loop creates another invocation. Retrying an activation keeps its logical identity and its accepted local results. Python stacks and local variables are not restored.
+
+Console's [workflow graph](/reference/console) follows these recorded executions. It shows one workflow level at a time; open a branch to inspect that child workflow's entrypoints. It does not need a separate graph declaration in your application.
 
 This is why the [first workflow tutorial](/tutorials/first-workflow) can run a controller and its summary child with worker concurrency one.
 

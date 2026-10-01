@@ -9,40 +9,46 @@ Use an external event wait when another application needs to resume a specific w
 
 Use the matching orchestrator, worker, and database migrations from the `v0.2.0` source tag, as in [Run Ledgence locally](/tutorials/run-locally). Package your controller with runtime protocol **3**, publish it, and connect a worker to its queue. To send events, use the [Python client](/reference/python-client) with the same server, tenant, and namespace as the workflow.
 
-The controller below is application code to package and publish, not a preinstalled example.
+The controller below is application code to package and publish, with `program:handle` as its manifest handler. It is not a preinstalled example.
 
 ## Return an event-wait decision
 
 ```python
-from ledgence.worker.workflow import workflow_context
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow
 
-async def handle(event):
-    ctx = workflow_context()
+class Entry(StrEnum):
+    START = "start"
+    AFTER_APPROVAL = "after_approval"
 
-    if ctx.continuation == "start":
-        return ctx.wait_event(
-            "approval:1",
-            continuation="after_approval",
-            state={"invoice_id": event["data"]["invoice_id"]},
-            timeout_ms=24 * 60 * 60 * 1000,
-        )
+workflow = Workflow(Entry)
 
-    if ctx.continuation == "after_approval":
-        wake = ctx.wake
-        if wake["kind"] == "timeout":
-            return ctx.fail("approval_expired", "Approval did not arrive in time")
-        approval = wake["event"]["data"]
-        if approval.get("approved") is not True:
-            return ctx.fail("approval_declined", "The invoice was not approved")
-        return ctx.complete({
-            "invoice_id": ctx.state["invoice_id"],
-            "approved": True,
-        })
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    return ctx.wait_event(
+        "approval:1",
+        continuation=Entry.AFTER_APPROVAL,
+        state={"document_id": event["data"]["document_id"]},
+        timeout_ms=24 * 60 * 60 * 1000,
+    )
 
-    return ctx.fail("unknown_continuation", ctx.continuation)
+@workflow.entrypoint(Entry.AFTER_APPROVAL)
+def after_approval(event, ctx):
+    wake = ctx.wake
+    if wake["kind"] == "timeout":
+        return ctx.fail("approval_expired", "Approval did not arrive in time")
+    approval = wake["event"]["data"]
+    if not isinstance(approval, dict) or approval.get("approved") is not True:
+        return ctx.fail("approval_declined", "The document was not approved")
+    return ctx.complete({
+        "document_id": ctx.state["document_id"],
+        "approved": True,
+    })
+
+handle = workflow.build()
 ```
 
-The example expects submission data such as `{"invoice_id": "INV-1042"}` and event data containing an `approved` boolean. Validate additional application fields according to your own contract.
+The example expects submission data such as `{"document_id": "DOC-1042"}` and event data containing an `approved` boolean. Validate additional application fields according to your own contract.
 
 `timeout_ms` is an integer duration. It starts when the orchestrator accepts the checkpoint, and the persisted deadline survives retries. Use `None` to wait without a deadline.
 
@@ -56,9 +62,9 @@ command = workflow.prepare_event(
     "approval:1",
     event={
         "specversion": "1.0",
-        "id": "evt_approval_INV-1042_1",
-        "source": "urn:billing:approvals",
-        "type": "com.example.invoice.approved.v1",
+        "id": "evt_approval_DOC-1042_1",
+        "source": "urn:documents:approvals",
+        "type": "com.example.document.approved.v1",
         "datacontenttype": "application/json",
         "data": {"approved": True},
     },
@@ -66,7 +72,7 @@ command = workflow.prepare_event(
 receipt = await workflow.send_event(command)
 ```
 
-The workflow ID, scope, and wait key route the event. The CloudEvent's `data` remains your application's payload. The receipt confirms **durable acceptance**, not that the resumed controller has already processed it.
+The workflow ID, the instance's fixed compatibility binding, and the wait key route the event. The CloudEvent's `data` remains your application's payload. The receipt confirms **durable acceptance**, not that the resumed controller has already processed it.
 
 An event can arrive before the controller registers its wait, provided the workflow already exists and can accept events. There is no need to poll until the controller reaches `wait_event`.
 

@@ -93,8 +93,9 @@ negative zero across inspection, formatting and submission.
 
 Lists use bounded keyset pages, exact filters and server observation timestamps.
 Execution history appends the next page automatically near the end of the list,
-without Refresh, row-count selectors, or page-navigation controls. Failed loads
-retain the visible rows and offer a retry. Filters start a new traversal; returning
+without row-count selectors or page-navigation controls. **Refresh executions**
+restarts at the live first page with the same filters. Failed loads retain the
+visible rows and offer a retry. Filters start a new traversal; returning
 from a detail restores the cached rows and scroll position. The initial page polls
 until loading older executions starts, then the loaded traversal stays stable.
 Each row retains its own page's observation timestamp. Cached inactive queries

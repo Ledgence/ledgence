@@ -1,6 +1,6 @@
 ---
 title: Command-line interface
-description: Current-source CLI command groups, build features, task administration, and migration from the earlier executables.
+description: Ledgence 0.2.0 CLI command groups, build features, task administration, and migration from the earlier executables.
 ---
 
 Ledgence 0.2.0 builds one public executable, `ledgence`, from the
@@ -42,7 +42,7 @@ explicit runtime configuration. See [observability](https://github.com/Ledgence/
 Update executable names and command prefixes in shell scripts, process managers,
 and deployment configuration:
 
-| Previous command | Current source command |
+| Previous command | 0.2.0 command |
 | --- | --- |
 | `ledgence-worker example` | `ledgence program example` |
 | `ledgence-worker publish` | `ledgence program publish` |
@@ -54,8 +54,8 @@ and deployment configuration:
 | `ledgence task ...` | `ledgence task ...` |
 | `ledgence program register ...` | `ledgence program register ...` |
 
-Keep each command's existing options after its new prefix. Current source builds
-and newly built bundles contain only the `ledgence` executable; they do not
+Keep each command's existing options after its new prefix. The 0.2.0 source builds
+and native bundles contain only the `ledgence` executable; they do not
 provide legacy executable aliases. The `ledgence-worker` and
 `ledgence-orchestrator` Rust crates remain internal composition libraries.
 Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
