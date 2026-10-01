@@ -1,54 +1,67 @@
-# From bug report to reviewed change
+# From a $5 bug to an approved change
 
-Codex proposes a fix. Ledgence runs local regression tests alongside an
-independent distributed review, joins their results, and prepares the change
-for a person to inspect.
+A $100 order should receive free shipping. Instead, the calculator charges $5.
+Codex proposes a small fix; Ledgence sends the **same immutable candidate into
+three branches**, measures the behavior locally, joins the evidence, and waits
+for a person's decision.
 
-The exercise is deliberately small: orders of exactly **$100** should receive
-free shipping, but a Python calculator charges **$5**. Amounts use integer cents.
-The code, tests, and expected behavior fit on one screen; the workflow is the
-interesting part.
+This example is designed for a short, understandable product demo. Start with
+the visible business problem, follow real execution in Console, and finish with
+a portable review report. See [the recording guide](DEMO.md) for a shot list
+and narration. The workflow also runs without a provider using an explicitly
+labelled offline fixture.
+
+**Version:** application packages `1.1.0` in the current source, using the
+Ledgence **0.2.0** runtime and Python client. The original example shipped in
+0.2.0 uses application `1.0.0` and does not include the three-branch approval
+flow described here. Do not mix its packages with these instructions.
 
 ```mermaid
 flowchart TD
-    A[Codex implementation task] --> B[Immutable candidate]
-    B --> C[Local regression tests]
-    B --> D[Distributed Codex review]
-    C --> E[Durable join]
-    D --> E
-    E --> F[Final task: evidence and PR description]
-    F --> G[Ready for review or needs changes]
-    F -. Explicit GitHub configuration .-> H[Draft PR]
+    S[Start: Codex proposes a candidate] --> F{Fork three branches}
+    F -.-> T[Run fixed regression tests]
+    F -.-> R[Independent Codex review]
+    F -.-> N[Codex drafts a release note]
+    F --> C[Local step: measure before and after]
+    T --> J[Join all branch outcomes]
+    R --> J
+    N --> J
+    C --> J
+    J --> P[Prepare the review packet]
+    P --> W{Checks passed?}
+    W -- No --> X[Needs changes]
+    W -- Yes --> A[Wait for a human decision]
+    A --> D[Resume: approve, reject or expire]
+    D --> E[Finalize the evidence]
 ```
 
-Read [`program.py`](program.py) first. Its five typed entrypoints describe the
-whole flow. [`change_review/steps.py`](change_review/steps.py) implements the
-operations, and [`change_review/config.py`](change_review/config.py) defines
-program identities, queues, and requirements once. All three program packages
-are built from this one application source tree.
+Read [`program.py`](program.py) for the orchestration. Six main entrypoints
+(`start`, `check_candidate`, `prepare_review`, `await_decision`, `on_decision`,
+`finish`) express its lifecycle. Three branch entrypoints (`run_tests`,
+`review_code`, `draft_note`) execute one level below it.
 
-## What runs where
+## What the viewer sees, and what actually runs
 
-| Step | Execution | Durable result |
+| Moment | Execution | Evidence |
 | --- | --- | --- |
-| Implement | `codex-change-implement` task on `change-review-agents`. | Candidate source, canonical diff, base/candidate hashes and Codex execution metadata. |
-| Test | `ctx.local()` in the parent activation on `change-review`. | Independent regression-test report for that candidate. |
-| Review | Same-package owned workflow at `Entry.REVIEW`, on `change-review-agents`. | Fresh Codex session, structured findings and candidate hash. |
-| Join | Parent saves the test result and waits for the review. | Explicit JSON state and terminal child outcome. |
-| Finalize | `codex-change-finalize` task on `change-review`. | Review bundle, status and optional draft-PR URL. |
+| Propose | A task invokes Codex on `change-review-agents`. | Source, canonical diff, base/candidate digests and Codex metadata. |
+| Fork | Three owned workflows use the parent's exact program descriptor. | Tests on `change-review`; independent review and draft note on `change-review-agents`. |
+| Keep working | After the fork is acknowledged, the parent runs `compare:0` locally. | Actual before/after values for $99.99, $100 and $100.01 orders. |
+| Join | The parent checkpoints its state and waits for every branch to finish. | The same candidate SHA-256 in every report. |
+| Inspect | The `prepare:0` task validates and assembles the review packet. | A task result accessible while the parent waits for approval. |
+| Decide | `wait_event` resumes on a candidate-bound approve/reject event or a deadline. | Decision, event identity and candidate digest. |
+| Finish | A final task assembles the evidence, and optionally publishes an explicitly configured draft PR. | Approved, rejected, expired or needs-changes report. |
 
-`await ctx.fork(...)` registers the remote review before local testing starts.
-It acknowledges scheduling, not review completion. The local operation stays
-within its existing invocation; its test subprocess is not another Ledgence
-consumer or distributed task. After the test result is acknowledged,
-`return ctx.join(...)` releases the parent invocation slot until review finishes.
+A fork acknowledgment confirms durable registration, not that all branches have
+started. The setup uses one control slot and two agent slots. Real overlap
+depends on scheduling and workload; no artificial delays are added to production
+code. Test-only rendezvous points prove overlap in the offline acceptance gate.
+The same graph also completes with one slot, executing branches sequentially.
 
-Two available slots permit overlap. The setup below uses two workers, one slot
-per worker and one queue per worker. Very short tests can finish before a live
-review starts; the example never inserts artificial work to promise overlap.
-The offline acceptance gate uses explicit test-only rendezvous points to prove
-that both branches can be active concurrently. It also checks the topology with
-one slot by routing its test-owned packages through one queue.
+Both joining and waiting for approval release the parent invocation slot.
+Healthy Python processes may remain warm for later work. A `ctx.local()` result
+is acknowledged durably, but code that runs before that acknowledgment can run
+again after an interruption.
 
 ## Requirements
 
@@ -108,7 +121,7 @@ fixtures, and makes no provider or GitHub requests:
   --binaries target/debug --psql psql --evidence "$CHANGE_HOME/check-offline"
 ```
 
-For a real implementation and independent review, supply the actual Codex
+For a real implementation, independent review and draft note, supply the actual Codex
 executable and use a fresh evidence directory:
 
 ```sh
@@ -120,10 +133,11 @@ export LEDGENCE_CODEX_BIN=/absolute/path/to/codex
   --live-codex --codex-bin "$LEDGENCE_CODEX_BIN"
 ```
 
-Use `--psql /absolute/path/to/psql` when it is not on `PATH`. The gate owns its
+Use `--psql /absolute/path/to/psql` when it is not on `PATH`. The gate makes a scripted approval decision for eligible candidates; this is
+acceptance automation, not a person reviewing a change. The gate owns its
 temporary database, services and package store and cleans them up; the original
 PostgreSQL server stays running. A live run submits one workflow, with one
-implementation and one review CLI invocation on its normal path. It never
+implementation, one independent review and one release-note CLI invocation on its normal path. It never
 automatically submits another workflow to obtain a better answer. CLI-internal
 model requests/retries are not exposed as a reliable HTTP-call count.
 
@@ -131,24 +145,25 @@ Inspect the exported files under the evidence directory's `bundle/`:
 
 | File | Contents |
 | --- | --- |
+| `review.html` | Portable visual report, including measured before/after, three branch results and decision. |
 | `shipping.py` | Exact candidate source. |
 | `change.patch` | Diff against the bundled original. |
-| `review.json` | Candidate identity, tests, independent review, execution metadata and final status. |
+| `review.json` | Candidate identity, tests, independent review, release note, comparison, decision and execution metadata. |
 | `pull-request.md` | Title and body ready for human review. |
 
 ## Run interactively and inspect Console
 
 Prepare fresh immutable program packages. All three use application version
-`1.0.0`; changing their code requires a new version when publishing to an
+`1.1.0`; changing their code requires a new version when publishing to an
 existing store.
 
 ```sh
-python3.13 examples/codex-change-review/prepare.py --directory "$CHANGE_HOME/prepared"
+python3.13 examples/codex-change-review/prepare.py --directory "$CHANGE_HOME/prepared-1.1.0"
 export DATABASE_URL="$LEDGENCE_POSTGRES_URL"
 target/debug/ledgence orchestrator migrate
 target/debug/ledgence orchestrator serve --bind 127.0.0.1:8084 \
-  --store "$CHANGE_HOME/prepared/store" \
-  --instance-config "$CHANGE_HOME/prepared/instance.json"
+  --store "$CHANGE_HOME/prepared-1.1.0/store" \
+  --instance-config "$CHANGE_HOME/prepared-1.1.0/instance.json"
 ```
 
 For Console, build it using [its README](../../console/README.md), add
@@ -159,11 +174,11 @@ Keep the orchestrator running. In another terminal, register the programs:
 
 ```sh
 target/debug/ledgence program register --server http://127.0.0.1:8084 \
-  --program codex-change-review --version 1.0.0 --kind workflow
+  --program codex-change-review --version 1.1.0 --kind workflow
 target/debug/ledgence program register --server http://127.0.0.1:8084 \
-  --program codex-change-implement --version 1.0.0 --kind task
+  --program codex-change-implement --version 1.1.0 --kind task
 target/debug/ledgence program register --server http://127.0.0.1:8084 \
-  --program codex-change-finalize --version 1.0.0 --kind task
+  --program codex-change-finalize --version 1.1.0 --kind task
 ```
 
 Start the control worker, reusing the same `CHANGE_HOME`:
@@ -171,20 +186,21 @@ Start the control worker, reusing the same `CHANGE_HOME`:
 ```sh
 target/debug/ledgence worker connect --server http://127.0.0.1:8084 \
   --tenant acme --namespace demo --queue change-review \
-  --store "$CHANGE_HOME/prepared/store" --cache "$CHANGE_HOME/cache-control" \
+  --store "$CHANGE_HOME/prepared-1.1.0/store" --cache "$CHANGE_HOME/cache-control" \
   --python "$(command -v python3.13)" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
   --concurrency 1
 ```
 
-In a separate terminal, start the agent worker. Export `LEDGENCE_CODEX_BIN` to
+In a separate terminal, start the agent worker with **two slots**, so the
+review and release-note branches can overlap. Export `LEDGENCE_CODEX_BIN` to
 the same authenticated executable there:
 
 ```sh
 target/debug/ledgence worker connect --server http://127.0.0.1:8084 \
   --tenant acme --namespace demo --queue change-review-agents \
-  --store "$CHANGE_HOME/prepared/store" --cache "$CHANGE_HOME/cache-agents" \
+  --store "$CHANGE_HOME/prepared-1.1.0/store" --cache "$CHANGE_HOME/cache-agents" \
   --python "$(command -v python3.13)" --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
-  --concurrency 1
+  --concurrency 2
 ```
 
 Submit once and retain the returned workflow ID:
@@ -192,26 +208,66 @@ Submit once and retain the returned workflow ID:
 ```sh
 "$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py submit \
   --change-id shipping-100 --idempotency-key shipping-100:1
+```
+
+Open that workflow in Console. Follow **Graph** as the candidate is created,
+the three branches run, and their results join. Open each branch to inspect
+its own level. Local execution uses a solid edge; fork relationships use dashed
+edges. Graph nodes represent recorded execution, not predicted future steps.
+
+When the workflow waits for approval, find the **`prepare:0`** task under
+**Children** and copy its task ID. Export the packet before making a decision:
+
+```sh
+"$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py review \
+  --task PREPARE_TASK_ID --output "$CHANGE_HOME/review-1"
+```
+
+Open `$CHANGE_HOME/review-1/review.html` in your browser. Review the measured
+shipping values, exact patch, test output, independent findings and draft note.
+The command prints the workflow ID and complete candidate SHA-256. These must
+match the candidate you approve:
+
+```sh
+"$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py approve \
+  --workflow WORKFLOW_ID --candidate-sha256 CANDIDATE_SHA256 \
+  --event-id shipping-100:decision:1
 "$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py result \
   --workflow WORKFLOW_ID --timeout 300 --output "$CHANGE_HOME/result-1"
 ```
 
-The result timeout limits observation; it does not cancel or resubmit work. Use
-the same workflow ID to observe again. Reconcile an uncertain submission with
-the exact same arguments and idempotency key. Use a new key for intentional new
-work. `status` and `cancel` also accept `--workflow`.
+Use `reject` with the same flags instead of `approve` when rejecting. A decision
+is a one-shot event for this workflow and candidate. Do not send both decisions.
+Use a stable event ID; retry an uncertain delivery with **all arguments
+unchanged**. Successful event acceptance is not the final workflow outcome;
+observe `result` to confirm it. The default approval deadline is one hour;
+`submit --approval-timeout-ms` accepts 0 through 86,400,000 milliseconds.
+
+The final `review.html` records the decision. The earlier review file stays a
+snapshot of the pending packet; it does not update itself. Console's **Send
+event** is a generic JSON action, not a dedicated Approve button. The companion
+commands provide the correctly bound decision event.
+
+If tests or the measured comparison fail, or the independent review requests
+changes, the workflow
+completes with `needs_changes` without waiting for approval. Export it with
+`result`; there is no automatic repair loop. Infrastructure failures remain
+explicit failed executions to investigate.
+
+A client timeout only limits observation; it does not cancel or resubmit work.
+Keep the same workflow ID to observe again. Reconcile an uncertain submission
+with the exact same arguments and idempotency key. Use a new key for intentional
+new work. `status` and `cancel` also accept `--workflow`.
 
 ## Optional GitHub draft PR
 
-Default execution stops at the review bundle. To publish, create a **dedicated
-sample repository** with the original
-[`shipping.py`](change_review/fixtures/shipping.py) at its root. Commit and push
-that original, and record its full base commit SHA. Ledgence's own product
-repository is explicitly excluded from this publisher.
+By default, even an approved run stops at the evidence bundle. To enable a draft
+PR, create a **dedicated sample repository** containing the original
+[`shipping.py`](change_review/fixtures/shipping.py) at its root, commit and push
+it, and record the full base commit. Ledgence's product repository is excluded.
 
-On the control worker host, configure `gh auth login` for an account authorized
-to create branches and PRs in that repository. Create a
-small publication file outside the checkout, replacing these example values:
+On the control worker host, configure an authorized GitHub CLI login. Create a
+publication JSON file outside the checkout:
 
 ```json
 {
@@ -221,37 +277,48 @@ small publication file outside the checkout, replacing these example values:
 }
 ```
 
-Add `--publication /absolute/path/to/publication.json` to `client.py submit`
-with a new idempotency key. This explicitly enables GitHub writes for that run.
-Only `ready_for_review` candidates are published. The final task verifies the
-pinned base file, creates a deterministic commit and branch, and creates a
-**draft** PR or reconciles an existing matching PR. It preserves all other repository files and
-does not merge. A moved base or conflicting existing branch/PR is an error to
-inspect, not permission to overwrite work. Keep the target and candidate
-unchanged when reconciling a lost response.
+Add `--publication /absolute/path/to/publication.json` to `submit` with a fresh
+idempotency key. This explicitly configures external writes for that run.
+Publication occurs only **after the checks pass and the exact candidate receives
+approval**. Rejection, expiry and failed checks never publish.
 
-## Outcomes and recovery
+The final task verifies the pinned base, creates a deterministic branch and
+commit, and creates or reconciles a matching **draft** PR. It preserves other
+files and never merges. A moved base or conflicting branch/PR fails rather than
+overwriting work. Keep the target, candidate and event unchanged when
+reconciling an uncertain response.
 
-- `ready_for_review`: the fixed regression suite passes and the independent
-  reviewer approves. This is evidence for human review, not proof of correctness.
-- `needs_changes`: assertions failed or the reviewer requested changes. The
-  complete reports remain available, and no PR is published.
-- Infrastructure failures: failed implementation, review, or finalization remain
-  explicit failed tasks/branches. Timeouts and malformed provider responses are
-  not converted into passing reports.
+## Outcomes and limits
 
-The candidate is at most 24 KiB of encoded JSON, and saved local state is bounded
-below the platform's 64 KiB checkpoint limit. Source and diff are small enough to
-travel together without a separate artifact service. Both branches check the
-same source identity and use fresh temporary directories; they do not share a
-mutable checkout. The tests are predefined independently of Codex's output.
+| Status | Meaning |
+| --- | --- |
+| `waiting_for_approval` | Packet snapshot: all three branches finished, tests and comparison pass and the independent review approves. The parent is still waiting. |
+| `approved` | An approval event for this exact workflow and candidate was recorded. This does not mean merged or deployed. |
+| `rejected` | A rejection event was recorded. No publication. |
+| `expired` | The approval deadline passed. No publication. |
+| `needs_changes` | Assertions or the measured comparison failed, or the reviewer requested changes. Full evidence remains available. |
 
-Stable task, fork, and local-step keys reconcile retries. Accepted local test
-results are reused after recovery; waiting retains no parent invocation. A
-provider call interrupted before result acceptance can still consume usage, and
-GitHub effects require reconciliation. Start a new candidate and rerun both
-checks for any subsequent code change. There is one candidate per workflow,
-without an automatic repair loop.
+A failed provider invocation, invalid response, cancelled branch or infrastructure
+error fails the workflow; it is not converted into a negative review or a passing
+check. Each branch result is validated before it can reach human approval.
+
+The calculator uses integer cents. Tests are fixed independently of the model.
+The comparison and test runner execute candidate code in fresh, bounded
+subprocesses with a minimal environment. This is an **operator-trusted local
+example**, not an untrusted-code security sandbox. Codex itself produces
+structured source/review/note output in fresh, read-only, tool-free sessions;
+it does not modify the Ledgence checkout.
+
+Candidate JSON is bounded to 24 KiB, source to 6 KiB, and the assembled packet
+below the platform's 64 KiB checkpoint limit. The HTML report escapes all model
+text and contains no scripts, network requests or external assets. It includes
+an offline-fixture label when the fixture generated the candidate or reports.
+
+Stable task, fork, branch, local-step and event identities reconcile recovery.
+An interrupted provider call may already have consumed usage; accepted results
+are reused, but the workflow cannot guarantee an external call happened exactly
+once. Optional GitHub effects also require reconciliation. A changed source is
+a new candidate and requires a new run with new evidence and a new decision.
 
 ## Development checks
 
@@ -260,8 +327,13 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/sdk/python:$PWD/sdk/python-client/src
   "$CHANGE_HOME/client/bin/python" -m unittest discover -s examples/codex-change-review/tests -v
 ```
 
-Unit and offline integration tests cover the real workflow contract, input and
-digest validation, regression failures, review findings, bounded child processes,
-replay, and GitHub publication reconciliation using local fixtures. The live
-check is explicit and is not run by CI. The application code is MIT; Codex and
-GitHub are optional host integrations with their own accounts and terms.
+Run the offline native gate above after unit tests. It checks production package
+bytes, three owned branches, single-slot completion, measured overlap using
+fixture gates, failed checks, failed review cleanup, lost acknowledgments,
+restarts during join and approval, repeated decision delivery, rejected and
+expired decisions, and mismatched candidate/workflow rejection. Any added gate
+instrumentation is confined to explicitly labelled test package variants.
+The live check remains opt-in and is not run by CI.
+
+The application code is MIT. No dependencies were added to the application;
+Codex and GitHub remain optional host integrations with their own account terms.
