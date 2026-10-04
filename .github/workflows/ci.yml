@@ -78,6 +78,8 @@ jobs:
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
         run: python tools/check-workload-soak.py --self-test
+      - name: Test fulfillment investigation and verified report fixtures
+        run: python examples/fulfillment-investigator/check.py
       - name: Test the Python runner
         run: python -m unittest discover -s sdk/python/tests -v
       - name: Test optional Python trace context
@@ -234,6 +236,14 @@ jobs:
             --scenario events --scenario owned-tree --scenario fork-mixed --capture target/debug/examples/otlp-capture \
             --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
             --evidence "$RUNNER_TEMP/ledgence-workflow-events-otel-evidence"
+
+      - name: Check fulfillment workflow, review and recovery with real workers
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" examples/fulfillment-investigator/check.py --native \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --directory "$RUNNER_TEMP/ledgence-fulfillment-evidence"
 
   dependencies:
     name: Dependency policy
