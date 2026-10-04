@@ -41,6 +41,21 @@ Provider integrations are optional application dependencies, separate from the
 Ledgence platform and Python client. Offline tests substitute external model
 responses; explicitly enabled live checks use the actual provider.
 
+## Data and agent workflows
+
+These examples connect data preparation to an agent investigation and a reviewed
+output. Their bundled sources are synthetic; a fixture agent is labelled
+separately from an optional real-provider run.
+
+| Example | What it shows | Setup |
+| --- | --- | --- |
+| [Fulfillment investigator](fulfillment-investigator/README.md) | Distinguish missing warehouse data from a delivery-delay signal. Ingest four sources, wait for the missing batch, investigate one verified snapshot in four branches, verify an agent report, and approve its local publication. | Current-source components, CPython 3.11+, and a dedicated PostgreSQL database. Standard-library application; offline scripted-agent checks need no provider. Optional Codex adapter. One worker slot is sufficient; more slots permit overlap. |
+
+This example uses durable operations and action approvals from the current
+checkout, beyond the published 0.2.0 APIs. Its artifacts remain in a separate
+shared local directory; it does not require a cloud account or configure a
+remote lakehouse.
+
 ## Client and transport
 
 | Example | What it shows | Setup |
