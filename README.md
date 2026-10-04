@@ -76,7 +76,8 @@ The [documentation site](https://docs.ledgence.com) separates tutorials, how-to
 guides, reference, and concepts. Start with a tutorial, then use the detailed
 contracts for [programs](docs/program-packages.md), [HTTP orchestration](docs/http-orchestration.md),
 [workflows](docs/workflows.md), [events and timers](docs/workflow-events.md),
-[subworkflows](docs/subworkflows.md), and [completion callbacks](docs/completion-notifications.md).
+[subworkflows](docs/subworkflows.md), [durable approvals](docs/workflow-approvals.md),
+and [completion callbacks](docs/completion-notifications.md).
 
 Console documentation covers [operation](https://docs.ledgence.com/reference/console),
 [agent registration](https://docs.ledgence.com/how-to/register-agent), and

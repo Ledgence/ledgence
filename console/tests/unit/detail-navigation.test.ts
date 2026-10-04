@@ -26,6 +26,7 @@ describe("execution detail URL compatibility", () => {
     ["workflow", "Recorded work", "General", "work"],
     ["workflow", "Local steps", "General", "local"],
     ["workflow", "Waits", "General", "waits"],
+    ["workflow", "Approvals", "General", "approvals"],
   ])("maps %s %s to its preserved content", (kind, legacy, tab, section) => {
     const params = new URLSearchParams({
       tab: legacy,

@@ -356,7 +356,7 @@ it("does not infer external resumption from closure or wake metadata without a s
   }
 });
 
-it("strictly rejects old controller nodes and contradictory or unknown C4 evidence", () => {
+it("strictly rejects old controller nodes and contradictory or unknown C5 evidence", () => {
   expect(() => explorerNode({ ...entrypoint(), kind: "phase" })).toThrow();
   expect(() =>
     explorerNode({

@@ -1,6 +1,100 @@
 use super::*;
 
 impl WorkflowService for HttpTaskService {
+    fn approval<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        key: &'a str,
+    ) -> ContractFuture<'a, ApprovalSnapshot> {
+        Box::pin(async move {
+            scope.validate()?;
+            validate_text(workflow_id, 128)?;
+            validate_text(key, 128)?;
+            let request = ApprovalReference {
+                scope: scope.clone(),
+                workflow_id: workflow_id.into(),
+                key: key.into(),
+            };
+            let expected = request.clone();
+            self.post_validated(
+                "v1/workflows/approvals/inspect",
+                &request,
+                APPROVAL_SNAPSHOT_MAX_BYTES,
+                move |reply: &ApprovalSnapshot| {
+                    if reply.scope != expected.scope
+                        || reply.workflow_id != expected.workflow_id
+                        || reply.key != expected.key
+                    {
+                        return Err(unavailable("approval response identity mismatch"));
+                    }
+                    Ok(())
+                },
+            )
+            .await
+        })
+    }
+    fn list_approvals<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        after_key: Option<&'a str>,
+        limit: u32,
+    ) -> ContractFuture<'a, ApprovalPage> {
+        Box::pin(async move {
+            scope.validate()?;
+            validate_text(workflow_id, 128)?;
+            validate_approval_page(after_key, limit)?;
+            let request = ApprovalListRequest {
+                scope: scope.clone(),
+                workflow_id: workflow_id.into(),
+                after_key: after_key.map(str::to_owned),
+                limit,
+            };
+            let expected = request.clone();
+            self.post_validated(
+                "v1/workflows/approvals/list",
+                &request,
+                APPROVAL_SNAPSHOT_MAX_BYTES,
+                move |reply: &ApprovalPage| {
+                    if !reply.matches(
+                        &expected.scope,
+                        &expected.workflow_id,
+                        expected.after_key.as_deref(),
+                        expected.limit,
+                    ) {
+                        return Err(unavailable("approval page identity mismatch"));
+                    }
+                    Ok(())
+                },
+            )
+            .await
+        })
+    }
+    fn decide_approval<'a>(
+        &'a self,
+        command: &'a ApprovalDecisionCommand,
+    ) -> ContractFuture<'a, ApprovalDecisionReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let expected = command.clone();
+            self.post_validated(
+                "v1/workflows/approvals/decide",
+                command,
+                APPROVAL_SNAPSHOT_MAX_BYTES,
+                move |reply: &ApprovalDecisionReceipt| {
+                    if !reply
+                        .matches(&expected)
+                        .map_err(|_| unavailable("invalid approval receipt"))?
+                    {
+                        return Err(unavailable("approval receipt identity mismatch"));
+                    }
+                    Ok(())
+                },
+            )
+            .await
+        })
+    }
     fn submit_workflow<'a>(
         &'a self,
         command: &'a SubmitCommand,
@@ -109,12 +203,15 @@ impl WorkflowService for HttpTaskService {
     ) -> ContractFuture<'a, WorkflowActivationContext> {
         Box::pin(async move {
             let activation = owner.task_id.clone();
+            let scope = owner.scope.clone();
             self.post_validated(
                 "v1/workflows/activations/context",
                 owner,
                 SUBMISSION_MAX_BYTES,
                 move |reply: &WorkflowActivationContext| {
-                    if reply.activation_id != activation {
+                    if reply.activation_id != activation
+                        || matches!(&reply.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != scope)
+                    {
                         return Err(unavailable("workflow activation identity mismatch"));
                     }
                     Ok(())

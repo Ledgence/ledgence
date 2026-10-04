@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-react";
 import { createMemoryRouter, RouterProvider, Outlet } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
 import {
   NavigationHistoryProvider,
   NavigationMemory,
@@ -122,7 +122,7 @@ for (const returnNavigationKey of ["saved-list", undefined, 123, ""]) {
       new Response(stringifyUserJson(lineage), {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "4",
+          "Ledgence-Console-Contract": "5",
           "Ledgence-Instance-Id": config.instance_id,
         },
       }),

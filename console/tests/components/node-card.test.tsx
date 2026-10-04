@@ -2,7 +2,7 @@
 import { expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { ReactFlow, type Node, type NodeProps } from "@xyflow/react";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { workflowExplorer, type ExplorerNode } from "../../src/api/explorer";
 import { WorkCard } from "../../src/features/explorer/node-card";

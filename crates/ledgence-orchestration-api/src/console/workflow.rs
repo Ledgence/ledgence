@@ -234,6 +234,7 @@ impl ConsoleRecord for ConsoleWorkflowChild {
 pub enum ConsoleWaitKind {
     Event,
     Timer,
+    Approval,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

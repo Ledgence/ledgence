@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { afterEach, expect, it, vi } from "vitest";
 import { InfiniteQueryObserver, type QueryClient } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { executionPage } from "../../src/api/explorer";
 import { parseUserJson } from "../../src/api/json";
@@ -37,7 +37,7 @@ function reply(value: unknown, instance = config.instance_id) {
   return new Response(JSON.stringify(value), {
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "4",
+      "Ledgence-Console-Contract": "5",
       "Ledgence-Instance-Id": instance,
       "Request-Id": "req-history",
     },

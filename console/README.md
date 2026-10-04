@@ -85,7 +85,7 @@ namespace or scope. Every response is checked against the configured instance
 identity and Console contract version before entering query state.
 
 The canonical Rust serialization fixture is
-[`console-v4.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json).
+[`console-v5.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json).
 Strict runtime decoders consume that fixture in tests. Unknown fields or result
 variants fail explicitly. Metadata u64 values remain decimal strings; JSON input,
 output and CloudEvents use `lossless-json` to preserve integer/floating tokens and
@@ -117,6 +117,15 @@ Inputs, outputs, events and command bodies are not written to URLs, local storag
 or analytics. Only appearance, sidebar collapse, and the preferred Graph/Trace view persist in
 local storage. Shareable filters, selected record and view belong in the URL;
 scroll, expansion and focus restoration use bounded memory per history entry.
+
+Workflow General includes Approvals with the immutable action name, version,
+effective arguments, optional original proposed arguments, deadline and recorded
+decision. The backend owns pending, approved, rejected, expired and cancelled
+states; the browser never infers expiry from its clock. A decision echoes the
+exact request binding and action. An uncertain response can only retry the same
+decision bytes and ID. Reviewer is caller-supplied audit attribution, not an
+authenticated identity; access remains controlled by the installation's proxy.
+Approval permits a continuation; it does not prove that the action executed.
 
 Executions combines root workflows and standalone tasks in one server-paginated
 history, with task/workflow and exact program/version filters. Include child
@@ -176,7 +185,7 @@ Trace rows are virtualized, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-The browser and server use Console contract **4**; deploy matching assets together.
+The browser and server use Console contract **5**; deploy matching assets together.
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
 
 Resources shows per-attempt runtime and Python-process CPU where recorded.

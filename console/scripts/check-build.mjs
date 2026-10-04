@@ -131,7 +131,7 @@ if (
 const manifest = {
   schema_version: 1,
   console_version: project.version,
-  console_contract_version: 4,
+  console_contract_version: 5,
   source_revision,
   source_dirty,
   toolchain: { node: process.versions.node, pnpm: project.engines.pnpm },

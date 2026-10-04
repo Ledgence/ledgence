@@ -1,5 +1,5 @@
 // Mirrors ConsoleConfig in ledgence-orchestration-api/src/console.rs.
-export const consoleContractVersion = 4;
+export const consoleContractVersion = 5;
 export interface ConsoleConfig {
   contract_version: number;
   server_version: string;

@@ -21,6 +21,7 @@ const workflowAliases: Record<string, [DetailTab, string]> = {
   advanced: ["General", "history"],
   "recorded work": ["General", "work"],
   waits: ["General", "waits"],
+  approvals: ["General", "approvals"],
   "local steps": ["General", "local"],
   history: ["General", "history"],
 };
@@ -57,6 +58,7 @@ export function resolveDetailNavigation(
             "input",
             "output",
             "resources",
+            "approvals",
             "waits",
             "work",
             "local",

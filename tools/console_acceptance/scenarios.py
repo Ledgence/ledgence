@@ -45,7 +45,7 @@ def static_and_contract(d, record):
         status, _, _ = raw_exchange(d.server_url, "GET", path)
         assert status == 404, (path, status)
     manifest = json.loads((d.console_dist / "console-manifest.json").read_text())
-    assert manifest["console_contract_version"] == 4
+    assert manifest["console_contract_version"] == 5
     for asset in manifest["assets"]:
         status, _, body = raw_exchange(d.server_url, "GET", "/console/" + asset["path"])
         assert status == 200 and body == (d.console_dist / asset["path"]).read_bytes(), asset["path"]
@@ -70,7 +70,7 @@ def static_and_contract(d, record):
         status, _, body = raw_exchange(d.server_url, "GET", link)
         assert status == 200 and body == (d.console_dist / relative).read_bytes(), link
     config = d.api("GET", "config")
-    assert config["contract_version"] == 4
+    assert config["contract_version"] == 5
     assert config["instance_id"] == d.instance["instance_id"]
     assert all(config["capabilities"].values()), config
     assert "scope" not in config and "tenant_id" not in config and "namespace" not in config
@@ -94,8 +94,10 @@ def register_packages(d, workflow_gate, record):
     publish(d, "workflow-controller", controller + "\n" + workflow_gate["FIXTURE"])
     publish(d, "workflow-io", workflow_gate["CHILD"])
     publish(d, "owned-controller", (d.root / "tools/workflow_acceptance/owned_program.py").read_text())
+    publish(d, "durable-approval", (d.root / "examples/durable-approval/program.py").read_text())
     programs = {"invoice": "task", "alternate": "task", "workflow-io": "task",
-                "workflow-controller": "workflow", "owned-controller": "workflow"}
+                "workflow-controller": "workflow", "owned-controller": "workflow",
+                "durable-approval": "workflow"}
     for name, kind in programs.items():
         command = {"program": {"id": name, "version": "1.0.0"},
                    "metadata": {"display_name": name, "kind": kind}}
@@ -247,6 +249,65 @@ def active_cancel_and_race(d, record):
     record("active-cancellation-and-completion-race", cancelled)
 
 
+def durable_approval(d, record):
+    command = d.console_submission("console-durable-approval", program="durable-approval")
+    command["input"]["correlation_key"] = "console-durable-approval"
+    command["input"]["data"] = {"amount": 100}
+    workflow_id = d.api("POST", "workflows", command)["workflow"]["workflow_id"]
+    eventually(lambda: d.workflow_status(workflow_id)["state"] == "waiting",
+               description="Console approval request committed")
+    reference = {"workflow_id": workflow_id, "key": "refund"}
+    proposal = d.api("POST", "approvals/inspect", reference)
+    assert proposal["status"] == "pending" and proposal["decision"] is None
+    assert not {"scope", "tenant_id", "namespace"}.intersection(proposal)
+    assert type(proposal["revision"]) is str
+    assert str(int(proposal["revision"])) == proposal["revision"]
+    assert proposal["action"] == {"name": "program:simulate_refund", "version": "1",
+                                  "arguments": {"amount": 50, "currency": "USD"}}
+    assert proposal["proposed_arguments"] == {"amount": 100}
+    page = d.api("POST", "approvals/list", {"workflow_id": workflow_id, "after_key": None, "limit": 1})
+    equivalent(page, {"items": [proposal], "next_cursor": None})
+    d.api("POST", "approvals/inspect", dict(reference, scope=d.scope), expected=400)
+    decision = {name: proposal[name] for name in
+                ("workflow_id", "key", "activation_id", "revision", "action")}
+    decision.update(decision_id="console-review:1", decision="approve",
+                    reviewer="console-acceptance-reviewer", reason="Reviewed effective amount 50")
+    changed = json.loads(json.dumps(decision))
+    changed["action"]["arguments"]["amount"] = 100
+    d.api("POST", "approvals/decide", changed, expected=409)
+    proxy = d.proxy()
+    lost = proxy.lose_once("/v1/console/approvals/decide")
+    try:
+        d.api("POST", "approvals/decide", decision, base=proxy.url)
+        raise AssertionError("expected the committed approval response to be lost")
+    except (OSError, http.client.HTTPException):
+        pass
+    assert lost.is_set()
+    receipt = d.api("POST", "approvals/decide", decision, base=proxy.url)
+    assert receipt["already_accepted"] and receipt["approval"]["status"] == "approved"
+    calls = proxy.commands("/v1/console/approvals/decide")
+    assert len(calls) == 2 and calls[0]["body"] == calls[1]["body"]
+    result = d.workflow_result(workflow_id)
+    equivalent(result["outcome"]["output"], {
+        "status": "approved", "result": {"simulated": True, "amount": 50, "currency": "USD"},
+        "proposed_arguments": {"amount": 100}, "approved_arguments": {"amount": 50, "currency": "USD"},
+    })
+    current = d.api("POST", "approvals/inspect", reference)
+    assert "scope" not in current and current["resumed_activation_id"]
+    for name in ("workflow_id", "key", "activation_id", "revision", "action", "proposed_arguments", "created_at", "deadline"):
+        equivalent(current[name], proposal[name])
+    for name in ("decision_id", "decision", "reviewer", "reason"):
+        assert current["decision"][name] == decision[name]
+    graph = d.api("GET", "workflows/explorer", workflow_id=workflow_id, limit=100)
+    wait = next(node for node in graph["page"]["items"] if node["kind"] == "external_wait")
+    assert wait["wait_kind"] == "approval" and wait["wake_reason"] == "approved"
+    assert wait["resumed_activation_id"] == current["resumed_activation_id"]
+    assert any(relation["kind"] == "resumes" for relation in wait["relations"])
+    record("durable-approval-console", {"workflow_id": workflow_id, "effective_arguments": current["action"]["arguments"],
+        "scope_free": True, "decimal_revision": current["revision"], "changed_action_rejected": True,
+        "lost_response_reconciled": True, "resumed_activation_id": current["resumed_activation_id"]})
+
+
 def run(d, delay, workflow_gate, record):
     static_and_contract(d, record)
     register_packages(d, workflow_gate, record)
@@ -254,6 +315,7 @@ def run(d, delay, workflow_gate, record):
     worker, old_session, task_id = execution_and_reporting(d, record)
     active_cancel_and_race(d, record)
     workflow_id = workflow_scenarios(d, delay, record)
+    durable_approval(d, record)
     explorer_scenario(d, workflow_gate["publish"], record)
     fork4_scenario(d, workflow_gate["publish"], record)
     old_result = d.api("GET", "tasks/result", task_id=task_id)
@@ -262,7 +324,7 @@ def run(d, delay, workflow_gate, record):
     d.server, _ = d.start_server()
     equivalent(d.api("GET", "tasks/result", task_id=task_id)["outcome"], old_result["outcome"])
     assert d.workflow_result(workflow_id)["workflow"]["state"] == "succeeded"
-    assert len(d.rows("programs")) == 5
+    assert len(d.rows("programs")) == 6
     assert d.rows("tasks/history", task_id=task_id)
     replacement = d.start_worker()
     newer = eventually(lambda: next((row for row in d.rows("workers") if row["worker_session_id"] != old_session
@@ -271,5 +333,5 @@ def run(d, delay, workflow_gate, record):
     assert newer["worker_session_id"] != old_session
     replacement.stop()
     record("native-restart-retains-authoritative-state", {"task_id": task_id, "workflow_id": workflow_id,
-        "old_session": old_session, "new_session": newer["worker_session_id"], "catalog_programs": 5,
+        "old_session": old_session, "new_session": newer["worker_session_id"], "catalog_programs": 6,
         "database_preserved": True, "containers_recreated": False})

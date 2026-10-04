@@ -243,3 +243,10 @@ ElasticMQ delivery. PostgreSQL tests separately cover transaction rollback,
 stale attempt fencing, completion-before-wait, completion during activation,
 cleanup boundaries, cancellation, bounded journals, and permanent decision
 failure. Offline unit tests alone do not establish these storage/transport claims.
+
+## Durable approvals
+
+Use [durable workflow approvals](workflow-approvals.md) when a review must bind
+to an existing immutable action and its effective arguments. Generic events
+remain application input; they cannot approve an action. The unified CLI
+provides `ledgence approval list`, `inspect`, and `decide`.

@@ -34,7 +34,7 @@ export function nodeLabel(node: ExplorerNode): string {
     case "child_wait":
       return `Join · ${node.resume}`;
     case "external_wait":
-      return `${node.wait_kind === "event" ? "Event" : "Timer"} · ${node.key}`;
+      return `${node.wait_kind === "event" ? "Event" : node.wait_kind === "approval" ? "Approval" : "Timer"} · ${node.key}`;
   }
 }
 export function nodeStatus(node: ExplorerNode): string {

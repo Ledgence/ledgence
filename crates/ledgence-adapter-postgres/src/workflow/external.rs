@@ -120,18 +120,23 @@ pub(super) async fn install_external_wait(
     }
     let kind = match wait {
         WorkflowWait::Event { .. } => "event",
-        WorkflowWait::Timer { .. } => {
+        WorkflowWait::Timer { .. } | WorkflowWait::Approval { .. } => {
             let event: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_events WHERE workflow_id=$1 AND event_key=$2)")
                 .bind(&run.snapshot.workflow_id).bind(wait.key()).fetch_one(&mut *connection).await?;
             if event {
                 return Err(ContractError::Conflict.into());
             }
-            "timer"
+            if matches!(wait, WorkflowWait::Approval { .. }) {
+                "approval"
+            } else {
+                "timer"
+            }
         }
     };
     sqlx::query("INSERT INTO workflow_waits(workflow_id,wait_key,activation_id,kind,deadline_ms,registered_at_ms) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(&run.snapshot.workflow_id).bind(wait.key()).bind(activation).bind(kind)
         .bind(deadline.map(codec::ms).transpose()?).bind(codec::ms(now)?).execute(&mut *connection).await?;
+    approvals::install(connection, run, activation, wait, now).await?;
     explorer::insert(
         connection,
         activation,
@@ -143,6 +148,9 @@ pub(super) async fn install_external_wait(
                 }
                 WorkflowWait::Timer { .. } => {
                     ledgence_orchestration_api::console::ConsoleWaitKind::Timer
+                }
+                WorkflowWait::Approval { .. } => {
+                    ledgence_orchestration_api::console::ConsoleWaitKind::Approval
                 }
             },
             deadline,
@@ -247,6 +255,9 @@ async fn select_wake(
     deadline: Option<u64>,
     now: u64,
 ) -> StoreResult<Option<WorkflowWake>> {
+    if kind == "approval" {
+        return approvals::select_wake(connection, workflow, key, now).await;
+    }
     if kind == "event" {
         let event = sqlx::query("SELECT event_bytes,accepted_at_ms FROM workflow_events WHERE workflow_id=$1 AND event_key=$2 AND pending")
             .bind(workflow).bind(key).fetch_optional(&mut *connection).await?;
@@ -300,7 +311,7 @@ async fn resume(
     .await?;
     Ok(task)
 }
-async fn enqueue_wait(
+pub(super) async fn enqueue_wait(
     connection: &mut PgConnection,
     workflow: &str,
     activation: &str,
@@ -322,6 +333,7 @@ pub(super) async fn close_external_wait(
     now: u64,
 ) -> StoreResult<()> {
     if let Some(key) = run.external_wait_key.take() {
+        approvals::close(connection, &run.snapshot.workflow_id, &key, now).await?;
         sqlx::query("UPDATE workflow_waits SET closed_at_ms=$3 WHERE workflow_id=$1 AND wait_key=$2 AND closed_at_ms IS NULL")
             .bind(&run.snapshot.workflow_id).bind(&key).bind(codec::ms(now)?).execute(&mut *connection).await?;
         if let Some(activation) = &run.wait_activation {

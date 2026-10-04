@@ -11,6 +11,7 @@ import {
   GitMerge,
   LogIn,
   Radio,
+  ShieldCheck,
   Workflow,
   X,
 } from "lucide-react";
@@ -75,7 +76,9 @@ export function WorkCard({ node }: { node: ExplorerNode }) {
           : node.kind === "external_wait"
             ? node.wait_kind === "event"
               ? Radio
-              : Clock3
+              : node.wait_kind === "approval"
+                ? ShieldCheck
+                : Clock3
             : node.kind === "local"
               ? Code2
               : node.execution.kind === "workflow"

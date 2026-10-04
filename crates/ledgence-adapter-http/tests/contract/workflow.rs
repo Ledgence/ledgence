@@ -1,5 +1,31 @@
 use super::*;
 impl WorkflowService for Mock {
+    fn approval<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        key: &'a str,
+    ) -> ContractFuture<'a, ApprovalSnapshot> {
+        Box::pin(async move { self.reply("approval", json!([scope, workflow_id, key])) })
+    }
+    fn list_approvals<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        after_key: Option<&'a str>,
+        limit: u32,
+    ) -> ContractFuture<'a, ApprovalPage> {
+        Box::pin(
+            async move { self.reply("approvals", json!([scope, workflow_id, after_key, limit])) },
+        )
+    }
+    fn decide_approval<'a>(
+        &'a self,
+        command: &'a ApprovalDecisionCommand,
+    ) -> ContractFuture<'a, ApprovalDecisionReceipt> {
+        Box::pin(async move { self.reply("decide_approval", command) })
+    }
+
     fn fork_workflow<'a>(
         &'a self,
         command: &'a WorkflowForkCommand,
@@ -331,3 +357,6 @@ mod children;
 
 #[path = "workflow_forks.rs"]
 mod forks;
+
+#[path = "workflow_approvals.rs"]
+mod approvals;

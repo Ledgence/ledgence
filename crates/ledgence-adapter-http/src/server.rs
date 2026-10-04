@@ -1,6 +1,7 @@
 //! Axum composition boundary. Application and persistence remain behind
 //! [`TaskService`]; readiness and database lifecycle belong to the executable.
 
+mod approvals;
 pub mod assets;
 mod completion;
 pub mod console;
@@ -196,6 +197,9 @@ const ROUTES: &[(&str, &str)] = &[
     ("/v1/workflows/result", "GET"),
     ("/v1/workflows/cancel", "POST"),
     ("/v1/workflows/events", "POST"),
+    ("/v1/workflows/approvals/inspect", "POST"),
+    ("/v1/workflows/approvals/list", "POST"),
+    ("/v1/workflows/approvals/decide", "POST"),
     ("/v1/workflows/activations/context", "POST"),
     ("/v1/workflows/local-results", "POST"),
     ("/v1/workflows/forks", "POST"),
@@ -714,6 +718,7 @@ async fn dispatch(
         });
     }
     let maximum = match path {
+        path if path.starts_with("/v1/workflows/approvals/") => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
         "/v1/workflows/events" => WORKFLOW_EVENT_COMMAND_MAX_BYTES,

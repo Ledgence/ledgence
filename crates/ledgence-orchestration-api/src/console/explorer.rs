@@ -28,6 +28,9 @@ pub enum ConsoleWakeReason {
     Event,
     Timer,
     Timeout,
+    Approved,
+    Rejected,
+    Expired,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,14 +277,28 @@ impl ConsoleExplorerData {
                 {
                     return Err(invalid("external wake requires a scheduled activation"));
                 }
-                if matches!(
-                    (wait_kind, wake_reason),
-                    (ConsoleWaitKind::Event, Some(ConsoleWakeReason::Timer))
-                        | (
-                            ConsoleWaitKind::Timer,
-                            Some(ConsoleWakeReason::Event | ConsoleWakeReason::Timeout)
+                let compatible = match wait_kind {
+                    ConsoleWaitKind::Event => matches!(
+                        wake_reason,
+                        None | Some(ConsoleWakeReason::Event | ConsoleWakeReason::Timeout)
+                    ),
+                    ConsoleWaitKind::Timer => {
+                        matches!(wake_reason, None | Some(ConsoleWakeReason::Timer))
+                    }
+                    ConsoleWaitKind::Approval => matches!(
+                        wake_reason,
+                        None | Some(
+                            ConsoleWakeReason::Approved
+                                | ConsoleWakeReason::Rejected
+                                | ConsoleWakeReason::Expired
                         )
-                ) || (*wait_kind == ConsoleWaitKind::Timer && deadline.is_none())
+                    ),
+                };
+                if !compatible
+                    || (matches!(
+                        wait_kind,
+                        ConsoleWaitKind::Timer | ConsoleWaitKind::Approval
+                    ) && deadline.is_none())
                     || (*wake_reason == Some(ConsoleWakeReason::Timeout) && deadline.is_none())
                 {
                     return Err(invalid("inconsistent external wait wake kind"));

@@ -246,7 +246,7 @@ export const wait = s.object({
   workflow_id: s.id,
   wait_key: s.id,
   activation_id: s.id,
-  kind: s.enumeration("event", "timer"),
+  kind: s.enumeration("event", "timer", "approval"),
   deadline: s.nullable(s.timestamp),
   registered_at: s.timestamp,
   closed_at: s.nullable(s.timestamp),

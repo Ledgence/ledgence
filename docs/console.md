@@ -204,7 +204,7 @@ No migration deletes or reassigns them. Rollback to an older binary that ignores
 the persisted binding requires an offline plan; never run it concurrently against
 the bound database. Catalog retention is independent of execution-history cleanup.
 
-The execution explorer requires Console contract version 4 and matching server
+The execution explorer requires Console contract version 5 and matching server
 and assets. Nodes include typed invocation, registration, fork-membership,
 terminal-wait and resumption relations from the backend. The browser resolves
 their references to loaded nodes; timestamps do not establish dependencies.
@@ -212,9 +212,12 @@ Local steps connect to their invoking entrypoint without becoming fork or join
 members. Retries remain attempts of the same logical node. See the
 [query model](console-query-model.md) for identity scopes and evidence limits.
 
-Upgrading from C3 adds no database migration and preserves existing node IDs.
-Every older Explorer cursor is rejected; restart traversal from the first page.
-Other endpoint cursors and SDK execution protocols retain their contracts.
+The historical C3-to-C4 relation upgrade preserved existing node IDs without
+a new database migration. C5 adds durable approval records and requires the
+approval migration before serving matching assets. Stop writers before applying
+migrations; `serve` verifies the schema but does not migrate it. Restart old
+Explorer traversal from the first page. Existing execution identities remain
+unchanged.
 Useful `/agents` and workflow deep links remain available.
 
 When upgrading from C2, a transactional migration converts retained Console records without
@@ -241,3 +244,12 @@ recreation is checked by `tools/check-deployment.py`; relocated native bundles b
 [release verification](releasing.md). Preserve their separate evidence and actual
 platform/source identity. Running a mocked browser suite alone does not qualify a
 deployment, and local compatibility tests do not certify AWS or cluster capacity.
+
+## Approval review
+
+Open **Approvals** in workflow details to inspect persisted action requests,
+compare proposed and effective arguments, and approve or reject a pending
+request. Only the server decides eligibility and expiry. After an uncertain
+response, retry the frozen decision; the Console does not replace it with a
+new command. See [durable workflow approvals](workflow-approvals.md) for the
+API, identity and execution guarantees.

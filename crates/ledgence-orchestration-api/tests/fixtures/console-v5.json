@@ -120,7 +120,7 @@
       "workers": true,
       "workflows": true
     },
-    "contract_version": 4,
+    "contract_version": 5,
     "instance_id": "instance_demo",
     "instance_name": "Ledgence",
     "limits": {
@@ -146,7 +146,7 @@
       "billing"
     ]
   },
-  "contract_version": 4,
+  "contract_version": 5,
   "entrypoint_attempts": {
     "items": [
       {

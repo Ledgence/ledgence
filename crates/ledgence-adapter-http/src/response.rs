@@ -150,3 +150,22 @@ impl ResponseValue for CompletionSubscription {
         self.validate()
     }
 }
+
+impl ResponseValue for ApprovalSnapshot {
+    const MAX_BYTES: usize = APPROVAL_SNAPSHOT_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for ApprovalDecisionReceipt {
+    const MAX_BYTES: usize = APPROVAL_SNAPSHOT_MAX_BYTES + 1024;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for ApprovalPage {
+    const MAX_BYTES: usize = 1024 * 1024;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
