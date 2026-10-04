@@ -234,6 +234,56 @@ impl ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn approval<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        key: &'a str,
+    ) -> ContractFuture<'a, ApprovalSnapshot> {
+        Box::pin(async move {
+            scope.validate()?;
+            validate_text(workflow_id, 128)?;
+            validate_text(key, 128)?;
+            let reply = self.workflows()?.approval(scope, workflow_id, key).await?;
+            reply.validate().map_err(|_| approval_reply_error())?;
+            if &reply.scope != scope || reply.workflow_id != workflow_id || reply.key != key {
+                return Err(approval_reply_error());
+            }
+            Ok(reply)
+        })
+    }
+    fn list_approvals<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        after_key: Option<&'a str>,
+        limit: u32,
+    ) -> ContractFuture<'a, ApprovalPage> {
+        Box::pin(async move {
+            scope.validate()?;
+            validate_text(workflow_id, 128)?;
+            validate_approval_page(after_key, limit)?;
+            let reply = self
+                .workflows()?
+                .list_approvals(scope, workflow_id, after_key, limit)
+                .await?;
+            reply.validate().map_err(|_| approval_reply_error())?;
+            if !reply.matches(scope, workflow_id, after_key, limit) {
+                return Err(approval_reply_error());
+            }
+            Ok(reply)
+        })
+    }
+    fn decide_approval<'a>(
+        &'a self,
+        command: &'a ApprovalDecisionCommand,
+    ) -> ContractFuture<'a, ApprovalDecisionReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let reply = self.workflows()?.decide_approval(command).await?;
+            validate_approval_decision_reply(command, reply)
+        })
+    }
     fn fork_workflow<'a>(
         &'a self,
         command: &'a WorkflowForkCommand,
@@ -325,11 +375,7 @@ impl WorkflowService for ApplicationService {
     ) -> ContractFuture<'a, WorkflowActivationContext> {
         Box::pin(async move {
             let context = self.workflows()?.activation_context(owner).await?;
-            context.validate()?;
-            if context.activation_id != owner.task_id {
-                return Err(ContractError::Conflict);
-            }
-            Ok(context)
+            validate_activation_context_reply(owner, context)
         })
     }
     fn record_local_result<'a>(
@@ -385,4 +431,32 @@ pub(super) fn validate_workflow_submission_reply(
         ));
     }
     Ok(accepted)
+}
+
+fn approval_reply_error() -> ContractError {
+    ContractError::Unavailable("invalid approval service response".into())
+}
+
+pub(super) fn validate_approval_decision_reply(
+    command: &ApprovalDecisionCommand,
+    reply: ApprovalDecisionReceipt,
+) -> Result<ApprovalDecisionReceipt> {
+    reply.validate().map_err(|_| approval_reply_error())?;
+    if !reply.matches(command).map_err(|_| approval_reply_error())? {
+        return Err(approval_reply_error());
+    }
+    Ok(reply)
+}
+
+pub(super) fn validate_activation_context_reply(
+    owner: &LeaseOwner,
+    context: WorkflowActivationContext,
+) -> Result<WorkflowActivationContext> {
+    context.validate()?;
+    if context.activation_id != owner.task_id
+        || matches!(&context.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != owner.scope)
+    {
+        return Err(ContractError::Conflict);
+    }
+    Ok(context)
 }

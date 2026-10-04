@@ -1,5 +1,39 @@
 # Ledgence Python helper
 
+## Durable approvals
+
+Protocol 3 workflows can return `ctx.request_approval(key, action=...,
+continuation=..., state=..., timeout_ms=...)` to checkpoint an action and release
+their worker slot. `resume=` is an alternative to `continuation=` and
+`ctx.wait_approval(...)` is an alias. Normalize effective arguments before
+requesting approval; optional `proposed_arguments` preserves the original input
+as audit context. Every request has a finite deadline of at most 365 days.
+
+Import `ApprovalAction` and `ApprovalStatus` from `ledgence.worker.workflow`.
+`ApprovalAction.for_callable(fn, version="1", arguments={...})` binds the callable's
+module and qualified name and freezes its keyword arguments, including defaults.
+It performs Python signature binding; application validation and domain-specific
+normalization remain the caller's responsibility. `ApprovalAction(name,
+version="1", arguments={...})` supports actions defined by other adapters.
+
+On the resumed entrypoint, `ctx.approval` is an immutable typed observation.
+Check `ctx.approval.status is ApprovalStatus.APPROVED`, then
+`await ctx.approved_local(fn, version="1")` to execute only the saved effective
+arguments through a durable local step. This helper accepts no replacement
+arguments and verifies the callable identity/version. Copies returned by
+`ctx.wake`, `ctx.approval.action.arguments`, or `ctx.approval.to_dict()` cannot
+change its private execution binding. Rejected and expired requests resume with
+their corresponding status; workflow cancellation closes the request without
+resuming its controller. See the runnable
+[durable approval example](../../examples/durable-approval/README.md).
+
+Approvals are for operator-trusted code. A Python callable remains responsible
+for its behavior and external authorization. Approval does not make an external
+effect exactly once: an effect can succeed before its durable local result is
+acknowledged, so use external idempotency keys or reconciliation as needed.
+
+## Runtime helper
+
 MIT-licensed, standard-library-only program support. The Rust worker starts the
 configured CPython executable with `-I -S -B` and `ledgence/worker/bootstrap.py`. Python
 is a separately installed runtime; Ledgence does not embed or download CPython.

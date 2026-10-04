@@ -7,6 +7,8 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 
 **Availability:** Console is included in Ledgence 0.2.0 source and Console-enabled native bundles. Use matching contract 4 server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.2.0](/how-to/upgrade-to-0-2) covers existing deployments.
 
+The current source tree adds **General → Approvals** for reviewing immutable actions and recorded decisions. It requires matching contract **5** server and assets plus the source database migrations; published 0.2.0 bundles predate this capability. See [Require approval before an action](/how-to/require-approval).
+
 ## Views and actions
 
 | View | Recorded information | Available actions |
@@ -137,9 +139,9 @@ Do not rewrite API failures or missing assets into HTML. The orchestrator handle
 
 ## Upgrades
 
-The execution explorer uses Console contract version 4. Start matching server and assets; older Console bundles fail explicitly. Each node carries typed invocation, registration, branch-membership, terminal-wait and resumption relations from the backend. References remain available when an endpoint is outside the loaded page. A local connects to its invoking entrypoint; that connection does not imply completion or membership in a fork or join. Joins wait for terminal outcomes, including failure and cancellation.
+The execution explorer uses Console contract version 5. Start matching server and assets; older Console bundles fail explicitly. Each node carries typed invocation, registration, branch-membership, terminal-wait and resumption relations from the backend. References remain available when an endpoint is outside the loaded page. A local connects to its invoking entrypoint; that connection does not imply completion or membership in a fork or join. Joins wait for terminal outcomes, including failure and cancellation.
 
-Upgrading from C3 preserves node IDs and requires no additional database migration. Restart Explorer traversal because older Explorer cursors are rejected. Other endpoint cursor bindings and SDK execution protocols are unchanged. When upgrading from C2, the existing migration also converts Console `phase` records into `entrypoint`, preserving workflow/task identities, payloads, revisions, errors and timestamps. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
+Upgrading to C5 requires the current source database migrations for durable approvals. The earlier C3-to-C4 change preserved node IDs without adding a database migration. Restart Explorer traversal because older Explorer cursors are rejected. When upgrading from C2, the existing migration also converts Console `phase` records into `entrypoint`, preserving workflow/task identities, payloads, revisions, errors and timestamps. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
 
 The graph uses retained Ledgence records and works without an OTel backend. Local results are recorded durably on completion; abrupt process loss before result acceptance or a retained attempt report may leave no local node. Optional timing and tracing evidence must not be interpreted as a complete record of every started operation.
 

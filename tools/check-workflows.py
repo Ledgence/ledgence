@@ -32,7 +32,7 @@ import uuid
 from postgres_fixture import owned_database_url
 from http_acceptance.harness import Deployment, Process, eventually, exchange
 from http_acceptance.sqs import SqsDeployment
-from workflow_acceptance import fork_scenarios, owned_scenarios
+from workflow_acceptance import approval_scenarios, fork_scenarios, owned_scenarios
 
 
 FIXTURE = r'''
@@ -522,6 +522,7 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
 
     await owned_scenarios.run(d,delay,names,record,records,snapshot)
     await fork_scenarios.run(d,names,record,records,snapshot)
+    await approval_scenarios.run(d,names,record,snapshot)
 
 
 def trace_rows(capture):
@@ -663,7 +664,7 @@ def main():
     parser.add_argument('--evidence',type=Path)
     parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; checks events, owned-tree and fork-mixed scenarios')
     parser.add_argument('--placement-iterations',type=int,default=3,help='paired local/distributed timing iterations (1..10; default 3)')
-    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS])
+    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS])
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if args.self_test:
@@ -748,6 +749,8 @@ def main():
             'owned-controller':publish(deployment,'owned-controller',(root/'tools/workflow_acceptance/owned_program.py').read_text()),
             'fork-controller':publish(deployment,'fork-controller',(root/'tools/workflow_acceptance/fork_program.py').read_text()),
             'mixed-workflow':publish(deployment,'mixed-workflow',(root/'examples/mixed-workflow/program.py').read_text(),version='1.0.1'),
+            'approval-controller':publish(deployment,'approval-controller',(root/'tools/workflow_acceptance/approval_program.py').read_text()),
+            'durable-approval':publish(deployment,'durable-approval',(root/'examples/durable-approval/program.py').read_text()),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
         migration = subprocess.run([str(binaries/'ledgence'),'orchestrator','migrate'],env=deployment.environment,capture_output=True,timeout=40)
@@ -757,7 +760,7 @@ def main():
         provenance = artifact_metadata(root,binaries,python,deployment)
         provenance.update(mode='elasticmq' if args.endpoint else 'integrated',database=database,queue_url=queue_url,real_aws=False,published_programs=packages)
         (directory/'resources.json').write_text(json.dumps(provenance,indent=2)+'\n')
-        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS],record,args.placement_iterations,capture))
+        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS],record,args.placement_iterations,capture))
         if capture and any(row['scenario']=='events' for row in results):
             # Workers have drained their exporters, but the server must remain
             # available while durable attempt snapshots are checked.

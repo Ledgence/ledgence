@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v4.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json).
+[`console-v5.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -33,9 +33,16 @@ instance scope, parent and filters. A page is internally consistent; consecutive
 pages can observe later committed changes. The worker slot cursor uses the
 stable slot position, not a changing snapshot sequence.
 
-The HTTP namespace remains `/v1/console`; the Console contract version is 4.
+The HTTP namespace remains `/v1/console`; the Console contract version is 5.
 Explorer nodes carry backend-projected typed relations with references to existing
 workflow-scoped or activation-scoped identities. Relations remain present when an
 endpoint is outside the current page. See the [query model](../../../docs/console-query-model.md)
 for relation directions, evidence, byte bounds and upgrade behavior. Historical
 C2/C3 fixtures are retained explicitly for compatibility rejection tests.
+
+C5 adds `POST /v1/console/approvals/inspect`, `/list`, and `/decide`. Requests
+omit scope; the server binds the installation. Approval revisions use decimal
+strings and argument JSON is preserved losslessly. Graph wait kinds include
+`approval`, with wake reasons `approved`, `rejected`, or `expired`. Apply the
+approval database migration before starting matching components. See
+[the approval contract](../../../docs/workflow-approvals.md).

@@ -8,6 +8,7 @@ import { useTerminalRefresh } from "../api/terminal-refresh";
 import * as dto from "../api/resources";
 import { useCommand, freezeCommand } from "../api/commands";
 import { parseUserJson } from "../api/json";
+import { WorkflowApprovals } from "./approvals";
 import { Button } from "../components/ui/button";
 import { Table } from "../components/ui/table";
 import {
@@ -376,6 +377,21 @@ export function WorkflowDetailPage() {
                         ),
                       },
                       {
+                        id: "approvals",
+                        title: "Approvals",
+                        description:
+                          "Review proposed actions and recorded decisions.",
+                        content: (
+                          <WorkflowApprovals
+                            key={workflowId}
+                            workflowId={workflowId}
+                            active={
+                              !dto.terminal(detail.summary.workflow.state)
+                            }
+                          />
+                        ),
+                      },
+                      {
                         id: "waits",
                         title: "Waits and events",
                         description:
@@ -697,7 +713,13 @@ function Waits({
                 className="card"
                 key={JSON.stringify([workflowId, wait.wait_key])}
               >
-                <h3>{wait.kind === "event" ? "External event" : "Timer"}</h3>
+                <h3>
+                  {wait.kind === "event"
+                    ? "External event"
+                    : wait.kind === "approval"
+                      ? "Approval"
+                      : "Timer"}
+                </h3>
                 <CopyText value={wait.wait_key} />
                 <Status value={wait.closed_at === null ? "open" : "closed"} />
                 <p>

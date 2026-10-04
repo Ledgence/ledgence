@@ -8,7 +8,7 @@ import { observedTask } from "../../src/api/resources";
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,12 +24,12 @@ const canonicalPage = executionPage(fixture("execution_history"));
 const observedAt = canonicalPage.observed_at;
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "4",
+  "Ledgence-Console-Contract": "5",
   "Ledgence-Instance-Id": canonicalConfig.instance_id,
 };
 
 // Synthetic list metadata exercises pagination only. Canonical Rust descriptors
-// and strict C4 decoding keep these browser fixtures compatible with the wire.
+// and strict C5 decoding keep these browser fixtures compatible with the wire.
 function records(count: number, filtered = false): Execution[] {
   return Array.from({ length: count }, (_, index) => {
     const kind = filtered || index % 2 === 0 ? "workflow" : "task";

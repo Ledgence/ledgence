@@ -35,6 +35,7 @@ export default defineConfig({
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
         { label: 'Mix local work and branches', slug: 'how-to/fork-workflow-branches' },
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
+        { label: 'Require approval for an action', slug: 'how-to/require-approval' },
       ] },
       { label: 'Reference', items: [
         { label: 'Command-line interface', slug: 'reference/cli' },

@@ -186,6 +186,12 @@ pub(super) async fn resumed(
                     WorkflowWake::Event { .. } => ConsoleWakeReason::Event,
                     WorkflowWake::Timer { .. } => ConsoleWakeReason::Timer,
                     WorkflowWake::Timeout { .. } => ConsoleWakeReason::Timeout,
+                    WorkflowWake::Approval { approval } => match approval.status {
+                        ApprovalStatus::Approved => ConsoleWakeReason::Approved,
+                        ApprovalStatus::Rejected => ConsoleWakeReason::Rejected,
+                        ApprovalStatus::Expired => ConsoleWakeReason::Expired,
+                        _ => return Err(corrupt("approval wake status").into()),
+                    },
                 });
             }
             _ => continue,

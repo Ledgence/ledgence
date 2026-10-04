@@ -418,6 +418,39 @@ spans use the currently active context. No input, output or idempotency key is
 recorded as a span attribute. Task/run/event/attempt IDs and per-exchange request
 IDs remain distinct from tracing IDs.
 
+## Workflow approvals
+
+`await workflow.approval(key)` inspects a committed request.
+`await workflow.approvals(after_key=None, limit=10)` returns a bounded, ordered
+`ApprovalPage`; pass its `next_cursor` as `after_key` for the next page. Read
+`approval.action.arguments` for the effective action and
+`approval.proposed_arguments` for optional original input. These views return
+independent JSON copies and expose typed `ApprovalStatus` values.
+
+```python
+from ledgence.client import ApprovalStatus, ApprovalDecisionUncertain
+
+approval = await workflow.approval("refund")
+if approval.status is ApprovalStatus.PENDING:
+    command = workflow.prepare_approval_decision(
+        approval, decision_id="review-1", decision="approve", reviewer="operator",
+        reason="Reviewed the stored effective action",
+    )
+    # Save command.to_dict() in application-owned storage before dispatch.
+    receipt = await workflow.decide_approval(command)
+```
+
+Choose `approve` or `reject` only after reviewing the exact stored action. The
+command binds its scope, workflow, request activation/revision, and full action.
+`reviewer` is claimed attribution; deployment authentication and authorization
+must establish the actual approver. No pending request is created by deciding.
+
+`ApprovalDecisionUncertain` retains the command when the response cannot prove
+acceptance. No automatic resend occurs. Explicitly resend that command, or use
+`workflow.restore_approval_decision(saved_dict)` after a client restart. An
+identical decision returns its original receipt; changed decisions or bindings
+conflict. Restoring a command performs validation only; it never grants approval.
+
 ## Local verification
 
 The repository's [package verification gate](https://github.com/Ledgence/ledgence/blob/main/tools/check-python-client.py)

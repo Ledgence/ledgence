@@ -341,6 +341,7 @@ async fn collect_workflow(
         "DELETE FROM workflow_history WHERE ctid IN (SELECT ctid FROM workflow_history WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_forks WHERE ctid IN (SELECT ctid FROM workflow_forks WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_events WHERE ctid IN (SELECT ctid FROM workflow_events WHERE workflow_id=$1 LIMIT $2)",
+        "DELETE FROM workflow_approvals WHERE ctid IN (SELECT ctid FROM workflow_approvals WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_waits WHERE ctid IN (SELECT ctid FROM workflow_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE child_workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",

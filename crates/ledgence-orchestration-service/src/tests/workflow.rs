@@ -173,6 +173,106 @@ fn public_workflow_submission_cannot_adopt_owned_or_wrong_scope_store_replies() 
     }
 }
 
+#[test]
+fn accepted_approval_with_invalid_or_changed_store_receipt_remains_uncertain() {
+    let action = ApprovalAction {
+        name: "app:refund".into(),
+        version: "1".into(),
+        arguments: json!({"amount": 50, "currency": "USD"}),
+    };
+    let command = ApprovalDecisionCommand {
+        scope: Scope {
+            tenant_id: "tenant".into(),
+            namespace: "billing".into(),
+        },
+        workflow_id: "workflow".into(),
+        key: "refund".into(),
+        activation_id: "request".into(),
+        revision: 0,
+        action: action.clone(),
+        decision_id: "review-1".into(),
+        decision: ApprovalDecision::Approve,
+        reviewer: "operator".into(),
+        reason: None,
+    };
+    let receipt = ApprovalDecisionReceipt {
+        approval: ApprovalSnapshot {
+            scope: command.scope.clone(),
+            workflow_id: command.workflow_id.clone(),
+            key: command.key.clone(),
+            activation_id: command.activation_id.clone(),
+            revision: 0,
+            action,
+            proposed_arguments: Some(json!({"amount": 100})),
+            created_at: 10,
+            deadline: 20,
+            status: ApprovalStatus::Approved,
+            decision: Some(ApprovalDecisionRecord {
+                decision_id: command.decision_id.clone(),
+                decision: ApprovalDecision::Approve,
+                reviewer: command.reviewer.clone(),
+                reason: None,
+                decided_at: 11,
+            }),
+            resumed_activation_id: Some("resumed".into()),
+        },
+        already_accepted: false,
+    };
+    let validate = super::super::workflow::validate_approval_decision_reply;
+    for duplicate in [false, true] {
+        let mut accepted = receipt.clone();
+        accepted.already_accepted = duplicate;
+        assert_eq!(
+            validate(&command, accepted).unwrap().already_accepted,
+            duplicate
+        );
+    }
+    for case in 0..7 {
+        let mut wrong = receipt.clone();
+        match case {
+            0 => wrong.approval.scope.namespace = "other".into(),
+            1 => wrong.approval.activation_id = "other".into(),
+            2 => wrong.approval.action.arguments["amount"] = json!(50.0),
+            3 => wrong.approval.decision.as_mut().unwrap().reviewer = "other".into(),
+            4 => wrong.approval.decision.as_mut().unwrap().decision_id = "other".into(),
+            5 => wrong.approval.decision.as_mut().unwrap().decided_at = 20,
+            _ => wrong.approval.decision = None,
+        }
+        assert!(
+            matches!(
+                validate(&command, wrong),
+                Err(ContractError::Unavailable(_))
+            ),
+            "case {case}"
+        );
+    }
+    // The activation's lease supplies the scope absent from the outer context.
+    // Matching workflow and activation IDs cannot authorize a foreign approval.
+    let owner = LeaseOwner {
+        scope: command.scope.clone(),
+        task_id: "resumed".into(),
+        attempt_id: "attempt".into(),
+        lease_id: "lease".into(),
+        generation: 1,
+        worker_session_id: "worker".into(),
+        consumer_id: 0,
+    };
+    let context: WorkflowActivationContext = serde_json::from_value(json!({
+        "v": 1, "workflow_id": "workflow", "activation_id": "resumed", "revision": 1,
+        "continuation": "apply", "state": null, "inputs": {}, "local_steps": [],
+        "wake": {"kind": "approval", "approval": receipt.approval},
+    }))
+    .unwrap();
+    let validate_context = super::super::workflow::validate_activation_context_reply;
+    validate_context(&owner, context.clone()).unwrap();
+    let mut foreign_owner = owner;
+    foreign_owner.scope.namespace = "other".into();
+    assert!(matches!(
+        validate_context(&foreign_owner, context),
+        Err(ContractError::Conflict)
+    ));
+}
+
 #[tokio::test]
 async fn new_distributed_children_respect_catalog_but_persisted_bindings_are_replayed() {
     use super::catalog::{Catalog, scope};

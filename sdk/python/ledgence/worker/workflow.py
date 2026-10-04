@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 import inspect
+import hashlib
 import json
 import math
 import re
@@ -32,10 +33,202 @@ MAX_CONTEXT_BYTES = 640 * 1024
 MAX_WAIT_MS = 31_536_000_000
 MAX_EVENT_BYTES = 64 * 1024
 MAX_TIMESTAMP = 253402300799999
+MAX_APPROVAL_BYTES = 32 * 1024
+_APPROVAL_LOCAL_PREFIX = "_approval:"
 
 
 class WorkflowError(Exception):
     """A workflow binding, decision, or runtime acknowledgement is invalid."""
+
+
+class ApprovalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+
+def _callable_name(fn):
+    module = getattr(fn, "__module__", None)
+    name = getattr(fn, "__qualname__", None)
+    if not callable(fn) or not module or not name:
+        raise WorkflowError("approval callable requires a stable module and qualified name")
+    return _text(module + ":" + name, "approval callable", 512)
+
+
+def _effective_arguments(fn, arguments):
+    try:
+        signature = inspect.signature(fn)
+        bound = signature.bind(**arguments)
+        bound.apply_defaults()
+    except (TypeError, ValueError) as exc:
+        raise WorkflowError("approval arguments do not bind to the callable") from exc
+    effective = {}
+    for name, value in bound.arguments.items():
+        kind = signature.parameters[name].kind
+        if kind == inspect.Parameter.POSITIONAL_ONLY:
+            raise WorkflowError("approval callables must accept keyword arguments")
+        if kind == inspect.Parameter.VAR_POSITIONAL:
+            if value:
+                raise WorkflowError("approval callables must accept keyword arguments")
+        elif kind == inspect.Parameter.VAR_KEYWORD:
+            effective.update(value)
+        else:
+            effective[name] = value
+    return effective
+
+
+def _validate_action(action, *, authoritative=False):
+    _fields(action, {"name", "version", "arguments"})
+    _text(action["name"], "action name", 512)
+    _text(action["version"], "action version")
+    if type(action["arguments"]) is not dict:
+        raise WorkflowError("approval arguments must be a JSON object")
+    _encode(action["arguments"], MAX_APPROVAL_BYTES, authoritative=authoritative)
+    _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=authoritative)
+
+
+def _validate_proposed_arguments(value, *, authoritative=False):
+    if value is not None and type(value) is not dict:
+        raise WorkflowError("proposed arguments must be a JSON object or None")
+    _encode(value, MAX_APPROVAL_BYTES, authoritative=authoritative)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ApprovalAction:
+    """Frozen effective action; returned arguments are independent JSON copies."""
+    _encoded: bytes
+
+    def __init__(self, name, *, version, arguments):
+        value = {"name": name, "version": version, "arguments": arguments}
+        _validate_action(value)
+        object.__setattr__(self, "_encoded", _encode(value, MAX_APPROVAL_BYTES, 96))
+
+    @classmethod
+    def for_callable(cls, fn, *, version, arguments):
+        """Bind a callable's identity and freeze its validated keyword defaults.
+
+        Perform domain-specific normalization before this call. Execution uses
+        these saved arguments, including defaults, without re-running it.
+        """
+        _validate_action({"name": _callable_name(fn), "version": version, "arguments": arguments})
+        return cls(_callable_name(fn), version=version, arguments=_effective_arguments(fn, arguments))
+
+    @classmethod
+    def _accepted(cls, value):
+        result = object.__new__(cls)
+        object.__setattr__(result, "_encoded", _encode(value, MAX_APPROVAL_BYTES, 96, authoritative=True))
+        return result
+
+    def to_dict(self):
+        return json.loads(self._encoded)
+
+    @property
+    def name(self): return self.to_dict()["name"]
+
+    @property
+    def version(self): return self.to_dict()["version"]
+
+    @property
+    def arguments(self): return self.to_dict()["arguments"]
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalDecision:
+    decision_id: str
+    decision: str
+    reviewer: str
+    reason: str | None
+    decided_at: int
+
+
+def _validate_approval(value):
+    _fields(value, {"scope", "workflow_id", "key", "activation_id", "revision", "action",
+                    "proposed_arguments", "created_at", "deadline", "status", "decision",
+                    "resumed_activation_id"})
+    _fields(value["scope"], {"tenant_id", "namespace"})
+    for name in ("tenant_id", "namespace"):
+        _text(value["scope"][name], name)
+    for name in ("workflow_id", "key", "activation_id"):
+        _text(value[name], name)
+    _integer(value["revision"], "revision")
+    _validate_action(value["action"], authoritative=True)
+    _validate_proposed_arguments(value["proposed_arguments"], authoritative=True)
+    for name in ("created_at", "deadline"):
+        _integer(value[name], name, maximum=MAX_TIMESTAMP)
+    if not 0 <= value["deadline"] - value["created_at"] <= MAX_WAIT_MS:
+        raise WorkflowError("invalid approval deadline")
+    try:
+        status = ApprovalStatus(value["status"])
+    except (ValueError, TypeError) as exc:
+        raise WorkflowError("invalid approval status") from exc
+    decision = value["decision"]
+    if status in (ApprovalStatus.APPROVED, ApprovalStatus.REJECTED):
+        _fields(decision, {"decision_id", "decision", "reviewer", "reason", "decided_at"})
+        for name in ("decision_id", "reviewer"):
+            _text(decision[name], name)
+        if decision["decision"] != ("approve" if status == ApprovalStatus.APPROVED else "reject"):
+            raise WorkflowError("approval decision contradicts status")
+        reason = decision["reason"]
+        if reason is not None and (type(reason) is not str or len(reason.encode("utf-8")) > 4096):
+            raise WorkflowError("approval reason must be at most 4096 UTF-8 bytes")
+        _integer(decision["decided_at"], "decided_at", maximum=MAX_TIMESTAMP)
+        if not value["created_at"] <= decision["decided_at"] < value["deadline"]:
+            raise WorkflowError("approval decision falls outside its deadline")
+    elif decision is not None:
+        raise WorkflowError("unresolved approval cannot contain a decision")
+    resumed = value["resumed_activation_id"]
+    if resumed is not None:
+        _text(resumed, "resumed_activation_id")
+        if status in (ApprovalStatus.PENDING, ApprovalStatus.CANCELLED) or resumed == value["activation_id"]:
+            raise WorkflowError("invalid resumed approval activation")
+
+
+@dataclass(frozen=True, slots=True)
+class Approval:
+    """Immutable approval observation, not a bearer token or authorization input."""
+    _encoded: bytes
+
+    def to_dict(self): return json.loads(self._encoded)
+
+    @property
+    def status(self): return ApprovalStatus(self.to_dict()["status"])
+
+    @property
+    def action(self): return ApprovalAction._accepted(self.to_dict()["action"])
+
+    @property
+    def key(self): return self.to_dict()["key"]
+
+    @property
+    def scope(self): return self.to_dict()["scope"]
+
+    @property
+    def workflow_id(self): return self.to_dict()["workflow_id"]
+
+    @property
+    def activation_id(self): return self.to_dict()["activation_id"]
+
+    @property
+    def revision(self): return self.to_dict()["revision"]
+
+    @property
+    def resumed_activation_id(self): return self.to_dict()["resumed_activation_id"]
+
+    @property
+    def decision(self):
+        value = self.to_dict()["decision"]
+        return None if value is None else ApprovalDecision(**value)
+
+    @property
+    def proposed_arguments(self): return self.to_dict()["proposed_arguments"]
+
+    @property
+    def created_at(self): return self.to_dict()["created_at"]
+
+    @property
+    def deadline(self): return self.to_dict()["deadline"]
 
 
 _workflow: ContextVar[WorkflowContext | None] = ContextVar("ledgence_workflow", default=None)
@@ -445,6 +638,15 @@ class WorkflowContext:
         self._wake = payload.get("wake")
         if self._wake is not None:
             self._validate_wake(self._wake)
+        self._approval = None
+        self._approval_callable = None
+        if self._wake is not None and self._wake["kind"] == "approval":
+            approval = self._wake["approval"]
+            if (approval["workflow_id"] != self.workflow_id
+                    or approval["resumed_activation_id"] != self.activation_id
+                    or approval["revision"] + 1 != self.revision):
+                raise WorkflowError("approval wake belongs to another workflow activation")
+            self._approval = _encode(approval, MAX_DECISION_BYTES, 96, authoritative=True)
         # Preserve old payloads; wake and child inputs share one bounded batch.
         combined = self._inputs if self._wake is None else {"inputs": self._inputs, "wake": self._wake}
         _encode(combined, MAX_DECISION_BYTES, 96, authoritative=True)
@@ -499,6 +701,11 @@ class WorkflowContext:
     def wake(self):
         """Return the event, timeout, or timer that resumed this activation."""
         return _freeze(self._wake, MAX_DECISION_BYTES, 96, authoritative=True)
+
+    @property
+    def approval(self):
+        """Typed immutable approval wake, or None for a different wake kind."""
+        return None if self._approval is None else Approval(self._approval)
 
     @staticmethod
     def _validate_child(item):
@@ -579,6 +786,12 @@ class WorkflowContext:
         if type(wake) is not dict:
             raise WorkflowError("invalid workflow wake")
         kind = wake.get("kind")
+        if kind == "approval":
+            _fields(wake, {"kind", "approval"})
+            _validate_approval(wake["approval"])
+            if wake["approval"]["status"] == ApprovalStatus.PENDING:
+                raise WorkflowError("a pending approval cannot wake a workflow")
+            return
         if kind == "event":
             _fields(wake, {"kind", "key", "event", "accepted_at"})
             _validate_event(wake["event"], authoritative=True)
@@ -595,7 +808,12 @@ class WorkflowContext:
         if type(wait) is not dict:
             raise WorkflowError("invalid workflow wait")
         kind = wait.get("kind")
-        if kind == "event":
+        if kind == "approval":
+            _fields(wait, {"kind", "key", "action", "timeout_ms"}, {"proposed_arguments"})
+            _validate_action(wait["action"])
+            _validate_proposed_arguments(wait.get("proposed_arguments"))
+            _integer(wait["timeout_ms"], "timeout_ms", maximum=MAX_WAIT_MS)
+        elif kind == "event":
             _fields(wait, {"kind", "key", "timeout_ms"})
             if wait["timeout_ms"] is not None:
                 _integer(wait["timeout_ms"], "timeout_ms", maximum=MAX_WAIT_MS)
@@ -636,6 +854,41 @@ class WorkflowContext:
         operation. A callable's closure is not part of its persisted binding.
         Concurrent calls sharing a key and binding share one owned execution.
         """
+        if type(key) is str and key.startswith(_APPROVAL_LOCAL_PREFIX):
+            raise WorkflowError("approval local keys are reserved; use approved_local")
+        return self._local(key, fn, **kwargs)
+
+    def approved_local(self, fn, *, version):
+        """Run only the authoritative approved action's saved arguments.
+
+        The callable identity and version must match. Retries use the existing
+        durable local-step record. External effects still require idempotency:
+        a crash can occur after an effect and before its result is committed.
+        Operator-trusted callable code remains responsible for its own effects.
+        """
+        self._active()
+        if self._approval is None:
+            raise WorkflowError("this activation has no approval")
+        approval = json.loads(self._approval)
+        action = approval["action"]
+        if approval["status"] != ApprovalStatus.APPROVED:
+            raise WorkflowError("the action was not approved")
+        if _callable_name(fn) != action["name"] or _text(version, "action version") != action["version"]:
+            raise WorkflowError("callable identity or version differs from the approved action")
+        # Direct action construction can omit defaults, and code can add a
+        # new optional argument across deployments. Neither may introduce an
+        # argument that was absent from the reviewed effective action.
+        effective = _effective_arguments(fn, action["arguments"])
+        if (_encode(effective, MAX_APPROVAL_BYTES, authoritative=True)
+                != _encode(action["arguments"], MAX_APPROVAL_BYTES, authoritative=True)):
+            raise WorkflowError("callable defaults differ from the approved effective arguments")
+        if self._approval_callable is not None and self._approval_callable is not fn:
+            raise WorkflowError("approval is already bound to a different callable")
+        self._approval_callable = fn
+        key = _APPROVAL_LOCAL_PREFIX + hashlib.sha256(approval["key"].encode("utf-8")).hexdigest()
+        return self._local(key, fn, **action["arguments"])
+
+    def _local(self, key, fn, **kwargs):
         self._active()
         _text(key, "local key")
         if not callable(fn):
@@ -925,6 +1178,31 @@ class WorkflowContext:
         return self._decision("wait", continuation=self._target(continuation),
                               state=_freeze(state, MAX_STATE_BYTES),
                               commands=self._commands, wait=wait)
+
+    def request_approval(self, key, *, action, state, timeout_ms,
+                         continuation=None, resume=None, proposed_arguments=None):
+        """Checkpoint an immutable effective action and release the worker slot.
+
+        Normalize arguments before requesting approval. The original proposal
+        is optional audit context; only action.arguments may execute. Return
+        this decision from the workflow controller. Every request has a finite
+        server-owned deadline, including an immediate expiry when timeout is 0.
+        """
+        self._active()
+        if (continuation is None) == (resume is None):
+            raise WorkflowError("supply exactly one continuation or resume entrypoint")
+        target = continuation if resume is None else resume
+        value = action.to_dict() if type(action) is ApprovalAction else action
+        wait = {"kind": "approval", "key": key, "action": value,
+                "timeout_ms": timeout_ms}
+        if proposed_arguments is not None:
+            wait["proposed_arguments"] = proposed_arguments
+        self._validate_wait(wait)
+        return self._decision("wait", continuation=self._target(target),
+                              state=_freeze(state, MAX_STATE_BYTES),
+                              commands=self._commands, wait=wait)
+
+    wait_approval = request_approval
 
     def sleep(self, key, delay_ms, *, continuation, state):
         """Checkpoint a durable timer and release this invocation's worker slot.

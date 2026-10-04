@@ -13,6 +13,12 @@ from .errors import (
 )
 from .models import RetryPolicy, Scope, TraceContext
 from .tasks import _UNSET
+from .approval_models import (
+    APPROVAL_LIMIT, APPROVAL_PAGE_LIMIT, ApprovalDecisionCommand, ApprovalDecisionReceipt,
+    ApprovalPage, ApprovalStatus, WorkflowApproval, _reason, parse_approval,
+    parse_approval_page, parse_approval_receipt,
+)
+from .errors import ApprovalDecisionUncertain
 from .workflow_models import (
     WorkflowCancellation, WorkflowFailure, WorkflowResult, WorkflowStatus, WorkflowSubmission,
     WorkflowSucceeded, WorkflowEventCommand, WorkflowEventReceipt, parse_workflow_event_receipt,
@@ -183,6 +189,113 @@ class WorkflowHandle:
                              "workflow_id": self.id, "key": key, "event": event},
                             EVENT_COMMAND_LIMIT, max_depth=96)
         return WorkflowEventCommand._create(self._base_url, self.scope, self.id, key, body)
+
+    async def approval(self, key: str) -> WorkflowApproval:
+        """Read an existing scoped approval; this never creates a request."""
+        key = codec.text(key, "key")
+        return await self._client._require_transport().exchange(
+            "POST", "/v1/workflows/approvals/inspect",
+            body=codec.encode({"scope": {"tenant_id": self.scope.tenant_id,
+                                        "namespace": self.scope.namespace},
+                               "workflow_id": self.id, "key": key}),
+            deadline=asyncio.get_running_loop().time() + self._client.request_timeout,
+            parser=lambda raw: parse_approval(raw, self.scope, self.id, key, self._base_url),
+            limit=APPROVAL_LIMIT,
+        )
+
+    async def approvals(self, *, after_key: str | None = None, limit: int = 10) -> ApprovalPage:
+        """Read a bounded page ordered by approval key; cursor is the last key."""
+        if after_key is not None:
+            codec.text(after_key, "after_key")
+        codec.integer(limit, "limit", 1, 10)
+        return await self._client._require_transport().exchange(
+            "POST", "/v1/workflows/approvals/list",
+            body=codec.encode({"scope": {"tenant_id": self.scope.tenant_id,
+                                        "namespace": self.scope.namespace},
+                               "workflow_id": self.id, "after_key": after_key, "limit": limit}),
+            deadline=asyncio.get_running_loop().time() + self._client.request_timeout,
+            parser=lambda raw: parse_approval_page(raw, self.scope, self.id, after_key, limit, self._base_url),
+            limit=APPROVAL_PAGE_LIMIT,
+        )
+
+    def prepare_approval_decision(self, approval: WorkflowApproval, *, decision_id: str,
+                                  decision: str, reviewer: str,
+                                  reason: str | None = None) -> ApprovalDecisionCommand:
+        """Freeze a decision against the inspected effective action and request.
+
+        reviewer is claimed attribution, not authenticated identity. Deploy this
+        endpoint behind an authenticated and authorized application boundary.
+        Persist the command before dispatch when reconciliation may be needed.
+        """
+        if (type(approval) is not WorkflowApproval or approval.scope != self.scope
+                or approval.workflow_id != self.id or approval._base_url != self._base_url):
+            raise InputError("approval belongs to another endpoint, scope, or workflow")
+        if approval.status != ApprovalStatus.PENDING:
+            raise InputError("only a pending approval can receive a new decision")
+        codec.text(decision_id, "decision_id")
+        codec.text(reviewer, "reviewer")
+        if type(decision) is not str or decision not in ("approve", "reject"):
+            raise InputError("decision must be approve or reject")
+        try:
+            _reason(reason)
+        except UnicodeError as exc:
+            raise InputError("reason must contain Unicode scalar values") from exc
+        snapshot = approval.to_dict()
+        # Revalidate even if an application manually constructed a view.
+        parse_approval(snapshot, self.scope, self.id, approval.key, self._base_url)
+        body = codec.encode({name: snapshot[name] for name in (
+            "scope", "workflow_id", "key", "activation_id", "revision", "action")} | {
+                "decision_id": decision_id, "decision": decision, "reviewer": reviewer, "reason": reason},
+            APPROVAL_LIMIT, max_depth=96)
+        return ApprovalDecisionCommand._create(self._base_url, self.scope, self.id, approval.key, body)
+
+    def restore_approval_decision(self, saved: dict) -> ApprovalDecisionCommand:
+        """Restore an unchanged persisted command for explicit reconciliation.
+
+        This performs no network call and does not grant approval. The server
+        still verifies the pending request or returns its identical decision.
+        Only restore application-owned storage, never untrusted client history.
+        """
+        from .approval_models import _action
+        from .models import _scope
+        codec.fields(saved, {"scope", "workflow_id", "key", "activation_id", "revision", "action",
+                             "decision_id", "decision", "reviewer", "reason"})
+        if _scope(saved["scope"]) != self.scope or saved["workflow_id"] != self.id:
+            raise InputError("saved approval command belongs to another scope or workflow")
+        for name in ("workflow_id", "key", "activation_id", "decision_id", "reviewer"):
+            codec.text(saved[name], name)
+        codec.integer(saved["revision"], "revision")
+        _action(saved["action"])
+        if type(saved["decision"]) is not str or saved["decision"] not in ("approve", "reject"):
+            raise InputError("decision must be approve or reject")
+        try:
+            _reason(saved["reason"])
+        except UnicodeError as exc:
+            raise InputError("reason must contain Unicode scalar values") from exc
+        # Use the same field order as prepare_approval_decision, even if a
+        # storage serializer reordered the object's keys.
+        body = codec.encode({name: saved[name] for name in (
+            "scope", "workflow_id", "key", "activation_id", "revision", "action", "decision_id",
+            "decision", "reviewer", "reason")}, APPROVAL_LIMIT, max_depth=96)
+        return ApprovalDecisionCommand._create(self._base_url, self.scope, self.id, saved["key"], body)
+
+    async def decide_approval(self, command: ApprovalDecisionCommand) -> ApprovalDecisionReceipt:
+        """Send once; reconcile uncertainty by explicitly resending these bytes."""
+        if (type(command) is not ApprovalDecisionCommand or command.scope != self.scope
+                or command.workflow_id != self.id or command.base_url != self._base_url):
+            raise InputError("approval command belongs to another endpoint, scope, or workflow")
+        try:
+            return await self._client._require_transport().exchange(
+                "POST", "/v1/workflows/approvals/decide", body=command._body,
+                deadline=asyncio.get_running_loop().time() + self._client.request_timeout,
+                parser=lambda raw: parse_approval_receipt(raw, command), limit=APPROVAL_LIMIT + 1024,
+            )
+        except RequestTimeout as exc:
+            if not exc.dispatched:
+                raise
+            raise ApprovalDecisionUncertain(command, exc) from exc
+        except TransportError as exc:
+            raise ApprovalDecisionUncertain(command, exc) from exc
 
     async def send_event(self, command: WorkflowEventCommand | None = None, *,
                          key: str | None = None, event: Any = _UNSET) -> WorkflowEventReceipt:

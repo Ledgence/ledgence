@@ -1,24 +1,23 @@
 //! Upgrade tests seed Console 2 bytes without invoking Console 3 writers.
 use super::*;
 
-const MIGRATION_NAME: &str = "20260929000000_console_entrypoints.sql";
+const MIGRATION_VERSION: i64 = 20260929000000;
 const MIGRATION: &str = include_str!("../../migrations/20260929000000_console_entrypoints.sql");
 
 async fn historical_database() -> TestDb {
     let db = TestDb::without_migrations().await;
-    let directory = tempfile::tempdir().unwrap();
-    for file in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")).unwrap() {
-        let file = file.unwrap();
-        if file.file_name() != MIGRATION_NAME {
-            std::fs::copy(file.path(), directory.path().join(file.file_name())).unwrap();
-        }
-    }
-    sqlx::migrate::Migrator::new(directory.path())
-        .await
-        .unwrap()
-        .run(&db.store.pool)
-        .await
-        .unwrap();
+    // Recreate the schema immediately before this upgrade. Excluding only the
+    // target also applies future migrations and ceases to be a historical seed.
+    sqlx::migrate::Migrator::with_migrations(
+        MIGRATOR
+            .iter()
+            .filter(|migration| migration.version < MIGRATION_VERSION)
+            .cloned()
+            .collect(),
+    )
+    .run(&db.store.pool)
+    .await
+    .unwrap();
     db
 }
 

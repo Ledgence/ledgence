@@ -84,3 +84,10 @@ Use `task list` to discover work, `task status` for scheduling metadata,
 cancellation. See the [HTTP quickstart](http-orchestration.md#run-a-task) for
 complete examples and the [task result contract](task-results.md) for outcome
 semantics.
+
+## Durable approvals
+
+Use [durable workflow approvals](workflow-approvals.md) when a review must bind
+to an existing immutable action and its effective arguments. Generic events
+remain application input; they cannot approve an action. The unified CLI
+provides `ledgence approval list`, `inspect`, and `decide`.

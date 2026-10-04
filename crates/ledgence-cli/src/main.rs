@@ -1,5 +1,6 @@
 //! Unified entry point for program administration and platform services.
 
+mod approvals;
 mod args;
 mod logging;
 mod routing;
@@ -52,6 +53,7 @@ fn run_admin(arguments: Vec<String>) -> ExitCode {
         Err(error) => return diagnose(error, None),
     };
     let (server, operation) = match command {
+        Command::Approval { server, operation } => (server, RunOperation::Approval(operation)),
         Command::Task { server, operation } => (server, RunOperation::Task(operation)),
         Command::Program {
             server,
@@ -104,6 +106,7 @@ fn run_admin(arguments: Vec<String>) -> ExitCode {
 }
 
 enum RunOperation {
+    Approval(args::ApprovalOperation),
     Task(Operation),
     Program(ledgence_orchestration_api::console::RegisterProgram),
 }
@@ -138,6 +141,7 @@ fn run_task(
     };
     let result = runtime.block_on(async {
         match operation {
+            RunOperation::Approval(operation) => approvals::execute(&client, operation).await,
             RunOperation::Task(operation) => execute(&client, operation).await,
             RunOperation::Program(command) => encode(client.register_program(&command).await?),
         }

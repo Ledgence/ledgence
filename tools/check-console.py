@@ -130,7 +130,8 @@ def main():
             "console_assets": {str(path.relative_to(prepared_dist)): hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in sorted(prepared_dist.rglob("*")) if path.is_file()},
             "source_fixtures": ["tools/http_acceptance/harness.py", "tools/check-workflows.py",
-                                "tools/workflow_acceptance/owned_program.py", "examples/checkpoint-workflow/controller/program.py"],
+                                "tools/workflow_acceptance/owned_program.py", "examples/checkpoint-workflow/controller/program.py",
+                                "examples/durable-approval/program.py"],
             "started_at": time.time(),
         }
         resources["fixture_sha256"] = {

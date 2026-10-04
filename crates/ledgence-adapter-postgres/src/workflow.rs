@@ -1,5 +1,6 @@
 //! Workflow mutations use workflow -> work/task row ordering. Ordinary task
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
+mod approvals;
 mod data;
 mod execution;
 pub(crate) mod explorer;
@@ -19,6 +20,29 @@ use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::collections::BTreeMap;
 
 impl WorkflowStore for PostgresStore {
+    fn approval<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        key: &'a str,
+    ) -> ContractFuture<'a, ApprovalSnapshot> {
+        Box::pin(self.run(move || self.approval_once(scope, workflow_id, key)))
+    }
+    fn list_approvals<'a>(
+        &'a self,
+        scope: &'a Scope,
+        workflow_id: &'a str,
+        after_key: Option<&'a str>,
+        limit: u32,
+    ) -> ContractFuture<'a, ApprovalPage> {
+        Box::pin(self.run(move || self.list_approvals_once(scope, workflow_id, after_key, limit)))
+    }
+    fn decide_approval<'a>(
+        &'a self,
+        command: &'a ApprovalDecisionCommand,
+    ) -> ContractFuture<'a, ApprovalDecisionReceipt> {
+        Box::pin(self.run(move || self.decide_approval_once(command)))
+    }
     fn fork_workflow<'a>(
         &'a self,
         command: &'a WorkflowForkCommand,

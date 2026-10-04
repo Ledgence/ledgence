@@ -12,10 +12,11 @@ import {
   recordedRelations,
   nodeStatus,
   nodeTiming,
+  nodeLabel,
 } from "../../src/features/explorer-model";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
     import.meta.url,
   ),
   "utf8",
@@ -28,7 +29,7 @@ function field(name: string): unknown {
 }
 describe("Rust-produced Console contract", () => {
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(4);
+    expect(decodeConfig(field("config")).contract_version).toBe(5);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );
@@ -109,7 +110,35 @@ for (const [name, value] of Object.entries(cases))
     expect(() => explorer.workflowExplorer(value)).not.toThrow();
   });
 
-describe("Rust-produced Explorer C4", () => {
+describe("Rust-produced Explorer C5", () => {
+  it.each(["approved", "rejected", "expired"] as const)(
+    "decodes an approval %s wake without inventing relations",
+    (wake) => {
+      const nodes = explorer.workflowExplorer(cases.external_waits).page.items;
+      const original = nodes.find((node) => node.kind === "external_wait")!;
+      const node = explorer.explorerNode({
+        ...original,
+        wait_kind: "approval",
+        wake_reason: wake,
+        closed_at: 1000,
+        resumed_activation_id: "resumed-approval",
+      });
+      expect(nodeLabel(node)).toContain("Approval");
+      expect(nodeStatus(node)).toBe(`${wake} · resume scheduled`);
+      expect(node.relations).toEqual(original.relations);
+      expect(() =>
+        explorer.explorerNode({ ...node, wait_kind: "event" }),
+      ).toThrow();
+      expect(() =>
+        explorer.explorerNode({ ...node, deadline: null }),
+      ).toThrow();
+      expect(
+        recordedRelations([node]).map((relation) => relation.record),
+      ).toEqual(
+        recordedRelations([original]).map((relation) => relation.record),
+      );
+    },
+  );
   it("retains local invocation evidence without claiming completion or ordering sibling operations", () => {
     for (const name of ["mixed_local", "observed_local_failure"] as const) {
       const nodes = explorer.workflowExplorer(cases[name]).page.items;
@@ -376,7 +405,10 @@ describe("Rust-produced Explorer C4", () => {
     expect(ancestry.execution).toEqual(ancestry.path.at(-1)!.execution);
   });
 
-  it("rejects C3 configuration and nodes without relations inside the C4 envelope", () => {
+  it("rejects older configuration and nodes without relations inside the C5 envelope", () => {
+    expect(() =>
+      decodeConfig({ ...decodeConfig(field("config")), contract_version: 4 }),
+    ).toThrow("incompatible");
     const historical = parseUserJson(
       readFileSync(
         new URL(

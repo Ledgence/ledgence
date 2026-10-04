@@ -415,3 +415,144 @@ async fn task_list_rejects_invalid_options_without_network() {
         assert!(output.stdout.is_empty());
     }
 }
+
+fn approval_command() -> Value {
+    json!({"scope":{"tenant_id":"tenant","namespace":"billing"},"workflow_id":"wf:1 / é","key":"refund:1",
+        "activation_id":"activation:1","revision":18446744073709551615u64,
+        "action":{"name":"app:refund","version":"1","arguments":{"amount":50,"values":[1,1.0,-0.0,18446744073709551615u64]}},
+        "decision_id":"review:1","decision":"approve","reviewer":"operator","reason":null})
+}
+#[tokio::test]
+async fn approval_decision_file_is_sent_once_and_can_be_replayed_after_lost_response() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("decision.json");
+    let command = approval_command();
+    std::fs::write(&path, serde_json::to_vec(&command).unwrap()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let expected = command.clone();
+    let exchange = tokio::spawn(async move {
+        let mut first_body = None;
+        for index in 0..2 {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (headers, body) = request(&mut socket).await;
+            assert!(headers.starts_with("POST /v1/workflows/approvals/decide HTTP/1.1\r\n"));
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap().to_string(),
+                expected.to_string()
+            );
+            if index == 0 {
+                first_body = Some(body);
+                drop(socket);
+                continue;
+            }
+            assert_eq!(Some(body), first_body);
+            let mut proposal = expected.clone();
+            for field in ["decision_id", "decision", "reviewer", "reason"] {
+                proposal.as_object_mut().unwrap().remove(field);
+            }
+            proposal["proposed_arguments"] = json!({"amount":100});
+            proposal["created_at"] = json!(1);
+            proposal["deadline"] = json!(1000);
+            proposal["status"] = json!("approved");
+            proposal["resumed_activation_id"] = json!("activation:2");
+            proposal["decision"] = json!({"decision_id":"review:1","decision":"approve","reviewer":"operator","reason":null,"decided_at":50});
+            respond(
+                &mut socket,
+                "200 OK",
+                &json!({"approval":proposal,"already_accepted":true}).to_string(),
+            )
+            .await;
+        }
+    });
+    let args = [
+        "approval",
+        "decide",
+        "--server",
+        &server,
+        "--file",
+        path.to_str().unwrap(),
+    ];
+    let first = invoke(&args).await;
+    assert_eq!(first.status.code(), Some(1));
+    assert!(first.stdout.is_empty());
+    assert_eq!(diagnostic(&first)["outcome_may_be_unknown"], true);
+    let replay = invoke(&args).await;
+    assert!(
+        replay.status.success(),
+        "{}",
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&replay.stdout).unwrap()["already_accepted"],
+        true
+    );
+    exchange.await.unwrap();
+}
+#[tokio::test]
+async fn approval_decisions_reject_duplicate_json_before_network() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("decision.json");
+    let command = approval_command()
+        .to_string()
+        .replacen("{", "{\"decision\":\"reject\",", 1);
+    std::fs::write(&path, command).unwrap();
+    let result = invoke(&[
+        "approval",
+        "decide",
+        "--server",
+        "http://127.0.0.1:1",
+        "--file",
+        path.to_str().unwrap(),
+    ])
+    .await;
+    assert_eq!(result.status.code(), Some(2));
+    assert!(result.stdout.is_empty());
+    assert_eq!(diagnostic(&result)["outcome_may_be_unknown"], false);
+}
+#[tokio::test]
+async fn approval_reads_keep_exact_scope_key_and_cursor() {
+    for operation in ["list", "inspect"] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = format!("http://{}", listener.local_addr().unwrap());
+        let exchange = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (header, body) = request(&mut socket).await;
+            assert!(header.starts_with(&format!(
+                "POST /v1/workflows/approvals/{operation} HTTP/1.1\r\n"
+            )));
+            let body: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(body["workflow_id"], "wf:1 / é");
+            assert_eq!(
+                body["scope"],
+                json!({"tenant_id":"tenant","namespace":"billing"})
+            );
+            if operation == "list" {
+                assert_eq!(body["after_key"], "refund:1");
+                assert_eq!(body["limit"], 2);
+            } else {
+                assert_eq!(body["key"], "refund:1");
+            }
+            respond(&mut socket, "404 Not Found", "{\"code\":\"not_found\"}").await;
+        });
+        let mut args = vec![
+            "approval",
+            operation,
+            "--server",
+            &server,
+            "--tenant",
+            "tenant",
+            "--namespace",
+            "billing",
+            "--workflow",
+            "wf:1 / é",
+        ];
+        if operation == "list" {
+            args.extend(["--after-key", "refund:1", "--limit", "2"]);
+        } else {
+            args.extend(["--key", "refund:1"]);
+        }
+        assert_eq!(invoke(&args).await.status.code(), Some(1));
+        exchange.await.unwrap();
+    }
+}

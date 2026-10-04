@@ -40,6 +40,9 @@ pub(super) async fn post(
     bytes: Vec<u8>,
     maximum: usize,
 ) -> std::result::Result<Vec<u8>, Failure> {
+    if path.starts_with("/v1/workflows/approvals/") {
+        return super::approvals::post(server, path, bytes, None).await;
+    }
     let service = service(server)?;
     match path {
         "/v1/workflows" => {
@@ -120,7 +123,9 @@ pub(super) async fn post(
             server.require_scope(&owner.scope)?;
             log_owner(&owner)?;
             let reply = service.activation_context(&owner).await?;
-            if reply.activation_id != owner.task_id {
+            if reply.activation_id != owner.task_id
+                || matches!(&reply.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != owner.scope)
+            {
                 return Err(
                     unavailable("activation response identity disagrees with request").into(),
                 );

@@ -49,7 +49,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
     import.meta.url,
   ),
   "utf8",
@@ -76,7 +76,7 @@ const parentUrl = `/console/workflows/${encodeURIComponent(parentId)}`;
 const config = decodeConfig(field("config"));
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "4",
+  "Ledgence-Console-Contract": "5",
   "Ledgence-Instance-Id": config.instance_id,
 };
 

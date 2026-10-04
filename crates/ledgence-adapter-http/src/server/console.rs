@@ -87,6 +87,9 @@ impl ConsoleServices {
     }
 }
 pub(super) const ROUTES: &[(&str, &str)] = &[
+    ("/v1/console/approvals/inspect", "POST"),
+    ("/v1/console/approvals/list", "POST"),
+    ("/v1/console/approvals/decide", "POST"),
     ("/v1/console/executions", "GET"),
     ("/v1/console/executions/ancestry", "GET"),
     ("/v1/console/workflows/explorer", "GET"),
@@ -373,7 +376,9 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path == "/v1/console/workflows/events" {
+    let maximum = if path.starts_with("/v1/console/approvals/") {
+        APPROVAL_SNAPSHOT_MAX_BYTES
+    } else if path == "/v1/console/workflows/events" {
         WORKFLOW_EVENT_COMMAND_MAX_BYTES
     } else {
         SUBMISSION_MAX_BYTES
@@ -385,6 +390,9 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if path.starts_with("/v1/console/approvals/") {
+        return super::approvals::post(server, path, bytes, Some(scope)).await;
+    }
     match path {
         "/v1/console/tasks" | "/v1/console/workflows" => {
             let submission: Submission = server.decode(bytes, maximum).await?;

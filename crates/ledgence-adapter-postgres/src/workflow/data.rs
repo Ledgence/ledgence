@@ -256,10 +256,19 @@ pub(super) async fn schedule_activation(
     connection: &mut PgConnection,
     run: &mut RunRecord,
     inputs: BTreeMap<String, WorkflowChildResult>,
-    wake: Option<WorkflowWake>,
+    mut wake: Option<WorkflowWake>,
     now: u64,
 ) -> StoreResult<TaskSnapshot> {
     let task_id = db::id(connection, "task").await?;
+    if let Some(WorkflowWake::Approval { approval }) = &mut wake {
+        if approval.resumed_activation_id.is_some()
+            || approval.workflow_id != run.snapshot.workflow_id
+        {
+            return Err(corrupt("approval logical consumption").into());
+        }
+        approval.resumed_activation_id = Some(task_id.clone());
+        approvals::save(connection, approval).await?;
+    }
     let context = WorkflowActivationContext {
         v: WORKFLOW_VERSION,
         workflow_id: run.snapshot.workflow_id.clone(),
