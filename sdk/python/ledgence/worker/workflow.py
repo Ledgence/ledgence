@@ -41,6 +41,12 @@ class WorkflowError(Exception):
     """A workflow binding, decision, or runtime acknowledgement is invalid."""
 
 
+class OperationKind(StrEnum):
+    """Semantic kind of an application-owned durable operation."""
+    MODEL = "model"
+    TOOL = "tool"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -49,29 +55,29 @@ class ApprovalStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-def _callable_name(fn):
+def _callable_name(fn, *, label="approval"):
     module = getattr(fn, "__module__", None)
     name = getattr(fn, "__qualname__", None)
     if not callable(fn) or not module or not name:
-        raise WorkflowError("approval callable requires a stable module and qualified name")
-    return _text(module + ":" + name, "approval callable", 512)
+        raise WorkflowError(f"{label} callable requires a stable module and qualified name")
+    return _text(module + ":" + name, f"{label} callable", 512)
 
 
-def _effective_arguments(fn, arguments):
+def _effective_arguments(fn, arguments, *, label="approval"):
     try:
         signature = inspect.signature(fn)
         bound = signature.bind(**arguments)
         bound.apply_defaults()
     except (TypeError, ValueError) as exc:
-        raise WorkflowError("approval arguments do not bind to the callable") from exc
+        raise WorkflowError(f"{label} arguments do not bind to the callable") from exc
     effective = {}
     for name, value in bound.arguments.items():
         kind = signature.parameters[name].kind
         if kind == inspect.Parameter.POSITIONAL_ONLY:
-            raise WorkflowError("approval callables must accept keyword arguments")
+            raise WorkflowError(f"{label} callables must accept keyword arguments")
         if kind == inspect.Parameter.VAR_POSITIONAL:
             if value:
-                raise WorkflowError("approval callables must accept keyword arguments")
+                raise WorkflowError(f"{label} callables must accept keyword arguments")
         elif kind == inspect.Parameter.VAR_KEYWORD:
             effective.update(value)
         else:
@@ -858,6 +864,40 @@ class WorkflowContext:
             raise WorkflowError("approval local keys are reserved; use approved_local")
         return self._local(key, fn, **kwargs)
 
+    def operation(self, key, fn, *, kind: OperationKind, version: str, arguments: dict):
+        """Start a model/tool call with frozen effective JSON keyword arguments.
+
+        Kind, callable identity, version, and signature-bound arguments (including
+        defaults) form the durable binding. Awaiting returns only the completed,
+        durably acknowledged JSON result. Include every effective model/tool
+        setting in arguments. Keep clients and credentials outside arguments;
+        closure state is not captured.
+        External effects still need application idempotency or reconciliation.
+        """
+        self._active()
+        _text(key, "operation key")
+        if key.startswith(_APPROVAL_LOCAL_PREFIX):
+            raise WorkflowError("approval local keys are reserved; use approved_local")
+        if type(kind) is not OperationKind:
+            raise WorkflowError("operation kind must be an OperationKind member")
+        _text(version, "operation version")
+        if type(arguments) is not dict:
+            raise WorkflowError("operation arguments must be a JSON object")
+        name = _callable_name(fn, label="operation")
+        # Validate supplied values before binding and freeze defaults before
+        # returning the owned awaitable. Only exact accepted replay may use the
+        # bounded Python/Rust float encoding allowance.
+        authoritative = key in self._records
+        _encode(arguments, MAX_RECORD_BYTES, authoritative=authoritative)
+        effective = _freeze(_effective_arguments(fn, arguments, label="operation"),
+                            MAX_RECORD_BYTES, authoritative=authoritative)
+        request = {"v": 1, "kind": kind.value, "version": version, "arguments": effective}
+        _encode(request, MAX_RECORD_BYTES, authoritative=authoritative)
+        # A semantic prefix keeps this binding distinct from an ordinary local
+        # call with coincidentally matching envelope-shaped keyword arguments.
+        return self._bound_local(key, fn, _text(kind.value + ":" + name, "operation callable", 512),
+                                 request, effective)
+
     def approved_local(self, fn, *, version):
         """Run only the authoritative approved action's saved arguments.
 
@@ -897,11 +937,15 @@ class WorkflowContext:
         name = getattr(fn, "__qualname__", None)
         if not module or not name:
             raise WorkflowError("local callable requires a stable module and qualified name")
+        arguments = _freeze(kwargs, MAX_RECORD_BYTES, authoritative=key in self._records)
+        return self._bound_local(key, fn, _text(module + ":" + name, "local callable", 512),
+                                 arguments, arguments)
+
+    def _bound_local(self, key, fn, name, persisted_input, arguments):
         previous = self._records.get(key)
         # Exact replay may copy an accepted Rust-size-boundary binding whose
         # Python float text is longer. A new binding never receives this slack.
-        binding = {"key": key, "callable": _text(module + ":" + name, "local callable", 512),
-                   "input": _freeze(kwargs, MAX_RECORD_BYTES, authoritative=previous is not None)}
+        binding = {"key": key, "callable": name, "input": persisted_input}
         binding_bytes = _encode(binding, MAX_RECORD_BYTES, 96, authoritative=previous is not None)
         if previous is not None:
             actual = {field: previous[field] for field in ("key", "callable", "input")}
@@ -914,11 +958,11 @@ class WorkflowContext:
             return _LocalResult(task, self._observed_failures)
         if len(set(self._records) | set(self._pending)) >= MAX_STEPS and previous is None:
             raise WorkflowError("too many local steps in one activation")
-        task = asyncio.create_task(self._run_local(binding, fn, previous))
+        task = asyncio.create_task(self._run_local(binding, fn, arguments, previous))
         self._pending[key] = (binding_bytes, task)
         return _LocalResult(task, self._observed_failures)
 
-    async def _run_local(self, binding, fn, previous):
+    async def _run_local(self, binding, fn, arguments, previous):
         from ledgence.worker._observations import begin_local, finish_local
         observation = begin_local(binding, replayed=previous is not None)
         if previous is not None:
@@ -928,7 +972,7 @@ class WorkflowContext:
         # can overlap I/O without allocating additional subprocesses or threads.
         token = _local_owner.set(self)
         try:
-            output = fn(**_freeze(binding["input"], MAX_RECORD_BYTES))
+            output = fn(**_freeze(arguments, MAX_RECORD_BYTES))
             if inspect.isawaitable(output):
                 output = await output
             record = dict(binding, output=_freeze(output, MAX_RECORD_BYTES))
