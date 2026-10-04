@@ -32,6 +32,7 @@ email or external reply.
 
 | Example | Integration | Setup |
 | --- | --- | --- |
+| [Agent call recovery](agent-recovery/README.md) | Per-model and per-tool durable calls, explicit turn checkpoints, and recovery after a lost acknowledgment. Uses a scripted model and order service to isolate durability. | Current source and CPython 3.11+ for the offline check; PostgreSQL and a worker for process recovery tests. No provider credentials. |
 | [Codex change review](codex-change-review/README.md) | Fix an empty-page pagination bug with Codex, fork tests/review/release-note branches, compare behavior locally, and wait for candidate-bound human approval. Includes an animated workflow replay, code snippets and a recording guide. | Current source, PostgreSQL 18, CPython 3.13, and a host Codex CLI. Includes an offline acceptance gate and a real-provider mode. |
 | [Codex support agent](codex-support-agent/README.md) | Codex CLI with ChatGPT sign-in and access to the configured model. | Current source, Rust, PostgreSQL 18, and CPython 3.13 on macOS arm64 or Linux x86_64. The application uses the Python standard library; Codex CLI is supplied separately. |
 | [Google ADK support agent](support-agent/README.md) | Google ADK and Gemini Developer API. | Current source, Rust, PostgreSQL 18, CPython 3.13, and a Gemini Developer API key. Reviewed dependency locks target macOS arm64 or Linux x86_64 with glibc 2.28+. |

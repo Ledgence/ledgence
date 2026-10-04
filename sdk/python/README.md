@@ -1,5 +1,76 @@
 # Ledgence Python helper
 
+## Durable model and tool calls
+
+Protocol 3 workflows can give an application-owned model or tool call an explicit
+durable identity without adopting an agent framework:
+
+```python
+from ledgence.worker.workflow import OperationKind
+
+response = await ctx.operation(
+    f"turn:{round}:model", call_model,
+    kind=OperationKind.MODEL, version="adapter-1",
+    arguments={
+        "model": "demo-model-2026-01",
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": 256,
+        "tools": tool_schemas,
+    },
+)
+result = await ctx.operation(
+    f"turn:{round}:tool:0", lookup,
+    kind=OperationKind.TOOL, version="lookup-1",
+    arguments={"query": response["query"]},
+)
+```
+
+`kind` requires an `OperationKind` member; plain strings and other enums are
+rejected. `version` identifies the application adapter/tool behavior. Include the
+effective provider/model identifier or snapshot, prompts, settings, tool schemas,
+and other behavior-affecting configuration in `arguments`. A provider's mutable
+model alias does not pin its underlying behavior. A model-generated tool request
+is application input: validate and normalize it before selecting an allowed tool
+and calling `operation`.
+
+Before starting the callable, the helper binds its Python signature, materializes
+keyword defaults, and freezes the effective JSON arguments. The callable receives
+an independent copy as `fn(**effective_arguments)`. Each record binds the explicit
+key, operation kind, original callable module/qualified name, version, and effective
+arguments. Repeating that key in the same activation with the identical binding
+reuses the owned execution or acknowledged result; a changed binding fails before
+another call starts. Object order is ignored, but numbers such as `1`, `1.0`,
+`True`, and positive/negative zero retain distinct bindings. Caller or callable
+mutation cannot change the saved request, and each awaited result is a fresh copy.
+
+Keep clients and credentials outside arguments; JSON requests and results are
+stored as supplied. Sockets, SDK response objects, closures, and process memory
+are not checkpointed. Application adapters convert completed responses to bounded
+JSON. Partial streams, generators, and
+provider exceptions are not successful records. The helper imports no model SDK
+and performs no provider calls itself. Synchronous and asynchronous callables use
+the same execution, cancellation, and acknowledgment rules as `ctx.local`.
+
+The result is returned only after the existing Rust local-result commit is
+acknowledged. An activation retry replays accepted results without deliberately
+executing their callables. If an effect succeeds before its record is accepted,
+it can repeat; pass a stable business idempotency key in the effective arguments
+or reconcile with the external system. A lost or invalid acknowledgment prevents
+successful completion of the original activation, even if the controller catches
+the error. Durable recovery does not guarantee exactly-once provider execution.
+
+Operation keys share the activation-local journal with `ctx.local`; their semantic
+binding keeps them distinct from ordinary local calls. The approval-reserved key
+prefix remains unavailable. Operations have the same limits: 128 records and
+256 KiB combined per activation, 128 KiB per full binding/result record. The
+versioned input envelope counts toward the ordinary JSON depth and byte limits.
+Control flow remains ordinary Python: bound rounds and tool counts, then return
+`ctx.continue_(continuation=..., state=...)` with the round, messages, and results
+needed next. A new activation receives that explicit checkpoint and a new journal;
+Python frames and ordinary locals are not restored. A local operation cannot
+start another durable operation, stage children, or call workflow control APIs.
+
 ## Durable approvals
 
 Protocol 3 workflows can return `ctx.request_approval(key, action=...,

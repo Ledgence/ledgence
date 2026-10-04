@@ -70,6 +70,11 @@ Reading `state`, `inputs`, or `wake` returns an independent JSON copy. Mutating 
 
 ## Local steps
 
+### `operation(key, fn, *, kind, version, arguments)` — current source
+
+Use `OperationKind.MODEL` or `OperationKind.TOOL` from `ledgence.worker.workflow`. This post-0.2.0 helper uses the local journal with an explicit operation kind/version and signature-bound JSON arguments, including defaults. It returns only a completed, acknowledged result and rejects an existing key whose binding changed. Keys share the activation's local-step namespace. See [Recover model and tool calls](/how-to/recover-agent-calls) for boundaries, checkpoints and current-source setup.
+
+
 ### `local(key, fn, **kwargs)`
 
 Starts an owned local operation and returns an awaitable. Awaiting it returns the JSON output only after its durable result record has been acknowledged.

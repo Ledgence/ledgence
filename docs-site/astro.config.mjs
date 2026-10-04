@@ -36,6 +36,7 @@ export default defineConfig({
         { label: 'Mix local work and branches', slug: 'how-to/fork-workflow-branches' },
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
         { label: 'Require approval for an action', slug: 'how-to/require-approval' },
+        { label: 'Recover model and tool calls', slug: 'how-to/recover-agent-calls' },
       ] },
       { label: 'Reference', items: [
         { label: 'Command-line interface', slug: 'reference/cli' },
