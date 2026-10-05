@@ -38,7 +38,7 @@ curl --fail --location --output SHA256SUMS \
   https://github.com/Ledgence/ledgence/releases/download/v0.2.0/SHA256SUMS
 ```
 
-The release checksum file can list both platforms. Verify the entry for the archive you downloaded:
+The release checksum file can list both platforms. Verify the entry for the archive you downloaded. This checksum check also works with older system Python versions; running Ledgence programs still requires CPython 3.11–3.14:
 
 ```sh
 python3 - <<'PYTHON'
@@ -50,8 +50,11 @@ entries = [line.split() for line in Path("SHA256SUMS").read_text().splitlines() 
 matches = [digest for digest, name in entries if name.lstrip("*") == archive.name]
 if len(matches) != 1:
     raise SystemExit("Expected exactly one checksum for the selected archive")
+digest = hashlib.sha256()
 with archive.open("rb") as stream:
-    actual = hashlib.file_digest(stream, "sha256").hexdigest()
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+actual = digest.hexdigest()
 if actual != matches[0]:
     raise SystemExit("Archive checksum mismatch")
 print(archive.name, "OK")
@@ -87,7 +90,7 @@ Worker and orchestrator remain separate processes. The [CLI reference](/referenc
 
 ## Verify execution with your Python interpreter
 
-Create a disposable example in a fresh directory:
+Create a disposable example in a fresh directory. `LEDGENCE_PYTHON` must select CPython 3.11–3.14. If `python3 --version` shows an older system interpreter, replace `$(command -v python3)` below with the absolute path to your supported interpreter:
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3)"
@@ -110,7 +113,7 @@ Expect two successful JSON reports with the same `process_id`, with `reused_proc
 The bundle's client wheel is separate from the worker helper. Install it in a virtual environment when your application needs the HTTP client:
 
 ```sh
-python3 -m venv "$LEDGENCE_EXAMPLE_DIR/client"
+"$LEDGENCE_PYTHON" -m venv "$LEDGENCE_EXAMPLE_DIR/client"
 "$LEDGENCE_EXAMPLE_DIR/client/bin/python" -m pip install \
   "$LEDGENCE_BUNDLE/python-client/ledgence_client-0.2.0-py3-none-any.whl"
 ```

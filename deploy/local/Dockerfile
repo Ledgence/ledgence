@@ -8,6 +8,9 @@ COPY console/patches ./patches
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY console ./
 COPY LICENSE /src/LICENSE
+# The full copy can give unchanged patches newer timestamps than the cached
+# install. Revalidate the final files without downloading or changing the lockfile.
+RUN pnpm install --offline --frozen-lockfile --ignore-scripts
 ARG SOURCE_REVISION
 ARG SOURCE_DIRTY
 RUN LEDGENCE_SOURCE_REVISION="$SOURCE_REVISION" LEDGENCE_SOURCE_DIRTY="$SOURCE_DIRTY" pnpm build
