@@ -95,9 +95,13 @@ test('release provenance omits unknown product SHA instead of substituting docum
   try {
     writeMarkdownExports(directory, [], 'documentation-checkout', null);
     const index = readFileSync(join(directory, 'llms.txt'), 'utf8');
-    assert.match(index, /Product source: v0\.3\.0\. Documentation checkout: documentation-checkout/);
+    const currentRelease = JSON.parse(readFileSync(new URL('../release.json', import.meta.url), 'utf8'));
+    assert.ok(index.includes(`Product source: ${currentRelease.sourceRef}. Documentation checkout: documentation-checkout.`));
     assert.match(index, /x86_64-unknown-linux-gnu, aarch64-apple-darwin/);
     assert.match(index, /Console is included/);
     assert.doesNotMatch(index, /undefined|not included|source checkout;|v0\.1\.1/);
+    writeMarkdownExports(directory, [], 'documentation-checkout', 'verified-product-commit');
+    const resolved = readFileSync(join(directory, 'llms.txt'), 'utf8');
+    assert.ok(resolved.includes(`Product source: ${currentRelease.sourceRef} (verified-product-commit). Documentation checkout: documentation-checkout.`));
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

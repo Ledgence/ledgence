@@ -1,6 +1,6 @@
 # MCP server
 
-Ledgence 0.3.0 exposes an optional MCP server in the unified `ledgence`
+Ledgence 0.3.1 exposes an optional MCP server in the unified `ledgence`
 executable. Earlier 0.2.0 binaries do not include it.
 The server connects to your existing HTTP API; the orchestrator, database and
 workers continue running separately. No AI framework, model or vendor account

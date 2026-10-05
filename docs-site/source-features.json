@@ -1,7 +1,7 @@
 {
   "console": {
     "availability": "release",
-    "sourceRef": "v0.3.0",
+    "sourceRef": "v0.3.1",
     "verifiedOn": "2026-10-05",
     "guide": "/tutorials/use-console"
   }

@@ -142,7 +142,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.3.0 --output /tmp/ledgence-stable
+  --version 0.3.1 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -169,10 +169,10 @@ and requires the selected archive's expected SHA256. Dispatch it on the matching
 annotated release tag after that commit is included in `main`:
 
 ```sh
-gh workflow run promote-bundle.yml --ref v0.3.0 \
+gh workflow run promote-bundle.yml --ref v0.3.1 \
   -f candidate_run=RUN_ID \
   -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
-  -f version=0.3.0
+  -f version=0.3.1
 ```
 
 It checks the clean tag identity and source-equivalent candidate, promotes the

@@ -5,7 +5,7 @@ description: Persist individual agent decisions and tool results, then resume a 
 
 Use `ctx.operation` to persist each completed model or tool response before the workflow uses it. A retry of the same activation reads the committed response instead of deliberately repeating that call.
 
-**Availability:** included in **Ledgence 0.3.0**. Use matching worker and Python runtime-helper versions. It reuses protocol 3 and the existing Rust local journal; it adds no provider dependency. Follow the [upgrade guide](/how-to/upgrade-to-0-3) for an existing deployment.
+**Availability:** included in **Ledgence 0.3.1**. Use matching worker and Python runtime-helper versions. It reuses protocol 3 and the existing Rust local journal; it adds no provider dependency. Follow the [upgrade guide](/how-to/upgrade-to-0-3) for an existing deployment.
 
 ## Bind each call
 
@@ -33,7 +33,7 @@ Keep provider/model identity, messages, settings, tool definitions and effective
 
 ## Resume a bounded loop
 
-The [runnable example](https://github.com/Ledgence/ledgence/blob/v0.3.0/examples/agent-recovery/README.md) uses a scripted model and order service, so no credentials or network access are needed. It records a model response and a tool response, then checkpoints the transcript:
+The [runnable example](https://github.com/Ledgence/ledgence/blob/v0.3.1/examples/agent-recovery/README.md) uses a scripted model and order service, so no credentials or network access are needed. It records a model response and a tool response, then checkpoints the transcript:
 
 ```python
 return ctx.continue_(
@@ -54,4 +54,4 @@ A committed model decision is reused before selecting its tools. Committed tool 
 
 If an external call succeeds and the process dies before its result commits, that call can repeat. Use stable business/provider idempotency keys or reconcile the outcome where supported. Attempt IDs change during recovery and are unsuitable as stable external idempotency keys. Durable execution does not guarantee exactly-once external effects or token-stream resumption.
 
-The [source contract and verification guide](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/agent-recovery.md) covers fault injection, process restart, lost acknowledgments, JSON binding rules and the primary-source design comparison. Framework adapters and dynamic tool discovery are separate integrations.
+The [source contract and verification guide](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/agent-recovery.md) covers fault injection, process restart, lost acknowledgments, JSON binding rules and the primary-source design comparison. Framework adapters and dynamic tool discovery are separate integrations.

@@ -1,19 +1,19 @@
 ---
 title: Releases and packages
-description: Ledgence 0.3.0 distribution channels, supported native targets, upgrade requirements, and historical releases.
+description: Ledgence 0.3.1 distribution channels, supported native targets, upgrade requirements, and historical releases.
 ---
 
-Ledgence 0.3.0 adds durable human approvals, recovery for model and tool calls, and an optional MCP server. Source, native bundles, the Python client, and Rust API crates use version **0.3.0**. Public APIs may evolve before 1.0; pin versions and review the [upgrade guide](/how-to/upgrade-to-0-3).
+Ledgence 0.3.1 adds durable human approvals, recovery for model and tool calls, and an optional MCP server. Source, native bundles, the Python client, and Rust API crates use version **0.3.1**. Public APIs may evolve before 1.0; pin versions and review the [upgrade guide](/how-to/upgrade-to-0-3).
 
 ## Distributions
 
 | Distribution | Version and scope |
 | --- | --- |
-| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.3.0) | `v0.3.0`: platform, Console, Compose deployment, examples, and contracts. |
-| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.3.0) | `0.3.0`: Linux x86_64/glibc and macOS arm64, with Console. |
-| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.3.0/) | `ledgence-client==0.3.0` |
-| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.3.0) | `ledgence-worker-api = "=0.3.0"` |
-| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.3.0) | `ledgence-orchestration-api = "=0.3.0"` |
+| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.3.1) | `v0.3.1`: platform, Console, Compose deployment, examples, and contracts. |
+| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.3.1) | `0.3.1`: Linux x86_64/glibc and macOS arm64, with Console. |
+| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.3.1/) | `ledgence-client==0.3.1` |
+| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.3.1) | `ledgence-worker-api = "=0.3.1"` |
+| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.3.1) | `ledgence-orchestration-api = "=0.3.1"` |
 
 The Linux native target is `x86_64-unknown-linux-gnu`, built and qualified on Ubuntu 24.04. The macOS target is `aarch64-apple-darwin`. Archive provenance records actual dynamic-library requirements; Linux qualification is not a claim of compatibility with every distribution. The source-based [Compose tutorial](/tutorials/run-locally) builds its own Linux container image and does not require a published Ledgence container image.
 
@@ -38,7 +38,7 @@ Register Python `Workflow` handlers with typed entrypoints and use acknowledged 
 ## Python client
 
 ```sh
-python3 -m pip install "ledgence-client==0.3.0"
+python3 -m pip install "ledgence-client==0.3.1"
 ```
 
 Import `from ledgence.client import AsyncClient`. The client requires Python 3.11 or newer; the supported qualification matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The optional `otel` extra integrates tracing. This client communicates with an existing service; it does not install a server, upload packages, or provide `ledgence.worker`.
@@ -49,19 +49,23 @@ The two API crates expose integration interfaces and require Rust 1.98 or newer:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "=0.3.0"
-ledgence-orchestration-api = "=0.3.0"
+ledgence-worker-api = "=0.3.1"
+ledgence-orchestration-api = "=0.3.1"
 ```
 
-Read the [worker API](https://docs.rs/ledgence-worker-api/0.3.0/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.3.0/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.3 contracts and account for the new approval variants and service operations.
+Read the [worker API](https://docs.rs/ledgence-worker-api/0.3.1/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.3.1/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.3 contracts and account for the new approval variants and service operations.
 
 ## Historical releases
+
+`v0.3.0` remains a historical source tag. Its native bundles, Python client and
+Rust API crates were never publicly published. Use **0.3.1** for the 0.3 series;
+the earlier tag is preserved without being moved or republished.
 
 **0.2.0** introduced the unified CLI, Console contract 4, typed entrypoints and durable forks. It did not include the approval ledger, operation helper or MCP server. Use matching historical binaries and documentation when operating that version.
 
 The first native release, **0.1.0**, shipped only for macOS arm64 with three executables: `ledgence`, `ledgence-worker`, and `ledgence-orchestrator`. Its Python client wheel also remains 0.1.0. The later **0.1.1** source and registry packages did not include a native archive. Both releases predate Console, typed entrypoints, and durable forks. Their original archives and tags are unchanged; use their own bundled documentation when operating them.
 
-The `ledgence.worker` import namespace was already present in 0.1.1. The move from the older `ledgence_worker` spelling is not a new 0.3.0 migration. Example versions such as `1.0.0` and `1.0.1` identify application packages independently of platform releases.
+The `ledgence.worker` import namespace was already present in 0.1.1. The move from the older `ledgence_worker` spelling is not a new 0.3.1 migration. Example versions such as `1.0.0` and `1.0.1` identify application packages independently of platform releases.
 
 ## Operating scope
 
@@ -69,4 +73,4 @@ CPython, PostgreSQL, brokers, and host libraries are supplied separately. Ledgen
 
 Ledgence-owned code is MIT licensed and supports self-hosting without a mandatory vendor account. Applications can remain proprietary; third-party components retain their licenses and notices.
 
-**Source:** [0.3.0 release notes](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/releases/0.3.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/registry-packages.md)
+**Source:** [0.3.1 release notes](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/releases/0.3.1.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/registry-packages.md)
