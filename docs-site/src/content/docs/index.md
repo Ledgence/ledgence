@@ -6,7 +6,7 @@ tableOfContents: false
 
 <p class="ld-home-intro">Run your agents, follow their workflows, and understand what is happening on your infrastructure.</p>
 
-<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.2</span> Public releases are here <span aria-hidden="true">→</span></a>
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.3</span> Public releases are here <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
