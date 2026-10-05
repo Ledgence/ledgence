@@ -14,7 +14,7 @@ The new API serializes revision and sequence values as decimal strings. Program 
 
 ## Unified discovery and execution explorer
 
-Console contract version 4 reuses the existing discovery and inspection endpoints:
+Console contract version 5 reuses the existing discovery and inspection endpoints:
 
 - `GET /v1/console/executions` merges tasks and workflows in a stable descending
   order of submission time, kind and immutable ID. Each typed index seek is
@@ -158,3 +158,15 @@ The route stays `/v1/console/workflows/explorer`. Its cursor binding is now
 `workflows/explorer/v4`, so restart Explorer traversal; unrelated cursor bindings
 remain unchanged. Earlier schema migrations still apply when upgrading from C2
 or older releases.
+
+## Contract 4 to 5 upgrade
+
+C5 adds the `approval` wait kind and `approved`, `rejected`, and `expired` wake
+reasons. Apply `20261004000000_workflow_approvals.sql` with writers stopped, then
+start matching server, workers, Python helper and assets. Existing node IDs and
+relation directions are retained. The dedicated approval endpoints project the
+persisted request and decision; application arguments are loaded only through
+these explicit detail endpoints. Approval inspect/list operations hold a brief
+shared workflow lock while reading the proposal and sampling database time, so
+a concurrent decision cannot produce a false expired observation. See
+[workflow approvals](workflow-approvals.md) for API and effect guarantees.

@@ -16,7 +16,7 @@ import sys
 import tempfile
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import Deployment
 
 
@@ -296,7 +296,7 @@ def main():
         (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
         print(f"PASS {name}", flush=True)
     try:
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         deployment = Deployment(root, directory, args.binaries.resolve(),
                                 os.environ.get("LEDGENCE_PYTHON", sys.executable), url, args.psql)

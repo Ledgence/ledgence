@@ -157,11 +157,20 @@ const rawExplorerNode = s.variant({
     ...base,
     kind: s.enumeration("external_wait"),
     key: s.id,
-    wait_kind: s.enumeration("event", "timer"),
+    wait_kind: s.enumeration("event", "timer", "approval"),
     deadline: s.nullable(s.timestamp),
     registered_at: s.timestamp,
     closed_at: s.nullable(s.timestamp),
-    wake_reason: s.nullable(s.enumeration("event", "timer", "timeout")),
+    wake_reason: s.nullable(
+      s.enumeration(
+        "event",
+        "timer",
+        "timeout",
+        "approved",
+        "rejected",
+        "expired",
+      ),
+    ),
     resumed_activation_id: s.nullable(s.id),
   }),
 });
@@ -184,11 +193,22 @@ export const explorerNode = s.refine(
       return new Set(node.branch_keys).size === node.branch_keys.length;
     if (node.kind === "child_wait")
       return new Set(node.member_keys).size === node.member_keys.length;
-    if (node.kind === "external_wait")
+    if (node.kind === "external_wait") {
+      const compatible =
+        node.wake_reason === null ||
+        (node.wait_kind === "approval"
+          ? ["approved", "rejected", "expired"].includes(node.wake_reason)
+          : node.wait_kind === "timer"
+            ? node.wake_reason === "timer"
+            : ["event", "timeout"].includes(node.wake_reason));
       return (
+        compatible &&
+        ((node.wait_kind === "event" && node.wake_reason !== "timeout") ||
+          node.deadline !== null) &&
         (node.wake_reason === null) === (node.resumed_activation_id === null) &&
         (!node.wake_reason || node.closed_at !== null)
       );
+    }
     return true;
   },
   "Inconsistent workflow explorer evidence.",

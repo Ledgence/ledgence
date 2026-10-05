@@ -170,3 +170,19 @@ pub(crate) struct WorkflowReference {
     pub scope: Scope,
     pub workflow_id: String,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ApprovalReference {
+    pub scope: Scope,
+    pub workflow_id: String,
+    pub key: String,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ApprovalListRequest {
+    pub scope: Scope,
+    pub workflow_id: String,
+    pub after_key: Option<String>,
+    pub limit: u32,
+}

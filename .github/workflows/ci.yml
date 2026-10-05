@@ -57,6 +57,8 @@ jobs:
         run: python tools/check-otel-features.py
       - name: Check optional SQS feature boundaries
         run: python tools/check-sqs-features.py
+      - name: Check optional MCP feature boundaries
+        run: python tools/check-mcp-features.py
       - name: Test Rust and real subprocess execution
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
@@ -72,12 +74,16 @@ jobs:
         run: cargo doc --workspace --all-features --no-deps --locked
       - name: Check disposable database isolation before any resource creation
         run: python -m unittest discover -s tools -p 'test_postgres_fixture.py' -v
-      - name: Test the local HTTP fixtures
-        run: python tools/check-http-fixtures.py
+      - name: Test the local HTTP fixtures and durable demo receiver
+        run: |
+          python tools/check-http-fixtures.py
+          python -m unittest discover -s tools -p 'test_local_receiver.py' -v
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
         run: python tools/check-workload-soak.py --self-test
+      - name: Test fulfillment investigation and verified report fixtures
+        run: python examples/fulfillment-investigator/check.py
       - name: Test the Python runner
         run: python -m unittest discover -s sdk/python/tests -v
       - name: Test optional Python trace context
@@ -193,6 +199,14 @@ jobs:
             --binaries target/debug --capture target/debug/examples/otlp-capture \
             --evidence "$RUNNER_TEMP/ledgence-observability-evidence"
 
+      - name: Check MCP stdio through HTTP, PostgreSQL and a Python worker
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          python tools/check-mcp.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries target/debug --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
+
       - name: Build and install the Python client wheel for end-to-end acceptance
         run: |
           python tools/check-python-client.py \
@@ -234,6 +248,14 @@ jobs:
             --scenario events --scenario owned-tree --scenario fork-mixed --capture target/debug/examples/otlp-capture \
             --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
             --evidence "$RUNNER_TEMP/ledgence-workflow-events-otel-evidence"
+
+      - name: Check fulfillment workflow, review and recovery with real workers
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" examples/fulfillment-investigator/check.py --native \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --directory "$RUNNER_TEMP/ledgence-fulfillment-evidence"
 
   dependencies:
     name: Dependency policy

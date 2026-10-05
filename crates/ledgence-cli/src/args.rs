@@ -11,6 +11,10 @@ use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug)]
 pub enum Command {
+    Approval {
+        server: String,
+        operation: ApprovalOperation,
+    },
     Help,
     Program {
         server: String,
@@ -68,6 +72,9 @@ impl Command {
                 return Err(invalid("unexpected arguments after help"));
             }
             return Ok(Self::Help);
+        }
+        if command == "approval" {
+            return parse_approval(args);
         }
         if command == "program" {
             return parse_program(args);
@@ -284,4 +291,78 @@ mod program_tests {
             assert!(Command::parse(args.into_iter().map(str::to_owned)).is_err());
         }
     }
+}
+
+#[derive(Debug)]
+pub enum ApprovalOperation {
+    Inspect {
+        scope: Scope,
+        workflow_id: String,
+        key: String,
+    },
+    List {
+        scope: Scope,
+        workflow_id: String,
+        after_key: Option<String>,
+        limit: u32,
+    },
+    Decide(PathBuf),
+}
+fn parse_approval(mut args: impl Iterator<Item = String>) -> Result<Command> {
+    let operation = args
+        .next()
+        .ok_or_else(|| invalid("missing approval operation"))?;
+    let mut options = HashMap::new();
+    while let Some(key) = args.next() {
+        if !key.starts_with("--") {
+            return Err(invalid("expected a --name value option"));
+        }
+        let value = args
+            .next()
+            .ok_or_else(|| invalid(format!("missing value for {key}")))?;
+        if options.insert(key.clone(), value).is_some() {
+            return Err(invalid(format!("duplicate option {key}")));
+        }
+    }
+    let server = required(&mut options, "--server")?;
+    let operation = match operation.as_str() {
+        "decide" => ApprovalOperation::Decide(required(&mut options, "--file")?.into()),
+        "inspect" | "list" => {
+            let scope = Scope {
+                tenant_id: required(&mut options, "--tenant")?,
+                namespace: required(&mut options, "--namespace")?,
+            };
+            scope.validate()?;
+            let workflow_id = required(&mut options, "--workflow")?;
+            validate_text(&workflow_id, 128)?;
+            if operation == "inspect" {
+                let key = required(&mut options, "--key")?;
+                validate_text(&key, 128)?;
+                ApprovalOperation::Inspect {
+                    scope,
+                    workflow_id,
+                    key,
+                }
+            } else {
+                let after_key = options.remove("--after-key");
+                let limit = number(&mut options, "--limit")?
+                    .map(u32::try_from)
+                    .transpose()
+                    .map_err(|_| invalid("invalid approval page limit"))?
+                    .unwrap_or(10);
+                ledgence_orchestration_api::validate_approval_page(after_key.as_deref(), limit)?;
+                ApprovalOperation::List {
+                    scope,
+                    workflow_id,
+                    after_key,
+                    limit,
+                }
+            }
+        }
+        _ => return Err(invalid("unknown approval operation; use --help")),
+    };
+    if !options.is_empty() {
+        return Err(invalid("unknown approval option"));
+    }
+    Ok(Command::Approval { server, operation })
 }

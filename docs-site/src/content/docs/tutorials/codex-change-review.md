@@ -17,13 +17,11 @@ use **Play** to resume. This is an **illustrative replay of saved evidence**,
 not a live service connection.
 Offline fixture output has its own visible label.
 
-**Availability:** this tutorial follows application packages **1.2.0** in the
-[current source](https://github.com/Ledgence/ledgence/tree/develop/examples/codex-change-review),
-using the **Ledgence 0.2.0 runtime and client**. These example changes have not
-shipped in a Ledgence release. The original `v0.2.0` tag uses application 1.0.0;
-application 1.1.0 uses the previous fixture. Prepare fresh packages from the
-current example rather than replacing an existing immutable version. See
-[releases and packages](/reference/releases).
+**Availability:** this tutorial follows application packages **1.2.0** included
+in [Ledgence 0.3.0](https://github.com/Ledgence/ledgence/tree/v0.3.0/examples/codex-change-review).
+The original `v0.2.0` tag used application 1.0.0; application 1.1.0 used the previous
+fixture. Prepare fresh packages instead of replacing an existing immutable version.
+See [releases and packages](/reference/releases).
 
 ## Understand the change
 
@@ -57,7 +55,7 @@ failed executions. No result is promoted to a passing check for the demo.
 
 ## Fork, then keep working
 
-The [workflow source](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/program.py)
+The [workflow source](https://github.com/Ledgence/ledgence/blob/v0.3.0/examples/codex-change-review/program.py)
 uses explicit entrypoints. The central pattern is short:
 
 ```python
@@ -110,7 +108,7 @@ entrypoints—`run_tests`, `review_code` and `draft_note`—run one level below 
 
 ## Run and inspect it
 
-Follow the [example README](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/README.md)
+Follow the [example README](https://github.com/Ledgence/ledgence/blob/v0.3.0/examples/codex-change-review/README.md)
 for packaging, local PostgreSQL, worker commands and the companion client.
 It uses CPython 3.13, the public Python client, and the standard library. Codex
 is an optional host integration.
@@ -152,6 +150,6 @@ Approval stops at the local evidence bundle by default. An explicit target
 configuration can publish a reconciled draft PR to a dedicated sample repository
 after human approval. Nothing merges or deploys automatically.
 
-The [recording guide](https://github.com/Ledgence/ledgence/blob/develop/examples/codex-change-review/DEMO.md)
+The [recording guide](https://github.com/Ledgence/ledgence/blob/v0.3.0/examples/codex-change-review/DEMO.md)
 turns the brief problem, workflow and code excerpts into a short demo. It keeps
 illustrative playback, offline fixtures and actual Console execution distinct.

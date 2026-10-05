@@ -151,14 +151,18 @@ export function NodeInspector({
               ? `Recorded wake: ${node.wake_reason}. Resume scheduled; execution is observed separately.`
               : node.closed_at !== null
                 ? "The wait closed without retained wake evidence; cancellation or failure can also close waits."
-                : "Waiting for an external wake."}
+                : node.wait_kind === "approval"
+                  ? "Waiting for an approval decision."
+                  : "Waiting for an external wake."}
           </p>
           <Link
-            to={`/workflows/${encodeURIComponent(workflowId)}?${detailDestination(params, "General", "waits")}`}
+            to={`/workflows/${encodeURIComponent(workflowId)}?${detailDestination(params, "General", node.wait_kind === "approval" ? "approvals" : "waits")}`}
             preventScrollReset
             state={{ ...location.state, restoreNavigationKey: location.key }}
           >
-            Inspect waits and available actions
+            {node.wait_kind === "approval"
+              ? "Inspect approval requests"
+              : "Inspect waits and available actions"}
           </Link>
         </>
       )}

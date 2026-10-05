@@ -45,6 +45,22 @@ impl ResponseValue for TaskSnapshot {
     fn validate_values(&self) -> Result<()> {
         self.input.validate()?;
         self.descriptor.validate()?;
+        validate_text(&self.task_id, 128)?;
+        validate_text(&self.run_id, 128)?;
+        validate_text(&self.idempotency_key, 255)?;
+        if let Some(trace) = &self.origin_trace {
+            trace.validate()?;
+        }
+        if self.descriptor.program != self.input.program
+            || self
+                .workflow_activation_id
+                .as_ref()
+                .is_some_and(|id| id != &self.task_id || self.workflow_id.is_none())
+        {
+            return Err(ContractError::Unavailable(
+                "inconsistent task snapshot identity".into(),
+            ));
+        }
         validate_workflow_lineage(
             self.workflow_id.as_deref(),
             self.parent_workflow_id.as_deref(),
@@ -75,6 +91,26 @@ impl ResponseValue for AttemptSnapshot {
     fn validate_values(&self) -> Result<()> {
         validate_event_data(&self.event)?;
         self.descriptor.validate()?;
+        let owner = &self.lease.owner;
+        if self.event.tenant_id() != owner.scope.tenant_id
+            || self.event.namespace() != owner.scope.namespace
+            || self.event.task_id() != owner.task_id
+            || self.event.attempt_id() != owner.attempt_id
+            || self.event.value()["ldgattemptno"].as_u64() != Some(u64::from(owner.generation))
+            || self
+                .last_renewal
+                .as_ref()
+                .is_some_and(|renewal| &renewal.owner != owner)
+            || self.settlement.as_ref().is_some_and(|accepted| {
+                &accepted.command.owner != owner
+                    || accepted.receipt.task_id != owner.task_id
+                    || accepted.receipt.attempt_id != owner.attempt_id
+            })
+        {
+            return Err(ContractError::Unavailable(
+                "inconsistent attempt snapshot identity".into(),
+            ));
+        }
         if let Some(accepted) = &self.settlement {
             if let AttemptReport::Completed(report) = &accepted.command.report
                 && let ProgramOutcome::Success { output } = &report.outcome
@@ -146,6 +182,25 @@ impl ResponseValue for WorkflowEventReceipt {
 
 impl ResponseValue for CompletionSubscription {
     const MAX_BYTES: usize = COMPLETION_STATUS_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+
+impl ResponseValue for ApprovalSnapshot {
+    const MAX_BYTES: usize = APPROVAL_SNAPSHOT_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for ApprovalDecisionReceipt {
+    const MAX_BYTES: usize = APPROVAL_SNAPSHOT_MAX_BYTES + 1024;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl ResponseValue for ApprovalPage {
+    const MAX_BYTES: usize = 1024 * 1024;
     fn validate_values(&self) -> Result<()> {
         self.validate()
     }

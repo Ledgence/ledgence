@@ -18,7 +18,14 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
         let result = invoke(&path);
         assert!(result.status.success(), "{path:?}: {result:?}");
         let text = String::from_utf8(result.stdout).unwrap();
-        for group in ["program", "task", "worker", "orchestrator"] {
+        for group in [
+            "program",
+            "task",
+            "approval",
+            "mcp",
+            "worker",
+            "orchestrator",
+        ] {
             assert!(text.contains(group), "{path:?}: {text}");
         }
         assert!(result.stderr.is_empty());
@@ -34,6 +41,8 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
     }
     for (group, leaves) in [
         ("program", vec!["example", "publish", "register"]),
+        ("approval", vec!["list", "inspect", "decide"]),
+        ("mcp", vec!["serve"]),
         ("worker", vec!["run", "connect"]),
         ("orchestrator", vec!["migrate", "serve", "retain"]),
         (
@@ -69,6 +78,25 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
 #[test]
 fn unknown_paths_and_invalid_options_fail_as_usage_before_startup() {
     for path in [
+        vec!["approval", "unknown", "--help"],
+        vec!["mcp", "unknown", "--help"],
+        vec!["mcp", "serve"],
+        vec!["mcp", "serve", "--read-only", "--read-only"],
+        vec![
+            "approval",
+            "list",
+            "--server",
+            "http://localhost",
+            "--tenant",
+            "a",
+            "--namespace",
+            "b",
+            "--workflow",
+            "c",
+            "--limit",
+            "11",
+        ],
+        vec!["approval", "decide", "--file"],
         vec!["publish"],
         vec!["serve"],
         vec!["worker", "publish"],

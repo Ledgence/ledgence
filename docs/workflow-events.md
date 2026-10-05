@@ -182,3 +182,10 @@ Inbound events resume workflows. [Owned subworkflows](subworkflows.md) can use
 these waits independently and report their terminal outcome to their parent.
 Outbound completion notifications and general event streams remain separate
 capabilities.
+
+## Durable approvals
+
+Use [durable workflow approvals](workflow-approvals.md) when a review must bind
+to an existing immutable action and its effective arguments. Generic events
+remain application input; they cannot approve an action. The unified CLI
+provides `ledgence approval list`, `inspect`, and `decide`.

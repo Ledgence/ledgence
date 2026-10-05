@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useInstance } from "../app/instance";
@@ -69,6 +69,13 @@ export function NewExecutionPage() {
 function ExecutionForm({ initial }: { initial?: Submission }) {
   const config = useInstance();
   const navigate = useNavigate();
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const client = useQueryClient();
   const [params] = useSearchParams();
   const [program, setProgram] = useState(
@@ -131,6 +138,9 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
     (value) => response({ kind: actualIntent, value }),
     (value) => {
       void client.invalidateQueries();
+      // Acceptance remains durable after leaving this form. A late reply must
+      // refresh the cache without taking over the user's current navigation.
+      if (!mounted.current) return;
       navigate(
         value.kind === "task"
           ? `/executions/${encodeURIComponent(value.value.task_id)}`

@@ -11,7 +11,7 @@ import {
 } from "../interaction-checks";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v4.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,7 +24,7 @@ function fixture(name: string): unknown {
 }
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "4",
+  "Ledgence-Console-Contract": "5",
   "Ledgence-Instance-Id": "instance_demo",
   "Request-Id": "request-contract-test",
 };

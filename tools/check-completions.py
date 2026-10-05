@@ -23,7 +23,7 @@ import time
 import urllib.parse
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import Deployment, exchange
 
 FLOW = """from ledgence.worker.workflow import workflow_context
@@ -419,7 +419,7 @@ def main():
         print(f'PASS {name}', flush=True)
 
     try:
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         d = Deployment(
             root,

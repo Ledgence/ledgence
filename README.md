@@ -26,15 +26,16 @@ Self-host without a required vendor account.
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
+- **Connect an MCP client:** use [`ledgence mcp serve`](docs/mcp.md) to discover programs, submit work, and inspect results through the existing API. Available in 0.3.0.
 - **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
   with ChatGPT sign-in, documentation tools and durable human review, or the
   [Google ADK and Gemini variant](examples/support-agent/README.md).
 
-**Ledgence 0.2.0** brings the unified CLI, self-hosted Console, and typed workflow
-entrypoints with durable forks. Native bundles target **Linux x86_64/glibc** and
+**Ledgence 0.3.0** adds action-bound human approvals, durable model/tool call
+recovery, and an optional MCP server in the unified CLI. Native bundles target **Linux x86_64/glibc** and
 **macOS arm64** and include Console; the Python client and Rust API crates share
-version **0.2.0**. See the [release notes](docs/releases/0.2.0.md),
-[upgrade guide](docs/upgrading-to-0.2.md), and
+version **0.3.0**. See the [release notes](docs/releases/0.3.0.md),
+[upgrade guide](docs/upgrading-to-0.3.md), and
 [release reference](https://docs.ledgence.com/reference/releases). Before 1.0,
 public APIs may evolve; pin versions and review changes before upgrading.
 
@@ -51,6 +52,10 @@ original commands and do not include Console.
   [typed entrypoints and durable forks](docs/workflow-entrypoints.md).
   Checkpoint state, release the invocation’s worker slot while waiting for a task,
   timer, or external event, then resume at a registered handler.
+- **Recover agent calls and review actions.** Persist model/tool responses with
+  [explicit operation bindings](docs/agent-recovery.md), and use
+  [durable approvals](docs/workflow-approvals.md) to bind a person's decision to
+  the exact saved action. Provider SDKs remain application-owned.
 - **Inspect execution and deliver results.** Submit, discover, cancel, and observe
   tasks with the CLI or Python client. PostgreSQL stores task ownership, attempts,
   leases, and results; optional completion callbacks retain their delivery state
@@ -76,7 +81,9 @@ The [documentation site](https://docs.ledgence.com) separates tutorials, how-to
 guides, reference, and concepts. Start with a tutorial, then use the detailed
 contracts for [programs](docs/program-packages.md), [HTTP orchestration](docs/http-orchestration.md),
 [workflows](docs/workflows.md), [events and timers](docs/workflow-events.md),
-[subworkflows](docs/subworkflows.md), and [completion callbacks](docs/completion-notifications.md).
+[subworkflows](docs/subworkflows.md), [durable approvals](docs/workflow-approvals.md),
+[agent call recovery](docs/agent-recovery.md),
+and [completion callbacks](docs/completion-notifications.md).
 
 Console documentation covers [operation](https://docs.ledgence.com/reference/console),
 [agent registration](https://docs.ledgence.com/how-to/register-agent), and
@@ -91,7 +98,7 @@ lives beside the implementation so documentation can evolve with the code.
 
 For the complete self-hosted stack, use the [local Compose deployment](docs/local-deployment.md).
 The example below exercises program publication, local execution, and process reuse.
-Ledgence 0.2.0 provides one `ledgence` executable; see the
+Ledgence 0.3.0 provides one `ledgence` executable; see the
 [CLI command groups and migration guide](docs/cli.md). Published release bundles
 retain the command layout documented with their release.
 The [bundle packaging guide](docs/releasing.md) describes qualification and artifact
@@ -159,6 +166,7 @@ python3 tools/check-python-client.py
 python3 tools/check-http-features.py
 python3 tools/check-otel-features.py
 python3 tools/check-sqs-features.py
+python3 tools/check-mcp-features.py
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-targets --all-features --locked
 cargo test --workspace --doc --all-features --locked
@@ -194,7 +202,7 @@ collapsible sidebar and light, dark or system appearance keep the same operator
 views usable across screen sizes. Registered programs and worker process slots
 connect package identity and observed capacity to the work you are inspecting.
 
-Console ships in the 0.2.0 native bundles and the
+Console ships in the 0.3.0 native bundles and the
 [local Compose deployment](docs/local-deployment.md). Publish and register the
 local examples, then open `http://127.0.0.1:8080/console/`. The
 [guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through

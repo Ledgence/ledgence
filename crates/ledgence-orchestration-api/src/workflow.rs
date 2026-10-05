@@ -117,6 +117,16 @@ impl WorkflowActivationContext {
         }
         if let Some(wake) = &self.wake {
             wake.validate()?;
+            if let WorkflowWake::Approval { approval } = wake
+                && (approval.workflow_id != self.workflow_id
+                    || approval.resumed_activation_id.as_deref()
+                        != Some(self.activation_id.as_str())
+                    || approval.revision.checked_add(1) != Some(self.revision))
+            {
+                return Err(invalid(
+                    "approval wake disagrees with its logical activation",
+                ));
+            }
             #[derive(Serialize)]
             struct FrozenInputs<'a> {
                 inputs: &'a BTreeMap<String, WorkflowChildResult>,
@@ -473,6 +483,43 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    /// Read an existing immutable proposal. Absence never grants approval.
+    fn approval<'a>(
+        &'a self,
+        _scope: &'a Scope,
+        _workflow_id: &'a str,
+        _key: &'a str,
+    ) -> ContractFuture<'a, ApprovalSnapshot> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow approvals are unsupported by this adapter".into(),
+            ))
+        })
+    }
+    fn list_approvals<'a>(
+        &'a self,
+        _scope: &'a Scope,
+        _workflow_id: &'a str,
+        _after_key: Option<&'a str>,
+        _limit: u32,
+    ) -> ContractFuture<'a, ApprovalPage> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow approvals are unsupported by this adapter".into(),
+            ))
+        })
+    }
+    /// Exact decision replay reconciles before closed/deadline checks.
+    fn decide_approval<'a>(
+        &'a self,
+        _command: &'a ApprovalDecisionCommand,
+    ) -> ContractFuture<'a, ApprovalDecisionReceipt> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow approvals are unsupported by this adapter".into(),
+            ))
+        })
+    }
     /// Atomically register a sealed, same-definition fork and its owned runs.
     /// New work requires live dispatched activation authority. The original
     /// accepting owner may reconcile its exact durable receipt after expiry;
@@ -553,6 +600,43 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    /// Read an existing immutable proposal. Absence never grants approval.
+    fn approval<'a>(
+        &'a self,
+        _scope: &'a Scope,
+        _workflow_id: &'a str,
+        _key: &'a str,
+    ) -> ContractFuture<'a, ApprovalSnapshot> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow approvals are unsupported by this adapter".into(),
+            ))
+        })
+    }
+    fn list_approvals<'a>(
+        &'a self,
+        _scope: &'a Scope,
+        _workflow_id: &'a str,
+        _after_key: Option<&'a str>,
+        _limit: u32,
+    ) -> ContractFuture<'a, ApprovalPage> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow approvals are unsupported by this adapter".into(),
+            ))
+        })
+    }
+    /// Exact decision replay reconciles before closed/deadline checks.
+    fn decide_approval<'a>(
+        &'a self,
+        _command: &'a ApprovalDecisionCommand,
+    ) -> ContractFuture<'a, ApprovalDecisionReceipt> {
+        Box::pin(async {
+            Err(ContractError::InvalidInput(
+                "workflow approvals are unsupported by this adapter".into(),
+            ))
+        })
+    }
     fn fork_workflow<'a>(
         &'a self,
         _command: &'a WorkflowForkCommand,

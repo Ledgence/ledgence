@@ -17,7 +17,7 @@ import traceback
 import urllib.parse
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import Deployment
 from http_acceptance.scenarios import SCENARIOS
 
@@ -67,7 +67,7 @@ def main():
     deployment = None
     created = False
     try:
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         deployment = Deployment(root, directory, binaries, python, database_url, args.psql)
         # Migration command may emit operational logs rather than a JSON result.

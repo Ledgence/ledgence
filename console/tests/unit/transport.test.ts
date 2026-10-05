@@ -8,7 +8,7 @@ function reply(body: string, extra: HeadersInit = {}) {
   return new Response(body, {
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "4",
+      "Ledgence-Console-Contract": "5",
       "Ledgence-Instance-Id": "instance_demo",
       "Request-Id": "req-test",
       ...extra,
@@ -17,7 +17,7 @@ function reply(body: string, extra: HeadersInit = {}) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("Console transport boundaries", () => {
-  it.each(["2", "3"])(
+  it.each(["2", "3", "4"])(
     "rejects a C%s response explicitly before decoding its body",
     async (version) => {
       vi.stubGlobal(
@@ -163,7 +163,7 @@ it("treats invalid UTF-8 as a permanent protocol failure with request ID", async
       new Response(new Uint8Array([0xc3, 0x28]), {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "4",
+          "Ledgence-Console-Contract": "5",
           "Ledgence-Instance-Id": "instance_demo",
           "Request-Id": "req-encoding",
         },

@@ -5,9 +5,13 @@ use ledgence_orchestration_api::{Result, SUBMISSION_MAX_BYTES, SubmitCommand};
 use std::{io::Read, path::Path};
 
 pub fn read(path: &Path) -> Result<SubmitCommand> {
-    let io_error = |error: std::io::Error| invalid(format!("cannot read submission file: {error}"));
+    SubmitCommand::decode(&read_bytes(path, SUBMISSION_MAX_BYTES, "submission")?)
+}
+
+pub(crate) fn read_bytes(path: &Path, maximum: usize, label: &str) -> Result<Vec<u8>> {
+    let io_error = |error: std::io::Error| invalid(format!("cannot read {label} file: {error}"));
     if !std::fs::symlink_metadata(path).map_err(io_error)?.is_file() {
-        return Err(invalid("submission must be a regular file"));
+        return Err(invalid(format!("{label} must be a regular file")));
     }
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -19,11 +23,14 @@ pub fn read(path: &Path) -> Result<SubmitCommand> {
     }
     let file = options.open(path).map_err(io_error)?;
     if !file.metadata().map_err(io_error)?.is_file() {
-        return Err(invalid("submission must be a regular file"));
+        return Err(invalid(format!("{label} must be a regular file")));
     }
     let mut bytes = Vec::new();
-    file.take(SUBMISSION_MAX_BYTES as u64 + 1)
+    file.take(maximum as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(io_error)?;
-    SubmitCommand::decode(&bytes)
+    if bytes.len() > maximum {
+        return Err(invalid(format!("{label} exceeds its body limit")));
+    }
+    Ok(bytes)
 }

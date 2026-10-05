@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 
 ROOT = Path(__file__).resolve().parents[1]
 OVERRIDES = ("dbname=operator_database", "db%6eame=operator_database", "dbname=",
@@ -124,6 +124,53 @@ class OwnedDatabaseUrlTests(unittest.TestCase):
                  no_resources(), self.assertRaisesRegex(ValueError, "must not override"):
                 with module.deployment(None, Path("/unused"), None, None, "unused"):
                     self.fail("unexpected deployment")
+
+
+class CreationCleanupTests(unittest.TestCase):
+    def test_lost_create_reply_and_interruption_clean_exact_owned_database(self):
+        for failure in (subprocess.TimeoutExpired('psql', 1), OSError('connection lost'), KeyboardInterrupt()):
+            with self.subTest(failure=type(failure).__name__):
+                databases = {'operator_database'}
+                statements = []
+                def admin(statement):
+                    statements.append(statement)
+                    if statement.startswith('CREATE'):
+                        databases.add('owned_fixture')
+                        raise failure
+                    databases.discard('owned_fixture')
+                with self.assertRaises(type(failure)):
+                    create_owned_database(admin, 'owned_fixture')
+                self.assertEqual(databases, {'operator_database'})
+                self.assertEqual(statements, ['CREATE DATABASE "owned_fixture"',
+                    'DROP DATABASE IF EXISTS "owned_fixture" WITH (FORCE)'])
+
+    def test_success_retains_database_for_the_callers_normal_cleanup(self):
+        statements = []
+        create_owned_database(statements.append, 'owned_fixture')
+        self.assertEqual(statements, ['CREATE DATABASE "owned_fixture"'])
+        with self.assertRaisesRegex(ValueError, 'invalid owned'):
+            create_owned_database(statements.append, 'unsafe"name')
+        self.assertEqual(len(statements), 1)
+
+    def test_relocated_console_cleans_when_create_commits_without_reply(self):
+        module = load('tools/release/console_bundle.py')
+        statements = []
+        def admin(*args, **kwargs):
+            statements.append(kwargs['input'])
+            if statements[-1].startswith('CREATE'):
+                raise subprocess.TimeoutExpired('psql', 30)
+            return subprocess.CompletedProcess([], 0)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {'LEDGENCE_POSTGRES_URL': 'postgres://localhost/parent'}), \
+             patch.object(module, 'verify_bundle', return_value={'assets': []}), \
+             patch.object(module.socket, 'socket') as sock, \
+             patch.object(module.subprocess, 'run', side_effect=admin):
+            sock.return_value.__enter__.return_value.getsockname.return_value = ('127.0.0.1', 12345)
+            with self.assertRaises(subprocess.TimeoutExpired):
+                module.smoke(Path(directory)/'bundle', Path(directory)/'store', Path(directory))
+        self.assertEqual(len(statements), 2)
+        created_name = statements[0].removeprefix('CREATE DATABASE ')
+        self.assertEqual(statements[1], f'DROP DATABASE IF EXISTS {created_name} WITH (FORCE)')
 
 
 if __name__ == "__main__":

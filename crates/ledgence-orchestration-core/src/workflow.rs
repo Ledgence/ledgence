@@ -227,4 +227,44 @@ mod tests {
             Err(ContractError::InvalidInput(_))
         ));
     }
+
+    #[test]
+    fn approval_checkpoint_uses_existing_revision_fence_without_scheduling_an_action() {
+        let proposed = decision(WorkflowAction::Wait {
+            state: json!({"stage":"review"}),
+            continuation: "after_review".into(),
+            commands: vec![],
+            wait: WorkflowWait::Approval {
+                key: "send".into(),
+                action: ApprovalAction {
+                    name: "app:send".into(),
+                    version: "v1".into(),
+                    arguments: json!({"recipient":"approved@example.test"}),
+                },
+                proposed_arguments: Some(json!({"recipient":"original@example.test"})),
+                timeout_ms: 60_000,
+            },
+        });
+        let plan = plan_workflow_decision(&current(), &proposed, false).unwrap();
+        assert_eq!(plan.revision, 8);
+        assert_eq!(plan.checkpoint.unwrap().state, json!({"stage":"review"}));
+        assert!(matches!(
+            plan.disposition,
+            WorkflowDisposition::ExternalWait {
+                wait: WorkflowWait::Approval { .. }
+            }
+        ));
+        let mut stale = current();
+        stale.revision += 1;
+        assert!(matches!(
+            plan_workflow_decision(&stale, &proposed, false),
+            Err(ContractError::OwnershipLost)
+        ));
+        stale = current();
+        stale.state = WorkflowState::Cancelling;
+        assert!(matches!(
+            plan_workflow_decision(&stale, &proposed, false),
+            Err(ContractError::OwnershipLost)
+        ));
+    }
 }

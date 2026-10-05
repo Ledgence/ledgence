@@ -8,6 +8,8 @@ import {
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import * as dto from "../../src/api/resources";
 import { decodeConfig } from "../../src/api/codecs";
+import { approval as decodeApproval } from "../../src/api/approvals";
+import { executionPage } from "../../src/api/explorer";
 import {
   keyboardDialog,
   reducedMotionDialog,
@@ -236,6 +238,70 @@ test("Run again submits a distinct real task and preserves lossless numeric inpu
   expect(stringifyUserJson(inspected.input.data)).toContain("9007199254740993");
   expect(stringifyUserJson(inspected.input.data)).toContain("-0.0");
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("real durable approval audit renders its effective action and resumed activation", async ({
+  page,
+  request,
+}, info) => {
+  const executions = await get(
+    request,
+    "executions?correlation_key=console-durable-approval&limit=25",
+    executionPage,
+  );
+  const workflow = executions.items.find((item) => item.kind === "workflow");
+  if (!workflow) throw new Error("Seeded durable approval workflow required.");
+  const response = await request.post("/v1/console/approvals/inspect", {
+    data: { workflow_id: workflow.id, key: "refund" },
+  });
+  expect(response.ok()).toBe(true);
+  expect(response.headers()["ledgence-console-contract"]).toBe("5");
+  const approval = decodeApproval(
+    parseUserJson(await response.text(), 96 * 1024),
+  );
+  expect(approval.status).toBe("approved");
+  expect(approval.resumed_activation_id).not.toBeNull();
+  const errors = noRuntimeErrors(page);
+  await page.goto(
+    `/console/workflows/${encodeURIComponent(workflow.id)}?tab=General&section=approvals`,
+  );
+  const card = page.getByRole("article", { name: "Approval refund" });
+  await expect(card).toBeVisible();
+  await expect(
+    card.getByText("program:simulate_refund", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    card.locator('pre[aria-label="Effective action arguments"]'),
+  ).toContainText('"amount": 50');
+  await expect(
+    card.locator('pre[aria-label="Effective action arguments"]'),
+  ).toContainText('"currency": "USD"');
+  await card.locator("summary").click();
+  await expect(
+    card.locator('pre[aria-label="Original proposed arguments"]'),
+  ).toContainText('"amount": 100');
+  await expect(
+    card.getByText("console-acceptance-reviewer", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    card.getByText("Reviewed effective amount 50", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("link", { name: approval.resumed_activation_id! }),
+  ).toHaveAttribute(
+    "href",
+    `/console/executions/${encodeURIComponent(approval.resumed_activation_id!)}`,
+  );
+  await expect(
+    card.getByRole("button", { name: "Approve", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.screenshot({
+    path: info.outputPath("approval-audit.png"),
+    fullPage: false,
+    animations: "disabled",
+  });
+  expect(errors).toEqual([]);
 });
 
 test("WebKit remains usable through ten minutes of real polling and reconnect", async ({

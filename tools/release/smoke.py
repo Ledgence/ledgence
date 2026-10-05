@@ -28,7 +28,7 @@ def main():
         executable = bundle / "bin/ledgence"
         assert "Ledgence" in run(executable, "--help")
         assert "ledgence" in run(executable, "--version").lower()
-        for group in ("program", "worker", "orchestrator", "task"):
+        for group in ("program", "worker", "orchestrator", "task", "approval", "mcp"):
             assert group in run(executable, group, "--help")
         run(executable, "program", "example", "--directory", temporary / "example", "--python", sys.executable)
         run(executable, "program", "publish", "--source", temporary / "example/program", "--store", temporary / "store")

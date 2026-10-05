@@ -5,7 +5,9 @@ description: Self-hosted Console views, query semantics, command behavior, proce
 
 Console is the operator interface for **one self-hosted Ledgence instance**. The Rust orchestrator serves its static assets at `/console/`, and the browser uses same-origin `/v1/console/*` APIs. A deployed Console needs no Node process, hosted frontend service, or vendor account.
 
-**Availability:** Console is included in Ledgence 0.2.0 source and Console-enabled native bundles. Use matching contract 4 server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.2.0](/how-to/upgrade-to-0-2) covers existing deployments.
+**Availability:** Console is included in Ledgence **0.3.0** source and Console-enabled native bundles. Use matching contract **5** server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.3.0](/how-to/upgrade-to-0-3) covers existing deployments.
+
+**General → Approvals** reviews immutable actions and recorded decisions. See [Require approval before an action](/how-to/require-approval).
 
 ## Views and actions
 
@@ -21,7 +23,7 @@ Workflow **Graph** and **Trace** use the same retained execution records. Graph 
 
 Every entrypoint invocation is a node identified by its activation ID. Re-entering the same handler creates a distinct invocation; retrying one activation does not. There are no phase containers. A recorded local step connects to the entrypoint that invoked it; that relation does not imply an execution order between local calls. Only recorded branch members belong to a distributed fork. A separate parent task is not another branch. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
 
-Edges distinguish invocation, registration, branch membership, waiting for terminal outcomes, and resuming an entrypoint. Dashed lines identify fork branches; other recorded relationships use solid lines. When a complete entrypoint-to-fork-to-child path is loaded, the canvas omits its redundant direct invocation line. The inspector and accessible relationship list retain the underlying evidence. Joins and waits remain their own records. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
+Edges distinguish invocation, registration, branch membership, waiting for terminal outcomes, and resuming an entrypoint. Dashed lines identify fork branches; other recorded relationships use solid lines. When a complete entrypoint-to-fork-to-child path is loaded, the canvas omits its redundant direct invocation line. The inspector and accessible relationship list retain the underlying evidence. Joins and waits remain their own records. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
 
 ## Navigation and graph controls
 
@@ -76,7 +78,7 @@ Resources show available measurements for one attempt. Runtime elapsed excludes 
 
 Memory is labeled **process lifetime peak memory**. Reused processes can retain peaks from earlier invocations; this is not an invocation peak and peaks must not be summed. Unavailable counters are distinct from zero. No provider billing estimate is inferred.
 
-Local start, elapsed, failure and replay observations are delivered with the accepted attempt report. They are not a live stream of running functions. The accepted-result journal remains authoritative: a callable returning does not prove its result was durably committed, and replay does not execute it again. Older workers, interrupted processes and lost reports can leave measurements unavailable. See the [execution observation contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/execution-observations.md).
+Local start, elapsed, failure and replay observations are delivered with the accepted attempt report. They are not a live stream of running functions. The accepted-result journal remains authoritative: a callable returning does not prove its result was durably committed, and replay does not execute it again. Older workers, interrupted processes and lost reports can leave measurements unavailable. See the [execution observation contract](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/execution-observations.md).
 
 ## Worker process observations
 
@@ -96,11 +98,11 @@ Slot IDs stay stable within a session. Reuse preserves a process instance identi
 
 Detail pages contain at most 100 slots. Detailed reports support up to **1024** slots and a **2 MiB** snapshot. An embedded worker with greater capacity still reports its real capacity with detailed observation unsupported; unavailable reports never become invented empty slots. Only the latest normalized snapshot is stored, not an unbounded history.
 
-See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/worker-observations.md) for reporter, identity, and retention details.
+See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/worker-observations.md) for reporter, identity, and retention details.
 
 ## Serving Console
 
-The [local tutorial](/tutorials/use-console) builds and serves Console through Compose. The 0.2.0 [native bundles](/how-to/install-native) include a matching `console/` directory, so you do not need to build frontend assets when using those bundles. For a source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.2.0/console/README.md). A regular Cargo build does not run frontend tooling.
+The [local tutorial](/tutorials/use-console) builds and serves Console through Compose. The 0.3.0 [native bundles](/how-to/install-native) include a matching `console/` directory, so you do not need to build frontend assets when using those bundles. For a source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.3.0/console/README.md). A regular Cargo build does not run frontend tooling.
 
 Create an instance configuration file:
 
@@ -137,9 +139,9 @@ Do not rewrite API failures or missing assets into HTML. The orchestrator handle
 
 ## Upgrades
 
-The execution explorer uses Console contract version 4. Start matching server and assets; older Console bundles fail explicitly. Each node carries typed invocation, registration, branch-membership, terminal-wait and resumption relations from the backend. References remain available when an endpoint is outside the loaded page. A local connects to its invoking entrypoint; that connection does not imply completion or membership in a fork or join. Joins wait for terminal outcomes, including failure and cancellation.
+The execution explorer uses Console contract version 5. Start matching server and assets; older Console bundles fail explicitly. Each node carries typed invocation, registration, branch-membership, terminal-wait and resumption relations from the backend. References remain available when an endpoint is outside the loaded page. A local connects to its invoking entrypoint; that connection does not imply completion or membership in a fork or join. Joins wait for terminal outcomes, including failure and cancellation.
 
-Upgrading from C3 preserves node IDs and requires no additional database migration. Restart Explorer traversal because older Explorer cursors are rejected. Other endpoint cursor bindings and SDK execution protocols are unchanged. When upgrading from C2, the existing migration also converts Console `phase` records into `entrypoint`, preserving workflow/task identities, payloads, revisions, errors and timestamps. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
+Upgrading to C5 requires the 0.3.0 database migration for durable approvals; follow the [upgrade guide](/how-to/upgrade-to-0-3). The earlier C3-to-C4 change preserved node IDs without adding a database migration. Restart Explorer traversal because older Explorer cursors are rejected. When upgrading from C2, the existing migration also converts Console `phase` records into `entrypoint`, preserving workflow/task identities, payloads, revisions, errors and timestamps. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
 
 The graph uses retained Ledgence records and works without an OTel backend. Local results are recorded durably on completion; abrupt process loss before result acceptance or a retained attempt report may leave no local node. Optional timing and tracing evidence must not be interpreted as a complete record of every started operation.
 

@@ -6,11 +6,11 @@ tableOfContents: false
 
 <p class="ld-home-intro">Run your agents, follow their workflows, and understand what is happening on your infrastructure.</p>
 
-<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.2</span> Public releases are here <span aria-hidden="true">→</span></a>
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.3</span> Public releases are here <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
-    <span class="ld-eyebrow">Ledgence 0.2.0 · self-hosted Console</span>
+    <span class="ld-eyebrow">Ledgence 0.3.0 · durable agents and workflows</span>
     <h2>See your work in motion.</h2>
     <p>Start a self-hosted instance, inspect real executions, and explore the workflow graph, registered programs, and worker processes.</p>
     <div class="ld-start-actions"><a class="ld-start-link" href="/tutorials/use-console">Explore Console <span aria-hidden="true">↗</span></a><a class="ld-install-link" href="/tutorials/run-locally">Run the released stack <span aria-hidden="true">→</span></a></div>
@@ -38,4 +38,4 @@ Your **agent** is application code. You publish that code and its prepared depen
 
 Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
 
-<p class="ld-home-status">Guides target Ledgence 0.2.0: the unified CLI, self-hosted Console, and typed workflow entrypoints with durable forks. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>
+<p class="ld-home-status">Guides target Ledgence 0.3.0: durable approvals, model/tool recovery, MCP, and workflows with a self-hosted Console. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>

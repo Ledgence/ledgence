@@ -99,3 +99,14 @@
   cursor: pointer;
   padding-block: 0.75rem;
 }
+/* Approval arguments remain ordinary selectable JSON, including in dialogs. */
+.approval-list {
+  display: grid;
+  gap: 1rem;
+}
+.approval-card {
+  min-width: 0;
+}
+.approval-card h4 {
+  margin-bottom: 0.5rem;
+}

@@ -65,7 +65,7 @@ own documentation. The [CLI migration guide](cli.md) maps the command prefixes.
 
 The archive contains:
 
-- `bin/ledgence`, the unified CLI for program, worker, orchestrator and task commands;
+- `bin/ledgence`, the unified CLI for program, worker, orchestrator, task, approval and MCP commands;
 - `console/` containing verified static assets, manifest and retained notices (unless explicitly headless);
 - `runtime/ledgence/worker/`, preserving the native Python namespace;
 - `python-client/` with the tested wheel and source distribution;
@@ -142,7 +142,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.2.0 --output /tmp/ledgence-stable
+  --version 0.3.0 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -169,10 +169,10 @@ and requires the selected archive's expected SHA256. Dispatch it on the matching
 annotated release tag after that commit is included in `main`:
 
 ```sh
-gh workflow run promote-bundle.yml --ref v0.2.0 \
+gh workflow run promote-bundle.yml --ref v0.3.0 \
   -f candidate_run=RUN_ID \
   -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
-  -f version=0.2.0
+  -f version=0.3.0
 ```
 
 It checks the clean tag identity and source-equivalent candidate, promotes the

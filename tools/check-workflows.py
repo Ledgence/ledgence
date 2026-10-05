@@ -29,10 +29,10 @@ import traceback
 import urllib.parse
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import Deployment, Process, eventually, exchange
 from http_acceptance.sqs import SqsDeployment
-from workflow_acceptance import fork_scenarios, owned_scenarios
+from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, owned_scenarios
 
 
 FIXTURE = r'''
@@ -522,6 +522,8 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
 
     await owned_scenarios.run(d,delay,names,record,records,snapshot)
     await fork_scenarios.run(d,names,record,records,snapshot)
+    await approval_scenarios.run(d,names,record,snapshot)
+    await agent_scenarios.run(d,names,record,records)
 
 
 def trace_rows(capture):
@@ -598,6 +600,7 @@ def artifact_metadata(root, binaries, python, d):
     sources.update(root.glob('examples/checkpoint-workflow/**/*.py'))
     sources.update(root.glob('examples/owned-subworkflows/**/*.py'))
     sources.update(root.glob('examples/mixed-workflow/**/*.py'))
+    sources.update(root.glob('examples/agent-recovery/**/*.py'))
     sources.update(root.glob('tools/workflow_acceptance/*.py'))
     sources.update(root.glob('tools/http_acceptance/*.py'))
     sources.update(root/name for name in ('Cargo.toml','Cargo.lock','tools/check-workflows.py','tools/check-sqs.py'))
@@ -638,7 +641,8 @@ def self_test(root):
     boundary_event()
     compile(CHILD,'child_fixture.py','exec')
     for fixture in [root/'tools/workflow_acceptance/owned_program.py', root/'examples/owned-subworkflows/program.py',
-                    root/'tools/workflow_acceptance/fork_program.py', root/'examples/mixed-workflow/program.py']:
+                    root/'tools/workflow_acceptance/fork_program.py', root/'examples/mixed-workflow/program.py',
+                    root/'tools/workflow_acceptance/agent_program.py', root/'examples/agent-recovery/program.py']:
         compile(fixture.read_text(),str(fixture),'exec')
     compile((root/'examples/checkpoint-workflow/child/program.py').read_text(),'example_child.py','exec')
     delay = DelayServer()
@@ -663,7 +667,7 @@ def main():
     parser.add_argument('--evidence',type=Path)
     parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; checks events, owned-tree and fork-mixed scenarios')
     parser.add_argument('--placement-iterations',type=int,default=3,help='paired local/distributed timing iterations (1..10; default 3)')
-    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS])
+    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS])
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if args.self_test:
@@ -725,7 +729,7 @@ def main():
             queue_admin = QueueAdmin(args.endpoint,args.region,'aws')
             queue_started = True
             queue_url = queue_admin.queue_url(queue_admin.call('CreateQueue',{'QueueName':queue_name,'Attributes':{'DelaySeconds':'0','VisibilityTimeout':'60','MessageRetentionPeriod':'3600'}}))
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         cls = SqsDeployment if args.endpoint else Deployment
         extra = dict(queue_url=queue_url,endpoint=args.endpoint,region=args.region) if args.endpoint else {}
@@ -748,6 +752,10 @@ def main():
             'owned-controller':publish(deployment,'owned-controller',(root/'tools/workflow_acceptance/owned_program.py').read_text()),
             'fork-controller':publish(deployment,'fork-controller',(root/'tools/workflow_acceptance/fork_program.py').read_text()),
             'mixed-workflow':publish(deployment,'mixed-workflow',(root/'examples/mixed-workflow/program.py').read_text(),version='1.0.1'),
+            'approval-controller':publish(deployment,'approval-controller',(root/'tools/workflow_acceptance/approval_program.py').read_text()),
+            'durable-approval':publish(deployment,'durable-approval',(root/'examples/durable-approval/program.py').read_text()),
+            'agent-recovery-controller':publish(deployment,'agent-recovery-controller',(root/'tools/workflow_acceptance/agent_program.py').read_text()),
+            'agent-recovery':publish(deployment,'agent-recovery',(root/'examples/agent-recovery/program.py').read_text()),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
         migration = subprocess.run([str(binaries/'ledgence'),'orchestrator','migrate'],env=deployment.environment,capture_output=True,timeout=40)
@@ -757,7 +765,7 @@ def main():
         provenance = artifact_metadata(root,binaries,python,deployment)
         provenance.update(mode='elasticmq' if args.endpoint else 'integrated',database=database,queue_url=queue_url,real_aws=False,published_programs=packages)
         (directory/'resources.json').write_text(json.dumps(provenance,indent=2)+'\n')
-        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS],record,args.placement_iterations,capture))
+        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS],record,args.placement_iterations,capture))
         if capture and any(row['scenario']=='events' for row in results):
             # Workers have drained their exporters, but the server must remain
             # available while durable attempt snapshots are checked.

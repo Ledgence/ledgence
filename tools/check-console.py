@@ -25,7 +25,7 @@ import traceback
 import urllib.parse
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from console_acceptance.harness import ConsoleDeployment
 from console_acceptance.scenarios import run
 
@@ -107,7 +107,7 @@ def main():
         print(f"PASS {scenario}: {json.dumps(detail)}", flush=True)
 
     try:
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         # Retain the caller's exact prepared build while browser developers may
         # independently rebuild their checkout during a long fixture run.
@@ -130,7 +130,8 @@ def main():
             "console_assets": {str(path.relative_to(prepared_dist)): hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in sorted(prepared_dist.rglob("*")) if path.is_file()},
             "source_fixtures": ["tools/http_acceptance/harness.py", "tools/check-workflows.py",
-                                "tools/workflow_acceptance/owned_program.py", "examples/checkpoint-workflow/controller/program.py"],
+                                "tools/workflow_acceptance/owned_program.py", "examples/checkpoint-workflow/controller/program.py",
+                                "examples/durable-approval/program.py"],
             "started_at": time.time(),
         }
         resources["fixture_sha256"] = {

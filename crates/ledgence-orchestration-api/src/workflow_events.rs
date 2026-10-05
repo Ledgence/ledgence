@@ -116,6 +116,13 @@ impl WorkflowEventReceipt {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWait {
+    Approval {
+        key: String,
+        action: ApprovalAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proposed_arguments: Option<Value>,
+        timeout_ms: u64,
+    },
     Event {
         key: String,
         #[serde(deserialize_with = "crate::observation::required_option")]
@@ -129,14 +136,26 @@ pub enum WorkflowWait {
 impl WorkflowWait {
     pub fn key(&self) -> &str {
         match self {
-            Self::Event { key, .. } | Self::Timer { key, .. } => key,
+            Self::Event { key, .. } | Self::Timer { key, .. } | Self::Approval { key, .. } => key,
         }
     }
     pub fn validate(&self) -> Result<()> {
         validate_text(self.key(), 128)?;
+        if let Self::Approval {
+            action,
+            proposed_arguments,
+            ..
+        } = self
+        {
+            action.validate()?;
+            if let Some(arguments) = proposed_arguments {
+                validate_approval_proposed_arguments(arguments)?;
+            }
+        }
         let duration = match self {
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
+            Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
         };
         if duration.is_some_and(|duration| duration > WORKFLOW_MAX_DELAY_MS) {
             return Err(invalid("workflow wait duration exceeds 365 days"));
@@ -151,6 +170,7 @@ impl WorkflowWait {
         let duration = match self {
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
+            Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
         };
         duration
             .map(|duration| {
@@ -169,6 +189,9 @@ impl WorkflowWait {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWake {
+    Approval {
+        approval: Box<ApprovalSnapshot>,
+    },
     Event {
         key: String,
         event: WorkflowEvent,
@@ -187,11 +210,19 @@ impl WorkflowWake {
     pub fn key(&self) -> &str {
         match self {
             Self::Event { key, .. } | Self::Timeout { key, .. } | Self::Timer { key, .. } => key,
+            Self::Approval { approval } => &approval.key,
         }
     }
     pub fn validate(&self) -> Result<()> {
         validate_text(self.key(), 128)?;
         match self {
+            Self::Approval { approval } => {
+                approval.validate()?;
+                if approval.status == ApprovalStatus::Pending {
+                    return Err(invalid("pending approval cannot wake a workflow"));
+                }
+                Ok(())
+            }
             Self::Event {
                 event, accepted_at, ..
             } => {
