@@ -211,10 +211,6 @@ impl HttpTaskService {
         .await
     }
 
-    async fn get<R: ResponseValue>(&self, route: &str, query: &[(&str, String)]) -> Result<R> {
-        self.get_validated(route, query, |_| Ok(())).await
-    }
-
     async fn get_validated<R: ResponseValue>(
         &self,
         route: &str,
@@ -541,7 +537,33 @@ impl TaskService for HttpTaskService {
         })
     }
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
-        Box::pin(self.post("v1/tasks", command, SUBMISSION_MAX_BYTES))
+        Box::pin(async move {
+            let expected = command.clone();
+            self.post_validated(
+                "v1/tasks",
+                command,
+                SUBMISSION_MAX_BYTES,
+                move |reply: &TaskSnapshot| {
+                    let matches = reply
+                        .input
+                        .semantically_matches(&expected.input)
+                        .map_err(|_| unavailable("invalid task submission response"))?;
+                    if !matches
+                        || reply.idempotency_key != expected.idempotency_key
+                        || reply.workflow_id.is_some()
+                        || reply.workflow_activation_id.is_some()
+                        || reply.parent_workflow_id.is_some()
+                        || reply.root_workflow_id.is_some()
+                    {
+                        return Err(unavailable("task submission response identity mismatch"));
+                    }
+                    // Origin tracing belongs to the first accepted submission;
+                    // a retry's transport/origin span is not its idempotency key.
+                    Ok(())
+                },
+            )
+            .await
+        })
     }
     fn list_tasks<'a>(
         &'a self,
@@ -605,7 +627,18 @@ impl TaskService for HttpTaskService {
         scope: &'a Scope,
         task_id: &'a str,
     ) -> ContractFuture<'a, TaskSnapshot> {
-        Box::pin(async move { self.get("v1/tasks/inspect", &query(scope, task_id)).await })
+        Box::pin(async move {
+            let fields = query(scope, task_id);
+            let scope = scope.clone();
+            let task_id = task_id.to_owned();
+            self.get_validated("v1/tasks/inspect", &fields, move |reply: &TaskSnapshot| {
+                if reply.scope() != scope || reply.task_id != task_id {
+                    return Err(unavailable("task inspection response identity mismatch"));
+                }
+                Ok(())
+            })
+            .await
+        })
     }
     fn status<'a>(&'a self, scope: &'a Scope, task_id: &'a str) -> ContractFuture<'a, TaskStatus> {
         Box::pin(async move {
@@ -638,7 +671,23 @@ impl TaskService for HttpTaskService {
         Box::pin(async move {
             let mut query = query(scope, task_id);
             query.push(("attempt_id", attempt_id.into()));
-            self.get("v1/attempts/inspect", &query).await
+            let scope = scope.clone();
+            let task_id = task_id.to_owned();
+            let attempt_id = attempt_id.to_owned();
+            self.get_validated(
+                "v1/attempts/inspect",
+                &query,
+                move |reply: &AttemptSnapshot| {
+                    if reply.lease.owner.scope != scope
+                        || reply.lease.owner.task_id != task_id
+                        || reply.lease.owner.attempt_id != attempt_id
+                    {
+                        return Err(unavailable("attempt inspection response identity mismatch"));
+                    }
+                    Ok(())
+                },
+            )
+            .await
         })
     }
     fn history<'a>(
@@ -650,7 +699,24 @@ impl TaskService for HttpTaskService {
         Box::pin(async move {
             let mut query = query(scope, task_id);
             query.push(("after_sequence", after_sequence.to_string()));
-            self.get("v1/tasks/history", &query).await
+            let task_id = task_id.to_owned();
+            self.get_validated(
+                "v1/tasks/history",
+                &query,
+                move |reply: &Vec<RecordedHistoryEvent>| {
+                    let mut previous = after_sequence;
+                    for item in reply {
+                        if item.event.task_id != task_id || item.sequence <= previous {
+                            return Err(unavailable(
+                                "task history response identity or position mismatch",
+                            ));
+                        }
+                        previous = item.sequence;
+                    }
+                    Ok(())
+                },
+            )
+            .await
         })
     }
     fn acquire<'a>(

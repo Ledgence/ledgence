@@ -5,7 +5,7 @@ description: Entrypoint registration, context properties, child operations, deci
 
 This reference covers protocol **3** workflow handlers and their worker-supplied context.
 
-**Added in 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.2.0](/how-to/upgrade-to-0-2).
+**Available since 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.3.0](/how-to/upgrade-to-0-3).
 
 A handler can obtain the context directly:
 
@@ -19,7 +19,7 @@ async def handle(event):
 
 `workflow_context()` returns the active `WorkflowContext`. Application code does not construct this object. The handler receives the original CloudEvent; workflow control state is separate from `event["data"]`.
 
-## Entrypoint registration (0.2.0)
+## Entrypoint registration
 
 ```python
 from enum import StrEnum
@@ -62,7 +62,8 @@ See [Mix local work and workflow branches](/how-to/fork-workflow-branches) for a
 | `entrypoint` | Selected enum member in a registered workflow; otherwise the legacy continuation string. |
 | `state` | JSON state saved by the previous checkpoint. |
 | `inputs` | Frozen child outcomes, indexed by child key. |
-| `wake` | External event, timeout, or timer wake; otherwise `None`. |
+| `wake` | External event, timeout, timer or approval wake; otherwise `None`. |
+| `approval` | Typed immutable approval view for an approval wake; otherwise `None`. |
 | `parent_workflow_id` | Parent workflow ID for an owned subworkflow; otherwise `None`. |
 | `root_workflow_id` | Root ancestor's ID; equal to `workflow_id` for a root. |
 
@@ -70,9 +71,9 @@ Reading `state`, `inputs`, or `wake` returns an independent JSON copy. Mutating 
 
 ## Local steps
 
-### `operation(key, fn, *, kind, version, arguments)` — current source
+### `operation(key, fn, *, kind, version, arguments)` — added in 0.3.0
 
-Use `OperationKind.MODEL` or `OperationKind.TOOL` from `ledgence.worker.workflow`. This post-0.2.0 helper uses the local journal with an explicit operation kind/version and signature-bound JSON arguments, including defaults. It returns only a completed, acknowledged result and rejects an existing key whose binding changed. Keys share the activation's local-step namespace. See [Recover model and tool calls](/how-to/recover-agent-calls) for boundaries, checkpoints and current-source setup.
+Use `OperationKind.MODEL` or `OperationKind.TOOL` from `ledgence.worker.workflow`. This helper uses the local journal with an explicit operation kind/version and signature-bound JSON arguments, including defaults. It returns only a completed, acknowledged result and rejects an existing key whose binding changed. Keys share the activation's local-step namespace. See [Recover model and tool calls](/how-to/recover-agent-calls) for boundaries, checkpoints and setup.
 
 
 ### `local(key, fn, **kwargs)`
@@ -103,7 +104,7 @@ Both operations use the following options:
 
 | Argument | Contract |
 | --- | --- |
-| `key` | Child identity within the parent workflow; shared across task and workflow children, including fork branches in 0.2.0. |
+| `key` | Child identity within the parent workflow; shared across task and workflow children, including fork branches. |
 | `program`, `version` | Published program ID/version; lowercase portable path components, at most 128 bytes each. |
 | `queue` | Queue for the child execution. |
 | `data` | User-owned JSON input. |
@@ -114,13 +115,13 @@ Both operations use the following options:
 
 An identical binding for an existing key reuses the original child. Changing its kind, program, input, or scheduling options conflicts. Use a new iteration key for new work.
 
-### `branch(key, *, entrypoint, queue, data, retry_policy=None, attempt_timeout_ms=300000)` (0.2.0)
+### `branch(key, *, entrypoint, queue, data, retry_policy=None, attempt_timeout_ms=300000)`
 
 Builds an immutable `BranchSpec` in the current context. It performs no RPC, schedules nothing, and adds no staged child command. `entrypoint` selects a registered handler. The branch uses the parent's exact pinned program descriptor, so there is no `program` or `version` argument and no new program lookup.
 
 `queue`, `data`, retry policy, and attempt timeout follow the options above. The explicit `data` becomes the branch's user-owned input. Entrypoint and execution metadata remain outside CloudEvent `data`. The branch's workflow ID, activation attempts, checkpoints, local journal, and event/timer waits are independent of the parent's.
 
-### `await fork(key, *, branches)` (0.2.0)
+### `await fork(key, *, branches)`
 
 Atomically registers an ordered list of 1–64 branch specifications and the children's durable scheduling obligations. It returns a `ForkRef` only after acknowledgment. The parent stays in the same activation, revision, and process and can continue local work. Child execution can begin after commit; acknowledgment does not establish that a child has started or completed.
 
@@ -147,6 +148,7 @@ Return one of these decisions from the controller handler:
 | `continue_(*, continuation, state)` | Save state and schedule the next activation without waiting. |
 | `wait_event(key, *, continuation, state, timeout_ms=None)` | Save state and wait for one external event, optionally with a persisted timeout. |
 | `sleep(key, delay_ms, *, continuation, state)` | Save state and register a durable timer. |
+| `request_approval(key, *, action, state, timeout_ms, continuation=None, resume=None, proposed_arguments=None)` | Persist an immutable effective action, save state, and wait for its durable approval outcome. |
 | `complete(output)` | Finish with JSON output. Cannot discard staged launches or finish with nonterminal owned children. |
 | `fail(kind, message)` | Request intentional workflow failure and draining of owned work. |
 
@@ -157,6 +159,12 @@ Returning a durable wait releases the parent invocation's worker slot. A resume 
 Checkpoint decisions include staged child commands. Calling a decision method alone does not dispatch or durably save it; return the decision from the handler.
 
 Wait keys are one-shot across the workflow. Event timeouts and timer delays accept integer milliseconds from zero through **31536000000** (365 days). `timeout_ms=None` has no deadline. Error messages passed to `fail` are limited to 4096 UTF-8 bytes. Unexpected handler exceptions use the activation retry policy. Intentional failure, cancellation, or exhausted activation retries drain owned descendants; external effects are not undone.
+
+## Durable approvals
+
+`ApprovalAction.for_callable(fn, version="1", arguments={...})` binds the callable and effective JSON arguments, including defaults. Return `ctx.request_approval(...)` with exactly one `resume` or `continuation` to persist this action and release the worker slot. On resume, inspect `ctx.approval.status`; `await ctx.approved_local(fn, version="1")` executes only an approved saved action and accepts no replacement arguments. Its acknowledged local result is replayable. Generic external events cannot decide an approval.
+
+See [Require approval before a tool call](/how-to/require-approval) for the typed statuses, deadline and recovery behavior.
 
 ## Wake shapes
 
@@ -207,6 +215,6 @@ Bounds use compact encoded JSON, not Python object memory size. The server's JSO
 
 Application JSON supports at most 64 nested containers, finite numbers, and string object keys. Use application-controlled storage references for payloads larger than the inline limits.
 
-**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/subworkflows.md)
+**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.3.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/subworkflows.md)
 
-**Current-source additions:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.2.0/sdk/python/ledgence/worker/workflow.py)
+**Additional contracts:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.3.0/sdk/python/ledgence/worker/workflow.py)

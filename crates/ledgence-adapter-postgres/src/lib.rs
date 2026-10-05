@@ -7,6 +7,8 @@ mod catalog;
 mod codec;
 mod completion;
 mod console;
+#[cfg(test)]
+mod deadline_tests;
 mod delivery;
 mod discovery;
 mod dispatch_claim;
@@ -227,6 +229,11 @@ impl PostgresStore {
         }
         let work = async {
             for retry in 0..3 {
+                // A backoff can become ready after the enclosing budget. Do
+                // not start another database operation on that late poll.
+                if Instant::now() >= deadline {
+                    return Err(operation_timed_out());
+                }
                 match operation().await {
                     Ok(value) => return Ok(value),
                     Err(StoreError::Database(error)) if retry < 2 && retryable(&error) => {
@@ -240,11 +247,15 @@ impl PostgresStore {
         };
         let result = tokio::time::timeout_at(deadline.into(), work)
             .await
-            .unwrap_or_else(|_| {
-                Err(ContractError::Unavailable(
-                    "database operation timed out; reconcile using the same command".into(),
-                ))
-            });
+            .unwrap_or_else(|_| Err(operation_timed_out()));
+        // Tokio polls the operation before its timer. Synchronous decoding or
+        // a ready COMMIT reply can cross the deadline without yielding; its
+        // outcome remains uncertain even when that poll returns success.
+        let result = if Instant::now() >= deadline {
+            Err(operation_timed_out())
+        } else {
+            result
+        };
         metric.finish(if result.is_ok() {
             MetricOutcome::Ok
         } else {
@@ -252,6 +263,12 @@ impl PostgresStore {
         });
         result
     }
+}
+
+fn operation_timed_out() -> ContractError {
+    ContractError::Unavailable(
+        "database operation timed out; reconcile using the same command".into(),
+    )
 }
 
 type StoreResult<T> = std::result::Result<T, StoreError>;

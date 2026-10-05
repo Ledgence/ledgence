@@ -14,10 +14,10 @@ Codex mode uses a real provider on the same synthetic evidence. No commerce,
 carrier, or support account is needed, and this example sends no customer
 messages or external reports.
 
-This is application **1.0.0**, for the **current source checkout**. Build the
-orchestrator, worker, helper, and Python client from that checkout and apply all
-migrations. Published Ledgence **0.2.0** does not include the durable operation
-and action-approval APIs used here. This example is not a released 0.2.0 package.
+This is application **1.0.0**, included in the **Ledgence 0.3.0** source release.
+Use the matching orchestrator, worker, helper and Python client, and apply all
+migrations. Earlier Ledgence 0.2.0 does not include the durable operation and
+action-approval APIs used here.
 
 ## Tutorial: run the investigation
 

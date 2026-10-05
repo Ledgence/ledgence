@@ -207,6 +207,83 @@ async fn submission_keeps_supplied_key_and_wire_values_without_retry() {
 }
 
 #[tokio::test]
+async fn task_commands_reject_success_replies_for_another_operation_without_retry() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("submit.json");
+    let command = json!({
+        "idempotency_key": "original-key",
+        "input": {
+            "tenant_id": "tenant", "namespace": "billing", "queue": "queue",
+            "program": {"id":"hello", "version":"1.0.0"}, "data":{"amount":100}
+        }
+    });
+    std::fs::write(&path, command.to_string()).unwrap();
+    for (operation, mismatch) in [
+        ("submit", "key"),
+        ("submit", "input"),
+        ("inspect", "task"),
+        ("inspect", "scope"),
+    ] {
+        let mut reply = json!({
+            "task_id":"wanted-task", "run_id":"run", "idempotency_key":"original-key",
+            "input":command["input"],
+            "descriptor": {
+                "program": {"id":"hello", "version":"1.0.0"},
+                "digest":format!("sha256:{}", "a".repeat(64)), "size":123
+            },
+            "origin_trace":null, "state":"queued", "submitted_at":10,
+            "available_at":10, "terminal_at":null, "current_attempt_id":null,
+            "attempt_count":0, "cancel_requested_at":null
+        });
+        match mismatch {
+            "key" => reply["idempotency_key"] = "other-key".into(),
+            "input" => reply["input"]["data"]["amount"] = 50.into(),
+            "task" => reply["task_id"] = "other-task".into(),
+            "scope" => reply["input"]["tenant_id"] = "other-tenant".into(),
+            _ => unreachable!(),
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = format!("http://{}", listener.local_addr().unwrap());
+        let exchange = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (header, _) = request(&mut socket).await;
+            assert!(header.starts_with(if operation == "submit" {
+                "POST /v1/tasks HTTP/1.1\r\n"
+            } else {
+                "GET /v1/tasks/inspect?"
+            }));
+            respond(&mut socket, "200 OK", &reply.to_string()).await;
+            assert!(
+                tokio::time::timeout(Duration::from_millis(400), listener.accept())
+                    .await
+                    .is_err()
+            );
+        });
+        let mut args = vec!["task", operation, "--server", &server];
+        if operation == "submit" {
+            args.extend(["--file", path.to_str().unwrap()]);
+        } else {
+            args.extend([
+                "--tenant",
+                "tenant",
+                "--namespace",
+                "billing",
+                "--task",
+                "wanted-task",
+            ]);
+        }
+        let output = invoke(&args).await;
+        assert_eq!(output.status.code(), Some(1), "{operation}/{mismatch}");
+        assert!(output.stdout.is_empty(), "{operation}/{mismatch}");
+        let error = diagnostic(&output);
+        assert_eq!(error["outcome_may_be_unknown"], true);
+        assert_eq!(error["error"]["code"], "unavailable");
+        assert_eq!(error["request_id"], "req-cli-test");
+        exchange.await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn submission_rejects_original_byte_errors_before_contacting_server() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("submit.json");

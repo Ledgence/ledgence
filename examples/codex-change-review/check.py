@@ -27,7 +27,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from http_acceptance.harness import Deployment, Process, eventually, exchange
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 
 
 def dump(path, value):
@@ -180,7 +180,7 @@ def deployment(args, evidence, prepared, config_path, variant):
                                  "--command", statement], capture_output=True, timeout=40)
         assert result.returncode == 0, "owned acceptance database administration failed"
 
-    admin(f'CREATE DATABASE "{database}"')
+    create_owned_database(admin, database)
     try:
         owned = ChangeDeployment(directory, args, url, prepared, config_path, variant=variant)
         owned.command("ledgence", ["orchestrator", "migrate"])

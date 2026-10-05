@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import eventually
 from http_acceptance.sqs import SqsDeployment
 from http_acceptance.sqs_startup import failed_startup_preserves_integrated_delivery
@@ -235,7 +235,7 @@ def main():
             "Attributes": {"DelaySeconds": "0", "VisibilityTimeout": "60", "MessageRetentionPeriod": "3600"}}))
         (directory / "resources.json").write_text(json.dumps({"mode": "aws" if args.aws else "elasticmq", "queue_name": queue_name,
             "queue_url": queue_url, "database_name": database, "real_aws": args.aws}, indent=2) + "\n")
-        database_admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(database_admin, database)
         created = True
         deployment = SqsDeployment(root, directory, binaries, os.environ.get("LEDGENCE_PYTHON", sys.executable), database_url, args.psql,
             queue_url=queue_url, endpoint=args.endpoint, region=args.region)

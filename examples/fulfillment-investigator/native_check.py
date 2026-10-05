@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from http_acceptance.harness import Deployment, Process, eventually, exchange
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from fulfillment.config import APPROVAL_KEY, PROGRAM, QUEUE, SOURCE_WAIT, VERSION
 from fulfillment.report import load_candidate
 from fulfillment.storage import read_json
@@ -198,7 +198,7 @@ def run(args):
         result = subprocess.run([args.psql, "--dbname", parent, "-X", "--set", "ON_ERROR_STOP=1", "--command", statement],
                                 capture_output=True, timeout=40)
         assert result.returncode == 0, "owned test database administration failed"
-    admin(f'CREATE DATABASE "{database}"')
+    create_owned_database(admin, database)
     deployment = None
     try:
         directory = evidence / "deployment"

@@ -31,7 +31,7 @@ gate and its scenarios are documented in the [recovery guide](../../docs/agent-r
 
 ## Run with an orchestrator
 
-Use the current source checkout. Published 0.2.0 workers do not contain
+Use matching Ledgence 0.3.0 components; earlier 0.2.0 workers do not contain
 `ctx.operation`. Start the orchestrator and a protocol-3 worker using the
 [checkpoint workflow setup](../checkpoint-workflow/README.md), with the runtime
 helper from this checkout. Reuse that setup's `LEDGENCE_PYTHON`, `workflow_demo`

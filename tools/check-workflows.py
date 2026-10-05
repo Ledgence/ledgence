@@ -29,7 +29,7 @@ import traceback
 import urllib.parse
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import Deployment, Process, eventually, exchange
 from http_acceptance.sqs import SqsDeployment
 from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, owned_scenarios
@@ -729,7 +729,7 @@ def main():
             queue_admin = QueueAdmin(args.endpoint,args.region,'aws')
             queue_started = True
             queue_url = queue_admin.queue_url(queue_admin.call('CreateQueue',{'QueueName':queue_name,'Attributes':{'DelaySeconds':'0','VisibilityTimeout':'60','MessageRetentionPeriod':'3600'}}))
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         cls = SqsDeployment if args.endpoint else Deployment
         extra = dict(queue_url=queue_url,endpoint=args.endpoint,region=args.region) if args.endpoint else {}

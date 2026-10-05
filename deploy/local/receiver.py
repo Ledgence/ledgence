@@ -1,7 +1,9 @@
 """Small local demo receiver: bounded, persisted source/id deduplication before ACK.
 
 This is an example, not a general webhook service. At 256 unique events it
-returns 503 until the local demo data is reset. No application data is logged.
+returns 503 until the local demo data is reset. Identical redelivery is accepted;
+a conflicting event with the same source/id returns 409. Storage failures return
+503 so the sender can retry. No application data is logged.
 """
 import http.server
 import json
@@ -41,8 +43,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             event = json.loads(body)
             if not isinstance(event, dict) or event.get("specversion") != "1.0" or not isinstance(event.get("id"), str) or event.get("source") != "urn:ledgence:orchestrator":
                 return self.reply(400, b"")
+            canonical = json.dumps(event, sort_keys=True, allow_nan=False)
             key = event["source"] + "\n" + event["id"]
             with LOCK:
+                if key in EVENTS and json.dumps(EVENTS[key], sort_keys=True, allow_nan=False) != canonical:
+                    return self.reply(409, b"")
                 if key not in EVENTS:
                     if len(EVENTS) >= 256:
                         return self.reply(503, b"")
@@ -53,15 +58,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         output.flush()
                         os.fsync(output.fileno())
                     temporary.replace(STORE)
-                    directory = os.open(STORE.parent, os.O_RDONLY)
-                    try:
-                        os.fsync(directory)
-                    finally:
-                        os.close(directory)
+                    # Rename made this binding visible even if syncing the
+                    # parent fails. Never replace it on an uncertain retry.
                     EVENTS.update(updated)
+                # Retry the durability barrier for identical redelivery too.
+                directory = os.open(STORE.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
             self.reply(204, b"")
-        except (ValueError, KeyError, OSError):
+        except (ValueError, KeyError):
             self.reply(400, b"")
+        except OSError:
+            self.reply(503, b"")
 
     def reply(self, status, body, kind="text/plain"):
         self.send_response(status)

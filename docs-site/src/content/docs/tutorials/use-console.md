@@ -1,11 +1,11 @@
 ---
 title: Explore Ledgence Console
-description: Start Ledgence 0.2.0 Console, run the example agents, and follow their executions and worker processes.
+description: Start Ledgence 0.3.0 Console, run the example agents, and follow their executions and worker processes.
 ---
 
 Run the local stack, then use Console to follow a real task from its input to its result, inspect a completed workflow, and explore the worker's process slots.
 
-**Availability:** Console is included in Ledgence 0.2.0. This tutorial uses its source checkout and Compose deployment. Follow [Run Ledgence locally](/tutorials/run-locally#1-get-the-source) to obtain `v0.2.0`, or use the [native installation guide](/how-to/install-native) for prebuilt assets.
+**Availability:** Console is included in Ledgence 0.3.0. This tutorial uses its source checkout and Compose deployment. Follow [Run Ledgence locally](/tutorials/run-locally#1-get-the-source) to obtain `v0.3.0`, or use the [native installation guide](/how-to/install-native) for prebuilt assets.
 
 ## 1. Check your source checkout
 

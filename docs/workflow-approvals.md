@@ -5,10 +5,10 @@ for a review decision. The decision names the exact request and effective
 arguments. An approved continuation can execute those saved arguments as a
 durable local step. No model SDK or hosted service is required.
 
-This capability is available in the current source tree. Use the worker,
-orchestrator, Python client, and Console built from the same checkout and apply
-all migrations with `ledgence orchestrator migrate`. Published 0.2.0 artifacts
-predate this API. The matching Console contract is version 5.
+This capability is included in Ledgence 0.3.0. Use matching worker,
+orchestrator, Python client, and Console versions and apply all migrations with
+`ledgence orchestrator migrate`. The matching Console contract is version 5.
+Follow the [0.3 upgrade guide](upgrading-to-0.3.md) before replacing a 0.2 deployment.
 
 ## Request and execute an action
 

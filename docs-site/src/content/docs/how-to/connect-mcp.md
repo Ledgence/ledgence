@@ -3,11 +3,14 @@ title: Connect an MCP client
 description: Discover programs, submit work, and inspect durable executions through the optional Ledgence MCP server.
 ---
 
-MCP is available in current source builds after 0.2.0. Published 0.2.0 binaries
-do not include the command. The server connects to your existing Ledgence HTTP
-API; it does not start infrastructure or require an AI framework.
+Ledgence 0.3.0 includes the optional MCP server in its native bundles and default
+CLI build. The server connects to your existing Ledgence HTTP API; it does not
+start infrastructure or require an AI framework.
 
-## Build and configure
+## Install and configure
+
+Use the executable from a [native bundle](/how-to/install-native), or build the
+matching source:
 
 ```sh
 cargo build -p ledgence-cli --locked
@@ -68,5 +71,5 @@ human approval interface or CLI; the MCP server cannot approve its own work.
 Tool outputs are bounded to 2 MiB without truncation; larger results remain
 available through the HTTP API. This version provides stdio tools, not Streamable
 HTTP, model sampling, prompts/resources, package uploads, or MCP Tasks-extension
-state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/develop/docs/mcp.md)
+state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/mcp.md)
 for limits, error semantics, verification and architecture.

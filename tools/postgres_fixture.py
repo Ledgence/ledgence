@@ -31,3 +31,19 @@ def owned_database_url(parent, database):
     # urlunsplit omits // for an empty authority with the postgres scheme.
     # Retain URI syntax for explicit Unix-socket connections via ?host=/path.
     return f"{parsed.scheme}://{parsed.netloc}/{database}" + ("?" + parsed.query if parsed.query else "")
+
+
+def create_owned_database(admin, database):
+    """Create a uniquely named fixture DB, cleaning up an uncertain CREATE.
+
+    Callers allocate an unpredictable name and retain normal cleanup after this
+    succeeds. A timeout or interruption can arrive after CREATE committed, so
+    failure must still attempt cleanup on that same server and exact name.
+    """
+    if not isinstance(database, str) or not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", database):
+        raise ValueError("invalid owned database name")
+    try:
+        admin(f'CREATE DATABASE "{database}"')
+    except BaseException:
+        admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        raise

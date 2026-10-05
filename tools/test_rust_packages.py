@@ -163,5 +163,39 @@ version = "0.1.1"
                 packages.publication_policy(root)
 
 
+    def test_publication_policy_supports_optional_private_adapters(self):
+        # The publication boundary is the API allowlist, not a stale workspace
+        # crate count. Test both small and expanded private implementation sets.
+        for private_count in (1, 17):
+            with self.subTest(private_count=private_count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                names = [*packages.APIS, *[f"ledgence-private-{i}" for i in range(private_count)]]
+                members = ", ".join(json.dumps(name) for name in names)
+                dependencies = "".join(f'{name} = {{ version = "0.3.0", path = "{name}" }}\n' for name in names)
+                (root / 'Cargo.toml').write_text(f'[workspace]\nmembers = [{members}]\n'
+                    '[workspace.package]\nversion = "0.3.0"\n[workspace.dependencies]\n' + dependencies)
+                (root / 'Cargo.lock').write_text("".join(
+                    f'[[package]]\nname = "{name}"\nversion = "0.3.0"\n' for name in names))
+                for name in names:
+                    (root / name).mkdir()
+                    policy = '["crates-io"]' if name in packages.APIS else 'false'
+                    (root / name / 'Cargo.toml').write_text(
+                        f'[package]\nname = "{name}"\nversion.workspace = true\npublish = {policy}\n')
+                version, discovered = packages.publication_policy(root)
+                self.assertEqual(version, '0.3.0')
+                self.assertEqual(set(discovered), set(names))
+                private = root / names[-1] / 'Cargo.toml'
+                private.write_text(private.read_text().replace('publish = false', 'publish = ["crates-io"]'))
+                with self.assertRaisesRegex(ValueError, 'publication policy'):
+                    packages.publication_policy(root)
+
+    def test_publication_policy_requires_both_api_crates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'Cargo.toml').write_text('[workspace]\nmembers = []\n[workspace.package]\nversion = "0.3.0"\n')
+            with self.assertRaisesRegex(ValueError, 'missing public API'):
+                packages.publication_policy(root)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -20,7 +20,7 @@ import urllib.request
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 
 
 def digest(path):
@@ -155,7 +155,7 @@ def smoke(bundle, store, temporary):
     process = None
     with tempfile.TemporaryFile() as log:
         try:
-            admin(f'CREATE DATABASE "{database}"')
+            create_owned_database(admin, database)
             created = True
             migrated = subprocess.run([executable, 'orchestrator', 'migrate'], cwd=temporary, env=environment,
                                       stdout=log, stderr=log, timeout=60)

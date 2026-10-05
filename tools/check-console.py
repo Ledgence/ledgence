@@ -25,7 +25,7 @@ import traceback
 import urllib.parse
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from console_acceptance.harness import ConsoleDeployment
 from console_acceptance.scenarios import run
 
@@ -107,7 +107,7 @@ def main():
         print(f"PASS {scenario}: {json.dumps(detail)}", flush=True)
 
     try:
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         # Retain the caller's exact prepared build while browser developers may
         # independently rebuild their checkout during a long fixture run.

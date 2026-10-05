@@ -12,6 +12,9 @@ mod completion;
 #[path = "contract/workflow.rs"]
 mod workflow;
 
+#[path = "contract/task_reply_identity.rs"]
+mod task_reply_identity;
+
 use ledgence_adapter_http::{HttpTaskService, RESPONSE_MAX_BYTES, server};
 use ledgence_orchestration_api::*;
 use ledgence_worker_api::{
@@ -413,6 +416,9 @@ async fn all_methods_roundtrip_scoped_opaque_ids_and_lossless_application_values
         "slash/plus+percent%é",
         "%2F",
     ] {
+        let mut reply = task(data.clone());
+        reply.task_id = task_id.into();
+        mock.set("inspect", Ok(reply));
         client.inspect(&scope(), task_id).await.unwrap();
         assert_eq!(
             mock.calls.lock().unwrap().last().unwrap().1,
@@ -1261,7 +1267,7 @@ impl ledgence_worker_api::TraceBridge for ExchangeTraceBridge {
 #[tokio::test]
 async fn tracing_bridge_propagates_a_new_exchange_without_rewriting_command_origins() {
     let mock = Arc::new(Mock::default());
-    mock.set("submit", Ok(task(Value::Null)));
+    mock.set("submit", Ok(task(json!({"caller": "owned"}))));
     let bridge = Arc::new(ExchangeTraceBridge::default());
     let running = start(server::router_with_observability(
         mock.clone(),
