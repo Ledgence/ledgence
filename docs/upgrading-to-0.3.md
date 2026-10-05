@@ -1,16 +1,21 @@
-# Upgrade to Ledgence 0.3.0
+# Upgrade to Ledgence 0.3.1
 
-This guide covers a **0.2.0 → 0.3.0** deployment. For an older installation, read
+This guide covers a **0.2.0 → 0.3.1** deployment. For an older installation, read
 [the 0.2 upgrade guide](upgrading-to-0.2.md) first. Keep historical releases and
 backups available; an upgraded database must not be opened by old binaries.
 
+The preserved `v0.3.0` source tag had no public distribution. If you built from
+that tag, use the same matching-component procedure below; no additional
+database migration or protocol change was added between that source snapshot
+and 0.3.1. The migrator only applies migrations that are missing.
+
 ## What must match
 
-| Component | 0.3.0 requirement |
+| Component | 0.3.1 requirement |
 | --- | --- |
-| CLI, orchestrator and worker | The same 0.3.0 distribution/source |
+| CLI, orchestrator and worker | The same 0.3.1 distribution/source |
 | Python runtime helper | The helper supplied with that worker |
-| Python HTTP client | `ledgence-client==0.3.0` |
+| Python HTTP client | `ledgence-client==0.3.1` |
 | Console | Contract **5** assets and server; 0.2 used contract 4 |
 | PostgreSQL | Explicitly apply `20261004000000_workflow_approvals.sql` through the migrator |
 | Custom Rust adapters | Rebuild against the 0.3 API crates and handle new approval variants |
@@ -28,7 +33,7 @@ remain supported. The `ledgence.client` and `ledgence.worker` imports do not cha
 2. Take and verify a restorable PostgreSQL backup plus the deployment's required
    program/configuration backup. Record the old binary/helper/Console versions.
    Keep the backup outside the installation being replaced.
-3. Install the matching 0.3.0 executable, runtime helper, Python client and Console
+3. Install the matching 0.3.1 executable, runtime helper, Python client and Console
    assets. Prepare them before stopping services when possible. Do not combine
    an old server with new assets, or old workers with new approval behavior.
 4. With the deployment's normal `DATABASE_URL` set, run the new executable:
@@ -51,7 +56,7 @@ remain supported. The `ledgence.client` and `ledgence.worker` imports do not cha
    pages from their first page, then resume producers.
 
 Compose deployments follow the same order: stop old writers, preserve named
-volumes, build from `v0.3.0`, apply migrations and recreate matching services.
+volumes, build from `v0.3.1`, apply migrations and recreate matching services.
 Do not remove volumes to work around an upgrade failure. See
 [local deployment](local-deployment.md).
 

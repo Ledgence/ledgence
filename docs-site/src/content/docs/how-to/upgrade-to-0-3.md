@@ -1,12 +1,16 @@
 ---
-title: Upgrade to 0.3.0
+title: Upgrade to 0.3.1
 description: Upgrade a 0.2 deployment with preserved execution state, an explicit approval migration, and matching Console assets.
 ---
 
-Ledgence 0.3.0 adds durable approvals, model/tool operation recovery and MCP.
+Ledgence 0.3.1 adds durable approvals, model/tool operation recovery and MCP.
 It requires a database migration and Console contract **5**. Upgrade the
 orchestrator, worker, Python runtime helper, client and Console together.
 For an older installation, read [the 0.2 upgrade guide](/how-to/upgrade-to-0-2) first.
+
+The earlier `v0.3.0` source tag had no published distribution. A deployment
+built from that source can follow this guide; 0.3.1 adds no further database
+migration or protocol change, and the migrator only applies missing migrations.
 
 ## Prepare and migrate
 
@@ -15,7 +19,7 @@ For an older installation, read [the 0.2 upgrade guide](/how-to/upgrade-to-0-2) 
    configuration.
 2. Take and verify a restorable PostgreSQL backup and the required deployment
    backup. Keep the matching old binaries/helper/assets available.
-3. Install matching **0.3.0** components. Set the deployment's `DATABASE_URL` and
+3. Install matching **0.3.1** components. Set the deployment's `DATABASE_URL` and
    run the new executable:
 
    ```sh
@@ -38,7 +42,7 @@ upgraded schema. Native installation and source commands are in
 
 Execution identities and immutable programs remain in use. Existing event/timer
 waits and workflow protocol **3** remain supported. The Python namespaces stay
-`ledgence.client` and `ledgence.worker`; install `ledgence-client==0.3.0`.
+`ledgence.client` and `ledgence.worker`; install `ledgence-client==0.3.1`.
 
 Custom Rust adapters must rebuild against the 0.3 API crates and handle the new
 approval-related workflow enum variants and operations. The new helper APIs
@@ -57,4 +61,4 @@ The release's populated-database regression verifies historical checksums,
 retained checkpoints/results, old event/timer resumption, new approval behavior
 and repeat migration. Also rehearse backup/restore with representative local data.
 
-**Source:** [Full upgrade contract](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/upgrading-to-0.3.md) · [Release notes](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/releases/0.3.0.md)
+**Source:** [Full upgrade contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/upgrading-to-0.3.md) · [Release notes](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/releases/0.3.1.md)

@@ -5,11 +5,11 @@ description: Persist an effective action, review its exact arguments, and resume
 
 Use a durable approval when a reviewer must authorize the exact action your workflow will execute. Ledgence stores the request and releases the worker slot while it waits.
 
-**Availability:** included in **Ledgence 0.3.0** with matching worker, orchestrator, runtime helper, Python client and Console contract **5**. Apply migrations with old writers stopped; follow [Upgrade to 0.3.0](/how-to/upgrade-to-0-3).
+**Availability:** included in **Ledgence 0.3.1** with matching worker, orchestrator, runtime helper, Python client and Console contract **5**. Apply migrations with old writers stopped; follow [Upgrade to 0.3.1](/how-to/upgrade-to-0-3).
 
 ## Prepare the workflow
 
-Start with the [durable approval example](https://github.com/Ledgence/ledgence/blob/v0.3.0/examples/durable-approval/README.md), which includes preparation, publication, and submission instructions for a source deployment. Use host CPython 3.11 or newer, with the same Python major/minor when preparing and running the package. The controller uses runtime protocol **3**.
+Start with the [durable approval example](https://github.com/Ledgence/ledgence/blob/v0.3.1/examples/durable-approval/README.md), which includes preparation, publication, and submission instructions for a source deployment. Use host CPython 3.11 or newer, with the same Python major/minor when preparing and running the package. The controller uses runtime protocol **3**.
 
 Validate and normalize arguments **before** requesting approval. This controller pattern proposes a simulated refund of 100 but limits the effective amount to 50:
 
@@ -97,4 +97,4 @@ Approval, rejection, and expiry resume one logical activation. Cancellation clos
 
 `approved_local` accepts no replacement arguments. It checks the saved callable identity and version, uses a private copy of the approved arguments, and reuses an acknowledged local result on activation retry. The callable remains operator-trusted Python code. An external effect can succeed **before** its local result commits; use the external service's idempotency mechanism or reconcile that gap. Durable approval does not guarantee exactly-once external effects.
 
-For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.3.0/docs/workflow-approvals.md).
+For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/workflow-approvals.md).

@@ -470,12 +470,37 @@ async fn discovery_uses_ordered_index_ranges_for_large_histories_and_deep_pages(
     let db = TestDb::new().await;
     // Real columns, mixed states, queues, tenants and correlations; application
     // payloads are deliberately tiny because discovery never selects them.
-    // Seed the final attempt count directly: rewriting all 100,000 tasks adds
-    // unrelated fixture work under the production statement timeout.
-    sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,state,submitted_at_ms,available_at_ms,attempt_count,terminal_at_ms,cancel_requested_at_ms) SELECT 'task_'||lpad(n::text,8,'0'),'run_'||n,CASE WHEN n%5=0 THEN 'other' ELSE 'acme' END,'billing',CASE WHEN n%10=1 THEN 'rare' ELSE 'python' END,'key_'||n,CASE WHEN n%7=1 THEN 'invoice:'||(n%100)::text ELSE NULL END,'{}','{}',CASE WHEN n%11=1 THEN 'cancelled' ELSE 'queued' END,n,n,1,CASE WHEN n%11=1 THEN n ELSE NULL END,CASE WHEN n%11=1 THEN n ELSE NULL END FROM generate_series(1,100000) n")
-        .execute(&db.store.pool).await.unwrap();
-    sqlx::query("INSERT INTO attempts(attempt_id,task_id,generation,lease_id,worker_session_id,consumer_id,event_source,event_id,event_bytes,expires_at_ms,deadline_ms,authority_deadline_ms,state,execution_may_have_started,quiescence,finished_at_ms) SELECT 'att_'||n,'task_'||lpad(n::text,8,'0'),1,'lease_'||n,'session',0,'urn:discovery','event_'||n,'{}',n,n,n,'failed',false,'confirmed',n FROM generate_series(1,100000) n")
-        .execute(&db.store.pool).await.unwrap();
+    // Bound each fixture statement while retaining the production timeout. A
+    // single transaction keeps both complete histories atomic; measured reads
+    // below still run against all rows with the normal connection settings.
+    const ROWS: i32 = 100_000;
+    const BATCH_ROWS: i32 = 1_000;
+    let mut tx = db.store.pool.begin().await.unwrap();
+    for first in (1..=ROWS).step_by(BATCH_ROWS as usize) {
+        let last = (first + BATCH_ROWS - 1).min(ROWS);
+        let expected_rows = u64::try_from(last - first + 1).unwrap();
+        let tasks = sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,state,submitted_at_ms,available_at_ms,attempt_count,terminal_at_ms,cancel_requested_at_ms) SELECT 'task_'||lpad(n::text,8,'0'),'run_'||n,CASE WHEN n%5=0 THEN 'other' ELSE 'acme' END,'billing',CASE WHEN n%10=1 THEN 'rare' ELSE 'python' END,'key_'||n,CASE WHEN n%7=1 THEN 'invoice:'||(n%100)::text ELSE NULL END,'{}','{}',CASE WHEN n%11=1 THEN 'cancelled' ELSE 'queued' END,n,n,1,CASE WHEN n%11=1 THEN n ELSE NULL END,CASE WHEN n%11=1 THEN n ELSE NULL END FROM generate_series($1::integer,$2::integer) n")
+            .bind(first)
+            .bind(last)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(tasks.rows_affected(), expected_rows);
+        let attempts = sqlx::query("INSERT INTO attempts(attempt_id,task_id,generation,lease_id,worker_session_id,consumer_id,event_source,event_id,event_bytes,expires_at_ms,deadline_ms,authority_deadline_ms,state,execution_may_have_started,quiescence,finished_at_ms) SELECT 'att_'||n,'task_'||lpad(n::text,8,'0'),1,'lease_'||n,'session',0,'urn:discovery','event_'||n,'{}',n,n,n,'failed',false,'confirmed',n FROM generate_series($1::integer,$2::integer) n")
+            .bind(first)
+            .bind(last)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(attempts.rows_affected(), expected_rows);
+    }
+    tx.commit().await.unwrap();
+    let row_counts: (i64, i64) =
+        sqlx::query_as("SELECT (SELECT count(*) FROM tasks), (SELECT count(*) FROM attempts)")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(row_counts, (i64::from(ROWS), i64::from(ROWS)));
     sqlx::query("VACUUM ANALYZE attempts")
         .execute(&db.store.pool)
         .await
