@@ -382,7 +382,7 @@ async fn control_response_crossing_request_deadline_remains_uncertain() {
     let result = controlled(
         &RunControl::new(Duration::from_secs(1)),
         Duration::from_millis(1),
-        async {
+        || async {
             // An adapter can return from one poll after its operation budget elapsed.
             std::thread::sleep(Duration::from_millis(5));
             Ok(42)
@@ -390,4 +390,67 @@ async fn control_response_crossing_request_deadline_remains_uncertain() {
     )
     .await;
     assert!(matches!(result, Err(ContractError::Unavailable(_))));
+}
+
+#[tokio::test]
+async fn control_adapter_construction_consumes_the_same_request_budget() {
+    let polled = AtomicBool::new(false);
+    let result = controlled(
+        &RunControl::new(Duration::from_secs(1)),
+        Duration::from_millis(5),
+        || {
+            std::thread::sleep(Duration::from_millis(20));
+            async {
+                polled.store(true, Ordering::SeqCst);
+                Ok(42)
+            }
+        },
+    )
+    .await;
+    assert!(matches!(result, Err(ContractError::Unavailable(_))));
+    assert!(
+        !polled.load(Ordering::SeqCst),
+        "do not poll adapter I/O after construction exhausted its request budget"
+    );
+}
+
+#[tokio::test]
+async fn cancelled_control_does_not_construct_adapter_io() {
+    let control = RunControl::new(Duration::from_secs(1));
+    control.cancel();
+    let constructed = AtomicBool::new(false);
+    let result = controlled(&control, Duration::from_millis(50), || {
+        constructed.store(true, Ordering::SeqCst);
+        async { Ok(42) }
+    })
+    .await;
+    assert_eq!(result, Err(ContractError::OwnershipLost));
+    assert!(!constructed.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn control_rechecks_cancellation_after_a_synchronous_reply() {
+    let control = RunControl::new(Duration::from_secs(1));
+    let result = controlled(&control, Duration::from_millis(50), || async {
+        control.cancel();
+        Ok(42)
+    })
+    .await;
+    assert_eq!(result, Err(ContractError::OwnershipLost));
+}
+
+#[tokio::test]
+async fn cancellation_during_control_construction_does_not_poll_adapter_io() {
+    let control = RunControl::new(Duration::from_secs(1));
+    let polled = AtomicBool::new(false);
+    let result = controlled(&control, Duration::from_millis(50), || {
+        control.cancel();
+        async {
+            polled.store(true, Ordering::SeqCst);
+            Ok(42)
+        }
+    })
+    .await;
+    assert_eq!(result, Err(ContractError::OwnershipLost));
+    assert!(!polled.load(Ordering::SeqCst));
 }

@@ -263,7 +263,7 @@ export function WorkflowResources({
                 <Link
                   to={`/executions/${encodeURIComponent(item.task_id)}?tab=Resources`}
                 >
-                  Controller phase {item.revision} resources
+                  Activation {item.revision} resources
                 </Link>{" "}
                 · <Status value={item.state} />
               </li>

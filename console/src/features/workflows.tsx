@@ -20,7 +20,6 @@ import {
 } from "../components/ui/dialog";
 import { LoadingState } from "../components/async-state";
 import {
-  PageHeading,
   Elapsed,
   Status,
   When,
@@ -33,142 +32,10 @@ import {
   JsonView,
 } from "../components/resource-ui";
 import { CommandFeedback } from "../components/command-feedback";
-import { Filters } from "./filters";
 import { ExecutionHeading } from "../components/execution-heading";
 import { WorkflowExplorer, WorkflowInput } from "./workflow-explorer";
 import { WorkflowResources } from "./execution-resources";
 import { DetailPanels, DetailSections } from "./detail-panels";
-export function WorkflowsPage() {
-  const config = useInstance();
-  const [params] = useSearchParams();
-  const paging = usePagination();
-  const query = useResource(
-    "workflows",
-    {
-      limit: paging.limit,
-      cursor: paging.cursor,
-      state: params.get("state"),
-      correlation_key: params.get("correlation_key"),
-      submitted_from: params.get("submitted_from"),
-      submitted_until: params.get("submitted_until"),
-      parent_workflow_id: params.get("parent_workflow_id"),
-      root_only: params.get("root_only"),
-    },
-    dto.workflowPage,
-    {
-      enabled: config.capabilities.workflows,
-      interval: paging.cursor ? false : config.polling.lists_ms,
-    },
-  );
-  return (
-    <>
-      <PageHeading
-        title="Workflows"
-        description="Durable controllers, recorded work and external waits."
-        actions={
-          <Link className="button button-outline" to="/agents">
-            Choose a controller
-          </Link>
-        }
-      />
-      {!config.capabilities.workflows ? (
-        <Empty>Workflows are unavailable on this server.</Empty>
-      ) : (
-        <>
-          <Filters kind="workflows" />
-          <div className="table-panel">
-            {query.isPending && <LoadingState label="Loading workflows" />}
-            {query.error && (
-              <QueryError
-                error={query.error}
-                retry={() => void query.refetch()}
-                stale={!!query.data}
-              />
-            )}{" "}
-            {query.data && (
-              <>
-                {query.data.items.length ? (
-                  <Table className="responsive-table">
-                    <thead>
-                      <tr>
-                        {[
-                          "Workflow",
-                          "Controller",
-                          "Status",
-                          "Revision",
-                          "Correlation",
-                          "Lineage",
-                          "Submitted",
-                        ].map((h) => (
-                          <th key={h}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {query.data.items.map(({ workflow, controller }) => (
-                        <tr key={workflow.workflow_id}>
-                          <td data-label="Workflow">
-                            <Link
-                              state={{
-                                returnTo: `/workflows${params.size ? `?${params}` : ""}`,
-                              }}
-                              to={`/workflows/${encodeURIComponent(workflow.workflow_id)}`}
-                            >
-                              {workflow.workflow_id}
-                            </Link>
-                          </td>
-                          <td data-label="Controller">
-                            {controller.program.id}
-                            <span className="cell-secondary">
-                              {controller.program.version}
-                            </span>
-                          </td>
-                          <td data-label="Status">
-                            <Status value={workflow.state} />
-                          </td>
-                          <td data-label="Revision">{workflow.revision}</td>
-                          <td data-label="Correlation">
-                            {workflow.correlation_key ?? "Not set"}
-                          </td>
-                          <td data-label="Lineage">
-                            {workflow.parent_workflow_id ? (
-                              <Link
-                                to={`/workflows/${encodeURIComponent(workflow.parent_workflow_id)}`}
-                              >
-                                Parent workflow
-                              </Link>
-                            ) : (
-                              "Root workflow"
-                            )}
-                          </td>
-                          <td data-label="Submitted">
-                            <When value={workflow.submitted_at} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                ) : (
-                  <Empty filtered={params.size > 0}>
-                    Start a registered workflow controller or adjust the exact
-                    filters.
-                  </Empty>
-                )}
-                <PageControls
-                  pagination={paging}
-                  nextCursor={query.data.next_cursor}
-                  observedAt={query.data.observed_at}
-                  refresh={() => void query.refetch()}
-                  fetching={query.isFetching}
-                />
-              </>
-            )}
-          </div>
-        </>
-      )}
-    </>
-  );
-}
 export function WorkflowDetailPage() {
   const { workflowId = "" } = useParams();
   const config = useInstance();

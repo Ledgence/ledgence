@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import aiohttp
@@ -13,7 +14,7 @@ from ledgence.client import (
     ProtocolError, RequestTimeout, RetryPolicy, ServiceError, SubmissionUncertain,
     TaskCancelled, TaskFailed, TransportError, Unavailable, WaitTimeout,
 )
-from ledgence.client import transport
+from ledgence.client import tasks, transport
 from support import response, result, status, submitted
 
 
@@ -237,17 +238,48 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(self.requests), 2)
 
     async def test_final_result_fetch_shares_wait_deadline(self):
-        async def delayed(request, body):
-            if request.path.endswith("status"): return response(status("succeeded"))
-            await asyncio.sleep(.2)
-            return response(result())
-        self.callback = delayed
-        task = self.client.tasks.handle("task")
-        start = time.monotonic()
-        with self.assertRaises(WaitTimeout) as exc: await task.result(timeout=.04)
-        self.assertLess(time.monotonic() - start, .15)
-        self.assertEqual(exc.exception.last_status.state, "succeeded")
-        self.assertEqual([r[1] for r in self.requests], ["/v1/tasks/status", "/v1/tasks/result"])
+        # Control observation time at the transport boundary: scheduler/HTTP
+        # startup latency must not decide whether terminal status was observed.
+        # Real transport timeout cancellation is covered separately below.
+        for final_reply in ("timeout", "late_success"):
+            with self.subTest(final_reply=final_reply):
+                now = 1000.0
+                exchanges = []
+                clock = SimpleNamespace(time=lambda: now)
+                timeout_error = RequestTimeout(dispatched=True)
+
+                async def exchange(method, route, *, deadline, parser, **kwargs):
+                    nonlocal now
+                    exchanges.append((method, route, deadline, deadline - now))
+                    if route.endswith("status"):
+                        now += 6.0
+                        return parser(status("succeeded"))
+                    self.assertEqual(route, "/v1/tasks/result")
+                    # The same ten-unit budget has only four units remaining.
+                    self.assertEqual(deadline, 1010.0)
+                    now = deadline
+                    if final_reply == "timeout":
+                        raise timeout_error
+                    return parser(result())
+
+                async def unexpected_sleep(delay):
+                    self.fail("an exhausted observation budget must not sleep or retry")
+
+                observation_time = SimpleNamespace(
+                    get_running_loop=lambda: clock, sleep=unexpected_sleep)
+                task = self.client.tasks.handle("task")
+                with patch.object(tasks, "asyncio", observation_time), \
+                        patch.object(self.client._transport, "exchange", exchange):
+                    with self.assertRaises(WaitTimeout) as exc:
+                        await task.result(timeout=10.0)
+                self.assertIs(exc.exception.task, task)
+                self.assertEqual(exc.exception.last_status.state, "succeeded")
+                self.assertIs(exc.exception.last_error,
+                              timeout_error if final_reply == "timeout" else None)
+                self.assertEqual(exchanges, [
+                    ("GET", "/v1/tasks/status", 1010.0, 10.0),
+                    ("GET", "/v1/tasks/result", 1010.0, 4.0),
+                ])
 
     async def test_known_predispatch_timeout_is_not_uncertain(self):
         client = await self.open_client(request_timeout=.01)

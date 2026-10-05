@@ -76,11 +76,9 @@ async fn fetch_context(
 ) -> ledgence_worker_api::Result<WorkflowActivationContext> {
     let context = loop {
         control.check()?;
-        match controlled(
-            control,
-            config.request_timeout,
-            service.activation_context(owner),
-        )
+        match controlled(control, config.request_timeout, || {
+            service.activation_context(owner)
+        })
         .await
         {
             Ok(context) => break context,
@@ -139,11 +137,9 @@ impl RuntimeRequestHandler for WorkflowOperations {
             };
             loop {
                 control.check()?;
-                match controlled(
-                    &control,
-                    self.request_timeout,
-                    self.service.record_local_result(&command),
-                )
+                match controlled(&control, self.request_timeout, || {
+                    self.service.record_local_result(&command)
+                })
                 .await
                 {
                     Ok(receipt) => {
@@ -186,11 +182,9 @@ impl WorkflowOperations {
         command.validate().map_err(runtime_error)?;
         loop {
             control.check()?;
-            match controlled(
-                &control,
-                self.request_timeout,
-                self.service.fork_workflow(&command),
-            )
+            match controlled(&control, self.request_timeout, || {
+                self.service.fork_workflow(&command)
+            })
             .await
             {
                 Ok(receipt) => {
@@ -222,28 +216,41 @@ impl WorkflowOperations {
 
 /// Cancellation can leave a write unconfirmed. The immutable command and the
 /// store's lease fence/receipt make that uncertainty recoverable on replay.
-async fn controlled<T>(
+async fn controlled<T, F: Future<Output = Result<T>>>(
     control: &RunControl,
     timeout: Duration,
-    future: impl Future<Output = Result<T>>,
+    call: impl FnOnce() -> F,
 ) -> Result<T> {
     let deadline = Instant::now()
         .checked_add(timeout)
         .unwrap_or_else(Instant::now)
         .min(control.deadline());
+    // Capture the budget before constructing adapter I/O. The shared exchange
+    // supervisor bounds construction and polling, including late synchronous
+    // completion, without losing the immutable command's retry semantics.
+    let future = super::exchange_until(deadline, || {
+        let future = call();
+        async {
+            // Constructing a port future is synchronous but can still race a
+            // cancellation from another task or thread. Fence dispatch again.
+            if control.check().is_err() {
+                return Err(ContractError::OwnershipLost);
+            }
+            future.await
+        }
+    });
     tokio::pin!(future);
     loop {
         if control.check().is_err() {
             return Err(ContractError::OwnershipLost);
         }
-        if Instant::now() >= deadline {
-            return Err(ContractError::Unavailable(
-                "workflow control request timed out; outcome is uncertain".into(),
-            ));
-        }
         tokio::select! {
             result = &mut future => {
-                if Instant::now() >= deadline { return Err(ContractError::Unavailable("workflow control request completed after its deadline; outcome is uncertain".into())); }
+                // A synchronous adapter poll can also race cancellation. Do not
+                // acknowledge the result after the attempt lost permission.
+                if control.check().is_err() {
+                    return Err(ContractError::OwnershipLost);
+                }
                 return result;
             },
             _ = tokio::time::sleep(TICK) => {},

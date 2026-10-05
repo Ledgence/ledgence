@@ -6,9 +6,9 @@ response for the same operation key and binding. The model can make a different
 decision on a new invocation; recovery of a committed invocation reuses the
 original decision.
 
-This helper is available in the current source checkout, after 0.2.0. Build and
-use its worker and Python runtime helper together. It reuses runtime protocol 3,
-the Rust local-step journal, existing HTTP transport and PostgreSQL persistence.
+This helper is included in Ledgence 0.3.0. Use matching worker and Python
+runtime-helper versions. See the [upgrade guide](upgrading-to-0.3.md) when moving
+an existing deployment from 0.2.0.
 There is no new database migration, queue message type, or provider dependency.
 
 ## Bind the effective call

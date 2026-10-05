@@ -20,7 +20,7 @@ import uuid
 
 from http_acceptance.harness import eventually
 from mcp_acceptance.harness import HeldReplyProxy, McpDeployment, McpSession
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 
 
 WORKFLOW = '''from ledgence.worker.workflow import ApprovalAction, workflow_context
@@ -344,7 +344,7 @@ def main():
         print("PASS " + name + ": " + json.dumps(detail), flush=True)
     deployment, created, succeeded, sessions = None, False, False, []
     try:
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         deployment = McpDeployment(root, directory, binaries, python, database_url, args.psql)
         deployment.publish("mcp-workflow", "1.0.0", program_source=WORKFLOW, runtime_protocol=3)

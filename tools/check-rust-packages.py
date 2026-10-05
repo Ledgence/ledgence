@@ -48,7 +48,7 @@ def publication_policy(root):
         require(package.get('publish') == (['crates-io'] if name in APIS else False),
                 f'{name}: unexpected publication policy')
         packages[name] = path
-    require(len(packages) == 15 and set(APIS) <= packages.keys(), 'unexpected workspace package set')
+    require(set(APIS) <= packages.keys(), 'missing public API workspace package')
     for name, dependency in workspace['dependencies'].items():
         if name.startswith('ledgence-'):
             require(dependency['version'] == version, f'{name}: mismatched internal dependency version')

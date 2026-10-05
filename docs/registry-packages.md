@@ -3,15 +3,15 @@
 Ledgence distributes a Python client and reusable Rust adapter contracts separately
 from native worker/orchestrator release bundles.
 
-The following packages are publicly available at **0.2.0**:
+The following packages are publicly available at **0.3.0**:
 
 | Registry | Package | Purpose |
 | --- | --- | --- |
-| PyPI | [`ledgence-client`](https://pypi.org/project/ledgence-client/0.2.0/) | Async task/workflow client; import `ledgence.client` |
-| crates.io | [`ledgence-worker-api`](https://crates.io/crates/ledgence-worker-api/0.2.0) | Worker execution, runtime, artifact and telemetry contracts |
-| crates.io | [`ledgence-orchestration-api`](https://crates.io/crates/ledgence-orchestration-api/0.2.0) | Task/workflow orchestration and delivery contracts |
+| PyPI | [`ledgence-client`](https://pypi.org/project/ledgence-client/0.3.0/) | Async task/workflow client; import `ledgence.client` |
+| crates.io | [`ledgence-worker-api`](https://crates.io/crates/ledgence-worker-api/0.3.0) | Worker execution, runtime, artifact and telemetry contracts |
+| crates.io | [`ledgence-orchestration-api`](https://crates.io/crates/ledgence-orchestration-api/0.3.0) | Task/workflow orchestration and delivery contracts |
 
-Native bundles for **0.2.0** include Console on Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64. The historical first native bundle remains **v0.1.0 for macOS arm64**.
+Native bundles for **0.3.0** include Console on Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64. The historical first native bundle remains **v0.1.0 for macOS arm64**.
 See the [release reference](https://docs.ledgence.com/reference/releases) for the
 artifact matrix. Package publication does not imply a native bundle exists for
 that version or platform. Public APIs may evolve before 1.0.
@@ -21,15 +21,15 @@ that version or platform. Public APIs may evolve before 1.0.
 In an active Python 3.11+ virtual environment:
 
 ```sh
-python -m pip install "ledgence-client==0.2.0"
+python -m pip install "ledgence-client==0.3.0"
 ```
 
 For Rust adapters, use Rust 1.98 or newer and add the contract you need:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "0.2.0"
-ledgence-orchestration-api = "0.2.0"
+ledgence-worker-api = "0.3.0"
+ledgence-orchestration-api = "0.3.0"
 ```
 
 Rust implementation crates and binaries have `publish = false`. Installing
@@ -119,7 +119,7 @@ workflows plus both package gates. Publisher jobs wait for all those jobs to
 succeed. Actions are pinned to commit revisions.
 
 For publication, select the matching annotated version tag, for example
-`v0.2.0`, and set `publish=true`. Rust and Python versions must match that tag,
+`v0.3.0`, and set `publish=true`. Rust and Python versions must match that tag,
 its commit must be contained in `main`, and checkout must be clean.
 The tag is prepared through the normal tested feature/develop/release Git flow;
 this workflow does not promote branches or create tags.
@@ -134,7 +134,7 @@ branch, dispatch it with GitHub CLI:
 gh workflow run publish.yml --ref develop -f publish=false
 
 # Publish an already qualified, annotated release tag.
-gh workflow run publish.yml --ref v0.2.0 \
+gh workflow run publish.yml --ref v0.3.0 \
   -f publish=true -f registry=both -f crates_auth=trusted
 ```
 

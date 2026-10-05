@@ -1,9 +1,9 @@
 ---
 title: Install the native tools
-description: Download and verify Ledgence 0.2.0 for Linux x86_64 or macOS Apple silicon, then run the unified CLI and bundled Console.
+description: Download and verify Ledgence 0.3.0 for Linux x86_64 or macOS Apple silicon, then run the unified CLI and bundled Console.
 ---
 
-Ledgence 0.2.0 native bundles contain one `ledgence` executable, the Python worker helper, the client wheel, and Console assets. Choose the archive for your host. For a complete local deployment built from source, follow [Run Ledgence locally](/tutorials/run-locally).
+Ledgence 0.3.0 native bundles contain one `ledgence` executable, the Python worker helper, the client wheel, and Console assets. Choose the archive for your host. For a complete local deployment built from source, follow [Run Ledgence locally](/tutorials/run-locally).
 
 ## Before you start
 
@@ -17,7 +17,7 @@ uname -m
 python3 --version
 ```
 
-Before replacing an existing deployment, follow [Upgrade to 0.2.0](/how-to/upgrade-to-0-2).
+Before replacing an existing deployment, follow [Upgrade to 0.3.0](/how-to/upgrade-to-0-3).
 
 ## Download and verify the archive
 
@@ -29,13 +29,13 @@ export LEDGENCE_TARGET=x86_64-unknown-linux-gnu
   # On macOS Apple silicon, use this instead:
   # export LEDGENCE_TARGET=aarch64-apple-darwin
 
-mkdir -p "$HOME/.local/share/ledgence/downloads/0.2.0"
-cd "$HOME/.local/share/ledgence/downloads/0.2.0"
-export LEDGENCE_ARCHIVE="ledgence-0.2.0-$LEDGENCE_TARGET.tar.gz"
+mkdir -p "$HOME/.local/share/ledgence/downloads/0.3.0"
+cd "$HOME/.local/share/ledgence/downloads/0.3.0"
+export LEDGENCE_ARCHIVE="ledgence-0.3.0-$LEDGENCE_TARGET.tar.gz"
 curl --fail --location --output "$LEDGENCE_ARCHIVE" \
-  "https://github.com/Ledgence/ledgence/releases/download/v0.2.0/$LEDGENCE_ARCHIVE"
+  "https://github.com/Ledgence/ledgence/releases/download/v0.3.0/$LEDGENCE_ARCHIVE"
 curl --fail --location --output SHA256SUMS \
-  https://github.com/Ledgence/ledgence/releases/download/v0.2.0/SHA256SUMS
+  https://github.com/Ledgence/ledgence/releases/download/v0.3.0/SHA256SUMS
 ```
 
 The release checksum file can list both platforms. Verify the entry for the archive you downloaded. This checksum check also works with older system Python versions; running Ledgence programs still requires CPython 3.11–3.14:
@@ -65,7 +65,7 @@ Continue only after `OK`. Extract the archive and verify its complete internal f
 
 ```sh
 tar -xzf "$LEDGENCE_ARCHIVE"
-export LEDGENCE_BUNDLE="$PWD/ledgence-0.2.0-$LEDGENCE_TARGET"
+export LEDGENCE_BUNDLE="$PWD/ledgence-0.3.0-$LEDGENCE_TARGET"
 cd "$LEDGENCE_BUNDLE"
   # Linux:
 sha256sum -c SHA256SUMS
@@ -115,7 +115,7 @@ The bundle's client wheel is separate from the worker helper. Install it in a vi
 ```sh
 "$LEDGENCE_PYTHON" -m venv "$LEDGENCE_EXAMPLE_DIR/client"
 "$LEDGENCE_EXAMPLE_DIR/client/bin/python" -m pip install \
-  "$LEDGENCE_BUNDLE/python-client/ledgence_client-0.2.0-py3-none-any.whl"
+  "$LEDGENCE_BUNDLE/python-client/ledgence_client-0.3.0-py3-none-any.whl"
 ```
 
 Installation obtains the pinned client dependencies unless you supply a reviewed offline wheelhouse.
@@ -134,4 +134,4 @@ ledgence orchestrator serve \
 
 These commands require the intended PostgreSQL connection and service configuration from the bundled guides. Keep the instance file on every subsequent start. Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/); no Node process is required. To run the complete example with a database, worker, store, and callbacks, follow the [local stack tutorial](/tutorials/run-locally).
 
-**Source:** [Release and checksums](https://github.com/Ledgence/ledgence/releases/tag/v0.2.0) · [Bundle verification](https://github.com/Ledgence/ledgence/blob/v0.2.0/tools/release/verify.py)
+**Source:** [Release and checksums](https://github.com/Ledgence/ledgence/releases/tag/v0.3.0) · [Bundle verification](https://github.com/Ledgence/ledgence/blob/v0.3.0/tools/release/verify.py)

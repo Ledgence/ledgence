@@ -1174,3 +1174,6 @@ fn task_input_id(input: &WorkflowChildResult) -> &str {
 mod forks;
 #[path = "owned_tests.rs"]
 mod owned;
+
+#[path = "upgrade_tests.rs"]
+mod upgrade;

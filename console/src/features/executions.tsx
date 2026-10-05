@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
-import { Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useInstance } from "../app/instance";
@@ -19,7 +18,6 @@ import {
 } from "../components/ui/dialog";
 import { LoadingState } from "../components/async-state";
 import {
-  PageHeading,
   Elapsed,
   Status,
   When,
@@ -32,145 +30,9 @@ import {
   JsonView,
 } from "../components/resource-ui";
 import { CommandFeedback } from "../components/command-feedback";
-import { Filters, ExecutionStatusTabs } from "./filters";
 import { ExecutionHeading } from "../components/execution-heading";
 import { TaskResources, AttemptResources } from "./execution-resources";
 import { DetailPanels, DetailSections } from "./detail-panels";
-export function ExecutionsPage() {
-  const config = useInstance();
-  const [params] = useSearchParams();
-  const paging = usePagination();
-  const query = useResource(
-    "tasks",
-    {
-      limit: paging.limit,
-      cursor: paging.cursor,
-      state: params.get("state"),
-      queue: params.get("queue"),
-      correlation_key: params.get("correlation_key"),
-      submitted_from: params.get("submitted_from"),
-      submitted_until: params.get("submitted_until"),
-    },
-    dto.taskPage,
-    {
-      enabled: config.capabilities.executions,
-      interval: paging.cursor ? false : config.polling.lists_ms,
-    },
-  );
-  return (
-    <>
-      <PageHeading
-        title="Executions"
-        description="Inspect work submitted to this instance."
-        actions={
-          config.capabilities.executions && (
-            <Link className="button button-primary" to="/executions/new">
-              <Plus aria-hidden="true" />
-              New execution
-            </Link>
-          )
-        }
-      />
-      {!config.capabilities.executions ? (
-        <Empty>Executions are unavailable on this server.</Empty>
-      ) : (
-        <>
-          <ExecutionStatusTabs />
-          <Filters kind="tasks" />
-          <div className="table-panel">
-            {query.isPending && <LoadingState label="Loading executions" />}
-            {query.error && (
-              <QueryError
-                error={query.error}
-                retry={() => void query.refetch()}
-                stale={!!query.data}
-              />
-            )}{" "}
-            {query.data && (
-              <>
-                {query.data.items.length ? (
-                  <Table className="responsive-table">
-                    <thead>
-                      <tr>
-                        {[
-                          "Execution",
-                          "Program / version",
-                          "Status",
-                          "Queue",
-                          "Correlation",
-                          "Attempts",
-                          "Submitted",
-                        ].map((h) => (
-                          <th key={h}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {query.data.items.map(({ task, descriptor }) => (
-                        <tr key={task.task_id}>
-                          <td data-label="Execution">
-                            <Link
-                              state={{
-                                returnTo: `/executions${params.size ? `?${params}` : ""}`,
-                              }}
-                              to={`/executions/${encodeURIComponent(task.task_id)}`}
-                            >
-                              {task.task_id}
-                            </Link>
-                          </td>
-                          <td data-label="Program / version">
-                            <Link
-                              to={`/programs/${encodeURIComponent(descriptor.program.id)}/versions/${encodeURIComponent(descriptor.program.version)}`}
-                            >
-                              {descriptor.program.id}
-                            </Link>
-                            <span className="cell-secondary">
-                              {descriptor.program.version}
-                            </span>
-                          </td>
-                          <td data-label="Status">
-                            <Status value={task.state} />
-                            {task.cancel_requested_at !== null &&
-                              !dto.terminal(task.state) && (
-                                <span className="cell-secondary">
-                                  Cancellation requested
-                                </span>
-                              )}
-                          </td>
-                          <td data-label="Queue">{task.queue}</td>
-                          <td data-label="Correlation">
-                            {task.correlation_key ?? (
-                              <span className="muted">Not set</span>
-                            )}
-                          </td>
-                          <td data-label="Attempts">{task.attempt_count}</td>
-                          <td data-label="Submitted">
-                            <When value={task.submitted_at} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                ) : (
-                  <Empty filtered={params.size > 0}>
-                    Submit an execution or adjust the exact filters.
-                  </Empty>
-                )}
-                <PageControls
-                  pagination={paging}
-                  nextCursor={query.data.next_cursor}
-                  observedAt={query.data.observed_at}
-                  refresh={() => void query.refetch()}
-                  fetching={query.isFetching}
-                />
-              </>
-            )}
-          </div>
-        </>
-      )}
-    </>
-  );
-}
 export function ExecutionDetailPage() {
   const { taskId = "" } = useParams();
   const location = useLocation();

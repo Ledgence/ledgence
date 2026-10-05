@@ -11,7 +11,7 @@ import subprocess
 import sys
 import uuid
 
-from postgres_fixture import owned_database_url
+from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import Deployment, Process, eventually
 from http_acceptance.scenarios import report
 
@@ -63,7 +63,7 @@ def main():
         line = eventually(lambda: next((line for line in capture.stderr_path.read_text().splitlines()
                                         if line.startswith("OTLP_CAPTURE_ENDPOINT=")), None), description="capture receiver")
         endpoint = line.split("=", 1)[1]
-        admin(f'CREATE DATABASE "{database}"')
+        create_owned_database(admin, database)
         created = True
         d = Deployment(root, directory, binaries, os.environ.get("LEDGENCE_PYTHON", sys.executable), database_url, args.psql)
         d.environment["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = endpoint

@@ -1,14 +1,14 @@
 # MCP server
 
-Current source builds after 0.2.0 expose Ledgence through an optional MCP server
-in the unified `ledgence` executable. Published 0.2.0 binaries do not include it.
+Ledgence 0.3.0 exposes an optional MCP server in the unified `ledgence`
+executable. Earlier 0.2.0 binaries do not include it.
 The server connects to your existing HTTP API; the orchestrator, database and
 workers continue running separately. No AI framework, model or vendor account
 is required by this integration.
 
 ## Connect
 
-Build current source, then configure your MCP host to launch:
+Build the matching release source or use its native bundle, then configure your MCP host to launch:
 
 ```sh
 cargo build -p ledgence-cli --locked
