@@ -26,6 +26,7 @@ Self-host without a required vendor account.
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
+- **Connect an MCP client:** use [`ledgence mcp serve`](docs/mcp.md) to discover programs, submit work, and inspect results through the existing API. Available in current source builds after 0.2.0.
 - **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
   with ChatGPT sign-in, documentation tools and durable human review, or the
   [Google ADK and Gemini variant](examples/support-agent/README.md).
@@ -161,6 +162,7 @@ python3 tools/check-python-client.py
 python3 tools/check-http-features.py
 python3 tools/check-otel-features.py
 python3 tools/check-sqs-features.py
+python3 tools/check-mcp-features.py
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-targets --all-features --locked
 cargo test --workspace --doc --all-features --locked

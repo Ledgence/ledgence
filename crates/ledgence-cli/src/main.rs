@@ -3,6 +3,7 @@
 mod approvals;
 mod args;
 mod logging;
+mod mcp;
 mod routing;
 mod submission;
 mod telemetry;
@@ -35,6 +36,7 @@ fn main() -> ExitCode {
         Ok(routing::Route::Worker(arguments)) => ledgence_worker::entrypoint(arguments),
         Ok(routing::Route::Orchestrator(arguments)) => ledgence_orchestrator::entrypoint(arguments),
         Ok(routing::Route::Admin(arguments)) => run_admin(arguments),
+        Ok(routing::Route::Mcp(arguments)) => mcp::run(arguments),
         Err(error) => diagnose(error, None),
     }
 }

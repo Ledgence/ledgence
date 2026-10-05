@@ -7,6 +7,7 @@ Ledgence provides a worker, a transport-independent delivery driver, and a Rust 
 | Crate | Responsibility | Production workspace dependencies |
 | --- | --- | --- |
 | `ledgence-worker-api` | Events, manifests, descriptors, runtime input, portable trace carriers, cancellation, and adapter ports | None |
+| `ledgence-adapter-mcp` | Optional stdio MCP server over task, workflow and catalog ports; no HTTP or framework dependency in production | Worker API, orchestration API |
 | `ledgence-adapter-otel` | Optional trace provider/exporter, context bridge, correlated JSON logging | Worker API |
 | `ledgence-worker-core` | Admission, preparation coordination, process capacity and reuse, shutdown | API |
 | `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |

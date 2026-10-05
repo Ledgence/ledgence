@@ -57,6 +57,8 @@ jobs:
         run: python tools/check-otel-features.py
       - name: Check optional SQS feature boundaries
         run: python tools/check-sqs-features.py
+      - name: Check optional MCP feature boundaries
+        run: python tools/check-mcp-features.py
       - name: Test Rust and real subprocess execution
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
@@ -194,6 +196,14 @@ jobs:
           python tools/check-observability.py --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries target/debug --capture target/debug/examples/otlp-capture \
             --evidence "$RUNNER_TEMP/ledgence-observability-evidence"
+
+      - name: Check MCP stdio through HTTP, PostgreSQL and a Python worker
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          python tools/check-mcp.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries target/debug --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
 
       - name: Build and install the Python client wheel for end-to-end acceptance
         run: |

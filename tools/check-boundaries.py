@@ -11,6 +11,7 @@ def violations(graph):
     allowed = {
         "ledgence-worker-api": set(),
         "ledgence-adapter-otel": {"ledgence-worker-api"},
+        "ledgence-adapter-mcp": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestration-api": {"ledgence-worker-api"},
         "ledgence-orchestration-core": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestration-service": {
@@ -34,6 +35,7 @@ def violations(graph):
             "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
         },
         "ledgence-cli": {
+            "ledgence-adapter-mcp",
             "ledgence-adapter-otel", "ledgence-adapter-http", "ledgence-orchestration-api",
             "ledgence-worker-api", "ledgence-worker", "ledgence-orchestrator",
         },
@@ -75,6 +77,8 @@ def violations(graph):
                 errors.append(f"{name}: OpenTelemetry SDK dependencies belong only in ledgence-adapter-otel")
             if target.startswith("aws-") and name != "ledgence-adapter-sqs":
                 errors.append(f"{name}: AWS SDK dependencies belong only in ledgence-adapter-sqs")
+            if target == "rmcp" and name != "ledgence-adapter-mcp":
+                errors.append(f"{name}: MCP SDK dependencies belong only in ledgence-adapter-mcp")
             if dependency["kind"] == "dev":
                 continue
             if target in packages and target not in allowed[name]:

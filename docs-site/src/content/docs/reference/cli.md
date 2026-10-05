@@ -29,8 +29,9 @@ checkout. `ledgence --version` reports the compiled platform version; an exact
 program version passed to `ledgence program register --version VALUE` continues
 to identify the application package.
 
-The default `otel` feature enables optional telemetry for each command role.
-`cargo build -p ledgence-cli --no-default-features --locked` omits OpenTelemetry.
+The default `otel` feature enables optional telemetry for administration, worker
+and orchestrator commands. The MCP command does not install a telemetry exporter.
+`cargo build -p ledgence-cli --no-default-features --locked` omits optional integrations.
 Use `--features sqs` to include optional SQS delivery for both worker and
 orchestrator commands, or `--all-features` to include every supported integration.
 These are build features; telemetry export and SQS operation still require
@@ -87,3 +88,13 @@ Use `task list` to discover work, `task status` for scheduling metadata,
 cancellation. See the [HTTP quickstart](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/http-orchestration.md#run-a-task) for
 complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/v0.2.0/docs/task-results.md) for outcome
 semantics.
+
+## MCP in current source
+
+Current source builds after 0.2.0 also enable the optional `mcp` feature by default.
+`ledgence mcp serve --server URL --tenant ID --namespace NAME` connects an MCP
+client over stdio to that API. Add `--read-only` for observation only.
+See [Connect an MCP client](/how-to/connect-mcp).
+
+`--no-default-features --features mcp` builds MCP without OpenTelemetry or SQS.
+Published 0.2.0 binaries do not include this command.
