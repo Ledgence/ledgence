@@ -13,11 +13,14 @@ name = "ledgence"
 path = "src/main.rs"
 
 [features]
-default = ["otel"]
+default = ["otel", "mcp"]
+mcp = ["dep:ledgence-adapter-mcp", "dep:tokio-util", "tokio/io-std"]
 otel = ["dep:ledgence-adapter-otel", "ledgence-worker/otel", "ledgence-orchestrator/otel"]
 sqs = ["ledgence-worker/sqs", "ledgence-orchestrator/sqs"]
 
 [dependencies]
+ledgence-adapter-mcp = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 ledgence-worker.workspace = true
 ledgence-orchestrator.workspace = true
 ledgence-adapter-otel = { workspace = true, optional = true }

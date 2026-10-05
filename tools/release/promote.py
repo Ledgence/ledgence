@@ -134,7 +134,7 @@ def promote(archive, expected_sha256, output, repository, release_ref, version, 
             f"Its native binary, Python distributions, worker helper, documentation and legal material retain the exact candidate bytes. "
             f"The original build source is {source_commit}; the source-equivalent release commit is {release_commit} (intended tag v{version}). "
             "The tag and publication are separate operations. See provenance.json and candidate-provenance.json for the promotion and original build records.\n\n"
-            f"Use bin/ledgence with the program, worker, orchestrator and task command groups. Supply a compatible host CPython 3.11–3.14 "
+            f"Use bin/ledgence with the program, worker, orchestrator, task, approval and mcp command groups. Supply a compatible host CPython 3.11–3.14 "
             f"and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. The native binary targets {provenance['target']}; "
             "CPython, PostgreSQL, brokers and host system libraries are not bundled. The unchanged client wheel and sdist are in python-client/. "
             "See docs/local-deployment.md and docs/releasing.md. The installed-SDK Compose companion is examples/local-compose-client.py; "

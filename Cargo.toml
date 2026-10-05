@@ -15,6 +15,7 @@ members = [
   "crates/ledgence-adapter-otel",
   "crates/ledgence-orchestrator",
   "crates/ledgence-cli",
+  "crates/ledgence-adapter-mcp",
 ]
 resolver = "3"
 
@@ -26,6 +27,9 @@ license = "MIT"
 repository = "https://github.com/Ledgence/ledgence"
 
 [workspace.dependencies]
+ledgence-adapter-mcp = { version = "0.2.0", path = "crates/ledgence-adapter-mcp" }
+rmcp = { version = "=3.5.0", default-features = false, features = ["server"] }
+tokio-util = { version = "=0.7.18", default-features = false, features = ["rt"] }
 ledgence-worker = { version = "0.2.0", path = "crates/ledgence-worker", default-features = false }
 ledgence-orchestrator = { version = "0.2.0", path = "crates/ledgence-orchestrator", default-features = false }
 ledgence-adapter-sqs = { version = "0.2.0", path = "crates/ledgence-adapter-sqs" }

@@ -224,3 +224,35 @@ The published archive checksum is recorded in `Cargo.lock`.
 `tools/release/notices.py` inventories the target-selected normal/build graph of `ledgence-cli` and its dependencies with all features, retains exact legal files (including nested native-code license directories), records crate archive checksums from Cargo.lock, and includes the pinned Rust distribution's COPYRIGHT-library.html, COPYRIGHT.html and license directory. Missing legal material fails collection; version-specific files already reviewed under legal/third-party can fill omissions in published archives. Development-only and other-target dependencies are not described as linked into the candidate. The full cargo-deny gate still checks the broader selected workspace graph.
 
 The local Dockerfile pins the official Rust 1.98.1/bookworm and CPython 3.14/bookworm image indexes. CPython's full supplied license and Debian's package inventory are retained alongside their original base-image notices. Debian utilities and system libraries can have copyleft or source-availability distribution obligations separate from Ledgence's library dependency policy. This is a locally built operator runtime, not an approval to redistribute an OCI image without satisfying those obligations. No image is published by the candidate tooling. Native bundles continue to use externally supplied CPython/system libraries. See [local deployment](local-deployment.md) and [candidate contents](releasing.md).
+
+## Optional MCP server
+
+Current source builds add `rmcp 3.5.0`, the official Rust MCP SDK, with defaults
+disabled and only its `server` feature. This feature includes the SDK's schema
+support; Ledgence does not enable its HTTP/authentication/client/macro features.
+The optional `ledgence-cli/mcp` feature composes the MCP adapter with the existing
+HTTP client. Worker/orchestrator libraries and portable core/API crates do not
+select rmcp. No AI framework, hosted account, model SDK or copyleft requirement is
+introduced.
+
+The resolved incremental graph contains 18 registry versions:
+`rmcp 3.5.0`, `chrono 0.4.45`, `dyn-clone 1.0.20`, `futures 0.3.34`,
+`iana-time-zone 0.1.65`, `iana-time-zone-haiku 0.1.2`,
+`android_system_properties 0.1.6`, `pastey 0.2.3`, `ref-cast 1.0.27`,
+`ref-cast-impl 1.0.27`, `schemars 1.2.2`, `schemars_derive 1.2.2`,
+`serde_derive_internals 0.30.0`, `windows-core 0.62.2`,
+`windows-implement 0.60.2`, `windows-interface 0.59.3`,
+`windows-result 0.4.1`, and `windows-strings 0.5.1`.
+They declare MIT, Apache-2.0, or an MIT/Apache alternative. Some are target-specific
+or build dependencies; this is an incremental lock inventory, not a statement
+that every component is linked on every platform. Existing versions are retained.
+
+The rmcp package declares Apache-2.0 but omits its root license file. The exact
+[upstream license and transition notice](../legal/third-party/rmcp-3.5.0-LICENSE)
+is retained from source commit `0cde3c5cf3e6aff0cc852ce6045f107e95991f48`, identified
+by the published package's `.cargo_vcs_info.json`. It preserves Apache terms and
+remaining MIT-licensed contributions. Upstream documentation has separate terms;
+Ledgence does not vendor that documentation. The release notice collector includes
+this reviewed copy and each other selected dependency's published legal files.
+No license allowlist expansion is needed. `cargo deny --locked check` and
+`tools/check-mcp-features.py` enforce policy and feature isolation.

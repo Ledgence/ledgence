@@ -166,6 +166,7 @@ pub(super) async fn dispatch(
         }
         let page = pagination(&fields)?;
         if path.starts_with("/v1/console/programs") {
+            require_catalog_scope(&fields, scope)?;
             let service = console.catalog.as_ref().ok_or(ContractError::NotFound)?;
             let query = match path {
                 "/v1/console/programs/catalog" => ProgramCatalogQuery::Catalog {
@@ -657,7 +658,13 @@ fn fields(raw: &str, path: &str) -> Result<BTreeMap<String, String>> {
         "/v1/console/workflows/explorer" => &["workflow_id", "limit", "cursor"],
         "/v1/console/workflows/input" => &["workflow_id"],
         "/v1/console/attempts/observations" => &["attempt_id"],
-        "/v1/console/programs/catalog" => &["kind", "limit", "cursor"],
+        "/v1/console/programs/catalog" => &[
+            "kind",
+            "limit",
+            "cursor",
+            "expected_tenant_id",
+            "expected_namespace",
+        ],
         "/v1/console/config" => &[],
         "/v1/console/tasks" => &[
             "state",
@@ -693,9 +700,25 @@ fn fields(raw: &str, path: &str) -> Result<BTreeMap<String, String>> {
         | "/v1/console/workflows/children"
         | "/v1/console/workflows/waits"
         | "/v1/console/workflows/history" => &["workflow_id", "limit", "cursor"],
-        "/v1/console/programs" => &["limit", "cursor"],
-        "/v1/console/programs/versions" => &["program_id", "limit", "cursor"],
-        "/v1/console/programs/inspect" => &["program_id", "version"],
+        "/v1/console/programs" => &[
+            "limit",
+            "cursor",
+            "expected_tenant_id",
+            "expected_namespace",
+        ],
+        "/v1/console/programs/versions" => &[
+            "program_id",
+            "limit",
+            "cursor",
+            "expected_tenant_id",
+            "expected_namespace",
+        ],
+        "/v1/console/programs/inspect" => &[
+            "program_id",
+            "version",
+            "expected_tenant_id",
+            "expected_namespace",
+        ],
         "/v1/console/workers" => &["queue", "limit", "cursor"],
         "/v1/console/workers/inspect" => &["worker_session_id", "limit", "cursor"],
         _ => return Err(ContractError::NotFound),
@@ -717,6 +740,29 @@ fn fields(raw: &str, path: &str) -> Result<BTreeMap<String, String>> {
     }
     Ok(fields)
 }
+/// Optional guards constrain a catalog read; they never choose another scope.
+fn require_catalog_scope(fields: &BTreeMap<String, String>, scope: &Scope) -> Result<()> {
+    match (
+        fields.get("expected_tenant_id"),
+        fields.get("expected_namespace"),
+    ) {
+        (None, None) => Ok(()),
+        (Some(tenant), Some(namespace)) => {
+            let expected = Scope {
+                tenant_id: tenant.clone(),
+                namespace: namespace.clone(),
+            };
+            expected.validate()?;
+            if &expected == scope {
+                Ok(())
+            } else {
+                Err(ContractError::NotFound)
+            }
+        }
+        _ => Err(invalid("catalog scope guards must be supplied together")),
+    }
+}
+
 fn check_snapshot(reply: &TaskSnapshot, scope: &Scope, id: &str) -> Result<()> {
     if reply.scope() != *scope
         || reply.task_id != id
@@ -810,4 +856,64 @@ async fn task_history(
     };
     reply.validate(&page, &binding)?;
     metadata(server, reply).await
+}
+
+#[cfg(test)]
+mod catalog_scope_tests {
+    use super::*;
+    #[test]
+    fn guards_are_optional_but_must_match_together() {
+        let scope = Scope {
+            tenant_id: "acme".into(),
+            namespace: "billing".into(),
+        };
+        for route in [
+            "/v1/console/programs",
+            "/v1/console/programs/catalog",
+            "/v1/console/programs/versions",
+            "/v1/console/programs/inspect",
+        ] {
+            assert!(require_catalog_scope(&fields("", route).unwrap(), &scope).is_ok());
+            assert!(
+                require_catalog_scope(
+                    &fields("expected_tenant_id=acme&expected_namespace=billing", route).unwrap(),
+                    &scope
+                )
+                .is_ok()
+            );
+            assert_eq!(
+                require_catalog_scope(
+                    &fields("expected_tenant_id=other&expected_namespace=billing", route).unwrap(),
+                    &scope
+                ),
+                Err(ContractError::NotFound)
+            );
+            assert!(matches!(
+                require_catalog_scope(&fields("expected_tenant_id=acme", route).unwrap(), &scope),
+                Err(ContractError::InvalidInput(_))
+            ));
+            assert!(matches!(
+                require_catalog_scope(
+                    &fields("expected_namespace=billing", route).unwrap(),
+                    &scope
+                ),
+                Err(ContractError::InvalidInput(_))
+            ));
+            assert!(
+                fields(
+                    "expected_tenant_id=acme&expected_tenant_id=other&expected_namespace=billing",
+                    route
+                )
+                .is_err()
+            );
+            assert!(fields("tenant_id=other", route).is_err());
+        }
+        assert!(
+            fields(
+                "expected_tenant_id=acme&expected_namespace=billing",
+                "/v1/console/tasks"
+            )
+            .is_err()
+        );
+    }
 }

@@ -26,8 +26,9 @@ checkout. `ledgence --version` reports the compiled platform version; an exact
 program version passed to `ledgence program register --version VALUE` continues
 to identify the application package.
 
-The default `otel` feature enables optional telemetry for each command role.
-`cargo build -p ledgence-cli --no-default-features --locked` omits OpenTelemetry.
+The default `otel` feature enables optional telemetry for administration, worker
+and orchestrator commands. The MCP command does not install a telemetry exporter.
+`cargo build -p ledgence-cli --no-default-features --locked` omits optional integrations.
 Use `--features sqs` to include optional SQS delivery for both worker and
 orchestrator commands, or `--all-features` to include every supported integration.
 These are build features; telemetry export and SQS operation still require
@@ -91,3 +92,15 @@ Use [durable workflow approvals](workflow-approvals.md) when a review must bind
 to an existing immutable action and its effective arguments. Generic events
 remain application input; they cannot approve an action. The unified CLI
 provides `ledgence approval list`, `inspect`, and `decide`.
+
+## MCP clients
+
+Current source builds after 0.2.0 include the optional `mcp` feature by default.
+Run `ledgence mcp serve --server URL --tenant ID --namespace NAME` for a stdio
+session backed by that HTTP API. Add `--read-only` to expose only observation
+tools. No worker, database, or model provider starts in the MCP process.
+See [MCP setup, tools and recovery](mcp.md).
+
+`--no-default-features` omits both MCP and OpenTelemetry. Add `--features mcp`
+to include only MCP, or `--features otel` for telemetry without MCP. Published
+0.2.0 binaries retain their original command set; build current source for MCP.
