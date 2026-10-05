@@ -5,7 +5,7 @@ records each response, and stages a distributed summary task. It then returns a
 checkpoint. The child uses the released worker slot; a later controller
 activation reads its result. The controller registers typed `START` and `COLLECT`
 entrypoints instead of routing continuation strings manually. Worker concurrency
-can remain **1** throughout. Use matching 0.3.0 workers and orchestrator with all
+can remain **1** throughout. Use matching 0.3.1 workers and orchestrator with all
 database migrations installed; the historical 0.1 releases lack this API.
 
 From the repository root, build and prepare both packages. Use CPython 3.11 or

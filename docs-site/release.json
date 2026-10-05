@@ -1,9 +1,9 @@
 {
   "series": "0.3",
-  "sourceRef": "v0.3.0",
-  "nativeVersion": "0.3.0",
-  "clientVersion": "0.3.0",
-  "rustApiVersion": "0.3.0",
+  "sourceRef": "v0.3.1",
+  "nativeVersion": "0.3.1",
+  "clientVersion": "0.3.1",
+  "rustApiVersion": "0.3.1",
   "nativeTargets": [
     "x86_64-unknown-linux-gnu",
     "aarch64-apple-darwin"

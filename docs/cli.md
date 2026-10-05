@@ -1,6 +1,6 @@
 # Command-line interface
 
-Ledgence 0.3.0 builds one public executable, `ledgence`, from the
+Ledgence 0.3.1 builds one public executable, `ledgence`, from the
 `ledgence-cli` crate. It provides program packaging, worker execution,
 orchestrator operation, and task administration under command groups. Worker and
 orchestrator processes still run separately and can run on different hosts.
@@ -95,12 +95,12 @@ provides `ledgence approval list`, `inspect`, and `decide`.
 
 ## MCP clients
 
-Ledgence 0.3.0 builds include the optional `mcp` feature by default.
+Ledgence 0.3.1 builds include the optional `mcp` feature by default.
 Run `ledgence mcp serve --server URL --tenant ID --namespace NAME` for a stdio
 session backed by that HTTP API. Add `--read-only` to expose only observation
 tools. No worker, database, or model provider starts in the MCP process.
 See [MCP setup, tools and recovery](mcp.md).
 
 `--no-default-features` omits both MCP and OpenTelemetry. Add `--features mcp`
-to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.3.0 native bundle or build the matching source for MCP; earlier 0.2.0
+to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.3.1 native bundle or build the matching source for MCP; earlier 0.2.0
 binaries retain their original command set.

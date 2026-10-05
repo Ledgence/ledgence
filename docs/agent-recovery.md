@@ -6,7 +6,7 @@ response for the same operation key and binding. The model can make a different
 decision on a new invocation; recovery of a committed invocation reuses the
 original decision.
 
-This helper is included in Ledgence 0.3.0. Use matching worker and Python
+This helper is included in Ledgence 0.3.1. Use matching worker and Python
 runtime-helper versions. See the [upgrade guide](upgrading-to-0.3.md) when moving
 an existing deployment from 0.2.0.
 There is no new database migration, queue message type, or provider dependency.

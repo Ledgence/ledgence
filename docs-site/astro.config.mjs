@@ -32,7 +32,7 @@ export default defineConfig({
         { label: 'Register an agent', slug: 'how-to/register-agent' },
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },
         { label: 'Install the native release', slug: 'how-to/install-native' },
-        { label: 'Upgrade to 0.3.0', slug: 'how-to/upgrade-to-0-3' },
+        { label: 'Upgrade to 0.3.1', slug: 'how-to/upgrade-to-0-3' },
         { label: 'Upgrade to 0.2.0', slug: 'how-to/upgrade-to-0-2' },
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
         { label: 'Mix local work and branches', slug: 'how-to/fork-workflow-branches' },
