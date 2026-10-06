@@ -5,6 +5,11 @@ description: Entrypoint registration, context properties, child operations, deci
 
 This reference covers protocol **3** workflow handlers and their worker-supplied context.
 
+To resolve these imports in your editor and test ordinary business functions,
+see [Develop Python programs](/how-to/develop-python-programs). Local helper
+packaging is available in updated development source. Context APIs still require
+an active worker invocation; installing the helper does not execute workflows.
+
 **Available since 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.4.0](/how-to/upgrade-to-0-4).
 
 A handler can obtain the context directly:

@@ -1,4 +1,4 @@
-# Ledgence Python helper
+# Ledgence Python worker helper
 
 The Rust worker supplies `ledgence.worker` with its Python runner. It supports
 ordinary program handlers, invocation context and logs, and protocol 3 workflows
@@ -9,6 +9,62 @@ events, timers, and action approvals. The separately installed
 Use a runtime helper matching your worker. The helper is standard-library-only;
 application integrations and their prepared dependencies belong in the program
 package. No agent framework or model provider is required.
+
+## Install for local development
+
+**Development source only:** this checkout packages the helper as
+`ledgence-worker` version **0.4.0**, requiring Python 3.11+. It has not been
+published to PyPI. The existing `v0.4.0` source tag does not contain this package's
+`pyproject.toml`; use an updated `develop` checkout that does. Installing
+`ledgence-worker` by name from an index is not an available installation route.
+
+From your application's existing uv project, add the local package as a normal
+development dependency, substituting your Ledgence checkout's absolute path:
+
+```sh
+uv add --dev /absolute/path/to/ledgence/sdk/python
+uv run python -c "from ledgence.worker.workflow import Workflow; from ledgence.worker import current_invocation; print('worker imports ready')"
+```
+
+This installs the versioned helper into the project's environment and records
+the local source in its dependency configuration. Select that environment in
+your editor. No `PYTHONPATH` change is needed. Keep the checkout available for
+future dependency synchronization, and use a helper version matching the deployed
+worker release; installation does not check the deployed worker's compatibility.
+A local source entry or lockfile does not freeze the directory's contents;
+record and retain the exact checkout commit when sharing or reproducing a
+development setup.
+
+If you contribute to the helper itself, use
+`uv add --dev --editable /absolute/path/to/ledgence/sdk/python` so edits to its
+Python source are reflected directly. Ordinary program authors should use the
+normal installation above. In an existing activated Python virtual environment,
+the pip alternative is:
+
+```sh
+python -m pip install /absolute/path/to/ledgence/sdk/python
+python -c "from ledgence.worker.workflow import Workflow; print('worker imports ready')"
+```
+
+The installed package includes inline type information and a
+`ledgence/worker/py.typed` marker for compatible editor/type-checking tools. It
+shares the native `ledgence` namespace with the independently installed
+`ledgence-client`; neither distribution provides a root `ledgence/__init__.py`.
+
+Use this environment to import your programs, register workflow entrypoints,
+and test ordinary business functions. `current_invocation()` and
+`workflow_context()` still require an active invocation; installing the package
+does not create a local workflow execution harness. The package supplies no CLI,
+server, Python client, or replacement for the worker's `--runner` configuration.
+At execution, the Rust worker keeps supplying its matching bundled helper,
+which the bootstrap loads before a copy vendored in a program artifact.
+
+Keep `ledgence-worker` out of application runtime dependencies: the worker
+supplies it. Prepare all actual application dependencies separately for the
+worker's platform and exact Python major/minor before publishing a program.
+See [Develop Python programs](../../docs-site/src/content/docs/how-to/develop-python-programs.md)
+for a complete authoring example and [program packages](../../docs/program-packages.md)
+for the runtime artifact contract.
 
 ## Durable model and tool calls
 

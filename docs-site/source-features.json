@@ -1,4 +1,10 @@
 {
+  "pythonWorkerPackage": {
+    "title": "Local Python worker helper installation for program development",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/develop-python-programs"
+  },
   "console": {
     "availability": "release",
     "sourceRef": "v0.4.0",

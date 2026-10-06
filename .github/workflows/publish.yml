@@ -18,6 +18,8 @@ on:
       - 'sdk/python/**'
       - 'tests/fixtures/json-values.json'
       - 'tools/check-python-client*.py'
+      - 'tools/check-python-worker.py'
+      - 'tools/test_python_worker_package.py'
       - 'tools/release/registry.py'
       - 'tools/release/test_registry.py'
       - 'tools/check-rust-packages.py'
@@ -111,8 +113,20 @@ jobs:
         run: |
           python tools/check-python-client-dependencies.py
           python tools/check-python-client.py \
+            --wheelhouse "$RUNNER_TEMP/python-wheelhouse" \
             --dist-dir "$RUNNER_TEMP/python-package/dist" \
             --evidence "$RUNNER_TEMP/python-package/evidence.json"
+          python tools/check-python-worker.py \
+            --wheelhouse "$RUNNER_TEMP/python-wheelhouse" --offline \
+            --dist-dir "$RUNNER_TEMP/python-worker-package/dist" \
+            --evidence "$RUNNER_TEMP/python-worker-package/evidence.json"
+      - name: Retain qualified worker development distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: python-worker-package
+          path: ${{ runner.temp }}/python-worker-package/
+          if-no-files-found: error
+          retention-days: 30
       - name: Retain exact tested Python distributions
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

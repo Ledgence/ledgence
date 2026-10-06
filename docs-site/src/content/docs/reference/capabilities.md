@@ -6,6 +6,7 @@ description: Find Ledgence 0.4.0 execution, integration, observability, and inst
 **0.4.0 is the current published release.** This page maps its capabilities to
 user guides and operating limits. The installer, native bundles, Python client,
 Rust API crates, container images, and local kit belong to the same release.
+Development-only additions are identified separately below.
 
 ## Execution and composition
 
@@ -50,6 +51,7 @@ prerequisite of the corresponding live example, not of Ledgence self-hosting.
 | Python client on PyPI and two Rust API crates on crates.io. | **Published 0.4.0.** [Package reference](/reference/releases). These do not install the server stack. |
 | Docker Hub images for Linux amd64 and arm64, with a matching digest-pinned local kit. | **Published 0.4.0.** [Manage the stack with `ledgence local`](/how-to/run-local-distribution). |
 | Build the local Docker Compose stack from source. | **Published 0.4.0 source.** [Source tutorial](/tutorials/run-locally). |
+| Install `ledgence.worker` in an application's environment for imports, editor support and local business-logic tests. | **Development source only.** [Develop Python programs](/how-to/develop-python-programs). The local `ledgence-worker` package is absent from the existing `v0.4.0` tag and has no PyPI release. |
 
 ## Boundaries that matter
 

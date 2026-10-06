@@ -102,6 +102,12 @@ For a failed Docker startup, follow the
 
 ## Before you start
 
+For writing programs in your own Python project, follow
+[Develop Python programs](/how-to/develop-python-programs). Its local
+`ledgence-worker` package comes from updated `develop` source and has no PyPI
+release. It supports imports and editor tooling in your application environment;
+the native worker continues to supply its own helper when executing programs.
+
 The native targets are **Linux x86_64/glibc**, built and qualified on Ubuntu 24.04, and **macOS arm64**. Other Linux distributions need compatible host libraries; inspect `candidate-provenance.json` for the archive's actual dynamic requirements. There are no published native Windows, Linux ARM64, macOS Intel, or musl/Alpine bundles in 0.4.0.
 
 | What you will run | Additional requirements |
