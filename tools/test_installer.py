@@ -34,7 +34,9 @@ class InstallerTests(unittest.TestCase):
         self.commands.mkdir()
         # A restricted PATH proves the installer has no Python/Rust/Docker
         # requirement. Only the curl fixture itself uses an absolute Python path.
-        for name in ("tar", "awk", "sed", "sort", "find", "cmp", "mktemp",
+        # GNU tar invokes gzip externally for .tar.gz archives; keep that real
+        # utility on PATH as well (macOS bsdtar handles gzip internally).
+        for name in ("tar", "gzip", "awk", "sed", "sort", "find", "cmp", "mktemp",
                      "mkdir", "mv", "rm", "rmdir", "ln", "readlink", "chmod"):
             source = shutil.which(name)
             self.assertIsNotNone(source, name)

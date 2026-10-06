@@ -21,6 +21,7 @@
     "astro": "7.3.3"
   },
   "overrides": {
-    "undici": "8.10.2"
+    "undici": "8.10.2",
+    "source-map-js": "1.2.2"
   }
 }

@@ -24,8 +24,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: container-distribution-${{ github.ref }}
-  cancel-in-progress: false
+  group: container-distribution-${{ inputs.publish && 'publish' || 'qualify' }}-${{ github.ref }}
+  cancel-in-progress: ${{ !inputs.publish }}
 
 env:
   PYTHONDONTWRITEBYTECODE: '1'

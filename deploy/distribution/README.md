@@ -22,9 +22,9 @@ For optional example programs, workflows and completion callbacks, include both
 files consistently when operating the project:
 
 ```sh
-docker compose --project-name ledgence-example --file compose.yaml --file compose.examples.yaml up --no-build --detach --wait --wait-timeout 120
-docker compose --project-name ledgence-example --file compose.yaml --file compose.examples.yaml run --rm --no-deps publish
-docker compose --project-name ledgence-example --file compose.yaml --file compose.examples.yaml run --rm --no-deps demo
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml up --no-build --detach --wait --wait-timeout 120
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml run --rm --no-deps publish
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml run --rm --no-deps demo
 ```
 
 The example checks process reuse and requires concurrency 1. It prepares programs
