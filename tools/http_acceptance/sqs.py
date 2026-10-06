@@ -7,8 +7,17 @@ from pathlib import Path
 from .harness import Deployment, Process, eventually, exchange
 
 
+def acquisition_wait(value):
+    """Validate the worker CLI's supported acquisition wait range."""
+    value = int(value)
+    if not 0 <= value <= 20_000:
+        raise ValueError("acquisition wait must be between 0 and 20000 ms")
+    return value
+
+
 class SqsDeployment(Deployment):
-    def __init__(self, *args, queue_url=None, endpoint=None, region=None, delivery_config=None, **kwargs):
+    def __init__(self, *args, queue_url=None, endpoint=None, region=None, delivery_config=None, acquire_wait_ms=None, **kwargs):
+        self.acquire_wait_ms = None if acquire_wait_ms is None else acquisition_wait(acquire_wait_ms)
         provided = None
         if delivery_config is not None:
             path = Path(delivery_config).resolve()
@@ -74,6 +83,8 @@ class SqsDeployment(Deployment):
             "--runner", str(self.root / "sdk/python/ledgence/worker/bootstrap.py"),
             "--concurrency", str(concurrency), "--delivery-config", str(self.delivery_config),
         ]
+        if self.acquire_wait_ms is not None:
+            args.extend(["--acquire-wait-ms", str(self.acquire_wait_ms)])
         process = Process(args, self.directory, f"worker-{self.counter}", self.environment)
         self.processes.append(process)
         return process

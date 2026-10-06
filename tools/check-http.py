@@ -18,7 +18,7 @@ import urllib.parse
 import uuid
 
 from postgres_fixture import create_owned_database, owned_database_url
-from http_acceptance.harness import Deployment
+from http_acceptance.harness import Deployment, timed
 from http_acceptance.scenarios import SCENARIOS
 
 
@@ -81,7 +81,8 @@ def main():
             if args.scenario and scenario.__name__ not in args.scenario:
                 continue
             print(f"RUN {scenario.__name__}", flush=True)
-            detail = scenario(deployment)
+            with timed(directory, "scenario", scenario.__name__):
+                detail = scenario(deployment)
             results.append({"scenario": scenario.__name__, "result": "passed", "detail": detail})
             (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
             print(f"PASS {scenario.__name__}: {detail}", flush=True)

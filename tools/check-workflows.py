@@ -30,9 +30,12 @@ import urllib.parse
 import uuid
 
 from postgres_fixture import create_owned_database, owned_database_url
-from http_acceptance.harness import Deployment, Process, eventually, exchange
-from http_acceptance.sqs import SqsDeployment
+from http_acceptance.harness import Deployment, Process, eventually, exchange, timed
+from http_acceptance.sqs import SqsDeployment, acquisition_wait
 from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, owned_scenarios
+
+
+SCENARIOS = ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS]
 
 
 FIXTURE = r'''
@@ -526,6 +529,16 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
     await agent_scenarios.run(d,names,record,records)
 
 
+async def timed_scenarios(d, delay, names, record, placement_iterations=3, capture=None):
+    # Keep the canonical execution order, including each scenario's worker drain.
+    # Some scenarios emit several result records; their timing covers the whole case.
+    for name in SCENARIOS:
+        if name in names:
+            print(f'RUN {name}', flush=True)
+            with timed(d.directory, 'scenario', name):
+                await scenarios(d, delay, [name], record, placement_iterations, capture)
+
+
 def trace_rows(capture):
     return [json.loads(line) for line in capture.stdout_path.read_text().splitlines(keepends=True)
             if line.endswith('\n')]
@@ -662,14 +675,18 @@ def main():
     parser.add_argument('--self-test',action='store_true',help='validate fixtures and async I/O without PostgreSQL')
     parser.add_argument('--endpoint',help='explicit owned loopback ElasticMQ URL; omit for integrated delivery')
     parser.add_argument('--region',default='us-east-1')
+    parser.add_argument('--acquire-wait-ms',type=acquisition_wait,
+        help='ElasticMQ worker acquisition wait (0..20000 ms); omit for the production 20000 ms default')
     parser.add_argument('--psql',default='psql')
     parser.add_argument('--binaries',type=Path)
     parser.add_argument('--evidence',type=Path)
     parser.add_argument('--capture',type=Path,help='optional OTLP capture executable; checks events, owned-tree and fork-mixed scenarios')
     parser.add_argument('--placement-iterations',type=int,default=3,help='paired local/distributed timing iterations (1..10; default 3)')
-    parser.add_argument('--scenario',action='append',choices=['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS])
+    parser.add_argument('--scenario',action='append',choices=SCENARIOS)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    if args.acquire_wait_ms is not None and (not args.endpoint or args.self_test):
+        parser.error('--acquire-wait-ms requires an ElasticMQ --endpoint acceptance run')
     if args.self_test:
         return self_test(root)
     if args.capture and (not args.capture.is_file() or (args.scenario and not {'events','owned-tree','fork-mixed'}.intersection(args.scenario))):
@@ -732,7 +749,7 @@ def main():
         create_owned_database(admin, database)
         created = True
         cls = SqsDeployment if args.endpoint else Deployment
-        extra = dict(queue_url=queue_url,endpoint=args.endpoint,region=args.region) if args.endpoint else {}
+        extra = dict(queue_url=queue_url,endpoint=args.endpoint,region=args.region,acquire_wait_ms=args.acquire_wait_ms) if args.endpoint else {}
         deployment = cls(root,directory,binaries,python,database_url,args.psql,**extra)
         if args.capture:
             capture = Process([str(args.capture.resolve()), '127.0.0.1:0'], directory, 'workflow-capture', dict(os.environ))
@@ -763,20 +780,24 @@ def main():
         deployment.server,_ = deployment.start_server()
         delay = DelayServer()
         provenance = artifact_metadata(root,binaries,python,deployment)
-        provenance.update(mode='elasticmq' if args.endpoint else 'integrated',database=database,queue_url=queue_url,real_aws=False,published_programs=packages)
+        provenance.update(mode='elasticmq' if args.endpoint else 'integrated',database=database,queue_url=queue_url,real_aws=False,published_programs=packages,
+            acquire_wait_ms=20000 if args.acquire_wait_ms is None else args.acquire_wait_ms)
         (directory/'resources.json').write_text(json.dumps(provenance,indent=2)+'\n')
-        asyncio.run(scenarios(deployment,delay,args.scenario or ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS],record,args.placement_iterations,capture))
+        asyncio.run(timed_scenarios(deployment,delay,args.scenario or SCENARIOS,record,args.placement_iterations,capture))
         if capture and any(row['scenario']=='events' for row in results):
-            # Workers have drained their exporters, but the server must remain
-            # available while durable attempt snapshots are checked.
-            eventually(lambda: len([span for span in trace_rows(capture)
-                if span['name']=='ledgence.workflow.event.accept']) >= 3,
-                description='final event reconciliation span export')
-            record('event-traces',verify_event_traces(deployment,capture,results))
+            with timed(directory, 'scenario', 'event-traces'):
+                # Workers have drained their exporters, but the server must remain
+                # available while durable attempt snapshots are checked.
+                eventually(lambda: len([span for span in trace_rows(capture)
+                    if span['name']=='ledgence.workflow.event.accept']) >= 3,
+                    description='final event reconciliation span export')
+                record('event-traces',verify_event_traces(deployment,capture,results))
         if capture and any(row['scenario']=='owned-tree' for row in results):
-            record('owned-traces',owned_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
+            with timed(directory, 'scenario', 'owned-traces'):
+                record('owned-traces',owned_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
         if capture and any(row['scenario']=='fork-mixed' for row in results):
-            record('fork-traces',fork_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
+            with timed(directory, 'scenario', 'fork-traces'):
+                record('fork-traces',fork_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
         deployment.server.stop()
         succeeded = True
         print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}',flush=True)

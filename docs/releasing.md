@@ -14,6 +14,9 @@ produces the kit that native packaging includes under `local/`. Supply
 packaging. Leave a new public release marked as a prerelease until every native
 bundle, package, checksum, installer and kit has passed its download checks.
 
+See [CI qualification](ci.md) for the independent source and delivery suites,
+artifact reuse, timing evidence and exact-commit requirements.
+
 ## Build and inspect
 
 Use the repository-pinned Rust toolchain, a supported host CPython 3.11–3.14,

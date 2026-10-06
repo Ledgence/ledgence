@@ -1,7 +1,7 @@
 name: Registry packages
 
 on:
-  # Package inputs and their quality gates run qualification without uploading.
+  # Pushes qualify registry artifacts; standalone workflows own source checks.
   # Registry writes require an explicit tagged workflow_dispatch.
   push:
     paths:
@@ -43,8 +43,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: registry-packages-${{ github.ref }}
-  cancel-in-progress: false
+  group: registry-packages-${{ github.event_name }}-${{ github.ref }}
+  # Superseded push qualifications may stop; manual publication must finish.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   source:
@@ -71,18 +72,26 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   quality:
+    # Manual qualification/publication rechecks the exact selected source.
+    if: github.event_name == 'workflow_dispatch'
     needs: source
     uses: ./.github/workflows/ci.yml
 
   documentation:
+    # Manual qualification/publication rechecks the exact selected source.
+    if: github.event_name == 'workflow_dispatch'
     needs: source
     uses: ./.github/workflows/docs.yml
 
   console:
+    # Manual qualification/publication rechecks the exact selected source.
+    if: github.event_name == 'workflow_dispatch'
     needs: source
     uses: ./.github/workflows/console.yml
 
   examples:
+    # Manual qualification/publication rechecks the exact selected source.
+    if: github.event_name == 'workflow_dispatch'
     needs: source
     uses: ./.github/workflows/examples.yml
 

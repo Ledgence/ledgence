@@ -117,9 +117,17 @@ These accounts serve release maintenance. Self-hosted users need no vendor accou
 
 The manual **Registry packages** workflow, `.github/workflows/publish.yml`,
 defaults to qualification only. Changes to package sources, manifests, helpers
-or publishing gates also trigger qualification on push. It runs the complete CI and documentation
-workflows plus both package gates. Publisher jobs wait for all those jobs to
-succeed. Actions are pinned to commit revisions.
+or publishing gates also trigger artifact qualification on push. On a push, this
+workflow validates the source versions and runs both package gates; the standalone
+CI, documentation, Console and examples workflows provide their applicable source
+checks without being repeated inside Registry packages. A green package workflow
+alone does not qualify a commit for release.
+
+A manual dispatch, including `publish=false`, runs all four source workflows and
+both package gates against the selected source. Publisher jobs require all of
+those gates to succeed in that dispatch. No result from another commit or an
+unverified cache authorizes publication. Actions are pinned to commit revisions.
+See [CI qualification](ci.md) for suite coverage and retained timing evidence.
 
 For publication, select the matching annotated version tag, for example
 `v0.3.1`, and set `publish=true`. Rust and Python versions must match that tag,
