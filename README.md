@@ -18,9 +18,7 @@ Self-host without a required vendor account.
 ## Get started
 
 - **Choose an installation:** see [installation and local startup](docs/installation.md)
-  for native tools, the Python client, and the new `ledgence local` commands.
-  The installer and local lifecycle are available in development builds;
-  published **0.3.1** still uses the manual native and source Compose guides below.
+  for the native CLI, Python client, and `ledgence local` container stack.
 - **Choose an example:** browse the [example catalog](examples/README.md) for Python programs,
   workflow patterns, client usage, and optional provider integrations.
 - **Explore Console:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
@@ -31,28 +29,27 @@ Self-host without a required vendor account.
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
-- **Connect an MCP client:** use [`ledgence mcp serve`](docs/mcp.md) to discover programs, submit work, and inspect results through the existing API. Available in 0.3.1.
+- **Connect an MCP client:** use [`ledgence mcp serve`](docs/mcp.md) to discover programs, submit work, and inspect results through the existing API. Available since 0.3.1.
 - **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
   with ChatGPT sign-in, documentation tools and durable human review, or the
   [Google ADK and Gemini variant](examples/support-agent/README.md).
 
-**Ledgence 0.3.1** adds action-bound human approvals, durable model/tool call
-recovery, and an optional MCP server in the unified CLI. Native bundles target **Linux x86_64/glibc** and
-**macOS arm64** and include Console; the Python client and Rust API crates share
-version **0.3.1**. See the [release notes](docs/releases/0.3.1.md),
-[upgrade guide](docs/upgrading-to-0.3.md), and
+**Ledgence 0.4.0** adds a verified CLI installer, persistent local-stack commands,
+and published container images for Linux amd64 and arm64. Native bundles target
+**Linux x86_64/glibc** and **macOS arm64** and include Console and a digest-pinned
+local deployment kit; the Python client and Rust API crates share version
+**0.4.0**. Action-bound human approvals, durable model/tool call recovery, and the
+optional MCP server remain available from 0.3.1. See the [release notes](docs/releases/0.4.0.md),
+[upgrade guidance](docs/releases/0.4.0.md#distribution-and-upgrade-scope), and
 [release reference](https://docs.ledgence.com/reference/releases). Before 1.0,
 public APIs may evolve; pin versions and review changes before upgrading.
 
 The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
 original commands and do not include Console.
 
-### One-line installation for the next release
+### Install and start Ledgence
 
-The next release will include the installer and a matching local distribution.
-**The command below requires those published assets; 0.3.1 does not provide
-them.** Use the [current native installation guide](https://docs.ledgence.com/how-to/install-native)
-or [source Compose tutorial](docs/local-deployment.md) until then.
+Install the latest stable release on a supported native platform:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
@@ -67,8 +64,7 @@ current one:
 ledgence --version
 ```
 
-With Docker running Linux containers, Compose 2.23.1 or newer, and a released
-bundle containing its matching local kit, start the stack:
+With Docker running Linux containers and Compose 2.23.1 or newer, start the stack:
 
 ```sh
 ledgence local up
@@ -79,8 +75,10 @@ Open the Console URL printed by `up` (normally `http://127.0.0.1:8080/console/`)
 The new instance starts without application programs or executions.
 `ledgence local down` stops it while preserving data. See the
 [local distribution guide](https://docs.ledgence.com/how-to/run-local-distribution)
-for platforms, state and upgrade behavior. The installer needs no Rust, Python,
-Node, Docker or administrator access; Docker is required only for the local
+for platforms, state and upgrade behavior. To populate Console, follow the
+[optional examples](docs/installation.md#run-the-optional-container-examples),
+including the handoff from the CLI-managed stack to a separate Compose project.
+The installer needs no Rust, Python, Node, Docker or administrator access; Docker is required only for the local
 container stack, and native Python workers require a matching host interpreter.
 
 ## What you can build
@@ -146,7 +144,7 @@ lives beside the implementation so documentation can evolve with the code.
 
 For the complete self-hosted stack, use the [local Compose deployment](docs/local-deployment.md).
 The example below exercises program publication, local execution, and process reuse.
-Ledgence 0.3.1 provides one `ledgence` executable; see the
+Ledgence provides one `ledgence` executable; see the
 [CLI command groups and migration guide](docs/cli.md). Published release bundles
 retain the command layout documented with their release.
 The [bundle packaging guide](docs/releasing.md) describes qualification and artifact
@@ -250,9 +248,9 @@ collapsible sidebar and light, dark or system appearance keep the same operator
 views usable across screen sizes. Registered programs and worker process slots
 connect package identity and observed capacity to the work you are inspecting.
 
-Console ships in the 0.3.1 native bundles and the
-[local Compose deployment](docs/local-deployment.md). Publish and register the
-local examples, then open `http://127.0.0.1:8080/console/`. The
+Console ships in the 0.4.0 native bundles and the published container runtime.
+The [source Compose deployment](docs/local-deployment.md) remains available.
+Publish and register the local examples, then open `http://127.0.0.1:8080/console/`. The
 [guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through
 registration, submission and inspection.
 

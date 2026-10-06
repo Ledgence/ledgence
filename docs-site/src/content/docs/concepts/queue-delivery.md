@@ -9,7 +9,7 @@ leases, workflow checkpoints and results in both built-in delivery modes.
 
 ## Choose a built-in delivery mode
 
-| Mode in 0.3.1 | How workers acquire work | Setup |
+| Mode in 0.4.0 | How workers acquire work | Setup |
 | --- | --- | --- |
 | Integrated HTTP acquisition | Workers request assignments from the task service, using bounded waits. No external broker is needed. | Default in the [local source stack](/tutorials/run-locally). |
 | SQS-compatible external delivery | Workers receive compact dispatch references from SQS Standard or ElasticMQ, then claim the exact work from the task service. | Enable the `sqs` build feature and provide matching server/worker delivery configuration. |
@@ -56,9 +56,9 @@ artifact-store or application bottlenecks.
 
 Use `--delivery-config` on both `ledgence orchestrator serve` and
 `ledgence worker connect`. The
-[dispatch configuration guide](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/dispatch-delivery.md)
+[dispatch configuration guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/dispatch-delivery.md)
 shows routing for an already-created broker and queue. To start those locally,
-use the source stack's [ElasticMQ Compose override](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/local-deployment.md#elasticmq-instead-of-integrated-acquisition).
+use the source stack's [ElasticMQ Compose override](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/local-deployment.md#elasticmq-instead-of-integrated-acquisition).
 A physical Standard queue must be dedicated to
 one logical route; Ledgence validates its required capabilities at startup.
 
@@ -77,5 +77,5 @@ contracts; compatibility is more than implementing similarly named methods.
 RabbitMQ, Kafka and Kinesis are not bundled adapters. A stream's partition and
 checkpoint semantics are not interchangeable with an individual-ack queue, and
 the current worker composition does not expose a built-in stream consumer.
-See the [adapter contracts](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/dispatch-delivery.md)
+See the [adapter contracts](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/dispatch-delivery.md)
 before selecting a new transport.

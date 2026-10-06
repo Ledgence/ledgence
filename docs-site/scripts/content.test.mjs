@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pageMetadata, releaseRevision, writeMarkdownExports } from './check-content.mjs';
-import { checkMarkdownExports, checkStaticArtifact, resolveLocalLink } from './check-build.mjs';
+import { checkFeatureGuides, checkMarkdownExports, checkStaticArtifact, resolveLocalLink } from './check-build.mjs';
 
 test('published content requires useful metadata and rejects unfinished drafts', () => {
   assert.throws(() => pageMetadata('## Empty', 'draft.md'), /frontmatter/);
@@ -108,5 +108,42 @@ test('release provenance omits unknown product SHA instead of substituting docum
     writeMarkdownExports(directory, [], 'documentation-checkout', 'verified-product-commit');
     const resolved = readFileSync(join(directory, 'llms.txt'), 'utf8');
     assert.ok(resolved.includes(`Product source: ${currentRelease.sourceRef} (verified-product-commit). Documentation checkout: documentation-checkout.`));
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test('feature provenance validates guide pages and anchors before publication', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ledgence-feature-guides-'));
+  try {
+    mkdirSync(join(directory, 'how-to'));
+    writeFileSync(join(directory, 'how-to/install.html'), '<h2 id="one-line">Install</h2><span id="old-name"></span>');
+    assert.doesNotThrow(() => checkFeatureGuides(directory, {
+      installer: { guide: '/how-to/install#one-line' },
+      legacy: { guide: '/how-to/install#old-name' },
+    }));
+    assert.throws(() => checkFeatureGuides(directory, { installer: { guide: '/how-to/install#missing' } }), /missing anchor/);
+    assert.throws(() => checkFeatureGuides(directory, { installer: { guide: '/missing' } }), /broken link/);
+    assert.throws(() => checkFeatureGuides(directory, { installer: { guide: 'https://example.com/install' } }), /local documentation path/);
+    assert.throws(() => checkFeatureGuides(directory, { installer: { guide: '//example.com/install' } }), /local documentation path/);
+    writeFileSync(join(directory, 'download.txt'), 'not a guide');
+    assert.throws(() => checkFeatureGuides(directory, { installer: { guide: '/download.txt' } }), /documentation page/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('Markdown index distinguishes released and development features with their own provenance', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ledgence-feature-index-'));
+  try {
+    const features = {
+      console: { availability: 'release', sourceRef: 'v1.2.0', verifiedOn: '2026-10-06', guide: '/tutorials/console' },
+      installer: { title: 'CLI installation', availability: 'release', sourceRef: 'v1.2.0', verifiedOn: '2026-10-06', guide: '/how-to/install#one-line' },
+      preview: { title: 'Preview integration', availability: 'development', sourceRef: 'develop', guide: '/how-to/preview' },
+    };
+    writeMarkdownExports(directory, [], 'docs-checkout', null, features);
+    const index = readFileSync(join(directory, 'llms.txt'), 'utf8');
+    assert.ok(index.includes('Released: CLI installation (source v1.2.0; verified 2026-10-06). See https://docs.ledgence.com/how-to/install#one-line.'));
+    assert.ok(index.includes('Development-only: Preview integration (source develop).'));
+    assert.ok(index.includes('https://docs.ledgence.com/how-to/preview'));
+    assert.ok(index.includes('Console is included in source v1.2.0'));
+    assert.doesNotMatch(index, /Development-only: CLI installation|Released: Preview integration|undefined/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

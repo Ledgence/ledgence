@@ -3,7 +3,7 @@ title: Configure traces, metrics and logs
 description: Export optional OpenTelemetry diagnostics and correlate Python logs with durable Ledgence execution identities.
 ---
 
-Ledgence 0.3.1 exports traces and metrics over **OTLP HTTP/protobuf**. Choose an
+Ledgence 0.4.0 exports traces and metrics over **OTLP HTTP/protobuf**. Choose an
 operator-managed collector or compatible receiver. Self-hosting and Console do
 not require a telemetry provider account.
 
@@ -68,7 +68,7 @@ For custom application spans, supply the optional Python OTel dependencies in
 the program package and use the helper's `ledgence.worker.otel.enable_context()`
 integration with an application-owned provider. The helper does not install an
 exporter or fetch dependencies during execution. See the
-[Python helper contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/sdk/python/README.md#optional-opentelemetry-api-bridge).
+[Python helper contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python/README.md#optional-opentelemetry-api-bridge).
 
 ## Interpret execution and capacity
 
@@ -98,4 +98,4 @@ An unavailable collector after startup does not fail tasks. Telemetry queues,
 export deadlines and shutdown time are bounded, so diagnostics can be dropped.
 Retain the execution records needed for authoritative investigation.
 
-**Source:** [Tracing and log contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/observability.md) · [Metric instruments and limits](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/metrics.md)
+**Source:** [Tracing and log contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/observability.md) · [Metric instruments and limits](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/metrics.md)

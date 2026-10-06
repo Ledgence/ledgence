@@ -56,10 +56,25 @@ export function checkMarkdownExports(directory) {
   return links.length;
 }
 
+export function checkFeatureGuides(directory, features) {
+  for (const [name, feature] of Object.entries(features)) {
+    const guide = feature.guide;
+    if (typeof guide !== 'string' || !guide.startsWith('/') || guide.startsWith('//')) {
+      throw new Error(`${name}: feature guide must be a local documentation path`);
+    }
+    const target = resolveLocalLink(directory, 'source.json', guide);
+    if (!target || !target.endsWith('.html')) {
+      throw new Error(`${name}: feature guide must resolve to a documentation page`);
+    }
+  }
+}
+
 export function checkBuild(directory) {
   for (const file of ['index.html', '404.html', 'llms.txt', 'source.json', 'notices/LEDGENCE-LICENSE.txt', 'notices/manifest.json']) {
     if (!existsSync(join(directory, file))) throw new Error(`Missing build output: ${file}`);
   }
+  const metadata = JSON.parse(readFileSync(join(directory, 'source.json'), 'utf8'));
+  checkFeatureGuides(directory, metadata.sourceFeatures);
   const markdownPages = checkMarkdownExports(directory);
   const files = filesUnder(directory);
   for (const file of files) checkStaticArtifact(directory, file);
@@ -77,6 +92,6 @@ export function checkBuild(directory) {
     }
   }
   if (!files.some(path => path.includes('/pagefind/') && path.endsWith('.js'))) throw new Error('Missing static search index');
-  console.log(`Checked ${htmlFiles.length} HTML pages, ${markdownPages} indexed Markdown exports, internal links, anchors, assets, notices, and search.`);
+  console.log(`Checked ${htmlFiles.length} HTML pages, ${markdownPages} indexed Markdown exports, internal links, anchors, feature guides, assets, notices, and search.`);
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) checkBuild(join(root, 'dist'));

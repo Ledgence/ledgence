@@ -14,8 +14,9 @@ Codex mode uses a real provider on the same synthetic evidence. No commerce,
 carrier, or support account is needed, and this example sends no customer
 messages or external reports.
 
-This is application **1.0.0**, included in the **Ledgence 0.3.1** source release.
-Use the matching orchestrator, worker, helper and Python client, and apply all
+This is application **1.0.0**, introduced in the **Ledgence 0.3.1** source release.
+Use matching **0.4.0** orchestrator, worker, helper and Python client components
+for this checkout, and apply all
 migrations. Earlier Ledgence 0.2.0 does not include the durable operation and
 action-approval APIs used here.
 

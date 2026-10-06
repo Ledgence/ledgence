@@ -2,7 +2,7 @@
 
 This protocol 3 package registers ordinary Python functions as enum-addressed entrypoints. Its default entrypoint durably registers two owned workflows in the same immutable package, computes a local summary, and returns a durable join. The double branch saves its own checkpoint and timer before completing. The triple branch completes directly. The parent handles their terminal outcomes in ordinary Python.
 
-Use matching 0.3.1 orchestrator and workers with all database migrations installed; the historical 0.1 releases lack the workflow fork API. The worker must run the same CPython major/minor used to prepare the package. Follow the [checkpoint workflow example](../checkpoint-workflow/README.md) for PostgreSQL, store, worker, and client setup. Prepare and publish this additional package. Preparation requires a new output directory and refuses an existing path so stale files cannot enter the package:
+Use matching 0.4.0 orchestrator and workers with all database migrations installed; the historical 0.1 releases lack the workflow fork API. The worker must run the same CPython major/minor used to prepare the package. Follow the [checkpoint workflow example](../checkpoint-workflow/README.md) for PostgreSQL, store, worker, and client setup. Prepare and publish this additional package. Preparation requires a new output directory and refuses an existing path so stale files cannot enter the package:
 
 ```sh
 "$LEDGENCE_PYTHON" examples/mixed-workflow/prepare.py "$workflow_demo/mixed/program"
