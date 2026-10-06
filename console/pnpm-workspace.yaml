@@ -12,5 +12,6 @@ allowBuilds:
 overrides:
   rollup: 4.62.2
   react-remove-scroll-bar: 2.3.7
+  source-map-js: 1.2.2
 patchedDependencies:
   "@xyflow/system@0.0.83": patches/@xyflow__system@0.0.83.patch

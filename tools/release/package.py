@@ -70,6 +70,8 @@ def main():
     parser.add_argument("--output", required=True, type=Path, help="NEW output directory outside checkout")
     parser.add_argument("--candidate", default="rc.1", help="candidate label; package versions remain those in source")
     parser.add_argument("--wheelhouse", type=Path)
+    parser.add_argument("--local-distribution", type=Path, default=os.environ.get('LEDGENCE_LOCAL_DISTRIBUTION'),
+                        help="verified extracted local deployment kit for this exact version")
     parser.add_argument("--offline", action="store_true", help="use only pre-fetched Cargo and reviewed Python artifacts")
     web = parser.add_mutually_exclusive_group(required=True)
     web.add_argument('--console-dist', type=Path, help='prepared, validated Console dist from this exact clean commit')
@@ -84,6 +86,11 @@ def main():
     rustc = read("rustc", "-vV")
     target = next(line.removeprefix("host: ") for line in rustc.splitlines() if line.startswith("host: "))
     version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    local_distribution = args.local_distribution.resolve() if args.local_distribution else None
+    local_record = None
+    if local_distribution:
+        from local_distribution import verify_directory
+        local_record = verify_directory(local_distribution, version=version)
     console_record = {'mode': 'headless'}
     console_dist = args.console_dist.resolve() if args.console_dist else None
     if console_dist:
@@ -114,6 +121,11 @@ def main():
         shutil.copytree(ROOT / "sdk/python/ledgence", stage / "runtime/ledgence",
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         shutil.copytree(ROOT / "docs", stage / "docs")
+        if local_distribution:
+            shutil.copytree(local_distribution, stage / "local")
+            from local_distribution import verify_directory
+            if verify_directory(stage / "local", version=version) != local_record:
+                raise ValueError("local distribution changed during candidate assembly")
         if console_dist:
             shutil.copytree(console_dist, stage / 'console')
         (stage / "examples").mkdir()
@@ -129,12 +141,19 @@ def main():
             sdk.append("--offline")
         command(sdk, env=env)
         (stage / "README.md").write_text(f"# {label}\n\nThis is a release candidate assembled from commit {commit}, not a stable release. Embedded Rust and Python package versions remain {version}.\n\nUse bin/ledgence with the program, worker, orchestrator, task, approval and mcp command groups. Supply a compatible host CPython 3.11–3.14 and pass --runner <bundle>/runtime/ledgence/worker/bootstrap.py. The native binary targets {target}; it requires host system libraries and does not include CPython, PostgreSQL or a broker. The client wheel and sdist are in python-client/; installing the wheel resolves the reviewed pinned dependencies. See docs/local-deployment.md and docs/releasing.md. The installed-SDK Compose companion is examples/local-compose-client.py; start and publish its programs from the matching source checkout first.\n\nThe console/ directory, when included, is served with bin/ledgence orchestrator serve --instance-config PATH --console-dir <bundle>/console; see docs/console.md. A headless build explicitly omits it.\n\nKeep LICENSE and legal/ with redistributed binaries; Python distributions carry their own retained legal files. Third-party software retains its original licenses.\n")
+        if local_record:
+            with (stage / 'README.md').open('a') as readme:
+                readme.write('\nThis bundle includes a verified local/ Compose kit pinned to the qualified container image. '
+                             'With Docker and Compose installed, run bin/ledgence local up. '
+                             'Use local status, local logs and local down to manage it; down retains data. '
+                             'See local/README.md for direct Compose use and examples.\n')
         # Captures dependency/toolchain identity, not a claim of byte-identical compilation.
         linker = ["otool", "-L"] if sys.platform == "darwin" else ["ldd"]
         linked = {name: read(*linker, str(stage / "bin" / name)) for name in ("ledgence",)}
         provenance = {"format": 1, "candidate": label, "source_commit": commit,
                       "source_tree_clean": True, "source_date_epoch": epoch,
                       "package_version": version, "target": target, "rustc": rustc, "console": console_record,
+                      "local_distribution": local_record,
                       "cargo": read("cargo", "-V"), "python_builder": sys.version,
                       "host": platform.platform(), "features": "all features of ledgence-cli", "executables": ["ledgence"],
                       "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),

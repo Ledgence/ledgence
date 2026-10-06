@@ -3,3 +3,4 @@ ignoreScripts: true
 # Keep npm and pnpm on the same reviewed transitive version.
 overrides:
   undici: 8.10.2
+  source-map-js: 1.2.2

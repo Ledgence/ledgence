@@ -2,6 +2,7 @@
 """Verify and smoke-test an extracted copy of an actual release bundle archive."""
 import argparse
 import hashlib
+import json
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -40,6 +41,19 @@ def verify_files(directory):
     if {name for name in actual if name.startswith("bin/")} != {"bin/ledgence"}:
         raise ValueError("current bundle must contain exactly bin/ledgence")
     verify_bundle(directory)
+    provenance_path = directory / 'candidate-provenance.json'
+    if not provenance_path.is_file():
+        provenance_path = directory / 'provenance.json'
+    provenance = json.loads(provenance_path.read_text())
+    record = provenance.get('local_distribution')
+    kit = directory / 'local'
+    if record is None:
+        if kit.exists():
+            raise ValueError('local distribution payload lacks provenance')
+    else:
+        from local_distribution import verify_directory
+        if verify_directory(kit, version=provenance['package_version']) != record:
+            raise ValueError('local distribution differs from candidate provenance')
 
 
 def extract_archive(archive, destination, *, canonical_modes=False):

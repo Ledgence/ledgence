@@ -1,0 +1,12 @@
+{
+  "base_image": "docker.io/library/python@sha256:82bc3c539b8813ada9d68c63b40158fa002f7f33de9bf3312a3dfdc0620dff56",
+  "python": {
+    "version": "3.14.7",
+    "source_url": "https://www.python.org/ftp/python/3.14.7/Python-3.14.7.tar.xz",
+    "sha256": "3b48dac8fb59f62eaa67ac83c1eb12bda1b7a08406dd286e252c11a66be27f81"
+  },
+  "base_recipe": {
+    "url": "https://raw.githubusercontent.com/docker-library/python/688a0b86bb44289df16a363e9f41d90514c1a5f9/3.14/slim-bookworm/Dockerfile",
+    "sha256": "4d28141c84eba983030c4e07b191c3a93b3c582ab28335bede7b46a276205c0d"
+  }
+}

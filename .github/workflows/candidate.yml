@@ -11,14 +11,20 @@ on:
         description: Also build a Linux x86_64 candidate with Console
         type: boolean
         default: true
+      local_distribution_run:
+        description: Optional successful container distribution run containing the pinned local kit for this source
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  actions: read
 
 env:
   SQLX_OFFLINE: 'true'
   PYTHONDONTWRITEBYTECODE: '1'
   CANDIDATE: ${{ inputs.candidate }}
+  LOCAL_DISTRIBUTION_RUN: ${{ inputs.local_distribution_run }}
 
 jobs:
   candidate:
@@ -40,6 +46,24 @@ jobs:
           python-version: '3.14'
       - name: Select the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Validate selected local distribution source
+        if: inputs.local_distribution_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$LOCAL_DISTRIBUTION_RUN" =~ ^[1-9][0-9]*$ ]]
+          test "$(gh run view "$LOCAL_DISTRIBUTION_RUN" --json headSha --jq .headSha)" = "$GITHUB_SHA"
+          test "$(gh run view "$LOCAL_DISTRIBUTION_RUN" --json conclusion --jq .conclusion)" = success
+          echo "LEDGENCE_LOCAL_DISTRIBUTION=$RUNNER_TEMP/ledgence-local-distribution" >> "$GITHUB_ENV"
+      - name: Download the selected digest-pinned local kit
+        if: inputs.local_distribution_run != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: local-distribution
+          path: ${{ runner.temp }}/ledgence-local-distribution
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.local_distribution_run }}
       - name: Build and verify candidate artifacts
         run: python tools/release/package.py --candidate "$CANDIDATE" --headless --output "$RUNNER_TEMP/ledgence-candidate"
       - name: Verify candidate archive checksum
@@ -94,6 +118,24 @@ jobs:
         run: pnpm --dir console build
       - name: Select the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Validate selected local distribution source
+        if: inputs.local_distribution_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$LOCAL_DISTRIBUTION_RUN" =~ ^[1-9][0-9]*$ ]]
+          test "$(gh run view "$LOCAL_DISTRIBUTION_RUN" --json headSha --jq .headSha)" = "$GITHUB_SHA"
+          test "$(gh run view "$LOCAL_DISTRIBUTION_RUN" --json conclusion --jq .conclusion)" = success
+          echo "LEDGENCE_LOCAL_DISTRIBUTION=$RUNNER_TEMP/ledgence-local-distribution" >> "$GITHUB_ENV"
+      - name: Download the selected digest-pinned local kit
+        if: inputs.local_distribution_run != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: local-distribution
+          path: ${{ runner.temp }}/ledgence-local-distribution
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.local_distribution_run }}
       - name: Build and verify candidate artifacts with relocated Console
         run: |
           python tools/release/package.py --candidate "$CANDIDATE" \

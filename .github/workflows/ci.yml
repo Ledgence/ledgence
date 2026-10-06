@@ -41,6 +41,11 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Test offline release promotion
         run: python -m unittest discover -s tools/release -p 'test_*.py' -v
+      - name: Test the standalone installer without host mutations
+        run: |
+          sh -n install.sh
+          python tools/test_installer.py
+          python -m unittest discover -s deploy/distribution -p 'test_*.py' -v
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
       - name: Test Rust source-package qualification gates

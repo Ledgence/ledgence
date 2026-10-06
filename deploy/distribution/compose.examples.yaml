@@ -1,0 +1,34 @@
+# Optional examples and durable callback receiver. Use with compose.yaml.
+x-example: &example
+  image: "@LEDGENCE_IMAGE@"
+  init: true
+  stop_grace_period: 65s
+services:
+  receiver:
+    <<: *example
+    command: [python3, /opt/ledgence/local/receiver.py]
+    volumes: [callbacks:/demo-state]
+    healthcheck:
+      test: [CMD, python3, /opt/ledgence/local/ready.py, "http://127.0.0.1:8091/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  orchestrator:
+    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console]
+    depends_on:
+      receiver: {condition: service_healthy}
+  publish:
+    <<: *example
+    profiles: [tools]
+    command: [python3, /opt/ledgence/local/publish.py]
+    volumes: [programs:/programs]
+  demo:
+    <<: *example
+    profiles: [tools]
+    command: [python3, /opt/ledgence/local/demo.py]
+    depends_on:
+      orchestrator: {condition: service_healthy}
+      worker: {condition: service_started}
+volumes:
+  callbacks:

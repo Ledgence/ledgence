@@ -4,12 +4,13 @@
 use crate::args::invalid;
 use ledgence_orchestration_api::Result;
 
-pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  program       Package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
+pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  local         Start and manage a local Docker Compose installation\n  program       Package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
     Help(String),
     Version,
+    Local(Vec<String>),
     Admin(Vec<String>),
     Mcp(Vec<String>),
     Worker(Vec<String>),
@@ -24,6 +25,30 @@ struct Leaf {
 }
 
 const COMMANDS: &[Leaf] = &[
+    Leaf {
+        group: "local",
+        name: "up",
+        options: "[--directory DIR] [--distribution DIR] [--port 8080] [--concurrency 1] [--context NAME]",
+        description: "Start the local stack and wait for service readiness. Requires a local Docker engine with Linux containers and Compose 2.23.1+. On first use, copy the bundled local distribution (or --distribution) and save a unique project identity. Default directory: $XDG_DATA_HOME/ledgence/local or $HOME/.local/share/ledgence/local. Existing version, image, port, context and concurrency are preserved; upgrades are never automatic. Application packages must match the worker's Linux architecture and CPython version.",
+    },
+    Leaf {
+        group: "local",
+        name: "status",
+        options: "[--directory DIR]",
+        description: "Show the saved installation and all Compose service states. Does not start or change containers, configuration, or images.",
+    },
+    Leaf {
+        group: "local",
+        name: "logs",
+        options: "[--directory DIR] [--follow] [--tail 100] [--service postgres|migrate|orchestrator|worker]",
+        description: "Show bounded recent logs, optionally following new output. --tail accepts 1..10000 lines per service. Following logs does not block another local command.",
+    },
+    Leaf {
+        group: "local",
+        name: "down",
+        options: "[--directory DIR]",
+        description: "Stop the saved Compose project with a 65-second shutdown grace period. Preserve its named volumes, program store, configuration, and version for the next up. No volume deletion or automatic upgrade is performed.",
+    },
     Leaf {
         group: "mcp",
         name: "serve",
@@ -69,20 +94,20 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "worker",
         name: "run",
-        options: "--tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]",
-        description: "Execute a local JSON task fixture. Defaults: concurrency 4, timeout 30000 ms. One concurrency limit controls the reusable process pool. JSON results go to stdout; logs go to stderr.",
+        options: "--tasks FILE --store DIR_OR_URL --cache DIR --python EXE [--runner BOOTSTRAP] [--concurrency N] [--timeout-ms MS]",
+        description: "Execute a local JSON task fixture. Defaults: concurrency 4, timeout 30000 ms. The installed runtime helper is used when available; otherwise --runner is required. One concurrency limit controls the reusable process pool. JSON results go to stdout; logs go to stderr.",
     },
     Leaf {
         group: "worker",
         name: "connect",
-        options: "--server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]",
-        description: "Acquire tasks, renew leases, and reconcile durable results. One concurrency setting controls consumers and the reusable process pool. The first shutdown signal drains; a second forces a nonzero exit with unresolved work. SQS delivery requires the sqs build feature.",
+        options: "--server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE [--runner BOOTSTRAP] [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]",
+        description: "Acquire tasks, renew leases, and reconcile durable results. The installed runtime helper is used when available; otherwise --runner is required. One concurrency setting controls consumers and the reusable process pool. The first shutdown signal drains; a second forces a nonzero exit with unresolved work. SQS delivery requires the sqs build feature.",
     },
     Leaf {
         group: "orchestrator",
         name: "serve",
         options: "--store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR]",
-        description: "Serve HTTP orchestration and supervise recovery. DATABASE_URL is required; the schema is verified, never migrated automatically. Console requires explicit instance configuration. An external proxy can provide HTTPS. First SIGINT/SIGTERM drains; a second forces a nonzero exit. SQS delivery requires the sqs build feature.",
+        description: "Serve HTTP orchestration and supervise recovery. DATABASE_URL is required; the schema is verified, never migrated automatically. Console requires explicit instance configuration; with --instance-config, the installed Console is used when available unless --console-dir overrides it. An external proxy can provide HTTPS. First SIGINT/SIGTERM drains; a second forces a nonzero exit. SQS delivery requires the sqs build feature.",
     },
     Leaf {
         group: "orchestrator",
@@ -171,6 +196,7 @@ pub fn parse(arguments: Vec<String>) -> Result<Route> {
     }
     leaf(group, command)?;
     match (group, command.as_str()) {
+        ("local", _) => Ok(Route::Local(arguments.into_iter().skip(1).collect())),
         ("program", "example" | "publish") | ("worker", _) => {
             Ok(Route::Worker(arguments.into_iter().skip(1).collect()))
         }

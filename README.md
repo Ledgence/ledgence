@@ -16,6 +16,10 @@ Self-host without a required vendor account.
 
 ## Get started
 
+- **Choose an installation:** see [installation and local startup](docs/installation.md)
+  for native tools, the Python client, and the new `ledgence local` commands.
+  The installer and local lifecycle are available in development builds;
+  published **0.3.1** still uses the manual native and source Compose guides below.
 - **Choose an example:** browse the [example catalog](examples/README.md) for Python programs,
   workflow patterns, client usage, and optional provider integrations.
 - **Explore Console:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
@@ -90,7 +94,7 @@ Console documentation covers [operation](https://docs.ledgence.com/reference/con
 [the single-instance model](https://docs.ledgence.com/concepts/self-hosted-console).
 
 Operational guides cover [worker delivery](docs/worker-delivery.md),
-[queue transport](docs/dispatch-delivery.md), [observability](docs/observability.md),
+[installation](docs/installation.md), [queue transport](docs/dispatch-delivery.md), [observability](docs/observability.md),
 and [retention maintenance](docs/retention.md). The [docs-site source](docs-site/README.md)
 lives beside the implementation so documentation can evolve with the code.
 

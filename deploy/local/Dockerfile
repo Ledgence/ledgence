@@ -15,8 +15,8 @@ ARG SOURCE_REVISION
 ARG SOURCE_DIRTY
 RUN LEDGENCE_SOURCE_REVISION="$SOURCE_REVISION" LEDGENCE_SOURCE_DIRTY="$SOURCE_DIRTY" pnpm build
 
-# Locally built development/RC image. Base operating-system components retain
-# their own licenses; this Dockerfile is not an OCI redistribution approval.
+# Base components retain their own licenses. Public image publication requires
+# the exact runtime inventory and separately qualified corresponding sources.
 FROM python:3.14-slim-bookworm@sha256:82bc3c539b8813ada9d68c63b40158fa002f7f33de9bf3312a3dfdc0620dff56 AS python-runtime
 FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS builder
 COPY --from=python-runtime /usr/local /usr/local
@@ -34,12 +34,15 @@ RUN python3 tools/release/notices.py --target "$(rustc -vV | sed -n 's/^host: //
 
 FROM python-runtime
 ARG SOURCE_REVISION=unrecorded
-LABEL org.opencontainers.image.title="Ledgence local candidate" \
+ARG VERSION=unrecorded
+LABEL org.opencontainers.image.title="Ledgence" \
+      org.opencontainers.image.version=$VERSION \
       org.opencontainers.image.source="https://github.com/Ledgence/ledgence" \
       org.opencontainers.image.revision=$SOURCE_REVISION
 WORKDIR /opt/ledgence
 COPY --from=builder /src/target/release/ledgence /usr/local/bin/
 COPY --from=builder /legal /opt/ledgence/legal
+COPY deploy/distribution/base-image.json /opt/ledgence/legal/base-image.json
 COPY --from=console-builder /src/console/dist /opt/ledgence/console
 COPY sdk/python/ledgence /opt/ledgence/runtime/ledgence
 COPY deploy/local /opt/ledgence/local

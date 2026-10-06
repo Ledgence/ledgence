@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "lockfile_sha256": "de83e52fe121b18876b12d09c4cebfa88bd2b71c25cf2b646c739acdef572c50",
+  "lockfile_sha256": "3a3beaebb90ccd938483705d2f40b94eff84907f54c8818f817421c185b17a7c",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -5684,16 +5684,16 @@
     },
     {
       "name": "source-map-js",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "declared_license": "BSD-3-Clause",
       "repository": "7rulnik/source-map-js",
-      "archive": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz",
-      "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==",
-      "sha256": "f126a6f9fca487a43219d8cb8c3a955279187a966119d548eb5cd47e999d4853",
+      "archive": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz",
+      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
+      "sha256": "05c8cf8e7c3a6b56cada7668fe9342b10f4b625efc92aba9ba05b9e8fe4d71a3",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/source-map-js@1.2.1/LICENSE",
+          "file": "third_party/packages/source-map-js@1.2.2/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd"
         }
@@ -6346,7 +6346,7 @@
     "vitest": "4.1.11",
     "vitest-browser-react": "2.3.0"
   },
-  "build_policy_sha256": "6ffc58e3dfaea1f23b267c6cb3762511434d5fbee86af4ae307588511accc5ef",
+  "build_policy_sha256": "bc09ff74dd9db68cf0ff925a3c6bf27bf9703d03eb818c882fced0ff303b2d38",
   "reviewed_patches": {
     "@xyflow/system@0.0.83": {
       "file": "patches/@xyflow__system@0.0.83.patch",

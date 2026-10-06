@@ -19,6 +19,7 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
         assert!(result.status.success(), "{path:?}: {result:?}");
         let text = String::from_utf8(result.stdout).unwrap();
         for group in [
+            "local",
             "program",
             "task",
             "approval",
@@ -40,6 +41,7 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
         assert!(result.stderr.is_empty());
     }
     for (group, leaves) in [
+        ("local", vec!["up", "status", "logs", "down"]),
         ("program", vec!["example", "publish", "register"]),
         ("approval", vec!["list", "inspect", "decide"]),
         ("mcp", vec!["serve"]),
@@ -78,6 +80,15 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
 #[test]
 fn unknown_paths_and_invalid_options_fail_as_usage_before_startup() {
     for path in [
+        vec!["local", "unknown", "--help"],
+        vec!["local", "up", "--port", "0"],
+        vec!["local", "up", "--port", "65536"],
+        vec!["local", "up", "--concurrency", "0"],
+        vec!["local", "up", "--concurrency", "1025"],
+        vec!["local", "up", "--directory"],
+        vec!["local", "down", "--volumes"],
+        vec!["local", "logs", "--service", "unknown"],
+        vec!["local", "logs", "--follow", "--follow"],
         vec!["approval", "unknown", "--help"],
         vec!["mcp", "unknown", "--help"],
         vec!["mcp", "serve"],
