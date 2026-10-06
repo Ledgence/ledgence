@@ -1,6 +1,6 @@
 ---
 title: Run the local image distribution
-description: Start and manage a pinned local container stack with the development CLI while preserving its configuration and data.
+description: Start and manage a pinned local container stack with the released CLI while preserving its configuration and data.
 ---
 
 The `ledgence local` commands manage a versioned Docker Compose kit containing
@@ -8,12 +8,11 @@ PostgreSQL, a schema migrator, the orchestrator with Console, and one worker.
 The runtime image is pinned by immutable registry digest. A prepared kit runs
 without a source checkout, Rust, Node, or host Python.
 
-**Available on `develop`: published 0.3.1 does not contain these commands or a
-local distribution kit.** No version number is assigned here to the next
-release. For a complete released setup today, use the
-[source Compose tutorial](/tutorials/run-locally). The
-[native installation guide](/how-to/install-native) separates the released
-archives from the upcoming one-line installer.
+**Available in Ledgence 0.4.0.** [Install the CLI](/how-to/install-native), then
+start the bundled distribution with `ledgence local up`. The image is published
+in [Docker Hub](https://hub.docker.com/r/ledgence/ledgence); the kit records the
+exact digest rather than following a moving image tag. Building from source
+remains available through the [source Compose tutorial](/tutorials/run-locally).
 
 ## Before you start
 
@@ -22,78 +21,73 @@ newer**. Use Linux containers and a named local Docker context. The CLI rejects
 remote endpoints. If `DOCKER_HOST` is set, select a named local context
 explicitly with `--context` on first startup.
 
-You need a development CLI containing `local` and a matching qualified kit.
+A complete 0.4.0 native installation includes its matching qualified kit.
 The kit includes `distribution.json`, its Compose files, and `SHA256SUMS`.
 Its manifest identifies the version, immutable runtime image, CPython version,
 and qualified container platforms. An unprocessed `deploy/distribution`
 directory in a checkout is a packaging template, not a runnable kit.
 
 Native CLI targets and container platforms are separate. Published native
-bundles target Linux x86_64/glibc and macOS Apple silicon. A kit can support
-`linux/amd64`, `linux/arm64`, or both; the CLI checks the actual Docker engine
-against that kit's declared platforms. Do not infer native Linux ARM64 or
+bundles target Linux x86_64/glibc and macOS Apple silicon. The 0.4.0 kit supports
+`linux/amd64` and `linux/arm64`; the CLI checks the actual Docker engine against
+the kit's declared platforms. Do not infer native Linux ARM64 or
 Windows support from an image's platform list.
 
-## Start a prepared development kit
+## Start your local stack
 
-From a matching development checkout, build the CLI:
-
-```sh
-cargo build --locked --package ledgence-cli --all-features
-./target/debug/ledgence local --help
-```
-
-Then select your extracted, qualified kit and an empty installation directory:
-
-```sh
-./target/debug/ledgence local up \
-  --distribution /absolute/path/to/qualified-local-kit \
-  --directory "$HOME/.local/share/ledgence/local-preview" \
-  --port 8086 --concurrency 1
-```
-
-Replace the kit path with the one you have prepared or received. A new
-installation requires the kit's version to match the compiled CLI. Development
-builds can retain the current package version, so `local --help`, rather than
-`--version` alone, establishes whether this command exists.
-
-The CLI verifies and copies the kit, saves its project identity and settings,
-then waits for Compose readiness. PostgreSQL becomes healthy before the
-migrator runs; the orchestrator starts after migration succeeds. The server
-verifies its schema rather than applying migrations itself.
-
-On success, the CLI prints the API and Console URLs, scope, runtime image,
-Docker context, and worker platform. With the example above, open
-[Console on port 8086](http://127.0.0.1:8086/console/). The scope is tenant
-`acme`, namespace `demo`, with queue `demo`. The base stack contains no
-published application programs or callback receiver.
-
-When a future release includes the CLI commands and a qualified `local/` kit
-inside the native bundle, a complete installation will support:
+With Docker running, use the installed CLI:
 
 ```sh
 ledgence local up
 ledgence local status
-ledgence local logs --follow --service worker
-ledgence local down
 ```
 
-This sequence uses port 8080, concurrency 1, and the default state directory.
-It is not available with the released 0.3.1 executable.
+The CLI verifies and copies the bundled kit, saves its project identity and
+settings, then waits for Compose readiness. PostgreSQL becomes healthy before
+the migrator runs; the orchestrator starts after migration succeeds. The server
+verifies its schema rather than applying migrations itself.
+
+On success, the CLI prints the API and Console URLs, scope, runtime image,
+Docker context, and worker platform. Open the printed Console URL, normally
+[http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/). Defaults are port
+8080, concurrency 1, tenant `acme`, namespace `demo`, and queue `demo`.
+The base stack contains no published application programs or callback receiver.
+
+To create an independent installation on another port, select an empty directory
+on its first startup:
+
+```sh
+ledgence local up \
+  --directory "$HOME/.local/share/ledgence/local-preview" \
+  --port 8086 --concurrency 1
+```
+
+A source-built CLI can use `--distribution /absolute/path/to/qualified-local-kit`
+instead of bundled resources. The extracted kit must be complete and match the
+CLI version for a new installation. An unprocessed `deploy/distribution` source
+directory is not a qualified kit.
 
 ## Inspect, stop, and restart
+
+For the default installation:
+
+```sh
+ledgence local logs --tail 100 --service worker
+ledgence local down
+ledgence local up
+```
 
 Use the same directory for every operation on a nondefault installation:
 
 ```sh
-./target/debug/ledgence local status \
+ledgence local status \
   --directory "$HOME/.local/share/ledgence/local-preview"
-./target/debug/ledgence local logs \
+ledgence local logs \
   --directory "$HOME/.local/share/ledgence/local-preview" \
   --tail 100 --service worker
-./target/debug/ledgence local down \
+ledgence local down \
   --directory "$HOME/.local/share/ledgence/local-preview"
-./target/debug/ledgence local up \
+ledgence local up \
   --directory "$HOME/.local/share/ledgence/local-preview"
 ```
 
@@ -110,7 +104,8 @@ reported cause, and retry `up` in that directory. Keep its state and volumes.
 
 The default state directory is `$XDG_DATA_HOME/ledgence/local`, or
 `$HOME/.local/share/ledgence/local` when `XDG_DATA_HOME` is unset. It retains the
-verified kit and `.ledgence-state.json`, including the unique Compose project,
+verified kit files directly in that directory, alongside `.ledgence-state.json`.
+The state records the unique Compose project,
 original absolute directory, Docker context and endpoint, image, port, and
 concurrency. Keep this directory at its original path; relocation is rejected.
 
@@ -142,14 +137,41 @@ architectures does not make one program package portable across them.
 The copied kit's `README.md` describes direct Compose use and an optional
 `compose.examples.yaml` for publishing sample programs, running workflows, and
 observing callbacks. The example uses concurrency 1 to check process reuse.
-For direct Compose, consistently use the same explicit project name and file
-list for startup, logs, and shutdown. Follow that route as a separate project;
-the local CLI manages its saved base project and does not adopt another Compose
-deployment.
+
+The CLI and direct Compose instructions create **separate projects with separate
+data volumes**. The example README uses project `ledgence-local` and port 8080,
+while the CLI generates and saves its own project identity. Stop the CLI project
+before starting that example on the same port:
+
+```sh
+ledgence local down
+cd "${XDG_DATA_HOME:-$HOME/.local/share}/ledgence/local"
+```
+
+For a custom installation, pass its original `--directory` to `down` and change
+into that directory instead. The kit's README and Compose files live directly
+there, with no extra kit subdirectory. Set `LEDGENCE_CONCURRENCY=1` for the
+example assertions. If the CLI installation uses a custom Docker context, pass
+the same `docker --context NAME` before `compose` for every direct command.
+Then follow its example commands, keeping
+`--project-name ledgence-local` and both `--file` options identical for startup,
+logs, and shutdown. If keeping the CLI stack running, export a free
+`LEDGENCE_PORT`, such as `8086`, for every direct Compose command instead.
+
+Stop the example project when finished, preserving its volumes:
+
+```sh
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml down --timeout 65
+```
+
+You can then restart the original CLI project with `ledgence local up`, using the
+same `--directory` if customized. The CLI does not adopt the example project's
+volumes or manage its lifecycle. Neither project imports data from an existing
+source-Compose deployment.
 
 Source Compose builds an image from a checkout and uses `LEDGENCE_HTTP_PORT`.
 A distribution kit pulls its pinned image and uses `LEDGENCE_PORT` for direct
 Compose, or `--port` through the CLI. Both bind the API to loopback and use local
 demo credentials for operator-trusted code.
 
-**Development source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/develop/crates/ledgence-cli/src/local.rs) · [Kit guide](https://github.com/Ledgence/ledgence/blob/develop/deploy/distribution/README.md) · [Distribution contract](https://github.com/Ledgence/ledgence/blob/develop/docs/container-distribution.md)
+**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.4.0/crates/ledgence-cli/src/local.rs) · [Kit guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/distribution/README.md) · [Distribution contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/container-distribution.md)

@@ -1,44 +1,50 @@
 ---
 title: Releases and packages
-description: Ledgence 0.3.1 distribution channels, supported native targets, upgrade requirements, and historical releases.
+description: Ledgence 0.4.0 distribution channels, supported native targets, upgrade requirements, and historical releases.
 ---
 
-Ledgence 0.3.1 adds durable human approvals, recovery for model and tool calls, and an optional MCP server. Source, native bundles, the Python client, and Rust API crates use version **0.3.1**. Public APIs may evolve before 1.0; pin versions and review the [upgrade guide](/how-to/upgrade-to-0-3).
+Ledgence 0.4.0 adds a one-line CLI installer, persistent shell setup, published container images, and a local stack managed with `ledgence local`. Source, native bundles, the local kit, the Python client, and Rust API crates use version **0.4.0**. Public APIs may evolve before 1.0; pin versions and review the [upgrade guide](/how-to/upgrade-to-0-4).
 
 ## Distributions
 
 | Distribution | Version and scope |
 | --- | --- |
-| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.3.1) | `v0.3.1`: platform, Console, Compose deployment, examples, and contracts. |
-| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.3.1) | `0.3.1`: Linux x86_64/glibc and macOS arm64, with Console. |
-| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.3.1/) | `ledgence-client==0.3.1` |
-| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.3.1) | `ledgence-worker-api = "=0.3.1"` |
-| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.3.1) | `ledgence-orchestration-api = "=0.3.1"` |
+| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.4.0) | `v0.4.0`: platform, Console, Compose deployment, examples, and contracts. |
+| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.4.0) | `0.4.0`: Linux x86_64/glibc and macOS arm64, with Console. |
+| [Installer and local kit](https://github.com/Ledgence/ledgence/releases/tag/v0.4.0) | `install.sh` and `ledgence-0.4.0-local.tar.gz`; the matching kit also ships in each native bundle. |
+| [Container runtime on Docker Hub](https://hub.docker.com/r/ledgence/ledgence) | `0.4.0`: Linux amd64 and arm64, CPython 3.14, pinned by digest in the local kit. |
+| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.4.0/) | `ledgence-client==0.4.0` |
+| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.4.0) | `ledgence-worker-api = "=0.4.0"` |
+| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.4.0) | `ledgence-orchestration-api = "=0.4.0"` |
 
 The Linux native target is `x86_64-unknown-linux-gnu`, built and qualified on Ubuntu 24.04. The macOS target is `aarch64-apple-darwin`. Archive provenance records actual dynamic-library requirements; Linux qualification is not a claim of compatibility with every distribution. The source-based [Compose tutorial](/tutorials/run-locally) builds its own Linux container image and does not require a published Ledgence container image.
 
-## Development installation features
+## Install and run locally
 
-The `develop` branch adds a [one-line installer](/how-to/install-native#next-release-one-line-installation)
-with persistent shell setup, discovery of installed runtime/Console resources,
-and the `ledgence local up`, `status`, `logs` and `down` commands. These use a
-matching distribution kit pinned to qualified container image digests.
+[Install the CLI](/how-to/install-native#one-line-installation) with:
 
-They are **not present in the published 0.3.1 bundles**. The 0.3.1 release asset
-list has two native archives and `SHA256SUMS`; it does not include `install.sh`
-or a local kit. Installing 0.3.1 with a development copy of the installer does
-not change the executable's capabilities. Package version output alone cannot
-distinguish source additions while development still carries the same version.
+```sh
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
+```
 
-Follow the [local distribution guide](/how-to/run-local-distribution) for the
-development path. Availability changes only after the matching installer, native
-bundles, local kit and public container images complete release qualification.
-The [capability map](/reference/capabilities) separates release features from
-development features without assigning an unpublished version number.
+Open a new Bash/Zsh terminal, or source the setup file in the current shell:
+
+```sh
+. "$HOME/.local/share/ledgence/env"
+ledgence --version
+```
+
+With Docker running Linux containers and Compose 2.23.1+, start the matching
+stack with `ledgence local up`. The CLI uses the bundled kit, waits for readiness,
+and prints the Console URL. No source checkout, Rust, Node, or host Python is
+needed for this container stack. See [local lifecycle and data preservation](/how-to/run-local-distribution).
+
+The [0.4.0 upgrade guide](/how-to/upgrade-to-0-4) distinguishes CLI installation
+from service upgrades. Existing saved stacks retain their image and settings.
 
 ## Unified CLI
 
-The native bundle contains one executable, `bin/ledgence`, with `program`, `worker`, `orchestrator`, `task`, `approval`, and `mcp` command groups. Inspect it with `ledgence --help` and `ledgence --version`. Worker and orchestrator still run as separate processes. Build from source with `cargo build --locked -p ledgence-cli`; see the [CLI reference and migration table](/reference/cli).
+The native bundle contains one executable, `bin/ledgence`, with `program`, `worker`, `orchestrator`, `task`, `approval`, `mcp`, and `local` command groups. Inspect it with `ledgence --help` and `ledgence --version`. Worker and orchestrator still run as separate processes. Build from source with `cargo build --locked -p ledgence-cli`; see the [CLI reference and migration table](/reference/cli).
 
 ## Console
 
@@ -57,7 +63,7 @@ Register Python `Workflow` handlers with typed entrypoints and use acknowledged 
 ## Python client
 
 ```sh
-python3 -m pip install "ledgence-client==0.3.1"
+python3 -m pip install "ledgence-client==0.4.0"
 ```
 
 Import `from ledgence.client import AsyncClient`. The client requires Python 3.11 or newer; the supported qualification matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The optional `otel` extra integrates tracing. This client communicates with an existing service; it does not install a server, upload packages, or provide `ledgence.worker`.
@@ -68,13 +74,17 @@ The two API crates expose integration interfaces and require Rust 1.98 or newer:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "=0.3.1"
-ledgence-orchestration-api = "=0.3.1"
+ledgence-worker-api = "=0.4.0"
+ledgence-orchestration-api = "=0.4.0"
 ```
 
-Read the [worker API](https://docs.rs/ledgence-worker-api/0.3.1/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.3.1/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.3 contracts and account for the new approval variants and service operations.
+Read the [worker API](https://docs.rs/ledgence-worker-api/0.4.0/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.4.0/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.4 crates. The approval variants and service operations introduced in 0.3 remain part of the contracts.
 
 ## Historical releases
+
+**0.3.1** introduced durable human approvals, model/tool operation recovery and
+MCP. It remains the complete published 0.3 release. Its native bundles have no
+`ledgence local` command or local kit; see the [historical upgrade guide](/how-to/upgrade-to-0-3).
 
 `v0.3.0` remains a historical source tag. Its native bundles, Python client and
 Rust API crates were never publicly published. Use **0.3.1** for the 0.3 series;
@@ -84,18 +94,20 @@ the earlier tag is preserved without being moved or republished.
 
 The first native release, **0.1.0**, shipped only for macOS arm64 with three executables: `ledgence`, `ledgence-worker`, and `ledgence-orchestrator`. Its Python client wheel also remains 0.1.0. The later **0.1.1** source and registry packages did not include a native archive. Both releases predate Console, typed entrypoints, and durable forks. Their original archives and tags are unchanged; use their own bundled documentation when operating them.
 
-The `ledgence.worker` import namespace was already present in 0.1.1. The move from the older `ledgence_worker` spelling is not a new 0.3.1 migration. Example versions such as `1.0.0` and `1.0.1` identify application packages independently of platform releases.
+The `ledgence.worker` import namespace was already present in 0.1.1. The move from the older `ledgence_worker` spelling was not a new 0.3.1 migration. Example versions such as `1.0.0` and `1.0.1` identify application packages independently of platform releases.
 
 ## Operating scope
 
-CPython, PostgreSQL, brokers, and host libraries are supplied separately. Ledgence executes operator-trusted code; reusable subprocesses do not isolate hostile programs. Checkpoints and retries do not provide exactly-once external effects. Preserve tested backups before upgrading a durable deployment.
+Native service deployments require separately supplied CPython, PostgreSQL,
+brokers, and host libraries. The local container distribution supplies its
+CPython runtime and PostgreSQL service. Ledgence executes operator-trusted code; reusable subprocesses do not isolate hostile programs. Checkpoints and retries do not provide exactly-once external effects. Preserve tested backups before upgrading a durable deployment.
 
 Optional HTTP completion notifications, integrated or SQS-compatible queue
 delivery, OTLP tracing/metrics, execution retention and task discovery are also
-part of 0.3.1. See [results and callbacks](/how-to/receive-results),
+part of 0.4.0. See [results and callbacks](/how-to/receive-results),
 [queue delivery](/concepts/queue-delivery), [observability](/how-to/configure-observability)
 and the [capability map](/reference/capabilities) for their setup and limits.
 
 Ledgence-owned code is MIT licensed and supports self-hosting without a mandatory vendor account. Applications can remain proprietary; third-party components retain their licenses and notices.
 
-**Source:** [0.3.1 release notes](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/releases/0.3.1.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/registry-packages.md)
+**Source:** [0.4.0 release notes](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/releases/0.4.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/registry-packages.md)

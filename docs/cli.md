@@ -5,12 +5,11 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-**Development availability:** the `local` command group and installed-resource
-defaults described below are new source features. The published **0.3.1**
-executable does not include them. Follow [installation and local startup](installation.md)
-to distinguish current release instructions from development builds; an existing
-0.3.1 installation continues to work with its explicit paths and source Compose
-configuration.
+**Release availability:** Ledgence **0.4.0** includes the `local` command group
+and installed-resource defaults described below. Follow
+[installation and local startup](installation.md) for the installer, manual
+archives and source options. Existing 0.3.1 installations retain their explicit
+resource paths and source Compose configuration.
 
 The unified executable replaces the command layout in the historical `v0.1.1` source tag and
 native `0.1.0` bundle. Those artifacts retain their original executables and
@@ -48,9 +47,8 @@ explicit runtime configuration. See [observability](observability.md) and
 
 ## Command groups
 
-Use `ledgence <group> <command> --help` for the supported flags. Local lifecycle
-is available on `develop`; the other groups below are also in released 0.3.1
-builds, with MCP requiring its build feature.
+Use `ledgence <group> <command> --help` for the supported flags. These groups
+are available in 0.4.0, with MCP requiring its build feature.
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
@@ -69,7 +67,7 @@ appropriate interface for the operation you need.
 
 ## Local stack lifecycle
 
-Available in development builds. A complete installation supplies a versioned
+A complete 0.4.0 installation supplies a versioned
 `local/` distribution next to `bin/`; a source build can use `--distribution DIR`
 to select a separately qualified kit. Docker Engine or Docker Desktop must
 already be running Linux containers, with Docker Compose 2.23.1 or newer.
@@ -131,12 +129,14 @@ The basic kit starts PostgreSQL, its one-shot migrator, the orchestrator serving
 Console, and one worker. Its instance uses tenant `acme`, namespace `demo`, and
 queue `demo`. It does not publish application programs or start a callback
 receiver. The copied kit's `README.md` documents optional examples and direct
-Compose operation. [Installation details](installation.md) explain state
+Compose operation using a separate project. Follow the
+[example handoff](installation.md#run-the-optional-container-examples) to avoid
+port conflicts and keep that project's lifecycle and volumes distinct. [Installation details](installation.md) explain state
 locations, platform support and the existing source deployment route.
 
 ## Installed resources
 
-Development builds locate resources relative to the actual executable, resolving
+Ledgence 0.4.0 locates resources relative to the actual executable, resolving
 symlink launchers first. Move the complete native bundle together; copying only
 `bin/ledgence` omits its runtime helper, Console assets and legal notices.
 
@@ -229,12 +229,12 @@ retry the identical file so the server can reconcile the same decision.
 
 ## MCP clients
 
-Ledgence 0.3.1 builds include the optional `mcp` feature by default.
+Ledgence builds have included the optional `mcp` feature by default since 0.3.1.
 Run `ledgence mcp serve --server URL --tenant ID --namespace NAME` for a stdio
 session backed by that HTTP API. Add `--read-only` to expose only observation
 tools. No worker, database, or model provider starts in the MCP process.
 See [MCP setup, tools and recovery](mcp.md).
 
 `--no-default-features` omits both MCP and OpenTelemetry. Add `--features mcp`
-to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.3.1 native bundle or build the matching source for MCP; earlier 0.2.0
+to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.4.0 native bundle or build the matching source for MCP; earlier 0.2.0
 binaries retain their original command set.

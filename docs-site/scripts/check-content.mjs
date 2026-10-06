@@ -38,7 +38,7 @@ export function pageMetadata(text, path) {
   return { title: title.replace(/^['"]|['"]$/g, ''), description: description.replace(/^['"]|['"]$/g, ''), body };
 }
 
-export function writeMarkdownExports(directory, pages, revision, productRevision = releaseRevision()) {
+export function writeMarkdownExports(directory, pages, revision, productRevision = releaseRevision(), features = sourceFeatures) {
   mkdirSync(directory, { recursive: true });
   rmSync(join(directory, 'markdown'), { recursive: true, force: true });
   const exported = pages.filter(page => page.path.endsWith('.md'));
@@ -48,10 +48,12 @@ export function writeMarkdownExports(directory, pages, revision, productRevision
     writeFileSync(target, `# ${page.title}\n\n${page.description}\n\n${page.body}`);
   }
   const productIdentity = productRevision ? `${release.sourceRef} (${productRevision})` : release.sourceRef;
-  const list = ['# Ledgence documentation', '', `> Documentation for the Ledgence ${release.series} release series: open-source agent and workflow orchestration.`, '', `Product source: ${productIdentity}. Documentation checkout: ${revision}.`, '', `Native bundles: ${release.nativeVersion} (${release.nativeTargets.join(', ')}). Python client: ${release.clientVersion}. Rust API crates: ${release.rustApiVersion}.`, `Console is included in source ${sourceFeatures.console.sourceRef} and Console-enabled native bundles; qualification date ${sourceFeatures.console.verifiedOn}. See https://docs.ledgence.com${sourceFeatures.console.guide}.`, '', 'Public APIs may change before 1.0. See the release reference for installation choices, host-library requirements, and supported scope.', ''];
-  for (const feature of Object.values(sourceFeatures)) {
+  const list = ['# Ledgence documentation', '', `> Documentation for the Ledgence ${release.series} release series: open-source agent and workflow orchestration.`, '', `Product source: ${productIdentity}. Documentation checkout: ${revision}.`, '', `Native bundles: ${release.nativeVersion} (${release.nativeTargets.join(', ')}). Python client: ${release.clientVersion}. Rust API crates: ${release.rustApiVersion}.`, `Console is included in source ${features.console.sourceRef} and Console-enabled native bundles; qualification date ${features.console.verifiedOn}. See https://docs.ledgence.com${features.console.guide}.`, '', 'Public APIs may change before 1.0. See the release reference for installation choices, host-library requirements, and supported scope.', ''];
+  for (const [key, feature] of Object.entries(features)) {
     if (feature.availability === 'development') {
       list.push(`Development-only: ${feature.title} (source ${feature.sourceRef}). Requires a matching development build or a future qualified release. See https://docs.ledgence.com${feature.guide}.`, '');
+    } else if (key !== 'console' && feature.availability === 'release') {
+      list.push(`Released: ${feature.title} (source ${feature.sourceRef}; verified ${feature.verifiedOn}). See https://docs.ledgence.com${feature.guide}.`, '');
     }
   }
   for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {

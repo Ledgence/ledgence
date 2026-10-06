@@ -3,14 +3,14 @@ title: Run Ledgence locally
 description: Start a local stack, publish its example agents, and observe real task and workflow results.
 ---
 
-Run a complete Ledgence 0.3.1 stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator serving Console, a worker, and a small callback receiver.
+Run a complete Ledgence 0.4.0 stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator serving Console, a worker, and a small callback receiver.
 
-This is the released source-build route. The new `ledgence local` commands use
-a prepared image distribution and are available on `develop`, with a matching
-qualified kit. See [Run the local image distribution](/how-to/run-local-distribution)
-for that path; the published 0.3.1 executable does not contain those commands.
+This tutorial builds the image from source. For a faster first startup without a
+checkout, [install the CLI](/how-to/install-native) and run the [published image
+distribution](/how-to/run-local-distribution). Both paths are part of 0.4.0 and
+create separate deployments; stop one before using the other's default port 8080.
 
-This tutorial uses the `v0.3.1` source release. Its invoice and summary programs use application version `1.0.0`; its typed workflow controller uses `1.0.1`. Use a fresh deployment, or follow [Upgrade to 0.3.1](/how-to/upgrade-to-0-3) before adopting existing data.
+This tutorial uses the `v0.4.0` source release. Its invoice and summary programs use application version `1.0.0`; its typed workflow controller uses `1.0.1`. Use a fresh deployment, or follow [Upgrade to 0.4.0](/how-to/upgrade-to-0-4) before adopting existing data.
 
 Allow extra time for the first image build. You do not need a hosted account, Rust, or Python installed on your computer for this tutorial.
 
@@ -25,11 +25,11 @@ The example binds its API to `127.0.0.1:8080`. It uses local demo credentials an
 In a directory where you keep projects:
 
 ```sh
-git clone --branch v0.3.1 --depth 1 https://github.com/Ledgence/ledgence.git
+git clone --branch v0.4.0 --depth 1 https://github.com/Ledgence/ledgence.git
 cd ledgence
 ```
 
-This checks out the published `v0.3.1` source tag. Git may report a detached HEAD; that is expected when following a release tag. Compose builds the image locally from this version. Run the remaining commands from this repository root. If you already have a checkout, use a separate clone to follow along without changing work in progress.
+This checks out the published `v0.4.0` source tag. Git may report a detached HEAD; that is expected when following a release tag. Compose builds the image locally from this version. Run the remaining commands from this repository root. If you already have a checkout, use a separate clone to follow along without changing work in progress.
 
 ## 2. Start the stack
 
@@ -115,6 +115,6 @@ source Compose deployment. Before adopting retained data with a different
 source version, follow its upgrade guide and validate a database and
 program-store backup.
 
-The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/local-deployment.md) covers its lifecycle and deployment options.
+The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/local-deployment.md) covers its lifecycle and deployment options.
 
-**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.3.1/deploy/local/compose.yaml) · [Example assertions](https://github.com/Ledgence/ledgence/blob/v0.3.1/deploy/local/demo.py)
+**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/local/compose.yaml) · [Example assertions](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/local/demo.py)

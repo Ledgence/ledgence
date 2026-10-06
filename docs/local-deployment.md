@@ -6,12 +6,11 @@ small example callback receiver. Programs are published into a shared program
 store after startup and fetched into the worker's persistent verified cache.
 There is no required vendor account or hosted service.
 
-This guide describes the source-built Compose deployment, available in Ledgence
-0.3.1, including Console. Use the `v0.3.1` source tag for that released version;
-building `develop` uses the current checkout's code and dependency pins. The
-[container distribution guide](container-distribution.md) describes the separate
-versioned local-kit tooling on `develop`; it is not a published 0.3.1 image or
-local-kit asset. Follow
+This guide describes the source-built Compose deployment, including Console.
+Use the `v0.4.0` source tag for this release; building `develop` uses the current
+checkout's code and dependency pins. For prebuilt images and `ledgence local`,
+start with [installation](installation.md) and the separate
+[container distribution](container-distribution.md). Follow
 [Explore Ledgence Console](https://docs.ledgence.com/tutorials/use-console) for the
 browser-guided setup. Existing deployments must follow the
 [upgrade guide](upgrading-to-0.3.md) before reusing their database. It also links
@@ -61,7 +60,7 @@ particular acceptance example at one slot.
 
 The public API is `http://127.0.0.1:8080`; Console is under `/console/`. Set `LEDGENCE_HTTP_PORT` before `up` to
 choose another host port. Install the published client in a Python 3.11+ virtual
-environment with `python -m pip install "ledgence-client==0.3.1"`, then use:
+environment with `python -m pip install "ledgence-client==0.4.0"`, then use:
 
 ```python
 import asyncio
@@ -93,20 +92,20 @@ explain retry exhaustion, redelivery and production receiver responsibilities.
 ## Run the installed Python client example
 
 After starting the stack and publishing its programs, install the published
-**0.3.1** client in a host virtual environment. Use host CPython 3.11–3.14; this
+**0.4.0** client in a host virtual environment. Use host CPython 3.11–3.14; this
 interpreter runs the client, while programs execute using the separately declared
 interpreter inside the worker container.
 
 ```sh
 python3 -m venv /tmp/ledgence-compose-client
-/tmp/ledgence-compose-client/bin/python -m pip install "ledgence-client==0.3.1"
+/tmp/ledgence-compose-client/bin/python -m pip install "ledgence-client==0.4.0"
 /tmp/ledgence-compose-client/bin/python -I -B examples/local-compose-client.py --server http://127.0.0.1:8080
 ```
 
 Run the companion from the source checkout after the Compose setup above. The
 [Console tutorial](https://docs.ledgence.com/tutorials/use-console) follows this
-0.3.1 stack. The [release tutorial](https://docs.ledgence.com/tutorials/run-locally)
-starts from the matching `v0.3.1` tag. See the
+0.4.0 stack. The [release tutorial](https://docs.ledgence.com/tutorials/run-locally)
+starts from the matching `v0.4.0` tag. See the
 [release reference](https://docs.ledgence.com/reference/releases) for available
 native bundles and registry versions; these are released separately.
 
@@ -221,8 +220,8 @@ released.
 Pinned inputs and normalized candidate archives improve repeatability; Ledgence
 does not claim byte-identical compiled binaries across hosts. This Compose path
 builds its image locally. Versioned image publication and local-kit generation
-have separate [distribution gates](container-distribution.md); their presence on
-`develop` does not establish that images exist for a released version.
+have separate [distribution gates](container-distribution.md). The 0.4.0 release
+provides the qualified images and kit; this source-built path does not use them.
 The image's upstream Debian, CPython
 and utility components retain their licenses and possible source-distribution
 obligations. Their notices remain in the base image; `/opt/ledgence/legal`

@@ -14,8 +14,9 @@ to Ledgence. Offline fixture output is labelled separately. Use Console to
 follow actual execution, and see [the recording guide](DEMO.md) for the video
 story and shot list.
 
-**Version:** application packages `1.2.0`, included in the Ledgence **0.3.1**
-source release and using its matching runtime and Python client. The original example in the `v0.2.0` tag uses
+**Version:** application packages `1.2.0`, introduced in the Ledgence **0.3.1**
+source release. Use matching **0.4.0** runtime and Python client components for
+this checkout. The original example in the `v0.2.0` tag uses
 application `1.0.0`; application `1.1.0` uses the previous fixture. Prepare fresh
 `1.2.0` packages for these instructions rather than replacing an existing version.
 
@@ -74,7 +75,7 @@ dedicated decision API, see [Durable action approval](../durable-approval/README
 
 ## Requirements
 
-- Ledgence 0.3.1 source, a matching `ledgence` executable and all migrations,
+- Ledgence 0.4.0 source, a matching `ledgence` executable and all migrations,
   including workflow forks. The historical `v0.1.1` source and `v0.1.0` native
   artifacts do not provide this example's workflow API.
 - CPython **3.13** on a supported macOS or Linux host. Prepare packages on the

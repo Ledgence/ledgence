@@ -54,7 +54,7 @@ The PostgreSQL adapter selects the task, latest attempt, and settlement in one S
 Install the current published Python client in your application's virtual environment:
 
 ```sh
-python -m pip install "ledgence-client==0.3.1"
+python -m pip install "ledgence-client==0.4.0"
 ```
 
 Its import is `from ledgence.client import AsyncClient`. Program packages are published separately; installing the client does not start a worker or upload a program.

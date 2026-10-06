@@ -1,20 +1,22 @@
 {
   "console": {
     "availability": "release",
-    "sourceRef": "v0.3.1",
-    "verifiedOn": "2026-10-05",
+    "sourceRef": "v0.4.0",
+    "verifiedOn": "2026-10-06",
     "guide": "/tutorials/use-console"
   },
   "installer": {
     "title": "One-line CLI installation and shell setup",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/install-native#next-release-one-line-installation"
+    "availability": "release",
+    "sourceRef": "v0.4.0",
+    "guide": "/how-to/install-native#one-line-installation",
+    "verifiedOn": "2026-10-06"
   },
   "localDistribution": {
     "title": "Local stack from container images and CLI lifecycle",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/run-local-distribution"
+    "availability": "release",
+    "sourceRef": "v0.4.0",
+    "guide": "/how-to/run-local-distribution",
+    "verifiedOn": "2026-10-06"
   }
 }

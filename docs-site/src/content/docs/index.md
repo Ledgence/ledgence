@@ -6,14 +6,14 @@ tableOfContents: false
 
 <p class="ld-home-intro">Run your agents, follow their workflows, and understand what is happening on your infrastructure.</p>
 
-<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.3</span> Public releases are here <span aria-hidden="true">→</span></a>
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.4</span> Public releases are here <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
-    <span class="ld-eyebrow">Ledgence 0.3.1 · durable agents and workflows</span>
+    <span class="ld-eyebrow">Ledgence 0.4.0 · durable agents and workflows</span>
     <h2>See your work in motion.</h2>
     <p>Start a self-hosted instance, inspect real executions, and explore the workflow graph, registered programs, and worker processes.</p>
-    <div class="ld-start-actions"><a class="ld-start-link" href="/tutorials/use-console">Explore Console <span aria-hidden="true">↗</span></a><a class="ld-install-link" href="/tutorials/run-locally">Run the released stack <span aria-hidden="true">→</span></a></div>
+    <div class="ld-start-actions"><a class="ld-start-link" href="/tutorials/use-console">Explore Console <span aria-hidden="true">↗</span></a><a class="ld-install-link" href="/how-to/install-native">Install and run locally <span aria-hidden="true">→</span></a></div>
   </div>
   <div class="ld-worker-card" aria-label="Illustration of a worker with six process slots">
     <span>Your worker</span>
@@ -27,17 +27,16 @@ Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/cod
 
 | Need | Guide |
 | --- | --- |
-| Install the CLI, including the one-line method prepared for the next release. | [Installation](/how-to/install-native) |
-| Run the published 0.3.1 stack with Docker Compose. | [Local source tutorial](/tutorials/run-locally) |
-| Manage a qualified image-based stack using the new CLI lifecycle. | [Local distribution](/how-to/run-local-distribution), currently a development feature. |
+| Install the CLI in one command and configure your shell. | [Installation](/how-to/install-native) |
+| Start and manage the local stack from published images. | [Local distribution](/how-to/run-local-distribution) |
+| Build the Docker Compose examples from source. | [Local source tutorial](/tutorials/run-locally) |
 | Submit work and receive results after disconnecting. | [Result waiting and callbacks](/how-to/receive-results) |
 | Connect an MCP client to an existing instance. | [MCP setup](/how-to/connect-mcp) |
 | Operate workers and diagnose executions. | [Observability](/how-to/configure-observability), [queue delivery](/concepts/queue-delivery), and [Console](/reference/console) |
 
 Use the [capability map](/reference/capabilities) to find every supported area,
-its limits and release availability. Public 0.3.1 assets remain distinct from
-the installer, published-image distribution and `ledgence local` changes in
-`develop`.
+its limits and release availability. Ledgence 0.4.0 adds the one-line installer,
+published container images and `ledgence local` lifecycle commands.
 
 ## Find your way
 
@@ -54,4 +53,4 @@ Your **agent** is application code. You publish that code and its prepared depen
 
 Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
 
-<p class="ld-home-status">Released guides target Ledgence 0.3.1: durable approvals, model/tool recovery, MCP, and workflows with a self-hosted Console. Development-only installation features are explicitly marked. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>
+<p class="ld-home-status">Released guides target Ledgence 0.4.0: durable approvals, model/tool recovery, MCP, and workflows with a self-hosted Console. Install the CLI and run the local stack from published images, or build from source. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>

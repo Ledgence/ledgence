@@ -5,7 +5,7 @@ description: Follow a real workflow from concurrent local steps to a distributed
 
 Submit the workflow published in [Run Ledgence locally](/tutorials/run-locally), then follow the code that produced its result. You will see how local work, a distributed task, and a checkpoint fit together—even with a single worker slot.
 
-This tutorial follows the `v0.3.1` source release and its typed `workflow-example@1.0.1` controller. For independently checkpointed branches, see the [typed entrypoints and forks guide](/how-to/fork-workflow-branches).
+This tutorial follows the `v0.4.0` source release and its typed `workflow-example@1.0.1` controller. For independently checkpointed branches, see the [typed entrypoints and forks guide](/how-to/fork-workflow-branches).
 
 ## Before you start
 
@@ -21,10 +21,10 @@ Create a virtual environment outside the checkout and install the published Pyth
 python3 --version
 export LEDGENCE_TUTORIAL_DIR="$(mktemp -d)"
 python3 -m venv "$LEDGENCE_TUTORIAL_DIR/client"
-"$LEDGENCE_TUTORIAL_DIR/client/bin/python" -m pip install "ledgence-client==0.3.1"
+"$LEDGENCE_TUTORIAL_DIR/client/bin/python" -m pip install "ledgence-client==0.4.0"
 ```
 
-The SDK talks to the local API. It does not upload packages or execute the workflow in this client process. The controller uses application version `1.0.1` and its summary task uses `1.0.0`; those versions are separate from Ledgence 0.3.1.
+The SDK talks to the local API. It does not upload packages or execute the workflow in this client process. The controller uses application version `1.0.1` and its summary task uses `1.0.0`; those versions are separate from Ledgence 0.4.0.
 
 ## 2. Submit the workflow
 
@@ -143,4 +143,4 @@ The 60-second timeout limits how long the client observes the result. It does no
 
 You have now followed a complete checkpoint: local results, a distributed child, a saved continuation, and a final output. Read [Checkpoints and recovery](/concepts/checkpoints-and-recovery) to see what happens when an activation stops unexpectedly.
 
-**Source:** [Controller and summary example](https://github.com/Ledgence/ledgence/tree/v0.3.1/examples/checkpoint-workflow) · [Python client](https://github.com/Ledgence/ledgence/blob/v0.3.1/sdk/python-client/README.md)
+**Source:** [Controller and summary example](https://github.com/Ledgence/ledgence/tree/v0.4.0/examples/checkpoint-workflow) · [Python client](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python-client/README.md)

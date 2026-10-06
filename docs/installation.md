@@ -5,13 +5,10 @@ Install the native `ledgence` CLI to administer a service or run workers. Instal
 the complete local stack, use Docker Compose; the CLI's new `local` commands
 manage a versioned Compose distribution.
 
-> **Available in development builds:** the installer in this source checkout,
-> `ledgence local`, and automatic discovery of installed runtime/Console files
-> are being prepared for the next release. Published **0.3.1** has neither the
-> `local` commands nor a local distribution kit. Its [native installation guide](https://docs.ledgence.com/how-to/install-native)
-> and [source Compose tutorial](https://docs.ledgence.com/tutorials/run-locally)
-> remain the supported released setup paths. No new release number or public
-> installer download is assumed by this guide.
+Ledgence **0.4.0** includes the installer, `ledgence local`, a matching
+container distribution kit, and discovery of installed runtime and Console files.
+The [manual native guide](https://docs.ledgence.com/how-to/install-native) and
+[source Compose deployment](local-deployment.md) remain available.
 
 ## Choose what to install
 
@@ -20,7 +17,7 @@ manage a versioned Compose distribution.
 | Call an existing API from Python | Python 3.11+ and `ledgence-client` in the application environment. |
 | Administer an existing API or connect an MCP client | The native CLI; Docker and a local Python interpreter are not required for those commands. |
 | Run a Python program in a native worker | The native CLI and a host CPython interpreter matching the program manifest. |
-| Start the image-based local stack | Docker Engine or Docker Desktop with Compose 2.23.1+, plus a development CLI and matching qualified distribution kit. |
+| Start the image-based local stack | Docker Engine or Docker Desktop with Compose 2.23.1+, plus the complete 0.4.0 native CLI installation. |
 | Build the existing local stack from source | Git and Docker with Compose; Rust, Node and CPython are supplied by the container build. |
 
 The published native bundles target **Linux x86_64 with glibc** and **macOS Apple
@@ -28,19 +25,18 @@ Silicon**. Linux qualification uses Ubuntu 24.04; this is not a claim of support
 for every glibc distribution. The installer rejects musl/Alpine and unsupported
 native OS/architecture pairs, and checks that the downloaded executable starts
 before selecting it. There are no published native Windows, Linux ARM64, or
-macOS Intel binaries in 0.3.1.
+macOS Intel binaries in 0.4.0.
 
-A distribution kit declares its qualified Linux container platforms, which the
-CLI checks against the Docker engine. Container platform support is separate
+The 0.4.0 distribution kit supports **Linux amd64 and arm64** containers, which
+the CLI checks against the Docker engine. Container platform support is separate
 from native CLI availability. A program still needs dependencies built for the
 worker's actual architecture and the exact Python major/minor in its manifest.
 An image supporting several architectures does not make one program package
 portable across them. The initial distribution uses CPython 3.14.
 
-## Next release: one-line installation
+## One-line installation
 
-**This download is not available in 0.3.1.** After a release publishes
-`install.sh`, install Ledgence with:
+Install the latest stable Ledgence release:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
@@ -57,11 +53,9 @@ ledgence --version
 The installer configures supported shell profiles for future terminals. An
 installer running as a child process cannot change the current shell's
 environment. See [shell setup](#shell-setup) for sh/dash login shells, custom
-prefixes and other shells. Until that release is available, use the working
-0.3.1 instructions below.
+prefixes and other shells.
 
-After installing a complete release that includes the local kit, start Docker
-with Linux containers and Compose 2.23.1 or newer, then run:
+Start Docker with Linux containers and Compose 2.23.1 or newer, then run:
 
 ```sh
 ledgence local up
@@ -71,32 +65,34 @@ ledgence local status
 Open the Console URL printed by `up`, normally
 `http://127.0.0.1:8080/console/`. The initial stack has a database, orchestrator,
 Console and worker, with no application programs or executions yet. See
-[startup and examples](#start-a-development-distribution) for the exact scope.
+[startup and examples](#start-the-local-stack) for the exact scope.
 Use `ledgence local down` to stop it while retaining its configuration and data.
-This sequence does not work with the published 0.3.1 executable. When only
-administering an existing API or connecting an MCP client, skip local startup.
+When only administering an existing API or connecting an MCP client, skip local
+startup. The container stack supplies CPython; host Python is not required.
 
-## Install the currently released native CLI
+## Pin a version or use a custom installation
 
-The [manual native guide](https://docs.ledgence.com/how-to/install-native) works
-with the published 0.3.1 assets today. Alternatively, from a development checkout
-that contains `install.sh`, run:
+For a reproducible installation of this release:
 
 ```sh
-sh install.sh --version 0.3.1 && . "$HOME/.local/share/ledgence/env"
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.4.0/install.sh | sh -s -- --version 0.4.0
 ```
 
-This installs the **released 0.3.1 executable**, not the development executable
-from that checkout. It therefore does not add `local` commands or the new
-resource defaults. Use the 0.3.1 native instructions after installation. The
-installer does not require Python, Rust, Node or Docker.
+Without `--version`, the script resolves the latest stable release once.
+`--prefix /absolute/path` changes the default `$HOME/.local` installation
+location. `--base-url HTTPS_URL` selects an alternative release endpoint with
+the same release/download layout. To leave shell profiles unchanged, pass
+`--no-modify-path`; you can still source the generated environment file when
+needed. For example:
 
-Without `--version`, the script resolves the latest stable release once. At
-present that is 0.3.1. `--prefix /absolute/path` changes the default `$HOME/.local`
-installation location. `--base-url HTTPS_URL` selects an alternative release
-endpoint with the same release/download layout. To leave shell profiles
-unchanged, pass `--no-modify-path`; you can still source the generated environment
-file when needed.
+```sh
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.4.0/install.sh | sh -s -- --version 0.4.0 --prefix "$HOME/tools/ledgence"
+. "$HOME/tools/ledgence/share/ledgence/env"
+```
+
+The installer does not require Python, Rust, Node or Docker. Manual archive
+download, checksum verification and extraction remain supported in the
+[manual native guide](https://docs.ledgence.com/how-to/install-native).
 
 ### Shell setup
 
@@ -150,7 +146,7 @@ With the default prefix, the layout is:
   LICENSE
   provenance.json
   SHA256SUMS
-  local/       # only when that release includes a qualified local kit
+  local/       # matching digest-pinned container distribution kit
 ```
 
 An unrelated existing `ledgence` executable or launcher is not replaced.
@@ -159,57 +155,53 @@ Keep each bundle intact. Its symlink launcher makes the CLI discoverable on
 `PATH`; it does not separate the binary from resources needed by other commands.
 See [installed resource behavior](cli.md#installed-resources).
 
-## Start a development distribution
+## Start the local stack
 
-This path requires a development CLI containing `local` and a matching kit
-prepared from a qualified image digest. The 0.3.1 release assets do not supply
-such a kit. Maintainers prepare and qualify it through the
-[release tooling](releasing.md); a source checkout alone is not a ready-to-pull
-image distribution.
-
-Docker must already be installed and running Linux containers. From the matching
-development checkout, build the host CLI and select the prepared kit:
+The complete 0.4.0 native installation includes its matching local distribution
+kit. Docker must already be installed and running Linux containers with Compose
+2.23.1 or newer:
 
 ```sh
-cargo build --locked --package ledgence-cli --all-features
-./target/debug/ledgence local --help
-
-# Replace this path with the extracted, qualified kit directory.
-LEDGENCE_LOCAL_KIT=/absolute/path/to/ledgence-VERSION-local
-./target/debug/ledgence local up \
-  --distribution "$LEDGENCE_LOCAL_KIT" \
-  --directory "$HOME/.local/share/ledgence/local-preview" \
-  --port 8086
+ledgence local up
+ledgence local status
+ledgence local logs --follow --service worker
 ```
 
 The kit's `distribution.json` identifies its version, immutable image digest,
 Python version and supported container platforms. `SHA256SUMS` verifies the kit
 files. A new installation requires the kit version to match the compiled CLI.
-Use `local --help` to check command availability: while development retains the
-current package version, `--version` alone does not distinguish it from a
-released executable.
 
-When a later release includes the installer and local kit as qualified assets,
-its complete native installation will support the shorter sequence:
+To use a separately extracted kit with the installed CLI, select it explicitly:
 
 ```sh
-# Requires an installed release that includes `local` and its distribution kit.
-ledgence local up
-ledgence local status
-ledgence local logs --follow --service worker
-ledgence local down
+ledgence local up \
+  --distribution /absolute/path/to/qualified-local-kit \
+  --directory "$HOME/.local/share/ledgence/local-preview" \
+  --port 8086
 ```
 
-Do not use that sequence with the published 0.3.1 binary. Obtain the installer
-and matching bundle from the selected future release's actual asset list; this
-guide marks the one-line installer as unavailable until that release.
+Alternatively, from a matching Ledgence source checkout with its Rust toolchain,
+build the CLI and select the same version's qualified kit:
+
+```sh
+cargo build --locked --package ledgence-cli --all-features
+./target/debug/ledgence local up \
+  --distribution /absolute/path/to/qualified-local-kit \
+  --directory "$HOME/.local/share/ledgence/local-preview" \
+  --port 8086
+```
+
+Maintainers prepare and qualify kits through the
+[release tooling](releasing.md); a source checkout alone does not provide a
+published runtime image.
 
 `up` starts PostgreSQL, runs the kit's migrator, and starts the orchestrator and
 one worker. It waits for Compose readiness and prints the API and Console URLs,
 Docker context, scope and actual worker platform. With defaults, Console is
 `http://127.0.0.1:8080/console/` and the instance uses tenant `acme`, namespace
 `demo`, queue `demo`. The base stack starts without application programs or a
-callback receiver; follow the copied kit's `README.md` for optional examples.
+callback receiver. See [optional container examples](#run-the-optional-container-examples)
+below before following the copied kit's `README.md`.
 
 ## Keep local data and configuration
 
@@ -219,9 +211,9 @@ from the versioned native bundles. Always pass the same custom directory when
 operating a nondefault installation:
 
 ```sh
-./target/debug/ledgence local status --directory "$HOME/.local/share/ledgence/local-preview"
-./target/debug/ledgence local logs --directory "$HOME/.local/share/ledgence/local-preview" --tail 50
-./target/debug/ledgence local down --directory "$HOME/.local/share/ledgence/local-preview"
+ledgence local status --directory "$HOME/.local/share/ledgence/local-preview"
+ledgence local logs --directory "$HOME/.local/share/ledgence/local-preview" --tail 50
+ledgence local down --directory "$HOME/.local/share/ledgence/local-preview"
 ```
 
 The directory retains a verified copy of the kit and `.ledgence-state.json`,
@@ -253,12 +245,60 @@ not a consistent backup. Validate restoration before an upgrade. There is no
 Restoring retained data is an operator procedure using compatible schema/image
 versions and the matching project configuration.
 
+## Run the optional container examples
+
+`local up` creates a saved Compose project with a generated name. The kit's
+`README.md` demonstrates direct Compose using the separate name `ledgence-local`.
+Those projects have independent containers and named volumes; direct Compose
+does not populate or operate the CLI-managed database. Both default to host port
+8080, so stop the CLI-managed project first, or choose a different free port for
+the direct Compose project.
+
+The kit files are copied **directly into the installation directory**, alongside
+`.ledgence-state.json`. After default `local up`, use:
+
+```sh
+ledgence local down
+cd "${XDG_DATA_HOME:-$HOME/.local/share}/ledgence/local"
+export LEDGENCE_CONCURRENCY=1
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml up --no-build --detach --wait --wait-timeout 120
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml run --rm --no-deps publish
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml run --rm --no-deps demo
+```
+
+For a custom installation, stop it with
+`ledgence local down --directory /original/installation/directory`, then change
+into that same directory. To keep it running instead, set `LEDGENCE_PORT` to a
+free port, such as `export LEDGENCE_PORT=8087`, before every direct Compose
+operation. If the CLI installation uses a custom Docker context, use that context
+for each direct command as well (`docker --context CONTEXT compose ...`).
+Choose an unused project name if `ledgence-local` already belongs to another
+installation, including a source-Compose deployment.
+
+Keep the example's concurrency at **1** for its process-reuse assertion. Its
+publish step prepares worker-compatible programs inside the container, registers
+them, and its demo submits real tasks, workflows and completion callbacks. Open
+`http://127.0.0.1:8080/console/`, or the selected alternative port, to explore
+them. Use the same project name, context, port setting and file list for logs and
+shutdown:
+
+```sh
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml logs --tail 50
+docker compose --project-name ledgence-local --file compose.yaml --file compose.examples.yaml down --timeout 65
+```
+
+This preserves the example project's volumes. `ledgence local status`, `logs`,
+`down` and `up` continue to address the original saved CLI project; they do not
+adopt or stop this direct Compose project. Stop the direct project before
+restarting the CLI project on the same port. The CLI project retains its own
+original data. See the copied kit's `README.md` for the standalone Compose route.
+
 ## Continue using source Compose
 
 The [existing source deployment](local-deployment.md) remains available, including
 its optional ElasticMQ route. It builds the image from the checkout and requires
 Git and Docker, with no host Rust, Node or Python installation. For a released
-setup today, follow the [0.3.1 tutorial](https://docs.ledgence.com/tutorials/run-locally).
+setup, use the `v0.4.0` source tag and the [source deployment guide](local-deployment.md).
 
 The image-based kit instead pulls the exact image digest stored in its Compose
 files and requires no source tree to run. These are separate setup paths:
@@ -282,13 +322,13 @@ For the published client, use Python 3.11+ in your project:
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install "ledgence-client==0.3.1"
+python -m pip install "ledgence-client==0.4.0"
 ```
 
 In an existing uv project, the equivalent dependency declaration is:
 
 ```sh
-uv add "ledgence-client==0.3.1"
+uv add "ledgence-client==0.4.0"
 ```
 
 Use your project's existing package manager rather than creating a second

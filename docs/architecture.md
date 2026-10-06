@@ -30,13 +30,12 @@ Tracing supplements these records and never supplies missing relationships.
 | `ledgence-adapter-sqs` | Optional SQS Standard publishing, receiving, acknowledgment and deployment configuration | Orchestration API, worker API |
 | `ledgence-adapter-http` | Optional HTTP task/workflow clients, server routes, Console assets, and completion callback transport | Orchestration API, worker API |
 | `ledgence-orchestrator` | Internal library for HTTP/Console serving, explicit migrations, instance binding, readiness, workflow/expiry recovery, callbacks, and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
-| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator, task, approval, optional MCP, and development local-stack commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel and MCP adapters |
+| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator, task, approval, optional MCP, and local-stack commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel and MCP adapters |
 
-The `develop` CLI also locates resources in a complete installed bundle and
-manages a verified Compose kit through `ledgence local`. These distribution
-features do not change task authority or runtime contracts and are absent from
-the published 0.3.1 executable. See [installation](installation.md) for version
-availability and [CLI operations](cli.md) for their lifecycle.
+Since 0.4.0, the CLI locates resources in a complete installed bundle and manages
+a verified Compose kit through `ledgence local`. These distribution features
+do not change task authority or runtime contracts. See
+[installation](installation.md) and [CLI operations](cli.md) for their lifecycle.
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
 

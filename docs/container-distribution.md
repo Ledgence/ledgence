@@ -5,14 +5,21 @@ migration job, including Console, the Python helper and CPython 3.14. PostgreSQL
 remains separate. Programs still come from the program store; deploying a program
 does not require rebuilding the image.
 
-This distribution is implemented on the development branch. Published 0.3.1
-native bundles do not contain `ledgence local` or the deployment kit. Keep using
-their manual installation guide until a release includes these artifacts. The
-presence of a workflow is not evidence that images have been published.
+Ledgence **0.4.0** publishes the runtime image for Linux amd64 and arm64, plus
+a local deployment kit pinned to its immutable image digest. Complete native
+bundles include that kit for `ledgence local`. Start with
+[installation and local startup](installation.md); the sections below describe
+the standalone kit and maintainer qualification.
 
 ## Standalone kit
 
-Generate a complete Compose kit from `deploy/distribution` with an exact workspace
+The [0.4.0 release](https://github.com/Ledgence/ledgence/releases/tag/v0.4.0)
+provides a standalone local kit as well as the copy included in native bundles.
+Its `README.md` explains direct Compose operation. For a kit copied by
+`ledgence local up`, follow the [optional-example handoff](installation.md#run-the-optional-container-examples):
+the CLI and direct Compose project names, volumes and lifecycle are separate.
+
+For maintainers, generate a complete Compose kit from `deploy/distribution` with an exact workspace
 version and an already qualified immutable image reference:
 
 ```sh

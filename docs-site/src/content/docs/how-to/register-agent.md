@@ -5,7 +5,7 @@ description: Add a published immutable program to the self-hosted Console catalo
 
 Register a program so operators can discover its exact versions, inspect runtime requirements, and start it from **Programs** in Console. Registration is independent of execution: submitting a task does not automatically add its package to the catalog.
 
-This guide applies to Ledgence 0.3.1. Start a matching instance using [Explore Ledgence Console](/tutorials/use-console).
+This guide applies to Ledgence 0.4.0. Start a matching instance using [Explore Ledgence Console](/tutorials/use-console).
 
 ## Publish the package first
 
@@ -19,7 +19,7 @@ ledgence program publish \
 
 Replace the paths with your prepared package and the store configured on the orchestrator. These paths must refer to the same published bytes from the server's point of view; writing to an arbitrary host directory does not populate a Docker volume.
 
-Publication stores immutable package bytes. Registration then asks the orchestrator to fetch and verify that package's archive, descriptor, and manifest without executing it. For package preparation and store layout, see the [program package contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/program-packages.md).
+Publication stores immutable package bytes. Registration then asks the orchestrator to fetch and verify that package's archive, descriptor, and manifest without executing it. For package preparation and store layout, see the [program package contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md).
 
 If you are following the Compose tutorial, its `publish` command already publishes and registers all three example programs. You do not need to register those examples again.
 
