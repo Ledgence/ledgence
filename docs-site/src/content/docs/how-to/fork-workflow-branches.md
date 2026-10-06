@@ -5,7 +5,7 @@ description: Register typed entrypoints, start durable branches in the same pack
 
 Use a fork when parts of the same workflow package need independent execution, retries, and checkpoints while the parent continues local work. Each branch is an owned workflow. Register its entrypoint with a Python decorator and explicitly save the state needed after a durable wait.
 
-**Availability:** typed `Workflow` entrypoints and `branch`, `fork`, and `join` are available in Ledgence 0.3.1. Use matching orchestrator and worker versions and all database migrations. Runtime protocol **3** remains the package contract. See [Upgrade to 0.3.1](/how-to/upgrade-to-0-3) before changing an existing deployment.
+**Availability:** typed `Workflow` entrypoints and `branch`, `fork`, and `join` have been available since Ledgence 0.2.0. This guide uses 0.3.1. Use matching orchestrator and worker versions and all database migrations. Runtime protocol **3** remains the package contract. See [Upgrade to 0.3.1](/how-to/upgrade-to-0-3) before changing an existing deployment.
 
 ## Prepare the source deployment
 

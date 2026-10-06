@@ -49,6 +49,11 @@ export function writeMarkdownExports(directory, pages, revision, productRevision
   }
   const productIdentity = productRevision ? `${release.sourceRef} (${productRevision})` : release.sourceRef;
   const list = ['# Ledgence documentation', '', `> Documentation for the Ledgence ${release.series} release series: open-source agent and workflow orchestration.`, '', `Product source: ${productIdentity}. Documentation checkout: ${revision}.`, '', `Native bundles: ${release.nativeVersion} (${release.nativeTargets.join(', ')}). Python client: ${release.clientVersion}. Rust API crates: ${release.rustApiVersion}.`, `Console is included in source ${sourceFeatures.console.sourceRef} and Console-enabled native bundles; qualification date ${sourceFeatures.console.verifiedOn}. See https://docs.ledgence.com${sourceFeatures.console.guide}.`, '', 'Public APIs may change before 1.0. See the release reference for installation choices, host-library requirements, and supported scope.', ''];
+  for (const feature of Object.values(sourceFeatures)) {
+    if (feature.availability === 'development') {
+      list.push(`Development-only: ${feature.title} (source ${feature.sourceRef}). Requires a matching development build or a future qualified release. See https://docs.ledgence.com${feature.guide}.`, '');
+    }
+  }
   for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {
     list.push(`## ${section === 'how-to' ? 'How-to guides' : section[0].toUpperCase() + section.slice(1)}`, '');
     for (const page of exported.filter(page => page.slug.startsWith(`${section}/`))) {

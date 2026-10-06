@@ -51,15 +51,17 @@ The result uses the current stored attempt's `quiescence` and `execution_may_hav
 
 The PostgreSQL adapter selects the task, latest attempt, and settlement in one SQL statement snapshot. Malformed JSON, missing expected attempts, and contradictory state/report combinations fail the read. It preserves original stored byte payloads rather than converting through JSONB. Result responses keep the existing 16 MiB HTTP bound and validate the stored settlement's 8 MiB bound and application value limits. Worker runtime output limits are unchanged.
 
-Install the Python client from the repository root in your application's virtual environment:
+Install the current published Python client in your application's virtual environment:
 
 ```sh
-python -m pip install ./sdk/python-client
+python -m pip install "ledgence-client==0.3.1"
 ```
 
 Its import is `from ledgence.client import AsyncClient`. Program packages are published separately; installing the client does not start a worker or upload a program.
 
-See the [Python client](../sdk/python-client/README.md) for asynchronous submission, bounded waiting, typed task errors, and reconciliation of uncertain mutations. Detailed invocation IDs, traces, process IDs, and settlement receipts remain available through [attempt inspection](http-orchestration.md). Use [task discovery](task-discovery.md) to find tasks by state, queue, submission time, or business correlation. Results follow the explicit [retention contract](retention.md): at least 90 days after terminal state, extended by live cursor references and unfinished completion obligations. Retired IDs return `NotFound`; there is no stable-release compatibility guarantee yet.
+See the [Python client](../sdk/python-client/README.md) for asynchronous submission, bounded waiting, typed task errors, and reconciliation of uncertain mutations. `task.wait()` returns a terminal result, while `task.result()` returns successful output or raises a typed failure/cancellation. Their timeout limits observation only: save the task ID and reconnect to observe it again. For a result notification after the client disconnects, register a [completion subscription](completion-notifications.md).
+
+Detailed invocation IDs, traces, process IDs, and settlement receipts remain available through [attempt inspection](http-orchestration.md). Use [task discovery](task-discovery.md) to find tasks by state, queue, submission time, or business correlation. Results follow the explicit [retention contract](retention.md): at least 90 days after terminal state, extended by live cursor references and unfinished completion obligations. Retired IDs return `NotFound`. APIs can evolve before 1.0; pin versions and follow the upgrade guide when changing a deployment.
 
 
 Tasks owned by a workflow expose optional `workflow_id` and

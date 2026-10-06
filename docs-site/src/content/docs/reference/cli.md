@@ -1,12 +1,18 @@
 ---
 title: Command-line interface
-description: Ledgence 0.3.1 CLI command groups, build features, task administration, and migration from the earlier executables.
+description: All Ledgence CLI command groups, released and development availability, build features, and installed resources.
 ---
 
-Ledgence 0.3.1 builds one public executable, `ledgence`, from the
-`ledgence-cli` crate. It provides program packaging, worker execution,
-orchestrator operation, and task administration under command groups. Worker and
-orchestrator processes still run separately and can run on different hosts.
+Ledgence builds one public executable, `ledgence`, from the `ledgence-cli`
+crate. It packages programs, runs workers and the orchestrator, administers
+tasks and approvals, connects MCP clients, and manages a local container stack.
+Worker and orchestrator processes run separately and can run on different hosts.
+
+**Version availability:** published **0.3.1** includes all groups below except
+`local`. The local lifecycle commands and automatic installed-resource discovery
+are available on `develop` and are being prepared for a future release.
+Use the [installation guide](/how-to/install-native) for the released path and
+[local distribution guide](/how-to/run-local-distribution) for development setup.
 
 This replaces the command layout in the historical `v0.1.1` source tag and
 native `0.1.0` bundle. Those artifacts retain their original executables and
@@ -24,6 +30,7 @@ cargo build -p ledgence-cli --locked
 ./target/debug/ledgence task --help
 ./target/debug/ledgence approval --help
 ./target/debug/ledgence mcp --help
+./target/debug/ledgence local --help
 ```
 
 Use `cargo run --locked -p ledgence-cli -- COMMAND ...` to run directly from the
@@ -31,14 +38,93 @@ checkout. `ledgence --version` reports the compiled platform version; an exact
 program version passed to `ledgence program register --version VALUE` continues
 to identify the application package.
 
-The default `otel` feature enables optional telemetry for administration, worker
-and orchestrator commands. The MCP command does not install a telemetry exporter.
+The default features are `otel` and `mcp`. `otel` enables optional telemetry for
+administration, worker and orchestrator commands. The MCP command does not
+install a telemetry exporter.
 `cargo build -p ledgence-cli --no-default-features --locked` omits optional integrations.
 Use `--features sqs` to include optional SQS delivery for both worker and
 orchestrator commands, or `--all-features` to include every supported integration.
 These are build features; telemetry export and SQS operation still require
 explicit runtime configuration. See [observability](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/observability.md) and
 [dispatch delivery](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/dispatch-delivery.md).
+
+## Command groups
+
+Use `ledgence <group> <command> --help` for the flags accepted by your executable.
+MCP requires its build feature; `local` requires a development build.
+
+| Group | Commands | Purpose |
+| --- | --- | --- |
+| `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
+| `program` | `example`, `publish`, `register` | Create a fixture, publish a prepared immutable package, and register its reference. |
+| `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
+| `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
+| `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
+| `approval` | `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
+| `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
+
+There is no separate `workflow` command group. Use the
+[HTTP API](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/http-orchestration.md), [Python client](/reference/python-client),
+Console or MCP for workflow and event operations.
+
+## Local lifecycle
+
+Available on `develop`. These commands require Docker running Linux containers,
+Compose 2.23.1+, and a matching qualified kit:
+
+```sh
+ledgence local up --distribution /absolute/path/to/qualified-local-kit \
+  --directory "$HOME/.local/share/ledgence/local-preview" \
+  --port 8086 --concurrency 1
+ledgence local status --directory "$HOME/.local/share/ledgence/local-preview"
+ledgence local logs --directory "$HOME/.local/share/ledgence/local-preview" \
+  --follow --service worker
+ledgence local down --directory "$HOME/.local/share/ledgence/local-preview"
+```
+
+A complete future native installation containing `local/` can omit
+`--distribution`. Default state lives at `$XDG_DATA_HOME/ledgence/local`, or
+`$HOME/.local/share/ledgence/local` if unset. The default port is 8080 and
+concurrency is 1. Choose a nondefault port, concurrency (1–1024), or named local
+Docker `--context` on first startup; saved options do not change implicitly.
+
+| Command | Behavior |
+| --- | --- |
+| `local up` | Verify and copy the kit on first use, start the saved Compose project, and wait for readiness. Print API/Console URLs, scope, image, context and worker platform. |
+| `local status` | Display all service states and saved settings without starting containers. |
+| `local logs` | Show 100 recent lines per service by default. Accept `--tail 1..10000`, `--follow`, and `--service postgres\|migrate\|orchestrator\|worker`. |
+| `local down` | Stop the project with a 65-second grace period, preserving data volumes and configuration. |
+
+The base stack runs PostgreSQL, a migrator, an orchestrator serving Console,
+and one worker in tenant `acme`, namespace `demo`, queue `demo`. Programs and
+the callback receiver are optional additions. The CLI rejects remote Docker
+endpoints and checks the kit's qualified platforms against the engine.
+
+The saved state remains tied to its original absolute directory and Docker
+endpoint. Installing a newer CLI does not upgrade that stack. There is no
+`local restore` command; database and program-store backups are separate from
+the state directory. See [local distribution operations](/how-to/run-local-distribution)
+for startup failures, data preservation and direct Compose use.
+
+## Installed resources
+
+On `develop`, the CLI resolves symlink launchers and locates resources relative
+to the actual executable in a complete bundle:
+
+- `worker run` and `worker connect` use the bundled
+  `runtime/ledgence/worker/bootstrap.py` when `--runner` is omitted and the file
+  exists. An explicit `--runner` wins; source builds without the bundle layout
+  still require it.
+- `orchestrator serve --instance-config FILE` uses bundled `console/` assets
+  when they exist and `--console-dir` is omitted. An explicit `--console-dir`
+  wins and still requires instance configuration.
+- Without `--instance-config`, the orchestrator remains headless. Finding
+  Console files does not enable Console on its own.
+
+Keep the complete bundle, including legal notices, together when moving a
+native installation. The host CPython interpreter is supplied separately.
+Released 0.3.1 uses the explicit `--runner` and `--console-dir` paths in the
+[native installation guide](/how-to/install-native).
 
 ## Command migration
 
@@ -74,10 +160,14 @@ program or start a worker. See [program packages](https://github.com/Ledgence/le
 service. `orchestrator migrate` applies database migrations explicitly;
 `orchestrator serve` verifies the schema and starts the service. Retention stays
 an explicit scoped operator operation through `orchestrator retain`.
+Both migration and service operation require `DATABASE_URL`. Retention previews
+eligible records by default, requires a tenant and namespace, and changes data
+only with `--apply`; its minimum retention is 90 days. See
+[retention](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/retention.md).
 
 ## Task administration
 
-The `task` commands and `program register` retain their HTTP behavior: one
+The `task` commands, `approval` commands and `program register` use one
 bounded exchange, one JSON result on stdout, and diagnostics on stderr. Exit
 status `0` means the operation was accepted, `2` means an input or usage
 rejection, and `1` means a service or transport failure. A successful submission
@@ -91,15 +181,49 @@ cancellation. See the [HTTP quickstart](https://github.com/Ledgence/ledgence/blo
 complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/task-results.md) for outcome
 semantics.
 
+```sh
+ledgence task submit --server http://127.0.0.1:8080 --file task.json
+ledgence task list --server http://127.0.0.1:8080 --tenant acme --namespace demo
+ledgence task result --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --task TASK_ID
+```
+
+`task.json` contains the complete submission command, including its
+`idempotency_key`. `task list` accepts state, queue, correlation and submission
+time filters; pass its returned cursor with unchanged filters for another page.
+`task result` reads the current result once and does not wait for completion.
+`task history --after N` starts after a recorded sequence, and `task attempt`
+requires both task and attempt IDs.
+
 ## Approval decisions
 
-Use `ledgence approval list` and `inspect` to review persisted requests. `ledgence approval decide --server URL --file decision.json` sends a complete saved decision command. Preserve that command when acceptance is uncertain; retries must use the same decision identity and action. See [durable approvals](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/workflow-approvals.md#cli-and-http) for fields and examples.
+Use `approval list` and `inspect` to review persisted requests and their exact
+effective actions:
+
+```sh
+ledgence approval list --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --workflow WORKFLOW_ID --limit 10
+ledgence approval inspect --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --workflow WORKFLOW_ID --key APPROVAL_KEY
+ledgence approval decide --server http://127.0.0.1:8080 --file decision.json
+```
+
+Pass the list response's `next_cursor` as `--after-key` for the next page.
+The saved decision includes `scope`, `workflow_id`, `key`, `activation_id`,
+`revision`, `action`, `decision_id`, `decision`, `reviewer`, and `reason`.
+After an uncertain response, retry the identical file to reconcile that
+decision. Generic events cannot approve actions. See
+[durable approvals](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/workflow-approvals.md#cli-and-http)
+for the complete contract and examples.
 
 ## MCP
 
 Ledgence 0.3.1 builds enable the optional `mcp` feature by default.
 `ledgence mcp serve --server URL --tenant ID --namespace NAME` connects an MCP
 client over stdio to that API. Add `--read-only` for observation only.
+Scope is fixed for the session. Submissions require caller-supplied idempotency
+keys and return immediately; inspect results separately. Stdout carries MCP
+messages. The process starts no database, worker or model provider.
 See [Connect an MCP client](/how-to/connect-mcp).
 
 `--no-default-features --features mcp` builds MCP without OpenTelemetry or SQS.

@@ -31,7 +31,7 @@ sequenceDiagram
     Worker->>Ledgence: Validated reply, citations and execution metadata
     Ledgence->>Worker: Activate workflow: review
     Worker->>Ledgence: Persist draft; wait for approval:1
-    Note over Worker,Ledgence: Waiting occupies no worker process slot
+    Note over Worker,Ledgence: Waiting releases the invocation reservation; a process may stay warm
     User->>Ledgence: Approval event identifies ticket and draft task
     Ledgence->>Worker: Activate workflow: finish
     Worker->>Ledgence: Complete with saved draft and review outcome
@@ -53,6 +53,12 @@ review flow does not need one. The stable `draft` child key reconciles controlle
 retries, and `wait_event` checkpoints the accepted reply before releasing the
 worker slot. Neither the provider session nor a Python coroutine is the durable
 checkpoint. See [typed workflow entrypoints](../../docs/workflow-entrypoints.md).
+
+This review is an application-validated external event. It does not create a
+durable action-approval request or appear in Console's **Approvals** view. Use the
+companion `review` command below to decide the draft. The separate
+[durable approval example](../durable-approval/README.md) demonstrates effective
+action arguments and the dedicated approval API.
 
 ## Requirements
 
@@ -163,8 +169,10 @@ agent finishes. This is not a separate distributed worker per tool call.
   --idempotency-key codex-demo:SUP-1042:1
 ```
 
-Save the `workflow_id`. In Console, follow the workflow's child execution to its
-result, or read it with the child task ID:
+Save the `workflow_id`. In Console, select the workflow's `draft` child in
+**Graph**, choose **Open task**, and inspect **General → Output**. The child is
+also listed under the workflow's **General → Recorded work**. To read it with the
+child task ID:
 
 ```sh
 "$DEMO_HOME/client/bin/python" examples/codex-support-agent/client.py --server http://127.0.0.1:8083 \

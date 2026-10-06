@@ -76,6 +76,10 @@ exported `handle` is asynchronous. Use this workflow's exact enum members in
 another enum are rejected in a registered workflow. `ctx.entrypoint` exposes
 the selected enum member.
 
+The same enum requirement applies to `request_approval(resume=...)` or its
+`continuation` spelling. [Durable approvals](workflow-approvals.md) resume a
+registered handler with the stored effective action and review outcome.
+
 Public workflow submissions start at the default handler. Named entrypoints
 are currently selected by branch creation and explicit resume decisions; the
 submission API does not expose an initial-entrypoint override. The wire value

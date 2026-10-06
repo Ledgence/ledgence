@@ -82,7 +82,8 @@ IDs returned by this run.
   --change-id pagination-film-1 --idempotency-key pagination-film-1:1
 ```
 
-Once `prepare:0` succeeds, copy its task ID from Console's Children tab:
+Once `prepare:0` succeeds, select it in Console's **Graph** or find it under
+**General → Recorded work**, then copy its task ID:
 
 ```sh
 "$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py review \
@@ -102,8 +103,9 @@ SHA-256 printed by the command. Approve only that candidate:
 
 Open `film-1-result/review.html` for the final presentation. The earlier file
 remains a pending snapshot. Playback buttons do not alter workflow state.
-Console offers generic **Send event**; the companion command supplies the bound
-decision without inventing a dedicated product approval button.
+This example uses **Send event**; the companion command supplies the bound
+decision. Its application-validated event wait does not appear in Console's
+**General → Approvals**, which is for durable action-approval requests.
 
 ## Keep the claims precise
 

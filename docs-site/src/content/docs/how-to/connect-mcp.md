@@ -40,6 +40,12 @@ Add `--read-only` to expose observation tools only. The API URL and scope are
 fixed at startup. The API may be remote; no MCP network listener is opened.
 `--no-default-features --features mcp` builds this command without telemetry or SQS.
 
+Set `--tenant` and `--namespace` to the running instance's saved binding. The
+source Compose tutorial uses `acme/demo`; a new instance with omitted scope uses
+`default/default`. The `acme/billing` values above are examples. A catalog scope
+mismatch is rejected; it does not switch installations. See
+[One self-hosted instance](/concepts/self-hosted-console).
+
 ## Submit and follow work
 
 The server exposes tools for program discovery, task/workflow submission,

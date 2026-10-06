@@ -48,17 +48,24 @@ handle = workflow.build()
 ```
 
 `for_callable` freezes the callable identity, explicit version, normalized JSON
-keyword arguments, and keyword defaults. Here the effective amount is 50 and
-currency is USD. `proposed_arguments` is optional audit context; it never grants
+keyword arguments, and keyword defaults. For a proposed amount of 100, the
+effective amount is 50 and currency is USD. `proposed_arguments` is optional audit context; it never grants
 authority to execute. The complete runnable example also validates its input:
 [durable action approval](../examples/durable-approval/README.md).
 
 `approved_local` takes no replacement arguments. It verifies the callable's
-module, qualified name and declared version, and obtains its arguments from a
-private copy of the saved approval wake. Changing a public view cannot alter the
+module, qualified name and declared version, checks that signature binding adds
+no unreviewed arguments, and obtains its arguments from a private copy of the
+saved approval wake. Changing a public view cannot alter the
 operation. Repeated calls in one activation share the same local-step identity;
 a retry returns a previously acknowledged local result. The workflow's immutable
 program descriptor also pins the executing package.
+
+If an action is constructed directly with `ApprovalAction(name, version=...,
+arguments=...)`, its saved arguments must already include every effective
+default before `approved_local` can execute it. The helper rejects an omitted
+default or a newly introduced parameter rather than silently adding an unreviewed
+argument. Explicit saved arguments continue to override Python defaults.
 
 The callable is operator-trusted Python code and remains responsible for what
 it does internally. Ledgence binds the arguments passed into that callable;

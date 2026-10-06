@@ -38,7 +38,7 @@ run = await client.workflows.submit(
 print(run.id)
 ```
 
-Inspect `await run.approvals()` or use the workflow's Approvals view in the
+Inspect `await run.approvals()` or use the workflow's **General → Approvals** view in
 Console after its first activation. A key does not exist until the workflow has
 committed its request. Reconnect at any time with
 `client.workflows.handle(workflow_id)` and inspect the stored effective action:

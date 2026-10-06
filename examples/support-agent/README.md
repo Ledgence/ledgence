@@ -23,7 +23,7 @@ sequenceDiagram
     Worker->>Ledgence: Persist validated draft + references
     Ledgence->>Worker: Activate controller: review
     Worker->>Ledgence: Checkpoint draft; wait for approval:1
-    Note over Ledgence,Worker: Waiting workflow occupies no running process slot
+    Note over Ledgence,Worker: Waiting releases the invocation reservation; a process may stay warm
     User->>Ledgence: Review draft and send approval event
     Ledgence->>Worker: Activate controller: finish
     Worker->>Ledgence: Persist approved or rejected result
@@ -45,6 +45,12 @@ review flow does not need one. The stable `draft` child key reconciles controlle
 retries, and `wait_event` checkpoints the accepted reply before releasing the
 worker slot. Neither the provider session nor a Python coroutine is the durable
 checkpoint. See [typed workflow entrypoints](../../docs/workflow-entrypoints.md).
+
+This review is an application-validated external event. It does not create a
+durable action-approval request or appear in Console's **Approvals** view. Use the
+companion `review` command below to decide the draft. The separate
+[durable approval example](../durable-approval/README.md) demonstrates effective
+action arguments and the dedicated approval API.
 
 ## Requirements
 
@@ -162,8 +168,9 @@ If the key is already exported as `GOOGLE_API_KEY` in the current terminal,
   --idempotency-key support-demo:SUP-1042:1
 ```
 
-Save the returned `workflow_id`. In Console, open that workflow, follow its
-**Children** entry to the agent execution and inspect **Result**. Its structured
+Save the returned `workflow_id`. In Console, open that workflow, select the
+`draft` child in **Graph**, choose **Open task**, and inspect **General → Output**.
+The child is also listed under the workflow's **General → Recorded work**. Its structured
 output includes the reply, classification, source documents actually read,
 model name, logical `model_calls`, executed `tool_calls`, total `http_attempts`
 (including retries), `http_retries`, and `retry_wait_ms` (completed intervals

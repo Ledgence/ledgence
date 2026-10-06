@@ -99,6 +99,11 @@ test('release provenance omits unknown product SHA instead of substituting docum
     assert.ok(index.includes(`Product source: ${currentRelease.sourceRef}. Documentation checkout: documentation-checkout.`));
     assert.match(index, /x86_64-unknown-linux-gnu, aarch64-apple-darwin/);
     assert.match(index, /Console is included/);
+    const features = JSON.parse(readFileSync(new URL('../source-features.json', import.meta.url), 'utf8'));
+    for (const feature of Object.values(features).filter(value => value.availability === 'development')) {
+      assert.ok(index.includes(`Development-only: ${feature.title} (source ${feature.sourceRef}).`));
+      assert.ok(index.includes(`https://docs.ledgence.com${feature.guide}`));
+    }
     assert.doesNotMatch(index, /undefined|not included|source checkout;|v0\.1\.1/);
     writeMarkdownExports(directory, [], 'documentation-checkout', 'verified-product-commit');
     const resolved = readFileSync(join(directory, 'llms.txt'), 'utf8');

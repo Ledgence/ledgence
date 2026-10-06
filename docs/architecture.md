@@ -1,6 +1,15 @@
 # Architecture
 
-Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, leases, results, and history. The [HTTP composition](http-orchestration.md) supplies orchestrator, worker, program, and task administration commands in one `ledgence` executable, with separate processes for each running service. Integrated acquisition uses [bounded long polling](acquisition-waits.md) coordinated through portable storage probes and optional wake hints. The optional [dispatch source](dispatch-delivery.md) receives readiness references from SQS Standard or ElasticMQ, then requests a targeted durable claim over HTTP before acknowledging the broker record.
+Ledgence provides a worker, a transport-independent delivery driver, and a Rust orchestration service backed by PostgreSQL. The worker prepares programs and manages subprocess lifecycles; the driver connects acquisition, lease renewal, execution, and settlement through `TaskService`. The service and storage adapter persist tasks, workflows, checkpoints, leases, results, and history. The [HTTP composition](http-orchestration.md) supplies orchestrator, worker, program, task, and approval administration commands in one `ledgence` executable, with separate processes for each running service. Integrated acquisition uses [bounded long polling](acquisition-waits.md) coordinated through portable storage probes and optional wake hints. The optional [dispatch source](dispatch-delivery.md) receives readiness references from SQS Standard or ElasticMQ, then requests a targeted durable claim over HTTP before acknowledging the broker record.
+
+Tasks are leaf executions: one program invocation, with attempts governed by its
+retry policy. A workflow coordinates local operations, child tasks, and owned
+subworkflows through explicit checkpoints. Its activations execute in the same
+worker pool; a durable wait releases the invocation reservation so other work can
+run. Same-package forks and separately packaged children have explicit durable
+ownership. The resulting graph records accepted execution relationships in
+PostgreSQL; [Console](console.md) can inspect it without an OpenTelemetry backend.
+Tracing supplements these records and never supplies missing relationships.
 
 ## Crate boundaries
 
@@ -8,26 +17,37 @@ Ledgence provides a worker, a transport-independent delivery driver, and a Rust 
 | --- | --- | --- |
 | `ledgence-worker-api` | Events, manifests, descriptors, runtime input, portable trace carriers, cancellation, and adapter ports | None |
 | `ledgence-adapter-mcp` | Optional stdio MCP server over task, workflow and catalog ports; no HTTP or framework dependency in production | Worker API, orchestration API |
-| `ledgence-adapter-otel` | Optional trace provider/exporter, context bridge, correlated JSON logging | Worker API |
+| `ledgence-adapter-otel` | Optional trace and metrics exporters, context bridge, correlated JSON logging | Worker API |
 | `ledgence-worker-core` | Admission, preparation coordination, process capacity and reuse, shutdown | API |
 | `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
 | `ledgence-worker` | Internal library for program packaging, local fixture execution and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
-| `ledgence-orchestration-api` | Submission, delivery, lease, receipt, and service contracts | Worker API |
+| `ledgence-orchestration-api` | Task/workflow, approval, completion, Console, delivery, lease, and storage/service contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
-| `ledgence-orchestration-service` | Submission resolution and portable service composition | Orchestration API/core, worker API |
+| `ledgence-orchestration-service` | Submission resolution, workflow coordination, and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 | `ledgence-adapter-sqs` | Optional SQS Standard publishing, receiving, acknowledgment and deployment configuration | Orchestration API, worker API |
-| `ledgence-adapter-http` | Optional HTTP client/server implementations of `TaskService` | Orchestration API, worker API |
-| `ledgence-orchestrator` | Internal library for HTTP serving, explicit migrations, readiness, supervised recovery and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
-| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator and task commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel adapter |
+| `ledgence-adapter-http` | Optional HTTP task/workflow clients, server routes, Console assets, and completion callback transport | Orchestration API, worker API |
+| `ledgence-orchestrator` | Internal library for HTTP/Console serving, explicit migrations, instance binding, readiness, workflow/expiry recovery, callbacks, and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
+| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator, task, approval, optional MCP, and development local-stack commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel and MCP adapters |
+
+The `develop` CLI also locates resources in a complete installed bundle and
+manages a verified Compose kit through `ledgence local`. These distribution
+features do not change task authority or runtime contracts and are absent from
+the published 0.3.1 executable. See [installation](installation.md) for version
+availability and [CLI operations](cli.md) for their lifecycle.
 
 `tools/check-boundaries.py` checks normal and build dependencies, including target-specific edges. Integration tests may compose adapters. The API uses standard-library futures and owned contract types; concrete storage clients and Tokio process types stay behind adapters. The worker core uses Tokio for scheduling; the orchestration core performs no I/O.
 
 [Task discovery](task-discovery.md) uses portable query/page contracts and required service/store methods. Metadata reads have no lifecycle transitions and keep application payloads out of listing results.
 
-The HTTP adapter has empty default features and separate `client` and `server` features. The worker and task CLI select the client; the orchestrator selects the server and supplies its own `ApplicationService`. Neither HTTP side depends on SQLx. `tools/check-http-features.py` separately checks each selection so a workspace build's feature unification cannot conceal coupling between the two sides.
+The HTTP adapter has empty default features and separate `client`, `server`, and
+`completion` features. The worker and task CLI select the client; the orchestrator
+selects the server and completion transport and supplies its own
+`ApplicationService`. Neither HTTP side depends on SQLx.
+`tools/check-http-features.py` checks independent selections so a workspace build's
+feature unification cannot conceal coupling between them.
 
 The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Runtime execution receives `RuntimeInvocation`: the unchanged event plus an optional ephemeral execution carrier. `TraceBridge` connects existing tracing spans to portable W3C values; SDK and exporter types remain in the OTel adapter. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`, plus `DispatchIntentStore`, `DispatchPublisher`, and `AckQueue` for durable publication and individually acknowledged sources. `AcquisitionSource` composes either integrated or broker delivery with the same driver. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
 

@@ -40,23 +40,24 @@ portable across them. The initial distribution uses CPython 3.14.
 ## Next release: one-line installation
 
 **This download is not available in 0.3.1.** After a release publishes
-`install.sh`, run this one line in Bash or Zsh to install Ledgence and make it
-available in both the current terminal and future terminals:
+`install.sh`, install Ledgence with:
 
 ```sh
-(set -o pipefail; curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh) && . "$HOME/.local/share/ledgence/env"
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
 ```
 
-The final `. .../env` updates the current shell; an installer running as a child
-process cannot change its parent shell's environment. If you will open a new
-Bash or Zsh terminal, or start a new sh/dash login shell, the shorter command is
-sufficient once the installer is published:
+Then open a new terminal, or activate the installation in the current one:
 
 ```sh
-curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
+. "$HOME/.local/share/ledgence/env"
+ledgence --version
 ```
 
-Until that release is available, use the working 0.3.1 instructions below.
+The installer configures supported shell profiles for future terminals. An
+installer running as a child process cannot change the current shell's
+environment. See [shell setup](#shell-setup) for sh/dash login shells, custom
+prefixes and other shells. Until that release is available, use the working
+0.3.1 instructions below.
 
 ## Install the currently released native CLI
 
@@ -209,9 +210,10 @@ operating a nondefault installation:
 The directory retains a verified copy of the kit and `.ledgence-state.json`,
 including a unique project identity, version/image, Docker context/endpoint,
 port and concurrency. Docker named volumes hold the database, program store and
-worker cache. Keep the state directory in place so the CLI can operate that
-project again. It remains usable after the original kit or native bundle has
-been replaced by another CLI installation supporting the same state format.
+worker cache. Keep the state directory at its original absolute path so the CLI
+can operate that project again; moving it is rejected. It remains usable after
+the original kit or native bundle has been replaced by another CLI installation
+supporting the same state format.
 
 Choose `--port`, `--concurrency` (1–1024), and an optional named local `--context`
 on the first `up`. These choices are then retained. A port conflict before state
@@ -224,6 +226,15 @@ reuses the saved kit and data. Installing a newer CLI does not select a new imag
 or migrate that installation. Changes to retained data require a planned backup
 and upgrade procedure; there is no implicit reset, version upgrade or database
 rollback. Use a separate directory and free port to create an independent stack.
+
+Backing up the state directory alone does not back up the database or program
+packages. Preserve the database and immutable program store together according
+to application requirements, plus the saved kit and project configuration.
+Stop writers and use PostgreSQL backup tools; copying a live database volume is
+not a consistent backup. Validate restoration before an upgrade. There is no
+`local restore` command or automatic relocation to a different Docker engine.
+Restoring retained data is an operator procedure using compatible schema/image
+versions and the matching project configuration.
 
 ## Continue using source Compose
 

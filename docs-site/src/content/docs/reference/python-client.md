@@ -45,7 +45,7 @@ async with AsyncClient(
 | `base_url` | HTTP API endpoint. |
 | `tenant` | Required compatibility value; match the self-hosted instance binding. |
 | `namespace` | Required compatibility value; match the self-hosted instance binding. |
-| `request_timeout` | Per-request deadline in seconds; defaults to `30.0`. |
+| `request_timeout` | Positive finite per-request deadline in seconds, at most `30.0`; defaults to `30.0`. |
 
 Open the client with `async with`, reuse it across calls, and keep it on its owning event loop. It exposes `tasks`, `workflows`, and `completions`. Handles retain their scoped client; reconnect through a new client after the original closes.
 
@@ -96,9 +96,13 @@ The client does not publish packages. Public workflow submission creates a root 
 | `await result(timeout=60.0)` | Successful JSON output, or `TaskFailed` / `TaskCancelled`. | Successful JSON output, or `WorkflowFailed` / `WorkflowCancelled`. |
 | `await cancel()` | Acknowledged `TaskState`; may still be `active`. | Acknowledged `WorkflowStatus`; may still be `cancelling`. |
 
-`wait` and `result` use observation deadlines in **seconds**. A timeout neither cancels execution nor submits it again. `WorkflowWaitTimeout` also subclasses `WaitTimeout`; it retains the workflow and last observation. Observe the saved handle again to continue waiting.
+`wait` and `result` use positive finite observation deadlines in **seconds**; there is no zero or unbounded mode. A timeout neither cancels execution nor submits it again. `WaitTimeout` retains the task, last status, and last transient read error; `WorkflowWaitTimeout` also subclasses it and retains the workflow. Observe the saved handle again to continue waiting.
 
 A successful JSON `null` becomes Python `None`; distinguish it from an absent `.outcome` on a pending result. Failure exceptions retain their full result as `.result`.
+
+For applications that should disconnect instead of polling, follow
+[Receive results without keeping a client connected](/how-to/receive-results).
+It covers server-side callback destinations, subscription acceptance and delivery.
 
 Task success does not prove exactly-once effects or physical process cleanup. Inspect `result.outcome.quiescence` when cleanup evidence matters. Workflow `failing` and `cancelling` are nonterminal states while owned work drains.
 
@@ -123,7 +127,7 @@ Results are ordered by `(submitted_at, task_id)` descending. Use the opaque `pag
 
 ## Send an external workflow event
 
-`workflow.prepare_event(key, *, event)` freezes the event command without sending it. `await workflow.send_event(command)` sends it. The convenience form is `await workflow.send_event(key="approval:1", event=event)`.
+`workflow.prepare_event(key, *, event)` freezes the event command without sending it. `await workflow.send_event(command)` sends it. The convenience form is `await workflow.send_event(key="callback:1", event=event)`.
 
 The CloudEvent requires `specversion="1.0"`, nonempty `id`, `source`, and `type`, `datacontenttype="application/json"`, and `data` (which may be null).
 
@@ -131,17 +135,19 @@ The returned `WorkflowEventReceipt` contains scope, workflow ID, key, event iden
 
 ## Reconcile uncertain mutations
 
-The SDK does not automatically retry submission, cancellation, event, or completion-subscription mutations. A transport failure after dispatch can leave acceptance uncertain.
+The SDK does not automatically retry submission, cancellation, event, approval-decision, or completion-subscription mutations. A transport failure after dispatch can leave acceptance uncertain.
 
 For submission, `SubmissionUncertain.submission` preserves the frozen task or workflow command. Resend it explicitly through the corresponding collection with the same endpoint and scope. For external events, `WorkflowEventUncertain.command` preserves the command to resend.
 
 Prepare and persist commands before awaiting if they must survive caller cancellation. `asyncio.CancelledError` remains cancellation of the caller; it does not prove the server rejected the mutation.
 
+Saved `to_dict()` values contain the wire command, not the base URL. Keep the original endpoint and scope with your application record. On restart, reconnect there and reconstruct the original preparation arguments; the [complete client contract](https://github.com/Ledgence/ledgence/blob/v0.3.1/sdk/python-client/README.md) documents each mutation's reconstruction path. Preserve any original trace context or its explicit absence when reconstructing a submission.
+
 ## Completion notifications
 
 Both task and workflow handles expose `prepare_subscribe(destination=..., idempotency_key=...)` and `await subscribe(...)`. The destination is an operator-configured alias. Registration is separate from submission; its guarantee starts after acceptance.
 
-Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/v0.3.1/sdk/python-client/README.md#durable-completion-subscriptions) for delivery status, explicit redelivery, and uncertainty handling.
+Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. `await subscription.status()` observes delivery; after `exhausted`, `subscription.prepare_retry(expected_generation=status.generation)` prepares an explicit new delivery generation for `await subscription.retry(command)`. This retries the notification, not the task or workflow. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/v0.3.1/sdk/python-client/README.md#durable-completion-subscriptions) for status fields and uncertainty handling.
 
 ## Durable approval decisions
 

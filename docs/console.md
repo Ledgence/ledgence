@@ -56,7 +56,7 @@ any registered version; mixed kinds and unspecified kinds stay explicit.
 ## Explore a workflow
 
 Graph and Trace use the same durable execution records. Select a node or row to
-inspect it, then use **Open execution** to drill into a task or subworkflow. Back
+inspect it, then use **Open task** or **Open workflow** to drill into its execution. Back
 restores the previous navigation entry; Up follows ownership. Breadcrumbs provide
 direct access to ancestors. A child deep link works without visiting its parent.
 
@@ -247,7 +247,7 @@ deployment, and local compatibility tests do not certify AWS or cluster capacity
 
 ## Approval review
 
-Open **Approvals** in workflow details to inspect persisted action requests,
+Open **General → Approvals** in workflow details to inspect persisted action requests,
 compare proposed and effective arguments, and approve or reject a pending
 request. Only the server decides eligibility and expiry. After an uncertain
 response, retry the frozen decision; the Console does not replace it with a

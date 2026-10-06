@@ -48,6 +48,11 @@ cannot select another tenant, namespace or server. Scope is a constraint, not an
 authentication mechanism. The existing operator-trusted deployment boundary
 still applies.
 
+Use the binding from the orchestrator's instance file. The local Compose stack
+uses `acme/demo`; a new instance that omits `scope` uses `default/default`. Replace
+the illustrative `acme/billing` scope above to match that configuration. See
+[self-hosted instance binding](self-hosted-instance.md).
+
 The `mcp` Cargo feature is enabled by default in `ledgence-cli`. Build with
 `--no-default-features --features mcp` for MCP without OpenTelemetry or SQS.
 `--no-default-features` omits MCP; its command then reports that the feature is

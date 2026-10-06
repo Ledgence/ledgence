@@ -65,7 +65,7 @@ packages nor imports handlers. It is separate from the dependency-free
 `ledgence.worker` runtime helper and does not package that helper or CPython.
 Both use the native `ledgence` namespace: neither distribution owns a root
 `ledgence/__init__.py`, and the client keeps its typing marker in `ledgence/client/`.
-Programs use `from ledgence.worker.workflow import workflow_context`; the old
+Programs use `Workflow` or `workflow_context` from `ledgence.worker.workflow`; the old
 `ledgence_worker` imports must be updated before running on current workers.
 
 ## Task references and observations
@@ -101,13 +101,17 @@ decisions. Use the same submission arguments with `client.workflows`:
 
 ```python
 workflow = await client.workflows.submit(
-    program="checkpoint-workflow", version="1.0.0", queue="billing",
-    data={"invoice_id": "INV-1042"}, idempotency_key="workflow:INV-1042",
-    correlation_key="INV-1042",
+    program="workflow-example", version="1.0.1", queue="demo",
+    data={"urls": ["http://receiver:8091/page.txt"] * 4, "queue": "demo"},
+    idempotency_key="docs:workflow:1", correlation_key="docs:workflow",
 )
 print(workflow.id)
 output = await workflow.result(timeout=60)
 ```
+
+This uses the controller published by the local tutorial and the same `acme/demo`
+client scope as the task example. The receiver URL is reachable from its worker
+container. Application package versions are independent of the client version.
 
 Save the workflow ID and reconnect with `client.workflows.handle(workflow_id)`.
 `status()` returns `WorkflowStatus`; `outcome()` returns `WorkflowResult` with
@@ -126,7 +130,9 @@ controller task does not imply that its workflow is complete.
 
 The public `submit()` endpoint starts root workflows. Controllers create owned
 children using the worker helper's `ctx.workflow(...)`. Parent cancellation and
-failure drain the owned tree before reaching a terminal status. See
+failure drain the owned tree before reaching a terminal status. Same-package
+branches use `await ctx.fork(...)` with registered entrypoints and share that
+owned lifecycle. See
 [`docs/subworkflows.md`](https://github.com/Ledgence/ledgence/blob/main/docs/subworkflows.md) for composition and result
 semantics.
 
@@ -211,6 +217,27 @@ subscription or redelivery requests automatically. Caller cancellation remains
 `asyncio.CancelledError`; prepare and persist commands before awaiting if they must
 survive that cancellation.
 
+`to_dict()` saves the wire command, not the server URL. Persist that URL alongside
+the command and reconnect to the same endpoint and scope. To reconstruct a saved
+subscription after a caller restart, first verify its saved `scope` matches the
+new client's scope, then prepare the same binding:
+
+```python
+from ledgence.client import CompletionTarget
+
+command = client.completions.prepare(
+    target=CompletionTarget(**saved_command["target"]),
+    destination=saved_command["destination"],
+    idempotency_key=saved_command["idempotency_key"],
+)
+subscription = await client.completions.subscribe(command)
+```
+
+For a saved redelivery command, reconnect using its `subscription_id` and call
+`prepare_retry(expected_generation=saved_command["expected_generation"])` on that
+handle. Preserve that generation even if a later status read has advanced.
+Generation 1000 is the final generation and cannot be rearmed.
+
 The initial notification is a reference-only CloudEvent. Execution IDs, terminal
 state, business correlation, result reference, and trace context live in its
 envelope; it has no `data` field and does not copy user output. Fetch the result
@@ -263,10 +290,10 @@ Send the complete original CloudEvent to a one-shot wait key:
 from ledgence.client import WorkflowEventUncertain
 
 workflow = client.workflows.handle(saved_workflow_id)
-command = workflow.prepare_event("approval:1", event={
-    "specversion": "1.0", "id": "approval-1042", "source": "/billing/approvals",
-    "type": "invoice.approved", "datacontenttype": "application/json",
-    "data": {"invoice_id": "INV-1042", "approved": True},
+command = workflow.prepare_event("payment:1", event={
+    "specversion": "1.0", "id": "payment-1042", "source": "/billing/payments",
+    "type": "invoice.paid", "datacontenttype": "application/json",
+    "data": {"invoice_id": "INV-1042", "status": "paid"},
 })
 try:
     receipt = await workflow.send_event(command)
@@ -276,7 +303,7 @@ except WorkflowEventUncertain as error:
     raise
 ```
 
-`await workflow.send_event(key="approval:1", event=original_event)` is the
+`await workflow.send_event(key="payment:1", event=original_event)` is the
 convenience form. Preparation freezes the endpoint, scope, workflow, key and full
 event; it generates no event ID and changes no CloudEvent fields. Store the
 prepared command before an await when caller cancellation may require later
@@ -307,6 +334,9 @@ fields remain intact. Complete encoded events are capped at 64 KiB, commands at
 70 KiB, and application data at depth64. Preparation uses the strict Python-encoded size, so a float-format boundary may
 be rejected conservatively even if the Rust encoding would fit. Wait keys are one-shot for the whole run;
 use new iteration keys when the controller waits again.
+
+Generic events supply application input and cannot decide a durable approval.
+Use the [approval API](#workflow-approvals) to review an immutable effective action.
 
 External event IDs are limited to 128 UTF-8 bytes and sources to 2,048 UTF-8
 bytes, in addition to the complete event budget. Sources must be valid URI

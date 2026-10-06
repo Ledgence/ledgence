@@ -1,6 +1,11 @@
 # PostgreSQL persistence
 
-Ledgence provides a Rust application service and an initial PostgreSQL 18 storage adapter. Together they implement durable single-task submission, acquisition, lease renewal, settlement, cancellation, history, and expiry recovery. They call the existing lifecycle core inside database transactions and return mutation success only after commit.
+Ledgence provides a Rust application service and a PostgreSQL 18 storage adapter.
+Together they persist task submission, acquisition, leases, settlement,
+cancellation, history, and expiry recovery, plus workflow checkpoints, local
+results, child ownership, waits, approvals, and completion subscriptions. Task
+transitions call the lifecycle core inside database transactions. Mutations return
+success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
@@ -153,3 +158,18 @@ Each child drains its own descendants before becoming terminal. The parent can
 therefore wait for direct-child terminal markers without scanning or locking the
 whole tree. See [owned subworkflows](subworkflows.md) for bounds and migration
 compatibility; [retention](retention.md) preserves active trees and collects expired runs leaf-first.
+
+Later migrations add [external waits and event receipts](workflow-events.md),
+[acknowledged forks](workflow-entrypoints.md), and
+[durable action approvals](workflow-approvals.md). Approval proposals, effective
+arguments, decisions, and wake obligations belong to the workflow's retained
+state. [Completion subscriptions](completion-notifications.md) persist separately
+from the HTTP sender so delivery can recover after a service restart.
+
+The adapter also maintains the [installation binding](self-hosted-instance.md),
+immutable program catalog, [Console graph projections](console-query-model.md),
+compact accepted [execution observations](execution-observations.md), and each
+session's latest [worker observation](worker-observations.md). These metadata
+views are distinct from optional OpenTelemetry exports. Apply the complete
+migration set for the selected executable; the migrations named above explain
+features and are not a subset to install independently.

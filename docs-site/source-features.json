@@ -4,5 +4,17 @@
     "sourceRef": "v0.3.1",
     "verifiedOn": "2026-10-05",
     "guide": "/tutorials/use-console"
+  },
+  "installer": {
+    "title": "One-line CLI installation and shell setup",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/install-native#next-release-one-line-installation"
+  },
+  "localDistribution": {
+    "title": "Local stack from container images and CLI lifecycle",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/run-local-distribution"
   }
 }

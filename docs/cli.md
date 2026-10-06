@@ -1,9 +1,9 @@
 # Command-line interface
 
-Ledgence 0.3.1 builds one public executable, `ledgence`, from the
-`ledgence-cli` crate. It provides program packaging, worker execution,
-orchestrator operation, and task administration under command groups. Worker and
-orchestrator processes still run separately and can run on different hosts.
+Ledgence builds one public executable, `ledgence`, from the `ledgence-cli`
+crate. It packages programs, runs workers and the orchestrator, administers
+tasks and approvals, connects MCP clients, and manages a local container stack.
+Worker and orchestrator processes run separately and can run on different hosts.
 
 **Development availability:** the `local` command group and installed-resource
 defaults described below are new source features. The published **0.3.1**
@@ -26,6 +26,8 @@ cargo build -p ledgence-cli --locked
 ./target/debug/ledgence worker --help
 ./target/debug/ledgence orchestrator --help
 ./target/debug/ledgence task --help
+./target/debug/ledgence approval --help
+./target/debug/ledgence mcp --help
 ./target/debug/ledgence local --help
 ```
 
@@ -34,14 +36,36 @@ checkout. `ledgence --version` reports the compiled platform version; an exact
 program version passed to `ledgence program register --version VALUE` continues
 to identify the application package.
 
-The default `otel` feature enables optional telemetry for administration, worker
-and orchestrator commands. The MCP command does not install a telemetry exporter.
+The default features are `otel` and `mcp`. `otel` enables optional telemetry for
+administration, worker and orchestrator commands. The MCP command does not
+install a telemetry exporter.
 `cargo build -p ledgence-cli --no-default-features --locked` omits optional integrations.
 Use `--features sqs` to include optional SQS delivery for both worker and
 orchestrator commands, or `--all-features` to include every supported integration.
 These are build features; telemetry export and SQS operation still require
 explicit runtime configuration. See [observability](observability.md) and
 [dispatch delivery](dispatch-delivery.md).
+
+## Command groups
+
+Use `ledgence <group> <command> --help` for the supported flags. Local lifecycle
+is available on `develop`; the other groups below are also in released 0.3.1
+builds, with MCP requiring its build feature.
+
+| Group | Commands | Purpose |
+| --- | --- | --- |
+| `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
+| `program` | `example`, `publish`, `register` | Create a fixture, publish a prepared immutable package, and register its reference. |
+| `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
+| `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
+| `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
+| `approval` | `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
+| `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
+
+There is no separate `workflow` command group. Workflow and event operations
+are available through the [HTTP API](http-orchestration.md),
+[Python client](../sdk/python-client/README.md), Console and MCP. Use the
+appropriate interface for the operation you need.
 
 ## Local stack lifecycle
 
@@ -91,6 +115,10 @@ concurrency. Subsequent commands reuse those settings. Updating the native CLI
 does not update an existing stack, and supplying different settings or another
 distribution does not silently migrate it. Use a separate directory for a
 separate installation; use a planned upgrade procedure for retained data.
+Keep the state directory at its original absolute path: moving it is rejected.
+The directory stores configuration, while database and program data live in
+Docker volumes. See [backup and restore constraints](installation.md#keep-local-data-and-configuration)
+before preserving or restoring an installation.
 
 A port conflict before initialization creates no installation, so the same
 directory can be retried with another `--port`. If Compose fails after
@@ -184,6 +212,20 @@ Use [durable workflow approvals](workflow-approvals.md) when a review must bind
 to an existing immutable action and its effective arguments. Generic events
 remain application input; they cannot approve an action. The unified CLI
 provides `ledgence approval list`, `inspect`, and `decide`.
+
+```sh
+ledgence approval list --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --workflow WORKFLOW_ID --limit 10
+ledgence approval inspect --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --workflow WORKFLOW_ID --key APPROVAL_KEY
+ledgence approval decide --server http://127.0.0.1:8080 --file decision.json
+```
+
+Pass the list response's `next_cursor` as `--after-key` for the next page.
+The decision file includes `scope`, `workflow_id`, `key`, `activation_id`,
+`revision`, `action`, `decision_id`, `decision`, `reviewer`, and `reason`.
+Save the complete decision before sending it. After an uncertain response,
+retry the identical file so the server can reconcile the same decision.
 
 ## MCP clients
 

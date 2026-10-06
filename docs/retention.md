@@ -56,7 +56,7 @@ already accepted retirement.
   task/attempt snapshot until it advances. Its sequence is never reset.
 - Expired-session cursors until their active ownership has been reconciled.
   Historical dispatch claim receipts retain their target's execution lifetime.
-- A workflow's durable local results, event receipts, waits and owned tasks while
+- A workflow's durable local results, event receipts, approvals, waits and owned tasks while
   the workflow or any ancestor root is active. An owned run is eligible only once
   both it and its root are terminal and old enough; deletion proceeds leaf-first.
 - Completion subscriptions in waiting, pending, delivering or retrying states.
@@ -75,6 +75,12 @@ and old enough, an eligible descendant can expire while a root callback keeps th
 root's own self-contained result available. The root's status/result remain
 unchanged; lineage IDs and retained history can refer to a child whose inspection
 now returns `NotFound`. A child's own pending/recent callback protects that child.
+
+Approval proposals and decisions follow their owning workflow's retention
+lifetime. Compact Console graph records are collected with that workflow;
+accepted attempt measurements are collected with their settlement. The latest
+worker observation is collected with its expired session. Retention therefore
+does not preserve an independent audit archive after those records expire.
 
 ## API and idempotency boundary
 

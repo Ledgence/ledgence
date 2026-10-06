@@ -102,6 +102,11 @@ decision against the saved packet. Approval cannot replace the candidate or
 override failed evidence. A rejection or expired deadline never enables
 publication.
 
+This example uses an application-validated external event, so its review wait
+does not appear in Console's **Approvals** view. Its companion commands construct
+the bound decision event. For a persisted request with effective action arguments
+and the dedicated approval API, follow [Require approval](/how-to/require-approval).
+
 The full parent path has six entrypoints: `start`, `check_candidate`,
 `prepare_review`, `await_decision`, `on_decision` and `finish`. The branch
 entrypoints—`run_tests`, `review_code` and `draft_note`—run one level below it.
@@ -121,7 +126,8 @@ is an optional host integration.
 
 In [Console](/tutorials/use-console), follow actual execution in the parent graph
 and enter a branch to inspect its level. When `prepare:0` succeeds, copy its
-Children task ID and run `client.py review --task TASK_ID --output NEW_DIRECTORY`.
+task ID from **Graph** or **General → Recorded work**, then run
+`client.py review --task TASK_ID --output NEW_DIRECTORY`.
 This retrieves a public task result while the parent waits for approval.
 
 Open `review.html` and explore the guided replay. The presentation keeps full

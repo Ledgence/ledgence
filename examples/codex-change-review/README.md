@@ -66,6 +66,12 @@ Healthy Python processes may remain warm for later work. A `ctx.local()` result
 is acknowledged durably, but code that runs before that acknowledgment can run
 again after an interruption.
 
+The human decision in this example uses an application-validated external event
+bound to the workflow and candidate. It does not create a durable action-approval
+request or appear in Console's **Approvals** view. Use this example's `approve`
+or `reject` client command. For persisted effective-action requests and the
+dedicated decision API, see [Durable action approval](../durable-approval/README.md).
+
 ## Requirements
 
 - Ledgence 0.3.1 source, a matching `ledgence` executable and all migrations,
@@ -218,8 +224,9 @@ the three branches run, and their results join. Open each branch to inspect
 its own level. Local execution uses a solid edge; fork relationships use dashed
 edges. Graph nodes represent recorded execution, not predicted future steps.
 
-When the workflow waits for approval, find the **`prepare:0`** task under
-**Children** and copy its task ID. Export the packet before making a decision:
+When the workflow waits for approval, select the **`prepare:0`** task in **Graph**
+or find it under **General → Recorded work**, then copy its task ID. Export the
+packet before making a decision:
 
 ```sh
 "$CHANGE_HOME/client/bin/python" examples/codex-change-review/client.py review \
