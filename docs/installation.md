@@ -37,6 +37,27 @@ worker's actual architecture and the exact Python major/minor in its manifest.
 An image supporting several architectures does not make one program package
 portable across them. The initial distribution uses CPython 3.14.
 
+## Next release: one-line installation
+
+**This download is not available in 0.3.1.** After a release publishes
+`install.sh`, run this one line in Bash or Zsh to install Ledgence and make it
+available in both the current terminal and future terminals:
+
+```sh
+(set -o pipefail; curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh) && . "$HOME/.local/share/ledgence/env"
+```
+
+The final `. .../env` updates the current shell; an installer running as a child
+process cannot change its parent shell's environment. If you will open a new
+Bash or Zsh terminal, or start a new sh/dash login shell, the shorter command is
+sufficient once the installer is published:
+
+```sh
+curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
+```
+
+Until that release is available, use the working 0.3.1 instructions below.
+
 ## Install the currently released native CLI
 
 The [manual native guide](https://docs.ledgence.com/how-to/install-native) works
@@ -44,7 +65,7 @@ with the published 0.3.1 assets today. Alternatively, from a development checkou
 that contains `install.sh`, run:
 
 ```sh
-sh install.sh --version 0.3.1
+sh install.sh --version 0.3.1 && . "$HOME/.local/share/ledgence/env"
 ```
 
 This installs the **released 0.3.1 executable**, not the development executable
@@ -55,8 +76,37 @@ installer does not require Python, Rust, Node or Docker.
 Without `--version`, the script resolves the latest stable release once. At
 present that is 0.3.1. `--prefix /absolute/path` changes the default `$HOME/.local`
 installation location. `--base-url HTTPS_URL` selects an alternative release
-endpoint with the same release/download layout. `--no-modify-path` is accepted
-for automation; profiles are never changed, with or without that flag.
+endpoint with the same release/download layout. To leave shell profiles
+unchanged, pass `--no-modify-path`; you can still source the generated environment
+file when needed.
+
+### Shell setup
+
+By default, the installer appends a setup block to the startup files for the
+shell identified by `$SHELL`:
+
+- **Bash:** `~/.bashrc` and the first existing readable `~/.bash_profile`,
+  `~/.bash_login`, or `~/.profile`; it falls back to `~/.profile` if none is readable.
+- **Zsh:** `${ZDOTDIR:-$HOME}/.zshrc`. Export a custom `ZDOTDIR` before installing
+  so the installer uses it.
+- **sh or dash:** `~/.profile`, which applies to new login shells.
+
+Existing profile content is preserved, and reinstalling does not append a
+duplicate setup block. Unreadable, unwritable, or nonregular profiles are
+preserved with a warning to configure the shell manually. The generated
+environment file moves the installation's `bin` directory to the front of `PATH`,
+removing duplicate entries for that directory. For another shell, the installer
+prints instructions for manual setup.
+
+To activate an existing installation in the current shell, run:
+
+```sh
+. "$HOME/.local/share/ledgence/env"
+ledgence --version
+```
+
+For a custom prefix, source `/absolute/path/share/ledgence/env` instead. The
+installer prints the exact command for the selected prefix.
 
 The script downloads the selected archive and release checksums, verifies the
 complete internal inventory, and checks the executable version before activating
@@ -70,6 +120,7 @@ With the default prefix, the layout is:
 ```text
 ~/.local/bin/ledgence
   -> ~/.local/share/ledgence/versions/<version>-<target>/bin/ledgence
+~/.local/share/ledgence/env
 
 ~/.local/share/ledgence/versions/<version>-<target>/
   bin/ledgence
@@ -84,11 +135,7 @@ With the default prefix, the layout is:
   local/       # only when that release includes a qualified local kit
 ```
 
-Follow the `export PATH=...` command printed by the installer when needed, then
-run `ledgence --version`. The installer cannot change its parent shell's
-environment and does not edit shell profiles. For a lasting setup, add the
-printed export to the profile used by your shell. An unrelated existing
-`ledgence` executable or launcher is not replaced.
+An unrelated existing `ledgence` executable or launcher is not replaced.
 
 Keep each bundle intact. Its symlink launcher makes the CLI discoverable on
 `PATH`; it does not separate the binary from resources needed by other commands.
@@ -137,8 +184,7 @@ ledgence local down
 
 Do not use that sequence with the published 0.3.1 binary. Obtain the installer
 and matching bundle from the selected future release's actual asset list; this
-guide does not present an unpublished installer endpoint as an available
-download.
+guide marks the one-line installer as unavailable until that release.
 
 `up` starts PostgreSQL, runs the kit's migrator, and starts the orchestrator and
 one worker. It waits for Compose readiness and prints the API and Console URLs,
