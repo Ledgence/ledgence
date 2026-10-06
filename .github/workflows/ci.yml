@@ -9,8 +9,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Reusable callers have their own concurrency group; never cancel the caller
+  # or a manually dispatched release when a new push arrives.
+  group: ledgence-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -48,6 +50,8 @@ jobs:
           python -m unittest discover -s deploy/distribution -p 'test_*.py' -v
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Cache downloaded Rust dependencies
+        uses: ./.github/actions/cargo-download-cache
       - name: Test Rust source-package qualification gates
         run: python -m unittest discover -s tools -p 'test_rust_packages.py' -v
       - name: Check crate boundaries
@@ -83,6 +87,7 @@ jobs:
         run: |
           python tools/check-http-fixtures.py
           python -m unittest discover -s tools -p 'test_local_receiver.py' -v
+          python -m unittest discover -s tools -p 'test_acceptance_timing.py' -v
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
@@ -124,15 +129,10 @@ jobs:
             --evidence "$RUNNER_TEMP/python-client-${{ matrix.python }}.json"
 
   postgres:
-    name: PostgreSQL 18 and HTTP delivery
+    name: PostgreSQL 18 transactions and query metadata
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     services:
-      elasticmq:
-        # ElasticMQ 1.7.1; fixed image used by local adapter conformance.
-        image: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
-        ports:
-          - 9324:9324
       postgres:
         # PostgreSQL 18.6; multi-platform image index verified 2026-09-13.
         image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
@@ -161,6 +161,8 @@ jobs:
           python-version: '3.12'
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Cache downloaded Rust dependencies
+        uses: ./.github/actions/cargo-download-cache
       - name: Check queries and transactional PostgreSQL behavior
         env:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
@@ -171,96 +173,238 @@ jobs:
           exec docker exec -i "$LEDGENCE_POSTGRES_CONTAINER" psql "$@"
           SH
           chmod +x "$RUNNER_TEMP/ledgence-psql"
+          # This gate still cleans the adapter before online SQLx expansion and
+          # runs every ignored database test serially against its own service.
           python tools/check-postgres.py --psql "$RUNNER_TEMP/ledgence-psql"
+
+  sqs-adapter:
+    name: SQS adapter conformance (ElasticMQ)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      elasticmq:
+        image: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+        ports:
+          - 9324:9324
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the repository Rust toolchain
+        run: rustup show active-toolchain
+      - name: Cache downloaded Rust dependencies
+        uses: ./.github/actions/cargo-download-cache
       - name: Check SQS adapter against ElasticMQ
         env:
           LEDGENCE_TEST_SQS_ENDPOINT: http://127.0.0.1:9324
         run: cargo test --locked -p ledgence-adapter-sqs elasticmq_acceptance -- --ignored
-      - name: Check separate-process HTTP delivery
+
+  acceptance-build:
+    name: Build acceptance executables
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      artifact-name: ${{ steps.bundle.outputs.artifact-name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the repository Rust toolchain
+        run: rustup show active-toolchain
+      - name: Cache downloaded Rust dependencies
+        uses: ./.github/actions/cargo-download-cache
+      - name: Build each qualified executable configuration once
+        id: bundle
+        run: |
+          echo "artifact-name=acceptance-binaries-$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
+            "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features"
+          # Preserve HTTP acceptance of the default feature configuration before
+          # the all-features build replaces target/debug/ledgence.
+          cargo build -p ledgence-cli --bin ledgence --locked
+          cp target/debug/ledgence "$RUNNER_TEMP/ledgence-acceptance-binaries/default/ledgence"
+          cargo build -p ledgence-cli --bin ledgence --all-features --locked
+          cp target/debug/ledgence "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features/ledgence"
+          cargo build -p ledgence-adapter-otel --example otlp-capture --locked
+          cp target/debug/examples/otlp-capture "$RUNNER_TEMP/ledgence-acceptance-binaries/otlp-capture"
+          git rev-parse HEAD > "$RUNNER_TEMP/ledgence-acceptance-binaries/SOURCE_SHA"
+          cd "$RUNNER_TEMP/ledgence-acceptance-binaries"
+          sha256sum default/ledgence all-features/ledgence otlp-capture SOURCE_SHA > SHA256SUMS
+          # A tar archive preserves executable modes, unlike bare artifact files.
+          tar -czf "$RUNNER_TEMP/ledgence-acceptance-binaries.tar.gz" \
+            default all-features otlp-capture SOURCE_SHA SHA256SUMS
+      - name: Retain executables for this workflow run only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.bundle.outputs.artifact-name }}
+          path: ${{ runner.temp }}/ledgence-acceptance-binaries.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  acceptance:
+    name: Acceptance (${{ matrix.suite }})
+    needs: acceptance-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [http, sqs, api, workflows-integrated, workflows-sqs, workflows-tracing]
+    services:
+      elasticmq:
+        # An empty image disables this service in suites using integrated delivery.
+        image: ${{ contains(matrix.suite, 'sqs') && 'softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c' || '' }}
+        ports:
+          - 9324:9324
+      postgres:
+        image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ledgence-test
+          POSTGRES_DB: ledgence
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ledgence"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LEDGENCE_POSTGRES_URL: postgres://postgres:ledgence-test@127.0.0.1:5432/ledgence
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Python for verification tooling
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Download executables from this workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          # The successful build's name survives a rerun of only failed suites.
+          name: ${{ needs.acceptance-build.outputs.artifact-name }}
+          path: ${{ runner.temp }}/ledgence-acceptance-download
+      - name: Verify executables and prepare isolated database access
         env:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ledgence-acceptance-binaries"
+          tar -xzf "$RUNNER_TEMP/ledgence-acceptance-download/ledgence-acceptance-binaries.tar.gz" \
+            -C "$RUNNER_TEMP/ledgence-acceptance-binaries"
+          (
+            cd "$RUNNER_TEMP/ledgence-acceptance-binaries"
+            sha256sum --check SHA256SUMS
+            test "$(cat SOURCE_SHA)" = "$GITHUB_SHA"
+            test -x default/ledgence
+            test -x all-features/ledgence
+            test -x otlp-capture
+          )
+          cat > "$RUNNER_TEMP/ledgence-psql" <<'SH'
+          #!/bin/sh
+          exec docker exec -i "$LEDGENCE_POSTGRES_CONTAINER" psql "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/ledgence-psql"
+          echo "LEDGENCE_POSTGRES_CONTAINER=$LEDGENCE_POSTGRES_CONTAINER" >> "$GITHUB_ENV"
+          echo "LEDGENCE_PYTHON=$LEDGENCE_PYTHON" >> "$GITHUB_ENV"
+      - name: Check separate-process HTTP delivery with default features
+        if: matrix.suite == 'http'
         run: |
           python tools/check-http.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
             --evidence "$RUNNER_TEMP/ledgence-http-evidence"
-
-      - name: Check SQS delivery through PostgreSQL, HTTP and Python
-        env:
-          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+      - name: Check SQS delivery with production long-poll and lease timings
+        if: matrix.suite == 'sqs'
         run: |
-          cargo build -p ledgence-cli --bin ledgence --all-features --locked
           python tools/check-sqs.py --endpoint http://127.0.0.1:9324 \
-            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-sqs-evidence"
-
       - name: Check separate-process observability
-        env:
-          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        if: matrix.suite == 'api'
         run: |
-          cargo build -p ledgence-adapter-otel --example otlp-capture --locked
           python tools/check-observability.py --psql "$RUNNER_TEMP/ledgence-psql" \
-            --binaries target/debug --capture target/debug/examples/otlp-capture \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --capture "$RUNNER_TEMP/ledgence-acceptance-binaries/otlp-capture" \
             --evidence "$RUNNER_TEMP/ledgence-observability-evidence"
-
       - name: Check MCP stdio through HTTP, PostgreSQL and a Python worker
-        env:
-          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        if: matrix.suite == 'api'
         run: |
           python tools/check-mcp.py --psql "$RUNNER_TEMP/ledgence-psql" \
-            --binaries target/debug --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
-
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
       - name: Build and install the Python client wheel for end-to-end acceptance
+        if: matrix.suite == 'api' || startsWith(matrix.suite, 'workflows-')
         run: |
           python tools/check-python-client.py \
             --venv-dir "$RUNNER_TEMP/ledgence-client-e2e-env" \
             --evidence "$RUNNER_TEMP/ledgence-client-package.json"
       - name: Check installed Python client with PostgreSQL, HTTP and the packaged worker
-        env:
-          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        if: matrix.suite == 'api'
         run: |
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-python-client-e2e.py \
-            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-client-e2e-evidence"
-
-
       - name: Check durable completion callbacks and sender recovery
-        env:
-          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        if: matrix.suite == 'api'
         run: |
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-completions.py \
-            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-completion-evidence"
-
-
-      - name: Check workflow checkpoints and recovery with integrated and ElasticMQ delivery
-        env:
-          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+      - name: Check workflow fixture behavior
+        if: startsWith(matrix.suite, 'workflows-')
+        run: '"$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py --self-test'
+      - name: Check every workflow checkpoint and recovery scenario with integrated delivery
+        if: matrix.suite == 'workflows-integrated'
         run: |
-          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py --self-test
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py \
-            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-workflow-integrated-evidence"
+      - name: Check every workflow checkpoint and recovery scenario with ElasticMQ delivery
+        if: matrix.suite == 'workflows-sqs'
+        run: |
+          # Only idle acquisition is shorter; leases and recovery assertions are unchanged.
+          # The separate SQS suite retains production long-poll coverage.
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py \
-            --endpoint http://127.0.0.1:9324 --psql "$RUNNER_TEMP/ledgence-psql" \
-            --binaries target/debug --evidence "$RUNNER_TEMP/ledgence-workflow-sqs-evidence"
+            --endpoint http://127.0.0.1:9324 --acquire-wait-ms 1000 \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --evidence "$RUNNER_TEMP/ledgence-workflow-sqs-evidence"
+      - name: Check workflow event and graph trace relationships
+        if: matrix.suite == 'workflows-tracing'
+        run: |
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-workflows.py \
-            --scenario events --scenario owned-tree --scenario fork-mixed --capture target/debug/examples/otlp-capture \
-            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --scenario events --scenario owned-tree --scenario fork-mixed \
+            --capture "$RUNNER_TEMP/ledgence-acceptance-binaries/otlp-capture" \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-workflow-events-otel-evidence"
-
       - name: Check fulfillment workflow, review and recovery with real workers
-        env:
-          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        if: matrix.suite == 'api'
         run: |
           "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" examples/fulfillment-investigator/check.py --native \
-            --psql "$RUNNER_TEMP/ledgence-psql" --binaries target/debug \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --directory "$RUNNER_TEMP/ledgence-fulfillment-evidence"
+      - name: Retain suite evidence including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: acceptance-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ledgence-*-evidence
+            ${{ runner.temp }}/ledgence-client-package.json
+          if-no-files-found: warn
+          retention-days: 7
 
   dependencies:
     name: Dependency policy
@@ -273,6 +417,8 @@ jobs:
           persist-credentials: false
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Cache downloaded Rust dependencies
+        uses: ./.github/actions/cargo-download-cache
       - name: Set up Python for artifact policy checks
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:

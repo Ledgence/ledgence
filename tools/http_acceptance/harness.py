@@ -50,9 +50,27 @@ def exchange(base, method, path, body=None, timeout=35):
         connection.close()
 
 
+@contextlib.contextmanager
+def timed(directory, kind, name):
+    """Persist elapsed time even on failure, without exception text or process inputs."""
+    started = time.monotonic()
+    row = {"kind": kind, "name": name, "result": "passed"}
+    try:
+        yield row
+    except BaseException as error:
+        row.update(result="failed", error_type=type(error).__name__)
+        raise
+    finally:
+        row["elapsed_seconds"] = round(time.monotonic() - started, 6)
+        with (directory / "timings.jsonl").open("a", encoding="utf-8") as output:
+            output.write(json.dumps(row) + "\n")
+        print(f"TIMING {kind} {name}: {row['result']} {row['elapsed_seconds']:.3f}s", flush=True)
+
+
 class Process:
     def __init__(self, args, directory, label, environment=None):
         self.label = label
+        self.directory = directory
         self.stdout_path = directory / f"{label}.stdout"
         self.stderr_path = directory / f"{label}.stderr"
         self.stdout = self.stdout_path.open("wb")
@@ -68,18 +86,19 @@ class Process:
         self.process.wait(timeout=10)
 
     def stop(self, timeout=40):
-        assert self.process.poll() is None, f"{self.label} exited before shutdown: {self.stderr_path}"
-        self.process.send_signal(signal.SIGTERM)
-        try:
-            code = self.process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            raise AssertionError(f"{self.label} did not drain; inspect {self.stderr_path}") from None
-        expected = 1 if self.label.startswith("worker-") else 0
-        assert code == expected, f"{self.label} exit {code}; inspect {self.stderr_path}"
-        if self.label.startswith("worker-"):
-            delivery = json.loads(self.stdout_path.read_text())["delivery"]
-            assert delivery["finished"] is True, delivery
-        return code
+        with timed(self.directory, "process-stop", self.label):
+            assert self.process.poll() is None, f"{self.label} exited before shutdown: {self.stderr_path}"
+            self.process.send_signal(signal.SIGTERM)
+            try:
+                code = self.process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise AssertionError(f"{self.label} did not drain; inspect {self.stderr_path}") from None
+            expected = 1 if self.label.startswith("worker-") else 0
+            assert code == expected, f"{self.label} exit {code}; inspect {self.stderr_path}"
+            if self.label.startswith("worker-"):
+                delivery = json.loads(self.stdout_path.read_text())["delivery"]
+                assert delivery["finished"] is True, delivery
+            return code
 
     def cleanup(self):
         if self.process.poll() is None:

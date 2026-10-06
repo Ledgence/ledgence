@@ -1,0 +1,18 @@
+name: Cargo download cache
+description: Reuse downloaded dependency archives without reusing qualification or build outputs.
+runs:
+  using: composite
+  steps:
+    - name: Cache public registry archives and Git dependency objects
+      # Official actions/cache v4.3.0. Deliberately exclude Cargo credentials,
+      # config, compiled target outputs, incremental builds and SQLx metadata.
+      # Cargo still verifies dependencies and every check runs on the current source.
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
+      with:
+        path: |
+          ~/.cargo/registry/cache
+          ~/.cargo/registry/index
+          ~/.cargo/git/db
+        key: cargo-download-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
