@@ -7,9 +7,14 @@ published artifacts are different evidence.
 
 ## Independent suites
 
-The `CI` workflow runs the Rust/Python and installed-client matrices on Linux and
-macOS with Python 3.11–3.14, plus dependency policy checks. Database and delivery
-acceptance is split into independent jobs:
+The `CI` workflow runs the Rust/Python and installed Python package matrices on
+Linux and macOS with Python 3.11–3.14, plus dependency policy checks. The package
+matrix checks `ledgence-client` and the development distribution `ledgence-worker`
+outside the checkout, including their shared namespace. The worker gate reuses
+the client gate's hash-verified dependency wheelhouse offline. Each job retains
+its available package evidence for seven days. This qualifies local artifacts;
+it does not publish the worker helper to PyPI. Database and delivery acceptance
+is split into independent jobs:
 
 | Job or acceptance suite | Coverage |
 | --- | --- |

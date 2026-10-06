@@ -15,6 +15,7 @@ The [manual native guide](https://docs.ledgence.com/how-to/install-native) and
 | Need | Install on the host |
 | --- | --- |
 | Call an existing API from Python | Python 3.11+ and `ledgence-client` in the application environment. |
+| Author Python programs with local imports and editor support | Python 3.11+ and the local `ledgence-worker` package from updated `develop` source in the application's development environment; [setup below](#install-the-worker-helper-for-development). No PyPI release yet. |
 | Administer an existing API or connect an MCP client | The native CLI; Docker and a local Python interpreter are not required for those commands. |
 | Run a Python program in a native worker | The native CLI and a host CPython interpreter matching the program manifest. |
 | Start the image-based local stack | Docker Engine or Docker Desktop with Compose 2.23.1+, plus the complete 0.4.0 native CLI installation. |
@@ -343,3 +344,36 @@ Host Python runs the client; worker Python executes the packaged program. They
 need not be the same interpreter version. The worker helper under
 `ledgence.worker` is a separate bundled component, and application dependencies
 must be prepared for the worker environment before program publication.
+
+## Install the worker helper for development
+
+`ledgence-worker` provides the `ledgence.worker` imports used by program code.
+The local package in updated `develop` source has version **0.4.0** and requires
+Python 3.11+. It is not published to PyPI, and the existing `v0.4.0` tag lacks its
+packaging metadata. Use a checkout containing `sdk/python/pyproject.toml`.
+
+From your application's existing uv project:
+
+```sh
+uv add --dev /absolute/path/to/ledgence/sdk/python
+uv run python -c "from ledgence.worker.workflow import Workflow; print('worker imports ready')"
+```
+
+The path refers to the Ledgence checkout, not your application directory. This
+records a local development dependency and installs it into the application's
+environment. Select that environment in your editor; no `PYTHONPATH` is needed.
+For an existing activated virtual environment managed with pip, use
+`python -m pip install /absolute/path/to/ledgence/sdk/python` instead.
+Only helper contributors normally need uv's `--editable` option.
+
+Match the helper version to the deployed worker release. The package supports
+imports, type-aware tools and tests of ordinary business functions; invocation
+and workflow context APIs still require execution by Ledgence. The native CLI,
+server, and `ledgence-client` are separate installations. At runtime the worker
+supplies its bundled helper before any artifact copy, so this authoring package
+does not replace `--runner` and need not be shipped with your program.
+
+Follow [Develop Python programs](../docs-site/src/content/docs/how-to/develop-python-programs.md)
+for the authoring workflow. Application runtime dependencies must still be
+prepared for the worker platform and exact Python major/minor under the
+[program package contract](program-packages.md).

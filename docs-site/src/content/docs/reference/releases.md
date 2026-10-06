@@ -68,6 +68,13 @@ python3 -m pip install "ledgence-client==0.4.0"
 
 Import `from ledgence.client import AsyncClient`. The client requires Python 3.11 or newer; the supported qualification matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The optional `otel` extra integrates tracing. This client communicates with an existing service; it does not install a server, upload packages, or provide `ledgence.worker`.
 
+## Worker helper for development
+
+The separate [local worker helper package](/how-to/develop-python-programs)
+provides `ledgence.worker` for application development from updated `develop`
+source. It is not published to PyPI and is absent from the existing `v0.4.0`
+source tag; its local version `0.4.0` does not claim a registry release.
+
 ## Rust adapter contracts
 
 The two API crates expose integration interfaces and require Rust 1.98 or newer:

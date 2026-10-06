@@ -24,6 +24,9 @@ class RegistryTests(unittest.TestCase):
         (self.root / "sdk/python-client").mkdir(parents=True)
         (self.root / "sdk/python-client/pyproject.toml").write_text(
             '[project]\nname="ledgence-client"\nversion="0.1.1"\n')
+        (self.root / "sdk/python").mkdir(parents=True)
+        (self.root / "sdk/python/pyproject.toml").write_text(
+            '[project]\nname="ledgence-worker"\nversion="0.1.1"\n')
         self.git("init", "-b", "main")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "user.name", "Registry test")
@@ -71,6 +74,18 @@ class RegistryTests(unittest.TestCase):
         (self.root / "sdk/python-client/pyproject.toml").write_text(
             '[project]\nname="ledgence-client"\nversion="0.1.2"\n')
         with self.assertRaisesRegex(ValueError, "versions differ"):
+            registry.release_version(self.root)
+
+    def test_worker_version_mismatch_rejected(self):
+        (self.root / "sdk/python/pyproject.toml").write_text(
+            '[project]\nname="ledgence-worker"\nversion="0.1.2"\n')
+        with self.assertRaisesRegex(ValueError, "worker release versions differ"):
+            registry.release_version(self.root)
+
+    def test_worker_distribution_identity_rejected(self):
+        (self.root / "sdk/python/pyproject.toml").write_text(
+            '[project]\nname="other-worker"\nversion="0.1.1"\n')
+        with self.assertRaisesRegex(ValueError, "unexpected Python worker distribution"):
             registry.release_version(self.root)
 
     def artifacts(self, name):

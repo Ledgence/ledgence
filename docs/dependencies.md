@@ -166,6 +166,32 @@ The resolved graph adds 23 package versions. All have retained legal material li
 The additional alternatives in some declared OR expressions do not require selecting LGPL, BSD-2-Clause, or Apache's LLVM exception. Retain the chosen license and applicable notices. These components remain third-party code under their respective terms; they are not relicensed to MIT. No general allowlist or license exception is broadened by this feature. Rust OpenTelemetry is Beta upstream; the versions are pinned behind the adapter and upgrades require renewed compatibility and dependency review. [Rust status](https://opentelemetry.io/docs/languages/rust/).
 
 
+## Local Python worker package
+
+The development-only `ledgence-worker` distribution packages the existing
+standard-library `ledgence.worker` helper for local application authoring. It
+requires Python 3.11+ and declares no runtime dependencies. It adds no client,
+agent framework, provider SDK or hosted-service requirement. The installed
+package and source distribution retain Ledgence's MIT license.
+
+Its build backend is the already reviewed `flit_core==3.12.0` used by the Python
+client below. Flit retains its BSD-3-Clause terms and its bundled tomli 1.2.3
+retains MIT terms; the existing client build inventory records the reviewed
+artifacts and notices. This reuses that build dependency without adding it to
+the helper's runtime requirements or shipping it inside the helper wheel.
+No dependency allowlist is broadened. See the
+[local installation guide](../sdk/python/README.md#install-for-local-development)
+for the unpublished package's availability and runtime boundary.
+
+Run `python3 tools/check-python-worker.py` with a supported host interpreter to
+qualify the source distribution, installed wheel and client namespace
+coexistence. The gate downloads only artifacts from the existing hash-reviewed
+client inventory; use `--wheelhouse /path/to/reviewed-wheelhouse --offline` to
+reuse a complete prepared cache without downloads. The client runtime graph is
+needed only for coexistence tests. CI configures the gate for Python 3.11–3.14
+on Linux x86_64/glibc and macOS arm64. A configured matrix does not establish
+that a particular hosted run passed, and qualification does not publish a package.
+
 ## Python task client
 
 The separate `ledgence-client` distribution provides `ledgence.client`. Its required transport is pinned to `aiohttp==3.14.3` without extras. The standard-library-only `ledgence.worker` helper does not acquire this dependency. Optional tracing imports `opentelemetry-api==1.44.0`; providers and exporters remain application choices.

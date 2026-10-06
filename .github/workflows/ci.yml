@@ -104,7 +104,7 @@ jobs:
             python -m unittest discover -s sdk/python/tests -v
 
   python-client:
-    name: Installed Python client (${{ matrix.os }}, ${{ matrix.python }})
+    name: Installed Python packages (${{ matrix.os }}, ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -126,7 +126,24 @@ jobs:
       - name: Build sdist and wheel and test installed client outside checkout
         run: |
           python tools/check-python-client.py \
+            --wheelhouse "$RUNNER_TEMP/python-wheelhouse" \
             --evidence "$RUNNER_TEMP/python-client-${{ matrix.python }}.json"
+      - name: Qualify the installed worker helper and shared namespace
+        run: |
+          python -m unittest discover -s tools -p 'test_python_worker_package.py' -v
+          python tools/check-python-worker.py \
+            --wheelhouse "$RUNNER_TEMP/python-wheelhouse" --offline \
+            --evidence "$RUNNER_TEMP/python-worker-${{ matrix.python }}.json"
+      - name: Retain installed Python package evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: python-packages-${{ matrix.os }}-${{ matrix.python }}
+          path: |
+            ${{ runner.temp }}/python-client-${{ matrix.python }}.json
+            ${{ runner.temp }}/python-worker-${{ matrix.python }}.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   postgres:
     name: PostgreSQL 18 transactions and query metadata

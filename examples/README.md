@@ -8,6 +8,13 @@ normally run from the repository root. The 0.4.0 examples use one
 [CLI guide](../docs/cli.md) maps commands from earlier releases. Example tooling
 accepts `--binaries DIRECTORY` pointing to the directory containing `ledgence`.
 
+For imports, editor support and local tests in your own Python application, see
+[Develop Python programs](../docs-site/src/content/docs/how-to/develop-python-programs.md).
+Updated `develop` source provides a local-installable `ledgence-worker` package;
+it is not on PyPI and is absent from the existing `v0.4.0` tag. This authoring
+setup does not replace the worker, database or other execution prerequisites in
+the example guides below.
+
 ## Programs and workflows
 
 | Example | What it shows | Setup |

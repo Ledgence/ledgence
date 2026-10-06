@@ -7,6 +7,11 @@ Submit the workflow published in [Run Ledgence locally](/tutorials/run-locally),
 
 This tutorial follows the `v0.4.0` source release and its typed `workflow-example@1.0.1` controller. For independently checkpointed branches, see the [typed entrypoints and forks guide](/how-to/fork-workflow-branches).
 
+When writing your own program, [Develop Python programs](/how-to/develop-python-programs)
+shows how to install the helper into your editor's environment and test business
+logic. That local packaging requires updated `develop` source; it is separate
+from this tutorial's released execution setup.
+
 ## Before you start
 
 Complete the local tutorial and leave its stack running. The `publish` command must have succeeded so that `workflow-example@1.0.1` and `workflow-summary@1.0.0` are available.

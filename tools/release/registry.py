@@ -47,6 +47,9 @@ def release_version(root=ROOT):
     require(VERSION.fullmatch(version), "registry releases require a final x.y.z version")
     require(python["project"]["version"] == version, "Rust/Python release versions differ")
     require(python["project"]["name"] == "ledgence-client", "unexpected Python distribution")
+    worker = tomllib.loads((root / "sdk/python/pyproject.toml").read_text())["project"]
+    require(worker["name"] == "ledgence-worker", "unexpected Python worker distribution")
+    require(worker["version"] == version, "Rust/Python worker release versions differ")
     return version
 
 

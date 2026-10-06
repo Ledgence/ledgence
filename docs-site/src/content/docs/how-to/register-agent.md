@@ -9,6 +9,11 @@ This guide applies to Ledgence 0.4.0. Start a matching instance using [Explore L
 
 ## Publish the package first
 
+If you are still writing the program, [Develop Python programs](/how-to/develop-python-programs)
+covers local helper imports, editor setup and business-logic tests. That helper
+packaging is a development-source addition; publication below still uses the
+worker's immutable program contract.
+
 Prepare the application, its dependencies, and `ledgence-program.json` for the worker's target Python version and platform. Publish with the matching `ledgence` executable from the native bundle or a source build:
 
 ```sh

@@ -30,6 +30,7 @@ Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/cod
 | Install the CLI in one command and configure your shell. | [Installation](/how-to/install-native) |
 | Start and manage the local stack from published images. | [Local distribution](/how-to/run-local-distribution) |
 | Build the Docker Compose examples from source. | [Local source tutorial](/tutorials/run-locally) |
+| Write Python programs with local imports and editor support. | [Python development setup](/how-to/develop-python-programs) — local helper packaging in updated development source. |
 | Submit work and receive results after disconnecting. | [Result waiting and callbacks](/how-to/receive-results) |
 | Connect an MCP client to an existing instance. | [MCP setup](/how-to/connect-mcp) |
 | Operate workers and diagnose executions. | [Observability](/how-to/configure-observability), [queue delivery](/concepts/queue-delivery), and [Console](/reference/console) |

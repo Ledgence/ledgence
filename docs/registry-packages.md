@@ -41,19 +41,39 @@ does not include the separately supplied `ledgence.worker` helper or CPython.
 Ledgence-owned source is MIT; packaged legal notices remain applicable.
 See [dependency policy](dependencies.md).
 
+## Local worker helper package
+
+Updated `develop` source also packages `sdk/python` as **`ledgence-worker`
+0.4.0**, providing `ledgence.worker` for authoring and testing programs in a
+Python 3.11+ application environment. It has no runtime dependencies. This
+distribution is **not published to PyPI** and is not part of the published
+package table above. The existing `v0.4.0` tag lacks its packaging metadata.
+
+Use a checkout containing `sdk/python/pyproject.toml`, then run
+`uv add --dev /absolute/path/to/ledgence/sdk/python` from your application project,
+or use the [pip alternative](installation.md#install-the-worker-helper-for-development).
+There is no name-based registry install for this package yet. It does not install
+the CLI, services or client. The Rust worker continues to supply its own helper
+at execution; see the [helper guide](../sdk/python/README.md#install-for-local-development).
+
 The remaining sections describe maintainer qualification and publication.
-Installing an existing package does not require these steps.
+Installing an existing package does not require these steps. The worker helper
+has a local qualification gate, but the publication procedures below publish
+only the client and Rust API packages.
 
 ## Qualification
 
 Use the repository Rust toolchain and Python 3.11–3.14. Start from a clean,
-committed checkout. Both tools require new output directories outside checkout
+committed checkout. These tools require new output directories outside checkout
 and upload nothing:
 
 ```sh
 python3 tools/check-python-client.py \
   --dist-dir /tmp/ledgence-python/dist \
   --evidence /tmp/ledgence-python/evidence.json
+python3 tools/check-python-worker.py \
+  --dist-dir /tmp/ledgence-python-worker/dist \
+  --evidence /tmp/ledgence-python-worker/evidence.json
 python3 tools/check-rust-packages.py --output /tmp/ledgence-rust
 ```
 
@@ -62,6 +82,15 @@ typing files and legal notices, and runs installed base/optional-tracing tests
 outside checkout. The source distribution includes its test corpus. The gate
 also checks coexistence with the separately delivered worker helper. CI repeats
 installed-client tests across Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64.
+
+The worker gate builds its source distribution and wheel, checks metadata,
+license and typing files, and tests the installed helper outside the checkout,
+including coexistence with the installed client. It reuses the client's
+hash-reviewed build/runtime wheelhouse for those checks; client dependencies do
+not become worker dependencies. The same CI interpreter/platform matrix runs
+this gate. The registry qualification workflow retains the worker package as a
+separate artifact, and its source gate checks version alignment with the client
+and Rust workspace. These checks do not publish `ledgence-worker` to PyPI.
 
 The Rust gate selects only the two API crates and uses Cargo's multi-package
 archive verification. Cargo supplies a temporary registry for unpublished
