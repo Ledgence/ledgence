@@ -33,7 +33,7 @@ Keep provider/model identity, messages, settings, tool definitions and effective
 
 ## Resume a bounded loop
 
-The [runnable example](https://github.com/Ledgence/ledgence/blob/v0.4.0/examples/agent-recovery/README.md) uses a scripted model and order service, so no credentials or network access are needed. It records a model response and a tool response, then checkpoints the transcript:
+The [runnable example](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/examples/agent-recovery/README.md) uses a scripted model and order service, so no credentials or network access are needed. It records a model response and a tool response, then checkpoints the transcript:
 
 ```python
 return ctx.continue_(

@@ -143,4 +143,4 @@ The 60-second timeout limits how long the client observes the result. It does no
 
 You have now followed a complete checkpoint: local results, a distributed child, a saved continuation, and a final output. Read [Checkpoints and recovery](/concepts/checkpoints-and-recovery) to see what happens when an activation stops unexpectedly.
 
-**Source:** [Controller and summary example](https://github.com/Ledgence/ledgence/tree/v0.4.0/examples/checkpoint-workflow) · [Python client](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python-client/README.md)
+**Source:** [Controller and summary example](https://github.com/Ledgence/ledgence/tree/v0.4.0/examples/checkpoint-workflow) · [Python client](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/sdk/python-client/README.md)

@@ -115,6 +115,6 @@ source Compose deployment. Before adopting retained data with a different
 source version, follow its upgrade guide and validate a database and
 program-store backup.
 
-The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/local-deployment.md) covers its lifecycle and deployment options.
+The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/local-deployment.md) covers its lifecycle and deployment options.
 
 **Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/local/compose.yaml) · [Example assertions](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/local/demo.py)

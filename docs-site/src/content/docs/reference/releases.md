@@ -110,4 +110,4 @@ and the [capability map](/reference/capabilities) for their setup and limits.
 
 Ledgence-owned code is MIT licensed and supports self-hosting without a mandatory vendor account. Applications can remain proprietary; third-party components retain their licenses and notices.
 
-**Source:** [0.4.0 release notes](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/releases/0.4.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/registry-packages.md)
+**Source:** [0.4.0 release notes](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/releases/0.4.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/registry-packages.md)

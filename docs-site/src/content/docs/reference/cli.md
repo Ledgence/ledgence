@@ -175,7 +175,7 @@ Use `task list` to discover work, `task status` for scheduling metadata,
 `task result` for the authoritative logical outcome, and `task inspect`,
 `task attempt`, and `task history` for diagnostics. `task cancel` requests
 cancellation. See the [HTTP quickstart](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/http-orchestration.md#run-a-task) for
-complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/task-results.md) for outcome
+complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/task-results.md) for outcome
 semantics.
 
 ```sh

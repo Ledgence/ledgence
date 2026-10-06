@@ -58,7 +58,7 @@ Use `--delivery-config` on both `ledgence orchestrator serve` and
 `ledgence worker connect`. The
 [dispatch configuration guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/dispatch-delivery.md)
 shows routing for an already-created broker and queue. To start those locally,
-use the source stack's [ElasticMQ Compose override](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/local-deployment.md#elasticmq-instead-of-integrated-acquisition).
+use the source stack's [ElasticMQ Compose override](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/local-deployment.md#elasticmq-instead-of-integrated-acquisition).
 A physical Standard queue must be dedicated to
 one logical route; Ledgence validates its required capabilities at startup.
 

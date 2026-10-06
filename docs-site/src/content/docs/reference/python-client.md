@@ -141,13 +141,13 @@ For submission, `SubmissionUncertain.submission` preserves the frozen task or wo
 
 Prepare and persist commands before awaiting if they must survive caller cancellation. `asyncio.CancelledError` remains cancellation of the caller; it does not prove the server rejected the mutation.
 
-Saved `to_dict()` values contain the wire command, not the base URL. Keep the original endpoint and scope with your application record. On restart, reconnect there and reconstruct the original preparation arguments; the [complete client contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python-client/README.md) documents each mutation's reconstruction path. Preserve any original trace context or its explicit absence when reconstructing a submission.
+Saved `to_dict()` values contain the wire command, not the base URL. Keep the original endpoint and scope with your application record. On restart, reconnect there and reconstruct the original preparation arguments; the [complete client contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/sdk/python-client/README.md) documents each mutation's reconstruction path. Preserve any original trace context or its explicit absence when reconstructing a submission.
 
 ## Completion notifications
 
 Both task and workflow handles expose `prepare_subscribe(destination=..., idempotency_key=...)` and `await subscribe(...)`. The destination is an operator-configured alias. Registration is separate from submission; its guarantee starts after acceptance.
 
-Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. `await subscription.status()` observes delivery; after `exhausted`, `subscription.prepare_retry(expected_generation=status.generation)` prepares an explicit new delivery generation for `await subscription.retry(command)`. This retries the notification, not the task or workflow. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python-client/README.md#durable-completion-subscriptions) for status fields and uncertainty handling.
+Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. `await subscription.status()` observes delivery; after `exhausted`, `subscription.prepare_retry(expected_generation=status.generation)` prepares an explicit new delivery generation for `await subscription.retry(command)`. This retries the notification, not the task or workflow. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/sdk/python-client/README.md#durable-completion-subscriptions) for status fields and uncertainty handling.
 
 ## Durable approval decisions
 
@@ -155,6 +155,6 @@ Save the returned subscription ID and reconnect with `client.completions.handle(
 
 Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="approve", reviewer=...)` to freeze the decision, and save `command.to_dict()` before `await workflow.decide_approval(command)`. Use `"reject"` for rejection. `ApprovalDecisionUncertain` retains the same command for explicit reconciliation; the client does not automatically resend it. Restore a saved command with `workflow.restore_approval_decision(saved_dict)` after restarting the client. Identical decisions return the original receipt; changed bindings conflict.
 
-A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python-client/README.md#workflow-approvals).
+A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/sdk/python-client/README.md#workflow-approvals).
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.4.0/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.4.0/sdk/python-client/src/ledgence/client)

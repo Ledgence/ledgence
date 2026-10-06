@@ -75,4 +75,4 @@ or retained example data only through an explicit backup, restoration, and
 compatibility plan. See [local configuration and data
 preservation](/how-to/run-local-distribution#preserve-configuration-and-data).
 
-**Source:** [0.4.0 release notes](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/releases/0.4.0.md) · [Container distribution contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/container-distribution.md)
+**Source:** [0.4.0 release notes](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/releases/0.4.0.md) · [Container distribution contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/container-distribution.md)
