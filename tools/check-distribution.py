@@ -76,7 +76,42 @@ class Acceptance:
         with urllib.request.urlopen((base or self.base) + path, timeout=10) as response:
             return json.load(response)
 
-    def console(self, expected_programs, *, base=None):
+    def workers(self, *, base=None):
+        """Read every persisted session, including earlier boots and unreported workers."""
+        workers, cursors = [], set()
+        path = '/v1/console/workers'
+        while True:
+            page = self.api(path, base=base)
+            workers.extend(page['items'])
+            cursor = page['next_cursor']
+            if cursor is None:
+                return workers
+            assert cursor not in cursors, 'worker listing repeated a cursor'
+            cursors.add(cursor)
+            path = '/v1/console/workers?' + urllib.parse.urlencode({'cursor': cursor})
+
+    def worker_session_ids(self, *, base=None):
+        return {worker['worker_session_id'] for worker in self.workers(base=base)}
+
+    def wait_for_worker(self, *, base=None, excluded_sessions=(), timeout=30):
+        excluded_sessions = set(excluded_sessions)
+        deadline = time.monotonic() + timeout
+        while True:
+            active = [worker for worker in self.workers(base=base)
+                      if worker['freshness'] == 'fresh' and worker['accepting']
+                      and not worker['session_expired']
+                      and worker['worker_session_id'] not in excluded_sessions]
+            if active:
+                # Session IDs define list order, not recency. Every candidate
+                # must satisfy readiness independently of its position.
+                return min(active, key=lambda worker: worker['worker_session_id'])
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                expected = ' with a new session' if excluded_sessions else ''
+                raise AssertionError('no fresh accepting worker' + expected)
+            time.sleep(min(.2, remaining))
+
+    def console(self, expected_programs, *, base=None, excluded_sessions=()):
         base = base or self.base
         config = self.api('/v1/console/config', base=base)
         assert config['instance_id'] == 'ledgence-local' and 'scope' not in config
@@ -92,16 +127,7 @@ class Acceptance:
             assert response.status == 200 and response.read()
         catalog = self.api('/v1/console/programs', base=base)['items']
         assert {item['program_id'] for item in catalog} == set(expected_programs)
-        deadline = time.monotonic() + 30
-        while True:
-            workers = self.api('/v1/console/workers', base=base)['items']
-            active = [worker for worker in workers if worker['freshness'] == 'fresh' and worker['accepting']]
-            if active:
-                break
-            if time.monotonic() >= deadline:
-                raise AssertionError('no fresh accepting worker')
-            time.sleep(.2)
-        worker = active[-1]
+        worker = self.wait_for_worker(base=base, excluded_sessions=excluded_sessions)
         details = self.api('/v1/console/workers/inspect?' + urllib.parse.urlencode(
             {'worker_session_id': worker['worker_session_id']}), base=base)
         assert details['worker']['capacity'] == 1 and len(details['slots']['items']) == 1
@@ -159,19 +185,23 @@ class Acceptance:
         self.report['fresh_base'] = initial
         # This also proves that the base installation needs neither examples nor
         # the callback receiver, before explicitly selecting the optional kit.
+        base_sessions = self.worker_session_ids()
         self.run(self.compose + ['down', '--timeout', '65'])
         self.run(self.examples + ['up', '--no-build', '--detach', '--wait', '--wait-timeout', '120'])
         self.run(self.examples + ['run', '--rm', '--no-deps', 'publish'])
         self.run(self.examples + ['run', '--rm', '--no-deps', 'publish'])
         expected = ['invoice-issuer', 'workflow-example', 'workflow-summary']
-        before_console = self.console(expected)
+        before_console = self.console(expected, excluded_sessions=base_sessions)
         demo = json.loads(self.run(self.examples + ['run', '--rm', '--no-deps', 'demo'], timeout=330))
         assert demo['passed'] is True
         before = self.preserved(demo)
+        # Last-known accepting observations can remain fresh after process exit.
+        # Exclude every session seen before restart, not just the selected worker.
+        before_sessions = self.worker_session_ids()
         self.run(self.examples + ['down', '--timeout', '65'])
         self.run(self.examples + ['up', '--no-build', '--detach', '--wait', '--wait-timeout', '120'])
         assert self.preserved(demo) == before
-        after_console = self.console(expected)
+        after_console = self.console(expected, excluded_sessions=before_sessions)
         assert after_console['catalog'] == before_console['catalog']
         assert after_console['worker_session_id'] != before_console['worker_session_id']
         after = json.loads(self.run(self.examples + ['run', '--rm', '--no-deps', 'demo'], timeout=330))
@@ -214,9 +244,10 @@ class Acceptance:
         self.run(command + ['up', '--directory', str(state_dir)], timeout=330)
         self.run(command + ['status', '--directory', str(state_dir)])
         self.run(command + ['logs', '--directory', str(state_dir), '--tail', '10'])
+        before_sessions = self.worker_session_ids(base='http://127.0.0.1:' + str(port))
         self.run(command + ['down', '--directory', str(state_dir)])
         self.run(command + ['up', '--directory', str(state_dir)], timeout=330)
-        second = self.console([], base='http://127.0.0.1:' + str(port))
+        second = self.console([], base='http://127.0.0.1:' + str(port), excluded_sessions=before_sessions)
         assert path.read_bytes() == original
         assert second['worker_session_id'] != first['worker_session_id']
         self.run(command + ['down', '--directory', str(state_dir)])
