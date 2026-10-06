@@ -226,6 +226,75 @@ class PromotionTests(unittest.TestCase):
             self.run_promotion(version="0.2.0")
         self.assertFalse(self.output.exists())
 
+    def prepare_package_versions(self, version, *, client_version=None, worker_version=None):
+        """Create another committed candidate source, retaining synthetic payload bytes."""
+        (self.repository / "Cargo.toml").write_text(f'[workspace.package]\nversion = "{version}"\n')
+        (self.repository / "sdk/python-client/pyproject.toml").write_text(
+            f'[project]\nversion = "{client_version or version}"\n')
+        if worker_version is not None:
+            worker = self.repository / "sdk/python/pyproject.toml"
+            worker.parent.mkdir(parents=True, exist_ok=True)
+            worker.write_text(f'[project]\nversion = "{worker_version}"\n')
+        self.git("add", ".")
+        self.git("commit", "--allow-empty", "-qm", "package version fixture")
+        self.source = self.git("rev-parse", "HEAD")
+        self.epoch = int(self.git("show", "-s", "--format=%ct"))
+        self.label = f"ledgence-{version}-rc.7+g{self.source[:12]}-fixture-target"
+        destination = self.root / self.label
+        self.stage.rename(destination)
+        self.stage = destination
+        provenance = json.loads(self.provenance_bytes)
+        provenance.update(candidate=self.label, source_commit=self.source,
+                          source_date_epoch=self.epoch, package_version=version)
+        self.provenance_bytes = (json.dumps(provenance, indent=2) + "\n").encode()
+        (self.stage / "provenance.json").write_bytes(self.provenance_bytes)
+        self.manifest()
+        self.archive = self.root / (self.label + ".tar.gz")
+        self.rearchive()
+
+    def test_new_release_accepts_matching_worker_manifest_without_worker_wheel(self):
+        self.prepare_package_versions("0.4.1", worker_version="0.4.1")
+        result = self.run_promotion(version="0.4.1")
+        stable = extract_archive(Path(result["archive"]), self.root / "result")
+        for name, content in self.payload.items():
+            self.assertEqual((stable / name).read_bytes(), content, name)
+        self.assertEqual(list(stable.rglob("ledgence_worker-*.whl")), [])
+
+    def test_previous_release_without_worker_manifest_remains_promotable(self):
+        self.prepare_package_versions("0.4.0")
+        result = self.run_promotion(version="0.4.0")
+        stable = extract_archive(Path(result["archive"]), self.root / "result")
+        self.assertEqual((stable / "candidate-provenance.json").read_bytes(), self.provenance_bytes)
+        for name, content in self.payload.items():
+            self.assertEqual((stable / name).read_bytes(), content, name)
+
+    def test_promotion_rejects_new_release_without_worker_manifest(self):
+        self.prepare_package_versions("0.4.1")
+        with self.assertRaisesRegex(ValueError, "required ledgence-worker package manifest"):
+            self.run_promotion(version="0.4.1")
+        self.assertFalse(self.output.exists())
+        self.verifier.assert_not_called()
+
+    def test_promotion_rejects_client_version_different_from_rust(self):
+        self.prepare_package_versions("0.4.1", client_version="0.4.0", worker_version="0.4.1")
+        with self.assertRaisesRegex(ValueError, "original Rust and ledgence-client"):
+            self.run_promotion(version="0.4.1")
+        self.assertFalse(self.output.exists())
+        self.verifier.assert_not_called()
+
+    def test_promotion_rejects_worker_version_different_from_rust(self):
+        self.prepare_package_versions("0.4.1", worker_version="0.4.0")
+        with self.assertRaisesRegex(ValueError, "original ledgence-worker package version"):
+            self.run_promotion(version="0.4.1")
+        self.assertFalse(self.output.exists())
+        self.verifier.assert_not_called()
+
+    def test_older_candidate_still_checks_worker_version_when_present(self):
+        self.prepare_package_versions("0.1.0", worker_version="0.4.1")
+        with self.assertRaisesRegex(ValueError, "original ledgence-worker package version"):
+            self.run_promotion()
+        self.assertFalse(self.output.exists())
+
     def test_rejects_header_modes_that_extraction_would_normalize(self):
         with tarfile.open(self.archive, "r:gz") as archive:
             entries = [(entry, archive.extractfile(entry).read() if entry.isfile() else None)

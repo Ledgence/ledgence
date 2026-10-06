@@ -9,10 +9,11 @@ writing programs. The helper uses only the Python standard library. The separate
 [`ledgence-client`](/reference/python-client) submits and observes executions.
 
 **Development source only:** local packaging is available in updated `develop`
-source as version **0.4.0**. `ledgence-worker` has not been published to PyPI, and
+source as version **0.4.1**. `ledgence-worker` has not been published to PyPI, and
 the existing `v0.4.0` source tag has no `sdk/python/pyproject.toml`. Use a checkout
-containing that file; the native 0.4.0 worker already supplies the corresponding
-helper APIs at execution. Do not install this package by name from an index yet.
+containing that file. Version 0.4.1 is being prepared for release; 0.4.0 remains
+the current published platform release. Do not install this package by name
+from an index yet.
 
 ## Add the helper to your project
 

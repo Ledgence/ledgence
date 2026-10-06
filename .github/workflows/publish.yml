@@ -22,6 +22,7 @@ on:
       - 'tools/test_python_worker_package.py'
       - 'tools/release/registry.py'
       - 'tools/release/test_registry.py'
+      - 'tools/release/test_registry_workflow.py'
       - 'tools/check-rust-packages.py'
       - 'tools/test_rust_packages.py'
   workflow_dispatch:
@@ -120,14 +121,14 @@ jobs:
             --wheelhouse "$RUNNER_TEMP/python-wheelhouse" --offline \
             --dist-dir "$RUNNER_TEMP/python-worker-package/dist" \
             --evidence "$RUNNER_TEMP/python-worker-package/evidence.json"
-      - name: Retain qualified worker development distributions
+      - name: Retain exact tested worker distributions
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: python-worker-package
           path: ${{ runner.temp }}/python-worker-package/
           if-no-files-found: error
           retention-days: 30
-      - name: Retain exact tested Python distributions
+      - name: Retain exact tested client distributions
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: python-registry-package
@@ -185,15 +186,27 @@ jobs:
         with:
           name: python-registry-package
           path: ${{ runner.temp }}/python-package
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: python-worker-package
+          path: ${{ runner.temp }}/python-worker-package
+      - name: Collect both qualified projects with exact artifact inventories
+        env:
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          python tools/release/registry.py collect-pypi --version "$VERSION" \
+            --client-dist "$RUNNER_TEMP/python-package/dist" \
+            --worker-dist "$RUNNER_TEMP/python-worker-package/dist" \
+            --output "$RUNNER_TEMP/qualified-python"
       - name: Reconcile any files from an interrupted publication
         id: pending
         env:
           VERSION: ${{ needs.source.outputs.version }}
         run: |
           python tools/release/registry.py prepare --kind pypi --version "$VERSION" \
-            --dist "$RUNNER_TEMP/python-package/dist" \
+            --dist "$RUNNER_TEMP/qualified-python" \
             --output "$GITHUB_WORKSPACE/registry-upload" --github-output "$GITHUB_OUTPUT"
-      - name: Publish the remaining qualified wheel and sdist
+      - name: Publish the remaining qualified client and worker distributions
         if: steps.pending.outputs.upload == 'true'
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -205,8 +218,9 @@ jobs:
           VERSION: ${{ needs.source.outputs.version }}
         run: |
           python tools/release/registry.py verify --kind pypi --version "$VERSION" \
-            --dist "$RUNNER_TEMP/python-package/dist"
-          python tools/release/registry.py install --kind pypi --version "$VERSION"
+            --dist "$RUNNER_TEMP/qualified-python"
+          python tools/release/registry.py install --kind pypi --version "$VERSION" \
+            --dist "$RUNNER_TEMP/qualified-python"
 
   crates:
     name: Publish and verify crates.io installation

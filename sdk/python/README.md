@@ -12,11 +12,22 @@ package. No agent framework or model provider is required.
 
 ## Install for local development
 
-**Development source only:** this checkout packages the helper as
-`ledgence-worker` version **0.4.0**, requiring Python 3.11+. It has not been
-published to PyPI. The existing `v0.4.0` source tag does not contain this package's
-`pyproject.toml`; use an updated `develop` checkout that does. Installing
-`ledgence-worker` by name from an index is not an available installation route.
+This package provides `ledgence-worker` version **0.4.1**, requiring Python
+3.11+. For a version published on PyPI, install the version matching your worker
+in your application's existing uv project as a development dependency:
+
+```sh
+uv add --dev "ledgence-worker==0.4.1"
+```
+
+For pip, use `python -m pip install "ledgence-worker==0.4.1"` in the application's
+activated virtual environment. Check
+[registry availability](https://pypi.org/project/ledgence-worker/0.4.1/) before
+using these commands. For an unreleased checkout, use the local source
+installation below. The historical `v0.4.0` source tag does not contain this
+package's `pyproject.toml`.
+
+### Install from source
 
 From your application's existing uv project, add the local package as a normal
 development dependency, substituting your Ledgence checkout's absolute path:

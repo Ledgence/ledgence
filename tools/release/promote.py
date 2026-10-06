@@ -66,7 +66,16 @@ def candidate_identity(directory, repository, version):
     rust = tomllib.loads(git(repository, "show", source + ":Cargo.toml"))
     client = tomllib.loads(git(repository, "show", source + ":sdk/python-client/pyproject.toml"))
     if rust["workspace"]["package"]["version"] != version or client["project"]["version"] != version:
-        raise ValueError("stable version must match both original package versions")
+        raise ValueError("stable version must match original Rust and ledgence-client package versions")
+    worker_path = "sdk/python/pyproject.toml"
+    if git(repository, "ls-tree", "--name-only", source, "--", worker_path):
+        worker = tomllib.loads(git(repository, "show", source + ":" + worker_path))
+        if worker["project"]["version"] != version:
+            raise ValueError("stable version must match the original ledgence-worker package version")
+    elif tuple(map(int, version.split("."))) >= (0, 4, 1):
+        # Older candidates predate the separately installable worker helper.
+        # Their payload and provenance formats remain valid without its manifest.
+        raise ValueError("candidate source lacks the required ledgence-worker package manifest")
     lock = subprocess.check_output(["git", "show", source + ":Cargo.lock"], cwd=repository)
     if (hashlib.sha256(lock).hexdigest() != provenance.get("cargo_lock_sha256")
             or (directory / "Cargo.lock").read_bytes() != lock):
@@ -173,7 +182,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path, help="NEW output directory outside the checkouts")
     parser.add_argument("--repository", type=Path, default=ROOT, help="clean local checkout at the selected release commit")
     parser.add_argument("--release-ref", required=True, help="existing local ref or commit identifying that checkout's HEAD")
-    parser.add_argument("--version", required=True, help="stable version already embedded in both original packages")
+    parser.add_argument("--version", required=True, help="stable version matching the original Rust and Python package versions")
     parser.add_argument("--python", default=sys.executable, help="compatible host CPython for relocated execution")
     args = parser.parse_args()
     try:

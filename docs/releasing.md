@@ -17,6 +17,13 @@ bundle, package, checksum, installer and kit has passed its download checks.
 See [CI qualification](ci.md) for the independent source and delivery suites,
 artifact reuse, timing evidence and exact-commit requirements.
 
+The next planned release is **0.4.1**, including the first public
+`ledgence-worker` authoring package. Until its artifacts pass publication and
+download verification, **0.4.0 remains the current public release**. Keep the
+documentation site's release metadata and worker-package availability at their
+verified values during preparation. A source version bump or successful local
+build does not establish registry, native-bundle, image or website availability.
+
 ## Build and inspect
 
 Use the repository-pinned Rust toolchain, a supported host CPython 3.11–3.14,
@@ -76,7 +83,7 @@ own documentation. The [CLI migration guide](cli.md) maps the command prefixes.
 
 The archive contains:
 
-- `bin/ledgence`, the unified CLI for program, worker, orchestrator, task, approval and MCP commands;
+- `bin/ledgence`, the unified CLI for program, worker, orchestrator, task, approval, MCP and local-stack commands;
 - `console/` containing verified static assets, manifest and retained notices (unless explicitly headless);
 - `runtime/ledgence/worker/`, preserving the native Python namespace;
 - `python-client/` with the tested wheel and source distribution;
@@ -108,7 +115,7 @@ implementation details by themselves.
 
 Run and preserve the repository quality gates for the exact candidate source:
 formatting, crate boundaries, warnings, Rust unit/doc tests, feature isolation,
-Python helper and installed-client gates, current dependency policy, real
+Python helper, installed-client and installed-worker-package gates, current dependency policy, real
 PostgreSQL/HTTP/workflow/completion acceptance, both queue modes, deployment
 restart qualification and representative load/soak scenarios. Packaging evidence
 covers only the gates the packaging tool actually executes; it is not a
@@ -130,8 +137,24 @@ Check that:
 Only an explicitly selected, validated candidate should later be promoted to a
 stable version. The bundle tooling does not publish or promote `main`. Registry
 packages use the separate gated [registry release workflow](registry-packages.md).
+For 0.4.1, that workflow qualifies and publishes both `ledgence-client` and
+`ledgence-worker` under the `pypi` environment, then checks their downloaded bytes
+and fresh registry installation together. Configure the worker project's first
+pending trusted publisher before dispatch; its exact identity is documented in
+the registry guide. The standalone worker wheel remains separate from the native
+bundle's dedicated `runtime/ledgence/worker/` helper; publishing an authoring
+package does not replace that runtime layout.
 Required legal notices do not require users to open-source their applications. See [dependency policy](dependencies.md) and
 [local image distribution boundaries](local-deployment.md#qualification-and-distribution-boundary).
+
+After all 0.4.1 distribution channels are verified, update the public installation
+commands, package matrix and current-release descriptions together. Promote
+`pythonWorkerPackage` in `docs-site/source-features.json` to released availability
+with the verified source tag and actual verification date, and update
+`docs-site/release.json` only to artifacts that really exist. Preserve historical
+release notes and version-pinned example corpora. Run documentation tests and the
+full build before deploying the site, and report GitHub publication and website
+deployment as separate outcomes.
 
 ## Prepare a stable bundle offline
 
@@ -139,7 +162,7 @@ After selecting a candidate whose required qualification gates have passed, use
 `tools/release/promote.py` to prepare a stable archive from its exact bytes. This
 operation does not rebuild binaries or Python distributions, change Git, create a
 tag, access a registry, or publish anything. The version must already match the
-Rust workspace and Python client versions in the candidate's original source.
+Rust workspace and both Python distribution versions in the candidate's original source.
 
 Provide a clean local release checkout and an explicit existing ref identifying
 its HEAD. The release commit must contain the candidate build commit and have the
@@ -153,7 +176,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.3.1 --output /tmp/ledgence-stable
+  --version 0.4.1 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -180,10 +203,10 @@ and requires the selected archive's expected SHA256. Dispatch it on the matching
 annotated release tag after that commit is included in `main`:
 
 ```sh
-gh workflow run promote-bundle.yml --ref v0.3.1 \
+gh workflow run promote-bundle.yml --ref v0.4.1 \
   -f candidate_run=RUN_ID \
   -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
-  -f version=0.3.1
+  -f version=0.4.1
 ```
 
 It checks the clean tag identity and source-equivalent candidate, promotes the

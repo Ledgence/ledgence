@@ -51,6 +51,44 @@ class RegistryWorkflowTests(unittest.TestCase):
         self.assertIn("group: registry-packages-${{ github.event_name }}-${{ github.ref }}", concurrency)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'push' }}", concurrency)
 
+    def test_pypi_collects_both_exact_qualified_projects_before_upload(self):
+        qualification, publisher = self.jobs["python-package"], self.jobs["pypi"]
+        for artifact in ("python-registry-package", "python-worker-package"):
+            with self.subTest(artifact=artifact):
+                self.assertIn(f"name: {artifact}\n", qualification)
+                self.assertIn(f"name: {artifact}\n", publisher)
+        self.assertIn("python tools/check-python-client.py", qualification)
+        self.assertIn("python tools/check-python-worker.py", qualification)
+        collect = publisher.index("registry.py collect-pypi")
+        prepare = publisher.index("registry.py prepare --kind pypi")
+        upload = publisher.index("uses: pypa/gh-action-pypi-publish@")
+        verify = publisher.index("registry.py verify --kind pypi")
+        install = publisher.index("registry.py install --kind pypi")
+        self.assertLess(publisher.index("name: python-registry-package\n"), collect)
+        self.assertLess(publisher.index("name: python-worker-package\n"), collect)
+        self.assertLess(collect, prepare)
+        self.assertLess(prepare, upload)
+        self.assertLess(upload, verify)
+        self.assertLess(verify, install)
+        self.assertIn('--client-dist "$RUNNER_TEMP/python-package/dist"', publisher[collect:prepare])
+        self.assertIn('--worker-dist "$RUNNER_TEMP/python-worker-package/dist"', publisher[collect:prepare])
+        self.assertEqual(publisher.count('--dist "$RUNNER_TEMP/qualified-python"'), 3)
+        self.assertIn("packages-dir: registry-upload/", publisher)
+        self.assertIn("skip-existing: false", publisher)
+        self.assertIn("attestations: true", publisher)
+        self.assertIn("if: steps.pending.outputs.upload == 'true'", publisher)
+
+    def test_oidc_permissions_remain_confined_to_controlled_publishers(self):
+        for name, job in self.jobs.items():
+            with self.subTest(job=name):
+                if name in ("pypi", "crates"):
+                    self.assertIn("id-token: write", job)
+                else:
+                    self.assertNotIn("id-token: write", job)
+        self.assertIn("name: pypi\n", self.jobs["pypi"])
+        self.assertNotIn("password:", self.jobs["pypi"])
+        self.assertNotIn("secrets.", self.jobs["pypi"])
+
 
 if __name__ == "__main__":
     unittest.main()
