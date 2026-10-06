@@ -29,9 +29,12 @@ export default defineConfig({
         { label: 'Build a tested change with Codex', slug: 'tutorials/codex-change-review' },
       ] },
       { label: 'How-to guides', items: [
+        { label: 'Install the CLI', slug: 'how-to/install-native' },
+        { label: 'Manage the local distribution', slug: 'how-to/run-local-distribution' },
         { label: 'Register an agent', slug: 'how-to/register-agent' },
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },
-        { label: 'Install the native release', slug: 'how-to/install-native' },
+        { label: 'Receive execution results', slug: 'how-to/receive-results' },
+        { label: 'Configure observability', slug: 'how-to/configure-observability' },
         { label: 'Upgrade to 0.3.1', slug: 'how-to/upgrade-to-0-3' },
         { label: 'Upgrade to 0.2.0', slug: 'how-to/upgrade-to-0-2' },
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
@@ -41,6 +44,7 @@ export default defineConfig({
         { label: 'Recover model and tool calls', slug: 'how-to/recover-agent-calls' },
       ] },
       { label: 'Reference', items: [
+        { label: 'Capabilities & availability', slug: 'reference/capabilities' },
         { label: 'Command-line interface', slug: 'reference/cli' },
         { label: 'Console', slug: 'reference/console' },
         { label: 'Workflow context', slug: 'reference/workflow-context' },
@@ -50,6 +54,7 @@ export default defineConfig({
       { label: 'Concepts', items: [
         { label: 'One self-hosted instance', slug: 'concepts/self-hosted-console' },
         { label: 'Execution model', slug: 'concepts/execution-model' },
+        { label: 'Queue delivery', slug: 'concepts/queue-delivery' },
         { label: 'Checkpoints & recovery', slug: 'concepts/checkpoints-and-recovery' },
       ] },
     ],

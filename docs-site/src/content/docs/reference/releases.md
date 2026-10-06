@@ -17,6 +17,25 @@ Ledgence 0.3.1 adds durable human approvals, recovery for model and tool calls, 
 
 The Linux native target is `x86_64-unknown-linux-gnu`, built and qualified on Ubuntu 24.04. The macOS target is `aarch64-apple-darwin`. Archive provenance records actual dynamic-library requirements; Linux qualification is not a claim of compatibility with every distribution. The source-based [Compose tutorial](/tutorials/run-locally) builds its own Linux container image and does not require a published Ledgence container image.
 
+## Development installation features
+
+The `develop` branch adds a [one-line installer](/how-to/install-native#next-release-one-line-installation)
+with persistent shell setup, discovery of installed runtime/Console resources,
+and the `ledgence local up`, `status`, `logs` and `down` commands. These use a
+matching distribution kit pinned to qualified container image digests.
+
+They are **not present in the published 0.3.1 bundles**. The 0.3.1 release asset
+list has two native archives and `SHA256SUMS`; it does not include `install.sh`
+or a local kit. Installing 0.3.1 with a development copy of the installer does
+not change the executable's capabilities. Package version output alone cannot
+distinguish source additions while development still carries the same version.
+
+Follow the [local distribution guide](/how-to/run-local-distribution) for the
+development path. Availability changes only after the matching installer, native
+bundles, local kit and public container images complete release qualification.
+The [capability map](/reference/capabilities) separates release features from
+development features without assigning an unpublished version number.
+
 ## Unified CLI
 
 The native bundle contains one executable, `bin/ledgence`, with `program`, `worker`, `orchestrator`, `task`, `approval`, and `mcp` command groups. Inspect it with `ledgence --help` and `ledgence --version`. Worker and orchestrator still run as separate processes. Build from source with `cargo build --locked -p ledgence-cli`; see the [CLI reference and migration table](/reference/cli).
@@ -70,6 +89,12 @@ The `ledgence.worker` import namespace was already present in 0.1.1. The move fr
 ## Operating scope
 
 CPython, PostgreSQL, brokers, and host libraries are supplied separately. Ledgence executes operator-trusted code; reusable subprocesses do not isolate hostile programs. Checkpoints and retries do not provide exactly-once external effects. Preserve tested backups before upgrading a durable deployment.
+
+Optional HTTP completion notifications, integrated or SQS-compatible queue
+delivery, OTLP tracing/metrics, execution retention and task discovery are also
+part of 0.3.1. See [results and callbacks](/how-to/receive-results),
+[queue delivery](/concepts/queue-delivery), [observability](/how-to/configure-observability)
+and the [capability map](/reference/capabilities) for their setup and limits.
 
 Ledgence-owned code is MIT licensed and supports self-hosting without a mandatory vendor account. Applications can remain proprietary; third-party components retain their licenses and notices.
 

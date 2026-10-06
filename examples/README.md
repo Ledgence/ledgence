@@ -31,6 +31,12 @@ examples research bundled Ledgence documentation, draft a reply, and wait for a
 person to approve or reject that draft. The support examples do not send an
 email or external reply.
 
+These change-review and support examples use application-validated
+`wait_event` decisions. Their waits are not entries in Console's **Approvals**
+view. For persisted effective-action requests and the dedicated decision API,
+use [Durable action approval](durable-approval/README.md) or
+[Fulfillment investigator](fulfillment-investigator/README.md).
+
 | Example | Integration | Setup |
 | --- | --- | --- |
 | [Agent call recovery](agent-recovery/README.md) | Per-model and per-tool durable calls, explicit turn checkpoints, and recovery after a lost acknowledgment. Uses a scripted model and order service to isolate durability. | 0.3.1 source and CPython 3.11+ for the offline check; PostgreSQL and a worker for process recovery tests. No provider credentials. |

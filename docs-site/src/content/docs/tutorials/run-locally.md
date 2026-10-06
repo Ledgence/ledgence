@@ -5,6 +5,11 @@ description: Start a local stack, publish its example agents, and observe real t
 
 Run a complete Ledgence 0.3.1 stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator serving Console, a worker, and a small callback receiver.
 
+This is the released source-build route. The new `ledgence local` commands use
+a prepared image distribution and are available on `develop`, with a matching
+qualified kit. See [Run the local image distribution](/how-to/run-local-distribution)
+for that path; the published 0.3.1 executable does not contain those commands.
+
 This tutorial uses the `v0.3.1` source release. Its invoice and summary programs use application version `1.0.0`; its typed workflow controller uses `1.0.1`. Use a fresh deployment, or follow [Upgrade to 0.3.1](/how-to/upgrade-to-0-3) before adopting existing data.
 
 Allow extra time for the first image build. You do not need a hosted account, Rust, or Python installed on your computer for this tutorial.
@@ -94,16 +99,6 @@ docker compose -f deploy/local/compose.yaml down --timeout 65
 
 This preserves the database, published packages, worker cache, and callback records in named volumes. Start them again with the same `up` command from step 2.
 
-## If the image build reports “Patches were modified”
-
-The `v0.2.0` Dockerfile can hit `ERR_PNPM_VERIFY_DEPS_BEFORE_RUN` when Docker reuses its dependency-install layer, then copies Console files with newer patch timestamps. Add this line in `deploy/local/Dockerfile`, immediately after `COPY LICENSE /src/LICENSE` in the `console-builder` stage:
-
-```dockerfile
-RUN pnpm install --offline --frozen-lockfile --ignore-scripts
-```
-
-This revalidates the copied files against the lockfile using packages already in the image. Keep the original install step and dependency verification enabled. Recompute the source metadata and rebuild from step 2; the edited checkout should now report `LEDGENCE_SOURCE_DIRTY=true`. No cache or volume deletion is needed.
-
 ## If the example does not finish
 
 Read the service logs:
@@ -113,6 +108,12 @@ docker compose -f deploy/local/compose.yaml logs --tail 100 orchestrator worker
 ```
 
 Confirm that the publication command completed and that no other application uses port 8080. To choose a different port, set `LEDGENCE_HTTP_PORT` before starting the stack and use that port for client connections.
+
+Use the same source checkout, Compose project name, file list and port setting
+when restarting this stack. A native CLI update does not rebuild or upgrade a
+source Compose deployment. Before adopting retained data with a different
+source version, follow its upgrade guide and validate a database and
+program-store backup.
 
 The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/v0.3.1/docs/local-deployment.md) covers its lifecycle and deployment options.
 

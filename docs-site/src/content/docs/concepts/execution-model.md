@@ -37,6 +37,7 @@ Each process handles one invocation at a time. Application code must finish its 
 | --- | --- | --- |
 | Ordinary function call | Current invocation | No separate durable result; it may repeat with the continuation. |
 | `ctx.local(...)` | Current controller process and package | An individually acknowledged local result within the activation. |
+| `ctx.operation(..., kind=..., version=..., arguments=...)` | Current controller process and package | An acknowledged model/tool result bound to its kind, version, callable, and effective arguments. |
 | `ctx.task(...)` | Independently scheduled task | A child task with its own attempts, lease, and outcome. |
 | `ctx.workflow(...)` | Independently scheduled owned workflow | A child workflow's checkpoints and terminal outcome. |
 | `await ctx.fork(..., branches=[ctx.branch(...)])` | Independently scheduled workflows in the parent's exact package | Acknowledged branch registration, then each branch's own checkpoints and outcome. |
@@ -47,11 +48,15 @@ Distributed children are useful when work needs separate scheduling, a different
 
 Keep coordination in workflows. A task runs its handler again on retry; journaled local operations belong to the workflow controller that invoked them. A branch is a child workflow with its own identity, state, and entrypoint invocations.
 
+For an agent loop, put individual model and tool calls behind `ctx.operation`, then save the transcript and cursor in explicit checkpoints. Your application owns provider adapters, tool selection, validation, and loop budgets. Ledgence reuses accepted results when an activation retries; it does not require an agent framework. See [Recover model and tool calls](/how-to/recover-agent-calls).
+
 ## Workflows release capacity while waiting
 
 A workflow controller runs as a leased task. Its registered entrypoint handler performs local work, coordinates children, and returns a decision describing what should happen next.
 
-A checkpoint can wait for children, an external event, or a timer. Once that decision is accepted, the invocation has ended. The durable wait holds no coroutine, worker reservation, or database connection. A warm subprocess may remain in the ordinary reusable pool.
+A checkpoint can wait for children, an external event, a timer, or an action approval. Once that decision is accepted, the invocation has ended. The durable wait holds no coroutine, worker reservation, or database connection. A warm subprocess may remain in the ordinary reusable pool.
+
+[Durable approvals](/how-to/require-approval) save an immutable effective action and its arguments before review. An approved continuation executes that saved binding with `ctx.approved_local`; a generic event supplies application input and cannot grant the same authority.
 
 When the condition is satisfied, Ledgence schedules a new activation at the saved entrypoint with JSON state and selected outcomes. Each activation has its own identity; revisiting the same entrypoint in a loop creates another invocation. Retrying an activation keeps its logical identity and its accepted local results. Python stacks and local variables are not restored.
 

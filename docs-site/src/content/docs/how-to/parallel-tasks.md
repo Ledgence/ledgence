@@ -7,7 +7,7 @@ Use distributed child tasks when work should run as independently scheduled exec
 
 For concurrent I/O inside one controller invocation, use `ctx.gather` with `ctx.local` instead. The [execution model](/concepts/execution-model) explains the difference.
 
-For branches in the parent's exact package that can start while the parent continues local work, see [Mix local work and workflow branches](/how-to/fork-workflow-branches). That guide requires the 0.3.1 entrypoint and fork capabilities. The staged-task pattern below remains supported.
+For branches in the parent's exact package that can start while the parent continues local work, see [Mix local work and workflow branches](/how-to/fork-workflow-branches). Entrypoints and forks have been available since 0.2.0; that guide uses the current 0.3.1 release.
 
 ## Prerequisites
 

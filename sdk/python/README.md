@@ -1,5 +1,15 @@
 # Ledgence Python helper
 
+The Rust worker supplies `ledgence.worker` with its Python runner. It supports
+ordinary program handlers, invocation context and logs, and protocol 3 workflows
+with registered entrypoints, durable local results, tasks, subworkflows, forks,
+events, timers, and action approvals. The separately installed
+[`ledgence.client`](../python-client/README.md) submits and observes work.
+
+Use a runtime helper matching your worker. The helper is standard-library-only;
+application integrations and their prepared dependencies belong in the program
+package. No agent framework or model provider is required.
+
 ## Durable model and tool calls
 
 Protocol 3 workflows can give an application-owned model or tool call an explicit
@@ -97,6 +107,10 @@ change its private execution binding. Rejected and expired requests resume with
 their corresponding status; workflow cancellation closes the request without
 resuming its controller. See the runnable
 [durable approval example](../../examples/durable-approval/README.md).
+
+Execution also checks that signature binding introduces no new effective defaults.
+When constructing an `ApprovalAction` directly, include all effective arguments
+before review; `approved_local` will not add an omitted, unreviewed default.
 
 Approvals are for operator-trusted code. A Python callable remains responsible
 for its behavior and external authorization. Approval does not make an external
@@ -270,11 +284,63 @@ The reviewed test set is `opentelemetry-api==1.44.0`,
 packages into the temporary artifact to exercise the same isolated import path as
 real programs; nothing is installed at execution time.
 
+## Registered workflow entrypoints (protocol 3)
+
+Register ordinary Python handlers and export the built workflow as the package's
+handler, for example `program:handle`:
+
+```python
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow
+
+class Entry(StrEnum):
+    START = "start"
+    RESUME = "resume"
+
+workflow = Workflow(Entry)
+
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    return ctx.sleep("delay:0", 1000, continuation=Entry.RESUME,
+                     state={"saved": event["data"]})
+
+@workflow.entrypoint(Entry.RESUME)
+def resume(event, ctx):
+    return ctx.complete(ctx.state["saved"])
+
+handle = workflow.build()
+```
+
+`Workflow` accepts a nonempty `StrEnum` family without aliases. Register every
+member once and choose exactly one default. `build()` validates and freezes that
+registry and returns an async handler; individual entrypoints may be sync or
+async and receive `(event, ctx)`. Public submissions invoke the default. If the
+enum declares the wire value `"start"`, it must be the default.
+
+In a registered workflow, use members of that exact enum for branch and resume
+targets, including approval continuations. `ctx.entrypoint` exposes the selected
+member. No graph declaration or string-routing phase is required; Python code
+chooses the next decision and explicitly saves any state it needs later.
+
+For independent branches of this exact pinned package, `ctx.branch(key,
+entrypoint=..., queue=..., data=...)` builds an immutable specification without
+scheduling. `await ctx.fork(key, branches=[...])` durably registers those owned
+workflows and returns a `ForkRef` while the parent stays in its current activation.
+The parent can continue local work before returning
+`ctx.join(group, resume=..., state=...)` to wait for every branch's terminal
+outcome. Branch execution overlaps only when matching worker capacity is free.
+Fork keys are workflow-wide, branch keys share the child namespace, and exact
+retries reuse the original registration. See
+[entrypoints and forks](../../docs/workflow-entrypoints.md) for a complete example,
+reconciliation, and bounds.
+
 ## Explicit checkpoint workflows (protocol 3)
 
-Workflow programs use `from ledgence.worker.workflow import workflow_context` and
+Existing controllers can also use
+`from ledgence.worker.workflow import workflow_context` with string continuations and
 return `ctx.suspend(...)`, `ctx.continue_(...)`, `ctx.wait_event(...)`,
-`ctx.sleep(...)`, `ctx.complete(output)`, or `ctx.fail(kind, message)`. `ctx.continuation` starts as `"start"`; `ctx.state` is
+`ctx.sleep(...)`, `ctx.request_approval(...)`, `ctx.complete(output)`, or
+`ctx.fail(kind, message)`. `ctx.continuation` starts as `"start"`; `ctx.state` is
 explicit JSON state and `ctx.inputs` is the frozen batch of child outcomes.
 The complete CloudEvent, including user-owned `data`, remains the handler argument.
 
@@ -348,12 +414,12 @@ def handle(event):
     ctx = workflow_context()
     if ctx.continuation == "start":
         return ctx.wait_event(
-            "approval:1", continuation="approved", state={}, timeout_ms=60_000,
+            "callback:1", continuation="received", state={}, timeout_ms=60_000,
         )
     wake = ctx.wake
     if wake["kind"] == "event":
         return ctx.complete(wake["event"]["data"])
-    return ctx.fail("approval_timeout", "No approval arrived before the deadline")
+    return ctx.fail("callback_timeout", "No callback arrived before the deadline")
 ```
 
 `ctx.wake` is `None` initially and when no external wait resumed the activation.
@@ -363,6 +429,8 @@ An event wake is `{"kind": "event", "key": ..., "event": <full CloudEvent>,
 key/deadline fields. Returned wake/state/input values are independent JSON copies.
 `ctx.inputs` continues to contain only child outcomes. Event `data` and its original
 context envelope are preserved separately from the controller invocation event.
+Generic events provide application input; only `request_approval` and a durable
+review decision grant the action-bound authority used by `approved_local`.
 
 Return `ctx.sleep("retry:1", 5_000, continuation="retry", state={...})` to register
 a durable timer. Both helpers stage the existing child commands in the same
@@ -408,5 +476,5 @@ Unexpected controller exceptions are retryable activation runtime failures.
 `ctx.fail(...)` explicitly requests workflow failure. Ordinary task output is
 never interpreted as a workflow decision, even when it contains a `kind` field.
 
-See [`docs/workflows.md`](../../docs/workflows.md) for the supported first slice,
+See [`docs/workflows.md`](../../docs/workflows.md) for the workflow contract,
 checkpoint limits, cancellation, and recovery semantics.

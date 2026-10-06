@@ -155,7 +155,7 @@ if event.get("ldgcorrelationkeyencoding") == "percent":
 `data` is absent. Application output and failure details remain in the existing
 result API rather than being copied into each notification. Resolve
 `ldgresultref` against your configured Ledgence API endpoint, or use
-`client.tasks.handle(event["ldgtaskid"]).outcome()` / the equivalent workflow
+`await client.tasks.handle(event["ldgtaskid"]).outcome()` / the equivalent workflow
 handle. An API read can fail transiently even though the notification is valid;
 the receiver should retain and retry its own processing.
 
@@ -244,7 +244,7 @@ Each delivery creates a separate HTTP transport span linked to that context;
 transport trace headers never replace the persisted CloudEvent's context.
 Tracing remains optional and is not the durable delivery record.
 
-This milestone does not introduce a general event stream, subscription
+The completion API does not provide a general event stream, subscription
 cancellation/deletion, per-destination rate policies, signatures, arbitrary
 headers, or archival. [Retention maintenance](retention.md) now preserves active
 subscriptions, pending/retry work, and at least 90 days after the latest terminal

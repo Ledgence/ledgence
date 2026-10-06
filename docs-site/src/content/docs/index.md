@@ -23,6 +23,22 @@ tableOfContents: false
 
 Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/codex-change-review). Follow the problem, the animated workflow replay, and the code behind independent branches, measured checks, and a human decision.
 
+## Choose your starting point
+
+| Need | Guide |
+| --- | --- |
+| Install the CLI, including the one-line method prepared for the next release. | [Installation](/how-to/install-native) |
+| Run the published 0.3.1 stack with Docker Compose. | [Local source tutorial](/tutorials/run-locally) |
+| Manage a qualified image-based stack using the new CLI lifecycle. | [Local distribution](/how-to/run-local-distribution), currently a development feature. |
+| Submit work and receive results after disconnecting. | [Result waiting and callbacks](/how-to/receive-results) |
+| Connect an MCP client to an existing instance. | [MCP setup](/how-to/connect-mcp) |
+| Operate workers and diagnose executions. | [Observability](/how-to/configure-observability), [queue delivery](/concepts/queue-delivery), and [Console](/reference/console) |
+
+Use the [capability map](/reference/capabilities) to find every supported area,
+its limits and release availability. Public 0.3.1 assets remain distinct from
+the installer, published-image distribution and `ledgence local` changes in
+`develop`.
+
 ## Find your way
 
 <div class="ld-doc-grid">
@@ -38,4 +54,4 @@ Your **agent** is application code. You publish that code and its prepared depen
 
 Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
 
-<p class="ld-home-status">Guides target Ledgence 0.3.1: durable approvals, model/tool recovery, MCP, and workflows with a self-hosted Console. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>
+<p class="ld-home-status">Released guides target Ledgence 0.3.1: durable approvals, model/tool recovery, MCP, and workflows with a self-hosted Console. Development-only installation features are explicitly marked. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>

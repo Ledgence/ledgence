@@ -81,6 +81,23 @@ Use the existing [package publication layout](program-packages.md) for remote st
 
 Requests and responses use UTF-8 `application/json`; an optional UTF-8 charset parameter is accepted. Bodies are uncompressed. Each successful service operation returns `200` with its portable reply. API responses carry `Cache-Control: no-store` and a diagnostic `Request-Id`.
 
+Task execution and worker delivery routes are listed below. The same orchestrator
+also serves these documented surfaces:
+
+| Surface | Contract and operating guide |
+| --- | --- |
+| Workflow submission, status, results, cancellation, activation context, local results, and forks | [Workflows](workflows.md) and [typed entrypoints](workflow-entrypoints.md) |
+| External workflow events and timers | [Workflow events](workflow-events.md) |
+| Persisted approval inspection and bound decisions | [Workflow approvals](workflow-approvals.md) |
+| Completion subscriptions, status, and explicit redelivery | [Completion notifications](completion-notifications.md) |
+| Installation catalog, execution discovery, graph metadata, and worker observations | [Console query model](console-query-model.md) and [instance binding](self-hosted-instance.md) |
+
+Workflow submission is available through the Python client, HTTP, Console, and
+the optional [MCP server](mcp.md). The `ledgence task` CLI administers tasks; it
+does not provide a `workflow submit` command. The quickstart above uses an
+unbound database. For a Console or catalog deployment, configure an
+`--instance-config` and match its immutable scope in worker and client commands.
+
 | Method and path | Input | Reply |
 | --- | --- | --- |
 | `GET /v1/tasks` | Required scope, optional state/queue/correlation/time filters and cursor/limit | Compact `TaskPage`; see [discovery](task-discovery.md) |

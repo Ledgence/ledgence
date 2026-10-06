@@ -127,7 +127,7 @@ The census reads the same PostgreSQL database every few seconds and scans measur
 
 For a useful comparison, preserve the same release build settings, hardware, PostgreSQL durability/configuration, worker N, program/package, payload, rate/burst profile, census interval, and telemetry settings. Repeat runs and retain unfavorable results. Compare both acceptance and completion rates, latency tails, backlog, resource use, WAL and storage growth. For a local SQS-compatible comparison, include broker request counts, batching, and latency, and identify the ElasticMQ version and deployment. Qualifying AWS capacity or behavior requires a separate experiment against AWS SQS.
 
-Long-duration qualification remains a separate exercise: representative application runtimes and payloads, sustained peaks, retries and recovery, realistic retained history, storage growth, and resource headroom. The first product target is five million executions/day with representative bursts, not a claim already established by this tool.
+Long-duration qualification remains a separate exercise: representative application runtimes and payloads, sustained peaks, retries and recovery, realistic retained history, storage growth, and resource headroom. The default offered rate is a benchmark setting, not a supported daily execution capacity.
 
 
 ## Workflow placement measurements

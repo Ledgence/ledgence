@@ -1,9 +1,9 @@
 ---
 title: Install the native tools
-description: Download and verify Ledgence 0.3.1 for Linux x86_64 or macOS Apple silicon, then run the unified CLI and bundled Console.
+description: Install the released native CLI, understand the upcoming one-line installer, and choose the right Python and local-stack setup.
 ---
 
-Ledgence 0.3.1 native bundles contain one `ledgence` executable, the Python worker helper, the client wheel, and Console assets. Choose the archive for your host. For a complete local deployment built from source, follow [Run Ledgence locally](/tutorials/run-locally).
+Ledgence 0.3.1 native bundles contain one `ledgence` executable, the Python worker helper, the client wheel, and Console assets. Choose the archive for your host. For a complete released local deployment built from source, follow [Run Ledgence locally](/tutorials/run-locally). The new [image-based local distribution](/how-to/run-local-distribution) is available on `develop` with a matching qualified kit.
 
 ## Next release: one-line installation
 
@@ -11,20 +11,27 @@ Ledgence 0.3.1 native bundles contain one `ledgence` executable, the Python work
 0.3.1 does not include an `install.sh` download or the new `ledgence local`
 commands.** The manual installation below works with the published assets today.
 
-After a release publishes the installer, run this one line in Bash or Zsh to
-install Ledgence and make it available in the current terminal and future
-terminals:
+After a release publishes the installer, install Ledgence with:
 
 ```sh
-(set -o pipefail; curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh) && . "$HOME/.local/share/ledgence/env"
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
 ```
 
-If you will open a new Bash or Zsh terminal, or start a new sh/dash login shell,
-this shorter command is sufficient once the installer is published:
+Then open a new terminal, or activate Ledgence in the current one:
 
 ```sh
-curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
+. "$HOME/.local/share/ledgence/env"
+ledgence --version
 ```
+
+The installer uses `$HOME/.local`, requires no sudo, and retains the complete
+versioned bundle with its legal notices. It verifies release checksums, the
+internal inventory, and executable version before selecting the installation.
+A failed download or verification leaves the previously selected installation
+in place. It does not install Docker, a host Python interpreter, or the Python
+client into your application.
+
+### Shell setup and installer options
 
 The installer adds a setup block to your shell profiles by default, using
 `$SHELL` to select Bash (`~/.bashrc` and the first existing readable login profile
@@ -37,9 +44,8 @@ shell manually. Other shells receive manual setup instructions.
 
 The generated environment file moves the installation's `bin` directory to the
 front of `PATH`, removing duplicate entries for that directory. Sourcing that
-file at the end of the first command makes
-Ledgence available immediately: a child installer process cannot update the
-current terminal's environment. Pass `--no-modify-path` to skip profile changes.
+file makes Ledgence available immediately: a child installer process cannot
+update the current terminal's environment. Pass `--no-modify-path` to skip profile changes.
 For `--prefix /absolute/path`, source `/absolute/path/share/ledgence/env` instead;
 the installer prints the exact command.
 
@@ -54,11 +60,24 @@ That command provides the released 0.3.1 capabilities. It does not add `local`
 commands or the development build's resource defaults. The following manual
 instructions remain the supported path without a source checkout.
 
+`--version X.Y.Z` selects an exact stable version; without it the installer
+resolves the latest stable release once. Pass `--prefix /absolute/path` for a
+different installation location, or `--no-modify-path` to configure `PATH`
+yourself. These options can be supplied to a downloaded copy of `install.sh`.
+
 ## Before you start
 
-The native targets are **Linux x86_64/glibc**, built and qualified on Ubuntu 24.04, and **macOS arm64**. Other Linux distributions need compatible host libraries; inspect `candidate-provenance.json` for the archive's actual dynamic requirements. CPython 3.11–3.14, PostgreSQL, brokers, and system libraries are supplied separately. A program's manifest must match its worker interpreter's exact Python major/minor and platform.
+The native targets are **Linux x86_64/glibc**, built and qualified on Ubuntu 24.04, and **macOS arm64**. Other Linux distributions need compatible host libraries; inspect `candidate-provenance.json` for the archive's actual dynamic requirements. There are no published native Windows, Linux ARM64, macOS Intel, or musl/Alpine bundles in 0.3.1.
 
-Check your host and interpreter:
+| What you will run | Additional requirements |
+| --- | --- |
+| CLI administration or MCP against an existing API | No Docker or host Python required. |
+| Native Python worker | A separately supplied CPython 3.11–3.14 interpreter and prepared application dependencies matching its platform and exact major/minor. |
+| Native orchestrator | A separately configured PostgreSQL database and program store. |
+| Python HTTP client | Python 3.11+ and `ledgence-client` in your application's environment. |
+| Complete local container stack | Docker with Compose; containers supply their own interpreter and services. |
+
+Check your host and, if running a native Python worker, its interpreter:
 
 ```sh
 uname -s
@@ -135,7 +154,13 @@ ledgence orchestrator --help
 ledgence task --help
 ```
 
-Worker and orchestrator remain separate processes. The [CLI reference](/reference/cli) maps the old executable names to the new command groups. The historical 0.1.0 archive still contains three executables; its bundled documentation remains authoritative for that archive.
+Worker and orchestrator remain separate processes. The [CLI reference](/reference/cli) covers all command groups and maps the old executable names. The historical 0.1.0 archive still contains three executables; its bundled documentation remains authoritative for that archive.
+
+This manual `PATH` export affects the current shell. Add the same bundle's
+`bin` directory to your shell profile for future terminals, and keep the entire
+bundle at that location. Released 0.3.1 requires the explicit resource paths
+shown below; automatic worker-helper and Console discovery is a `develop`
+feature.
 
 ## Verify execution with your Python interpreter
 
@@ -168,6 +193,14 @@ The bundle's client wheel is separate from the worker helper. Install it in a vi
 ```
 
 Installation obtains the pinned client dependencies unless you supply a reviewed offline wheelhouse.
+
+For an application using the published package instead, add
+`ledgence-client==0.3.1` with its existing environment manager, for example
+`python -m pip install "ledgence-client==0.3.1"` in an activated virtual
+environment, or `uv add "ledgence-client==0.3.1"` in an existing uv project.
+The client environment is separate from the worker interpreter; installing
+the native CLI does not make `from ledgence.client import AsyncClient` available
+to an application. See the [Python client reference](/reference/python-client).
 
 ## Start a native service with Console
 

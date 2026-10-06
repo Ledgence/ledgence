@@ -25,6 +25,8 @@ Ordinary code around those steps still executes from the current continuation. P
 
 A local step must not issue workflow control commands or stage children. Replaying its stored result would skip those commands. Keep coordination in the controller after awaiting the local result.
 
+For model and tool calls, `ctx.operation` also binds an explicit kind, adapter/function version, and effective keyword arguments, including defaults. Read the committed model response before selecting tools and the committed tool response before advancing the transcript. Other nondeterminism that controls routing must also be recorded or saved in checkpoint state. Each new activation starts with a fresh local journal; a result is replayed only across attempts of its original activation. See [Recover model and tool calls](/how-to/recover-agent-calls).
+
 ## Acknowledged forks survive the parent invocation
 
 `await ctx.fork(...)` durably registers the branch workflows before the parent checkpoints. The parent can continue local work after the acknowledgment. If it then stops unexpectedly, the accepted branches remain registered.
@@ -53,10 +55,10 @@ There are several useful identity scopes:
 | --- | --- |
 | Submission idempotency key | Identifies a task or workflow submission within the instance's fixed compatibility binding; task and workflow submission keys are separate. |
 | Activation ID | Identifies one logical entrypoint invocation across its task attempts. A later visit to the same entrypoint gets a new activation. |
-| Local step key | Identifies work within one logical activation and its retries. |
+| Local/operation key | Identifies work within one logical activation and its retries; both helpers share the journal namespace. |
 | Child key | Identifies an owned task or subworkflow throughout its parent workflow, including fork branches. |
 | Fork key | Identifies one immutable ordered branch registration throughout the parent workflow. |
-| Event/timer wait key | Identifies one one-shot wait throughout the workflow. |
+| Event/timer/approval wait key | Identifies one one-shot wait throughout the workflow. |
 
 Reusing a key with the same binding can reconcile existing work. Reusing it for different work conflicts. Iteration identifiers such as `summary:round-2` make a new operation explicit.
 
@@ -69,6 +71,8 @@ After suspension, PostgreSQL owns the wait. A child that finishes before the wai
 External events can also arrive before their wait is registered. Once an event or timer selects a wake, Ledgence persists the wake and next activation together. Retrying that activation sees the same wake instead of selecting a new one.
 
 Timers use a persisted deadline. Downtime or capacity can delay execution after that deadline, but retries do not restart the duration. A timer is a scheduling boundary, not a promise of execution at an exact wall-clock instant.
+
+An approval wait additionally persists an immutable action and its effective arguments. The review decision binds to that exact request; approval, rejection, or expiry resumes one logical activation with a frozen approval wake. `ctx.approved_local` takes its arguments from the approved record, and its committed result survives activation retries. The grant does not carry into later activations or child workflows. As with any local effect, approval cannot close the gap between an external side effect and the result commit. See [Require approval before an action](/how-to/require-approval).
 
 ## Failure and cancellation drain owned work
 

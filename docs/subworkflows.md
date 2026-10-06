@@ -2,7 +2,7 @@
 
 A workflow can stage another workflow with `ctx.workflow(...)`. The child has
 its own workflow ID, pinned program package, checkpoints, activation tasks,
-local-step journals, event/timer waits, and terminal result. Its parent can wait
+local-step journals, event/timer/approval waits, and terminal result. Its parent can wait
 for it using the same explicit continuation model as ordinary child tasks.
 For branches of the current pinned package that should start before the parent
 checkpoints, use [typed entrypoints and acknowledged forks](workflow-entrypoints.md).
@@ -150,5 +150,6 @@ contexts retain their wire shapes. Third-party Rust adapters must adopt the new
 child kinds and explicit `WorkflowWorkSource` variants and implement atomic owned
 workflow lifecycle obligations. Public core contracts contain no vendor types.
 
-Outbound completion notifications to external recipients remain a separate
-capability. Parent completion handling uses internal durable coordination.
+[Outbound completion notifications](completion-notifications.md) can report the
+child's terminal workflow result to configured HTTP recipients. Parent completion
+handling uses its own internal durable coordination and needs no subscription.

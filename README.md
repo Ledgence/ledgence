@@ -8,6 +8,7 @@ workers, and coordinate tasks through workflows that checkpoint, wait, and resum
 Self-host without a required vendor account.
 
 [Documentation](https://docs.ledgence.com) ·
+[Capabilities](https://docs.ledgence.com/reference/capabilities) ·
 [Quickstart](https://docs.ledgence.com/tutorials/run-locally) ·
 [Examples](examples/README.md) ·
 [Console guide](https://docs.ledgence.com/tutorials/use-console) ·
@@ -23,7 +24,7 @@ Self-host without a required vendor account.
 - **Choose an example:** browse the [example catalog](examples/README.md) for Python programs,
   workflow patterns, client usage, and optional provider integrations.
 - **Explore Console:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
-  to inspect executions, workflows, registered agents, and worker process slots in your browser.
+  to inspect executions, workflows, registered programs, and worker process slots in your browser.
 - **Run the complete stack:** follow the [local tutorial](https://docs.ledgence.com/tutorials/run-locally)
   to start PostgreSQL, the orchestrator, a worker, and example programs with Docker Compose.
 - **Try the native worker:** [install the Linux x86_64 or macOS Apple Silicon bundle](https://docs.ledgence.com/how-to/install-native)
@@ -45,6 +46,34 @@ public APIs may evolve; pin versions and review changes before upgrading.
 
 The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
 original commands and do not include Console.
+
+### One-line installation for the next release
+
+The next release will include the installer and a matching local distribution.
+**The command below requires those published assets; 0.3.1 does not provide
+them.** Use the [current native installation guide](https://docs.ledgence.com/how-to/install-native)
+or [source Compose tutorial](docs/local-deployment.md) until then.
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
+```
+
+The installer selects the native bundle, verifies its contents and configures
+your shell startup files. Open a new Bash/Zsh terminal, or activate it in the
+current one:
+
+```sh
+. "$HOME/.local/share/ledgence/env"
+ledgence --version
+```
+
+With Docker running and a released bundle containing its matching local kit,
+`ledgence local up` starts the stack and prints the API and Console URLs.
+`ledgence local down` stops it while preserving data. See the
+[local distribution guide](https://docs.ledgence.com/how-to/run-local-distribution)
+for platforms, state and upgrade behavior. The installer needs no Rust, Python,
+Node, Docker or administrator access; Docker is required only for the local
+container stack, and native Python workers require a matching host interpreter.
 
 ## What you can build
 
@@ -88,6 +117,13 @@ contracts for [programs](docs/program-packages.md), [HTTP orchestration](docs/ht
 [subworkflows](docs/subworkflows.md), [durable approvals](docs/workflow-approvals.md),
 [agent call recovery](docs/agent-recovery.md),
 and [completion callbacks](docs/completion-notifications.md).
+
+The [capability map](https://docs.ledgence.com/reference/capabilities) provides
+an entry point to the complete feature set and its release availability. Use the
+guides for [receiving long-running results](https://docs.ledgence.com/how-to/receive-results),
+[exporting traces and metrics](https://docs.ledgence.com/how-to/configure-observability),
+and [choosing queue delivery](https://docs.ledgence.com/concepts/queue-delivery)
+alongside their detailed contracts.
 
 Console documentation covers [operation](https://docs.ledgence.com/reference/console),
 [agent registration](https://docs.ledgence.com/how-to/register-agent), and

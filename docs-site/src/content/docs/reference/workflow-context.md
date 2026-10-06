@@ -47,7 +47,7 @@ handle = workflow.build()
 
 Public workflow submissions start at the default; there is no public initial-entrypoint override. Named entrypoints are selected by branch creation or a resume decision. The initial wire continuation `"start"` selects the default, which may have another name such as `"main"`. If the enum declares `"start"`, it must be the default.
 
-In a registered workflow, use this exact enum family for `branch(entrypoint=...)`, `join(resume=...)`, and `continuation` in `continue_`, `suspend`, `wait_event`, and `sleep`. Strings and another enum's members are rejected. Existing unregistered contexts continue accepting string continuations. Enum values are stable wire addresses; publish a new immutable package version for code changes.
+In a registered workflow, use this exact enum family for `branch(entrypoint=...)`, `join(resume=...)`, and continuation targets in `continue_`, `suspend`, `wait_event`, `sleep`, and `request_approval`. Strings and another enum's members are rejected. Existing unregistered contexts continue accepting string continuations. Enum values are stable wire addresses; publish a new immutable package version for code changes.
 
 See [Mix local work and workflow branches](/how-to/fork-workflow-branches) for a complete package and execution instructions.
 
@@ -73,7 +73,7 @@ Reading `state`, `inputs`, or `wake` returns an independent JSON copy. Mutating 
 
 ### `operation(key, fn, *, kind, version, arguments)` — added in 0.3.1
 
-Use `OperationKind.MODEL` or `OperationKind.TOOL` from `ledgence.worker.workflow`. This helper uses the local journal with an explicit operation kind/version and signature-bound JSON arguments, including defaults. It returns only a completed, acknowledged result and rejects an existing key whose binding changed. Keys share the activation's local-step namespace. See [Recover model and tool calls](/how-to/recover-agent-calls) for boundaries, checkpoints and setup.
+Use `OperationKind.MODEL` or `OperationKind.TOOL` from `ledgence.worker.workflow`; strings are rejected. This helper starts an owned operation and returns an awaitable with the same lifetime as `local`. It binds an explicit operation kind/version and signature-bound JSON arguments, including defaults, and rejects a changed binding before another call starts. Awaiting returns only a completed, acknowledged result. Keys share the activation's local-step namespace. See [Recover model and tool calls](/how-to/recover-agent-calls) for boundaries, checkpoints and setup.
 
 
 ### `local(key, fn, **kwargs)`
@@ -162,9 +162,11 @@ Wait keys are one-shot across the workflow. Event timeouts and timer delays acce
 
 ## Durable approvals
 
-`ApprovalAction.for_callable(fn, version="1", arguments={...})` binds the callable and effective JSON arguments, including defaults. Return `ctx.request_approval(...)` with exactly one `resume` or `continuation` to persist this action and release the worker slot. On resume, inspect `ctx.approval.status`; `await ctx.approved_local(fn, version="1")` executes only an approved saved action and accepts no replacement arguments. Its acknowledged local result is replayable. Generic external events cannot decide an approval.
+`ApprovalAction.for_callable(fn, version="1", arguments={...})` binds the callable and effective JSON arguments, including defaults. Apply application validation and normalization before creating it. Return `ctx.request_approval(...)` with exactly one `resume` or `continuation` to persist this action and release the worker slot. `ctx.wait_approval(...)` is an alias with the same signature.
 
-See [Require approval before a tool call](/how-to/require-approval) for the typed statuses, deadline and recovery behavior.
+On resume, inspect `ctx.approval.status`; `await ctx.approved_local(fn, version="1")` executes only an approved saved action and accepts no replacement arguments. It checks the callable identity, version, and effective defaults against the private saved binding. Its acknowledged local result is replayable within that activation. Generic external events cannot decide an approval.
+
+Every approval requires an integer `timeout_ms` from zero through 365 days. Rejection and expiry resume the controller with their corresponding status; cancellation closes a pending request without resuming it. See [Require approval before an action](/how-to/require-approval) for review and recovery behavior.
 
 ## Wake shapes
 
@@ -180,6 +182,9 @@ Timeout and timer wakes contain the persisted deadline:
 {"kind": "timeout", "key": ..., "deadline": ...}
 {"kind": "timer", "key": ..., "deadline": ...}
 ```
+
+An approval wake is `{"kind": "approval", "approval": ...}`. Prefer the typed
+`ctx.approval` view for its status, effective action, proposal, deadline, and decision.
 
 Timestamps are Unix milliseconds. `inputs` remains reserved for child outcomes. A resumed activation sees a frozen wake across retries.
 
@@ -197,6 +202,8 @@ Timestamps are Unix milliseconds. `inputs` remains reserved for child outcomes. 
 | Child inputs and optional wake together | 256 KiB |
 | Complete activation context | 640 KiB |
 | Complete external event | 64 KiB |
+| Effective approval action, including name/version/arguments | 32 KiB |
+| Optional proposed approval arguments | 32 KiB |
 | Live owned subworkflows per parent | 64 |
 | Nested subworkflow depth | 16, with the root at depth zero |
 

@@ -17,31 +17,36 @@ from ledgence.worker.workflow import Workflow
 
 class Entry(StrEnum):
     START = "start"
-    AFTER_APPROVAL = "after_approval"
+    AFTER_PAYMENT = "after_payment"
 
 workflow = Workflow(Entry)
 
 @workflow.entrypoint(Entry.START, default=True)
 def start(event, ctx):
     return ctx.wait_event(
-        "approval:1",
-        continuation=Entry.AFTER_APPROVAL,
+        "payment:1",
+        continuation=Entry.AFTER_PAYMENT,
         state={"invoice_id": event["data"]["invoice_id"]},
         timeout_ms=24 * 60 * 60 * 1000,
     )
 
-@workflow.entrypoint(Entry.AFTER_APPROVAL)
-def after_approval(event, ctx):
+@workflow.entrypoint(Entry.AFTER_PAYMENT)
+def after_payment(event, ctx):
     wake = ctx.wake
     if wake["kind"] == "timeout":
-        return ctx.fail("approval_expired", "Approval did not arrive in time")
+        return ctx.fail("payment_timeout", "Payment status did not arrive in time")
     return ctx.complete({
         "invoice_id": ctx.state["invoice_id"],
-        "approval": wake["event"]["data"],
+        "payment": wake["event"]["data"],
     })
 
 handle = workflow.build()
 ```
+
+This example returns the external payment-status data as application input.
+Validate that payload against your own contract before acting on it. For review
+of a proposed action and its effective arguments, use
+[durable approvals](workflow-approvals.md); generic events cannot grant them.
 
 A timer workflow can define and register an `Entry.AFTER_DELAY` handler, then
 `return ctx.sleep("backoff:1", 5000, continuation=Entry.AFTER_DELAY, state={})`
@@ -59,7 +64,7 @@ once and never restarted by coordinator or activation retries. Timer scheduling
 can be delayed by downtime, backlog, or capacity; it never intentionally fires
 before its persisted deadline. Absolute business-deadline APIs are not included.
 
-Existing staged `ctx.task` commands can accompany an external wait. Their registrations
+Existing staged `ctx.task` and `ctx.workflow` commands can accompany an external wait. Their registrations
 and dispatch obligations commit atomically with the checkpoint; execution starts
 asynchronously after dispatch. External waits resume with their selected wake
 only; unrelated child outcomes remain available for an explicit child wait or
@@ -74,14 +79,14 @@ the exact wait key. The event is a JSON CloudEvent with a sender-stable ID:
 ```python
 workflow = client.workflows.handle(workflow_id)
 command = workflow.prepare_event(
-    "approval:1",
+    "payment:1",
     event={
         "specversion": "1.0",
-        "id": "evt_approval_INV-1042_1",
-        "source": "urn:billing:approvals",
-        "type": "com.example.invoice.approved.v1",
+        "id": "evt_payment_INV-1042_1",
+        "source": "urn:billing:payments",
+        "type": "com.example.invoice.paid.v1",
         "datacontenttype": "application/json",
-        "data": {"approved": True},
+        "data": {"invoice_id": "INV-1042", "status": "paid"},
     },
 )
 receipt = await workflow.send_event(command)
@@ -120,7 +125,7 @@ bounded retry/backoff policy if the endpoint remains unavailable.
 ## Identity, races, and recovery
 
 - Wait keys are one-shot within a workflow. Use a new key for each loop iteration
-  or approval round. Installing a second logical wait with the same key conflicts.
+  or callback round. Installing a second logical wait with the same key conflicts.
 - Each event key accepts one immutable event. The same `(source, id)` is also
   unique within that workflow. Exact repeats return the original receipt;
   changed key, payload, or envelope conflicts. JSON object ordering is ignored,
@@ -180,8 +185,9 @@ state. Local SQS-compatible validation uses ElasticMQ.
 
 Inbound events resume workflows. [Owned subworkflows](subworkflows.md) can use
 these waits independently and report their terminal outcome to their parent.
-Outbound completion notifications and general event streams remain separate
-capabilities.
+[Outbound completion notifications](completion-notifications.md) deliver terminal
+result references to configured HTTP destinations. General event streams are
+not part of this one-shot input API.
 
 ## Durable approvals
 

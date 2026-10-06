@@ -72,6 +72,24 @@ Cancellation is a request. Active process cleanup and workflow child draining ma
 
 Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Appearance, sidebar collapse and Graph/Trace preferences may persist. Filters, resource identifiers and selected nodes can appear in navigation URLs; scroll, focus and graph presentation are retained in bounded navigation memory.
 
+## Review durable action approvals
+
+Open **General → Approvals** in a workflow detail to inspect its persisted action requests.
+Review the action name and version, effective arguments, optional original
+proposal, and deadline before approving or rejecting. The decision binds the
+stored request and effective action; it cannot replace the arguments. The server
+determines whether the request is still pending and eligible.
+
+After an uncertain reply, retry the retained decision unchanged. Approval records
+permission to proceed; inspect the resumed workflow and its result to establish
+what happened afterward. The reviewer field is claimed attribution, so remote
+deployments must provide their own authentication and authorization.
+
+An application's generic `wait_event` review flow is an external wait rather than
+a durable action approval. The support-agent and Codex change-review examples use
+that pattern and their companion event commands. See
+[Require approval](/how-to/require-approval) for the dedicated API.
+
 ## Attempt resources and local observations
 
 Resources show available measurements for one attempt. Runtime elapsed excludes preparation and startup, while CPU counts the Python process and all its threads during the invocation. Child processes, including Codex, are excluded. Concurrent local functions share the process, so its CPU cannot be attributed exclusively to a single local function.

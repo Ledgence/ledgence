@@ -6,7 +6,12 @@ small example callback receiver. Programs are published into a shared program
 store after startup and fetched into the worker's persistent verified cache.
 There is no required vendor account or hosted service.
 
-This guide describes Ledgence 0.3.1, including Console. Follow
+This guide describes the source-built Compose deployment, available in Ledgence
+0.3.1, including Console. Use the `v0.3.1` source tag for that released version;
+building `develop` uses the current checkout's code and dependency pins. The
+[container distribution guide](container-distribution.md) describes the separate
+versioned local-kit tooling on `develop`; it is not a published 0.3.1 image or
+local-kit asset. Follow
 [Explore Ledgence Console](https://docs.ledgence.com/tutorials/use-console) for the
 browser-guided setup. Existing deployments must follow the
 [upgrade guide](upgrading-to-0.3.md) before reusing their database. It also links
@@ -214,8 +219,11 @@ not a claim that it was executed; consult the result for the candidate being
 released.
 
 Pinned inputs and normalized candidate archives improve repeatability; Ledgence
-does not claim byte-identical compiled binaries across hosts. The Docker image
-is built locally, not published by release tooling. Its upstream Debian, CPython
+does not claim byte-identical compiled binaries across hosts. This Compose path
+builds its image locally. Versioned image publication and local-kit generation
+have separate [distribution gates](container-distribution.md); their presence on
+`develop` does not establish that images exist for a released version.
+The image's upstream Debian, CPython
 and utility components retain their licenses and possible source-distribution
 obligations. Their notices remain in the base image; `/opt/ledgence/legal`
 contains the Python license, runtime package inventory, Cargo notices and Rust

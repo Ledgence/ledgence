@@ -10,7 +10,9 @@ warm pool, available for reuse or replacement.
 
 Workflows provide durable local steps, distributed child tasks,
 sealed all-terminal waits, registered entrypoints, workflow results and
-cancellation. [Typed entrypoints and forks](workflow-entrypoints.md) support
+cancellation. [Durable model and tool calls](agent-recovery.md) bind individual
+agent operations, and [approvals](workflow-approvals.md) bind a review decision to
+an immutable effective action. [Typed entrypoints and forks](workflow-entrypoints.md) support
 same-package branches that run while the parent continues local work.
 [External events and durable timers](workflow-events.md) add
 one-shot callback waits and persisted deadlines to the same checkpoint model.
@@ -75,6 +77,7 @@ Execution choices have different recovery behavior:
 | --- | --- | --- |
 | Ordinary Python call | Current invocation | May repeat with its continuation |
 | `await ctx.local(key, function, **inputs)` | Current invocation/package | Individual acknowledged local result |
+| `await ctx.operation(key, function, kind=..., version=..., arguments=...)` | Current invocation/package | Acknowledged model/tool result bound to kind, version, callable, and effective arguments |
 | `ctx.task(key, ...)` | Independently admitted child task | Child task with its own attempts and leases |
 | `ctx.workflow(key, ...)` | Independently scheduled owned workflow | Child workflow with its own checkpoints and terminal outcome |
 | `await ctx.fork(key, branches=[...])` | Owned workflows in the parent's exact package | Acknowledged immutable registration, then independent branch checkpoints |
@@ -98,7 +101,7 @@ explicit iteration identifier in keys when a loop should create new work.
 task or workflow child is still nonterminal. `ctx.fail(kind, message)` is an intentional workflow
 decision. Unexpected controller exceptions, runtime failures and timeouts use
 the activation task's retry policy instead. Exhausted activation retries fail
-the workflow and drain its owned tasks.
+the workflow and drain its owned tasks and subworkflows.
 
 ## Persistence and recovery
 
@@ -160,8 +163,9 @@ shares the required task/scheduling authority, then supply the optional workflow
 service to its HTTP router and `DeliveryDriver::with_workflows`.
 
 The packaged orchestrator/connected worker wire these ports together. PostgreSQL
-implements the initial workflow persistence authority. Explicitly apply migration
-`20260915000000_workflows.sql` before serving the updated executable. The optional
+implements the workflow persistence authority. Stop older writers and apply all
+migrations with `ledgence orchestrator migrate` before serving an upgraded
+executable; see the [upgrade guide](upgrading-to-0.3.md). The optional
 SQS-compatible adapter continues to transport compact task references for both
 activations and children. Workflow state is never stored in queue receipts, and
 the core API contains no SQS or PostgreSQL types.
@@ -172,6 +176,9 @@ the core API contains no SQS or PostgreSQL types.
 | `GET /v1/workflows/status` | Read compact workflow status |
 | `GET /v1/workflows/result` | Read status and an optional terminal outcome |
 | `POST /v1/workflows/events` | Accept or reconcile a directly addressed external CloudEvent |
+| `POST /v1/workflows/approvals/inspect` | Read an existing immutable approval request |
+| `POST /v1/workflows/approvals/list` | Read a bounded page of approval requests |
+| `POST /v1/workflows/approvals/decide` | Accept or reconcile an exact approval/rejection command |
 | `POST /v1/workflows/cancel` | Request cancellation with `{scope, workflow_id}` |
 | `POST /v1/workflows/activations/context` | Worker read using its exact `LeaseOwner` |
 | `POST /v1/workflows/local-results` | Commit `{owner, record}` for a local step |
@@ -187,7 +194,7 @@ its existing task, run and attempt identities. CloudEvents add `ldgworkflowid`,
 and controller events add `ldgactivationid`. The activation ID equals its stable
 controller task ID; retries receive new attempt IDs. Runtime context uses schema
 `ledgence.workflow.activation.v1`, and its checkpoint decision carries `v: 1`,
-`activation_id`, and `revision`. An optional `wake` adds the frozen external event/timer result; it is
+`activation_id`, and `revision`. An optional `wake` adds the frozen event, timer, or approval result; it is
 omitted on ordinary child continuations. Old contexts without `wake` remain valid.
 Revision advances on committed control decisions,
 independently of local journal progress and incoming child completions.
@@ -229,7 +236,7 @@ local I/O eliminates per-operation distributed task delivery but still incurs
 local-result durability traffic.
 
 
-## Running and verifying the slice
+## Running and verifying workflows
 
 The [checkpoint workflow example](../examples/checkpoint-workflow/README.md)
 includes package preparation, publication, worker startup, and Python client
