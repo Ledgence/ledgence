@@ -70,7 +70,14 @@ live-backend checks to pass on the same source. Independently on each architectu
 Internal CLI dotfiles stay on the disposable runner; the acceptance report and
 service logs are retained. An independent job downloads both artifacts and runs
 the publication preflight without credentials, verifying the complete inventory
-and checksums of the evidence transferred for publication.
+and checksums of the evidence transferred for publication. Failed image jobs
+retain available reports and service logs for seven days in separate
+`image-failure-*` artifacts; these are never inputs to publication.
+
+Restart qualification records all existing worker sessions before shutdown and
+waits for a fresh, accepting, unexpired session with a new identity after startup. Persisted
+observations from the previous process may remain fresh briefly; their presence
+does not establish that the restarted worker is ready.
 
 Any failed gate prevents publication. Run the acceptance locally with
 `python3 tools/check-distribution.py --directory KIT --evidence NEW --cli BINARY`.

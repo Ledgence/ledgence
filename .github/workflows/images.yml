@@ -173,6 +173,18 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+      - name: Retain diagnostics from unsuccessful qualification
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-failure-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/oci/acceptance/report.json
+            ${{ runner.temp }}/oci/acceptance/*.log
+            ${{ runner.temp }}/oci/qualification.json
+            ${{ runner.temp }}/oci/transfer-tool.txt
+          if-no-files-found: warn
+          retention-days: 7
       - name: Remove only the registry owned by this job
         if: always()
         run: docker rm --force ledgence-qualification-registry 2>/dev/null || true
