@@ -54,8 +54,9 @@ does not add multi-platform artifact selection for a `(program_id, version)`.
 
 The **Container distribution** workflow qualifies relevant source pushes and can
 also be manually dispatched. With `publish=false` it uses read-only repository
-permissions and never authenticates to Docker Hub. Publication additionally runs
-the full repository CI. Independently on each architecture it:
+permissions and never authenticates to Docker Hub. Publication additionally
+requires the Rust/Python CI and Console's dependency, component, browser and
+live-backend checks to pass on the same source. Independently on each architecture it:
 
 1. Builds an OCI archive with pinned BuildKit, SBOM generator and base images.
 2. Verifies blobs, descriptors, source/version/platform, SBOM and provenance.
@@ -65,6 +66,11 @@ the full repository CI. Independently on each architecture it:
    tasks/workflows/callbacks, repeated publication, persistence and relocated CLI.
 5. Collects exact corresponding sources for the base components.
 6. Retains the tested archive, checksums, acceptance report and sources.
+
+Internal CLI dotfiles stay on the disposable runner; the acceptance report and
+service logs are retained. An independent job downloads both artifacts and runs
+the publication preflight without credentials, verifying the complete inventory
+and checksums of the evidence transferred for publication.
 
 Any failed gate prevents publication. Run the acceptance locally with
 `python3 tools/check-distribution.py --directory KIT --evidence NEW --cli BINARY`.
