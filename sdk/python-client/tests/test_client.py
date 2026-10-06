@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import contextmanager
 import json
 import threading
 import time
@@ -491,26 +492,65 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 await client.close()
                 await asyncio.wait_for(cancelled.wait(), 1)
 
-    async def test_late_synchronous_decoder_cannot_return_success(self):
-        client = await self.open_client(request_timeout=.1)
-        async def late(function):
-            value = function()
-            time.sleep(.12)
+    async def assert_late_completion_rejected(self, *, after_trace):
+        from ledgence.client import otel
+        client = self.client
+        loop = asyncio.get_running_loop()
+        caller = asyncio.current_task()
+        real_time = loop.time
+        original_decode = client._transport._codec.run
+        expired = False
+        stages = []
+
+        def request_time():
+            current = asyncio.current_task(loop=loop)
+            # Advance only this request's clock after its observed completion
+            # boundary. Scheduler callbacks and the watchdog retain real time.
+            if expired and (current is caller or current in client._transport._operations):
+                return real_time() + client.request_timeout + 1
+            return real_time()
+
+        async def decode(function):
+            nonlocal expired
+            value = await original_decode(function)
+            stages.append("decoded")
+            if not after_trace:
+                expired = True
             return value
-        with patch.object(client._transport._codec, "run", late):
-            with self.assertRaises(RequestTimeout): await client.tasks.handle("task").outcome()
+
+        @contextmanager
+        def trace(*args, **kwargs):
+            nonlocal expired
+            try:
+                yield {}, None
+            except RequestTimeout:
+                stages.append("trace_timeout")
+                raise
+            else:
+                stages.append("trace_completed")
+                if after_trace:
+                    expired = True
+
+        # HTTP and decoding finish under the ordinary request budget. Expiry
+        # is injected at the boundary under test, never by a short wall timeout.
+        with patch.object(loop, "time", request_time), \
+                patch.object(client._transport._codec, "run", decode), \
+                patch.object(otel, "_exchange", trace):
+            async with asyncio.timeout(5):
+                with self.assertRaises(RequestTimeout) as exc:
+                    await client.tasks.handle("task").outcome()
+        self.assertEqual(stages, ["decoded", "trace_completed" if after_trace else "trace_timeout"])
+        self.assertEqual(len(self.requests), 1)
+        self.assertTrue(exc.exception.dispatched)
+        self.assertEqual(exc.exception.request_id, "request")
+        self.assertFalse(client._transport._operations)
+        self.assertFalse(client._transport._codec._pending)
+
+    async def test_late_synchronous_decoder_cannot_return_success(self):
+        await self.assert_late_completion_rejected(after_trace=False)
 
     async def test_late_trace_completion_cannot_return_success(self):
-        from contextlib import contextmanager
-        from ledgence.client import otel
-        client = await self.open_client(request_timeout=.1)
-        @contextmanager
-        def late(*args, **kwargs):
-            yield {}, None
-            time.sleep(.12)
-        with patch.object(otel, "_exchange", late):
-            with self.assertRaises(RequestTimeout) as exc: await client.tasks.handle("task").outcome()
-        self.assertEqual(exc.exception.request_id, "request")
+        await self.assert_late_completion_rejected(after_trace=True)
 
     async def test_aiohttp_get_reconnect_does_not_replay_post(self):
         methods = []
