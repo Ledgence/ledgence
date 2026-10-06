@@ -24,6 +24,7 @@ import venv
 
 ROOT = Path(__file__).resolve().parents[2]
 CRATES = ("ledgence-worker-api", "ledgence-orchestration-api")
+PYPI_PACKAGES = ("ledgence-client", "ledgence-worker")
 VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 
 
@@ -72,9 +73,16 @@ def check_source(publish=False, root=ROOT, environ=None):
     return version
 
 
-def inventory(directory, version, kind):
-    names = ([f"ledgence_client-{version}-py3-none-any.whl",
-              f"ledgence_client-{version}.tar.gz"] if kind == "pypi" else
+def pypi_filenames(package, version):
+    require(package in PYPI_PACKAGES, "unexpected PyPI project")
+    stem = package.replace("-", "_")
+    return [f"{stem}-{version}-py3-none-any.whl", f"{stem}-{version}.tar.gz"]
+
+
+def inventory(directory, version, kind, package=None):
+    require(package is None or kind == "pypi", "project selection requires PyPI")
+    names = ([name for project in ([package] if package else PYPI_PACKAGES)
+              for name in pypi_filenames(project, version)] if kind == "pypi" else
              [f"{name}-{version}.crate" for name in CRATES])
     require(directory.is_dir(), f"distribution directory missing: {directory}")
     require(sorted(p.name for p in directory.iterdir()) == sorted(names),
@@ -90,6 +98,22 @@ def inventory(directory, version, kind):
 def compare(first, second, version, kind):
     require(inventory(first, version, kind) == inventory(second, version, kind),
             f"rebuilt {kind} artifacts differ from qualified bytes")
+
+
+def collect_pypi(client_directory, worker_directory, output, version):
+    """Combine only the exact distributions retained by both qualification gates."""
+    sources = {"ledgence-client": client_directory, "ledgence-worker": worker_directory}
+    expected = {}
+    for package, directory in sources.items():
+        expected.update(inventory(directory, version, "pypi", package))
+    require(not output.exists(), "qualified Python output directory must be new")
+    output.mkdir(parents=True)
+    for package, directory in sources.items():
+        for name in pypi_filenames(package, version):
+            shutil.copyfile(directory / name, output / name)
+    require(inventory(output, version, "pypi") == expected,
+            "collected Python distributions changed from qualified bytes")
+    return expected
 
 
 def get(url, missing_ok=False):
@@ -121,13 +145,18 @@ def registry_inventory(directory, version, kind, allow_missing=False):
     expected = inventory(directory, version, kind)
     existing = {}
     if kind == "pypi":
-        raw = get(f"https://pypi.org/pypi/ledgence-client/{version}/json", missing_ok=allow_missing)
-        if raw is not None:
+        for package in PYPI_PACKAGES:
+            raw = get(f"https://pypi.org/pypi/{package}/{version}/json", missing_ok=allow_missing)
+            if raw is None:
+                continue
             metadata = json.loads(raw)
+            require(re.sub(r"[-_.]+", "-", metadata["info"]["name"]).lower() == package,
+                    f"PyPI project identity differs: {package}")
             require(metadata["info"]["version"] == version, "PyPI version differs")
             files = {file["filename"]: file for file in metadata["urls"]}
             require(len(files) == len(metadata["urls"]), "duplicate PyPI filenames")
-            require(set(files) <= set(expected), "PyPI file set differs from qualified artifacts")
+            require(set(files) <= set(pypi_filenames(package, version)),
+                    f"PyPI file set differs from qualified artifacts: {package}")
             for name, file in files.items():
                 digest = expected[name]
                 require(not file.get("yanked"), f"PyPI artifact is yanked: {name}")
@@ -173,13 +202,76 @@ def prepare_publication(directory, output, version, kind):
                 f"pending distribution changed: {name}")
     return {"registry": kind, "version": version, "existing_sha256": existing,
             "missing": missing,
-            "packages": [name for name in CRATES if f"{name}-{version}.crate" in missing] if kind == "crates" else []}
+            "packages": ([name for name in CRATES if f"{name}-{version}.crate" in missing] if kind == "crates" else
+                         [name for name in PYPI_PACKAGES if set(pypi_filenames(name, version)).intersection(missing)])}
 
 
 def publication_outputs(result):
     # Package names are the fixed allowlist, never arbitrary registry metadata.
     return (f"upload={'true' if result['missing'] else 'false'}\n"
             f"packages={' '.join(result['packages'])}\n")
+
+
+def check_pypi_install_report(report, version, expected=None, required=None):
+    """Bind a fresh index installation to qualified wheel bytes when supplied."""
+    found = set()
+    for item in json.loads(report.read_text())["install"]:
+        package = re.sub(r"[-_.]+", "-", item["metadata"]["name"]).lower()
+        if package not in PYPI_PACKAGES:
+            continue
+        require(package not in found, "duplicate installed PyPI project")
+        found.add(package)
+        require(item["metadata"]["version"] == version and not item.get("is_yanked"),
+                f"installed PyPI version differs: {package}")
+        download = item["download_info"]
+        filename = pypi_filenames(package, version)[0]
+        require(download["url"].startswith("https://files.pythonhosted.org/")
+                and download["url"].rsplit("/", 1)[-1] == filename,
+                f"installed PyPI artifact did not come from the public wheel: {package}")
+        if expected is not None:
+            require(download["archive_info"]["hashes"]["sha256"] == expected[filename],
+                    f"installed PyPI checksum differs from qualified bytes: {package}")
+    require(required is None or required in found, f"fresh PyPI install omitted required project: {required}")
+
+
+def check_python_installation(python, directory, env, version, packages, order="worker-first", otel=False):
+    run(python, "-I", "-m", "pip", "check", cwd=directory, env=env)
+    run(python, "-I", "-c", '''import importlib, importlib.metadata as m, importlib.util, json, pathlib, sys
+packages = json.loads(sys.argv[2])
+prefix = pathlib.Path(sys.prefix).resolve()
+for name in (["worker", "client"] if sys.argv[3] == "worker-first" else ["client", "worker"]):
+    package = "ledgence-" + name
+    if package not in packages:continue
+    module = importlib.import_module("ledgence." + name)
+    assert m.version(package) == sys.argv[1]
+    assert pathlib.Path(module.__file__).resolve().is_relative_to(prefix)
+    if name == "client":
+        from ledgence.client import AsyncClient
+    else:
+        from ledgence.worker import current_invocation, get_logger
+        from ledgence.worker.workflow import Workflow, WorkflowError, workflow_context
+        assert not m.distribution(package).requires, "worker acquired runtime dependencies"
+        assert pathlib.Path(module.__file__).with_name("py.typed").is_file()
+        try:current_invocation()
+        except RuntimeError:pass
+        else:raise AssertionError("unexpected invocation outside runtime")
+        try:workflow_context()
+        except WorkflowError:pass
+        else:raise AssertionError("unexpected workflow outside runtime")
+import ledgence
+assert ledgence.__spec__.origin is None
+for name in ("worker", "client"):
+    if "ledgence-" + name not in packages:assert importlib.util.find_spec("ledgence." + name) is None
+if packages == ["ledgence-worker"]:
+    actual = {d.metadata["Name"].lower().replace("_", "-") for d in m.distributions()}
+    assert actual - {"pip", "setuptools"} == {"ledgence-worker"}, actual
+if sys.argv[4] == "otel":
+    from ledgence.worker.otel import enable_context
+    enable_context()
+else:
+    assert importlib.util.find_spec("opentelemetry") is None
+print("Verified fresh PyPI installation:", packages, sys.argv[3], sys.argv[4])
+''', version, json.dumps(packages), order, "otel" if otel else "base", cwd=directory, env=env)
 
 
 def install_from_registry(version, kind, dist=None):
@@ -191,20 +283,20 @@ def install_from_registry(version, kind, dist=None):
             env.pop(name, None)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         if kind == "pypi":
-            venv.create(directory / "venv", with_pip=True, symlinks=True)
-            python = str(directory / "venv/bin/python")
-            for extra in ("", "[otel]"):
-                run(python, "-I", "-m", "pip", "--isolated", "install", "--no-cache-dir",
-                    "--only-binary=:all:", "--index-url", "https://pypi.org/simple",
-                    f"ledgence-client{extra}=={version}", cwd=directory, env=env)
-                run(python, "-I", "-m", "pip", "check", cwd=directory, env=env)
-                run(python, "-I", "-c",
-                    "import importlib.metadata as m, pathlib, sys; "
-                    "from ledgence.client import AsyncClient; import ledgence, ledgence.client; "
-                    "assert m.version('ledgence-client') == sys.argv[1]; "
-                    "assert ledgence.__spec__.origin is None; "
-                    "assert pathlib.Path(ledgence.client.__file__).is_relative_to(sys.prefix)",
-                    version, cwd=directory, env=env)
+            for first in PYPI_PACKAGES:
+                environment = directory / first
+                venv.create(environment, with_pip=True, symlinks=True)
+                python = str(environment / "bin/python")
+                packages = [first, *[name for name in PYPI_PACKAGES if name != first]]
+                for index, package in enumerate([*packages, "ledgence-client[otel]"]):
+                    report = directory / f"{first}-{index}.json"
+                    run(python, "-I", "-m", "pip", "--isolated", "install", "--no-cache-dir",
+                        "--only-binary=:all:", "--index-url", "https://pypi.org/simple",
+                        "--report", str(report), f"{package}=={version}", cwd=directory, env=env)
+                    check_pypi_install_report(report, version, expected, package if index < 2 else None)
+                    present = packages[:index + 1]
+                    for order in ("worker-first", "client-first") if index else ("worker-first",):
+                        check_python_installation(python, directory, env, version, present, order, index == 2)
         else:
             # No checkout paths or patches: Cargo must resolve both published
             # Ledgence packages through the public sparse registry.
@@ -242,6 +334,11 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     source = commands.add_parser("source")
     source.add_argument("--publish", action="store_true")
+    collect = commands.add_parser("collect-pypi")
+    collect.add_argument("--version", required=True)
+    collect.add_argument("--client-dist", type=Path, required=True)
+    collect.add_argument("--worker-dist", type=Path, required=True)
+    collect.add_argument("--output", type=Path, required=True)
     for name in ("compare", "verify", "install", "prepare"):
         command = commands.add_parser(name)
         command.add_argument("--kind", choices=("pypi", "crates"), required=True)
@@ -255,13 +352,15 @@ def main():
                 command.add_argument("--output", type=Path, required=True)
                 command.add_argument("--github-output", type=Path)
         elif name == "install":
-            command.add_argument("--dist", type=Path, help="qualified artifacts to match Cargo lock checksums")
+            command.add_argument("--dist", type=Path, help="qualified artifacts to match installed wheel or Cargo lock checksums")
     args = parser.parse_args()
     if args.command == "source":
         print(check_source(args.publish))
         return
     require(VERSION.fullmatch(args.version), "expected a final x.y.z version")
-    if args.command == "compare":
+    if args.command == "collect-pypi":
+        print(json.dumps(collect_pypi(args.client_dist, args.worker_dist, args.output, args.version), indent=2))
+    elif args.command == "compare":
         compare(args.first, args.second, args.version, args.kind)
     elif args.command == "verify":
         verify_registry(args.dist, args.version, args.kind)

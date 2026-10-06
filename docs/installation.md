@@ -348,7 +348,7 @@ must be prepared for the worker environment before program publication.
 ## Install the worker helper for development
 
 `ledgence-worker` provides the `ledgence.worker` imports used by program code.
-The local package in updated `develop` source has version **0.4.0** and requires
+The local package in current development source has version **0.4.1** and requires
 Python 3.11+. It is not published to PyPI, and the existing `v0.4.0` tag lacks its
 packaging metadata. Use a checkout containing `sdk/python/pyproject.toml`.
 

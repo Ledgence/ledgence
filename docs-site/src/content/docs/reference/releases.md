@@ -73,7 +73,8 @@ Import `from ledgence.client import AsyncClient`. The client requires Python 3.1
 The separate [local worker helper package](/how-to/develop-python-programs)
 provides `ledgence.worker` for application development from updated `develop`
 source. It is not published to PyPI and is absent from the existing `v0.4.0`
-source tag; its local version `0.4.0` does not claim a registry release.
+source tag; its local version `0.4.1` is being prepared for release and does not
+claim registry availability.
 
 ## Rust adapter contracts
 

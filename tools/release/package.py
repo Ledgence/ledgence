@@ -46,6 +46,20 @@ def clean_source(commit=None):
     return current
 
 
+def source_version():
+    """Require all published package versions to agree before building a bundle."""
+    version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    for name, path in (("ledgence-client", "sdk/python-client/pyproject.toml"),
+                       ("ledgence-worker", "sdk/python/pyproject.toml")):
+        try:
+            declared = tomllib.loads((ROOT / path).read_text())["project"]["version"]
+        except FileNotFoundError as error:
+            raise ValueError(f"candidate source lacks the {name} package manifest") from error
+        if declared != version:
+            raise ValueError(f"Rust workspace and {name} package versions must match")
+    return version
+
+
 def archive_tree(source, destination, epoch):
     with destination.open("wb") as output:
         with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as compressed:
@@ -83,9 +97,12 @@ def main():
     if output.exists() or output.is_relative_to(ROOT):
         parser.error("output must be a NEW directory outside checkout")
     commit = clean_source()
+    try:
+        version = source_version()
+    except (OSError, ValueError, KeyError) as error:
+        parser.error(str(error))
     rustc = read("rustc", "-vV")
     target = next(line.removeprefix("host: ") for line in rustc.splitlines() if line.startswith("host: "))
-    version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     local_distribution = args.local_distribution.resolve() if args.local_distribution else None
     local_record = None
     if local_distribution:

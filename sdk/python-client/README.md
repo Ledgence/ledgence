@@ -8,24 +8,27 @@ arm64. Public APIs may evolve before version 1.0.
 
 ## Installation
 
-Install the client version matching your service from
-[PyPI](https://pypi.org/project/ledgence-client/). For the **0.4.0** release,
-use a virtual environment:
+For a version published on [PyPI](https://pypi.org/project/ledgence-client/),
+install the client version matching your service in a virtual environment.
+This package's version is **0.4.1**; check
+[registry availability](https://pypi.org/project/ledgence-client/0.4.1/) before
+using the registry command:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install "ledgence-client==0.4.0"
+python -m pip install "ledgence-client==0.4.1"
 ```
 
-Use Python 3.11 or newer. The 0.4.0 native Ledgence bundles and registry packages
-are published separately with matching versions; see the [release reference](https://docs.ledgence.com/reference/releases).
+Use Python 3.11 or newer. Native Ledgence bundles and registry packages
+are published separately; see the [release reference](https://docs.ledgence.com/reference/releases)
+for verified versions and targets.
 Pin your client version and review release notes before upgrading.
 
-For a locally qualified build, install its wheel:
+For an unreleased checkout or a locally qualified build, install its wheel:
 
 ```sh
-python -m pip install /path/to/ledgence_client-0.4.0-py3-none-any.whl
+python -m pip install /path/to/ledgence_client-0.4.1-py3-none-any.whl
 ```
 
 The client connects to an existing Ledgence service. Follow the

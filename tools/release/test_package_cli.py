@@ -61,5 +61,51 @@ class PackageCliTests(unittest.TestCase):
                 source.assert_not_called()
 
 
+class PackageSourceVersionTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / "source"
+        self.root.mkdir()
+        self.output = Path(self.temporary.name) / "candidate"
+        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.4.1"\n')
+        self.manifests = ("sdk/python-client/pyproject.toml", "sdk/python/pyproject.toml")
+        for path in self.manifests:
+            manifest = self.root / path
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('[project]\nversion = "0.4.1"\n')
+        self.addCleanup(patch.stopall)
+        patch.object(package, "ROOT", self.root).start()
+
+    def test_matching_rust_client_and_worker_versions_are_accepted(self):
+        self.assertEqual(package.source_version(), "0.4.1")
+
+    def test_each_python_version_mismatch_fails_before_build_or_output(self):
+        for path in self.manifests:
+            with self.subTest(manifest=path):
+                manifest = self.root / path
+                manifest.write_text('[project]\nversion = "0.4.0"\n')
+                self.assert_source_rejected("package versions must match")
+                manifest.write_text('[project]\nversion = "0.4.1"\n')
+
+    def test_missing_worker_manifest_fails_before_build_or_output(self):
+        (self.root / "sdk/python/pyproject.toml").unlink()
+        self.assert_source_rejected("lacks the ledgence-worker package manifest")
+
+    def assert_source_rejected(self, message):
+        error = io.StringIO()
+        with patch.object(sys, "argv", ["package.py", "--output", str(self.output), "--headless"]), \
+                patch.object(package, "clean_source", return_value="a" * 40), \
+                patch.object(package, "read") as toolchain, \
+                patch.object(package, "command") as build, contextlib.redirect_stderr(error):
+            with self.assertRaises(SystemExit) as raised:
+                package.main()
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn(message, error.getvalue())
+            toolchain.assert_not_called()
+            build.assert_not_called()
+            self.assertFalse(self.output.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

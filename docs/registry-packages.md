@@ -41,10 +41,10 @@ does not include the separately supplied `ledgence.worker` helper or CPython.
 Ledgence-owned source is MIT; packaged legal notices remain applicable.
 See [dependency policy](dependencies.md).
 
-## Local worker helper package
+## Worker helper release preparation
 
-Updated `develop` source also packages `sdk/python` as **`ledgence-worker`
-0.4.0**, providing `ledgence.worker` for authoring and testing programs in a
+Current source packages `sdk/python` as **`ledgence-worker`
+0.4.1**, providing `ledgence.worker` for authoring and testing programs in a
 Python 3.11+ application environment. It has no runtime dependencies. This
 distribution is **not published to PyPI** and is not part of the published
 package table above. The existing `v0.4.0` tag lacks its packaging metadata.
@@ -56,10 +56,15 @@ There is no name-based registry install for this package yet. It does not instal
 the CLI, services or client. The Rust worker continues to supply its own helper
 at execution; see the [helper guide](../sdk/python/README.md#install-for-local-development).
 
-The remaining sections describe maintainer qualification and publication.
-Installing an existing package does not require these steps. The worker helper
-has a local qualification gate, but the publication procedures below publish
-only the client and Rust API packages.
+The first worker package publication is planned for **0.4.1**, alongside
+`ledgence-client` and the Rust API crates at that same version. Only after the
+worker version is verified on PyPI can application authors use
+`uv add --dev "ledgence-worker==0.4.1"`. The table above continues to describe
+the currently published 0.4.0 packages.
+
+The remaining sections describe maintainer qualification and publication of
+both Python distributions and the two Rust API crates. Installing an existing
+package does not require these steps.
 
 ## Qualification
 
@@ -88,9 +93,9 @@ license and typing files, and tests the installed helper outside the checkout,
 including coexistence with the installed client. It reuses the client's
 hash-reviewed build/runtime wheelhouse for those checks; client dependencies do
 not become worker dependencies. The same CI interpreter/platform matrix runs
-this gate. The registry qualification workflow retains the worker package as a
-separate artifact, and its source gate checks version alignment with the client
-and Rust workspace. These checks do not publish `ledgence-worker` to PyPI.
+this gate. The registry qualification workflow retains each Python package's
+qualified files and evidence, and its source gate checks version alignment with
+the Rust workspace. Qualification alone uploads neither package to PyPI.
 
 The Rust gate selects only the two API crates and uses Cargo's multi-package
 archive verification. Cargo supplies a temporary registry for unpublished
@@ -106,30 +111,36 @@ Run package-gate regressions with:
 
 ```sh
 python3 -m unittest discover -s tools -p 'test_rust_packages.py' -v
+python3 -m unittest discover -s tools -p 'test_python_worker_package.py' -v
 python3 -m unittest discover -s tools/release -p 'test_*.py' -v
 ```
 
 ## Initial registry setup
 
-The packages listed above have already been published. Existing releases use the
-configured package identities; a pending publisher or bootstrap credential is
-only needed when establishing a new package. The setup below documents that
-initial process.
+The client and Rust packages listed above already have published releases.
+The first `ledgence-worker` publication needs its own PyPI project authorization;
+the client's existing publisher does not establish authorization for a new name.
+The setup below documents this initial process.
 
 A maintainer must control the registry accounts and complete their email and
 authentication requirements. Do not commit passwords or API tokens.
 
 For PyPI, configure a [pending trusted publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/):
 
-- Project: `ledgence-client`
+- Project: `ledgence-worker`
 - Repository owner: `Ledgence`
 - Repository: `ledgence`
 - Workflow filename: `publish.yml`
 - Environment: `pypi`
 
 A pending publisher does not reserve the name. After the first upload it becomes
-the project's ordinary trusted publisher. The workflow uses PyPI's official
-publishing action with attestations and no persistent PyPI token.
+the project's ordinary trusted publisher. Keep the existing `ledgence-client`
+publisher configured with the same owner, repository, workflow and environment.
+If establishing both names in a new registry setup, configure a separate pending
+publisher for each project. PyPI supports
+[one publisher identity registered against multiple projects](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
+The workflow publishes both distributions from the same `pypi` job using PyPI's
+official publishing action with attestations and no persistent PyPI token.
 
 [crates.io currently requires an API token for a crate's first publication](https://crates.io/docs/trusted-publishing).
 For the first run, configure a short-lived token with the required publish
@@ -147,19 +158,20 @@ These accounts serve release maintenance. Self-hosted users need no vendor accou
 The manual **Registry packages** workflow, `.github/workflows/publish.yml`,
 defaults to qualification only. Changes to package sources, manifests, helpers
 or publishing gates also trigger artifact qualification on push. On a push, this
-workflow validates the source versions and runs both package gates; the standalone
+workflow validates the source versions and runs both Python gates and the Rust
+package gate; the standalone
 CI, documentation, Console and examples workflows provide their applicable source
 checks without being repeated inside Registry packages. A green package workflow
 alone does not qualify a commit for release.
 
 A manual dispatch, including `publish=false`, runs all four source workflows and
-both package gates against the selected source. Publisher jobs require all of
+both Python gates and the Rust package gate against the selected source. Publisher jobs require all of
 those gates to succeed in that dispatch. No result from another commit or an
 unverified cache authorizes publication. Actions are pinned to commit revisions.
 See [CI qualification](ci.md) for suite coverage and retained timing evidence.
 
 For publication, select the matching annotated version tag, for example
-`v0.4.0`, and set `publish=true`. Rust and Python versions must match that tag,
+`v0.4.1`, and set `publish=true`. Rust and both Python versions must match that tag,
 its commit must be contained in `main`, and checkout must be clean.
 The tag is prepared through the normal tested feature/develop/release Git flow;
 this workflow does not promote branches or create tags.
@@ -174,16 +186,21 @@ branch, dispatch it with GitHub CLI:
 gh workflow run publish.yml --ref develop -f publish=false
 
 # Publish an already qualified, annotated release tag.
-gh workflow run publish.yml --ref v0.4.0 \
+gh workflow run publish.yml --ref v0.4.1 \
   -f publish=true -f registry=both -f crates_auth=trusted
 ```
 
-PyPI receives the exact wheel/sdist retained by the package gate. Cargo repackages
+PyPI receives the exact wheels and source distributions retained by the client
+and worker gates: four files total for the matching version. Both projects must
+authorize this job's trusted publisher before dispatch. Cargo repackages
 and verifies selected crates in dependency order; the package gate must reproduce
 the qualified bytes before publication. After upload, the workflow compares
 registry checksums and downloaded bytes with the qualified distributions, then
-installs into an isolated Python environment or builds a new Cargo consumer
-using registry-only dependencies.
+installs both Python packages into a fresh isolated environment using their
+public registry versions, or builds a new Cargo consumer using registry-only
+dependencies. The Python check verifies `ledgence.client` and `ledgence.worker`
+originate in that environment and share a native namespace. A successful upload
+without these download and install checks is not completed qualification.
 
 Uploads are separate irreversible operations, not a transaction. Before an
 upload, the workflow downloads any existing version artifacts and requires their
