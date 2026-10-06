@@ -46,7 +46,8 @@ portable across them. The initial distribution uses CPython 3.14.
 curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
 ```
 
-Then open a new terminal, or activate the installation in the current one:
+Then open a new Bash/Zsh terminal, or activate the installation in the current
+Bash, Zsh, or POSIX shell:
 
 ```sh
 . "$HOME/.local/share/ledgence/env"
@@ -58,6 +59,22 @@ installer running as a child process cannot change the current shell's
 environment. See [shell setup](#shell-setup) for sh/dash login shells, custom
 prefixes and other shells. Until that release is available, use the working
 0.3.1 instructions below.
+
+After installing a complete release that includes the local kit, start Docker
+with Linux containers and Compose 2.23.1 or newer, then run:
+
+```sh
+ledgence local up
+ledgence local status
+```
+
+Open the Console URL printed by `up`, normally
+`http://127.0.0.1:8080/console/`. The initial stack has a database, orchestrator,
+Console and worker, with no application programs or executions yet. See
+[startup and examples](#start-a-development-distribution) for the exact scope.
+Use `ledgence local down` to stop it while retaining its configuration and data.
+This sequence does not work with the published 0.3.1 executable. When only
+administering an existing API or connecting an MCP client, skip local startup.
 
 ## Install the currently released native CLI
 
@@ -90,7 +107,7 @@ shell identified by `$SHELL`:
   `~/.bash_login`, or `~/.profile`; it falls back to `~/.profile` if none is readable.
 - **Zsh:** `${ZDOTDIR:-$HOME}/.zshrc`. Export a custom `ZDOTDIR` before installing
   so the installer uses it.
-- **sh or dash:** `~/.profile`, which applies to new login shells.
+- **sh, dash or ksh:** `~/.profile`, which applies to new login shells.
 
 Existing profile content is preserved, and reinstalling does not append a
 duplicate setup block. Unreadable, unwritable, or nonregular profiles are

@@ -17,7 +17,8 @@ After a release publishes the installer, install Ledgence with:
 curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
 ```
 
-Then open a new terminal, or activate Ledgence in the current one:
+Then open a new Bash/Zsh terminal, or activate Ledgence in the current
+Bash, Zsh, or POSIX shell:
 
 ```sh
 . "$HOME/.local/share/ledgence/env"
@@ -31,12 +32,39 @@ A failed download or verification leaves the previously selected installation
 in place. It does not install Docker, a host Python interpreter, or the Python
 client into your application.
 
+### Open your local Console
+
+After installing a **complete release that includes the matching local kit**,
+start Docker with Linux containers and Compose **2.23.1 or newer**, then run:
+
+```sh
+ledgence local up
+ledgence local status
+```
+
+Open the Console URL printed by `up`, normally
+[http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/). The command starts
+PostgreSQL, runs migrations, and starts the orchestrator with Console and a worker.
+It waits for readiness before returning. No Rust, Node, or host Python is needed
+for this container stack.
+
+The first Console starts without application programs or executions. Follow the
+[local distribution guide](/how-to/run-local-distribution#programs-examples-and-direct-compose)
+for prepared examples and program compatibility. To stop the stack and preserve
+its data, run `ledgence local down`; the next `ledgence local up` reuses its saved
+configuration. Installing a new CLI does not upgrade an existing stack.
+
+This path is **not available with 0.3.1**. Until the complete release is published,
+use the [released source tutorial](/tutorials/run-locally). If you only need to
+connect an MCP client or administer an existing API, skip local startup and use
+the [MCP setup](/how-to/connect-mcp) or [CLI reference](/reference/cli).
+
 ### Shell setup and installer options
 
 The installer adds a setup block to your shell profiles by default, using
 `$SHELL` to select Bash (`~/.bashrc` and the first existing readable login profile
 from `~/.bash_profile`, `~/.bash_login`, `~/.profile`, falling back to
-`~/.profile`), Zsh (`${ZDOTDIR:-$HOME}/.zshrc`), or sh/dash (`~/.profile`, for new
+`~/.profile`), Zsh (`${ZDOTDIR:-$HOME}/.zshrc`), or sh/dash/ksh (`~/.profile`, for new
 login shells). Export a custom `ZDOTDIR` before installing. Existing content is
 preserved, and reinstalling does not append duplicate setup blocks. Unreadable,
 unwritable, or nonregular profiles are preserved with a warning to configure the
@@ -64,6 +92,19 @@ instructions remain the supported path without a source checkout.
 resolves the latest stable release once. Pass `--prefix /absolute/path` for a
 different installation location, or `--no-modify-path` to configure `PATH`
 yourself. These options can be supplied to a downloaded copy of `install.sh`.
+
+### Troubleshoot installation
+
+| Symptom | What to check |
+| --- | --- |
+| The installer URL returns `404`. | Check the [release assets](https://github.com/Ledgence/ledgence/releases/latest). Published 0.3.1 has no `install.sh`; use the manual steps below until an installer is published. |
+| `ledgence: command not found` after installation. | In Bash, Zsh, or a POSIX shell, source the generated environment file above. For a custom prefix use the path printed by the installer. Other shells need their own `PATH` setup. |
+| A previous executable still runs. | Run `command -v ledgence` and `ledgence --version`. Source the new environment file so its `bin` directory takes precedence. The installer preserves unrelated executables. |
+| `local` is an unknown command. | The published 0.3.1 CLI does not have it. Use a matching development build and qualified kit, or wait for a release containing them. |
+| `local up` reports no bundled local distribution. | Keep the entire native bundle, including `local/`, together. A source-built CLI needs an explicit `--distribution` pointing to a qualified kit; `deploy/distribution` is only a packaging template. |
+
+For a failed Docker startup, follow the
+[local status and logs procedure](/how-to/run-local-distribution#inspect-stop-and-restart).
 
 ## Before you start
 
