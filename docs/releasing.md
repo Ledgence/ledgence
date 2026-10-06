@@ -6,6 +6,14 @@ upload an artifact or declare a stable public API. Those are separate release
 operations. Embedded Rust and SDK package versions remain the committed versions;
 `rc.N` identifies the candidate bundle and its provenance.
 
+For the digest-pinned local stack and installer, follow
+[container distribution](container-distribution.md). Its workflow qualifies both
+container architectures, publishes corresponding sources before images, and
+produces the kit that native packaging includes under `local/`. Supply
+`--local-distribution DIRECTORY` locally, or `local_distribution_run` in Candidate
+packaging. Leave a new public release marked as a prerelease until every native
+bundle, package, checksum, installer and kit has passed its download checks.
+
 ## Build and inspect
 
 Use the repository-pinned Rust toolchain, a supported host CPython 3.11–3.14,

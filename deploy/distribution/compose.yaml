@@ -1,0 +1,60 @@
+# Runtime image is replaced with the qualified digest during packaging.
+# A Compose project owns its volumes. One worker owns its cache exclusively.
+x-runtime: &runtime
+  image: "@LEDGENCE_IMAGE@"
+  init: true
+  stop_grace_period: 65s
+  environment: &environment
+    DATABASE_URL: postgres://ledgence:ledgence-local-only@postgres:5432/ledgence
+    RUST_LOG: info
+services:
+  postgres:
+    image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    environment:
+      POSTGRES_USER: ledgence
+      POSTGRES_PASSWORD: ledgence-local-only
+      POSTGRES_DB: ledgence
+    volumes: [postgres:/var/lib/postgresql]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U ledgence -d ledgence]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  migrate:
+    <<: *runtime
+    command: [ledgence, orchestrator, migrate]
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+  orchestrator:
+    <<: *runtime
+    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console]
+    ports: ["127.0.0.1:${LEDGENCE_PORT:-8080}:8080"]
+    volumes: [programs:/programs:ro]
+    configs:
+      - source: instance
+        target: /opt/ledgence/instance.json
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python3, /opt/ledgence/local/ready.py, "http://127.0.0.1:8080/health/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  worker:
+    <<: *runtime
+    command: [ledgence, worker, connect, --server, "http://orchestrator:8080", --tenant, acme, --namespace, demo, --queue, demo, --store, /programs, --cache, /cache, --python, /usr/local/bin/python3, --runner, /opt/ledgence/runtime/ledgence/worker/bootstrap.py, --concurrency, "${LEDGENCE_CONCURRENCY:-1}"]
+    volumes: [programs:/programs:ro, cache:/cache]
+    depends_on:
+      orchestrator: {condition: service_healthy}
+    restart: unless-stopped
+volumes:
+  postgres:
+  programs:
+  cache:
+configs:
+  instance:
+    content: |
+      {"instance_id":"ledgence-local","name":"Local instance","scope":{"tenant_id":"acme","namespace":"demo"},"suggested_queues":["demo"],"allowed_origins":["http://127.0.0.1:${LEDGENCE_PORT:-8080}","http://localhost:${LEDGENCE_PORT:-8080}"]}

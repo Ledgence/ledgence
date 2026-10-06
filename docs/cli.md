@@ -5,7 +5,14 @@ Ledgence 0.3.1 builds one public executable, `ledgence`, from the
 orchestrator operation, and task administration under command groups. Worker and
 orchestrator processes still run separately and can run on different hosts.
 
-This replaces the command layout in the historical `v0.1.1` source tag and
+**Development availability:** the `local` command group and installed-resource
+defaults described below are new source features. The published **0.3.1**
+executable does not include them. Follow [installation and local startup](installation.md)
+to distinguish current release instructions from development builds; an existing
+0.3.1 installation continues to work with its explicit paths and source Compose
+configuration.
+
+The unified executable replaces the command layout in the historical `v0.1.1` source tag and
 native `0.1.0` bundle. Those artifacts retain their original executables and
 commands; use their bundled documentation when operating them.
 
@@ -19,6 +26,7 @@ cargo build -p ledgence-cli --locked
 ./target/debug/ledgence worker --help
 ./target/debug/ledgence orchestrator --help
 ./target/debug/ledgence task --help
+./target/debug/ledgence local --help
 ```
 
 Use `cargo run --locked -p ledgence-cli -- COMMAND ...` to run directly from the
@@ -34,6 +42,90 @@ orchestrator commands, or `--all-features` to include every supported integratio
 These are build features; telemetry export and SQS operation still require
 explicit runtime configuration. See [observability](observability.md) and
 [dispatch delivery](dispatch-delivery.md).
+
+## Local stack lifecycle
+
+Available in development builds. A complete installation supplies a versioned
+`local/` distribution next to `bin/`; a source build can use `--distribution DIR`
+to select a separately qualified kit. Docker Engine or Docker Desktop must
+already be running Linux containers, with Docker Compose 2.23.1 or newer.
+
+```sh
+ledgence local up
+ledgence local status
+ledgence local logs --follow --service worker
+ledgence local down
+```
+
+These commands use a local Docker context. They do not install Docker, build the
+runtime image from source, or install the Python client. The pinned image
+contains the worker's CPython runtime. Remote Docker endpoints are rejected;
+operate a remote engine with the kit's Compose files directly instead.
+
+On first startup, choose any nondefault settings explicitly:
+
+```sh
+ledgence local up --directory "$HOME/.local/share/ledgence/local-preview" \
+  --distribution /absolute/path/to/qualified-local-kit \
+  --port 8086 --concurrency 2 --context desktop-linux
+ledgence local status --directory "$HOME/.local/share/ledgence/local-preview"
+ledgence local down --directory "$HOME/.local/share/ledgence/local-preview"
+```
+
+Use a context name from your own Docker installation; `desktop-linux` above is
+an example. `--concurrency` accepts 1–1024 and controls both task consumers and
+the process pool. The default is one. `--port` defaults to 8080; API and Console
+share that port. `--directory` defaults to `$XDG_DATA_HOME/ledgence/local` when
+set, otherwise `$HOME/.local/share/ledgence/local`.
+
+| Command | Behavior |
+| --- | --- |
+| `local up` | Copy and verify the kit on first use, start the saved project, and wait for Compose readiness. Print the API/Console URLs, scope, image, context and actual worker platform. |
+| `local status` | Display all service states and the saved installation settings without starting containers. |
+| `local logs` | Show the most recent 100 lines per service. Use `--tail 1..10000`, `--follow`, or `--service postgres\|migrate\|orchestrator\|worker`. |
+| `local down` | Stop that project with a 65-second grace period, preserving its database, program store, cache, and configuration. |
+
+The first successful initialization saves a unique Compose project identity,
+the kit version and immutable image digest, Docker context/endpoint, port, and
+concurrency. Subsequent commands reuse those settings. Updating the native CLI
+does not update an existing stack, and supplying different settings or another
+distribution does not silently migrate it. Use a separate directory for a
+separate installation; use a planned upgrade procedure for retained data.
+
+A port conflict before initialization creates no installation, so the same
+directory can be retried with another `--port`. If Compose fails after
+initialization, state remains available for `status`, `logs`, and another `up`
+with the same options. Do not delete its state or volumes to reconcile a failed
+startup. Following logs does not prevent another terminal from stopping the
+stack.
+
+The basic kit starts PostgreSQL, its one-shot migrator, the orchestrator serving
+Console, and one worker. Its instance uses tenant `acme`, namespace `demo`, and
+queue `demo`. It does not publish application programs or start a callback
+receiver. The copied kit's `README.md` documents optional examples and direct
+Compose operation. [Installation details](installation.md) explain state
+locations, platform support and the existing source deployment route.
+
+## Installed resources
+
+Development builds locate resources relative to the actual executable, resolving
+symlink launchers first. Move the complete native bundle together; copying only
+`bin/ledgence` omits its runtime helper, Console assets and legal notices.
+
+- `worker run` and `worker connect` use the installed
+  `runtime/ledgence/worker/bootstrap.py` when `--runner` is omitted and that file
+  exists. An explicit `--runner` always takes precedence. Source builds without
+  that layout still require the flag.
+- `orchestrator serve --instance-config FILE` uses the installed `console/`
+  assets when available and `--console-dir` is omitted. An explicit
+  `--console-dir` takes precedence and still requires instance configuration.
+- Without `--instance-config`, `serve` remains headless; discovering installed
+  Console files does not enable it. If the bundle lacks Console, the existing
+  explicit configuration rules continue to apply.
+
+Published 0.3.1 bundles retain their original explicit `--runner` and
+`--console-dir` instructions. The host CPython interpreter remains separately
+supplied for native worker execution; these defaults do not install it.
 
 ## Command migration
 

@@ -1,0 +1,235 @@
+name: Container distribution
+
+on:
+  push:
+    paths:
+      - '.github/workflows/images.yml'
+      - 'deploy/**'
+      - 'crates/**'
+      - 'console/**'
+      - 'sdk/python/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'tools/release/**'
+      - 'tools/check-distribution.py'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish qualified images on the matching annotated release tag
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-distribution-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  REGISTRY_IMAGE: registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - id: source
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          args=()
+          if [[ "$PUBLISH" == true ]]; then args+=(--publish); fi
+          version=$(python tools/release/registry.py source "${args[@]}")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  quality:
+    if: inputs.publish
+    needs: source
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    name: Qualify image (${{ matrix.arch }})
+    needs: source
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      VERSION: ${{ needs.source.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        with:
+          version: v0.37.1
+          driver-opts: image=moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - name: Install registry transfer tool (CI only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes skopeo
+          mkdir -p "$RUNNER_TEMP/oci"
+          skopeo --version > "$RUNNER_TEMP/oci/transfer-tool.txt"
+      - name: Build one native image with retained provenance and SBOM
+        run: |
+          test "$(docker info --format '{{.Architecture}}')" = "$ARCH" || \
+            { test "$ARCH" = amd64 && test "$(docker info --format '{{.Architecture}}')" = x86_64; } || \
+            { test "$ARCH" = arm64 && test "$(docker info --format '{{.Architecture}}')" = aarch64; }
+          docker buildx build --platform "linux/$ARCH" \
+            --file deploy/local/Dockerfile \
+            --build-arg "SOURCE_REVISION=$GITHUB_SHA" --build-arg SOURCE_DIRTY=false \
+            --build-arg "VERSION=$VERSION" \
+            --provenance=mode=max \
+            --attest 'type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9' \
+            --output "type=oci,dest=$RUNNER_TEMP/oci/image.tar" .
+          python tools/release/oci.py --archive "$RUNNER_TEMP/oci/image.tar" \
+            --version "$VERSION" --source "$GITHUB_SHA" --architecture "$ARCH" \
+            --output "$RUNNER_TEMP/oci/qualification.json"
+      - name: Import exact archive to an owned loopback registry
+        run: |
+          docker run --detach --name ledgence-qualification-registry \
+            --publish 127.0.0.1:5000:5000 "$REGISTRY_IMAGE"
+          for _attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ > /dev/null
+          skopeo copy --all --preserve-digests --dest-tls-verify=false \
+            "oci-archive:$RUNNER_TEMP/oci/image.tar" docker://127.0.0.1:5000/ledgence:qualified
+          digest=$(python -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/oci/qualification.json"))["index_digest"])')
+          echo "QUALIFIED_IMAGE=127.0.0.1:5000/ledgence@$digest" >> "$GITHUB_ENV"
+      - name: Exercise the standalone kit without checkout or build fallback
+        run: |
+          docker pull "$QUALIFIED_IMAGE"
+          container=$(docker create "$QUALIFIED_IMAGE")
+          docker cp "$container:/usr/local/bin/ledgence" "$RUNNER_TEMP/host-ledgence"
+          docker rm "$container"
+          python tools/release/local_distribution.py --version "$VERSION" \
+            --image "$QUALIFIED_IMAGE" --platform "linux/$ARCH" --output "$RUNNER_TEMP/local-kit"
+          python tools/check-distribution.py \
+            --directory "$RUNNER_TEMP/local-kit/ledgence-$VERSION-local" \
+            --evidence "$RUNNER_TEMP/oci/acceptance" --cli "$RUNNER_TEMP/host-ledgence"
+      - name: Retain exact corresponding sources for the runtime components
+        run: |
+          python deploy/distribution/image_sources.py --image "$QUALIFIED_IMAGE" \
+            --platform "linux/$ARCH" --output "$RUNNER_TEMP/oci/sources"
+      - name: Record complete artifact checksums
+        working-directory: ${{ runner.temp }}/oci
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root = Path('.')
+          with (root / 'SHA256SUMS').open('x') as checks:
+              for path in sorted(root.rglob('*')):
+                  if path.is_file() and path != root / 'SHA256SUMS':
+                      with path.open('rb') as stream:
+                          digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                      checks.write(f'{digest}  {path.as_posix()}\n')
+          PY
+      - name: Retain qualified bytes and acceptance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: oci-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/oci/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Remove only the registry owned by this job
+        if: always()
+        run: docker rm --force ledgence-qualification-registry 2>/dev/null || true
+
+  publish:
+    name: Promote qualified container artifacts
+    if: inputs.publish
+    needs: [source, quality, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: docker-hub
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.source.outputs.version }}
+      DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || 'ledgence' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - run: python tools/release/registry.py source --publish
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        with:
+          version: v0.37.1
+          driver-opts: image=moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: oci-linux-*
+          path: ${{ runner.temp }}/qualified
+      - name: Install registry transfer tool (CI only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes skopeo
+      - name: Verify both artifacts before registry authentication
+        run: |
+          python tools/release/publish_images.py --directory "$RUNNER_TEMP/qualified" \
+            --version "$VERSION" --source "$GITHUB_SHA" --namespace "$DOCKERHUB_NAMESPACE" \
+            --output "$RUNNER_TEMP/container-release" --check-only
+      - name: Authenticate through standard input
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" && test -n "$DOCKERHUB_TOKEN"
+          printf '%s' "$DOCKERHUB_TOKEN" | skopeo login --username "$DOCKERHUB_USERNAME" --password-stdin docker.io
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin docker.io
+      - name: Copy tested bytes, publish manifest and assemble pinned local kit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tools/release/publish_images.py --directory "$RUNNER_TEMP/qualified" \
+            --version "$VERSION" --source "$GITHUB_SHA" --namespace "$DOCKERHUB_NAMESPACE" \
+            --output "$RUNNER_TEMP/container-release"
+      - name: Retain release kit, installer and corresponding sources
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-release
+          path: ${{ runner.temp }}/container-release/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Retain the small local kit for native bundle assembly
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: local-distribution
+          path: ${{ runner.temp }}/container-release/ledgence-${{ needs.source.outputs.version }}-local/
+          if-no-files-found: error
+          retention-days: 30
+      - name: End registry sessions
+        if: always()
+        run: |
+          skopeo logout docker.io || true
+          docker logout docker.io || true

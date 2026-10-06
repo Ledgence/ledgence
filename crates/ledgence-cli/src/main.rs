@@ -2,6 +2,8 @@
 
 mod approvals;
 mod args;
+mod bundle;
+mod local;
 mod logging;
 mod mcp;
 mod routing;
@@ -33,8 +35,13 @@ fn main() -> ExitCode {
         Ok(routing::Route::Version) => {
             write_stdout(concat!("ledgence ", env!("CARGO_PKG_VERSION"), "\n"))
         }
-        Ok(routing::Route::Worker(arguments)) => ledgence_worker::entrypoint(arguments),
-        Ok(routing::Route::Orchestrator(arguments)) => ledgence_orchestrator::entrypoint(arguments),
+        Ok(routing::Route::Worker(arguments)) => {
+            ledgence_worker::entrypoint(bundle::worker_arguments(arguments))
+        }
+        Ok(routing::Route::Orchestrator(arguments)) => {
+            ledgence_orchestrator::entrypoint(bundle::orchestrator_arguments(arguments))
+        }
+        Ok(routing::Route::Local(arguments)) => local::run(arguments),
         Ok(routing::Route::Admin(arguments)) => run_admin(arguments),
         Ok(routing::Route::Mcp(arguments)) => mcp::run(arguments),
         Err(error) => diagnose(error, None),
