@@ -5,6 +5,55 @@ description: Download and verify Ledgence 0.3.1 for Linux x86_64 or macOS Apple 
 
 Ledgence 0.3.1 native bundles contain one `ledgence` executable, the Python worker helper, the client wheel, and Console assets. Choose the archive for your host. For a complete local deployment built from source, follow [Run Ledgence locally](/tutorials/run-locally).
 
+## Next release: one-line installation
+
+**The one-line installer is being prepared for the next release. Published
+0.3.1 does not include an `install.sh` download or the new `ledgence local`
+commands.** The manual installation below works with the published assets today.
+
+After a release publishes the installer, run this one line in Bash or Zsh to
+install Ledgence and make it available in the current terminal and future
+terminals:
+
+```sh
+(set -o pipefail; curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh) && . "$HOME/.local/share/ledgence/env"
+```
+
+If you will open a new Bash or Zsh terminal, or start a new sh/dash login shell,
+this shorter command is sufficient once the installer is published:
+
+```sh
+curl -fsSL https://github.com/Ledgence/ledgence/releases/latest/download/install.sh | sh
+```
+
+The installer adds a setup block to your shell profiles by default, using
+`$SHELL` to select Bash (`~/.bashrc` and the first existing readable login profile
+from `~/.bash_profile`, `~/.bash_login`, `~/.profile`, falling back to
+`~/.profile`), Zsh (`${ZDOTDIR:-$HOME}/.zshrc`), or sh/dash (`~/.profile`, for new
+login shells). Export a custom `ZDOTDIR` before installing. Existing content is
+preserved, and reinstalling does not append duplicate setup blocks. Unreadable,
+unwritable, or nonregular profiles are preserved with a warning to configure the
+shell manually. Other shells receive manual setup instructions.
+
+The generated environment file moves the installation's `bin` directory to the
+front of `PATH`, removing duplicate entries for that directory. Sourcing that
+file at the end of the first command makes
+Ledgence available immediately: a child installer process cannot update the
+current terminal's environment. Pass `--no-modify-path` to skip profile changes.
+For `--prefix /absolute/path`, source `/absolute/path/share/ledgence/env` instead;
+the installer prints the exact command.
+
+From a development source checkout containing `install.sh`, the installer can
+already install the released 0.3.1 executable:
+
+```sh
+sh install.sh --version 0.3.1 && . "$HOME/.local/share/ledgence/env"
+```
+
+That command provides the released 0.3.1 capabilities. It does not add `local`
+commands or the development build's resource defaults. The following manual
+instructions remain the supported path without a source checkout.
+
 ## Before you start
 
 The native targets are **Linux x86_64/glibc**, built and qualified on Ubuntu 24.04, and **macOS arm64**. Other Linux distributions need compatible host libraries; inspect `candidate-provenance.json` for the archive's actual dynamic requirements. CPython 3.11–3.14, PostgreSQL, brokers, and system libraries are supplied separately. A program's manifest must match its worker interpreter's exact Python major/minor and platform.

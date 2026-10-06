@@ -6,6 +6,7 @@ import hashlib
 import io
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ INSTALLER = ROOT / "install.sh"
 BASE_URL = "https://releases.example.test/releases"
 LINUX = "x86_64-unknown-linux-gnu"
 MACOS = "aarch64-apple-darwin"
+INSTALLER_URL = "https://releases.example.test/install.sh"
 
 
 class InstallerTests(unittest.TestCase):
@@ -36,7 +38,7 @@ class InstallerTests(unittest.TestCase):
         # requirement. Only the curl fixture itself uses an absolute Python path.
         # GNU tar invokes gzip externally for .tar.gz archives; keep that real
         # utility on PATH as well (macOS bsdtar handles gzip internally).
-        for name in ("tar", "gzip", "awk", "sed", "sort", "find", "cmp", "mktemp",
+        for name in ("sh", "tar", "gzip", "awk", "sed", "sort", "find", "cmp", "mktemp",
                      "mkdir", "mv", "rm", "rmdir", "ln", "readlink", "chmod"):
             source = shutil.which(name)
             self.assertIsNotNone(source, name)
@@ -53,9 +55,12 @@ from pathlib import Path
 import shutil
 import sys
 args = sys.argv[1:]
+url = args[-1]
+if url == os.environ.get("TEST_INSTALLER_URL"):
+    sys.stdout.buffer.write(Path(os.environ["TEST_INSTALLER_CONTENT"]).read_bytes())
+    raise SystemExit(int(os.environ.get("TEST_INSTALLER_CURL_EXIT", "0")))
 assert "--proto" in args and args[args.index("--proto") + 1] == "=https"
 assert "--proto-redir" in args and args[args.index("--proto-redir") + 1] == "=https"
-url = args[-1]
 base = os.environ["TEST_BASE_URL"]
 if "--head" in args:
     print(os.environ.get("TEST_LATEST_URL", base + "/tag/v0.3.1"), end="")
@@ -81,6 +86,7 @@ shutil.copyfile(source, destination)
         self.env = {
             **os.environ,
             "HOME": str(self.home),
+            "SHELL": "/bin/sh",
             "PATH": str(self.commands),
             "TEST_RELEASES": str(self.fixtures),
             "TEST_BASE_URL": BASE_URL,
@@ -88,7 +94,9 @@ shutil.copyfile(source, destination)
             "TEST_ARCH": "x86_64",
             "TEST_GLIBC": "yes",
         }
-        for key in ("TEST_DOWNLOAD_FAIL", "TEST_LATEST_URL", "TEST_REPLACE_LAUNCHER"):
+        for key in ("TEST_DOWNLOAD_FAIL", "TEST_LATEST_URL", "TEST_REPLACE_LAUNCHER",
+                    "TEST_INSTALLER_URL", "TEST_INSTALLER_CONTENT", "TEST_INSTALLER_CURL_EXIT",
+                    "ZDOTDIR", "ENV", "BASH_ENV", "CDPATH"):
             self.env.pop(key, None)
         self.make_release()
 
@@ -145,6 +153,31 @@ shutil.copyfile(source, destination)
     def launcher(self):
         return self.prefix / "bin/ledgence"
 
+    def environment_file(self):
+        return self.prefix / "share/ledgence/env"
+
+    def shell_output(self, code, *, shell="/bin/sh", startup=False, env=None):
+        options = ["-c"]
+        if startup:
+            options = ["--noprofile", "-ic"] if Path(shell).name == "bash" else ["-d", "-ic"]
+        result = subprocess.run([shell, *options, code], env=env or self.env,
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result.stdout
+
+    def piped_install(self, shell, *, content=None, curl_exit=0):
+        # Serve the real installer through the same curl | sh shape as the docs,
+        # changing only its release endpoint to the offline fixtures.
+        script = self.directory / "served-install.sh"
+        script.write_text((content if content is not None else INSTALLER.read_text()).replace(
+            "https://github.com/Ledgence/ledgence/releases", BASE_URL))
+        env = {**self.env, "SHELL": shell, "TEST_INSTALLER_URL": INSTALLER_URL,
+               "TEST_INSTALLER_CONTENT": str(script), "TEST_INSTALLER_CURL_EXIT": str(curl_exit)}
+        command = ('(set -o pipefail; curl -fsSL "$TEST_INSTALLER_URL" | sh) '
+                   '&& . "$HOME/.local/share/ledgence/env" && ledgence --version')
+        return subprocess.run([shell, "-c", command], env=env,
+                              capture_output=True, text=True, timeout=20)
+
     def assert_installed(self, version="0.3.1", target=LINUX):
         launcher = self.launcher()
         self.assertTrue(launcher.is_symlink())
@@ -161,8 +194,11 @@ shutil.copyfile(source, destination)
     def test_latest_stable_complete_bundle(self):
         result = self.run_installer()
         self.assert_installed()
-        self.assertIn("export PATH=", result.stdout)
-        self.assertFalse((self.home / ".profile").exists())
+        self.assertTrue(self.environment_file().is_file())
+        self.assertIn(str(self.environment_file()), result.stdout)
+        self.assertTrue((self.home / ".profile").is_file())
+        self.assertEqual(self.shell_output('. "$HOME/.profile"; ledgence --version'),
+                         "ledgence 0.3.1\n")
 
     def test_explicit_version_and_repeat_install(self):
         self.run_installer("--version", "v0.3.1", "--no-modify-path")
@@ -182,26 +218,69 @@ shutil.copyfile(source, destination)
     def test_failed_upgrade_preserves_active_installation(self):
         self.run_installer()
         old = self.assert_installed()
+        environment = self.environment_file().read_bytes()
+        profile = (self.home / ".profile").read_bytes()
         self.make_release("0.3.2")
         self.env["TEST_DOWNLOAD_FAIL"] = f"ledgence-0.3.2-{LINUX}.tar.gz"
         self.run_installer("--version", "0.3.2", expected=1)
         self.assertEqual(self.launcher().resolve(), old / "bin/ledgence")
         self.assertFalse((self.prefix / "share/ledgence/.install-lock").exists())
+        self.assertEqual(self.environment_file().read_bytes(), environment)
+        self.assertEqual((self.home / ".profile").read_bytes(), profile)
 
-    def test_prefix_spaces_and_quotes_produces_valid_path_command(self):
-        self.prefix = self.directory / "user's custom prefix"
+    def test_prefix_shell_characters_produce_valid_environment_and_profiles(self):
+        self.prefix = self.directory / "user's custom $HOME `uname` \\ prefix"
         result = self.run_installer("--prefix", str(self.prefix))
         self.assert_installed()
-        export = next(line.strip() for line in result.stdout.splitlines() if "export PATH=" in line)
-        actual = subprocess.check_output(
-            ["/bin/sh", "-c", export + '; printf "%s" "$PATH"'], env={"PATH": "/usr/bin"}, text=True)
-        self.assertEqual(actual, f"{self.prefix}/bin:/usr/bin")
+        source = next(line.strip() for line in result.stdout.splitlines()
+                      if line.strip().startswith(". "))
+        actual = self.shell_output(source + '; printf "%s" "$PATH"')
+        self.assertEqual(actual, f"{self.prefix}/bin:{self.commands}")
+        self.assertEqual(self.shell_output('. "$HOME/.profile"; ledgence --version'),
+                         "ledgence 0.3.1\n")
 
     def test_path_already_present(self):
         self.env["PATH"] = f"{self.prefix}/bin:{self.commands}"
         result = self.run_installer()
-        self.assertNotIn("export PATH=", result.stdout)
         self.assertIn("Run: ledgence --help", result.stdout)
+        self.assertEqual(self.shell_output('. "$HOME/.local/share/ledgence/env"; printf "%s" "$PATH"'),
+                         self.env["PATH"])
+
+    def test_environment_handles_empty_and_unset_path(self):
+        self.run_installer()
+        for setup in ("PATH=", "unset PATH"):
+            with self.subTest(setup=setup):
+                self.assertEqual(self.shell_output(setup + '; . "$HOME/.local/share/ledgence/env"; '
+                                                   'printf "%s" "$PATH"'), str(self.prefix / "bin"))
+
+    def test_environment_removes_only_exact_bin_components(self):
+        self.run_installer()
+        bin_dir = str(self.prefix / "bin")
+        cases = (
+            ([str(self.commands), bin_dir], [bin_dir, str(self.commands)]),
+            ([str(self.commands), bin_dir, "/other/bin"], [bin_dir, str(self.commands), "/other/bin"]),
+            (["", bin_dir, "", str(self.commands), ""], [bin_dir, "", "", str(self.commands), ""]),
+            ([bin_dir, bin_dir], [bin_dir]),
+            ([bin_dir + "ary", bin_dir + "-suffix", bin_dir], [bin_dir, bin_dir + "ary", bin_dir + "-suffix"]),
+        )
+        for initial, expected in cases:
+            with self.subTest(initial=initial):
+                actual = self.shell_output('. "$HOME/.local/share/ledgence/env"; printf "%s" "$PATH"',
+                                           env={**self.env, "PATH": ":".join(initial)})
+                self.assertEqual(actual.split(":"), expected)
+
+    def test_repeated_environment_after_other_path_hooks_stays_unique(self):
+        self.run_installer()
+        other_prefix = self.directory / "second installation"
+        self.run_installer("--prefix", str(other_prefix))
+        actual = self.shell_output('. "$HOME/.local/share/ledgence/env"; '
+                                   'PATH="/other/bin:$PATH"; '
+                                   '. "$SECOND_ENV"; '
+                                   '. "$HOME/.local/share/ledgence/env"; '
+                                   'printf "%s" "$PATH"',
+                                   env={**self.env, "SECOND_ENV": str(other_prefix / "share/ledgence/env")})
+        self.assertEqual(actual.split(":"), [str(self.prefix / "bin"), str(other_prefix / "bin"),
+                                               "/other/bin", str(self.commands)])
 
     def test_earlier_cli_on_path_requires_prepend_even_if_install_bin_present(self):
         self.write_command("ledgence", "#!/bin/sh\nprintf 'other cli\\n'\n")
@@ -209,7 +288,282 @@ shutil.copyfile(source, destination)
         result = self.run_installer()
         self.assert_installed()
         self.assertIn("takes precedence on PATH", result.stdout)
-        self.assertIn("export PATH=", result.stdout)
+        actual = self.shell_output('. "$HOME/.local/share/ledgence/env"; '
+                                   'printf "%s\\n" "$PATH"; '
+                                   '. "$HOME/.local/share/ledgence/env"; '
+                                   'ledgence --version; printf "%s" "$PATH"')
+        lines = actual.splitlines()
+        self.assertEqual(lines[0], lines[2])
+        self.assertEqual(lines[1], "ledgence 0.3.1")
+        self.assertEqual(lines[0].split(":"), [str(self.prefix / "bin"), str(self.commands)])
+
+    def test_profile_guard_preserves_content_and_is_added_once(self):
+        profile = self.home / ".profile"
+        for original in (b"# user's existing settings\n", b"# user's existing settings"):
+            with self.subTest(final_newline=original.endswith(b"\n")):
+                profile.write_bytes(original)
+                self.run_installer()
+                configured = profile.read_bytes()
+                self.assertTrue(configured.startswith(original + (b"" if original.endswith(b"\n") else b"\n")))
+                appended = configured[len(original):].decode()
+                statements = [line for line in appended.splitlines()
+                              if line.strip() and not line.lstrip().startswith("#")]
+                self.assertEqual(len(statements), 1, appended)
+                self.assertIn(str(self.environment_file()), statements[0])
+                self.run_installer()
+                self.assertEqual(profile.read_bytes(), configured)
+        self.environment_file().unlink()
+        self.assertEqual(self.shell_output('. "$HOME/.profile"; printf alive'), "alive")
+
+    def test_profile_symlink_and_target_are_preserved(self):
+        target = self.directory / "shared profile"
+        target.write_text("# managed dotfiles\n")
+        profile = self.home / ".profile"
+        profile.symlink_to(target)
+        link_inode = profile.lstat().st_ino
+        target_inode = target.stat().st_ino
+        self.run_installer()
+        self.assertEqual(profile.lstat().st_ino, link_inode)
+        self.assertEqual(profile.readlink(), target)
+        self.assertEqual(target.stat().st_ino, target_inode)
+        self.assertTrue(target.read_text().startswith("# managed dotfiles\n"))
+        self.assertEqual(self.shell_output('. "$HOME/.profile"; ledgence --version'),
+                         "ledgence 0.3.1\n")
+
+    def test_bash_configures_interactive_and_first_existing_login_profile(self):
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("host lacks bash")
+        self.env["SHELL"] = bash
+        names = (".bash_profile", ".bash_login", ".profile")
+        for first in range(len(names)):
+            with self.subTest(login_profile=names[first]):
+                for name in (*names, ".bashrc"):
+                    (self.home / name).unlink(missing_ok=True)
+                original = {}
+                for name in names[first:]:
+                    original[name] = f"# existing {name}\n".encode()
+                    (self.home / name).write_bytes(original[name])
+                bashrc = self.home / ".bashrc"
+                bashrc.write_text("export SHELL_SETUP_VALUE=kept")
+                self.run_installer()
+                self.assertTrue(bashrc.read_text().startswith("export SHELL_SETUP_VALUE=kept\n"))
+                self.assertNotEqual((self.home / names[first]).read_bytes(), original[names[first]])
+                for name in names[first + 1:]:
+                    self.assertEqual((self.home / name).read_bytes(), original[name])
+                for name in names[:first]:
+                    self.assertFalse((self.home / name).exists())
+                self.assertEqual(self.shell_output('printf "%s\\n" "$SHELL_SETUP_VALUE"; ledgence --version',
+                                                   shell=bash, startup=True), "kept\nledgence 0.3.1\n")
+                self.assertEqual(self.shell_output(f'. "$HOME/{names[first]}"; ledgence --version',
+                                                   shell=bash), "ledgence 0.3.1\n")
+
+    def test_bash_creates_profile_when_no_login_profile_exists(self):
+        self.env["SHELL"] = "/bin/bash"
+        self.run_installer()
+        self.assertTrue((self.home / ".bashrc").is_file())
+        self.assertTrue((self.home / ".profile").is_file())
+        self.assertFalse((self.home / ".bash_profile").exists())
+        self.assertFalse((self.home / ".bash_login").exists())
+
+    def test_zsh_startup_respects_zdotdir(self):
+        zsh = shutil.which("zsh")
+        if not zsh:
+            self.skipTest("host lacks zsh")
+        self.env["SHELL"] = zsh
+        zdotdir = self.directory / "zsh user's $config `uname` \\ directory"
+        zdotdir.mkdir()
+        self.env["ZDOTDIR"] = str(zdotdir)
+        zshrc = zdotdir / ".zshrc"
+        zshrc.write_text("export SHELL_SETUP_VALUE=kept\n")
+        self.run_installer()
+        self.assertFalse((self.home / ".zshrc").exists())
+        self.assertFalse((self.home / ".profile").exists())
+        self.assertTrue(zshrc.read_text().startswith("export SHELL_SETUP_VALUE=kept\n"))
+        self.assertEqual(self.shell_output('printf "%s\\n" "$SHELL_SETUP_VALUE"; ledgence --version',
+                                           shell=zsh, startup=True), "kept\nledgence 0.3.1\n")
+
+    def test_zsh_default_startup_uses_home(self):
+        zsh = shutil.which("zsh")
+        if not zsh:
+            self.skipTest("host lacks zsh")
+        self.env["SHELL"] = zsh
+        self.run_installer()
+        self.assertTrue((self.home / ".zshrc").is_file())
+        self.assertEqual(self.shell_output('ledgence --version', shell=zsh, startup=True),
+                         "ledgence 0.3.1\n")
+
+    def test_dash_uses_posix_profile(self):
+        self.env["SHELL"] = "/bin/dash"
+        self.run_installer()
+        self.assertTrue((self.home / ".profile").is_file())
+        self.assertEqual(self.shell_output('. "$HOME/.profile"; ledgence --version'),
+                         "ledgence 0.3.1\n")
+
+    def test_unknown_shell_warns_and_supports_manual_posix_source(self):
+        self.env["SHELL"] = "/usr/bin/fish"
+        result = self.run_installer()
+        self.assert_installed()
+        self.assertIn("fish", result.stderr)
+        self.assertFalse(any(self.home.glob(".*profile")))
+        self.assertFalse(any(self.home.glob(".*rc")))
+        self.assertEqual(self.shell_output('. "$HOME/.local/share/ledgence/env"; ledgence --version'),
+                         "ledgence 0.3.1\n")
+
+    def test_no_modify_path_preserves_profiles_on_install_and_reinstall(self):
+        profiles = {name: f"# original {name}".encode()
+                    for name in (".bashrc", ".bash_profile", ".bash_login", ".profile", ".zshrc")}
+        for name, content in profiles.items():
+            (self.home / name).write_bytes(content)
+        for _ in range(2):
+            self.run_installer("--no-modify-path")
+            self.assert_installed()
+            self.assertTrue(self.environment_file().is_file())
+            for name, content in profiles.items():
+                self.assertEqual((self.home / name).read_bytes(), content)
+        self.assertEqual(self.shell_output('. "$HOME/.local/share/ledgence/env"; ledgence --version'),
+                         "ledgence 0.3.1\n")
+        # Opting out also respects a user removing previously generated setup.
+        self.run_installer()
+        (self.home / ".profile").write_bytes(profiles[".profile"])
+        self.run_installer("--no-modify-path")
+        self.assertEqual((self.home / ".profile").read_bytes(), profiles[".profile"])
+
+    def test_no_modify_path_does_not_create_profiles(self):
+        self.run_installer("--no-modify-path")
+        self.assertTrue(self.environment_file().is_file())
+        for name in (".bashrc", ".bash_profile", ".bash_login", ".profile", ".zshrc"):
+            self.assertFalse((self.home / name).exists(), name)
+
+    def test_unsafe_profile_objects_warn_without_preventing_install(self):
+        profile = self.home / ".profile"
+        for kind in ("directory", "dangling symlink", "fifo"):
+            with self.subTest(kind=kind):
+                if kind == "directory":
+                    profile.mkdir()
+                elif kind == "dangling symlink":
+                    profile.symlink_to(self.directory / "missing-profile")
+                else:
+                    os.mkfifo(profile)
+                original = profile.lstat()
+                result = self.run_installer()
+                self.assert_installed()
+                self.assertIn(str(profile), result.stderr)
+                self.assertEqual(profile.lstat().st_ino, original.st_ino)
+                self.assertEqual(profile.lstat().st_mode, original.st_mode)
+                if kind == "directory":
+                    profile.rmdir()
+                else:
+                    profile.unlink()
+
+    def test_unwritable_profile_warns_without_preventing_install(self):
+        profile = self.home / ".profile"
+        original = b"# read only profile\n"
+        profile.write_bytes(original)
+        profile.chmod(0o444)
+        if os.access(profile, os.W_OK):
+            self.skipTest("current user can write mode 0444 files")
+        result = self.run_installer()
+        self.assert_installed()
+        self.assertIn(str(profile), result.stderr)
+        self.assertEqual(profile.read_bytes(), original)
+
+    def test_readonly_configured_profile_needs_no_write_or_warning(self):
+        self.run_installer()
+        profile = self.home / ".profile"
+        configured = profile.read_bytes()
+        profile.chmod(0o444)
+        result = self.run_installer()
+        self.assert_installed()
+        self.assertNotIn(str(profile), result.stderr)
+        self.assertEqual(profile.read_bytes(), configured)
+        self.assertEqual(profile.stat().st_mode & 0o777, 0o444)
+
+    def test_existing_environment_collision_is_preserved(self):
+        environment = self.environment_file()
+        environment.parent.mkdir(parents=True)
+        profile = self.home / ".profile"
+        profile.write_text("# original profile\n")
+        original = b"# user-owned environment\n"
+        target = self.directory / "user environment"
+        target.write_bytes(original)
+        for kind in ("file", "symlink", "directory", "fifo"):
+            with self.subTest(kind=kind):
+                if kind == "file":
+                    environment.write_bytes(original)
+                elif kind == "symlink":
+                    environment.symlink_to(target)
+                elif kind == "directory":
+                    environment.mkdir()
+                else:
+                    os.mkfifo(environment)
+                before = environment.lstat()
+                self.run_installer(expected=1)
+                self.assertEqual(environment.lstat().st_ino, before.st_ino)
+                self.assertEqual(environment.lstat().st_mode, before.st_mode)
+                if kind in ("file", "symlink"):
+                    self.assertEqual(environment.read_bytes(), original)
+                self.assertEqual(profile.read_text(), "# original profile\n")
+                self.assertFalse(self.launcher().exists())
+                if kind == "directory":
+                    environment.rmdir()
+                else:
+                    environment.unlink()
+        self.assertEqual(target.read_bytes(), original)
+
+    def test_custom_prefix_without_home_can_opt_out_of_profiles(self):
+        self.env.pop("HOME")
+        self.prefix = self.directory / "custom prefix without HOME"
+        self.run_installer("--prefix", str(self.prefix), "--no-modify-path")
+        self.assert_installed()
+        self.assertTrue(self.environment_file().is_file())
+        self.assertFalse((self.home / ".profile").exists())
+
+    def test_failed_first_download_preserves_profiles_and_creates_no_environment(self):
+        profile = self.home / ".profile"
+        original = b"# original profile without final newline"
+        profile.write_bytes(original)
+        self.env["TEST_DOWNLOAD_FAIL"] = "all"
+        self.run_installer(expected=1)
+        self.assertEqual(profile.read_bytes(), original)
+        self.assertFalse(self.environment_file().exists())
+        self.assertFalse(self.launcher().exists())
+
+    def test_documented_piped_install_activates_current_bash_and_zsh(self):
+        for name in ("bash", "zsh"):
+            shell = shutil.which(name)
+            if not shell:
+                continue
+            with self.subTest(shell=name):
+                result = self.piped_install(shell)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(result.stdout.endswith("ledgence 0.3.1\n"), result.stdout)
+                self.assert_installed()
+
+    def test_truncated_piped_installer_does_not_start_partial_install(self):
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("host lacks bash")
+        source = INSTALLER.read_text()
+        # Cut after installer initialization but before download/verification.
+        # A fully parsed main function prevents any setup from running here.
+        truncated = source[:source.index("printf 'Downloading Ledgence")]
+        result = self.piped_install(bash, content=truncated, curl_exit=22)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.prefix.exists())
+        self.assertFalse((self.home / ".profile").exists())
+        self.assertFalse((self.home / ".bashrc").exists())
+
+    def test_pipefail_does_not_source_existing_env_after_curl_failure(self):
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("host lacks bash")
+        marker = self.directory / "unexpected-source"
+        self.environment_file().parent.mkdir(parents=True)
+        self.environment_file().write_text(f": > {shlex.quote(str(marker))}\n")
+        result = self.piped_install(bash, content="# incomplete download\n", curl_exit=22)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(marker.exists())
 
     def test_missing_runtime_resources_rejected_with_consistent_checksums(self):
         for missing in ("console/index.html", "runtime/ledgence/worker/bootstrap.py"):
@@ -396,7 +750,9 @@ shutil.copyfile(source, destination)
         self.env["PATH"] = f"{alias}/bin:{self.commands}"
         result = self.run_installer("--prefix", str(alias))
         self.assert_installed()
-        self.assertNotIn("export PATH=", result.stdout)
+        self.assertIn("Run: ledgence --help", result.stdout)
+        actual = self.shell_output('. "$HOME/.local/share/ledgence/env"; printf "%s" "$PATH"')
+        self.assertEqual(actual.split(":")[0], str(self.prefix / "bin"))
 
     def test_latest_redirect_must_match_release_endpoint(self):
         self.env["TEST_LATEST_URL"] = "https://other.example/tag/v0.3.1"
