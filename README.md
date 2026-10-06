@@ -67,8 +67,16 @@ current one:
 ledgence --version
 ```
 
-With Docker running and a released bundle containing its matching local kit,
-`ledgence local up` starts the stack and prints the API and Console URLs.
+With Docker running Linux containers, Compose 2.23.1 or newer, and a released
+bundle containing its matching local kit, start the stack:
+
+```sh
+ledgence local up
+ledgence local status
+```
+
+Open the Console URL printed by `up` (normally `http://127.0.0.1:8080/console/`).
+The new instance starts without application programs or executions.
 `ledgence local down` stops it while preserving data. See the
 [local distribution guide](https://docs.ledgence.com/how-to/run-local-distribution)
 for platforms, state and upgrade behavior. The installer needs no Rust, Python,
