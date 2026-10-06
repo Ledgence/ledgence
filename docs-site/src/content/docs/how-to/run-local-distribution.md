@@ -174,4 +174,4 @@ A distribution kit pulls its pinned image and uses `LEDGENCE_PORT` for direct
 Compose, or `--port` through the CLI. Both bind the API to loopback and use local
 demo credentials for operator-trusted code.
 
-**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.4.0/crates/ledgence-cli/src/local.rs) · [Kit guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/distribution/README.md) · [Distribution contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/container-distribution.md)
+**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.4.0/crates/ledgence-cli/src/local.rs) · [Kit guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/distribution/README.md) · [Distribution contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/container-distribution.md)

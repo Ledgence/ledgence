@@ -113,7 +113,7 @@ entrypoints—`run_tests`, `review_code` and `draft_note`—run one level below 
 
 ## Run and inspect it
 
-Follow the [example README](https://github.com/Ledgence/ledgence/blob/v0.4.0/examples/codex-change-review/README.md)
+Follow the [example README](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/examples/codex-change-review/README.md)
 for packaging, local PostgreSQL, worker commands and the companion client.
 It uses CPython 3.13, the public Python client, and the standard library. Codex
 is an optional host integration.

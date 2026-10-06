@@ -106,4 +106,4 @@ An event must be accepted strictly before an installed deadline to win. At or af
 
 Complete encoded events are limited to 64 KiB. Wait keys and event IDs are limited to 128 UTF-8 bytes. See the [workflow context reference](/reference/workflow-context) for duration and activation limits.
 
-**Source:** [External event contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/workflow-events.md) · [Client event API](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python-client/README.md#external-workflow-events)
+**Source:** [External event contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/workflow-events.md) · [Client event API](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/sdk/python-client/README.md#external-workflow-events)
