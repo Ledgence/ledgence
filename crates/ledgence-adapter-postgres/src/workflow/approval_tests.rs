@@ -669,3 +669,111 @@ async fn overdue_reads_remain_pending_until_expiry_is_durably_applied() {
     assert_eq!(activations, 2);
     db.finish().await;
 }
+
+// Exercise both serialization orders after the approval wake has already been
+// claimed. Root cancellation propagates through owned-child work, so fencing
+// only the root's current activation would not protect this resumed child.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn root_cancellation_fences_claimed_owned_approval_resume() {
+    for resume_first in [false, true] {
+        let db = TestDb::new().await;
+        let root = start(&db.store).await;
+        let initial = acquire(&db.store, "python").await;
+        let mut command = child("reviewed-child");
+        command.kind = WorkflowChildKind::Workflow;
+        command.queue = "subflows".into();
+        let resolved = ResolvedWorkflowChild {
+            kind: WorkflowChildKind::Workflow,
+            ..resolved("reviewed-child")
+        };
+        apply_decision(
+            &db.store,
+            &initial,
+            0,
+            WorkflowAction::Suspend {
+                state: Value::Null,
+                continuation: "joined".into(),
+                commands: vec![command],
+                until: vec!["reviewed-child".into()],
+            },
+            &[resolved],
+        )
+        .await;
+        let child_activation = acquire(&db.store, "subflows").await;
+        let child_id = child_activation.event.value()["ldgworkflowid"]
+            .as_str()
+            .unwrap();
+        let child = db.store.workflow_status(&scope(), child_id).await.unwrap();
+        apply_decision(&db.store, &child_activation, 0, wait("send", 60_000), &[]).await;
+        let approval_command = decide(&child, &child_activation, "send");
+        db.store.decide_approval(&approval_command).await.unwrap();
+        let claimed = one_work(&db.store).await;
+        if resume_first {
+            assert_eq!(
+                db.store
+                    .apply_work(&claimed, &[])
+                    .await
+                    .unwrap()
+                    .activations_scheduled,
+                1
+            );
+        }
+        db.store
+            .cancel_workflow(&scope(), &root.workflow_id)
+            .await
+            .unwrap();
+        super::owned::recover(&db.store).await;
+        assert_eq!(
+            db.store
+                .apply_work(&claimed, &[])
+                .await
+                .unwrap()
+                .activations_scheduled,
+            0
+        );
+        super::owned::recover(&db.store).await;
+        for workflow in [&root, &child] {
+            assert_eq!(
+                db.store
+                    .workflow_status(&scope(), &workflow.workflow_id)
+                    .await
+                    .unwrap()
+                    .state,
+                WorkflowState::Cancelled
+            );
+        }
+        let approval = inspect(&db.store, &child, "send").await;
+        // The accepted human decision remains immutable even when its execution
+        // is cancelled; cancellation must not fabricate a different decision.
+        assert_eq!(approval.status, ApprovalStatus::Approved);
+        assert_eq!(approval.resumed_activation_id.is_some(), resume_first);
+        assert!(
+            db.store
+                .decide_approval(&approval_command)
+                .await
+                .unwrap()
+                .already_accepted
+        );
+        let activations: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM workflow_activations WHERE workflow_id=$1")
+                .bind(child_id)
+                .fetch_one(&db.store.pool)
+                .await
+                .unwrap();
+        assert_eq!(activations, if resume_first { 2 } else { 1 });
+        let unfinished: i64 = sqlx::query_scalar("SELECT count(*) FROM tasks WHERE workflow_id IN ($1,$2) AND state IN ('queued','active')")
+            .bind(&root.workflow_id).bind(child_id).fetch_one(&db.store.pool).await.unwrap();
+        assert_eq!(unfinished, 0);
+        let open_waits: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM workflow_waits WHERE workflow_id=$1 AND closed_at_ms IS NULL",
+        )
+        .bind(child_id)
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+        assert_eq!(open_waits, 0);
+        assert!(db.store.claim_work(16).await.unwrap().is_empty());
+        db.finish().await;
+    }
+}
