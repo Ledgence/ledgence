@@ -14,6 +14,7 @@ struct Fixture {
     _temp: tempfile::TempDir,
     root: PathBuf,
     calls: PathBuf,
+    container_ready: PathBuf,
 }
 impl Fixture {
     fn new() -> Self {
@@ -54,10 +55,12 @@ image="ledgence/ledgence@sha256:{}"
         )
         .unwrap();
         let calls = root.join("calls.jsonl");
+        let container_ready = root.join("container-ready");
         Self {
             _temp: temp,
             root,
             calls,
+            container_ready,
         }
     }
     fn command(&self) -> Command {
@@ -74,6 +77,7 @@ image="ledgence/ledgence@sha256:{}"
                 ),
             )
             .env("BUILD_CALLS", &self.calls)
+            .env("BUILD_READY", &self.container_ready)
             .env_remove("DOCKER_HOST")
             .env("DOCKER_CONTEXT", "chosen-context")
             .env_remove("DOCKER_DEFAULT_PLATFORM");
@@ -191,14 +195,16 @@ fn interrupt_and_termination_clean_owned_container_and_staging() {
             .spawn()
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
-        while !fixture
-            .records()
-            .iter()
-            .any(|v| v.as_array().unwrap().iter().any(|a| a == "run"))
-        {
-            if Instant::now() >= deadline {
-                child.kill().unwrap();
-                panic!("builder did not start");
+        // A recorded `run` only proves Docker was invoked. Interrupt after the
+        // fixture has created the container identity that cleanup must remove.
+        while !fixture.container_ready.is_file() {
+            if child.try_wait().unwrap().is_some() || Instant::now() >= deadline {
+                let _ = child.kill();
+                let output = child.wait_with_output().unwrap();
+                panic!(
+                    "builder did not create a container: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -247,6 +253,7 @@ elif 'run' in args:
     if os.environ.get('BUILD_MODE') == 'name-collision':
         sys.exit(1)
     pathlib.Path(args[args.index('--cidfile') + 1]).write_text('a' * 64)
+    pathlib.Path(os.environ['BUILD_READY']).touch()
     mode = os.environ.get('BUILD_MODE', '')
     if mode == 'slow':
         time.sleep(30)
