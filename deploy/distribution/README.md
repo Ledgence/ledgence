@@ -18,6 +18,34 @@ to select another host port. `LEDGENCE_CONCURRENCY` controls worker consumers an
 its subprocess pool (default 1). This kit runs one worker; separate workers need
 separate cache directories. Scope and queue are `acme/demo` and `demo`.
 
+## Publish your own program
+
+New development kits enable `--allow-program-publication` on the orchestrator
+and give that service write access to the shared program volume. The worker
+continues to mount `/programs` read-only. With matching development CLI/server
+builds and an explicit `ledgence.toml` targeting the same runtime image:
+
+```sh
+ledgence program build
+ledgence program publish --server http://127.0.0.1:8080 --register
+```
+
+Building requires local Docker; uploading a prepared package does not. Programs
+are still identified globally within this store by ID and exact version, with
+one immutable artifact per version. Keep the publication receipt and its ZIP for
+`ledgence program publish --resume RECEIPT.json` after an uncertain result.
+Publication and registration do not execute the program.
+
+This is a development-source capability, not a change to previously published
+kits. An existing CLI-managed installation keeps its verified copied kit, image,
+project identity and volumes. A newer CLI does not migrate that installation.
+Use a separate directory with a matching newly qualified kit to evaluate the
+feature; do not overwrite its saved files or bypass checksum validation.
+See the [development guide](https://github.com/Ledgence/ledgence/blob/develop/docs/program-publication.md)
+for the configuration, dependency requirements, limits and recovery contract.
+
+## Optional examples
+
 For optional example programs, workflows and completion callbacks, include both
 files consistently when operating the project:
 

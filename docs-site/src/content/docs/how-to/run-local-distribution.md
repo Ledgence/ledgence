@@ -14,6 +14,13 @@ in [Docker Hub](https://hub.docker.com/r/ledgence/ledgence); the kit records the
 exact digest rather than following a moving image tag. Building from source
 remains available through the [source Compose tutorial](/tutorials/run-locally).
 
+**Development addition:** updated source templates opt the orchestrator into
+HTTP program publication and mount its shared program store writable while the
+worker remains read-only. This requires a newly qualified matching kit and server;
+it does not change any existing 0.4.0 installation. Follow [Build and publish
+programs](/how-to/build-and-publish-programs) for the explicit build/upload path,
+and use a separate state directory to evaluate it without migrating existing data.
+
 ## Before you start
 
 Install and start Docker Engine or Docker Desktop with **Compose 2.23.1 or

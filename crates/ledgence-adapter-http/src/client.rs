@@ -1,6 +1,8 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
 mod catalog;
+mod publication;
 pub use catalog::HttpProgramCatalogService;
+pub use publication::HttpProgramPublisher;
 mod completion;
 mod observations;
 mod workflow;

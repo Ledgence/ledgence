@@ -19,6 +19,7 @@ the example guides below.
 
 | Example | What it shows | Setup |
 | --- | --- | --- |
+| [Build and publish](program-publication/README.md) | Native CLI preparation for Linux, HTTP publication, exact-artifact recovery and a workflow using a native wheel. | Current development CLI and a new development local kit; explicit pinned worker image and CPython 3.14 target. |
 | [Python program](python/README.md) | A synchronous handler, CloudEvent input, contextual logs, and the subprocess PID. | Host CPython and a worker; start with [local execution](../README.md#run-a-program-from-source) and the [package contract](../docs/program-packages.md). No application dependencies. |
 | [Python application spans](python-otel/README.md) | An application span inherits the worker's processing context and records into an in-memory buffer. | Package the reviewed OpenTelemetry dependencies listed in the example. See [worker tracing](../docs/observability.md); this example does not export Python spans over the network. |
 | [Checkpoint workflow](checkpoint-workflow/README.md) | Typed entrypoints, bounded concurrent page fetches, acknowledged local results, and explicit summary-task failure handling. | Rust, host CPython 3.11+, PostgreSQL 18, and the local HTTP server described in the guide. Completes with worker concurrency one. |

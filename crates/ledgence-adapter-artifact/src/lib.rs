@@ -16,7 +16,9 @@ mod store;
 
 pub use cache::FileArtifactCache;
 use ledgence_worker_api::{Error, ErrorKind, ProgramDescriptor};
-pub use publish::publish_directory;
+pub use publish::{
+    FileProgramArtifactPublisher, PackedProgram, pack_directory, persist_archive, publish_directory,
+};
 use std::time::Duration;
 pub use store::{FileProgramStore, HttpProgramStore};
 
@@ -38,13 +40,14 @@ pub struct ArtifactLimits {
 }
 impl Default for ArtifactLimits {
     fn default() -> Self {
+        let publication = ledgence_worker_api::PublicationLimits::default();
         Self {
-            max_archive_bytes: 64 * 1024 * 1024,
-            max_expanded_bytes: 256 * 1024 * 1024,
-            max_file_bytes: 64 * 1024 * 1024,
-            max_entries: 4096,
-            max_manifest_bytes: 64 * 1024,
-            max_descriptor_bytes: 16 * 1024,
+            max_archive_bytes: publication.max_archive_bytes,
+            max_expanded_bytes: publication.max_expanded_bytes,
+            max_file_bytes: publication.max_file_bytes,
+            max_entries: publication.max_entries as usize,
+            max_manifest_bytes: publication.max_manifest_bytes,
+            max_descriptor_bytes: publication.max_descriptor_bytes,
             max_cache_bytes: 1024 * 1024 * 1024,
             request_timeout: Duration::from_secs(60),
         }

@@ -52,7 +52,7 @@ class Acceptance:
             probe.bind(('127.0.0.1', 0))
             return probe.getsockname()[1]
 
-    def run(self, args, timeout=180, *, check=True):
+    def run(self, args, timeout=180, *, check=True, expect_failure=False):
         args = list(map(str, args))
         number = len(self.steps) + 1
         print('+', ' '.join(args), flush=True)
@@ -68,12 +68,17 @@ class Acceptance:
         (self.evidence / f'{number:03d}.log').write_text(result.stdout + result.stderr)
         self.steps.append({'command': args, 'exit_code': result.returncode,
                            'duration_seconds': time.monotonic() - start})
+        if expect_failure and result.returncode == 0:
+            raise RuntimeError(f'command unexpectedly succeeded; inspect {number:03d}.log')
         if check and result.returncode:
             raise RuntimeError(f'command failed ({result.returncode}); inspect {number:03d}.log')
         return result.stdout
 
-    def api(self, path, *, base=None):
-        with urllib.request.urlopen((base or self.base) + path, timeout=10) as response:
+    def api(self, path, *, base=None, body=None):
+        request = urllib.request.Request((base or self.base) + path,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=10) as response:
             return json.load(response)
 
     def workers(self, *, base=None):
@@ -173,6 +178,10 @@ class Acceptance:
             if name != 'postgres':
                 assert service['image'] == self.manifest['image']
         assert model['services']['orchestrator']['ports'][0]['host_ip'] == '127.0.0.1'
+        assert '--allow-program-publication' in model['services']['orchestrator']['command']
+        for name, read_only in [('orchestrator', False), ('worker', True)]:
+            program_mount = next(v for v in model['services'][name]['volumes'] if v['target'] == '/programs')
+            assert program_mount.get('read_only', False) is read_only
         self.run(self.compose + ['pull'], timeout=600)
         self.run(self.compose + ['up', '--no-build', '--detach', '--wait', '--wait-timeout', '120'])
         initial = self.console([])
@@ -210,6 +219,88 @@ class Acceptance:
                                    'retained': before, 'catalog_preserved': True,
                                    'new_worker_session': after_console['worker_session_id']}
 
+    def publication_result(self, base, workflow_id):
+        query = urllib.parse.urlencode({'tenant_id': 'acme', 'namespace': 'demo',
+                                        'workflow_id': workflow_id})
+        deadline = time.monotonic() + 90
+        while True:
+            result = self.api('/v1/workflows/result?' + query, base=base)
+            if result['outcome'] is not None:
+                assert result['outcome']['kind'] == 'succeeded', result
+                output = result['outcome']['output']
+                assert output['html'] == '<h1>Ledgence &amp; Python</h1>', output
+                assert output['platform'] == 'linux' and output['native_extension'].endswith('.so'), output
+                expected = {'arm64': 'aarch64', 'amd64': 'x86_64'}[self.report['runtime']['platform'].split('/')[1]]
+                assert output['architecture'] == expected, output
+                return output
+            if time.monotonic() >= deadline:
+                raise AssertionError('published workflow did not finish within 90 seconds')
+            time.sleep(0.2)
+
+    def publication_execute(self, base, descriptor):
+        command = {'idempotency_key': 'publication-' + uuid.uuid4().hex,
+                   'input': {'tenant_id': 'acme', 'namespace': 'demo', 'queue': 'demo',
+                             'program': descriptor['program'], 'data': {'title': 'Ledgence & Python'}}}
+        workflow_id = self.api('/v1/workflows', base=base, body=command)['workflow_id']
+        return workflow_id, self.publication_result(base, workflow_id)
+
+    def verify_program_publication(self, binary, base):
+        # The native executable builds the exact Linux worker target. The example
+        # is copied as developer input; the installed stack still uses only the kit.
+        project = self.evidence / 'program project with spaces'
+        source = Path(__file__).resolve().parents[1] / 'examples/program-publication'
+        shutil.copytree(source, project)
+        config = project / 'ledgence.toml'
+        config.write_text(config.read_text()
+            .replace('REPLACE_WITH_WORKER_IMAGE_DIGEST', self.manifest['image'])
+            .replace('linux/arm64', self.report['runtime']['platform']))
+        built = []
+        for name in ('prepared-one', 'prepared-two'):
+            built.append(json.loads(self.run([binary, 'program', 'build', '--config', config,
+                '--output', '.ledgence/' + name], timeout=660)))
+        assert built[0]['descriptor'] == built[1]['descriptor'], 'wheel preparation must package identically'
+        # Exercise pip's real refusal paths, not only a fake Docker process.
+        requirements = project / 'requirements.txt'
+        original_requirements = requirements.read_text()
+        original_config = config.read_text()
+        try:
+            for label, pins, target_config in [
+                ('wrong-hash', 'MarkupSafe==3.0.4 --hash=sha256:' + '0' * 64, original_config),
+                # This historical release has no ordinary CPython 3.14 wheel.
+                # Its source hash cannot bypass --only-binary; no source runs.
+                ('no-wheel', 'MarkupSafe==2.1.5 --hash=sha256:d283d37a890ba4c1ae73ffadf8046435c76e7bc2247bbb63c00bd1a709c6544b', original_config),
+                ('wrong-python', original_requirements, original_config.replace('python = "3.14"', 'python = "3.13"')),
+            ]:
+                requirements.write_text(pins + '\n')
+                config.write_text(target_config)
+                output = project / '.ledgence' / label
+                self.run([binary, 'program', 'build', '--config', config, '--output', output],
+                         timeout=660, check=False, expect_failure=True)
+                assert not output.exists() and not output.with_name(output.name + '.build.json').exists()
+        finally:
+            requirements.write_text(original_requirements)
+            config.write_text(original_config)
+        prepared = Path(built[0]['prepared_directory'])
+        assert not list(prepared.rglob('*.pyc'))
+        license_file = prepared / 'markupsafe-3.0.4.dist-info/licenses/LICENSE.txt'
+        assert license_file.read_bytes() == (project / 'third_party/MarkupSafe-LICENSE.txt').read_bytes()
+        published = json.loads(self.run([binary, 'program', 'publish', '--source', prepared,
+                                         '--server', base, '--register']))
+        assert published['phase'] == 'registered' and published['error'] is None, published
+        assert published['descriptor'] == built[0]['descriptor']
+        assert published['publication']['already_published'] is False
+        repeated = json.loads(self.run([binary, 'program', 'publish', '--source', prepared,
+                                        '--server', base, '--register']))
+        assert repeated['publication']['already_published'] is True
+        assert repeated['registration']['already_registered'] is True
+        resumed = json.loads(self.run([binary, 'program', 'publish', '--resume', published['receipt']]))
+        assert resumed['phase'] == 'registered' and resumed['descriptor'] == published['descriptor']
+        workflow_id, output = self.publication_execute(base, published['descriptor'])
+        return {'descriptor': published['descriptor'], 'receipt': published['receipt'],
+                'workflow_id': workflow_id, 'output': output, 'deterministic_build': True,
+                'repeated_publication': True, 'wheel_license_retained': True,
+                'rejected_wrong_hash_missing_wheel_and_runtime': True}
+
     def verify_cli(self):
         if self.cli is None:
             return
@@ -240,14 +331,21 @@ class Acceptance:
                 assert state['directory'] == str(state_dir)
                 assert state['distribution'] == self.manifest
         original = path.read_bytes()
-        first = self.console([], base='http://127.0.0.1:' + str(port))
+        base = 'http://127.0.0.1:' + str(port)
+        first = self.console([], base=base)
+        publication = self.verify_program_publication(binary, base)
         self.run(command + ['up', '--directory', str(state_dir)], timeout=330)
         self.run(command + ['status', '--directory', str(state_dir)])
         self.run(command + ['logs', '--directory', str(state_dir), '--tail', '10'])
         before_sessions = self.worker_session_ids(base='http://127.0.0.1:' + str(port))
         self.run(command + ['down', '--directory', str(state_dir)])
         self.run(command + ['up', '--directory', str(state_dir)], timeout=330)
-        second = self.console([], base='http://127.0.0.1:' + str(port), excluded_sessions=before_sessions)
+        second = self.console(['html-report'], base=base, excluded_sessions=before_sessions)
+        assert self.publication_result(base, publication['workflow_id']) == publication['output']
+        workflow_id, output = self.publication_execute(base, publication['descriptor'])
+        assert output == publication['output']
+        publication.update(after_restart_workflow_id=workflow_id, persisted_result=True)
+        self.report['program_publication'] = publication
         assert path.read_bytes() == original
         assert second['worker_session_id'] != first['worker_session_id']
         self.run(command + ['down', '--directory', str(state_dir)])

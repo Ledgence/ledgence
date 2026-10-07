@@ -48,6 +48,9 @@ impl ProgramDisplayMetadata {
 #[serde(deny_unknown_fields)]
 pub struct RegisterProgram {
     pub program: ProgramRef,
+    /// When present, resolve exactly the artifact confirmed by publication.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_descriptor: Option<ProgramDescriptor>,
     #[serde(default)]
     pub metadata: ProgramDisplayMetadata,
     /// Explicitly update descriptive metadata only after immutable bytes match.
@@ -57,6 +60,14 @@ pub struct RegisterProgram {
 impl RegisterProgram {
     pub fn validate(&self) -> Result<()> {
         self.program.validate()?;
+        if let Some(expected) = &self.expected_descriptor {
+            expected.validate()?;
+            if expected.program != self.program {
+                return Err(invalid(
+                    "expected descriptor does not match registered program",
+                ));
+            }
+        }
         self.metadata.validate()
     }
 }

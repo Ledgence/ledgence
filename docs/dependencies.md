@@ -42,6 +42,35 @@ Ledgence-owned code is MIT-licensed. Applications and programs that use Ledgence
 
 Dependency choices must preserve this product model: no required commercial service, license key, product branding, advertising credit, or disclosure of users' application/program source. Required legal notices may accompany source and binary distributions in notice files. A license scan is a selection gate, not a replacement for fulfilling the selected licenses.
 
+## Program preparation and publication (development)
+
+The CLI's explicit `ledgence.toml` reader uses `toml 1.1.6+spec-1.1.0` with
+only `parse`, `serde` and `std` enabled. Its reviewed graph includes
+`serde_spanned 1.1.1`, `toml_datetime 1.1.1` and `toml_parser 1.1.3`, under
+MIT OR Apache-2.0, and `winnow 1.0.4` under MIT. The lockfile also records the
+optional `toml_writer 1.1.2` from the same MIT/Apache-2.0 project. The actual
+published license files were inspected; normal release notice generation must
+retain the selected terms for included components. No license allowlist change
+was needed.
+
+`rustix 1.1.4` was already locked and is now a direct CLI dependency with its
+filesystem feature for no-clobber prepared-directory publication on Linux and
+macOS. Its reviewed MIT alternative remains applicable. Existing ZIP, hashing,
+HTTP and temporary-file dependencies implement immutable artifact publication;
+Docker remains a separately supplied local build adapter rather than a server
+or worker dependency. The complete updated Cargo graph passed the dependency
+policy gate during feature development; release qualification must check its
+own final graph again.
+
+The optional [program publication example](../examples/program-publication/README.md)
+uses only `MarkupSafe 3.0.4` as an application dependency. Reviewed CPython 3.14
+manylinux wheels for x86_64 and aarch64 are hash-pinned and have no transitive
+Python dependencies. MarkupSafe retains BSD-3-Clause; its original notices and
+wheel inventory are kept in the example's `third_party` directory. Dependency
+preparation preserves the wheel's own license files in the application package. This example does not add MarkupSafe to the
+platform, SDK, or mandatory runtime dependency graph. Users may prepare other
+application dependencies, with their own compatibility and notice obligations.
+
 ## Adding or updating a dependency
 
 Review the dependency's purpose, maintained release, enabled features, target platforms, source, license files, and resulting transitive dependencies. Prefer a focused library over a framework that takes over execution or deployment. Keep vendor-specific clients behind adapters. The worker does not embed Python through PyO3 or depend on Ray.

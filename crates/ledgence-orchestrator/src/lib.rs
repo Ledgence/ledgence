@@ -245,6 +245,7 @@ async fn dispatch(
                 completion_config,
                 instance_config,
                 console_dir,
+                allow_program_publication,
             } => {
                 prepare_and_serve(
                     store.clone(),
@@ -258,6 +259,7 @@ async fn dispatch(
                         completion_config,
                         instance_config,
                         console_dir,
+                        allow_program_publication,
                     },
                 )
                 .await
@@ -276,6 +278,7 @@ struct ServePaths {
     completion_config: Option<std::path::PathBuf>,
     instance_config: Option<std::path::PathBuf>,
     console_dir: Option<std::path::PathBuf>,
+    allow_program_publication: bool,
 }
 
 async fn prepare_and_serve(
@@ -292,6 +295,7 @@ async fn prepare_and_serve(
         completion_config,
         instance_config: instance_config_path,
         console_dir,
+        allow_program_publication,
     } = paths;
     store
         .verify_schema()
@@ -387,6 +391,30 @@ async fn prepare_and_serve(
     if delivery_config.is_some() {
         return Err("--delivery-config requires a binary built with the sqs feature".into());
     }
+    let artifact_publication = if allow_program_publication {
+        if instance_config.is_none()
+            || location.starts_with("http://")
+            || location.starts_with("https://")
+        {
+            return Err(
+                "program publication requires --instance-config and a writable filesystem --store"
+                    .into(),
+            );
+        }
+        let root = location.clone();
+        let writer = tokio::task::spawn_blocking(move || {
+            ledgence_adapter_artifact::FileProgramArtifactPublisher::new(
+                root,
+                ArtifactLimits::default(),
+            )
+        })
+        .await
+        .map_err(|_| "program publication setup failed".to_owned())?
+        .map_err(|error| error.to_string())?;
+        Some(ledgence_adapter_http::server::publication::PublicationService::new(Arc::new(writer)))
+    } else {
+        None
+    };
     let programs = tokio::task::spawn_blocking(move || -> Result<Arc<dyn ProgramStore>, String> {
         let limits = ArtifactLimits::default();
         if location.starts_with("http://") || location.starts_with("https://") {
@@ -426,6 +454,10 @@ async fn prepare_and_serve(
     let console_services = instance_config
         .map(|config| console::services(store.clone(), programs, config, address))
         .transpose()?;
+    let console_services = console_services.map(|console| match &artifact_publication {
+        Some(publication) => console.with_publication(publication.clone()),
+        None => console,
+    });
     store.set_acquisition_wake(service.acquisition_wake());
     let notifications = if notifications_enabled()? {
         let url = std::env::var("LEDGENCE_POSTGRES_NOTIFICATION_URL")
@@ -564,6 +596,10 @@ async fn prepare_and_serve(
         .await
     }
     .await;
+    if let Some(publication) = artifact_publication {
+        publication.drain().await;
+        tracing::info!("program artifact publication drained");
+    }
     tracing::info!(statistics = ?service.acquisition_statistics(), "acquisition coordinator drained");
     // Accepted requests and recovery retain their local wake sink until drained.
     // Auxiliary connection cleanup runs before the lifecycle pool is closed.

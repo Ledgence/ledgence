@@ -5,6 +5,7 @@ mod approvals;
 pub mod assets;
 mod completion;
 pub mod console;
+pub mod publication;
 mod workflow;
 
 use crate::{RESPONSE_MAX_BYTES, wire::*};
@@ -182,7 +183,11 @@ fn build_router(
         invalid_trace_headers: Arc::new(AtomicU64::new(0)),
     };
     let mut router = Router::new();
-    for (path, _) in ROUTES.iter().chain(console::ROUTES) {
+    for (path, _) in ROUTES
+        .iter()
+        .chain(console::ROUTES)
+        .chain(publication::ROUTES)
+    {
         router = router.route(path, any(handle));
     }
     router.fallback(handle).with_state(state)
@@ -255,7 +260,9 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
     let route = ROUTES
         .iter()
         .chain(console::ROUTES)
-        .find(|(path, _)| *path == request.uri().path());
+        .chain(publication::ROUTES)
+        .find(|(path, _)| *path == request.uri().path())
+        .or_else(|| publication::match_route(request.uri().path()));
     let route_label = route.map_or("unmatched", |(path, _)| *path);
     let span = tracing::info_span!(
         parent: None,
@@ -304,6 +311,9 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 br#"{"code":"method_not_allowed"}"#.to_vec(),
                 Some("method_not_allowed"),
             ),
+            Some(_) if publication::is_route(route_label) => {
+                publication::dispatch(&server, request).await
+            }
             Some(_) => {
                 let result = if server.stopping.load(Ordering::Acquire) {
                     Err(unavailable("orchestrator is shutting down").into())

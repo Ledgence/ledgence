@@ -35,7 +35,7 @@ def violations(graph):
             "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
         },
         "ledgence-cli": {
-            "ledgence-adapter-mcp",
+            "ledgence-adapter-artifact", "ledgence-adapter-mcp",
             "ledgence-adapter-otel", "ledgence-adapter-http", "ledgence-orchestration-api",
             "ledgence-worker-api", "ledgence-worker", "ledgence-orchestrator",
         },

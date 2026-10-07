@@ -10,6 +10,11 @@ for other platforms and service prerequisites.
 
 <span id="next-release-one-line-installation"></span>
 
+**Development feature availability:** `program build` and HTTP program uploads
+require matching updated CLI/server source; installing the currently published
+bundle does not provide them. See [Build and publish programs](/how-to/build-and-publish-programs).
+Existing filesystem preparation and registration remain available.
+
 ## One-line installation
 
 Install the latest stable release:

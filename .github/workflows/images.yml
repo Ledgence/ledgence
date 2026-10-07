@@ -14,6 +14,7 @@ on:
       - 'sdk/python/**'
       - 'examples/python/**'
       - 'examples/checkpoint-workflow/**'
+      - 'examples/program-publication/**'
       - 'legal/**'
       - 'LICENSE'
       - 'Cargo.toml'

@@ -9,7 +9,8 @@ pub struct ConsoleServices {
     pub(crate) instance: SelfHostedInstanceConfig,
     config: ConsoleConfig,
     queries: Arc<dyn ConsoleQueryService>,
-    catalog: Option<Arc<dyn ProgramCatalogService>>,
+    pub(super) catalog: Option<Arc<dyn ProgramCatalogService>>,
+    pub(super) publication: Option<super::publication::PublicationService>,
     observations: Option<Arc<dyn WorkerObservationService>>,
 }
 impl ConsoleServices {
@@ -59,8 +60,14 @@ impl ConsoleServices {
             config,
             queries,
             catalog,
+            publication: None,
             observations,
         })
+    }
+    /// Enable immutable artifact uploads for this bound installation.
+    pub fn with_publication(mut self, publication: super::publication::PublicationService) -> Self {
+        self.publication = Some(publication);
+        self
     }
     pub(super) fn check_origin(&self, headers: &axum::http::HeaderMap) -> Result<()> {
         let origins = headers.get_all(header::ORIGIN);

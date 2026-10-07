@@ -9,7 +9,7 @@ publish = false
 
 [features]
 default = []
-client = ["dep:reqwest"]
+client = ["dep:reqwest", "dep:sha2"]
 completion = ["dep:reqwest"]
 server = ["dep:axum", "dep:http-body-util", "dep:sha2"]
 

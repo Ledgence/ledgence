@@ -8,8 +8,10 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-**Version availability:** Ledgence **0.4.0** includes every group below, the
-local lifecycle commands, and automatic installed-resource discovery. Start with
+**Version availability:** Ledgence **0.4.0** includes the original command groups, the
+local lifecycle commands, and automatic installed-resource discovery.
+The explicitly marked development section adds `program build`, HTTP publication
+and recovery; those additions require updated CLI/server source. Start with
 the [one-line installation](/how-to/install-native#one-line-installation) and
 [local distribution guide](/how-to/run-local-distribution).
 
@@ -55,7 +57,7 @@ MCP requires its build feature, which is included in native release bundles.
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
-| `program` | `example`, `publish`, `register` | Create a fixture, publish a prepared immutable package, and register its reference. |
+| `program` | `example`, `build` (development), `publish`, `register` | Prepare, publish and register programs; `build` requires updated source. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
@@ -149,8 +151,9 @@ Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
 
 `program example` creates a local fixture and `program publish` writes immutable
 package contents to a store. `program register` makes a separate HTTP request to
-register an existing published reference. Publication does not register a
-program or start a worker. See [program packages](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md) and
+register an existing published reference. Publication starts no worker or
+execution. Updated development source supports explicit subsequent registration
+with `publish --server URL --register`. See [program packages](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md) and
 [Console registration](/how-to/register-agent).
 
 `worker run` executes local task fixtures; `worker connect` acquires work from a
@@ -161,6 +164,40 @@ Both migration and service operation require `DATABASE_URL`. Retention previews
 eligible records by default, requires a tenant and namespace, and changes data
 only with `--apply`; its minimum retention is 90 days. See
 [retention](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/retention.md).
+
+## Program builds and HTTP publication (development)
+
+Use matching updated CLI/server source. A server must opt in with
+`--allow-program-publication`, an `--instance-config` and writable filesystem
+`--store`; an existing released stack does not gain this by updating its CLI.
+
+```sh
+ledgence program build --config ledgence.toml --output .ledgence/prepared
+ledgence program publish --source .ledgence/prepared \
+  --server http://127.0.0.1:8080 --register
+ledgence program publish --resume /absolute/path/to/receipt.json
+```
+
+`build` accepts `--config` (default `ledgence.toml`), `--output` (default
+`.ledgence/prepared`, relative to the config directory), `--context NAME` and
+`--timeout-seconds 1..3600` (default 600). The configuration declares selected
+inputs, exact target, hash-pinned production wheels and the worker runtime image
+by digest. It uses local Docker and refuses to overwrite an existing output.
+
+`publish` requires exactly one destination: `--store DIR` or `--server URL`.
+`--source` defaults to `.ledgence/prepared`. It never builds implicitly. For
+HTTP, `--register` uses matching build-receipt metadata unless `--kind`,
+`--display-name` or `--description` overrides it. `--update-metadata true`
+explicitly replaces existing descriptive values. `--store` retains descriptor-only
+JSON and rejects registration options.
+
+`--resume RECEIPT.json` cannot be combined with other options. It verifies the
+retained ZIP and repeats only unconfirmed stages at the recorded server. A
+registration failure after a confirmed upload returns nonzero and partial JSON,
+including the published descriptor and a registration-only command. Separate
+registration can require `--expected-digest sha256:HEX --expected-size BYTES`
+together. See [Build and publish Python programs](/how-to/build-and-publish-programs)
+for configuration, complete output and recovery semantics.
 
 ## Task administration
 

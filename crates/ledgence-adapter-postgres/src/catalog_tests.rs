@@ -22,6 +22,7 @@ fn manifest() -> ProgramManifest {
 }
 fn registration() -> RegisterProgram {
     RegisterProgram {
+        expected_descriptor: None,
         program: descriptor().program,
         metadata: ProgramDisplayMetadata {
             display_name: Some("Invoice issuer".into()),
@@ -45,6 +46,7 @@ async fn catalog_kind_membership_tracks_all_versions_and_explicit_kind_changes()
         let mut m = manifest();
         m.program = d.program.clone();
         let c = RegisterProgram {
+            expected_descriptor: None,
             program: d.program.clone(),
             metadata: ProgramDisplayMetadata {
                 kind,
@@ -95,6 +97,7 @@ async fn catalog_kind_membership_tracks_all_versions_and_explicit_kind_changes()
     let mut m = manifest();
     m.program = d.program.clone();
     let c = RegisterProgram {
+        expected_descriptor: None,
         program: d.program.clone(),
         metadata: ProgramDisplayMetadata {
             kind: ConsoleProgramKind::Workflow,

@@ -219,11 +219,12 @@ fn parse_program(mut args: impl Iterator<Item = String>) -> Result<Command> {
         }
     }
     let server = required(&mut options, "--server")?;
-    let registration = RegisterProgram {
+    let mut registration = RegisterProgram {
         program: ProgramRef {
             id: required(&mut options, "--program")?,
             version: required(&mut options, "--version")?,
         },
+        expected_descriptor: None,
         metadata: ProgramDisplayMetadata {
             display_name: options.remove("--display-name"),
             description: options.remove("--description"),
@@ -239,6 +240,24 @@ fn parse_program(mut args: impl Iterator<Item = String>) -> Result<Command> {
             Some("true") => true,
             _ => return Err(invalid("update-metadata must be true or false")),
         },
+    };
+    registration.expected_descriptor = match (
+        options.remove("--expected-digest"),
+        options.remove("--expected-size"),
+    ) {
+        (None, None) => None,
+        (Some(digest), Some(size)) => Some(ledgence_worker_api::ProgramDescriptor {
+            program: registration.program.clone(),
+            digest: ledgence_worker_api::Digest(digest),
+            size: size
+                .parse()
+                .map_err(|_| invalid("expected-size must be an unsigned integer"))?,
+        }),
+        _ => {
+            return Err(invalid(
+                "expected-digest and expected-size must be supplied together",
+            ));
+        }
     };
     registration.validate()?;
     if !options.is_empty() {
@@ -289,6 +308,84 @@ mod program_tests {
             ];
             args.extend(suffix);
             assert!(Command::parse(args.into_iter().map(str::to_owned)).is_err());
+        }
+    }
+    #[test]
+    fn registration_descriptor_flags_are_paired_and_strictly_validated() {
+        let base = [
+            "program",
+            "register",
+            "--server",
+            "http://localhost:8080",
+            "--program",
+            "invoice",
+            "--version",
+            "1",
+        ];
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let parse = |extra: Vec<String>| {
+            let mut arguments = base.map(str::to_owned).to_vec();
+            arguments.extend(extra);
+            Command::parse(arguments)
+        };
+        let Command::Program {
+            mut registration, ..
+        } = parse(vec![
+            "--expected-digest".into(),
+            digest.clone(),
+            "--expected-size".into(),
+            "123".into(),
+        ])
+        .unwrap()
+        else {
+            panic!("program registration");
+        };
+        let expected = registration.expected_descriptor.as_ref().unwrap();
+        assert_eq!(expected.program, registration.program);
+        assert_eq!(expected.size, 123);
+        assert_eq!(expected.digest.0, digest);
+        // The public API additionally rejects a precondition for another program.
+        registration
+            .expected_descriptor
+            .as_mut()
+            .unwrap()
+            .program
+            .id = "other".into();
+        assert!(registration.validate().is_err());
+        for extra in [
+            vec!["--expected-digest".into(), digest.clone()],
+            vec!["--expected-size".into(), "123".into()],
+        ] {
+            assert!(parse(extra).is_err());
+        }
+        for size in ["0", "-1", "18446744073709551616", "1.5", "1e2", "invalid"] {
+            assert!(
+                parse(vec![
+                    "--expected-digest".into(),
+                    digest.clone(),
+                    "--expected-size".into(),
+                    size.into()
+                ])
+                .is_err(),
+                "{size}"
+            );
+        }
+        for hash in [
+            "sha256:abc".to_owned(),
+            "a".repeat(64),
+            format!("sha256:{}", "A".repeat(64)),
+            format!("sha512:{}", "a".repeat(64)),
+        ] {
+            assert!(
+                parse(vec![
+                    "--expected-digest".into(),
+                    hash.clone(),
+                    "--expected-size".into(),
+                    "123".into()
+                ])
+                .is_err(),
+                "{hash}"
+            );
         }
     }
 }

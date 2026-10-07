@@ -9,6 +9,11 @@
 //! See the [program package contract](https://github.com/Ledgence/ledgence/blob/main/docs/program-packages.md)
 //! and [worker delivery contract](https://github.com/Ledgence/ledgence/blob/main/docs/worker-delivery.md).
 
+mod program_publication;
+pub use program_publication::{
+    ProgramArtifactPublisher, PublicationCapabilities, PublicationError, PublicationErrorKind,
+    PublicationFuture, PublicationLimits, PublicationResult, PublishArtifactResult,
+};
 mod measurements;
 pub mod metrics;
 pub use measurements::{

@@ -44,9 +44,9 @@ services:
     restart: unless-stopped
   orchestrator:
     <<: *runtime
-    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console]
+    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --completion-config, /opt/ledgence/local/completions.json, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console, --allow-program-publication]
     ports: ["127.0.0.1:${LEDGENCE_HTTP_PORT:-8080}:8080"]
-    volumes: [programs:/programs:ro]
+    volumes: [programs:/programs]
     configs:
       - source: instance
         target: /opt/ledgence/instance.json

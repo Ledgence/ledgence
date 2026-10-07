@@ -162,9 +162,11 @@ class RestartChecksTests(unittest.TestCase):
             events.append(('run', args))
             if 'config' in args:
                 return json.dumps({'services': {
-                    'postgres': {}, 'worker': {'image': 'qualified-image'},
+                    'postgres': {}, 'worker': {'image': 'qualified-image', 'volumes': [{'target': '/programs', 'read_only': True}]},
                     'migrate': {'image': 'qualified-image'},
-                    'orchestrator': {'image': 'qualified-image', 'ports': [{'host_ip': '127.0.0.1'}]},
+                    'orchestrator': {'image': 'qualified-image', 'ports': [{'host_ip': '127.0.0.1'}],
+                                     'command': ['ledgence', 'orchestrator', 'serve', '--allow-program-publication'],
+                                     'volumes': [{'target': '/programs', 'read_only': False}]},
                 }})
             if 'inspect' in args:
                 return json.dumps([{'Config': {'Labels': {'com.docker.compose.service': 'worker'}}, 'Image': 'image-id'}])
@@ -190,9 +192,21 @@ class RestartChecksTests(unittest.TestCase):
         self.assertEqual(acceptance.report['examples']['new_worker_session'], 'new')
 
     def test_cli_restart_excludes_all_sessions_from_its_own_instance(self):
+        class PublicationFixture(distribution.Acceptance):
+            # This test isolates restart readiness. The Docker gate independently
+            # exercises actual build/upload/registration/native execution.
+            def verify_program_publication(self, binary, base):
+                return {'descriptor': {}, 'workflow_id': 'before', 'output': {'retained': True}}
+
+            def publication_result(self, base, workflow_id):
+                return {'retained': True}
+
+            def publication_execute(self, base, descriptor):
+                return 'after', {'retained': True}
+
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            acceptance = distribution.Acceptance.__new__(distribution.Acceptance)
+            acceptance = PublicationFixture.__new__(PublicationFixture)
             acceptance.evidence = directory
             acceptance.cwd = directory / 'cwd'
             acceptance.cwd.mkdir()
@@ -221,7 +235,7 @@ class RestartChecksTests(unittest.TestCase):
             acceptance.worker_session_ids.assert_called_once_with(base='http://127.0.0.1:12345')
             self.assertEqual(acceptance.console.call_args_list, [
                 call([], base='http://127.0.0.1:12345'),
-                call([], base='http://127.0.0.1:12345', excluded_sessions={'old', 'earlier'}),
+                call(['html-report'], base='http://127.0.0.1:12345', excluded_sessions={'old', 'earlier'}),
             ])
             self.assertTrue(acceptance.report['cli']['restart_preserved_kit_and_settings'])
 

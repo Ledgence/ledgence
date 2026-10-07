@@ -6,7 +6,9 @@ tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
 **Release availability:** Ledgence **0.4.0** includes the `local` command group
-and installed-resource defaults described below. Follow
+and installed-resource defaults described below. The separate
+[program preparation and HTTP publication](#program-preparation-and-publication-development)
+section describes development-source additions. Follow
 [installation and local startup](installation.md) for the installer, manual
 archives and source options. Existing 0.3.1 installations retain their explicit
 resource paths and source Compose configuration.
@@ -48,12 +50,12 @@ explicit runtime configuration. See [observability](observability.md) and
 ## Command groups
 
 Use `ledgence <group> <command> --help` for the supported flags. These groups
-are available in 0.4.0, with MCP requiring its build feature.
+are available in 0.4.0 except where marked development-only, with MCP requiring its build feature.
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
-| `program` | `example`, `publish`, `register` | Create a fixture, publish a prepared immutable package, and register its reference. |
+| `program` | `example`, `build` (development), `publish`, `register` | Prepare, publish and register immutable programs; `build` requires updated development source. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
@@ -181,14 +183,53 @@ Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
 
 `program example` creates a local fixture and `program publish` writes immutable
 package contents to a store. `program register` makes a separate HTTP request to
-register an existing published reference. Publication does not register a
-program or start a worker. See [program packages](program-packages.md) and
+register an existing published reference. Publication starts no worker or
+execution; updated development source can explicitly request subsequent
+registration with `publish --server URL --register`. See [program packages](program-packages.md) and
 [Console registration](console.md#register-immutable-programs).
 
 `worker run` executes local task fixtures; `worker connect` acquires work from a
 service. `orchestrator migrate` applies database migrations explicitly;
 `orchestrator serve` verifies the schema and starts the service. Retention stays
 an explicit scoped operator operation through `orchestrator retain`.
+
+## Program preparation and publication (development)
+
+These additions require matching updated CLI/server source; installing 0.4.0
+or updating the CLI alone does not add them to an existing stack.
+
+```sh
+ledgence program build --config ledgence.toml --output .ledgence/prepared
+ledgence program publish --source .ledgence/prepared \
+  --server http://127.0.0.1:8080 --register
+ledgence program publish --resume /absolute/path/to/receipt.json
+```
+
+`build` defaults to `ledgence.toml` and `.ledgence/prepared`, with config-relative
+paths, an explicit Linux target and digest-pinned worker runtime image. It uses
+local Docker, exact hash-pinned production wheels and a 600-second default
+budget (`--timeout-seconds 1..3600`). `--context NAME` selects a local Docker
+context. It neither executes the handler nor overwrites existing outputs.
+
+`publish` defaults to `.ledgence/prepared` and requires exactly one destination,
+`--store DIR` or `--server URL`. It never builds implicitly. `--store` retains
+its descriptor-only JSON and rejects `--register` and catalog metadata flags.
+For `--server`, optional `--register` uses matching build-receipt metadata;
+`--kind`, `--display-name` and `--description` may override it. Replacing existing
+metadata requires `--update-metadata true`.
+
+The orchestrator must opt in with `--allow-program-publication`, an
+`--instance-config` and a writable filesystem `--store`. A read-only HTTPS
+store remains a valid deployment without upload capability.
+
+HTTP publication saves its exact ZIP and a receipt before sending. It makes one
+PUT without automatic retries. `--resume RECEIPT.json` is exclusive of other
+options and retries only unconfirmed stages against the recorded server. A
+confirmed upload followed by failed registration returns nonzero and a partial
+JSON report, including a registration-only command. Separate `program register`
+accepts `--expected-digest sha256:HEX --expected-size BYTES` together to require
+the exact uploaded descriptor. See the [complete configuration, output and
+recovery contract](program-publication.md).
 
 ## Task administration
 

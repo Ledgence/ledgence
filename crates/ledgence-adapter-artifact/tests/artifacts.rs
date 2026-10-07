@@ -801,3 +801,206 @@ fn catalog_registration_verifies_other_targets_without_host_compatibility_gate()
         value
     );
 }
+
+#[test]
+fn packaging_is_independent_of_file_timestamps_and_store_publication() {
+    use ledgence_adapter_artifact::pack_directory;
+    use std::fs::FileTimes;
+    use std::time::{Duration, SystemTime};
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("prepared");
+    fs::create_dir_all(source.join("empty")).unwrap();
+    fs::write(
+        source.join("ledgence-program.json"),
+        serde_json::to_vec(&manifest("deterministic")).unwrap(),
+    )
+    .unwrap();
+    let application = source.join("app.py");
+    fs::write(&application, b"pass").unwrap();
+    let first = pack_directory(&source, &ArtifactLimits::default()).unwrap();
+    fs::File::open(&application)
+        .unwrap()
+        .set_times(
+            FileTimes::new()
+                .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+        )
+        .unwrap();
+    let second = pack_directory(&source, &ArtifactLimits::default()).unwrap();
+    assert_eq!(first.descriptor, second.descriptor);
+    assert_eq!(first.archive, second.archive);
+    assert_eq!(
+        fs::read_dir(root.path()).unwrap().count(),
+        1,
+        "packaging must not write a store or receipt implicitly"
+    );
+    let mut zip = zip::ZipArchive::new(Cursor::new(&first.archive)).unwrap();
+    for index in 0..zip.len() {
+        let entry = zip.by_index(index).unwrap();
+        assert_eq!(entry.last_modified(), Some(zip::DateTime::default()));
+    }
+}
+
+#[test]
+fn shared_verification_rejects_reserved_root_and_handlers_but_accepts_client_namespace() {
+    use ledgence_adapter_artifact::{pack_directory, persist_archive, verify_program_package};
+    let root = tempfile::tempdir().unwrap();
+    for handler in ["ledgence:handle", "ledgence.application:handle"] {
+        let source = root.path().join(handler.replace(':', "-"));
+        fs::create_dir(&source).unwrap();
+        let mut value = manifest("namespace");
+        value.handler = handler.into();
+        fs::write(
+            source.join("ledgence-program.json"),
+            serde_json::to_vec(&value).unwrap(),
+        )
+        .unwrap();
+        assert!(pack_directory(&source, &ArtifactLimits::default()).is_err());
+    }
+    for name in ["ledgence/__init__.py", "Ledgence/__INIT__.py"] {
+        let (descriptor, bytes) = archive("namespace", &[(name, b"pass")]);
+        assert!(
+            verify_program_package(bytes.clone(), &descriptor, &ArtifactLimits::default()).is_err()
+        );
+        let result = persist_archive(
+            descriptor.program,
+            descriptor.digest,
+            bytes,
+            root.path().join("store"),
+            &ArtifactLimits::default(),
+        );
+        assert_eq!(
+            result.unwrap_err().kind,
+            ledgence_worker_api::PublicationErrorKind::InvalidArtifact
+        );
+        assert!(!root.path().join("store").exists());
+    }
+    let (descriptor, bytes) = archive(
+        "namespace",
+        &[
+            ("ledgence/client/__init__.py", b"# namespace contribution"),
+            ("app.py", b"pass"),
+        ],
+    );
+    verify_program_package(bytes, &descriptor, &ArtifactLimits::default()).unwrap();
+}
+
+#[test]
+fn filesystem_publication_checks_digest_identity_crc_and_limits_before_writing() {
+    use ledgence_adapter_artifact::persist_archive;
+    use ledgence_worker_api::PublicationErrorKind;
+    let root = tempfile::tempdir().unwrap();
+    let store = root.path().join("store");
+    let limits = ArtifactLimits::default();
+    let (descriptor, bytes) = archive("checked", &[("content", b"unique-corruptible-member")]);
+    let publish = |program, digest, content, limits: &ArtifactLimits| {
+        persist_archive(program, digest, content, &store, limits)
+    };
+    let mut wrong_program = descriptor.program.clone();
+    wrong_program.version = "wrong".into();
+    assert_eq!(
+        publish(
+            wrong_program,
+            descriptor.digest.clone(),
+            bytes.clone(),
+            &limits
+        )
+        .unwrap_err()
+        .kind,
+        PublicationErrorKind::InvalidArtifact
+    );
+    assert_eq!(
+        publish(
+            descriptor.program.clone(),
+            Digest(format!("sha256:{}", "0".repeat(64))),
+            bytes.clone(),
+            &limits
+        )
+        .unwrap_err()
+        .kind,
+        PublicationErrorKind::InvalidArtifact
+    );
+    let mut broken = bytes.clone();
+    let marker = b"unique-corruptible-member";
+    let offset = broken
+        .windows(marker.len())
+        .position(|p| p == marker)
+        .unwrap();
+    broken[offset] ^= 1;
+    let broken_descriptor = describe(descriptor.program.clone(), &broken);
+    assert_eq!(
+        publish(
+            broken_descriptor.program,
+            broken_descriptor.digest,
+            broken,
+            &limits
+        )
+        .unwrap_err()
+        .kind,
+        PublicationErrorKind::InvalidArtifact
+    );
+    for limited in [
+        ArtifactLimits {
+            max_archive_bytes: descriptor.size - 1,
+            ..limits.clone()
+        },
+        ArtifactLimits {
+            max_file_bytes: 1,
+            ..limits.clone()
+        },
+        ArtifactLimits {
+            max_expanded_bytes: 1,
+            ..limits.clone()
+        },
+        ArtifactLimits {
+            max_entries: 1,
+            ..limits.clone()
+        },
+        ArtifactLimits {
+            max_descriptor_bytes: 1,
+            ..limits.clone()
+        },
+    ] {
+        assert_eq!(
+            publish(
+                descriptor.program.clone(),
+                descriptor.digest.clone(),
+                bytes.clone(),
+                &limited
+            )
+            .unwrap_err()
+            .kind,
+            PublicationErrorKind::TooLarge
+        );
+    }
+    assert!(!store.exists(), "invalid bytes must never mutate the store");
+}
+
+#[tokio::test]
+async fn independent_filesystem_writer_and_read_only_store_share_verified_bytes() {
+    use ledgence_adapter_artifact::FileProgramArtifactPublisher;
+    use ledgence_worker_api::ProgramArtifactPublisher;
+    let root = tempfile::tempdir().unwrap();
+    let limits = ArtifactLimits::default();
+    let writer = FileProgramArtifactPublisher::new(root.path(), limits.clone()).unwrap();
+    let reader = FileProgramStore::new(root.path(), limits).unwrap();
+    let (descriptor, bytes) = archive("remote", &[("app.py", b"pass")]);
+    let first = writer
+        .publish(
+            descriptor.program.clone(),
+            descriptor.digest.clone(),
+            bytes.clone(),
+        )
+        .await
+        .unwrap();
+    assert!(!first.already_published);
+    assert_eq!(
+        reader.resolve(&descriptor.program).await.unwrap(),
+        descriptor
+    );
+    assert_eq!(reader.fetch(&descriptor).await.unwrap(), bytes);
+    let again = writer
+        .publish(descriptor.program.clone(), descriptor.digest.clone(), bytes)
+        .await
+        .unwrap();
+    assert!(again.already_published);
+}

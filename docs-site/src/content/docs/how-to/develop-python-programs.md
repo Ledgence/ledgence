@@ -117,7 +117,13 @@ automatically a deployable program artifact. Publish code and prepared runtime
 dependencies as an immutable program with handler `program:handle` and runtime
 protocol **3**. The worker does not install dependencies during execution.
 
-Follow [Register an agent](/how-to/register-agent) for publication,
+Updated development source offers an explicit Docker preparation adapter and
+HTTP publication with saved retry receipts. Follow [Build and publish Python
+programs](/how-to/build-and-publish-programs) when both CLI and server support it.
+It requires a target and digest-pinned worker runtime image and never infers a
+Linux package from the laptop environment.
+
+Follow [Register an agent](/how-to/register-agent) for existing filesystem publication,
 [the program package contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md)
 for manifests and artifact contents, and
 [the worker helper guide](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/README.md)

@@ -32,6 +32,9 @@ Self-host without a required vendor account.
 - **Develop Python programs:** install the [worker helper](sdk/python/README.md#install-for-local-development)
   in your application's environment for imports, editor support and local business-logic tests.
   This packaging is available from updated `develop` source; `ledgence-worker` is not published on PyPI.
+- **Build and upload a program:** updated development source adds an explicit Docker
+  builder, HTTP publication and durable retry receipts; see [build and publication](docs/program-publication.md).
+  Use a matching development server; existing release kits are not upgraded automatically.
 - **Connect an MCP client:** use [`ledgence mcp serve`](docs/mcp.md) to discover programs, submit work, and inspect results through the existing API. Available since 0.3.1.
 - **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
   with ChatGPT sign-in, documentation tools and durable human review, or the
