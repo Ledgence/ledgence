@@ -105,7 +105,12 @@ without Refresh or row-count selectors. Other paginated views retain their manua
 controls. Previous cursors are held in bounded process memory rather than
 accumulated in URLs. Active
 resource polling stops when a terminal outcome is observed and pauses while the
-page is hidden. Query cancellation is passed through to `fetch`; query keys include
+page is hidden. Local checkpoints keep the selected activation when the workflow
+advances or finishes; use **Load steps** to select another activation. The first
+page of a selected activation's local checkpoints polls
+while its workflow is active and receives a final refresh when the workflow
+becomes terminal. **Load steps** also reloads the selected activation; navigating
+to older checkpoint pages keeps that page stable. Query cancellation is passed through to `fetch`; query keys include
 origin, contract, instance, resource and complete query parameters.
 
 Mutation retries are manual. A frozen command retains its exact bytes and identity
@@ -181,7 +186,8 @@ Explorer pages remain bounded and identify partial views. Relations with unloade
 endpoints retain their typed references and evidence-carrier IDs in the accessible
 list; no placeholder execution is fabricated. Missing targets may be on another
 page or unavailable; the Console does not infer deletion or expiry.
-Trace rows are virtualized, with a complete accessible work list for the loaded
+Trace rows are virtualized using the visible viewport height, including resize
+and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.

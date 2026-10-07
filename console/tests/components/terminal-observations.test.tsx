@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
@@ -40,6 +40,12 @@ function response(value: unknown, status = 200) {
 }
 async function mount(route: string, returnTo?: string) {
   const address = new URL(route, "http://console.test");
+  let currentRoute = route;
+  function LocationProbe() {
+    const current = useLocation();
+    currentRoute = current.pathname + current.search;
+    return null;
+  }
   const client = createQueryClient();
   client.setDefaultOptions({
     ...client.getDefaultOptions(),
@@ -62,6 +68,7 @@ async function mount(route: string, returnTo?: string) {
             },
           ]}
         >
+          <LocationProbe />
           <Routes>
             <Route
               path="/executions/:taskId"
@@ -76,7 +83,7 @@ async function mount(route: string, returnTo?: string) {
       </InstanceContext.Provider>
     </QueryClientProvider>,
   );
-  return { view, client };
+  return { view, client, route: () => currentRoute };
 }
 function refreshParent(client: QueryClient, resource: string) {
   return client.invalidateQueries({
@@ -312,6 +319,137 @@ it("keeps the filtered execution return link when selecting an attempt", async (
   await expect
     .element(view.getByRole("link", { name: "Executions", exact: true }))
     .toHaveAttribute("href", returnTo);
+});
+
+for (const explicit of [false, true]) {
+  it(`refreshes ${explicit ? "selected" : "default"} local checkpoints after the workflow becomes terminal`, async () => {
+    let terminal = false;
+    let currentActivation = "task_controller_1";
+    let reads = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = new URL(String(input), location.origin).pathname;
+      if (path.endsWith("/workflows/inspect")) {
+        const detail = dto.workflowDetail(field("workflow_detail"));
+        detail.summary.workflow.state = terminal ? "succeeded" : "running";
+        detail.summary.workflow.activation_id = terminal
+          ? null
+          : currentActivation;
+        detail.summary.workflow.terminal_at = terminal
+          ? detail.observed_at
+          : null;
+        detail.child_wait = null;
+        return response(detail);
+      }
+      if (path.endsWith("/workflows/local-steps")) {
+        reads++;
+        const steps = dto.localStepPage(field("local_steps"));
+        if (!terminal) steps.items = [];
+        return response(steps);
+      }
+      throw new Error(`Unexpected request ${path}`);
+    });
+    const { view, client } = await mount(
+      "/workflows/wf_invoice_1042?tab=Local+steps" +
+        (explicit ? "&activation=task_controller_1" : ""),
+    );
+    await expect.poll(() => reads).toBe(1);
+    currentActivation = "task_controller_2";
+    await refreshParent(client, "workflows/inspect");
+    await expect
+      .element(
+        view.getByRole("textbox", { name: "Activation ID", exact: true }),
+      )
+      .toHaveValue("task_controller_1");
+    expect(reads).toBe(1);
+    terminal = true;
+    await refreshParent(client, "workflows/inspect");
+    await expect.poll(() => reads, { timeout: 1000 }).toBe(2);
+    const step = dto.localStepPage(field("local_steps")).items[0];
+    if (!step) throw new Error("Missing local checkpoint fixture");
+    await expect
+      .element(view.getByRole("cell", { name: step.step_key, exact: true }))
+      .toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(reads).toBe(2);
+  });
+}
+
+it("keeps the activation in a copied checkpoint page URL after completion", async () => {
+  let terminal = false;
+  const requests: URL[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = new URL(String(input), location.origin);
+    if (url.pathname.endsWith("/workflows/inspect")) {
+      const detail = dto.workflowDetail(field("workflow_detail"));
+      detail.summary.workflow.state = terminal ? "succeeded" : "running";
+      detail.summary.workflow.activation_id = terminal
+        ? null
+        : "task_controller_1";
+      detail.summary.workflow.terminal_at = terminal
+        ? detail.observed_at
+        : null;
+      detail.child_wait = null;
+      return response(detail);
+    }
+    if (url.pathname.endsWith("/workflows/local-steps")) {
+      requests.push(url);
+      const steps = dto.localStepPage(field("local_steps"));
+      steps.next_cursor = url.searchParams.has("cursor")
+        ? null
+        : "checkpoint-page-2";
+      return response(steps);
+    }
+    throw new Error(`Unexpected request ${url.pathname}`);
+  });
+  const first = await mount("/workflows/wf_invoice_1042?tab=Local+steps");
+  await first.view.getByRole("button", { name: "Next", exact: true }).click();
+  await expect.poll(() => requests.length).toBe(2);
+  const saved = first.route();
+  const params = new URL(saved, "http://console.test").searchParams;
+  expect(params.get("activation")).toBe("task_controller_1");
+  expect(params.get("cursor")).toBe("checkpoint-page-2");
+  await first.view.unmount();
+  terminal = true;
+  const restored = await mount(saved);
+  await expect.poll(() => requests.length).toBe(3);
+  expect(requests.at(-1)?.searchParams.get("activation_id")).toBe(
+    "task_controller_1",
+  );
+  expect(requests.at(-1)?.searchParams.get("cursor")).toBe("checkpoint-page-2");
+  await expect
+    .element(
+      restored.view.getByRole("textbox", {
+        name: "Activation ID",
+        exact: true,
+      }),
+    )
+    .toHaveValue("task_controller_1");
+});
+
+it("reloads checkpoints when Load steps selects the same activation", async () => {
+  let reads = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = new URL(String(input), location.origin).pathname;
+    if (path.endsWith("/workflows/inspect"))
+      return response(field("workflow_detail"));
+    if (path.endsWith("/workflows/local-steps")) {
+      const steps = dto.localStepPage(field("local_steps"));
+      if (++reads === 1) steps.items = [];
+      return response(steps);
+    }
+    throw new Error(`Unexpected request ${path}`);
+  });
+  const { view } = await mount(
+    "/workflows/wf_invoice_1042?tab=Local+steps&activation=task_controller_1",
+  );
+  await expect.poll(() => reads).toBe(1);
+  await view.getByRole("button", { name: "Load steps", exact: true }).click();
+  await expect.poll(() => reads, { timeout: 1000 }).toBe(2);
+  const step = dto.localStepPage(field("local_steps")).items[0];
+  if (!step) throw new Error("Missing local checkpoint fixture");
+  await expect
+    .element(view.getByRole("cell", { name: step.step_key, exact: true }))
+    .toBeVisible();
 });
 
 it("keeps the filtered workflow return link when choosing local-step activation", async () => {
