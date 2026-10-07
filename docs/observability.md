@@ -75,6 +75,17 @@ Resources contain service name, version, instance, and optional deployment envir
 
 Measured `ledgence.duration_ms` fields use local monotonic clocks. SDK span timestamps use wall-clock time. Do not subtract timestamps across hosts to infer authoritative duration.
 
+## Program publication (development)
+
+The development-source [artifact upload path](program-publication.md) uses the
+same optional trace bridge and HTTP request IDs as existing control operations.
+Capability discovery and the binary PUT produce bounded client/server exchange
+spans; registration remains a separate exchange. Program ID, version and digest
+are recorded when known, without exporting ZIP contents or local source files.
+The CLI's final JSON includes the last observed `request_id`; retained publication
+receipts remain the recovery authority if tracing is disabled or unavailable.
+The HTTP upload's separate 120-second budget does not change JSON control limits.
+
 ## Python programs
 
 Use protocol v2 or v3 packages for the separate processing carrier and structured logging. Runtime protocol v1 remains supported; the [Python import migration](program-packages.md#python-import-namespace) applies independently of the selected protocol. See the [Python helper](../sdk/python/README.md) and [package protocol](program-packages.md).

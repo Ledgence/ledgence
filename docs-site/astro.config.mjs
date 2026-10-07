@@ -32,6 +32,7 @@ export default defineConfig({
         { label: 'Install the CLI', slug: 'how-to/install-native' },
         { label: 'Manage the local distribution', slug: 'how-to/run-local-distribution' },
         { label: 'Develop Python programs', slug: 'how-to/develop-python-programs' },
+        { label: 'Build and publish programs', slug: 'how-to/build-and-publish-programs' },
         { label: 'Register an agent', slug: 'how-to/register-agent' },
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },
         { label: 'Receive execution results', slug: 'how-to/receive-results' },

@@ -22,6 +22,12 @@ impl HttpTaskService {
             SUBMISSION_MAX_BYTES,
             move |reply: &RegisterProgramReply| {
                 if reply.version.descriptor.program != expected.program
+                    || expected
+                        .expected_descriptor
+                        .as_ref()
+                        .is_some_and(|descriptor| {
+                            reply.version.descriptor != descriptor.clone().into()
+                        })
                     || reply.version.metadata != expected.metadata
                     || (reply.metadata_updated
                         && (!expected.update_metadata || !reply.already_registered))
@@ -284,5 +290,81 @@ mod tests {
                 .unwrap()
                 .contains("expected_namespace=billing")
         );
+    }
+}
+
+#[cfg(all(test, feature = "server"))]
+mod registration_precondition_tests {
+    use super::*;
+    use ledgence_orchestration_api::console::*;
+    use ledgence_worker_api::{
+        Digest, Platform, ProgramDescriptor, ProgramManifest, ProgramRef, PythonRuntime,
+    };
+    #[tokio::test]
+    async fn registration_reply_must_match_the_expected_published_descriptor() {
+        let descriptor = ProgramDescriptor {
+            program: ProgramRef {
+                id: "invoice".into(),
+                version: "1".into(),
+            },
+            digest: Digest(format!("sha256:{}", "a".repeat(64))),
+            size: 123,
+        };
+        let command = RegisterProgram {
+            program: descriptor.program.clone(),
+            expected_descriptor: Some(descriptor.clone()),
+            metadata: ProgramDisplayMetadata::default(),
+            update_metadata: false,
+        };
+        for wrong in [false, true] {
+            let mut returned = descriptor.clone();
+            if wrong {
+                returned.size += 1;
+            }
+            let reply = RegisterProgramReply {
+                version: ConsoleProgramVersion {
+                    descriptor: returned.into(),
+                    manifest: ProgramManifest {
+                        schema_version: 1,
+                        program: descriptor.program.clone(),
+                        handler: "app:handle".into(),
+                        runtime: PythonRuntime {
+                            kind: "python".into(),
+                            python: "3.14".into(),
+                            protocol: 3,
+                        },
+                        platform: Platform {
+                            os: "linux".into(),
+                            arch: "aarch64".into(),
+                        },
+                    },
+                    metadata: ProgramDisplayMetadata::default(),
+                    registered_at: 1,
+                    provenance: ProgramRegistrationProvenance::ConfiguredProgramStore,
+                },
+                already_registered: false,
+                metadata_updated: false,
+            };
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let router = axum::Router::new().route(
+                "/v1/console/programs/register",
+                axum::routing::post(move || async move {
+                    axum::response::Response::builder()
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(serde_json::to_vec(&reply).unwrap()))
+                        .unwrap()
+                }),
+            );
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let result = HttpTaskService::new(&url)
+                .unwrap()
+                .register_program(&command)
+                .await;
+            server.abort();
+            assert_eq!(result.is_err(), wrong);
+        }
     }
 }

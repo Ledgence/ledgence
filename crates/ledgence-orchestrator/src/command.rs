@@ -2,7 +2,7 @@ use ledgence_adapter_postgres::MigrationOptions;
 use ledgence_orchestration_api::{RetentionPolicy, Scope};
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, time::Duration};
 
-pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
+pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR] [--allow-program-publication]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -23,6 +23,7 @@ pub enum Command {
         completion_config: Option<PathBuf>,
         instance_config: Option<PathBuf>,
         console_dir: Option<PathBuf>,
+        allow_program_publication: bool,
     },
 }
 
@@ -42,7 +43,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     }
     let mut options = HashMap::new();
     let mut apply = false;
+    let mut allow_program_publication = false;
     while let Some(key) = args.next() {
+        if key == "--allow-program-publication" {
+            if command != "serve" || allow_program_publication {
+                return Err("--allow-program-publication is only accepted once by serve".into());
+            }
+            allow_program_publication = true;
+            continue;
+        }
         if key == "--apply" {
             if command != "retain" || apply {
                 return Err("--apply is only accepted once by retain".into());
@@ -116,6 +125,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         if console_dir.is_some() && instance_config.is_none() {
             return Err("--console-dir requires --instance-config".into());
         }
+        if allow_program_publication {
+            if instance_config.is_none() {
+                return Err("--allow-program-publication requires --instance-config".into());
+            }
+            if store.starts_with("http://") || store.starts_with("https://") {
+                return Err(
+                    "--allow-program-publication requires a writable filesystem --store".into(),
+                );
+            }
+        }
         #[cfg(not(feature = "sqs"))]
         if delivery_config.is_some() {
             return Err("--delivery-config requires a binary built with the sqs feature".into());
@@ -127,6 +146,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             completion_config,
             instance_config,
             console_dir,
+            allow_program_publication,
         }
     };
     if !options.is_empty() {
@@ -158,6 +178,64 @@ mod tests {
     }
 
     #[test]
+    fn publication_requires_explicit_bound_filesystem_installation() {
+        assert!(
+            arguments(&[
+                "serve",
+                "--store",
+                "programs",
+                "--allow-program-publication"
+            ])
+            .is_err()
+        );
+        assert!(arguments(&["migrate", "--allow-program-publication"]).is_err());
+        for store in [
+            "https://store.example/programs",
+            "http://localhost:8080/programs",
+        ] {
+            assert!(
+                arguments(&[
+                    "serve",
+                    "--store",
+                    store,
+                    "--instance-config",
+                    "instance.json",
+                    "--allow-program-publication"
+                ])
+                .is_err()
+            );
+            assert!(
+                arguments(&[
+                    "serve",
+                    "--store",
+                    store,
+                    "--instance-config",
+                    "instance.json"
+                ])
+                .is_ok()
+            );
+        }
+        let args = [
+            "serve",
+            "--store",
+            "programs",
+            "--instance-config",
+            "instance.json",
+            "--allow-program-publication",
+        ];
+        assert!(matches!(
+            arguments(&args),
+            Ok(Command::Serve {
+                allow_program_publication: true,
+                ..
+            })
+        ));
+        let mut duplicate = args.to_vec();
+        duplicate.push("--allow-program-publication");
+        assert!(arguments(&duplicate).is_err());
+    }
+
+    #[test]
     fn console_requires_explicit_instance_configuration_but_headless_binding_is_valid() {
         assert!(
             arguments(&[
@@ -182,6 +260,7 @@ mod tests {
             Command::Serve {
                 instance_config: Some(_),
                 console_dir: None,
+                allow_program_publication: false,
                 ..
             }
         ));
@@ -265,6 +344,7 @@ mod tests {
                 completion_config: None,
                 instance_config: None,
                 console_dir: None,
+                allow_program_publication: false,
             }
         );
         assert!(arguments(&["serve"]).is_err());

@@ -43,6 +43,10 @@ Build dependencies for the declared target. Native extensions require compatible
 python3.12 -m pip install --target ./program -r requirements.lock
 ```
 
+Updated development source also provides [`ledgence program build`](program-publication.md)
+to prepare explicit inputs and hash-pinned wheels inside the worker runtime
+image. That command is not available in the 0.4.0 release.
+
 This is a build-time operation; Ledgence's runtime does not invoke pip. Requirements files, hashes, and reproducible application builds remain the program publisher's responsibility. Publication preserves empty directories and regular-file executable bits. The prepared cache strips write and special permission bits, retaining read permissions plus those executable bits. The initial archive profile supports ZIP32 with stored or deflated regular files and directories, portable ASCII paths, and no symlinks, special files, encrypted entries, or ZIP64.
 
 ## Python import namespace
@@ -79,7 +83,12 @@ programs/<program-id>/<version>/descriptor.json
 blobs/<sha256-hex>.zip
 ```
 
-The descriptor contains `program`, `digest` (`sha256:<64 lowercase hex characters>`), and the compressed archive `size`. The immutable descriptor is published after the blob. Republishing identical content succeeds; changing content under the same program/version is an integrity error. Upload a new version to deploy new bytes. Publication is local filesystem based in this milestone; the same completed layout can be served over HTTPS.
+The descriptor contains `program`, `digest` (`sha256:<64 lowercase hex characters>`), and the compressed archive `size`. The immutable descriptor is published after the blob. Republishing identical content succeeds; changing content under the same program/version is an integrity error. Upload a new version to deploy new bytes. Filesystem publication remains available. Updated development source also supports
+explicitly enabled [HTTP publication](program-publication.md#binary-api-and-bounds)
+and optional subsequent registration. The same immutable layout can be served
+over HTTPS for workers on other hosts. The store identity is global within that
+store; tenant/namespace catalog scope does not permit different bytes under the
+same program ID/version. There is no multiarchitecture variant selection.
 
 The HTTPS adapter validates response status, declared identity, and bounded size. Cache preparation verifies the downloaded bytes against the descriptor digest before extraction. It disallows redirects and non-HTTPS origins, except loopback HTTP for local testing. It currently has no authenticated registry protocol or credentials configuration. Digests verify bytes against a trusted descriptor; they do not establish publisher authenticity by themselves.
 
@@ -87,7 +96,7 @@ The HTTPS adapter validates response status, declared identity, and bounded size
 
 The cache has one exclusive owner, a retained lock, and pins that prevent eviction while a prepared artifact or process still uses it. The last cache handle or artifact pin explicitly releases that ownership lock, so a temporarily inherited file descriptor cannot extend its lifetime. Separate worker processes need separate cache directories. Materialization verifies archive bytes before extraction, validates paths and the manifest, and publishes the completed materialization atomically. Program content and stored metadata files are read-only; the cache's private wrapper directory remains owner-writable so publication and eviction can rename it on macOS as well as Linux. Reopening an older cache normalizes only that wrapper's permissions after content verification. Directories and files are synced during publication. Reopening the cache verifies persisted bytes, topology, and executable bits; it does not trust mere directory presence. Eviction first renames a victim into a private deletion directory and syncs that rename before deleting content. Failed deletion retains its remaining quota charge and is retried before new publication or on reopen, so partial deletion never appears as a live digest entry. Staging reserves its planned file bytes before writes begin. If publication and rollback fail, the cache retains the remaining staging charge (or the previous reservation if it cannot measure the remainder) and retries cleanup before another publication. Existing cache lookups and pinned programs remain usable while this cleanup is pending; recovery does not require restarting the cache.
 
-The default limits are 64 MiB compressed, 256 MiB expanded, 64 MiB per file, 4,096 entries, a 64 KiB manifest, and a 1 GiB cache content quota. Quota accounting includes compressed archives, extracted regular-file bytes, and descriptors. Publication reserves quota for staged artifact content before writing it. Filesystem allocation overhead, downloaded memory buffers, and process scratch space are outside that content quota. Archive bytes are buffered in memory with bounded size; streaming cache publication is future work.
+The default limits are 64 MiB compressed, 256 MiB expanded, 64 MiB per file, 4,096 entries, a 64 KiB manifest, a 16 KiB descriptor, and a 1 GiB cache content quota. Quota accounting includes compressed archives, extracted regular-file bytes, and descriptors. Publication reserves quota for staged artifact content before writing it. Filesystem allocation overhead, downloaded memory buffers, and process scratch space are outside that content quota. Archive bytes are buffered in memory with bounded size; streaming cache publication is future work.
 
 Warm and active sessions retain cache pins. Unpinned entries can be evicted; the core can retire idle processes when their pins prevent an otherwise valid package fitting. Oversized or invalid packages fail directly. Each session receives a separate temporary working directory, preserved between its invocations and removed after confirmed cleanup. Access package resources relative to the module's `__file__`.
 

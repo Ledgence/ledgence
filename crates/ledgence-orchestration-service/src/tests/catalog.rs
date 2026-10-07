@@ -265,6 +265,7 @@ async fn registration_admission_bounds_fetches_before_waiting_for_verification()
     )
     .unwrap();
     let command = RegisterProgram {
+        expected_descriptor: None,
         program: descriptor('a').program,
         metadata: ProgramDisplayMetadata::default(),
         update_metadata: false,
@@ -285,4 +286,39 @@ async fn registration_admission_bounds_fetches_before_waiting_for_verification()
         result.unwrap().unwrap();
     }
     assert_eq!(programs.fetches.load(Ordering::SeqCst), 8);
+}
+
+#[tokio::test]
+async fn registration_expected_descriptor_rejects_wrong_store_before_fetch_or_catalog_write() {
+    let (entered, mut events) = mpsc::unbounded_channel();
+    let verifier = Arc::new(BlockingVerifier {
+        entered,
+        release: tokio::sync::Semaphore::new(1),
+    });
+    let programs = Arc::new(FetchPrograms {
+        fetches: AtomicUsize::new(0),
+    });
+    let service = crate::catalog::ProgramCatalogApplicationService::new(
+        scope(),
+        Arc::new(Catalog::new(None)),
+        programs.clone(),
+        verifier,
+    )
+    .unwrap();
+    let mut command = RegisterProgram {
+        program: descriptor('a').program,
+        expected_descriptor: Some(descriptor('b')),
+        metadata: ProgramDisplayMetadata::default(),
+        update_metadata: false,
+    };
+    assert!(matches!(
+        service.register_program(&command).await,
+        Err(ContractError::InvalidInput(_))
+    ));
+    assert_eq!(programs.fetches.load(Ordering::SeqCst), 0);
+    assert!(events.try_recv().is_err());
+    command.expected_descriptor = Some(descriptor('a'));
+    let reply = service.register_program(&command).await.unwrap();
+    assert_eq!(reply.version.descriptor, descriptor('a').into());
+    assert_eq!(programs.fetches.load(Ordering::SeqCst), 1);
 }

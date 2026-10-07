@@ -10,6 +10,12 @@ container distribution kit, and discovery of installed runtime and Console files
 The [manual native guide](https://docs.ledgence.com/how-to/install-native) and
 [source Compose deployment](local-deployment.md) remain available.
 
+**Development addition:** preparing programs with `program build` needs local
+Docker and a matching digest-pinned worker runtime image. Publishing an already
+prepared program with `--server` needs only the updated CLI and an explicitly
+enabled updated server. Neither operation updates an existing saved local kit.
+See [program preparation and publication](program-publication.md).
+
 ## Choose what to install
 
 | Need | Install on the host |

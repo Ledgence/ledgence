@@ -13,8 +13,8 @@ use std::{
 };
 use zip::ZipArchive;
 
-pub(crate) struct ArchivePlan {
-    archive: ZipArchive<Cursor<Vec<u8>>>,
+pub(crate) struct ArchivePlan<B = Vec<u8>> {
+    archive: ZipArchive<Cursor<B>>,
     members: Vec<Member>,
     pub manifest: ProgramManifest,
     pub expanded_bytes: u64,
@@ -40,20 +40,22 @@ pub(crate) fn inspect(
     Ok(plan)
 }
 
-pub(crate) fn inspect_for_publication(
-    bytes: Vec<u8>,
+pub(crate) fn inspect_for_publication<B: AsRef<[u8]>>(
+    bytes: B,
     descriptor: &ProgramDescriptor,
     limits: &ArtifactLimits,
-) -> Result<ArchivePlan> {
+) -> Result<ArchivePlan<B>> {
     limits.descriptor(descriptor)?;
-    if bytes.len() as u64 != descriptor.size || digest_hex(&bytes) != descriptor.digest.hex() {
+    if bytes.as_ref().len() as u64 != descriptor.size
+        || digest_hex(bytes.as_ref()) != descriptor.digest.hex()
+    {
         return Err(AdapterError::Invalid(
             "archive size or SHA-256 does not match descriptor".into(),
         ));
     }
     // zip-rs indexes by filename and can hide duplicate raw central-directory
     // records. Check the original directory before allowing it to allocate/parse.
-    let raw_names = check_directory(&bytes, limits.max_entries)?;
+    let raw_names = check_directory(bytes.as_ref(), limits.max_entries)?;
     let mut archive = ZipArchive::new(Cursor::new(bytes))?;
     if archive.offset() != 0
         || archive.len() != raw_names.len()
@@ -76,6 +78,11 @@ pub(crate) fn inspect_for_publication(
         }
         let directory = entry.is_dir();
         let name = safe_name(entry.name(), directory)?;
+        if name.eq_ignore_ascii_case("ledgence/__init__.py") {
+            return Err(AdapterError::Invalid(
+                "the ledgence namespace must not have a root __init__.py".into(),
+            ));
+        }
         let unix_mode = entry.unix_mode().unwrap_or(0);
         let mode = unix_mode & 0o170000;
         if entry.is_symlink()
@@ -111,6 +118,12 @@ pub(crate) fn inspect_for_publication(
             let data = read_bounded(&mut entry, limits.max_manifest_bytes)?;
             let value: ProgramManifest = serde_json::from_slice(&data)?;
             value.validate()?;
+            let module = value.handler.split(':').next().unwrap_or("");
+            if module == "ledgence" || module.starts_with("ledgence.") {
+                return Err(AdapterError::Invalid(
+                    "handlers must not use the ledgence namespace".into(),
+                ));
+            }
             if value.program != descriptor.program {
                 return Err(AdapterError::Invalid(
                     "manifest program differs from descriptor".into(),
@@ -163,8 +176,8 @@ pub(crate) fn inspect_for_publication(
 }
 
 /// Validate every member without materializing or executing the package.
-pub(crate) fn verify_package(
-    bytes: Vec<u8>,
+pub(crate) fn verify_package<B: AsRef<[u8]>>(
+    bytes: B,
     descriptor: &ProgramDescriptor,
     limits: &ArtifactLimits,
 ) -> Result<ProgramManifest> {
@@ -184,7 +197,7 @@ pub(crate) fn verify_package(
     Ok(plan.manifest)
 }
 
-impl ArchivePlan {
+impl<B: AsRef<[u8]>> ArchivePlan<B> {
     pub fn extract(&mut self, root: &Path) -> Result<()> {
         self.extract_with_create(root, |path| File::create_new(path))
     }

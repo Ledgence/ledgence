@@ -51,6 +51,15 @@ impl ProgramCatalogService for ProgramCatalogApplicationService {
                     "program store returned another reference".into(),
                 ));
             }
+            if command
+                .expected_descriptor
+                .as_ref()
+                .is_some_and(|expected| expected != &descriptor)
+            {
+                return Err(ContractError::InvalidInput(
+                    "configured store descriptor does not match published artifact".into(),
+                ));
+            }
             let bytes = self
                 .programs
                 .fetch(&descriptor)

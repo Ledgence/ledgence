@@ -7,6 +7,11 @@ Register a program so operators can discover its exact versions, inspect runtime
 
 This guide applies to Ledgence 0.4.0. Start a matching instance using [Explore Ledgence Console](/tutorials/use-console).
 
+**Development option:** updated source adds [program builds and HTTP uploads](/how-to/build-and-publish-programs)
+with `publish --server URL --register` and durable retry receipts. It requires
+explicit server enablement and is not present in the 0.4.0 installation described
+below. The Console form remains registration-only.
+
 ## Publish the package first
 
 If you are still writing the program, [Develop Python programs](/how-to/develop-python-programs)
@@ -83,7 +88,14 @@ Metadata changes never replace the artifact digest. Publish changed code or depe
 
 ## Recover from an interrupted registration
 
-Publication and registration are separate operations. If publication succeeds but registration fails, retain the valid immutable artifact and retry registration. Do not delete the package as a rollback.
+Publication and registration are separate operations. In updated development
+source, `publish --server URL --register` binds registration to the uploaded
+descriptor. `program register` can also require both `--expected-digest` and
+`--expected-size`; these flags are not available in 0.4.0. If you used HTTP
+publication, preserve its receipt and sibling ZIP and resume the saved operation
+as described in [publication recovery](/how-to/build-and-publish-programs#resume-after-interruption).
+
+If publication succeeds but registration fails, retain the valid immutable artifact and retry registration. Do not delete the package as a rollback.
 
 A conflict can mean that the same reference already identifies different bytes, or that descriptive metadata differs without explicit replacement. Check the reference and store; use a new version for different bytes and metadata replacement only for descriptive changes.
 

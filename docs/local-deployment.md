@@ -21,6 +21,13 @@ loopback. Database credentials are fixed nonsecret demo values, the internal
 network uses HTTP, and the example receiver is deliberately bounded. Do not
 expose this configuration as a public multi-tenant service.
 
+
+Updated development templates also enable HTTP program publication on the
+orchestrator. Its shared `/programs` mount is writable; the worker's remains
+read-only. A native development CLI can [build and publish its own program](program-publication.md)
+without naming Docker volumes. Existing deployments and published kits retain
+their original configuration; this feature does not migrate them automatically.
+
 ## Start and run the example
 
 Install Docker Engine or Docker Desktop with Compose v2.23.1 or newer, supporting `up --wait` and inline configs.

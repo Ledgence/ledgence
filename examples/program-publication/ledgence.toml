@@ -1,0 +1,28 @@
+schema_version = 1
+
+[program]
+id = "html-report"
+version = "1.0.0"
+handler = "html_report:handle"
+kind = "workflow"
+display_name = "HTML report"
+description = "Render a title using a Linux native Python wheel."
+
+[source]
+root = "src"
+include = ["html_report"]
+
+[[files]]
+source = "LICENSE"
+destination = "LICENSE"
+
+[dependencies]
+requirements = "requirements.txt"
+
+[target]
+# Choose the actual worker target, independently of the developer's host.
+platform = "linux/arm64"
+python = "3.14"
+protocol = 3
+# Replace this with the exact digest-pinned image used by your worker.
+image = "REPLACE_WITH_WORKER_IMAGE_DIGEST"

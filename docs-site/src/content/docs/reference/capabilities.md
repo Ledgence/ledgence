@@ -53,6 +53,22 @@ prerequisite of the corresponding live example, not of Ledgence self-hosting.
 | Build the local Docker Compose stack from source. | **Published 0.4.0 source.** [Source tutorial](/tutorials/run-locally). |
 | Install `ledgence.worker` in an application's environment for imports, editor support and local business-logic tests. | **Development source only.** [Develop Python programs](/how-to/develop-python-programs). The local `ledgence-worker` package is absent from the existing `v0.4.0` tag and has no PyPI release. |
 
+## Program preparation and publication in development
+
+Updated `develop` source adds explicit Docker preparation for Linux worker
+runtimes, immutable HTTP artifact uploads and saved retry receipts. Optional
+subsequent registration is bound to the exact uploaded descriptor. The existing
+filesystem publication path remains supported. See [Build and publish Python
+programs](/how-to/build-and-publish-programs) for prerequisites, configuration,
+limits and interrupted-operation recovery.
+
+These features require matching updated CLI/server builds and explicit server
+write enablement. They are not supplied by 0.4.0 or silently added to existing
+local kits. Docker belongs to the local builder; prepared ZIP uploads need no
+Docker dependency on the server. Program identity remains global within each
+store, with one artifact per program ID and version; there is no multiarchitecture
+variant selection or automatic remote storage configuration.
+
 ## Boundaries that matter
 
 Tasks are leaf execution units. Workflows compose work; internal Python code

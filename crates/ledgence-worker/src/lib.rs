@@ -6,7 +6,6 @@ mod output;
 mod signals;
 mod telemetry;
 
-use ledgence_adapter_artifact::{ArtifactLimits, publish_directory};
 use ledgence_worker_api::*;
 use ledgence_worker_core::{ExecutionRequest, Worker};
 use output::{Outputs, Sink};
@@ -26,11 +25,11 @@ use std::{
 };
 use tokio::{sync::Mutex, task::JoinSet};
 
-const HELP: &str = "Ledgence worker\n\nCommands:\n  ledgence program example --directory DIR --python EXE\n  ledgence program publish --source DIR --store DIR\n  ledgence worker run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  ledgence worker connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
+const HELP: &str = "Ledgence worker\n\nCommands:\n  ledgence program example --directory DIR --python EXE\n  ledgence worker run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  ledgence worker connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
 
 /// Runs a worker or local program command in the current process.
 ///
-/// Arguments begin with `run`, `connect`, `example`, or `publish` and omit the
+/// Arguments begin with `run`, `connect`, or `example` and omit the
 /// executable and public command group names. This entrypoint owns the worker
 /// runtime, signal subscriptions, and output delivery through shutdown.
 pub fn entrypoint(args: Vec<String>) -> ExitCode {
@@ -165,7 +164,6 @@ pub fn entrypoint(args: Vec<String>) -> ExitCode {
 enum Command {
     Help,
     Example { directory: PathBuf, python: String },
-    Publish { source: PathBuf, store: PathBuf },
     Run(RunOptions),
     Connect(Box<connect::ConnectOptions>),
 }
@@ -181,7 +179,7 @@ fn parse(args: Vec<String>) -> Result<Command> {
         }
         return Ok(Command::Help);
     }
-    if !["example", "publish", "run", "connect"].contains(&command.as_str()) {
+    if !["example", "run", "connect"].contains(&command.as_str()) {
         return Err(input(format!(
             "unknown command {command}; use ledgence --help"
         )));
@@ -210,12 +208,6 @@ fn parse(args: Vec<String>) -> Result<Command> {
             let python = required(&mut options, "--python")?;
             check_empty(options)?;
             Ok(Command::Example { directory, python })
-        }
-        "publish" => {
-            let source = required(&mut options, "--source")?.into();
-            let store = required(&mut options, "--store")?.into();
-            check_empty(options)?;
-            Ok(Command::Publish { source, store })
         }
         "run" => {
             let config = RunOptions {
@@ -252,12 +244,6 @@ async fn dispatch(
             connect::run(*config, output, signals, interrupted, trace).await
         }
         Command::Example { directory, python } => make_example(&directory, &python, output).await,
-        Command::Publish { source, store } => {
-            let descriptor = publish_directory(source, store, &ArtifactLimits::default())?;
-            output
-                .line(serde_json::to_string(&descriptor).map_err(|e| input(e.to_string()))?)
-                .await
-        }
         Command::Run(config) => run(config, output, signals, interrupted, trace).await,
     }
 }

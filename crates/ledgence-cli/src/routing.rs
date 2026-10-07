@@ -12,6 +12,8 @@ pub enum Route {
     Version,
     Local(Vec<String>),
     Admin(Vec<String>),
+    ProgramBuild(Vec<String>),
+    ProgramPublish(Vec<String>),
     Mcp(Vec<String>),
     Worker(Vec<String>),
     Orchestrator(Vec<String>),
@@ -81,14 +83,20 @@ const COMMANDS: &[Leaf] = &[
     },
     Leaf {
         group: "program",
+        name: "build",
+        options: "[--config ledgence.toml] [--output .ledgence/prepared] [--context NAME] [--timeout-seconds 600]",
+        description: "Prepare a Python program in an explicitly pinned Linux Docker image. Includes only configured source/files and hash-pinned wheels. Requires a local Docker engine; no handler is executed. Writes a prepared directory and a separate build receipt. Existing different output is preserved.",
+    },
+    Leaf {
+        group: "program",
         name: "publish",
-        options: "--source DIR --store DIR",
-        description: "Publish a prepared package to a filesystem store. Identical content is idempotent; changed content requires a new version. Prints the immutable descriptor as JSON.",
+        options: "[--source .ledgence/prepared] (--store DIR | --server URL) [--register] [--kind task|workflow|unspecified] [--display-name NAME] [--description TEXT] [--update-metadata true] | --resume RECEIPT.json",
+        description: "Publish an already prepared program; does not build it. Filesystem publication prints the immutable descriptor. HTTP publication requires explicit server enablement and saves the exact ZIP plus a durable receipt for --resume. --register additionally verifies and registers that exact descriptor; publication and registration are separate outcomes. Kind/display metadata can come from the build receipt. A changed immutable version requires a new version.",
     },
     Leaf {
         group: "program",
         name: "register",
-        options: "--server URL --program ID --version VERSION [--kind task|workflow|unspecified] [--display-name NAME] [--description TEXT] [--update-metadata true]",
+        options: "--server URL --program ID --version VERSION [--kind task|workflow|unspecified] [--display-name NAME] [--description TEXT] [--update-metadata true] [--expected-digest sha256:HEX --expected-size BYTES]",
         description: "Register an already published package in the installation catalog. Registration verifies the package without executing it. Makes one bounded HTTP exchange without automatic retries.",
     },
     Leaf {
@@ -106,7 +114,7 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "orchestrator",
         name: "serve",
-        options: "--store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR]",
+        options: "--store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR] [--allow-program-publication]",
         description: "Serve HTTP orchestration and supervise recovery. DATABASE_URL is required; the schema is verified, never migrated automatically. Console requires explicit instance configuration; with --instance-config, the installed Console is used when available unless --console-dir overrides it. An external proxy can provide HTTPS. First SIGINT/SIGTERM drains; a second forces a nonzero exit. SQS delivery requires the sqs build feature.",
     },
     Leaf {
@@ -197,7 +205,11 @@ pub fn parse(arguments: Vec<String>) -> Result<Route> {
     leaf(group, command)?;
     match (group, command.as_str()) {
         ("local", _) => Ok(Route::Local(arguments.into_iter().skip(1).collect())),
-        ("program", "example" | "publish") | ("worker", _) => {
+        ("program", "build") => Ok(Route::ProgramBuild(arguments.into_iter().skip(2).collect())),
+        ("program", "publish") => Ok(Route::ProgramPublish(
+            arguments.into_iter().skip(2).collect(),
+        )),
+        ("program", "example") | ("worker", _) => {
             Ok(Route::Worker(arguments.into_iter().skip(1).collect()))
         }
         ("orchestrator", _) => Ok(Route::Orchestrator(arguments.into_iter().skip(1).collect())),

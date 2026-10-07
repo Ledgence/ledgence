@@ -48,7 +48,13 @@ selects the server and completion transport and supplies its own
 `tools/check-http-features.py` checks independent selections so a workspace build's
 feature unification cannot conceal coupling between them.
 
-The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`. Runtime execution receives `RuntimeInvocation`: the unchanged event plus an optional ephemeral execution carrier. `TraceBridge` connects existing tracing spans to portable W3C values; SDK and exporter types remain in the OTel adapter. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`, plus `DispatchIntentStore`, `DispatchPublisher`, and `AckQueue` for durable publication and individually acknowledged sources. `AcquisitionSource` composes either integrated or broker delivery with the same driver. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
+The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`.
+Development-source publication uses a separate `ProgramArtifactPublisher` write
+port with portable descriptor/error/limit types, leaving worker store readers
+unchanged. The HTTP service bounds transfers and retains ownership until an
+admitted write finishes; the filesystem adapter verifies and publishes immutable
+blobs before their descriptors. Docker preparation belongs to the CLI only; see
+[program publication](program-publication.md). Runtime execution receives `RuntimeInvocation`: the unchanged event plus an optional ephemeral execution carrier. `TraceBridge` connects existing tracing spans to portable W3C values; SDK and exporter types remain in the OTel adapter. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`, plus `DispatchIntentStore`, `DispatchPublisher`, and `AckQueue` for durable publication and individually acknowledged sources. `AcquisitionSource` composes either integrated or broker delivery with the same driver. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.
 
 The [delivery contract](delivery-contract.md) defines the portable `TaskService` boundary and executable orchestration decisions. The [delivery driver](worker-delivery.md) accepts `Worker` and `Arc<dyn TaskService>` and derives N from `Worker::concurrency()`. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before acquisition and through settlement; its local execution method is single-use. Execution reports live in worker-api and remain reexported by worker-core. The [PostgreSQL persistence adapter](postgres.md) commits all transition records atomically before returning a durable acknowledgement. The driver has no PostgreSQL dependency; integration tests compose the real service, database, artifact, and subprocess adapters.
 

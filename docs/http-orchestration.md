@@ -1,5 +1,10 @@
 # HTTP orchestration
 
+Updated development source adds a separate bounded binary [program publication
+API](program-publication.md#binary-api-and-bounds). It is disabled unless an
+instance with a writable filesystem store opts in with
+`--allow-program-publication`. Existing JSON control limits remain unchanged.
+
 Ledgence provides one Rust executable, `ledgence`: `ledgence orchestrator serve` serves the durable task/workflow APIs and runs expiry and workflow recovery, `ledgence worker connect` executes assignments, and `ledgence task` submits and inspects tasks. Each service runs in its own process. See the [CLI migration guide](cli.md) when updating an earlier installation. PostgreSQL 18 stores orchestration state. Program packages remain in a separate filesystem or HTTPS store and are downloaded into each worker's verified cache on demand.
 
 This version supports bounded HTTP/JSON long polling. Workers request up to 20 seconds of waiting, with optional PostgreSQL notifications and periodic queue checks. Immediate acquisition remains available with `--acquire-wait-ms 0`. gRPC and a package upload API remain later work. [Retention maintenance](retention.md) is an explicit scoped operator command. Optional tracing uses the OTLP HTTP/protobuf exporter; acquisition semantics remain independent of telemetry availability. The API is versioned under `/v1` but has no stable-release compatibility promise yet.

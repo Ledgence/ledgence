@@ -6,6 +6,8 @@ mod bundle;
 mod local;
 mod logging;
 mod mcp;
+mod program_build;
+mod program_publish;
 mod routing;
 mod submission;
 mod telemetry;
@@ -42,6 +44,8 @@ fn main() -> ExitCode {
             ledgence_orchestrator::entrypoint(bundle::orchestrator_arguments(arguments))
         }
         Ok(routing::Route::Local(arguments)) => local::run(arguments),
+        Ok(routing::Route::ProgramBuild(arguments)) => program_build::run(arguments),
+        Ok(routing::Route::ProgramPublish(arguments)) => program_publish::run(arguments),
         Ok(routing::Route::Admin(arguments)) => run_admin(arguments),
         Ok(routing::Route::Mcp(arguments)) => mcp::run(arguments),
         Err(error) => diagnose(error, None),

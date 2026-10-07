@@ -10,7 +10,9 @@ pub mod completion;
 #[cfg(feature = "client")]
 mod response;
 #[cfg(feature = "client")]
-pub use client::{ExchangeMetadata, HttpProgramCatalogService, HttpTaskService};
+pub use client::{
+    ExchangeMetadata, HttpProgramCatalogService, HttpProgramPublisher, HttpTaskService,
+};
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(any(feature = "client", feature = "server"))]

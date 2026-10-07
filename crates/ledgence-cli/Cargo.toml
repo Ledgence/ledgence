@@ -22,6 +22,7 @@ sqs = ["ledgence-worker/sqs", "ledgence-orchestrator/sqs"]
 ledgence-adapter-mcp = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 ledgence-worker.workspace = true
+ledgence-adapter-artifact.workspace = true
 ledgence-orchestrator.workspace = true
 ledgence-adapter-otel = { workspace = true, optional = true }
 ledgence-adapter-http = { workspace = true, features = ["client"] }
@@ -33,6 +34,8 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
+rustix = { version = "=1.1.4", features = ["fs"] }
+toml = { version = "=1.1.6", default-features = false, features = ["parse", "serde", "std"] }
 tokio.workspace = true
 
 [target.'cfg(unix)'.dependencies]

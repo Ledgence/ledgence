@@ -140,6 +140,12 @@ The console source manifest and retained notices accompany the assets.
 
 ## Register immutable programs
 
+Updated development source can prepare and upload programs from the CLI with
+[`program build` and `publish --server URL --register`](program-publication.md).
+The Console registration form still registers an existing store reference; it
+does not become a code uploader. Publication must be explicitly enabled on the
+server, and existing 0.4.0 kits do not gain that capability automatically.
+
 Publish a prepared package into the configured store first. Register its exact
 reference against the running instance:
 
