@@ -12,6 +12,7 @@ import {
   timelineBounds,
 } from "../explorer-model";
 const rowHeight = 86;
+const overscan = 4;
 export function Trace({
   nodes,
   observedAt,
@@ -30,10 +31,25 @@ export function Trace({
   updateState: (value: ExplorerViewState) => void;
 }) {
   const [scroll, setScroll] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const rows = useMemo(() => timelineRows(nodes), [nodes]);
+  const hasRows = rows.length > 0;
   const viewport = useRef<HTMLDivElement>(null);
   const anchor = useRef<{ id: string | null; index: number } | null>(null);
   const selectedIndex = rows.findIndex((row) => row.node.id === selectedId);
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const measure = () => {
+      setViewportHeight(element.clientHeight);
+      if (state.follow) element.scrollTop = element.scrollHeight;
+      setScroll(element.scrollTop);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasRows, state.follow]);
   useLayoutEffect(() => {
     const element = viewport.current;
     const previous = anchor.current;
@@ -45,6 +61,7 @@ export function Trace({
         previous.index >= 0
       )
         element.scrollTop += (selectedIndex - previous.index) * rowHeight;
+      setScroll(element.scrollTop);
     }
     anchor.current = { id: selectedId, index: selectedIndex };
   }, [rows, selectedIndex, selectedId, state.follow]);
@@ -63,8 +80,11 @@ export function Trace({
     rangeEnd > rangeStart;
   const start = validRange ? rangeStart : naturalStart;
   const end = validRange ? rangeEnd : naturalEnd + 1;
-  const first = Math.max(0, Math.floor(scroll / rowHeight) - 4);
-  const last = Math.min(rows.length, first + 16);
+  const first = Math.max(0, Math.floor(scroll / rowHeight) - overscan);
+  const last = Math.min(
+    rows.length,
+    Math.ceil((scroll + viewportHeight) / rowHeight) + overscan,
+  );
   return (
     <div
       className="execution-timeline"

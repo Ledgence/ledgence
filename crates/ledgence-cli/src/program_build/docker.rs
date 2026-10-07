@@ -249,8 +249,13 @@ impl<'a, P: Process> Docker<'a, P> {
             ]
         };
         let ids = match super::files::read_regular(cidfile, 256) {
-            Ok(bytes) => bytes,
-            Err(_) => self.call(&list(), Duration::from_secs(20)).await?,
+            Ok(bytes) if !std::str::from_utf8(&bytes).is_ok_and(|text| text.trim().is_empty()) => {
+                bytes
+            }
+            // Docker creates the CID file before creating the container, then
+            // writes its ID. Cancellation can leave a labelled container while
+            // the file is still empty; only the label lookup resolves ownership.
+            Ok(_) | Err(_) => self.call(&list(), Duration::from_secs(20)).await?,
         };
         let text = std::str::from_utf8(&ids)
             .map_err(|_| operational("invalid Docker container identity"))?;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useInstance } from "../app/instance";
@@ -212,8 +212,7 @@ export function WorkflowDetailPage() {
                       {
                         id: "input",
                         title: "Input",
-                        description:
-                          "Original input and current durable state.",
+                        description: "Original submitted workflow input.",
                         content: (
                           <WorkflowInput
                             key={workflowId}
@@ -293,9 +292,13 @@ export function WorkflowDetailPage() {
                           "Accepted local results associated with an activation.",
                         content: (
                           <LocalSteps
+                            key={workflowId}
                             workflowId={workflowId}
                             currentActivation={
                               detail.summary.workflow.activation_id
+                            }
+                            active={
+                              !dto.terminal(detail.summary.workflow.state)
                             }
                           />
                         ),
@@ -631,13 +634,25 @@ function Waits({
 function LocalSteps({
   workflowId,
   currentActivation,
+  active,
 }: {
   workflowId: string;
   currentActivation: string | null;
+  active: boolean;
 }) {
+  const config = useInstance();
   const [params, set] = useSearchParams();
   const location = useLocation();
   const activation = params.get("activation") ?? currentActivation;
+  useEffect(() => {
+    // Persist the inspected identity with its cursor, including copied URLs and
+    // reloads after the workflow advances or clears its current activation.
+    if (!params.has("activation") && currentActivation) {
+      const next = new URLSearchParams(params);
+      next.set("activation", currentActivation);
+      set(next, { replace: true, state: location.state });
+    }
+  }, [params, currentActivation, set, location.state]);
   const paging = usePagination();
   const query = useResource(
     "workflows/local-steps",
@@ -648,7 +663,17 @@ function LocalSteps({
       cursor: paging.cursor,
     },
     dto.localStepPage,
-    { enabled: !!activation },
+    {
+      enabled: !!activation,
+      interval:
+        active && !paging.cursor ? config.polling.waiting_workflow_ms : false,
+    },
+  );
+  useTerminalRefresh(
+    active,
+    [workflowId, activation, paging.cursor, paging.limit],
+    query,
+    !!activation && !paging.cursor,
   );
   return (
     <>
@@ -661,6 +686,7 @@ function LocalSteps({
           if (typeof id === "string" && id) {
             const next = new URLSearchParams(params);
             next.set("activation", id);
+            if (id === activation && !paging.cursor) void query.refetch();
             next.delete("cursor");
             next.delete("previous");
             set(next, { state: location.state });
