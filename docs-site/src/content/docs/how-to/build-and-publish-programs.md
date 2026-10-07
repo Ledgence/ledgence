@@ -162,6 +162,11 @@ Open **Programs** in Console after successful registration. Execution remains a
 separate task or workflow submission. A registered program can target another
 platform; a worker still needs to satisfy its runtime requirements.
 
+For a complete workflow walkthrough, use the [program publication
+example](https://github.com/Ledgence/ledgence/blob/develop/examples/program-publication/README.md).
+It builds a package with a native Python wheel, publishes and registers it, then
+submits a workflow with the Python client and waits for the result.
+
 The filesystem alternative remains:
 
 ```sh

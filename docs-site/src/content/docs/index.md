@@ -29,6 +29,7 @@ Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/cod
 | --- | --- |
 | Install the CLI in one command and configure your shell. | [Installation](/how-to/install-native) |
 | Start and manage the local stack from published images. | [Local distribution](/how-to/run-local-distribution) |
+| Update an existing installation to 0.5.0. | [Upgrade guide](/how-to/upgrade-to-0-5) — update the CLI and running services separately. |
 | Build the Docker Compose examples from source. | [Local source tutorial](/tutorials/run-locally) |
 | Write Python programs with local imports and editor support. | [Python development setup](/how-to/develop-python-programs) — install the published worker helper. |
 | Build for a worker runtime and upload an immutable program. | [Build and publish programs](/how-to/build-and-publish-programs) — explicit targets and saved recovery receipts. |
@@ -37,9 +38,10 @@ Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/cod
 | Operate workers and diagnose executions. | [Observability](/how-to/configure-observability), [queue delivery](/concepts/queue-delivery), and [Console](/reference/console) |
 
 Use the [capability map](/reference/capabilities) to find every supported area,
-its limits and release availability. Ledgence 0.5.0 adds installable Python
-authoring helpers, explicit program builds, HTTP publication and saved receipts.
-The one-line installer, container images and `ledgence local` remain available.
+its limits and release availability. Ledgence 0.5.0 adds explicit program builds,
+HTTP publication and saved receipts for interrupted uploads. It also includes
+the installable Python worker helper introduced in 0.4.1. The one-line installer,
+container images and `ledgence local` remain available.
 
 ## Find your way
 

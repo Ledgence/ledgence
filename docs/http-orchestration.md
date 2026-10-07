@@ -7,7 +7,7 @@ instance with a writable filesystem store opts in with
 
 Ledgence provides one Rust executable, `ledgence`: `ledgence orchestrator serve` serves the durable task/workflow APIs and runs expiry and workflow recovery, `ledgence worker connect` executes assignments, and `ledgence task` submits and inspects tasks. Each service runs in its own process. See the [CLI migration guide](cli.md) when updating an earlier installation. PostgreSQL 18 stores orchestration state. Program packages remain in a separate filesystem or HTTPS store and are downloaded into each worker's verified cache on demand.
 
-This version supports bounded HTTP/JSON long polling. Workers request up to 20 seconds of waiting, with optional PostgreSQL notifications and periodic queue checks. Immediate acquisition remains available with `--acquire-wait-ms 0`. gRPC and a package upload API remain later work. [Retention maintenance](retention.md) is an explicit scoped operator command. Optional tracing uses the OTLP HTTP/protobuf exporter; acquisition semantics remain independent of telemetry availability. The API is versioned under `/v1` but has no stable-release compatibility promise yet.
+This version supports bounded HTTP/JSON long polling. Workers request up to 20 seconds of waiting, with optional PostgreSQL notifications and periodic queue checks. Immediate acquisition remains available with `--acquire-wait-ms 0`. gRPC remains later work. The opt-in [program publication API](program-publication.md#binary-api-and-bounds) accepts bounded binary uploads separately from JSON control operations. [Retention maintenance](retention.md) is an explicit scoped operator command. Optional tracing uses the OTLP HTTP/protobuf exporter; acquisition semantics remain independent of telemetry availability. The API is versioned under `/v1` but has no stable-release compatibility promise yet.
 
 ## Run a task
 
@@ -84,7 +84,7 @@ Use the existing [package publication layout](program-packages.md) for remote st
 
 ## Routes and representation
 
-Requests and responses use UTF-8 `application/json`; an optional UTF-8 charset parameter is accepted. Bodies are uncompressed. Each successful service operation returns `200` with its portable reply. API responses carry `Cache-Control: no-store` and a diagnostic `Request-Id`.
+JSON control requests and responses use UTF-8 `application/json`; an optional UTF-8 charset parameter is accepted. Bodies are uncompressed. Each successful JSON control operation returns `200` with its portable reply. API responses carry `Cache-Control: no-store` and a diagnostic `Request-Id`.
 
 Task execution and worker delivery routes are listed below. The same orchestrator
 also serves these documented surfaces:
@@ -96,6 +96,7 @@ also serves these documented surfaces:
 | Persisted approval inspection and bound decisions | [Workflow approvals](workflow-approvals.md) |
 | Completion subscriptions, status, and explicit redelivery | [Completion notifications](completion-notifications.md) |
 | Installation catalog, execution discovery, graph metadata, and worker observations | [Console query model](console-query-model.md) and [instance binding](self-hosted-instance.md) |
+| Opt-in immutable program uploads and publication capabilities | [Program publication](program-publication.md#binary-api-and-bounds) |
 
 Workflow submission is available through the Python client, HTTP, Console, and
 the optional [MCP server](mcp.md). The `ledgence task` CLI administers tasks; it
@@ -152,6 +153,12 @@ The service and HTTP server verify the returned command, task generation, assign
 
 ## Limits and JSON fidelity
 
+The limits below apply to JSON control operations. Binary program publication
+uses `application/zip`, returns `201` for a newly published artifact or `200` for
+identical existing bytes, and has its own default 120-second transfer and
+persistence budget. See [publication bounds](program-publication.md#binary-api-and-bounds)
+for upload sizes, admission and timeout semantics.
+
 | Value | Limit |
 | --- | --- |
 | Submission and other control request bodies | 2 MiB raw JSON |
@@ -160,7 +167,7 @@ The service and HTTP server verify the returned command, task generation, assign
 | Submitted application `data` | 1 MiB compact JSON; 64 nested arrays/objects |
 | Successful response body | 16 MiB |
 | Error response consumed by client | 64 KiB |
-| One HTTP exchange | At most 30 seconds |
+| One JSON control exchange | At most 30 seconds |
 
 Streaming reads enforce limits even without `Content-Length`. Decoding starts from original bytes, rejects duplicate keys at every depth and out-of-range integer tokens, and preserves signed/unsigned 64-bit integers, finite binary64 values, negative floating zero, and escaped U+0000. Unknown-field behavior follows each portable type; not every response type rejects additional fields. See [event numeric semantics](events.md).
 
