@@ -44,22 +44,24 @@ See [dependency policy](dependencies.md).
 ## Worker helper release preparation
 
 Current source packages `sdk/python` as **`ledgence-worker`
-0.4.1**, providing `ledgence.worker` for authoring and testing programs in a
+0.5.0**, providing `ledgence.worker` for authoring and testing programs in a
 Python 3.11+ application environment. It has no runtime dependencies. This
-distribution is **not published to PyPI** and is not part of the published
-package table above. The existing `v0.4.0` tag lacks its packaging metadata.
+distribution is qualified separately from the published package table above.
+Check [its registry entry](https://pypi.org/project/ledgence-worker/0.5.0/) and
+[the release reference](https://docs.ledgence.com/reference/releases) for current
+availability. The historical `v0.4.0` tag lacks its packaging metadata.
 
 Use a checkout containing `sdk/python/pyproject.toml`, then run
 `uv add --dev /absolute/path/to/ledgence/sdk/python` from your application project,
 or use the [pip alternative](installation.md#install-the-worker-helper-for-development).
-There is no name-based registry install for this package yet. It does not install
+Use a name-based registry install only for a verified published version. It does not install
 the CLI, services or client. The Rust worker continues to supply its own helper
 at execution; see the [helper guide](../sdk/python/README.md#install-for-local-development).
 
-The first worker package publication is planned for **0.4.1**, alongside
+The first worker package publication is planned for **0.5.0**, alongside
 `ledgence-client` and the Rust API crates at that same version. Only after the
 worker version is verified on PyPI can application authors use
-`uv add --dev "ledgence-worker==0.4.1"`. The table above continues to describe
+`uv add --dev "ledgence-worker==0.5.0"`. The table above continues to describe
 the currently published 0.4.0 packages.
 
 The remaining sections describe maintainer qualification and publication of
@@ -171,7 +173,7 @@ unverified cache authorizes publication. Actions are pinned to commit revisions.
 See [CI qualification](ci.md) for suite coverage and retained timing evidence.
 
 For publication, select the matching annotated version tag, for example
-`v0.4.1`, and set `publish=true`. Rust and both Python versions must match that tag,
+`v0.5.0`, and set `publish=true`. Rust and both Python versions must match that tag,
 its commit must be contained in `main`, and checkout must be clean.
 The tag is prepared through the normal tested feature/develop/release Git flow;
 this workflow does not promote branches or create tags.
@@ -186,7 +188,7 @@ branch, dispatch it with GitHub CLI:
 gh workflow run publish.yml --ref develop -f publish=false
 
 # Publish an already qualified, annotated release tag.
-gh workflow run publish.yml --ref v0.4.1 \
+gh workflow run publish.yml --ref v0.5.0 \
   -f publish=true -f registry=both -f crates_auth=trusted
 ```
 

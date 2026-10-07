@@ -1,10 +1,11 @@
 # Build and publish Python programs
 
-**Development source only.** `program build`, HTTP artifact publication,
-`publish --register`, and saved publication receipts require matching updated
-CLI and orchestrator builds. They are not supplied by the published 0.4.0
-installer or its existing local kit. Existing filesystem publication and
-separate registration remain available.
+These commands require matching CLI and orchestrator components with program
+publication support. The server writer must be enabled explicitly; the CLI
+checks capability discovery before uploading. Earlier saved local kits keep
+their original image and configuration. Existing filesystem publication and
+separate registration remain available. For verified release availability, see
+[the release reference](https://docs.ledgence.com/reference/releases).
 
 A program moves through three distinct operations:
 
@@ -174,11 +175,11 @@ read-only store remains supported, but cannot enable this filesystem writer.
 The server and worker do not need Docker or a provider account to accept and
 execute an already prepared package.
 
-Updated local Compose templates give the orchestrator write access to
+The matching local Compose templates give the orchestrator write access to
 `/programs` and leave the worker's mount read-only. Both see the same volume.
 **Existing saved kits are not rewritten or upgraded.** Installing a newer CLI
 cannot enable uploads in an older stack. Use a separate state directory and a
-matching newly qualified development kit for evaluation, or plan an explicit
+matching qualified kit for evaluation, or plan an explicit
 operator-managed upgrade with backups. Do not edit a copied kit to bypass its
 checksum checks, silently replace its image, or delete persistent volumes.
 

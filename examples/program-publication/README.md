@@ -1,14 +1,15 @@
 # Build and publish a Python workflow
 
-**Development feature:** build Ledgence from the current development source.
-Released 0.4.0/0.4.1 executables do not include these commands. This example
-renders a title as HTML using a native Python wheel, and records the operation
+Use matching CLI and server components with program build and publication
+support. The server must explicitly enable uploads. This example renders a title as HTML using a native Python wheel, and records the operation
 as a local workflow step. No model, cloud credentials or application database
 is needed.
 
-1. Start a **new** local installation using a kit built from the same development
-   source. Keep existing installations unchanged. See the
-   [build and publication guide](../../docs/program-publication.md).
+1. Start a **new** local installation using a qualified kit matching your CLI.
+   Keep existing installations unchanged. See the
+   [build and publication guide](../../docs/program-publication.md). If you use a
+   different port, use the printed API URL in both the publication command and
+   Python `AsyncClient` example below.
 2. In `ledgence.toml`, replace `REPLACE_WITH_WORKER_IMAGE_DIGEST` with the exact
    `repository@sha256:...` image used by that worker. Set `target.platform` to
    `linux/arm64` or `linux/amd64`. This example requires CPython 3.14. A different

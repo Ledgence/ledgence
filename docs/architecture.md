@@ -49,7 +49,7 @@ selects the server and completion transport and supplies its own
 feature unification cannot conceal coupling between them.
 
 The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`.
-Development-source publication uses a separate `ProgramArtifactPublisher` write
+Program publication uses a separate `ProgramArtifactPublisher` write
 port with portable descriptor/error/limit types, leaving worker store readers
 unchanged. The HTTP service bounds transfers and retains ownership until an
 admitted write finishes; the filesystem adapter verifies and publishes immutable

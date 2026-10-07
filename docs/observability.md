@@ -75,9 +75,9 @@ Resources contain service name, version, instance, and optional deployment envir
 
 Measured `ledgence.duration_ms` fields use local monotonic clocks. SDK span timestamps use wall-clock time. Do not subtract timestamps across hosts to infer authoritative duration.
 
-## Program publication (development)
+## Program publication
 
-The development-source [artifact upload path](program-publication.md) uses the
+The [artifact upload path](program-publication.md) uses the
 same optional trace bridge and HTTP request IDs as existing control operations.
 Capability discovery and the binary PUT produce bounded client/server exchange
 spans; registration remains a separate exchange. Program ID, version and digest

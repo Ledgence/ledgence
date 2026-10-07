@@ -10,10 +10,10 @@ container distribution kit, and discovery of installed runtime and Console files
 The [manual native guide](https://docs.ledgence.com/how-to/install-native) and
 [source Compose deployment](local-deployment.md) remain available.
 
-**Development addition:** preparing programs with `program build` needs local
+Preparing programs with `program build` needs local
 Docker and a matching digest-pinned worker runtime image. Publishing an already
-prepared program with `--server` needs only the updated CLI and an explicitly
-enabled updated server. Neither operation updates an existing saved local kit.
+prepared program with `--server` needs only a CLI and an explicitly
+enabled server supporting publication; the CLI checks server capabilities. Neither operation updates an existing saved local kit.
 See [program preparation and publication](program-publication.md).
 
 ## Choose what to install
@@ -21,7 +21,7 @@ See [program preparation and publication](program-publication.md).
 | Need | Install on the host |
 | --- | --- |
 | Call an existing API from Python | Python 3.11+ and `ledgence-client` in the application environment. |
-| Author Python programs with local imports and editor support | Python 3.11+ and the local `ledgence-worker` package from updated `develop` source in the application's development environment; [setup below](#install-the-worker-helper-for-development). No PyPI release yet. |
+| Author Python programs with local imports and editor support | Python 3.11+ and `ledgence-worker` matching the worker, installed from a verified registry version or matching source in the application's development environment; [setup below](#install-the-worker-helper-for-development). |
 | Administer an existing API or connect an MCP client | The native CLI; Docker and a local Python interpreter are not required for those commands. |
 | Run a Python program in a native worker | The native CLI and a host CPython interpreter matching the program manifest. |
 | Start the image-based local stack | Docker Engine or Docker Desktop with Compose 2.23.1+, plus the complete 0.4.0 native CLI installation. |
@@ -354,9 +354,10 @@ must be prepared for the worker environment before program publication.
 ## Install the worker helper for development
 
 `ledgence-worker` provides the `ledgence.worker` imports used by program code.
-The local package in current development source has version **0.4.1** and requires
-Python 3.11+. It is not published to PyPI, and the existing `v0.4.0` tag lacks its
-packaging metadata. Use a checkout containing `sdk/python/pyproject.toml`.
+This source packages version **0.5.0**, requiring Python 3.11+. Check
+[registry availability](https://pypi.org/project/ledgence-worker/0.5.0/) before
+installing by name. Source installation below works with a checkout containing
+`sdk/python/pyproject.toml`; the historical `v0.4.0` tag lacks that metadata.
 
 From your application's existing uv project:
 
