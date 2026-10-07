@@ -17,12 +17,16 @@ bundle, package, checksum, installer and kit has passed its download checks.
 See [CI qualification](ci.md) for the independent source and delivery suites,
 artifact reuse, timing evidence and exact-commit requirements.
 
-The next planned release is **0.4.1**, including the first public
-`ledgence-worker` authoring package. Until its artifacts pass publication and
-download verification, **0.4.0 remains the current public release**. Keep the
-documentation site's release metadata and worker-package availability at their
-verified values during preparation. A source version bump or successful local
-build does not establish registry, native-bundle, image or website availability.
+The next planned release is **0.5.0**, including the installable
+`ledgence-worker` authoring package and explicit program preparation, immutable
+HTTP publication and saved recovery receipts. See the
+[0.5.0 preparation notes](releases/0.5.0.md). Qualification and publication are
+in progress: **0.4.0 remains the latest stable release and 0.4.1 remains a
+prerelease**. Keep the documentation site's release metadata and feature
+availability at their verified values during preparation. A source version bump
+or successful local build does not establish registry, native-bundle, image or
+website availability. Do not reuse 0.4.1 qualification as evidence for the new
+source or silently replace its existing artifacts.
 
 ## Build and inspect
 
@@ -137,7 +141,7 @@ Check that:
 Only an explicitly selected, validated candidate should later be promoted to a
 stable version. The bundle tooling does not publish or promote `main`. Registry
 packages use the separate gated [registry release workflow](registry-packages.md).
-For 0.4.1, that workflow qualifies and publishes both `ledgence-client` and
+For 0.5.0, that workflow qualifies and publishes both `ledgence-client` and
 `ledgence-worker` under the `pypi` environment, then checks their downloaded bytes
 and fresh registry installation together. Configure the worker project's first
 pending trusted publisher before dispatch; its exact identity is documented in
@@ -147,14 +151,25 @@ package does not replace that runtime layout.
 Required legal notices do not require users to open-source their applications. See [dependency policy](dependencies.md) and
 [local image distribution boundaries](local-deployment.md#qualification-and-distribution-boundary).
 
-After all 0.4.1 distribution channels are verified, update the public installation
-commands, package matrix and current-release descriptions together. Promote
-`pythonWorkerPackage` in `docs-site/source-features.json` to released availability
-with the verified source tag and actual verification date, and update
-`docs-site/release.json` only to artifacts that really exist. Preserve historical
-release notes and version-pinned example corpora. Run documentation tests and the
-full build before deploying the site, and report GitHub publication and website
-deployment as separate outcomes.
+For 0.5.0, also retain program build/publication acceptance from the actual
+selected container image and matching CLI. It must prepare the native-dependency
+example for each qualified image architecture, verify immutable repetition and
+receipt recovery, execute it in the worker, and check persistence and execution
+after restart. Fake builders and standalone package tests do not establish this
+runtime compatibility. A complete native bundle must include that release's
+verified local kit; installing it must not rewrite an existing saved installation.
+
+After all 0.5.0 distribution channels are verified, update the public installation
+commands, package matrix, release notes and current-release descriptions together.
+Promote both `pythonWorkerPackage` and `programPublication` in
+`docs-site/source-features.json` to released availability with the verified source
+tag and actual verification date, and update `docs-site/release.json` only to
+artifacts that really exist. Explain how existing operators enable the explicit
+filesystem writer or create a separate local installation; do not imply that a
+CLI update upgrades saved kits. Preserve historical release notes and
+version-pinned example corpora. Run documentation tests and the full build before
+deploying the site, and report GitHub publication and website deployment as
+separate outcomes.
 
 ## Prepare a stable bundle offline
 
@@ -176,7 +191,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.4.1 --output /tmp/ledgence-stable
+  --version 0.5.0 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -203,10 +218,10 @@ and requires the selected archive's expected SHA256. Dispatch it on the matching
 annotated release tag after that commit is included in `main`:
 
 ```sh
-gh workflow run promote-bundle.yml --ref v0.4.1 \
+gh workflow run promote-bundle.yml --ref v0.5.0 \
   -f candidate_run=RUN_ID \
   -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
-  -f version=0.4.1
+  -f version=0.5.0
 ```
 
 It checks the clean tag identity and source-equivalent candidate, promotes the
