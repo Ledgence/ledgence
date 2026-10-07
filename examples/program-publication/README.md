@@ -31,7 +31,11 @@ Metadata comes from the validated build receipt. Neither command executes the
 workflow. Docker is used only by the local builder; the server and worker need
 no Docker API to accept or execute a prepared program.
 
-Submit it with the Python client (`uv add ledgence-client`):
+Submit it with the matching Python client. In an existing uv application project,
+install it with `uv add "ledgence-client==0.5.0"`, save the following code as
+`submit.py`, and run `uv run python submit.py`. With an activated virtual
+environment instead, use `python -m pip install "ledgence-client==0.5.0"`
+and `python submit.py`.
 
 ```python
 import asyncio
