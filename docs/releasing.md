@@ -17,16 +17,18 @@ bundle, package, checksum, installer and kit has passed its download checks.
 See [CI qualification](ci.md) for the independent source and delivery suites,
 artifact reuse, timing evidence and exact-commit requirements.
 
-The next planned release is **0.5.0**, including the installable
+The current stable release is **0.5.0**, including the installable
 `ledgence-worker` authoring package and explicit program preparation, immutable
 HTTP publication and saved recovery receipts. See the
-[0.5.0 preparation notes](releases/0.5.0.md). Qualification and publication are
-in progress: **0.4.0 remains the latest stable release and 0.4.1 remains a
-prerelease**. Keep the documentation site's release metadata and feature
-availability at their verified values during preparation. A source version bump
-or successful local build does not establish registry, native-bundle, image or
-website availability. Do not reuse 0.4.1 qualification as evidence for the new
-source or silently replace its existing artifacts.
+[0.5.0 release notes](releases/0.5.0.md). Its supported distributions passed
+qualification and public download verification. The historical 0.4.1 release
+also completed publication and is preserved as a stable version.
+
+For future releases, keep public metadata at the last verified version until all
+channels are complete. A source version bump or local build does not establish
+registry, native-bundle, image or website availability. Never reuse an older
+commit's qualification as evidence for new source or replace an immutable
+published artifact.
 
 ## Build and inspect
 
@@ -143,9 +145,9 @@ stable version. The bundle tooling does not publish or promote `main`. Registry
 packages use the separate gated [registry release workflow](registry-packages.md).
 For 0.5.0, that workflow qualifies and publishes both `ledgence-client` and
 `ledgence-worker` under the `pypi` environment, then checks their downloaded bytes
-and fresh registry installation together. Configure the worker project's first
-pending trusted publisher before dispatch; its exact identity is documented in
-the registry guide. The standalone worker wheel remains separate from the native
+and fresh registry installation together. Keep each Python project's own trusted
+publisher configured; the exact identity and initial setup procedure are
+documented in the registry guide. The standalone worker wheel remains separate from the native
 bundle's dedicated `runtime/ledgence/worker/` helper; publishing an authoring
 package does not replace that runtime layout.
 Required legal notices do not require users to open-source their applications. See [dependency policy](dependencies.md) and

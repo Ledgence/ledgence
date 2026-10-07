@@ -8,44 +8,34 @@ Install `ledgence-worker` in your application's development environment to use
 writing programs. The helper uses only the Python standard library. The separate
 [`ledgence-client`](/reference/python-client) submits and observes executions.
 
-**Development source only:** local packaging is available in updated `develop`
-source as version **0.4.1**. `ledgence-worker` has not been published to PyPI, and
-the existing `v0.4.0` source tag has no `sdk/python/pyproject.toml`. Use a checkout
-containing that file. Version 0.4.1 is being prepared for release; 0.4.0 remains
-the current published platform release. Do not install this package by name
-from an index yet.
+**Available in Ledgence 0.5.0.** Install a helper version matching the deployed
+worker. The package does not install a CLI, service or local workflow execution
+harness; invocation context still requires execution by Ledgence.
 
 ## Add the helper to your project
 
 Use Python 3.11 or newer and your application's existing environment and package
-manager. From an existing uv project, replace the path below with the absolute
-path to your updated Ledgence checkout:
+manager. From an existing uv project:
 
 ```sh
-uv add --dev /absolute/path/to/ledgence/sdk/python
+uv add --dev "ledgence-worker==0.5.0"
 uv run python -c "from ledgence.worker.workflow import Workflow; from ledgence.worker import current_invocation; print('worker imports ready')"
 ```
 
-This records a local development dependency and installs the versioned helper.
-Select the project's `.venv` interpreter in your editor. You do not need to set
-`PYTHONPATH`. Keep the checkout available for future dependency synchronization.
-A local source entry or lockfile does not freeze that mutable directory's
-contents; record and retain the exact checkout commit when sharing or reproducing
-your setup. See
-[uv's path dependency documentation](https://docs.astral.sh/uv/concepts/projects/dependencies/#path)
-for how local sources are recorded.
-
-If your project uses pip, activate its existing virtual environment and use:
+Select the project's `.venv` interpreter in your editor; no `PYTHONPATH` is needed.
+For pip, activate the application's existing virtual environment and run:
 
 ```sh
-python -m pip install /absolute/path/to/ledgence/sdk/python
+python -m pip install "ledgence-worker==0.5.0"
 python -c "from ledgence.worker.workflow import Workflow; print('worker imports ready')"
 ```
 
-Only when changing the helper itself, choose an editable installation with
-`uv add --dev --editable /absolute/path/to/ledgence/sdk/python`; helper source
-edits then appear directly in that environment. A normal local installation is
-the default for program authors.
+To use a source checkout instead, run
+`uv add --dev /absolute/path/to/ledgence/sdk/python` or install that same path with
+pip. Keep the checkout available for dependency synchronization and retain its
+exact commit: a local source entry does not freeze a mutable directory. Use
+`uv add --dev --editable /absolute/path/to/ledgence/sdk/python` only when changing
+the helper itself. See [uv path dependencies](https://docs.astral.sh/uv/concepts/projects/dependencies/#path).
 
 The distribution owns `ledgence.worker` and its `py.typed` marker. It can coexist
 with `ledgence-client` in the same environment: both use the native `ledgence`
@@ -117,14 +107,14 @@ automatically a deployable program artifact. Publish code and prepared runtime
 dependencies as an immutable program with handler `program:handle` and runtime
 protocol **3**. The worker does not install dependencies during execution.
 
-Updated development source offers an explicit Docker preparation adapter and
+Ledgence 0.5.0 offers an explicit Docker preparation adapter and
 HTTP publication with saved retry receipts. Follow [Build and publish Python
 programs](/how-to/build-and-publish-programs) when both CLI and server support it.
 It requires a target and digest-pinned worker runtime image and never infers a
 Linux package from the laptop environment.
 
 Follow [Register an agent](/how-to/register-agent) for existing filesystem publication,
-[the program package contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md)
+[the program package contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md)
 for manifests and artifact contents, and
 [the worker helper guide](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/README.md)
 for local installation and runtime behavior.

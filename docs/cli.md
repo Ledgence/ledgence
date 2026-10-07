@@ -5,13 +5,12 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-This reference describes the command set in this source or bundle, including
-[program preparation and HTTP publication](#program-preparation-and-publication).
-Use matching CLI/server components and explicit upload enablement. The CLI
-checks the server's publication capabilities before sending an archive.
-[Installation and local startup](installation.md) records verified public
-availability, manual archives and source options. Updating a CLI alone does not
-upgrade existing services or a saved local kit.
+**Release availability:** Ledgence **0.5.0** includes program builds, HTTP
+publication and recovery receipts alongside the existing `local` commands and
+installed-resource defaults. See [program preparation and HTTP publication](#program-preparation-and-publication)
+and [installation and local startup](installation.md). Existing saved local
+installations retain their kit and image; updating a CLI alone does not upgrade
+services or enable uploads.
 
 The unified executable replaces the command layout in the historical `v0.1.1` source tag and
 native `0.1.0` bundle. Those artifacts retain their original executables and
@@ -50,7 +49,7 @@ explicit runtime configuration. See [observability](observability.md) and
 ## Command groups
 
 Use `ledgence <group> <command> --help` for the supported flags. These groups
-are supplied by this source, with MCP requiring its build feature.
+are available in 0.5.0, with MCP requiring its build feature.
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
@@ -69,7 +68,7 @@ appropriate interface for the operation you need.
 
 ## Local stack lifecycle
 
-A complete 0.4.0 installation supplies a versioned
+A complete 0.5.0 installation supplies a versioned
 `local/` distribution next to `bin/`; a source build can use `--distribution DIR`
 to select a separately qualified kit. Docker Engine or Docker Desktop must
 already be running Linux containers, with Docker Compose 2.23.1 or newer.
@@ -138,7 +137,7 @@ locations, platform support and the existing source deployment route.
 
 ## Installed resources
 
-Ledgence 0.4.0 locates resources relative to the actual executable, resolving
+Ledgence 0.5.0 locates resources relative to the actual executable, resolving
 symlink launchers first. Move the complete native bundle together; copying only
 `bin/ledgence` omits its runtime helper, Console assets and legal notices.
 
@@ -195,9 +194,8 @@ an explicit scoped operator operation through `orchestrator retain`.
 
 ## Program preparation and publication
 
-Use matching CLI and server components with publication support. Enable the
-server writer explicitly; updating the CLI alone does not add upload capability
-to an existing stack.
+Use matching 0.5.0 CLI and server components. Enable the server writer explicitly;
+updating the CLI alone does not add upload capability to an existing stack.
 
 ```sh
 ledgence program build --config ledgence.toml --output .ledgence/prepared
@@ -278,5 +276,5 @@ tools. No worker, database, or model provider starts in the MCP process.
 See [MCP setup, tools and recovery](mcp.md).
 
 `--no-default-features` omits both MCP and OpenTelemetry. Add `--features mcp`
-to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.4.0 native bundle or build the matching source for MCP; earlier 0.2.0
+to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.5.0 native bundle or build the matching source for MCP; earlier 0.2.0
 binaries retain their original command set.

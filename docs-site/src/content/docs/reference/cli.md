@@ -1,6 +1,6 @@
 ---
 title: Command-line interface
-description: Ledgence 0.4.0 command groups, local lifecycle, build features, and installed resources.
+description: Ledgence 0.5.0 command groups, local lifecycle, build features, and installed resources.
 ---
 
 Ledgence builds one public executable, `ledgence`, from the `ledgence-cli`
@@ -8,11 +8,10 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-**Version availability:** Ledgence **0.4.0** includes the original command groups, the
-local lifecycle commands, and automatic installed-resource discovery.
-The explicitly marked development section adds `program build`, HTTP publication
-and recovery; those additions require updated CLI/server source. Start with
-the [one-line installation](/how-to/install-native#one-line-installation) and
+**Version availability:** Ledgence **0.5.0** includes explicit program builds,
+HTTP publication and recovery alongside the existing local lifecycle and
+installed-resource discovery. Start with the
+[one-line installation](/how-to/install-native#one-line-installation) and
 [local distribution guide](/how-to/run-local-distribution).
 
 This replaces the command layout in the historical `v0.1.1` source tag and
@@ -46,8 +45,8 @@ install a telemetry exporter.
 Use `--features sqs` to include optional SQS delivery for both worker and
 orchestrator commands, or `--all-features` to include every supported integration.
 These are build features; telemetry export and SQS operation still require
-explicit runtime configuration. See [observability](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/observability.md) and
-[dispatch delivery](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/dispatch-delivery.md).
+explicit runtime configuration. See [observability](https://github.com/Ledgence/ledgence/blob/develop/docs/observability.md) and
+[dispatch delivery](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/dispatch-delivery.md).
 
 ## Command groups
 
@@ -57,7 +56,7 @@ MCP requires its build feature, which is included in native release bundles.
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
-| `program` | `example`, `build` (development), `publish`, `register` | Prepare, publish and register programs; `build` requires updated source. |
+| `program` | `example`, `build`, `publish`, `register` | Prepare, publish and register programs; `build` requires local Docker and an explicit worker target. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
@@ -65,7 +64,7 @@ MCP requires its build feature, which is included in native release bundles.
 | `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
 
 There is no separate `workflow` command group. Use the
-[HTTP API](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/http-orchestration.md), [Python client](/reference/python-client),
+[HTTP API](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md), [Python client](/reference/python-client),
 Console or MCP for workflow and event operations.
 
 ## Local lifecycle
@@ -142,7 +141,7 @@ and deployment configuration:
 | `ledgence task ...` | `ledgence task ...` |
 | `ledgence program register ...` | `ledgence program register ...` |
 
-Keep each command's existing options after its new prefix. The 0.4.0 source builds
+Keep each command's existing options after its new prefix. The 0.5.0 source builds
 and native bundles contain only the `ledgence` executable; they do not
 provide legacy executable aliases. The `ledgence-worker` and
 `ledgence-orchestrator` Rust crates remain internal composition libraries.
@@ -152,8 +151,8 @@ Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
 `program example` creates a local fixture and `program publish` writes immutable
 package contents to a store. `program register` makes a separate HTTP request to
 register an existing published reference. Publication starts no worker or
-execution. Updated development source supports explicit subsequent registration
-with `publish --server URL --register`. See [program packages](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md) and
+execution. Ledgence 0.5.0 supports explicit subsequent registration
+with `publish --server URL --register`. See [program packages](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md) and
 [Console registration](/how-to/register-agent).
 
 `worker run` executes local task fixtures; `worker connect` acquires work from a
@@ -163,11 +162,11 @@ an explicit scoped operator operation through `orchestrator retain`.
 Both migration and service operation require `DATABASE_URL`. Retention previews
 eligible records by default, requires a tenant and namespace, and changes data
 only with `--apply`; its minimum retention is 90 days. See
-[retention](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/retention.md).
+[retention](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/retention.md).
 
-## Program builds and HTTP publication (development)
+## Program builds and HTTP publication
 
-Use matching updated CLI/server source. A server must opt in with
+Use matching 0.5.0 CLI and server components. A server must opt in with
 `--allow-program-publication`, an `--instance-config` and writable filesystem
 `--store`; an existing released stack does not gain this by updating its CLI.
 
@@ -211,8 +210,8 @@ retry the same input and idempotency key to reconcile the original request.
 Use `task list` to discover work, `task status` for scheduling metadata,
 `task result` for the authoritative logical outcome, and `task inspect`,
 `task attempt`, and `task history` for diagnostics. `task cancel` requests
-cancellation. See the [HTTP quickstart](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/http-orchestration.md#run-a-task) for
-complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/task-results.md) for outcome
+cancellation. See the [HTTP quickstart](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md#run-a-task) for
+complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/develop/docs/task-results.md) for outcome
 semantics.
 
 ```sh
@@ -247,12 +246,12 @@ The saved decision includes `scope`, `workflow_id`, `key`, `activation_id`,
 `revision`, `action`, `decision_id`, `decision`, `reviewer`, and `reason`.
 After an uncertain response, retry the identical file to reconcile that
 decision. Generic events cannot approve actions. See
-[durable approvals](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/workflow-approvals.md#cli-and-http)
+[durable approvals](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/workflow-approvals.md#cli-and-http)
 for the complete contract and examples.
 
 ## MCP
 
-Ledgence 0.4.0 builds enable the optional `mcp` feature by default.
+Ledgence 0.5.0 builds enable the optional `mcp` feature by default.
 `ledgence mcp serve --server URL --tenant ID --namespace NAME` connects an MCP
 client over stdio to that API. Add `--read-only` for observation only.
 Scope is fixed for the session. Submissions require caller-supplied idempotency

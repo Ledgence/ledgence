@@ -5,15 +5,15 @@ Install the native `ledgence` CLI to administer a service or run workers. Instal
 the complete local stack, use Docker Compose; the CLI's new `local` commands
 manage a versioned Compose distribution.
 
-Ledgence **0.4.0** includes the installer, `ledgence local`, a matching
+Ledgence **0.5.0** includes the installer, `ledgence local`, a matching
 container distribution kit, and discovery of installed runtime and Console files.
 The [manual native guide](https://docs.ledgence.com/how-to/install-native) and
 [source Compose deployment](local-deployment.md) remain available.
 
 Preparing programs with `program build` needs local
 Docker and a matching digest-pinned worker runtime image. Publishing an already
-prepared program with `--server` needs only a CLI and an explicitly
-enabled server supporting publication; the CLI checks server capabilities. Neither operation updates an existing saved local kit.
+prepared program with `--server` needs only the matching CLI and an explicitly
+enabled 0.5.0 server. Neither operation updates an existing saved local kit.
 See [program preparation and publication](program-publication.md).
 
 ## Choose what to install
@@ -21,10 +21,10 @@ See [program preparation and publication](program-publication.md).
 | Need | Install on the host |
 | --- | --- |
 | Call an existing API from Python | Python 3.11+ and `ledgence-client` in the application environment. |
-| Author Python programs with local imports and editor support | Python 3.11+ and `ledgence-worker` matching the worker, installed from a verified registry version or matching source in the application's development environment; [setup below](#install-the-worker-helper-for-development). |
+| Author Python programs with local imports and editor support | Python 3.11+ and `ledgence-worker==0.5.0` as an application development dependency; [setup below](#install-the-worker-helper-for-development). |
 | Administer an existing API or connect an MCP client | The native CLI; Docker and a local Python interpreter are not required for those commands. |
 | Run a Python program in a native worker | The native CLI and a host CPython interpreter matching the program manifest. |
-| Start the image-based local stack | Docker Engine or Docker Desktop with Compose 2.23.1+, plus the complete 0.4.0 native CLI installation. |
+| Start the image-based local stack | Docker Engine or Docker Desktop with Compose 2.23.1+, plus the complete 0.5.0 native CLI installation. |
 | Build the existing local stack from source | Git and Docker with Compose; Rust, Node and CPython are supplied by the container build. |
 
 The published native bundles target **Linux x86_64 with glibc** and **macOS Apple
@@ -32,9 +32,9 @@ Silicon**. Linux qualification uses Ubuntu 24.04; this is not a claim of support
 for every glibc distribution. The installer rejects musl/Alpine and unsupported
 native OS/architecture pairs, and checks that the downloaded executable starts
 before selecting it. There are no published native Windows, Linux ARM64, or
-macOS Intel binaries in 0.4.0.
+macOS Intel binaries in 0.5.0.
 
-The 0.4.0 distribution kit supports **Linux amd64 and arm64** containers, which
+The 0.5.0 distribution kit supports **Linux amd64 and arm64** containers, which
 the CLI checks against the Docker engine. Container platform support is separate
 from native CLI availability. A program still needs dependencies built for the
 worker's actual architecture and the exact Python major/minor in its manifest.
@@ -82,7 +82,7 @@ startup. The container stack supplies CPython; host Python is not required.
 For a reproducible installation of this release:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.4.0/install.sh | sh -s -- --version 0.4.0
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.5.0/install.sh | sh -s -- --version 0.5.0
 ```
 
 Without `--version`, the script resolves the latest stable release once.
@@ -93,7 +93,7 @@ the same release/download layout. To leave shell profiles unchanged, pass
 needed. For example:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.4.0/install.sh | sh -s -- --version 0.4.0 --prefix "$HOME/tools/ledgence"
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.5.0/install.sh | sh -s -- --version 0.5.0 --prefix "$HOME/tools/ledgence"
 . "$HOME/tools/ledgence/share/ledgence/env"
 ```
 
@@ -164,7 +164,7 @@ See [installed resource behavior](cli.md#installed-resources).
 
 ## Start the local stack
 
-The complete 0.4.0 native installation includes its matching local distribution
+The complete 0.5.0 native installation includes its matching local distribution
 kit. Docker must already be installed and running Linux containers with Compose
 2.23.1 or newer:
 
@@ -305,7 +305,7 @@ original data. See the copied kit's `README.md` for the standalone Compose route
 The [existing source deployment](local-deployment.md) remains available, including
 its optional ElasticMQ route. It builds the image from the checkout and requires
 Git and Docker, with no host Rust, Node or Python installation. For a released
-setup, use the `v0.4.0` source tag and the [source deployment guide](local-deployment.md).
+setup, use the `v0.5.0` source tag and the [source deployment guide](local-deployment.md).
 
 The image-based kit instead pulls the exact image digest stored in its Compose
 files and requires no source tree to run. These are separate setup paths:
@@ -329,13 +329,13 @@ For the published client, use Python 3.11+ in your project:
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install "ledgence-client==0.4.0"
+python -m pip install "ledgence-client==0.5.0"
 ```
 
 In an existing uv project, the equivalent dependency declaration is:
 
 ```sh
-uv add "ledgence-client==0.4.0"
+uv add "ledgence-client==0.5.0"
 ```
 
 Use your project's existing package manager rather than creating a second
@@ -354,24 +354,21 @@ must be prepared for the worker environment before program publication.
 ## Install the worker helper for development
 
 `ledgence-worker` provides the `ledgence.worker` imports used by program code.
-This source packages version **0.5.0**, requiring Python 3.11+. Check
-[registry availability](https://pypi.org/project/ledgence-worker/0.5.0/) before
-installing by name. Source installation below works with a checkout containing
-`sdk/python/pyproject.toml`; the historical `v0.4.0` tag lacks that metadata.
-
+Version **0.5.0** is published on PyPI and requires Python 3.11+.
 From your application's existing uv project:
 
 ```sh
-uv add --dev /absolute/path/to/ledgence/sdk/python
+uv add --dev "ledgence-worker==0.5.0"
 uv run python -c "from ledgence.worker.workflow import Workflow; print('worker imports ready')"
 ```
 
-The path refers to the Ledgence checkout, not your application directory. This
-records a local development dependency and installs it into the application's
-environment. Select that environment in your editor; no `PYTHONPATH` is needed.
-For an existing activated virtual environment managed with pip, use
-`python -m pip install /absolute/path/to/ledgence/sdk/python` instead.
-Only helper contributors normally need uv's `--editable` option.
+Select the application's environment in your editor; no `PYTHONPATH` is needed.
+For pip, use `python -m pip install "ledgence-worker==0.5.0"` in its activated
+virtual environment. To develop against a checkout instead, use
+`uv add --dev /absolute/path/to/ledgence/sdk/python`, or the equivalent pip path
+installation. Retain the exact checkout commit and keep that directory available
+for later dependency synchronization. Only helper contributors normally need
+uv's `--editable` option.
 
 Match the helper version to the deployed worker release. The package supports
 imports, type-aware tools and tests of ordinary business functions; invocation

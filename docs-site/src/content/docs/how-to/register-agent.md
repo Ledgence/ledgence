@@ -5,19 +5,18 @@ description: Add a published immutable program to the self-hosted Console catalo
 
 Register a program so operators can discover its exact versions, inspect runtime requirements, and start it from **Programs** in Console. Registration is independent of execution: submitting a task does not automatically add its package to the catalog.
 
-This guide applies to Ledgence 0.4.0. Start a matching instance using [Explore Ledgence Console](/tutorials/use-console).
+This guide applies to Ledgence 0.5.0. Start a matching instance using [Explore Ledgence Console](/tutorials/use-console).
 
-**Development option:** updated source adds [program builds and HTTP uploads](/how-to/build-and-publish-programs)
-with `publish --server URL --register` and durable retry receipts. It requires
-explicit server enablement and is not present in the 0.4.0 installation described
-below. The Console form remains registration-only.
+For a remote server with uploads enabled, [build and publish a program](/how-to/build-and-publish-programs)
+with `publish --server URL --register` and retain its recovery receipt. This guide
+also covers the existing filesystem publication path and separate registration.
+The Console form remains registration-only.
 
 ## Publish the package first
 
 If you are still writing the program, [Develop Python programs](/how-to/develop-python-programs)
-covers local helper imports, editor setup and business-logic tests. That helper
-packaging is a development-source addition; publication below still uses the
-worker's immutable program contract.
+covers installing `ledgence-worker==0.5.0`, editor setup and business-logic tests.
+Publication below uses the worker's immutable program contract.
 
 Prepare the application, its dependencies, and `ledgence-program.json` for the worker's target Python version and platform. Publish with the matching `ledgence` executable from the native bundle or a source build:
 
@@ -29,7 +28,7 @@ ledgence program publish \
 
 Replace the paths with your prepared package and the store configured on the orchestrator. These paths must refer to the same published bytes from the server's point of view; writing to an arbitrary host directory does not populate a Docker volume.
 
-Publication stores immutable package bytes. Registration then asks the orchestrator to fetch and verify that package's archive, descriptor, and manifest without executing it. For package preparation and store layout, see the [program package contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md).
+Publication stores immutable package bytes. Registration then asks the orchestrator to fetch and verify that package's archive, descriptor, and manifest without executing it. For package preparation and store layout, see the [program package contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md).
 
 If you are following the Compose tutorial, its `publish` command already publishes and registers all three example programs. You do not need to register those examples again.
 
@@ -88,10 +87,9 @@ Metadata changes never replace the artifact digest. Publish changed code or depe
 
 ## Recover from an interrupted registration
 
-Publication and registration are separate operations. In updated development
-source, `publish --server URL --register` binds registration to the uploaded
+Publication and registration are separate operations. In 0.5.0, `publish --server URL --register` binds registration to the uploaded
 descriptor. `program register` can also require both `--expected-digest` and
-`--expected-size`; these flags are not available in 0.4.0. If you used HTTP
+`--expected-size`. If you used HTTP
 publication, preserve its receipt and sibling ZIP and resume the saved operation
 as described in [publication recovery](/how-to/build-and-publish-programs#resume-after-interruption).
 

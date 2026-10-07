@@ -90,4 +90,4 @@ The PostgreSQL adapter also bounds retries of failed completion-obligation appli
 
 For exact methods and byte limits, use the [workflow context reference](/reference/workflow-context). To practice the successful path, follow [your first workflow](/tutorials/first-workflow).
 
-**Source:** [Workflow persistence and recovery](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/workflows.md#persistence-and-recovery) · [Event races and recovery](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/workflow-events.md#identity-races-and-recovery) · [Task result semantics](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/task-results.md)
+**Source:** [Workflow persistence and recovery](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/workflows.md#persistence-and-recovery) · [Event races and recovery](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/workflow-events.md#identity-races-and-recovery) · [Task result semantics](https://github.com/Ledgence/ledgence/blob/develop/docs/task-results.md)
