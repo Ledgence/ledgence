@@ -5,13 +5,13 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-**Release availability:** Ledgence **0.4.0** includes the `local` command group
-and installed-resource defaults described below. The separate
-[program preparation and HTTP publication](#program-preparation-and-publication-development)
-section describes development-source additions. Follow
-[installation and local startup](installation.md) for the installer, manual
-archives and source options. Existing 0.3.1 installations retain their explicit
-resource paths and source Compose configuration.
+This reference describes the command set in this source or bundle, including
+[program preparation and HTTP publication](#program-preparation-and-publication).
+Use matching CLI/server components and explicit upload enablement. The CLI
+checks the server's publication capabilities before sending an archive.
+[Installation and local startup](installation.md) records verified public
+availability, manual archives and source options. Updating a CLI alone does not
+upgrade existing services or a saved local kit.
 
 The unified executable replaces the command layout in the historical `v0.1.1` source tag and
 native `0.1.0` bundle. Those artifacts retain their original executables and
@@ -50,12 +50,12 @@ explicit runtime configuration. See [observability](observability.md) and
 ## Command groups
 
 Use `ledgence <group> <command> --help` for the supported flags. These groups
-are available in 0.4.0 except where marked development-only, with MCP requiring its build feature.
+are supplied by this source, with MCP requiring its build feature.
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
-| `program` | `example`, `build` (development), `publish`, `register` | Prepare, publish and register immutable programs; `build` requires updated development source. |
+| `program` | `example`, `build`, `publish`, `register` | Prepare, publish and register immutable programs; `build` requires local Docker and an explicit worker target. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
@@ -184,7 +184,7 @@ Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
 `program example` creates a local fixture and `program publish` writes immutable
 package contents to a store. `program register` makes a separate HTTP request to
 register an existing published reference. Publication starts no worker or
-execution; updated development source can explicitly request subsequent
+execution; the CLI can explicitly request subsequent
 registration with `publish --server URL --register`. See [program packages](program-packages.md) and
 [Console registration](console.md#register-immutable-programs).
 
@@ -193,10 +193,11 @@ service. `orchestrator migrate` applies database migrations explicitly;
 `orchestrator serve` verifies the schema and starts the service. Retention stays
 an explicit scoped operator operation through `orchestrator retain`.
 
-## Program preparation and publication (development)
+## Program preparation and publication
 
-These additions require matching updated CLI/server source; installing 0.4.0
-or updating the CLI alone does not add them to an existing stack.
+Use matching CLI and server components with publication support. Enable the
+server writer explicitly; updating the CLI alone does not add upload capability
+to an existing stack.
 
 ```sh
 ledgence program build --config ledgence.toml --output .ledgence/prepared

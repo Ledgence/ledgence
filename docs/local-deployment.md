@@ -22,9 +22,9 @@ network uses HTTP, and the example receiver is deliberately bounded. Do not
 expose this configuration as a public multi-tenant service.
 
 
-Updated development templates also enable HTTP program publication on the
+These source templates enable HTTP program publication on the
 orchestrator. Its shared `/programs` mount is writable; the worker's remains
-read-only. A native development CLI can [build and publish its own program](program-publication.md)
+read-only. A matching native CLI can [build and publish its own program](program-publication.md)
 without naming Docker volumes. Existing deployments and published kits retain
 their original configuration; this feature does not migrate them automatically.
 

@@ -42,7 +42,7 @@ Ledgence-owned code is MIT-licensed. Applications and programs that use Ledgence
 
 Dependency choices must preserve this product model: no required commercial service, license key, product branding, advertising credit, or disclosure of users' application/program source. Required legal notices may accompany source and binary distributions in notice files. A license scan is a selection gate, not a replacement for fulfilling the selected licenses.
 
-## Program preparation and publication (development)
+## Program preparation and publication
 
 The CLI's explicit `ledgence.toml` reader uses `toml 1.1.6+spec-1.1.0` with
 only `parse`, `serde` and `std` enabled. Its reviewed graph includes
@@ -197,7 +197,7 @@ The additional alternatives in some declared OR expressions do not require selec
 
 ## Local Python worker package
 
-The development-only `ledgence-worker` distribution packages the existing
+The `ledgence-worker` authoring distribution packages the existing
 standard-library `ledgence.worker` helper for local application authoring. It
 requires Python 3.11+ and declares no runtime dependencies. It adds no client,
 agent framework, provider SDK or hosted-service requirement. The installed
@@ -210,7 +210,7 @@ artifacts and notices. This reuses that build dependency without adding it to
 the helper's runtime requirements or shipping it inside the helper wheel.
 No dependency allowlist is broadened. See the
 [local installation guide](../sdk/python/README.md#install-for-local-development)
-for the unpublished package's availability and runtime boundary.
+for package availability and the runtime boundary.
 
 Run `python3 tools/check-python-worker.py` with a supported host interpreter to
 qualify the source distribution, installed wheel and client namespace

@@ -1,6 +1,6 @@
 # HTTP orchestration
 
-Updated development source adds a separate bounded binary [program publication
+This source includes a separate bounded binary [program publication
 API](program-publication.md#binary-api-and-bounds). It is disabled unless an
 instance with a writable filesystem store opts in with
 `--allow-program-publication`. Existing JSON control limits remain unchanged.
