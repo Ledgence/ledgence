@@ -8,16 +8,16 @@ PostgreSQL, a schema migrator, the orchestrator with Console, and one worker.
 The runtime image is pinned by immutable registry digest. A prepared kit runs
 without a source checkout, Rust, Node, or host Python.
 
-**Available in Ledgence 0.4.0.** [Install the CLI](/how-to/install-native), then
+**Available in Ledgence 0.5.0.** [Install the CLI](/how-to/install-native), then
 start the bundled distribution with `ledgence local up`. The image is published
 in [Docker Hub](https://hub.docker.com/r/ledgence/ledgence); the kit records the
 exact digest rather than following a moving image tag. Building from source
 remains available through the [source Compose tutorial](/tutorials/run-locally).
 
-**Development addition:** updated source templates opt the orchestrator into
-HTTP program publication and mount its shared program store writable while the
-worker remains read-only. This requires a newly qualified matching kit and server;
-it does not change any existing 0.4.0 installation. Follow [Build and publish
+The 0.5.0 kit opts the orchestrator into
+HTTP program publication and mounts its shared program store writable while the
+worker remains read-only. This does not change an installation initialized with
+an older saved kit. Follow [Build and publish
 programs](/how-to/build-and-publish-programs) for the explicit build/upload path,
 and use a separate state directory to evaluate it without migrating existing data.
 
@@ -28,14 +28,14 @@ newer**. Use Linux containers and a named local Docker context. The CLI rejects
 remote endpoints. If `DOCKER_HOST` is set, select a named local context
 explicitly with `--context` on first startup.
 
-A complete 0.4.0 native installation includes its matching qualified kit.
+A complete 0.5.0 native installation includes its matching qualified kit.
 The kit includes `distribution.json`, its Compose files, and `SHA256SUMS`.
 Its manifest identifies the version, immutable runtime image, CPython version,
 and qualified container platforms. An unprocessed `deploy/distribution`
 directory in a checkout is a packaging template, not a runnable kit.
 
 Native CLI targets and container platforms are separate. Published native
-bundles target Linux x86_64/glibc and macOS Apple silicon. The 0.4.0 kit supports
+bundles target Linux x86_64/glibc and macOS Apple silicon. The 0.5.0 kit supports
 `linux/amd64` and `linux/arm64`; the CLI checks the actual Docker engine against
 the kit's declared platforms. Do not infer native Linux ARM64 or
 Windows support from an image's platform list.
@@ -181,4 +181,4 @@ A distribution kit pulls its pinned image and uses `LEDGENCE_PORT` for direct
 Compose, or `--port` through the CLI. Both bind the API to loopback and use local
 demo credentials for operator-trusted code.
 
-**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.4.0/crates/ledgence-cli/src/local.rs) · [Kit guide](https://github.com/Ledgence/ledgence/blob/v0.4.0/deploy/distribution/README.md) · [Distribution contract](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/container-distribution.md)
+**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.5.0/crates/ledgence-cli/src/local.rs) · [Kit guide](https://github.com/Ledgence/ledgence/blob/develop/deploy/distribution/README.md) · [Distribution contract](https://github.com/Ledgence/ledgence/blob/develop/docs/container-distribution.md)

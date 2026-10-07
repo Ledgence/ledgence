@@ -1,12 +1,14 @@
 # Build and publish a Python workflow
 
-Use matching CLI and server components with program build and publication
-support. The server must explicitly enable uploads. This example renders a title as HTML using a native Python wheel, and records the operation
+Use the **Ledgence 0.5.0** CLI and a matching server with program publication
+enabled. This example renders a title as HTML using a native Python wheel, and
+records the operation
 as a local workflow step. No model, cloud credentials or application database
 is needed.
 
-1. Start a **new** local installation using a qualified kit matching your CLI.
-   Keep existing installations unchanged. See the
+1. Start a **new** local installation using the matching 0.5.0 kit. Keep existing
+   installations unchanged; use a separate `--directory` and free `--port` if
+   needed. See the
    [build and publication guide](../../docs/program-publication.md). If you use a
    different port, use the printed API URL in both the publication command and
    Python `AsyncClient` example below.

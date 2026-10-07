@@ -3,17 +3,17 @@ title: Install the native tools
 description: Install the CLI in one command, configure your shell, and start the local container stack.
 ---
 
-Ledgence 0.4.0 installs one `ledgence` executable with the Python worker helper,
+Ledgence 0.5.0 installs one `ledgence` executable with the Python worker helper,
 client wheel, Console assets, and a matching local container kit. Native bundles
 support Linux x86_64/glibc and macOS Apple silicon. See [requirements](#before-you-start)
 for other platforms and service prerequisites.
 
 <span id="next-release-one-line-installation"></span>
 
-**Development feature availability:** `program build` and HTTP program uploads
-require matching updated CLI/server source; installing the currently published
-bundle does not provide them. See [Build and publish programs](/how-to/build-and-publish-programs).
-Existing filesystem preparation and registration remain available.
+**Program publication:** 0.5.0 includes `program build` and HTTP uploads with
+saved recovery receipts. Build needs local Docker and an explicit worker target;
+upload needs a matching server with its writer enabled. Existing saved stacks
+keep their original kit and image. See [Build and publish programs](/how-to/build-and-publish-programs).
 
 ## One-line installation
 
@@ -84,7 +84,7 @@ the installer prints the exact command.
 To pin this release explicitly:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.4.0/install.sh | sh -s -- --version 0.4.0
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.5.0/install.sh | sh -s -- --version 0.5.0
 ```
 
 `--version X.Y.Z` selects an exact stable version; without it the installer
@@ -96,7 +96,7 @@ yourself. These options can be supplied to a downloaded copy of `install.sh`.
 
 | Symptom | What to check |
 | --- | --- |
-| The installer URL returns `404`. | Check the [release assets](https://github.com/Ledgence/ledgence/releases/tag/v0.4.0) and your network access. The pinned command above selects the 0.4.0 installer. |
+| The installer URL returns `404`. | Check the [release assets](https://github.com/Ledgence/ledgence/releases/tag/v0.5.0) and your network access. The pinned command above selects the 0.5.0 installer. |
 | `ledgence: command not found` after installation. | In Bash, Zsh, or a POSIX shell, source the generated environment file above. For a custom prefix use the path printed by the installer. Other shells need their own `PATH` setup. |
 | A previous executable still runs. | Run `command -v ledgence` and `ledgence --version`. Source the new environment file so its `bin` directory takes precedence. The installer preserves unrelated executables. |
 | `local` is an unknown command. | Check `command -v ledgence` and `ledgence --version`. This command requires 0.4.0 or newer; source the installed environment file if an older executable takes precedence. |
@@ -108,12 +108,11 @@ For a failed Docker startup, follow the
 ## Before you start
 
 For writing programs in your own Python project, follow
-[Develop Python programs](/how-to/develop-python-programs). Its local
-`ledgence-worker` package comes from updated `develop` source and has no PyPI
-release. It supports imports and editor tooling in your application environment;
+[Develop Python programs](/how-to/develop-python-programs). Install
+`ledgence-worker==0.5.0` from PyPI as a development dependency. It supports imports and editor tooling in your application environment;
 the native worker continues to supply its own helper when executing programs.
 
-The native targets are **Linux x86_64/glibc**, built and qualified on Ubuntu 24.04, and **macOS arm64**. Other Linux distributions need compatible host libraries; inspect `candidate-provenance.json` for the archive's actual dynamic requirements. There are no published native Windows, Linux ARM64, macOS Intel, or musl/Alpine bundles in 0.4.0.
+The native targets are **Linux x86_64/glibc**, built and qualified on Ubuntu 24.04, and **macOS arm64**. Other Linux distributions need compatible host libraries; inspect `candidate-provenance.json` for the archive's actual dynamic requirements. There are no published native Windows, Linux ARM64, macOS Intel, or musl/Alpine bundles in 0.5.0.
 
 | What you will run | Additional requirements |
 | --- | --- |
@@ -131,7 +130,7 @@ uname -m
 python3 --version
 ```
 
-Before replacing an existing deployment, follow [Upgrade to 0.4.0](/how-to/upgrade-to-0-4).
+Before replacing an existing deployment, follow [Upgrade to 0.5.0](/how-to/upgrade-to-0-5).
 
 ## Download and verify the archive
 
@@ -143,13 +142,13 @@ export LEDGENCE_TARGET=x86_64-unknown-linux-gnu
   # On macOS Apple silicon, use this instead:
   # export LEDGENCE_TARGET=aarch64-apple-darwin
 
-mkdir -p "$HOME/.local/share/ledgence/downloads/0.4.0"
-cd "$HOME/.local/share/ledgence/downloads/0.4.0"
-export LEDGENCE_ARCHIVE="ledgence-0.4.0-$LEDGENCE_TARGET.tar.gz"
+mkdir -p "$HOME/.local/share/ledgence/downloads/0.5.0"
+cd "$HOME/.local/share/ledgence/downloads/0.5.0"
+export LEDGENCE_ARCHIVE="ledgence-0.5.0-$LEDGENCE_TARGET.tar.gz"
 curl --fail --location --output "$LEDGENCE_ARCHIVE" \
-  "https://github.com/Ledgence/ledgence/releases/download/v0.4.0/$LEDGENCE_ARCHIVE"
+  "https://github.com/Ledgence/ledgence/releases/download/v0.5.0/$LEDGENCE_ARCHIVE"
 curl --fail --location --output SHA256SUMS \
-  https://github.com/Ledgence/ledgence/releases/download/v0.4.0/SHA256SUMS
+  https://github.com/Ledgence/ledgence/releases/download/v0.5.0/SHA256SUMS
 ```
 
 The release checksum file can list both platforms. Verify the entry for the archive you downloaded. This checksum check also works with older system Python versions; running Ledgence programs still requires CPython 3.11–3.14:
@@ -179,7 +178,7 @@ Continue only after `OK`. Extract the archive and verify its complete internal f
 
 ```sh
 tar -xzf "$LEDGENCE_ARCHIVE"
-export LEDGENCE_BUNDLE="$PWD/ledgence-0.4.0-$LEDGENCE_TARGET"
+export LEDGENCE_BUNDLE="$PWD/ledgence-0.5.0-$LEDGENCE_TARGET"
 cd "$LEDGENCE_BUNDLE"
   # Linux:
 sha256sum -c SHA256SUMS
@@ -234,25 +233,25 @@ environment when your application needs the HTTP client:
 ```sh
 "$LEDGENCE_PYTHON" -m venv "$LEDGENCE_EXAMPLE_DIR/client"
 "$LEDGENCE_EXAMPLE_DIR/client/bin/python" -m pip install \
-  "ledgence-client==0.4.0"
+  "ledgence-client==0.5.0"
 ```
 
 Installation obtains the pinned client dependencies unless you supply a reviewed
 offline wheelhouse. A manually extracted native archive also supplies
-`$LEDGENCE_BUNDLE/python-client/ledgence_client-0.4.0-py3-none-any.whl`; install
+`$LEDGENCE_BUNDLE/python-client/ledgence_client-0.5.0-py3-none-any.whl`; install
 that file instead when using the bundled client artifact.
 
-For an existing application, add `ledgence-client==0.4.0` with its environment
+For an existing application, add `ledgence-client==0.5.0` with its environment
 manager, for example
-`python -m pip install "ledgence-client==0.4.0"` in an activated virtual
-environment, or `uv add "ledgence-client==0.4.0"` in an existing uv project.
+`python -m pip install "ledgence-client==0.5.0"` in an activated virtual
+environment, or `uv add "ledgence-client==0.5.0"` in an existing uv project.
 The client environment is separate from the worker interpreter; installing
 the native CLI does not make `from ledgence.client import AsyncClient` available
 to an application. See the [Python client reference](/reference/python-client).
 
 ## Start a native service with Console
 
-Configure PostgreSQL and the artifact store using the [PostgreSQL](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/postgres.md) and [HTTP orchestration](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/http-orchestration.md) guides, also included in the bundle. Create the server-owned instance file described in the [Console reference](/reference/console#serving-console), with the existing tenant/namespace binding if adopting data. Apply migrations explicitly:
+Configure PostgreSQL and the artifact store using the [PostgreSQL](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/postgres.md) and [HTTP orchestration](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md) guides, also included in the bundle. Create the server-owned instance file described in the [Console reference](/reference/console#serving-console), with the existing tenant/namespace binding if adopting data. Apply migrations explicitly:
 
 ```sh
 ledgence orchestrator migrate
@@ -266,4 +265,4 @@ explicit `--console-dir /absolute/path/to/console` overrides that choice;
 `--runner /absolute/path/to/bootstrap.py` similarly overrides the worker helper.
 These commands require the intended PostgreSQL connection and service configuration from the bundled guides. Keep the instance file on every subsequent start. Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/); no Node process is required. To run the complete example with a database, worker, store, and callbacks, follow the [local stack tutorial](/tutorials/run-locally).
 
-**Source:** [Release and checksums](https://github.com/Ledgence/ledgence/releases/tag/v0.4.0) · [Bundle verification](https://github.com/Ledgence/ledgence/blob/v0.4.0/tools/release/verify.py)
+**Source:** [Release and checksums](https://github.com/Ledgence/ledgence/releases/tag/v0.5.0) · [Bundle verification](https://github.com/Ledgence/ledgence/blob/v0.5.0/tools/release/verify.py)

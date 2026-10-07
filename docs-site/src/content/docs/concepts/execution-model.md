@@ -70,4 +70,4 @@ A client's result timeout ends its observation. It does not stop a task, undo ef
 
 Similarly, a logical outcome and physical process cleanup are separate facts. Cancellation cannot undo an external API call that already succeeded. [Checkpoints and recovery](/concepts/checkpoints-and-recovery) explains how to design around retries and uncertain effects.
 
-**Source:** [Architecture](https://github.com/Ledgence/ledgence/blob/ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf/docs/architecture.md) · [Package contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/program-packages.md) · [Worker delivery](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/worker-delivery.md)
+**Source:** [Architecture](https://github.com/Ledgence/ledgence/blob/develop/docs/architecture.md) · [Package contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md) · [Worker delivery](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/worker-delivery.md)

@@ -6,11 +6,11 @@ description: Entrypoint registration, context properties, child operations, deci
 This reference covers protocol **3** workflow handlers and their worker-supplied context.
 
 To resolve these imports in your editor and test ordinary business functions,
-see [Develop Python programs](/how-to/develop-python-programs). Local helper
-packaging is available in updated development source. Context APIs still require
+see [Develop Python programs](/how-to/develop-python-programs). The worker authoring
+package is published as `ledgence-worker==0.5.0`. Context APIs still require
 an active worker invocation; installing the helper does not execute workflows.
 
-**Available since 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.4.0](/how-to/upgrade-to-0-4).
+**Available since 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.5.0](/how-to/upgrade-to-0-5).
 
 A handler can obtain the context directly:
 
@@ -227,6 +227,6 @@ Bounds use compact encoded JSON, not Python object memory size. The server's JSO
 
 Application JSON supports at most 64 nested containers, finite numbers, and string object keys. Use application-controlled storage references for payloads larger than the inline limits.
 
-**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/subworkflows.md)
+**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.5.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/subworkflows.md)
 
-**Additional contracts:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.4.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.4.0/sdk/python/ledgence/worker/workflow.py)
+**Additional contracts:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.5.0/sdk/python/ledgence/worker/workflow.py)

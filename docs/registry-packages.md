@@ -1,20 +1,21 @@
 # Registry packages
 
 The preserved `v0.3.0` source tag had no published registry packages or native
-distribution. Use the 0.4.0 versions below.
+distribution. Use the 0.5.0 versions below.
 
 Ledgence distributes a Python client and reusable Rust adapter contracts separately
 from native worker/orchestrator release bundles.
 
-The following packages are publicly available at **0.4.0**:
+The following packages are publicly available at **0.5.0**:
 
 | Registry | Package | Purpose |
 | --- | --- | --- |
-| PyPI | [`ledgence-client`](https://pypi.org/project/ledgence-client/0.4.0/) | Async task/workflow client; import `ledgence.client` |
-| crates.io | [`ledgence-worker-api`](https://crates.io/crates/ledgence-worker-api/0.4.0) | Worker execution, runtime, artifact and telemetry contracts |
-| crates.io | [`ledgence-orchestration-api`](https://crates.io/crates/ledgence-orchestration-api/0.4.0) | Task/workflow orchestration and delivery contracts |
+| PyPI | [`ledgence-client`](https://pypi.org/project/ledgence-client/0.5.0/) | Async task/workflow client; import `ledgence.client` |
+| PyPI | [`ledgence-worker`](https://pypi.org/project/ledgence-worker/0.5.0/) | Dependency-free program authoring helpers; import `ledgence.worker` |
+| crates.io | [`ledgence-worker-api`](https://crates.io/crates/ledgence-worker-api/0.5.0) | Worker execution, runtime, artifact and telemetry contracts |
+| crates.io | [`ledgence-orchestration-api`](https://crates.io/crates/ledgence-orchestration-api/0.5.0) | Task/workflow orchestration and delivery contracts |
 
-Native bundles for **0.4.0** include Console on Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64. The historical first native bundle remains **v0.1.0 for macOS arm64**.
+Native bundles for **0.5.0** include Console on Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64. The historical first native bundle remains **v0.1.0 for macOS arm64**.
 See the [release reference](https://docs.ledgence.com/reference/releases) for the
 artifact matrix. Package publication does not imply a native bundle exists for
 that version or platform. Public APIs may evolve before 1.0.
@@ -24,15 +25,15 @@ that version or platform. Public APIs may evolve before 1.0.
 In an active Python 3.11+ virtual environment:
 
 ```sh
-python -m pip install "ledgence-client==0.4.0"
+python -m pip install "ledgence-client==0.5.0"
 ```
 
 For Rust adapters, use Rust 1.98 or newer and add the contract you need:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "0.4.0"
-ledgence-orchestration-api = "0.4.0"
+ledgence-worker-api = "0.5.0"
+ledgence-orchestration-api = "0.5.0"
 ```
 
 Rust implementation crates and binaries have `publish = false`. Installing
@@ -41,28 +42,21 @@ does not include the separately supplied `ledgence.worker` helper or CPython.
 Ledgence-owned source is MIT; packaged legal notices remain applicable.
 See [dependency policy](dependencies.md).
 
-## Worker helper release preparation
+## Install the worker helper for development
 
-Current source packages `sdk/python` as **`ledgence-worker`
-0.5.0**, providing `ledgence.worker` for authoring and testing programs in a
-Python 3.11+ application environment. It has no runtime dependencies. This
-distribution is qualified separately from the published package table above.
-Check [its registry entry](https://pypi.org/project/ledgence-worker/0.5.0/) and
-[the release reference](https://docs.ledgence.com/reference/releases) for current
-availability. The historical `v0.4.0` tag lacks its packaging metadata.
+`ledgence-worker==0.5.0` provides `ledgence.worker` for authoring and testing
+programs in a Python 3.11+ application environment. It has no runtime dependencies.
+Use a version matching the deployed worker, as a development dependency:
 
-Use a checkout containing `sdk/python/pyproject.toml`, then run
-`uv add --dev /absolute/path/to/ledgence/sdk/python` from your application project,
-or use the [pip alternative](installation.md#install-the-worker-helper-for-development).
-Use a name-based registry install only for a verified published version. It does not install
-the CLI, services or client. The Rust worker continues to supply its own helper
-at execution; see the [helper guide](../sdk/python/README.md#install-for-local-development).
+```sh
+uv add --dev "ledgence-worker==0.5.0"
+```
 
-The first worker package publication is planned for **0.5.0**, alongside
-`ledgence-client` and the Rust API crates at that same version. Only after the
-worker version is verified on PyPI can application authors use
-`uv add --dev "ledgence-worker==0.5.0"`. The table above continues to describe
-the currently published 0.4.0 packages.
+The pip alternative is `python -m pip install "ledgence-worker==0.5.0"` in the
+application's activated environment. Source installation remains available from
+`sdk/python`; the historical `v0.4.0` tag lacks this package's metadata. The helper
+does not install the CLI, services or client. The Rust worker supplies its own
+matching helper at execution; see the [helper guide](../sdk/python/README.md#install-for-local-development).
 
 The remaining sections describe maintainer qualification and publication of
 both Python distributions and the two Rust API crates. Installing an existing
@@ -119,10 +113,11 @@ python3 -m unittest discover -s tools/release -p 'test_*.py' -v
 
 ## Initial registry setup
 
-The client and Rust packages listed above already have published releases.
-The first `ledgence-worker` publication needs its own PyPI project authorization;
-the client's existing publisher does not establish authorization for a new name.
-The setup below documents this initial process.
+Both Python projects and the Rust packages listed above have published releases.
+Each Python project needs its own trusted-publisher authorization; the client's
+publisher does not authorize another project name. The steps below preserve
+the initial setup procedure for a new project. Existing projects use their
+configured trusted publisher.
 
 A maintainer must control the registry accounts and complete their email and
 authentication requirements. Do not commit passwords or API tokens.

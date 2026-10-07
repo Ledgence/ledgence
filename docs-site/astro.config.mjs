@@ -37,6 +37,7 @@ export default defineConfig({
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },
         { label: 'Receive execution results', slug: 'how-to/receive-results' },
         { label: 'Configure observability', slug: 'how-to/configure-observability' },
+        { label: 'Upgrade to 0.5.0', slug: 'how-to/upgrade-to-0-5' },
         { label: 'Upgrade to 0.4.0', slug: 'how-to/upgrade-to-0-4' },
         { label: 'Upgrade to 0.3.1', slug: 'how-to/upgrade-to-0-3' },
         { label: 'Upgrade to 0.2.0', slug: 'how-to/upgrade-to-0-2' },

@@ -3,9 +3,9 @@ title: Build and publish Python programs
 description: Prepare explicit application inputs for a worker runtime, upload immutable bytes, and recover interrupted publication without rebuilding.
 ---
 
-**Development source only.** This guide requires matching updated Ledgence CLI
-and orchestrator builds. The published 0.4.0 installer and existing local kits do
-not include `program build`, HTTP artifact uploads or publication receipts.
+**Available in Ledgence 0.5.0.** Use matching CLI and orchestrator components
+and explicitly enable the server's publication writer. Earlier saved local kits
+retain their image and configuration; a new CLI does not upgrade those services.
 [Filesystem publication and separate registration](/how-to/register-agent)
 remain available.
 
@@ -18,17 +18,17 @@ start with [Develop Python programs](/how-to/develop-python-programs).
 
 You need:
 
-- A development `ledgence` CLI and local Docker running Linux containers.
+- The 0.5.0 `ledgence` CLI and local Docker running Linux containers.
 - The worker's explicit platform, exact CPython major/minor and digest-pinned
   runtime image. A Mac's architecture or a server URL cannot select these for you.
-- An updated server with `--allow-program-publication`, an instance configuration
+- A matching 0.5.0 server with `--allow-program-publication`, an instance configuration
   and a writable filesystem program store. An HTTPS read-only store cannot
   enable this writer.
 
-New development Compose templates enable the server's writer and leave the
+The 0.5.0 Compose templates enable the server's writer and leave the
 worker's program mount read-only. An already saved kit keeps its original image,
 settings and data; installing a newer CLI does not upgrade it. Use a separate
-state directory with a matching newly qualified kit for evaluation. Do not edit
+state directory with a matching 0.5.0 kit for evaluation. Do not edit
 copied kit files to bypass their checksum checks. See
 [local distribution operations](/how-to/run-local-distribution).
 
@@ -40,10 +40,13 @@ publisher authentication.
 
 ## Describe the application
 
-The [program publication example](https://github.com/Ledgence/ledgence/tree/develop/examples/program-publication)
+The [program publication example](https://github.com/Ledgence/ledgence/blob/develop/examples/program-publication/README.md)
 uses an HTML report workflow with a small native dependency. Copy its project
 and edit its runtime image and target to match your worker. Its example image
-placeholder is not a published development image.
+placeholder must be replaced with the worker's actual digest. For the local
+distribution, `ledgence local status` reports the saved image; `distribution.json`
+in the saved installation records the same digest. Installing a newer CLI does
+not change that saved image.
 
 A minimal configuration for `src/invoice.py` looks like this. Replace
 `REPLACE_WITH_WORKER_RUNTIME_DIGEST` with the actual 64-character lowercase image

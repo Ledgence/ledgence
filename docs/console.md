@@ -106,7 +106,7 @@ for scope, bounds, replay and unavailable-measurement behavior.
 ## Native startup
 
 Build assets explicitly with the pinned toolchain in [Console build guide](https://github.com/Ledgence/ledgence/blob/develop/console/README.md),
-or use the `console/` directory from the matching 0.4.0 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
+or use the `console/` directory from the matching 0.5.0 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
 build/test does not run frontend tooling. Create a server-only instance file:
 
 ```json
@@ -131,7 +131,7 @@ cargo run -p ledgence-cli -- orchestrator serve --store /path/to/program-store \
 
 For a newly built native bundle use `bin/ledgence orchestrator serve` and
 `--console-dir /absolute/path/to/bundle/console`. Keep `--instance-config` on every
-startup. In a complete 0.4.0 native bundle, `--instance-config` automatically
+startup. In a complete 0.5.0 native bundle, `--instance-config` automatically
 selects the bundled Console when `--console-dir` is omitted. To run without
 assets, use a source build or a bundle packaged with `--headless`, and omit
 `--console-dir`; the instance binding remains required. A missing,
@@ -140,7 +140,7 @@ The console source manifest and retained notices accompany the assets.
 
 ## Register immutable programs
 
-A matching CLI and server can prepare and upload programs with
+Ledgence 0.5.0 can prepare and upload programs from the CLI with
 [`program build` and `publish --server URL --register`](program-publication.md).
 The Console registration form still registers an existing store reference; it
 does not become a code uploader. Publication must be explicitly enabled on the

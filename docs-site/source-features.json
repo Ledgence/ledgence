@@ -1,34 +1,36 @@
 {
   "pythonWorkerPackage": {
     "title": "Local Python worker helper installation for program development",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/develop-python-programs"
+    "availability": "release",
+    "sourceRef": "v0.5.0",
+    "guide": "/how-to/develop-python-programs",
+    "verifiedOn": "2026-10-07"
   },
   "console": {
     "availability": "release",
-    "sourceRef": "v0.4.0",
-    "verifiedOn": "2026-10-06",
+    "sourceRef": "v0.5.0",
+    "verifiedOn": "2026-10-07",
     "guide": "/tutorials/use-console"
   },
   "installer": {
     "title": "One-line CLI installation and shell setup",
     "availability": "release",
-    "sourceRef": "v0.4.0",
+    "sourceRef": "v0.5.0",
     "guide": "/how-to/install-native#one-line-installation",
-    "verifiedOn": "2026-10-06"
+    "verifiedOn": "2026-10-07"
   },
   "localDistribution": {
     "title": "Local stack from container images and CLI lifecycle",
     "availability": "release",
-    "sourceRef": "v0.4.0",
+    "sourceRef": "v0.5.0",
     "guide": "/how-to/run-local-distribution",
-    "verifiedOn": "2026-10-06"
+    "verifiedOn": "2026-10-07"
   },
   "programPublication": {
     "title": "Explicit program builds, immutable HTTP publication and saved retry receipts",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/build-and-publish-programs"
+    "availability": "release",
+    "sourceRef": "v0.5.0",
+    "guide": "/how-to/build-and-publish-programs",
+    "verifiedOn": "2026-10-07"
   }
 }

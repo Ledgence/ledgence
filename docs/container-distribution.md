@@ -5,7 +5,7 @@ migration job, including Console, the Python helper and CPython 3.14. PostgreSQL
 remains separate. Programs still come from the program store; deploying a program
 does not require rebuilding the image.
 
-Ledgence **0.4.0** publishes the runtime image for Linux amd64 and arm64, plus
+Ledgence **0.5.0** publishes the runtime image for Linux amd64 and arm64, plus
 a local deployment kit pinned to its immutable image digest. Complete native
 bundles include that kit for `ledgence local`. Start with
 [installation and local startup](installation.md); the sections below describe
@@ -13,7 +13,7 @@ the standalone kit and maintainer qualification.
 
 ## Standalone kit
 
-The [0.4.0 release](https://github.com/Ledgence/ledgence/releases/tag/v0.4.0)
+The [0.5.0 release](https://github.com/Ledgence/ledgence/releases/tag/v0.5.0)
 provides a standalone local kit as well as the copy included in native bundles.
 Its `README.md` explains direct Compose operation. For a kit copied by
 `ledgence local up`, follow the [optional-example handoff](installation.md#run-the-optional-container-examples):

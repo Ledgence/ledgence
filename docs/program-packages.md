@@ -43,9 +43,9 @@ Build dependencies for the declared target. Native extensions require compatible
 python3.12 -m pip install --target ./program -r requirements.lock
 ```
 
-This source provides [`ledgence program build`](program-publication.md)
+Ledgence 0.5.0 provides [`ledgence program build`](program-publication.md)
 to prepare explicit inputs and hash-pinned wheels inside the worker runtime
-image. Use a CLI containing this command and a matching runtime image.
+image. Use a matching runtime image and explicit target.
 
 This is a build-time operation; Ledgence's runtime does not invoke pip. Requirements files, hashes, and reproducible application builds remain the program publisher's responsibility. Publication preserves empty directories and regular-file executable bits. The prepared cache strips write and special permission bits, retaining read permissions plus those executable bits. The initial archive profile supports ZIP32 with stored or deflated regular files and directories, portable ASCII paths, and no symlinks, special files, encrypted entries, or ZIP64.
 
@@ -83,7 +83,7 @@ programs/<program-id>/<version>/descriptor.json
 blobs/<sha256-hex>.zip
 ```
 
-The descriptor contains `program`, `digest` (`sha256:<64 lowercase hex characters>`), and the compressed archive `size`. The immutable descriptor is published after the blob. Republishing identical content succeeds; changing content under the same program/version is an integrity error. Upload a new version to deploy new bytes. Filesystem publication remains available. This source also supports
+The descriptor contains `program`, `digest` (`sha256:<64 lowercase hex characters>`), and the compressed archive `size`. The immutable descriptor is published after the blob. Republishing identical content succeeds; changing content under the same program/version is an integrity error. Upload a new version to deploy new bytes. Filesystem publication remains available. Ledgence 0.5.0 also supports
 explicitly enabled [HTTP publication](program-publication.md#binary-api-and-bounds)
 and optional subsequent registration. The same immutable layout can be served
 over HTTPS for workers on other hosts. The store identity is global within that

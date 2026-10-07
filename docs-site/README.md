@@ -20,7 +20,7 @@ pnpm build
 pnpm preview
 ```
 
-The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors, feature-guide links and assets. `release.json` records the 0.4 release tag, native targets and independently published package versions. `public/source.json` keeps release identity separate from the documentation checkout revision. The product SHA is optional: the build resolves the local release tag when it exists and otherwise omits the unknown SHA instead of substituting HEAD or a historical hash. `source-features.json` records Console, the installer and local distribution as part of the same release; generated provenance uses the `release` channel. Native documentation targets Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64, with dynamic requirements preserved in bundle provenance. Complete release qualification and verify the published artifacts before deploying updated release documentation. A public release does not imply a stable 1.0 API.
+The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors, feature-guide links and assets. `release.json` records the 0.5 release tag, native targets and independently published package versions. `public/source.json` keeps release identity separate from the documentation checkout revision. The product SHA is optional: the build resolves the local release tag when it exists and otherwise omits the unknown SHA instead of substituting HEAD or a historical hash. `source-features.json` records Console, the installer, local distribution, worker authoring package and program publication as part of the same release; generated provenance uses the `release` channel. Native documentation targets Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64, with dynamic requirements preserved in bundle provenance. Complete release qualification and verify the published artifacts before deploying updated release documentation. A public release does not imply a stable 1.0 API.
 
 ## Authoring
 
@@ -30,7 +30,13 @@ The site provides Diátaxis learning paths and release installation guidance. Th
 
 Keep `release.json` tied to the verified public release. Record each public source feature in `source-features.json` with its verified release ref/date and guide. Future unreleased features use `availability: development` and a guide that states the prerequisites. The generated `source.json` and `llms.txt` retain this distinction. Do not advance release versions or qualification dates because a documentation build succeeds. At release time, verify the installer, native bundles, matching kit and public images before changing their availability or promoting the one-line installation path.
 
-The `v0.4.0` source tag predates its publication documentation. Links to installation, distribution, registry, SDK and example guides updated after publication use the verified documentation commit `ae6734a2dfa58d931c3e3fcfa0e791382bfe15bf`; implementation links remain pinned to `v0.4.0`. Keep those identities separate when refreshing references so a released guide does not send readers back to preparation-only instructions.
+The `v0.5.0` source tag freezes the implementation and its preparation-time
+documentation. Post-publication guides in this checkout reflect verified release
+availability. Implementation links remain pinned to `v0.5.0`; references to
+updated repository guides use `develop`. Generated `public/source.json` records
+the exact documentation build revision separately from the product release
+revision. Keep historical release notes, versioned upgrade guides and pinned
+example corpora intact when refreshing current references.
 
 Code examples must follow the checked-in SDK and examples. Only advertise verified registry versions and native targets. The self-hosted Console serves one instance and has no tenant administration or scope selectors. Describe the retained CLI/SDK fields as a fixed compatibility binding. Do not imply a vendor-hosted dashboard, exactly-once effects, or public multi-tenant isolation. Review the local trusted-code boundary where relevant.
 

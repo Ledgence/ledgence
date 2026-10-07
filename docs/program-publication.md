@@ -1,11 +1,10 @@
 # Build and publish Python programs
 
-These commands require matching CLI and orchestrator components with program
-publication support. The server writer must be enabled explicitly; the CLI
-checks capability discovery before uploading. Earlier saved local kits keep
-their original image and configuration. Existing filesystem publication and
-separate registration remain available. For verified release availability, see
-[the release reference](https://docs.ledgence.com/reference/releases).
+Available in **Ledgence 0.5.0** with matching CLI and orchestrator components.
+The server writer must be enabled explicitly. Earlier saved local kits keep
+their original image and configuration; a CLI update does not enable uploads
+in those stacks. Existing filesystem publication and separate registration
+remain available.
 
 A program moves through three distinct operations:
 
@@ -175,11 +174,11 @@ read-only store remains supported, but cannot enable this filesystem writer.
 The server and worker do not need Docker or a provider account to accept and
 execute an already prepared package.
 
-The matching local Compose templates give the orchestrator write access to
+The 0.5.0 local Compose templates give the orchestrator write access to
 `/programs` and leave the worker's mount read-only. Both see the same volume.
 **Existing saved kits are not rewritten or upgraded.** Installing a newer CLI
 cannot enable uploads in an older stack. Use a separate state directory and a
-matching qualified kit for evaluation, or plan an explicit
+matching 0.5.0 kit for evaluation, or plan an explicit
 operator-managed upgrade with backups. Do not edit a copied kit to bypass its
 checksum checks, silently replace its image, or delete persistent volumes.
 
