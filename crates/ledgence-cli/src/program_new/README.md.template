@@ -1,0 +1,79 @@
+# {{PROGRAM_NAME}}
+
+A Python program for Ledgence. The application receives user-owned CloudEvent
+`data`, for example `{"name": "Ada"}`, and produces
+`{"message": "Hello, Ada!"}`. Execution and tracing identifiers stay in the
+CloudEvent envelope. The program starts at version `0.1.0`.
+
+## Develop and test
+
+From this directory, with Python 3.11 or newer and uv installed:
+
+```sh
+uv sync
+uv run python -m unittest discover -s tests -v
+```
+
+Alternatively, use a standard virtual environment:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install "ledgence-worker=={{LEDGENCE_VERSION}}"
+python -m unittest discover -s tests -v
+```
+
+`ledgence-worker` provides the `ledgence.worker` authoring API, editor imports,
+and local tests. It is a development dependency: the deployed Rust worker
+supplies the runtime helper. Do not vendor it into the application package.
+These unit tests validate the business function and handler or workflow
+registration. Use a real Ledgence installation to test orchestration, retries,
+waits, and durable results; calling a workflow handler directly is not a local
+workflow runner.
+
+## Choose the worker target
+
+Edit `[target]` in `ledgence.toml` before building, unless it was configured when
+the project was created. Set all three values to match the intended worker:
+
+- `platform`: `linux/amd64` or `linux/arm64`.
+- `python`: the exact CPython major/minor, such as `3.14`.
+- `image`: the worker-compatible runtime image pinned as
+  `repository@sha256:<64 lowercase hexadecimal digits>`.
+
+Keep `protocol = 3`. The target is independent of your development machine;
+macOS development does not imply a macOS worker. Use the same runtime image to
+match native system libraries too. Placeholder values deliberately prevent a
+build until the target is selected.
+
+## Build and publish
+
+Start a local Docker engine with Linux containers, then run:
+
+```sh
+ledgence program build
+ledgence program publish --server http://127.0.0.1:8080 --register
+```
+
+Use your installation's API URL. HTTP publication must be enabled on the server.
+Build prepares `.ledgence/prepared`; publish stores that immutable package;
+register makes it discoverable in the program catalog. None of these commands
+executes the program. Submit a task or workflow matching `[program].kind` through
+the Python client or HTTP API, with `data={"name": "Ada"}`.
+
+The selected application source is `program.py`; the builder adds the runtime
+manifest and prepares dependencies from `requirements.txt`. Add application
+files explicitly to `[source].include`.
+Keep production dependencies in `requirements.txt`, with exact versions,
+SHA-256 hashes, and all active transitive dependencies. Adding a dependency to
+`pyproject.toml` for development does not include it in a deployed package.
+Retain required dependency license notices. Choose the license for your own
+application; this scaffold does not assign one.
+
+Increment `[program].version` in `ledgence.toml` and `[project].version` in
+`pyproject.toml` before publishing changed application bytes under a new release.
+The program store does not overwrite an existing immutable version.
+
+See the [program build and publication guide](https://docs.ledgence.com/how-to/build-and-publish-programs)
+and [workflow authoring guide](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/README.md)
+for deployment and composition helpers.

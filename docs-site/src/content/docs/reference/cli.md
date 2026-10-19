@@ -1,6 +1,6 @@
 ---
 title: Command-line interface
-description: Ledgence 0.5.0 command groups, local lifecycle, build features, and installed resources.
+description: Published CLI commands, development program scaffolding, local lifecycle, build features, and installed resources.
 ---
 
 Ledgence builds one public executable, `ledgence`, from the `ledgence-cli`
@@ -13,6 +13,9 @@ HTTP publication and recovery alongside the existing local lifecycle and
 installed-resource discovery. Start with the
 [one-line installation](/how-to/install-native#one-line-installation) and
 [local distribution guide](/how-to/run-local-distribution).
+
+`program new` requires a current development build and is not included in
+published 0.5.0 binaries. See [create a Python program](#create-a-python-program).
 
 This replaces the command layout in the historical `v0.1.1` source tag and
 native `0.1.0` bundle. Those artifacts retain their original executables and
@@ -56,7 +59,7 @@ MCP requires its build feature, which is included in native release bundles.
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
-| `program` | `example`, `build`, `publish`, `register` | Prepare, publish and register programs; `build` requires local Docker and an explicit worker target. |
+| `program` | `new` (development), `example`, `build`, `publish`, `register` | Create source projects, prepare, publish and register programs; `build` requires local Docker and an explicit worker target. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
@@ -66,6 +69,64 @@ MCP requires its build feature, which is included in native release bundles.
 There is no separate `workflow` command group. Use the
 [HTTP API](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md), [Python client](/reference/python-client),
 Console or MCP for workflow and event operations.
+
+## Create a Python program
+
+**Development source only; not included in published 0.5.0 binaries.** Build
+`ledgence-cli` from the current development checkout as shown above. Once that
+executable is on your `PATH`:
+
+```sh
+ledgence program new invoice-issuer
+ledgence program new invoice-flow --kind workflow
+```
+
+The default kind is `task`. `--name ID` overrides the destination directory's
+basename as the program ID; the initial program version is `0.1.0`. IDs use
+1–128 lowercase ASCII letters, digits, dots, underscores or hyphens and must
+begin and end with a letter or digit to be valid Python project names. The command creates `program.py`, `tests/test_program.py`, `pyproject.toml`, `ledgence.toml`,
+`requirements.txt`, `.gitignore` and `README.md`. The workflow starter uses a typed
+entrypoint and completes through its workflow context. Both starters separate
+business logic from the handler and include standard-library unit tests.
+
+The destination must not exist, including as an empty directory, file or symlink;
+its parent must already exist. Scaffolding is offline: it runs no Python, package
+manager, Git, Docker, service or network operation. Dependency installation,
+tests, build, publication and execution are separate steps. Success prints one
+JSON result with the absolute `directory`, `program` identity, `kind`, generated
+`files` and `target_configured`. The last field means target values were supplied
+and validated, not that a worker or Docker image has been contacted.
+
+`pyproject.toml` declares a uv application project (`package = false`) with
+`ledgence-worker` pinned as a development dependency to the generating CLI's
+version. The worker supplies its own helper at execution time. Generated tests
+exercise business logic and handler imports; they are not an offline durable
+workflow runtime. From the generated directory, with uv and Python available:
+
+```sh
+uv sync
+uv run python -m unittest discover -s tests -v
+```
+
+By default, `ledgence.toml` contains target placeholders that must be replaced
+before building. If the worker target is already known, supply **all three**
+`--platform`, `--python` and `--image` options together. For example, after setting
+`LEDGENCE_WORKER_IMAGE` to your worker's full digest-pinned image reference:
+
+```sh
+ledgence program new invoice-issuer-linux --name invoice-issuer \
+  --platform linux/amd64 --python 3.14 --image "$LEDGENCE_WORKER_IMAGE"
+```
+
+Platforms are `linux/amd64` or `linux/arm64`; Python is an exact major/minor of
+at least `3.11`; the image must end with `@sha256:` and 64 lowercase hexadecimal
+digits. The target is never inferred from the developer's computer or a service.
+See [Build and publish Python programs](/how-to/build-and-publish-programs) for target compatibility,
+production dependencies and deployment.
+
+`program new` creates editable application source. `program example` remains a
+prepared local execution fixture with a task file, selected for a supplied local
+Python interpreter; it is not a replacement for the authoring command.
 
 ## Local lifecycle
 

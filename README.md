@@ -29,6 +29,10 @@ Self-host without a required vendor account.
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
+- **Create a program:** the development CLI supports `ledgence program new invoice-issuer`
+  for a task or `ledgence program new invoice-flow --kind workflow` for a workflow,
+  including code, tests and build configuration. See [creating a project](docs/cli.md#create-a-python-program);
+  this command requires a development build and is not in published 0.5.0 binaries.
 - **Develop Python programs:** install the [worker helper](sdk/python/README.md#install-for-local-development)
   in your application's environment for imports, editor support and local business-logic tests.
   Add `ledgence-worker==0.5.0` as a development dependency matching your worker.

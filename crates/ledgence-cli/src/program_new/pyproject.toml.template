@@ -1,0 +1,11 @@
+[project]
+name = "{{PROGRAM_NAME}}"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["ledgence-worker=={{LEDGENCE_VERSION}}"]
+
+[tool.uv]
+package = false

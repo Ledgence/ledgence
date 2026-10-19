@@ -19,6 +19,11 @@ use std::{
     process::ExitCode,
 };
 
+/// Validate scaffold inputs using the same contract as an actual program build.
+pub(crate) fn validate_configuration(contents: &str) -> Result<()> {
+    Config::parse(contents).map(|_| ())
+}
+
 fn operational(message: impl Into<String>) -> ContractError {
     ContractError::Unavailable(message.into())
 }

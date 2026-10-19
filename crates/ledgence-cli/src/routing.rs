@@ -4,7 +4,7 @@
 use crate::args::invalid;
 use ledgence_orchestration_api::Result;
 
-pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  local         Start and manage a local Docker Compose installation\n  program       Package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
+pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
@@ -12,6 +12,7 @@ pub enum Route {
     Version,
     Local(Vec<String>),
     Admin(Vec<String>),
+    ProgramNew(Vec<String>),
     ProgramBuild(Vec<String>),
     ProgramPublish(Vec<String>),
     Mcp(Vec<String>),
@@ -74,6 +75,12 @@ const COMMANDS: &[Leaf] = &[
         name: "decide",
         options: "--server URL --file DECISION.json",
         description: "Send an approval decision bound to the saved request and action. The file includes scope, workflow_id, key, activation_id, revision, action, decision_id, decision, reviewer, and reason. Makes one HTTP exchange. After an uncertain response, retry the identical file; do not create a new decision.",
+    },
+    Leaf {
+        group: "program",
+        name: "new",
+        options: "PATH [--name ID] [--kind task|workflow] [--platform linux/amd64|linux/arm64 --python MAJOR.MINOR --image IMAGE@sha256:HEX]",
+        description: "Create a Python source project, tests, development metadata and build configuration. Defaults: task, program ID from the directory name, version 0.1.0. The parent directory must exist; existing destinations are never overwritten. Runs offline without starting services or installing dependencies. Supply all three target options together, or edit the generated target placeholders before building. The target is never inferred from this host.",
     },
     Leaf {
         group: "program",
@@ -205,6 +212,7 @@ pub fn parse(arguments: Vec<String>) -> Result<Route> {
     leaf(group, command)?;
     match (group, command.as_str()) {
         ("local", _) => Ok(Route::Local(arguments.into_iter().skip(1).collect())),
+        ("program", "new") => Ok(Route::ProgramNew(arguments.into_iter().skip(2).collect())),
         ("program", "build") => Ok(Route::ProgramBuild(arguments.into_iter().skip(2).collect())),
         ("program", "publish") => Ok(Route::ProgramPublish(
             arguments.into_iter().skip(2).collect(),

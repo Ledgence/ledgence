@@ -38,6 +38,20 @@ orchestrator does not configure remote storage or workers. Use HTTPS and an
 operator-controlled access boundary remotely; a digest is integrity data, not
 publisher authentication.
 
+## Create or choose application source
+
+With a current development CLI, `ledgence program new invoice-issuer` creates a
+task project; add `--kind workflow` for a workflow. It generates code, unit tests,
+development dependencies and `ledgence.toml` without installing or executing
+anything. **Scaffolding is not in published 0.5.0 binaries.** Follow
+[Create a project with the development CLI](/how-to/develop-python-programs#create-a-project-with-the-development-cli)
+for source-build prerequisites and the complete authoring steps.
+
+Replace the generated target placeholders before building, or supply all three
+`--platform`, `--python` and `--image` flags at creation time. They must describe
+the worker that will execute the artifact. Scaffolding never infers that target.
+The build and publication steps below also work with an existing project.
+
 ## Describe the application
 
 The [program publication example](https://github.com/Ledgence/ledgence/blob/develop/examples/program-publication/README.md)
