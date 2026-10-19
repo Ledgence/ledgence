@@ -84,12 +84,6 @@ const COMMANDS: &[Leaf] = &[
     },
     Leaf {
         group: "program",
-        name: "example",
-        options: "--directory DIR --python EXE",
-        description: "Create a local Python example package and task fixture.",
-    },
-    Leaf {
-        group: "program",
         name: "build",
         options: "[--config ledgence.toml] [--output .ledgence/prepared] [--context NAME] [--timeout-seconds 600]",
         description: "Prepare a Python program in an explicitly pinned Linux Docker image. Includes only configured source/files and hash-pinned wheels. Requires a local Docker engine; no handler is executed. Writes a prepared directory and a separate build receipt. Existing different output is preserved.",
@@ -217,9 +211,7 @@ pub fn parse(arguments: Vec<String>) -> Result<Route> {
         ("program", "publish") => Ok(Route::ProgramPublish(
             arguments.into_iter().skip(2).collect(),
         )),
-        ("program", "example") | ("worker", _) => {
-            Ok(Route::Worker(arguments.into_iter().skip(1).collect()))
-        }
+        ("worker", _) => Ok(Route::Worker(arguments.into_iter().skip(1).collect())),
         ("orchestrator", _) => Ok(Route::Orchestrator(arguments.into_iter().skip(1).collect())),
         ("mcp", "serve") => Ok(Route::Mcp(arguments.into_iter().skip(2).collect())),
         _ => Ok(Route::Admin(arguments)),

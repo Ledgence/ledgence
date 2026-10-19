@@ -68,6 +68,9 @@ The workflow starter registers a typed default entrypoint and exposes
 `program:handle`. The generated tests check business logic and handler imports;
 they do not simulate durable workflow execution. Extend the handler and tests
 for your application, then exercise orchestration through a real worker.
+Both starters contain a functional greeting program: input
+`data={"name": "Ada"}` produces `{"message": "Hello, Ada!"}` after build,
+publication and execution.
 
 The generated `ledgence.toml` has explicit target placeholders. Before building,
 replace them with the worker's Linux platform, exact Python major/minor and
@@ -77,8 +80,6 @@ The command never selects a target from your laptop. `requirements.txt` starts
 without production dependencies; add exact version pins and hashes when your
 application needs packages. See [Build and publish Python programs](/how-to/build-and-publish-programs).
 
-The existing `program example` command creates a prepared local fixture for a
-selected host interpreter. Use `program new` for editable application source.
 To add the helper to a project you already have, follow the next section.
 
 ## Add the helper to your project

@@ -2,19 +2,23 @@
 
 This parent starts the page-processing workflow from the [checkpoint example](../checkpoint-workflow/README.md), alongside an ordinary metadata task. It checkpoints once and waits for both terminal outcomes. The page workflow may execute several controller activations before the parent resumes. The parent uses typed `START` and `COLLECT` entrypoints. All work can use the same worker with `--concurrency 1`.
 
-Prepare and publish the checkpoint example's `workflow-example` 1.0.1 and `workflow-summary` 1.0.0 packages first, then start its orchestrator, page server and worker. Reuse its exported `workflow_demo` directory and `LEDGENCE_PYTHON` interpreter. From the repository root, publish this parent:
+Prepare and publish the checkpoint example's `workflow-example` 1.0.1 and `workflow-summary` 1.0.0 packages first, then start its orchestrator, page server and worker. Reuse its exported `workflow_demo` directory and `LEDGENCE_PYTHON` interpreter. From the repository root, prepare this existing standard-library parent for the same host/interpreter and publish it. The output directory must be new:
 
 ```sh
-./target/debug/ledgence program example --directory "$workflow_demo/owned" --python "$LEDGENCE_PYTHON"
 "$LEDGENCE_PYTHON" - <<'PYTHON'
-import json, os, shutil
+import json, os, platform, shutil, sys
 from pathlib import Path
 package = Path(os.environ["workflow_demo"]) / "owned" / "program"
-manifest = package / "ledgence-program.json"
-value = json.loads(manifest.read_text())
-value["program"] = {"id": "owned-example", "version": "1.0.1"}
-value["runtime"]["protocol"] = 3
-manifest.write_text(json.dumps(value))
+assert sys.implementation.name == "cpython" and sys.version_info >= (3, 11)
+os_name = {"Darwin": "macos", "Linux": "linux"}[platform.system()]
+arch = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64"}[platform.machine()]
+package.mkdir(parents=True)
+value = {
+    "schema_version": 1, "program": {"id": "owned-example", "version": "1.0.1"},
+    "runtime": {"kind": "python", "python": f"{sys.version_info.major}.{sys.version_info.minor}", "protocol": 3},
+    "handler": "program:handle", "platform": {"os": os_name, "arch": arch},
+}
+(package / "ledgence-program.json").write_text(json.dumps(value))
 shutil.copyfile("examples/owned-subworkflows/program.py", package / "program.py")
 PYTHON
 ./target/debug/ledgence program publish --source "$workflow_demo/owned/program" --store "$workflow_demo/store"

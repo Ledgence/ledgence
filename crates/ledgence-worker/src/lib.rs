@@ -9,7 +9,7 @@ mod telemetry;
 use ledgence_worker_api::*;
 use ledgence_worker_core::{ExecutionRequest, Worker};
 use output::{Outputs, Sink};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use signals::{ShutdownSignals, forced_exit};
 use std::{
@@ -25,11 +25,11 @@ use std::{
 };
 use tokio::{sync::Mutex, task::JoinSet};
 
-const HELP: &str = "Ledgence worker\n\nCommands:\n  ledgence program example --directory DIR --python EXE\n  ledgence worker run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  ledgence worker connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
+const HELP: &str = "Ledgence worker\n\nCommands:\n  ledgence worker run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  ledgence worker connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
 
-/// Runs a worker or local program command in the current process.
+/// Runs a worker command in the current process.
 ///
-/// Arguments begin with `run`, `connect`, or `example` and omit the
+/// Arguments begin with `run` or `connect` and omit the
 /// executable and public command group names. This entrypoint owns the worker
 /// runtime, signal subscriptions, and output delivery through shutdown.
 pub fn entrypoint(args: Vec<String>) -> ExitCode {
@@ -163,7 +163,6 @@ pub fn entrypoint(args: Vec<String>) -> ExitCode {
 
 enum Command {
     Help,
-    Example { directory: PathBuf, python: String },
     Run(RunOptions),
     Connect(Box<connect::ConnectOptions>),
 }
@@ -179,7 +178,7 @@ fn parse(args: Vec<String>) -> Result<Command> {
         }
         return Ok(Command::Help);
     }
-    if !["example", "run", "connect"].contains(&command.as_str()) {
+    if !["run", "connect"].contains(&command.as_str()) {
         return Err(input(format!(
             "unknown command {command}; use ledgence --help"
         )));
@@ -203,12 +202,6 @@ fn parse(args: Vec<String>) -> Result<Command> {
         "connect" => Ok(Command::Connect(Box::new(connect::ConnectOptions::parse(
             options,
         )?))),
-        "example" => {
-            let directory = required(&mut options, "--directory")?.into();
-            let python = required(&mut options, "--python")?;
-            check_empty(options)?;
-            Ok(Command::Example { directory, python })
-        }
         "run" => {
             let config = RunOptions {
                 tasks: required(&mut options, "--tasks")?.into(),
@@ -243,7 +236,6 @@ async fn dispatch(
         Command::Connect(config) => {
             connect::run(*config, output, signals, interrupted, trace).await
         }
-        Command::Example { directory, python } => make_example(&directory, &python, output).await,
         Command::Run(config) => run(config, output, signals, interrupted, trace).await,
     }
 }
@@ -258,7 +250,7 @@ struct RunOptions {
     concurrency: usize,
     timeout_ms: u64,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SubmittedTask {
     program: ProgramRef,
@@ -503,70 +495,6 @@ async fn finish_shutdown(
             }
         }
     }
-}
-
-async fn make_example(directory: &Path, python: &str, sink: &Sink) -> Result<()> {
-    if directory.exists() {
-        return Err(input("example directory already exists"));
-    }
-    let mut command = tokio::process::Command::new(python);
-    command.args(["-I", "-S", "-c", "import json,sys;print(json.dumps({'version':'%d.%d'%sys.version_info[:2],'implementation':sys.implementation.name}))"]).kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(5), command.output())
-        .await
-        .map_err(|_| input("Python version probe timed out"))??;
-    if !output.status.success() {
-        return Err(input("Python version probe failed"));
-    }
-    let info: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| input(e.to_string()))?;
-    if info["implementation"] != "cpython" {
-        return Err(input("the first runtime requires CPython"));
-    }
-    let manifest = ProgramManifest {
-        schema_version: 1,
-        program: ProgramRef {
-            id: "hello".into(),
-            version: "1.0.0".into(),
-        },
-        runtime: PythonRuntime {
-            kind: "python".into(),
-            python: info["version"]
-                .as_str()
-                .ok_or_else(|| input("invalid Python version"))?
-                .into(),
-            protocol: 2,
-        },
-        handler: "program:handle".into(),
-        platform: Platform {
-            os: std::env::consts::OS.into(),
-            arch: std::env::consts::ARCH.into(),
-        },
-    };
-    manifest.validate_host()?;
-    let program = directory.join("program");
-    std::fs::create_dir_all(&program)?;
-    std::fs::write(
-        program.join("ledgence-program.json"),
-        serde_json::to_vec_pretty(&manifest).map_err(|e| input(e.to_string()))?,
-    )?;
-    std::fs::write(
-        program.join("program.py"),
-        include_str!("../../../examples/python/program.py"),
-    )?;
-    let mut tasks = Vec::new();
-    for n in 1..=2 {
-        tasks.push(SubmittedTask { program:manifest.program.clone(), event:CloudEvent::new(json!({
-            "specversion":"1.0","id":format!("evt_example_{n}"),"source":"urn:ledgence:example","type":"com.ledgence.task.invocation.requested.v1", "subject":format!("tasks/task_example_{n}"),"time":"2026-09-12T14:00:00Z","datacontenttype":"application/json",
-            "traceparent":format!("00-0af7651916cd43dd8448eb211c80319c-{n:016x}-01"),
-            "ldgtenantid":"tenant_example","ldgnamespace":"demo","ldgrunid":"run_example","ldgtaskid":format!("task_example_{n}"),"ldgattemptid":format!("att_example_{n}_1"),"ldgattemptno":1,
-            "data":{"invoice_id":format!("INV-{n}"),"amount":42}
-        }))? });
-    }
-    std::fs::write(
-        directory.join("tasks.json"),
-        serde_json::to_vec_pretty(&tasks).map_err(|e| input(e.to_string()))?,
-    )?;
-    sink.line(json!({"program":program,"tasks":directory.join("tasks.json"),"python":manifest.runtime.python}).to_string()).await
 }
 
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {

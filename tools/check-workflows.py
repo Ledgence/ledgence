@@ -30,6 +30,7 @@ import urllib.parse
 import uuid
 
 from postgres_fixture import create_owned_database, owned_database_url
+from program_fixture import prepare_package
 from http_acceptance.harness import Deployment, Process, eventually, exchange, timed
 from http_acceptance.sqs import SqsDeployment, acquisition_wait
 from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, owned_scenarios
@@ -184,14 +185,7 @@ class DelayServer:
 
 def publish(d, name, source, version='1.0.0'):
     directory = d.directory / ('source-' + name)
-    info = d.command('ledgence', ['program', 'example', '--directory', str(directory), '--python', d.python])
-    package = Path(info['program'])
-    manifest_file = package / 'ledgence-program.json'
-    manifest = json.loads(manifest_file.read_text())
-    manifest['program'] = {'id': name, 'version': version}
-    manifest['runtime']['protocol'] = 3
-    manifest_file.write_text(json.dumps(manifest))
-    (package / 'program.py').write_text(source)
+    package = prepare_package(directory / 'program', name, version, source, python=d.python, protocol=3)
     return d.command('ledgence', ['program', 'publish', '--source', str(package), '--store', str(d.store)])
 
 

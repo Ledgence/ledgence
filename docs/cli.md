@@ -58,7 +58,7 @@ MCP requires its build feature.
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | `local` | `up`, `status`, `logs`, `down` | Manage a saved installation from a pinned Compose distribution. |
-| `program` | `new` (development), `example`, `build`, `publish`, `register` | Create source projects, prepare, publish and register immutable programs; `build` requires local Docker and an explicit worker target. |
+| `program` | `new` (development), `build`, `publish`, `register` | Create source projects, prepare, publish and register immutable programs; `build` requires local Docker and an explicit worker target. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
@@ -88,6 +88,8 @@ begin and end with a letter or digit to be valid Python project names. The comma
 `requirements.txt`, `.gitignore` and `README.md`. The workflow starter uses a typed
 entrypoint and completes through its workflow context. Both starters separate
 business logic from the handler and include standard-library unit tests.
+Both are functional greeting programs: `data={"name": "Ada"}` produces
+`{"message": "Hello, Ada!"}` once the program is built, published and executed.
 
 The destination must not exist, including as an empty directory, file or symlink;
 its parent must already exist. Scaffolding is offline: it runs no Python, package
@@ -123,10 +125,6 @@ at least `3.11`; the image must end with `@sha256:` and 64 lowercase hexadecimal
 digits. The target is never inferred from the developer's computer or a service.
 See [build and publication](program-publication.md) for target compatibility,
 production dependencies and deployment.
-
-`program new` creates editable application source. `program example` remains a
-prepared local execution fixture with a task file, selected for a supplied local
-Python interpreter; it is not a replacement for the authoring command.
 
 ## Local stack lifecycle
 
@@ -225,7 +223,6 @@ and deployment configuration:
 
 | Previous command | Current source command |
 | --- | --- |
-| `ledgence-worker example` | `ledgence program example` |
 | `ledgence-worker publish` | `ledgence program publish` |
 | `ledgence-worker run` | `ledgence worker run` |
 | `ledgence-worker connect` | `ledgence worker connect` |
@@ -242,9 +239,9 @@ provide legacy executable aliases. The `ledgence-worker` and
 Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
 `ledgence-cli` for the corresponding roles.
 
-`program example` creates a local fixture and `program publish` writes immutable
-package contents to a store. `program register` makes a separate HTTP request to
-register an existing published reference. Publication starts no worker or
+`program publish` writes immutable package contents to a store.
+`program register` makes a separate HTTP request to register an existing
+published reference. Publication starts no worker or
 execution; the CLI can explicitly request subsequent
 registration with `publish --server URL --register`. See [program packages](program-packages.md) and
 [Console registration](console.md#register-immutable-programs).

@@ -88,6 +88,7 @@ jobs:
           python tools/check-http-fixtures.py
           python -m unittest discover -s tools -p 'test_local_receiver.py' -v
           python -m unittest discover -s tools -p 'test_acceptance_timing.py' -v
+          python -m unittest discover -s tools -p 'test_program_fixture.py' -v
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness

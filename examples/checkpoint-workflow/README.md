@@ -9,7 +9,11 @@ can remain **1** throughout. Use matching 0.5.0 workers and orchestrator with al
 database migrations installed; the historical 0.1 releases lack this API.
 
 From the repository root, build and prepare both packages. Use CPython 3.11 or
-newer and a disposable PostgreSQL 18 database:
+newer and a disposable PostgreSQL 18 database. The explicit preparation below
+packages these existing standard-library examples for this same host and
+interpreter and refuses existing output. For a new application, start with
+`ledgence program new` from the current development CLI; use [program build](../../docs/program-publication.md)
+for target-specific application dependencies:
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
@@ -17,24 +21,27 @@ export DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:5432/ledgence'
 cargo build -p ledgence-cli --locked
 export workflow_demo="$(mktemp -d)"
 printf '%s\n' "$workflow_demo"
-./target/debug/ledgence program example --directory "$workflow_demo/controller" --python "$LEDGENCE_PYTHON"
-./target/debug/ledgence program example --directory "$workflow_demo/child" --python "$LEDGENCE_PYTHON"
 
 "$LEDGENCE_PYTHON" - <<'PY'
-import json, os, shutil
+import json, os, platform, shutil, sys
 from pathlib import Path
 
+assert sys.implementation.name == "cpython" and sys.version_info >= (3, 11)
 demo = Path(os.environ["workflow_demo"])
+os_name = {"Darwin": "macos", "Linux": "linux"}[platform.system()]
+arch = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64"}[platform.machine()]
 for folder, name, version, protocol in [
     ("controller", "workflow-example", "1.0.1", 3),
     ("child", "workflow-summary", "1.0.0", 2),
 ]:
     package = demo / folder / "program"
-    manifest = package / "ledgence-program.json"
-    value = json.loads(manifest.read_text())
-    value["program"] = {"id": name, "version": version}
-    value["runtime"]["protocol"] = protocol
-    manifest.write_text(json.dumps(value))
+    package.mkdir(parents=True)
+    value = {
+        "schema_version": 1, "program": {"id": name, "version": version},
+        "runtime": {"kind": "python", "python": f"{sys.version_info.major}.{sys.version_info.minor}", "protocol": protocol},
+        "handler": "program:handle", "platform": {"os": os_name, "arch": arch},
+    }
+    (package / "ledgence-program.json").write_text(json.dumps(value))
     shutil.copyfile(Path("examples/checkpoint-workflow") / folder / "program.py", package / "program.py")
 (demo / "pages").mkdir()
 (demo / "pages" / "page.txt").write_text("Hello from Ledgence!\n")

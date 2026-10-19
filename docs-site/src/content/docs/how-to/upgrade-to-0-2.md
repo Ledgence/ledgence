@@ -34,7 +34,6 @@ container commands, scripts, and operational procedures:
 
 | Previous command | 0.2.0 command |
 | --- | --- |
-| `ledgence-worker example` | `ledgence program example` |
 | `ledgence-worker publish` | `ledgence program publish` |
 | `ledgence-worker run` | `ledgence worker run` |
 | `ledgence-worker connect` | `ledgence worker connect` |

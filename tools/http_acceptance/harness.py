@@ -14,6 +14,7 @@ import time
 import urllib.parse
 
 from postgres_fixture import owned_database_url
+from program_fixture import prepare_package
 
 
 def eventually(predicate, timeout=30, description="condition"):
@@ -323,22 +324,14 @@ class Deployment:
 
     def publish(self, name, version, startup_gate=None, program_source=PROGRAM, runtime_protocol=None):
         directory = self.directory / f"package-{name}-{version}"
-        info = self.command("ledgence", ["program", "example", "--directory", str(directory),
-                                               "--python", self.python])
-        package = Path(info["program"])
-        manifest_path = package / "ledgence-program.json"
-        manifest = json.loads(manifest_path.read_text())
-        manifest["program"] = {"id": name, "version": version}
-        if runtime_protocol is not None:
-            manifest["runtime"]["protocol"] = runtime_protocol
-        manifest_path.write_text(json.dumps(manifest))
         program = program_source
         if startup_gate is not None:
             self.gates.add(startup_gate)
             program = ("import os, time\nfrom pathlib import Path\n"
                        f"Path({str(startup_gate) + '.pid'!r}).write_text(str(os.getpid()))\n"
                        f"while not Path({str(startup_gate)!r}).exists():\n    time.sleep(0.05)\n" + program)
-        (package / "program.py").write_text(program)
+        package = prepare_package(directory / "program", name, version, program,
+                                  python=self.python, protocol=runtime_protocol if runtime_protocol is not None else 2)
         (package / "prepared_dependency.py").write_text("VALUE = 'packaged'\n")
         return self.command("ledgence", ["program", "publish", "--source", str(package),
                                                "--store", str(self.store)])
