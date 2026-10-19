@@ -32,6 +32,22 @@ package, continue to use `program publish --source DIR --store DIR`, or use
 `--server URL` for a compatible server. Docker is not needed to publish an
 already prepared package.
 
+## Start from a new source project
+
+The development CLI adds `ledgence program new invoice-issuer` and
+`ledgence program new invoice-flow --kind workflow`. These commands create
+editable Python code, unit tests, development dependency metadata and a build
+configuration in a new directory. They run offline and do not install, build,
+publish or execute anything. **They are not in published 0.5.0 binaries.** See
+[the scaffolding contract](cli.md#create-a-python-program) for source-build
+prerequisites, generated files and explicit target flags.
+
+Before `program build`, replace the generated target placeholders with the
+worker's platform, Python version and digest-pinned image, or provide all three
+when creating the project. Keep production dependencies in `requirements.txt`
+with the exact pins and hashes required below; the development helper stays in
+`pyproject.toml`. Scaffolding does not infer a deployment target.
+
 ## Explicit build configuration
 
 `ledgence.toml` is a versioned build configuration, separate from the generated

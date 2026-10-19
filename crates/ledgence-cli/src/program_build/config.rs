@@ -105,14 +105,17 @@ pub(super) struct Target {
 impl Config {
     pub fn read(path: &Path) -> Result<(Self, Vec<u8>)> {
         let bytes = files::read_regular(path, 65536)?;
-        let value: Self = toml::from_str(
+        let value = Self::parse(
             std::str::from_utf8(&bytes).map_err(|_| invalid("build config must be UTF-8"))?,
-        )
-        .map_err(|_| {
+        )?;
+        Ok((value, bytes))
+    }
+    pub(super) fn parse(contents: &str) -> Result<Self> {
+        let value: Self = toml::from_str(contents).map_err(|_| {
             invalid("invalid ledgence.toml; check its schema, field names and value types")
         })?;
         value.validate()?;
-        Ok((value, bytes))
+        Ok(value)
     }
     pub fn manifest(&self) -> Result<ProgramManifest> {
         let arch = match self.target.platform.as_str() {

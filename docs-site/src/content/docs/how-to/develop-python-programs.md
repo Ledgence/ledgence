@@ -1,6 +1,6 @@
 ---
 title: Develop Python programs
-description: Install the worker helper in your application environment, import workflow code, and test business logic before packaging it.
+description: Scaffold a task or workflow with the development CLI, install the worker helper, and test business logic before packaging it.
 ---
 
 Install `ledgence-worker` in your application's development environment to use
@@ -11,6 +11,75 @@ writing programs. The helper uses only the Python standard library. The separate
 **Available in Ledgence 0.5.0.** Install a helper version matching the deployed
 worker. The package does not install a CLI, service or local workflow execution
 harness; invocation context still requires execution by Ledgence.
+
+## Create a project with the development CLI
+
+**Development source only; not included in published 0.5.0 binaries.** Build the
+CLI from the current development checkout and put that executable on your
+shell's path. From the Ledgence repository root:
+
+```sh
+cargo build --locked -p ledgence-cli
+export PATH="$PWD/target/debug:$PATH"
+```
+
+In the directory where you keep application projects, create a task:
+
+```sh
+ledgence program new invoice-issuer
+cd invoice-issuer
+uv sync
+uv run python -m unittest discover -s tests -v
+```
+
+The parent directory must already exist; `invoice-issuer` must not exist, even
+as an empty directory or a symlink. The first command creates these files:
+
+```text
+invoice-issuer/
+├── program.py
+├── tests/test_program.py
+├── pyproject.toml
+├── ledgence.toml
+├── requirements.txt
+├── .gitignore
+└── README.md
+```
+
+Scaffolding runs offline and invokes no Python, uv, Git, Docker or services.
+The separate `uv sync` step installs the development environment and may access
+the package index. `pyproject.toml` uses `package = false` and pins the
+`ledgence-worker` development dependency to the CLI version that created it.
+The initial program version is `0.1.0`. The directory basename becomes its ID;
+use `--name ID` to choose a different ID without changing the directory name.
+Names must begin and end with a lowercase letter or digit; dots, underscores and
+hyphens are also accepted inside the name.
+
+For a workflow, run this from your application projects directory instead:
+
+```sh
+ledgence program new invoice-flow --kind workflow
+cd invoice-flow
+uv sync
+uv run python -m unittest discover -s tests -v
+```
+
+The workflow starter registers a typed default entrypoint and exposes
+`program:handle`. The generated tests check business logic and handler imports;
+they do not simulate durable workflow execution. Extend the handler and tests
+for your application, then exercise orchestration through a real worker.
+
+The generated `ledgence.toml` has explicit target placeholders. Before building,
+replace them with the worker's Linux platform, exact Python major/minor and
+digest-pinned runtime image. You can also supply `--platform`, `--python` and
+`--image` together to `program new`; see the [CLI reference](/reference/cli#create-a-python-program).
+The command never selects a target from your laptop. `requirements.txt` starts
+without production dependencies; add exact version pins and hashes when your
+application needs packages. See [Build and publish Python programs](/how-to/build-and-publish-programs).
+
+The existing `program example` command creates a prepared local fixture for a
+selected host interpreter. Use `program new` for editable application source.
+To add the helper to a project you already have, follow the next section.
 
 ## Add the helper to your project
 

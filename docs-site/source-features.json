@@ -32,5 +32,11 @@
     "sourceRef": "v0.5.0",
     "guide": "/how-to/build-and-publish-programs",
     "verifiedOn": "2026-10-07"
+  },
+  "programScaffolding": {
+    "title": "Offline Python task and workflow project scaffolding",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/develop-python-programs#create-a-project-with-the-development-cli"
   }
 }

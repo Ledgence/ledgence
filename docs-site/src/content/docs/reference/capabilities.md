@@ -1,12 +1,24 @@
 ---
 title: Capabilities and availability
-description: Find Ledgence 0.5.0 execution, integration, observability, and installation capabilities.
+description: Find published Ledgence capabilities and distinguish features available only in current development source.
 ---
 
 **0.5.0 is the current published release.** This page maps its capabilities to
 user guides and operating limits. The installer, native bundles, Python client,
 worker helper, Rust API crates, container images, and local kit belong to the
 same release.
+
+## Development source additions
+
+These capabilities require a current development build. They are not included
+in the published 0.5.0 binaries or added to existing installations automatically.
+
+| Capability | Where to start |
+| --- | --- |
+| Scaffold a Python task or workflow with `ledgence program new`, including code, tests, development dependencies and explicit build configuration. | [Create a project](/how-to/develop-python-programs#create-a-project-with-the-development-cli) and [CLI contract](/reference/cli#create-a-python-program) |
+
+Scaffolding runs offline. Installing dependencies, choosing the worker target,
+building, publishing and execution remain explicit operations.
 
 ## Execution and composition
 
