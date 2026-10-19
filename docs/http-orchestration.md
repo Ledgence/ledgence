@@ -11,22 +11,46 @@ This version supports bounded HTTP/JSON long polling. Workers request up to 20 s
 
 ## Run a task
 
-Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it. Migration work defaults to a ten-minute budget, configurable with `migrate --timeout-ms`; see [migration execution](postgres.md#migration-execution-budget).
+Use a current development checkout for `program new` (not included in published 0.5.0 binaries). Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it. Migration work defaults to a ten-minute budget, configurable with `migrate --timeout-ms`; see [migration execution](postgres.md#migration-execution-budget).
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
 export DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:5432/ledgence'
 cargo build -p ledgence-cli --locked
 
-demo_dir="$(mktemp -d)"
-./target/debug/ledgence program example \
-  --directory "$demo_dir/example" --python "$LEDGENCE_PYTHON"
+export demo_dir="$(mktemp -d)"
+./target/debug/ledgence program new "$demo_dir/hello"
+# Explicit native preparation: this standard-library-only program will run
+# on this same host and interpreter. Cross-host deployment uses program build.
+"$LEDGENCE_PYTHON" - <<'PYTHON'
+import json, os, platform, shutil, sys
+from pathlib import Path
+
+assert sys.implementation.name == "cpython" and sys.version_info >= (3, 11)
+project = Path(os.environ["demo_dir"]) / "hello"
+package = project / ".ledgence" / "prepared"
+os_name = {"Darwin": "macos", "Linux": "linux"}[platform.system()]
+arch = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64"}[platform.machine()]
+manifest = {
+    "schema_version": 1, "program": {"id": "hello", "version": "0.1.0"},
+    "runtime": {"kind": "python", "python": f"{sys.version_info.major}.{sys.version_info.minor}", "protocol": 3},
+    "handler": "program:handle", "platform": {"os": os_name, "arch": arch},
+}
+package.mkdir(parents=True)
+shutil.copyfile(project / "program.py", package / "program.py")
+(package / "ledgence-program.json").write_text(json.dumps(manifest, indent=2) + "\n")
+PYTHON
 ./target/debug/ledgence program publish \
-  --source "$demo_dir/example/program" --store "$demo_dir/store"
+  --source "$demo_dir/hello/.ledgence/prepared" --store "$demo_dir/store"
 ./target/debug/ledgence orchestrator migrate
 ./target/debug/ledgence orchestrator serve \
   --bind 127.0.0.1:8080 --store "$demo_dir/store"
 ```
+
+The generated task returns `{"message": "Hello, Ada!"}` for the input below.
+The preparation snippet deliberately targets this host and has no application
+dependencies; use [program build](program-publication.md) with an explicit
+worker image and target for deployed application dependencies.
 
 Keep the server running. In another terminal, use the same absolute `demo_dir` path and interpreter, then start a worker:
 
@@ -43,14 +67,14 @@ In a third terminal, save this complete submission as `submit.json`:
 
 ```json
 {
-  "idempotency_key": "hello:example:1",
+  "idempotency_key": "hello:0.1.0:1",
   "input": {
     "tenant_id": "tenant_example",
     "namespace": "demo",
     "queue": "python-demo",
-    "program": {"id": "hello", "version": "1.0.0"},
+    "program": {"id": "hello", "version": "0.1.0"},
     "correlation_key": "example:1",
-    "data": {"message": "Hello"}
+    "data": {"name": "Ada"}
   }
 }
 ```

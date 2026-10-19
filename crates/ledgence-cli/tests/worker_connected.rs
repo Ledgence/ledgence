@@ -1,5 +1,7 @@
 #![cfg(unix)]
 
+mod support;
+
 use nix::{
     sys::signal::{Signal, kill},
     unistd::Pid,
@@ -357,28 +359,11 @@ async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait
     use ledgence_worker_api::ProgramOutcome;
 
     let directory = tempfile::tempdir().unwrap();
-    let example = directory.path().join("example");
+    let fixture_dir = directory.path().join("fixture_dir");
     let python = std::env::var("LEDGENCE_PYTHON").unwrap_or_else(|_| "python3".into());
-    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"))
-        .args([
-            "program",
-            "example",
-            "--directory",
-            example.to_str().unwrap(),
-            "--python",
-            &python,
-        ])
-        .kill_on_drop(true)
-        .output()
-        .await
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    support::prepare_worker_fixture(&fixture_dir, &python).await;
     std::fs::write(
-        example.join("program/program.py"),
+        fixture_dir.join("program/program.py"),
         "def handle(event):\n    return {'received': event['data'], 'executed': True}\n",
     )
     .unwrap();
@@ -388,7 +373,7 @@ async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait
             "program",
             "publish",
             "--source",
-            example.join("program").to_str().unwrap(),
+            fixture_dir.join("program").to_str().unwrap(),
             "--store",
             store.to_str().unwrap(),
         ])

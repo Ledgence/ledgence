@@ -207,32 +207,33 @@ bundle at that location. The CLI discovers its bundled worker helper and
 Console resources automatically; explicit paths can also be supplied and take
 precedence. Installing with the one-line command handles shell profiles for you.
 
-## Verify execution with your Python interpreter
+## Verify installation
 
-Create a disposable example in a fresh directory. `LEDGENCE_PYTHON` must select CPython 3.11–3.14. If `python3 --version` shows an older system interpreter, replace `$(command -v python3)` below with the absolute path to your supported interpreter:
+Confirm that the installed executable starts and exposes the program commands:
+
+```sh
+ledgence --version
+ledgence program --help
+```
+
+These checks verify CLI startup; they do not execute a program or start services.
+To run the stack, follow the [local distribution guide](/how-to/run-local-distribution).
+To create a minimal functional task or workflow, follow
+[Develop Python programs](/how-to/develop-python-programs). Its `program new`
+command requires a current development build and is not included in the
+published 0.5.0 CLI.
+
+## Install the Python client
+
+The Python client is separate from the worker helper. Install it in a virtual
+environment when your application needs the HTTP client. Select CPython 3.11 or
+newer; replace `$(command -v python3)` if it selects an older system interpreter:
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3)"
-export LEDGENCE_EXAMPLE_DIR="$(mktemp -d)"
-
-ledgence program example \
-  --directory "$LEDGENCE_EXAMPLE_DIR/example" --python "$LEDGENCE_PYTHON"
-ledgence program publish \
-  --source "$LEDGENCE_EXAMPLE_DIR/example/program" --store "$LEDGENCE_EXAMPLE_DIR/store"
-ledgence worker run \
-  --tasks "$LEDGENCE_EXAMPLE_DIR/example/tasks.json" \
-  --store "$LEDGENCE_EXAMPLE_DIR/store" --cache "$LEDGENCE_EXAMPLE_DIR/cache" \
-  --python "$LEDGENCE_PYTHON" --concurrency 1
-```
-
-Expect two successful JSON reports with the same `process_id`, with `reused_process: true` in the second. This checks local publication, retrieval, Python execution, and warm process reuse; it does not start durable orchestration.
-
-The Python client is separate from the worker helper. Install it in a virtual
-environment when your application needs the HTTP client:
-
-```sh
-"$LEDGENCE_PYTHON" -m venv "$LEDGENCE_EXAMPLE_DIR/client"
-"$LEDGENCE_EXAMPLE_DIR/client/bin/python" -m pip install \
+export LEDGENCE_CLIENT_DIR="$(mktemp -d)"
+"$LEDGENCE_PYTHON" -m venv "$LEDGENCE_CLIENT_DIR/client"
+"$LEDGENCE_CLIENT_DIR/client/bin/python" -m pip install \
   "ledgence-client==0.5.0"
 ```
 

@@ -42,10 +42,7 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
     }
     for (group, leaves) in [
         ("local", vec!["up", "status", "logs", "down"]),
-        (
-            "program",
-            vec!["new", "example", "build", "publish", "register"],
-        ),
+        ("program", vec!["new", "build", "publish", "register"]),
         ("approval", vec!["list", "inspect", "decide"]),
         ("mcp", vec!["serve"]),
         ("worker", vec!["run", "connect"]),
@@ -120,7 +117,6 @@ fn unknown_paths_and_invalid_options_fail_as_usage_before_startup() {
         vec!["help", "program", "publish", "extra"],
         vec!["--version", "extra"],
         vec!["program", "publish", "--source"],
-        vec!["program", "example", "--unexpected", "value"],
         vec!["worker", "connect", "--server", "http://127.0.0.1:1"],
         vec!["worker", "run", "--tasks", "unused", "--unknown", "value"],
         vec!["orchestrator", "migrate", "--timeout-ms", "0"],
@@ -273,4 +269,36 @@ fn admin_rejects_invalid_server_urls_before_optional_telemetry() {
             assert!(!diagnostics.contains("OTLP"), "{args:?}: {diagnostics}");
         }
     }
+}
+
+#[test]
+fn removed_program_command_is_rejected_without_side_effects() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("unused");
+    for args in [
+        vec!["program", "example"],
+        vec!["program", "example", "--help"],
+        vec!["help", "program", "example"],
+        vec![
+            "program",
+            "example",
+            "--directory",
+            destination.to_str().unwrap(),
+            "--python",
+            "unused-python",
+        ],
+    ] {
+        let result = invoke(&args);
+        assert_eq!(result.status.code(), Some(2), "{args:?}: {result:?}");
+        assert!(result.stdout.is_empty());
+        assert!(
+            String::from_utf8(result.stderr)
+                .unwrap()
+                .contains("unknown command")
+        );
+        assert!(!destination.exists());
+    }
+    let help = invoke(&["program", "--help"]);
+    assert!(help.status.success());
+    assert!(!String::from_utf8(help.stdout).unwrap().contains("example"));
 }

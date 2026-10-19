@@ -1,3 +1,5 @@
+mod support;
+
 use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
@@ -36,7 +38,7 @@ fn write_json(path: impl AsRef<Path>, value: &Value) {
 
 struct Fixture {
     _temp: TempDir,
-    example: PathBuf,
+    fixture_dir: PathBuf,
     store: PathBuf,
     cache: PathBuf,
     runner: PathBuf,
@@ -44,25 +46,15 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let example = temp.path().join("example");
-        success(
-            &invoke(&[
-                "program",
-                "example",
-                "--directory",
-                example.to_str().unwrap(),
-                "--python",
-                &python(),
-            ])
-            .await,
-        );
+        let fixture_dir = temp.path().join("fixture_dir");
+        support::prepare_worker_fixture(&fixture_dir, &python()).await;
         let store = temp.path().join("store");
         let cache = temp.path().join("cache");
         let runner = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../sdk/python/ledgence/worker/bootstrap.py");
         Self {
             _temp: temp,
-            example,
+            fixture_dir,
             store,
             cache,
             runner,
@@ -73,7 +65,7 @@ impl Fixture {
             "program",
             "publish",
             "--source",
-            self.example.join("program").to_str().unwrap(),
+            self.fixture_dir.join("program").to_str().unwrap(),
             "--store",
             self.store.to_str().unwrap(),
         ])
@@ -87,7 +79,7 @@ impl Fixture {
             "worker",
             "run",
             "--tasks",
-            self.example.join("tasks.json").to_str().unwrap(),
+            self.fixture_dir.join("tasks.json").to_str().unwrap(),
             "--store",
             self.store.to_str().unwrap(),
             "--cache",
@@ -108,7 +100,7 @@ impl Fixture {
 #[tokio::test]
 async fn published_dependencies_are_downloaded_cached_and_reused_with_immutable_versions() {
     let fixture = Fixture::new().await;
-    let program = fixture.example.join("program");
+    let program = fixture.fixture_dir.join("program");
     std::fs::create_dir(program.join("bundled_dependency")).unwrap();
     std::fs::write(
         program.join("bundled_dependency/__init__.py"),
@@ -141,7 +133,7 @@ async fn published_dependencies_are_downloaded_cached_and_reused_with_immutable_
     success(&second);
     let second_descriptor: Value = serde_json::from_slice(&second.stdout).unwrap();
     assert_ne!(first_descriptor["digest"], second_descriptor["digest"]);
-    let tasks_path = fixture.example.join("tasks.json");
+    let tasks_path = fixture.fixture_dir.join("tasks.json");
     let mut tasks: Value = serde_json::from_slice(&std::fs::read(&tasks_path).unwrap()).unwrap();
     let mut third = tasks[0].clone();
     third["program"]["version"] = "2.0.0".into();
@@ -189,7 +181,7 @@ async fn published_dependencies_are_downloaded_cached_and_reused_with_immutable_
 async fn duplicate_attempts_and_changed_task_bindings_are_rejected_before_dispatch() {
     let fixture = Fixture::new().await;
     success(&fixture.publish().await);
-    let tasks_path = fixture.example.join("tasks.json");
+    let tasks_path = fixture.fixture_dir.join("tasks.json");
     let mut tasks: Value = serde_json::from_slice(&std::fs::read(&tasks_path).unwrap()).unwrap();
     tasks[1]["event"]["ldgattemptid"] = tasks[0]["event"]["ldgattemptid"].clone();
     write_json(&tasks_path, &tasks);
@@ -200,7 +192,7 @@ async fn duplicate_attempts_and_changed_task_bindings_are_rejected_before_dispat
         "no invocation may start before fixture validation completes"
     );
     assert!(String::from_utf8_lossy(&duplicate.stderr).contains("duplicate attempt"));
-    let manifest_path = fixture.example.join("program/ledgence-program.json");
+    let manifest_path = fixture.fixture_dir.join("program/ledgence-program.json");
     let mut manifest: Value =
         serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
     manifest["program"]["version"] = "2.0.0".into();
@@ -220,7 +212,7 @@ async fn duplicate_attempts_and_changed_task_bindings_are_rejected_before_dispat
 async fn bundled_executable_and_empty_namespace_survive_publication_and_cache_reopen() {
     use std::os::unix::fs::PermissionsExt;
     let fixture = Fixture::new().await;
-    let program = fixture.example.join("program");
+    let program = fixture.fixture_dir.join("program");
     std::fs::create_dir(program.join("empty_namespace")).unwrap();
     std::fs::write(
         program.join("helper"),
@@ -248,14 +240,14 @@ async fn bundled_executable_and_empty_namespace_survive_publication_and_cache_re
 async fn failures_keep_full_scope_program_and_trace_in_json_and_logs() {
     let fixture = Fixture::new().await;
     std::fs::write(
-        fixture.example.join("program/program.py"),
+        fixture.fixture_dir.join("program/program.py"),
         "import time\ndef handle(event):\n    time.sleep(120)\n",
     )
     .unwrap();
     let published = fixture.publish().await;
     success(&published);
     let descriptor: Value = serde_json::from_slice(&published.stdout).unwrap();
-    let path = fixture.example.join("tasks.json");
+    let path = fixture.fixture_dir.join("tasks.json");
     let original: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let mut tasks = json!([original[0].clone(), original[0].clone()]);
     tasks[0]["event"]["tracestate"] = "test=first".into();
@@ -334,12 +326,12 @@ async fn signal_stops_owned_processes(signal: nix::sys::signal::Signal, during_s
     } else {
         format!("{start}\ndef handle(event):\n    block()\n")
     };
-    std::fs::write(fixture.example.join("program/program.py"), source).unwrap();
+    std::fs::write(fixture.fixture_dir.join("program/program.py"), source).unwrap();
     success(&fixture.publish().await);
     let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"));
     command
         .args(["worker", "run", "--tasks"])
-        .arg(fixture.example.join("tasks.json"))
+        .arg(fixture.fixture_dir.join("tasks.json"))
         .arg("--store")
         .arg(&fixture.store)
         .arg("--cache")
@@ -474,7 +466,7 @@ async fn second_shutdown_signal_forces_exit_while_fetch_is_retained() {
     let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"));
     command
         .args(["worker", "run", "--tasks"])
-        .arg(fixture.example.join("tasks.json"))
+        .arg(fixture.fixture_dir.join("tasks.json"))
         .args(["--store", &url])
         .arg("--cache")
         .arg(&fixture.cache)
@@ -516,7 +508,7 @@ async fn fifo_task_fixture_is_rejected_without_blocking_the_cli() {
     use nix::{sys::stat::Mode, unistd::mkfifo};
     let fixture = Fixture::new().await;
     success(&fixture.publish().await);
-    let tasks = fixture.example.join("tasks.json");
+    let tasks = fixture.fixture_dir.join("tasks.json");
     std::fs::remove_file(&tasks).unwrap();
     mkfifo(&tasks, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
     let output = tokio::time::timeout(Duration::from_secs(5), fixture.run())
@@ -569,7 +561,7 @@ async fn first_shutdown_signal_waits_for_preparation_then_skips_dispatch() {
     let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ledgence"));
     command
         .args(["worker", "run", "--tasks"])
-        .arg(fixture.example.join("tasks.json"))
+        .arg(fixture.fixture_dir.join("tasks.json"))
         .args(["--store", &url])
         .arg("--cache")
         .arg(&fixture.cache)
@@ -617,7 +609,7 @@ async fn first_shutdown_signal_waits_for_preparation_then_skips_dispatch() {
 async fn integer_input_outside_wire_range_is_rejected_before_execution() {
     let fixture = Fixture::new().await;
     success(&fixture.publish().await);
-    let path = fixture.example.join("tasks.json");
+    let path = fixture.fixture_dir.join("tasks.json");
     let mut tasks: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     tasks[0]["event"]["data"] = "REPLACE_WITH_INTEGER".into();
     let encoded = serde_json::to_string(&tasks)

@@ -24,7 +24,6 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates ./crates
 COPY .sqlx ./.sqlx
-COPY examples/python ./examples/python
 ENV SQLX_OFFLINE=true
 RUN cargo build --release --locked --all-features -p ledgence-cli --bin ledgence
 COPY tools/release ./tools/release
@@ -46,6 +45,7 @@ COPY deploy/distribution/base-image.json /opt/ledgence/legal/base-image.json
 COPY --from=console-builder /src/console/dist /opt/ledgence/console
 COPY sdk/python/ledgence /opt/ledgence/runtime/ledgence
 COPY deploy/local /opt/ledgence/local
+COPY tools/program_fixture.py /opt/ledgence/local/program_fixture.py
 COPY examples/checkpoint-workflow /opt/ledgence/examples/checkpoint-workflow
 COPY LICENSE /opt/ledgence/LICENSE
 RUN mkdir -p /programs /cache /demo-state && python3 /opt/ledgence/local/image-inventory.py

@@ -1,6 +1,8 @@
 //! Exporter backpressure must not take ownership of executable signal handling.
 #![cfg(all(unix, feature = "otel"))]
 
+mod support;
+
 use nix::{
     sys::signal::{Signal, kill},
     unistd::Pid,
@@ -41,24 +43,16 @@ struct Fixture {
 impl Fixture {
     async fn start(endpoint: &str) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let example = directory.path().join("example");
+        let fixture_dir = directory.path().join("fixture_dir");
         let store = directory.path().join("store");
         let cache = directory.path().join("cache");
         let python = std::env::var("LEDGENCE_PYTHON").unwrap_or_else(|_| "python3".into());
-        fixture_command(&[
-            "program",
-            "example",
-            "--directory",
-            example.to_str().unwrap(),
-            "--python",
-            &python,
-        ])
-        .await;
+        support::prepare_worker_fixture(&fixture_dir, &python).await;
         let marker = directory.path().join("program.pid");
-        std::fs::write(example.join("program/program.py"), format!(
+        std::fs::write(fixture_dir.join("program/program.py"), format!(
             "import os, pathlib, time\nMARKER = pathlib.Path({})\ndef handle(event):\n    MARKER.write_text(str(os.getpid()))\n    time.sleep(10)\n    return 42\n",
             serde_json::to_string(marker.to_str().unwrap()).unwrap())).unwrap();
-        let tasks_path = example.join("tasks.json");
+        let tasks_path = fixture_dir.join("tasks.json");
         let mut tasks: Vec<Value> =
             serde_json::from_slice(&std::fs::read(&tasks_path).unwrap()).unwrap();
         tasks.truncate(1);
@@ -67,7 +61,7 @@ impl Fixture {
             "program",
             "publish",
             "--source",
-            example.join("program").to_str().unwrap(),
+            fixture_dir.join("program").to_str().unwrap(),
             "--store",
             store.to_str().unwrap(),
         ])

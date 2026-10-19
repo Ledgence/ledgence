@@ -12,7 +12,6 @@ on:
       - 'crates/**'
       - 'console/**'
       - 'sdk/python/**'
-      - 'examples/python/**'
       - 'examples/checkpoint-workflow/**'
       - 'examples/program-publication/**'
       - 'legal/**'
@@ -21,6 +20,7 @@ on:
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - 'tools/release/**'
+      - 'tools/program_fixture.py'
       - 'tools/check-distribution.py'
   workflow_dispatch:
     inputs:

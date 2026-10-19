@@ -154,44 +154,33 @@ lives beside the implementation so documentation can evolve with the code.
 
 ## Run a program from source
 
-For the complete self-hosted stack, use the [local Compose deployment](docs/local-deployment.md).
-The example below exercises program publication, local execution, and process reuse.
-Ledgence provides one `ledgence` executable; see the
-[CLI command groups and migration guide](docs/cli.md). Published release bundles
-retain the command layout documented with their release.
-The [bundle packaging guide](docs/releasing.md) describes qualification and artifact
-preparation for maintainers.
-
-Requirements: Rust through rustup, CPython 3.11 or newer, and Linux or macOS on x86_64 or aarch64. The repository pins its Rust toolchain. A program declares the exact Python major/minor and OS/architecture it targets; the worker supplies that interpreter. The examples below use `python3.12`.
-
-From the repository root:
+Start a minimal Python application with `program new`. This command is available
+in current development source; published 0.5.0 binaries retain their original
+command set. From the repository root, with Rust through rustup, Python 3.11 or
+newer and uv installed:
 
 ```sh
-export LEDGENCE_PYTHON="$(command -v python3.12)"
 cargo build -p ledgence-cli --locked
-
-demo_dir="$(mktemp -d)"
-cargo run --locked -p ledgence-cli -- program example \
-  --directory "$demo_dir/example" --python "$LEDGENCE_PYTHON"
-cargo run --locked -p ledgence-cli -- program publish \
-  --source "$demo_dir/example/program" --store "$demo_dir/store"
-cargo run --locked -p ledgence-cli -- worker run \
-  --tasks "$demo_dir/example/tasks.json" \
-  --store "$demo_dir/store" --cache "$demo_dir/cache" \
-  --python "$LEDGENCE_PYTHON" \
-  --runner "$PWD/sdk/python/ledgence/worker/bootstrap.py" \
-  --concurrency 1
+project_dir="$(mktemp -d)"
+./target/debug/ledgence program new "$project_dir/hello"
+cd "$project_dir/hello"
+uv sync
+uv run python -m unittest discover -s tests -v
 ```
 
-The two JSON reports have the same `process_id`; the second sets `reused_process` to `true`. Application output is under `report.outcome.output`. Both success and failure records retain the full event source, tenant, namespace, run, task, attempt, program, and available trace context. Worker and program logs go to stderr. The CLI keeps execution and shutdown responsive when an output reader pauses; result-output failures produce a nonzero exit status; optional log drops are reported without changing execution results. See [output delivery and shutdown](docs/architecture.md) for the bounded delivery policy. `--store` also accepts an HTTPS base URL serving the published directory layout.
+The generated task accepts `data={"name": "Ada"}` and returns
+`{"message": "Hello, Ada!"}`. The tests exercise its business logic and handler.
+Use `--kind workflow` to generate the same minimal behavior with an enum-based
+default workflow entrypoint. The generated README explains development and
+packaging; the command does not install dependencies or start services.
 
-Write a synchronous Python handler:
-
-```python
-def handle(event):
-    invoice = event["data"]
-    return {"invoice_id": invoice["invoice_id"], "accepted": True}
-```
+For deployment, choose the worker target in `ledgence.toml`, then follow
+[program builds and publication](docs/program-publication.md). Local unit tests
+do not prove orchestration or durable recovery. To execute through a worker,
+follow the [native HTTP walkthrough](docs/http-orchestration.md#run-a-task) or
+[local Compose deployment](docs/local-deployment.md). The
+[CLI guide](docs/cli.md) documents all command groups, and the
+[bundle packaging guide](docs/releasing.md) covers release qualification.
 
 All public Python imports share the `ledgence` namespace: use
 `from ledgence.client import AsyncClient` in callers,

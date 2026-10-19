@@ -1,6 +1,8 @@
 //! Output backpressure must not own the execution scheduler or child lifecycle.
 #![cfg(unix)]
 
+mod support;
+
 use nix::{
     sys::signal::{Signal, kill, killpg},
     unistd::Pid,
@@ -43,7 +45,7 @@ async fn command_output(args: &[&str]) -> Output {
 
 struct Fixture {
     _temp: TempDir,
-    example: PathBuf,
+    fixture_dir: PathBuf,
     store: PathBuf,
     cache: PathBuf,
     markers: PathBuf,
@@ -52,16 +54,8 @@ struct Fixture {
 impl Fixture {
     async fn new(modes: &[&str]) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let example = temp.path().join("example");
-        command_output(&[
-            "program",
-            "example",
-            "--directory",
-            example.to_str().unwrap(),
-            "--python",
-            &python(),
-        ])
-        .await;
+        let fixture_dir = temp.path().join("fixture_dir");
+        support::prepare_worker_fixture(&fixture_dir, &python()).await;
         let markers = temp.path().join("markers");
         std::fs::create_dir(&markers).unwrap();
         let source = format!(
@@ -85,8 +79,8 @@ def handle(event):
 "#,
             serde_json::to_string(markers.to_str().unwrap()).unwrap()
         );
-        std::fs::write(example.join("program/program.py"), source).unwrap();
-        let tasks_path = example.join("tasks.json");
+        std::fs::write(fixture_dir.join("program/program.py"), source).unwrap();
+        let tasks_path = fixture_dir.join("tasks.json");
         let templates: Vec<Value> =
             serde_json::from_slice(&std::fs::read(&tasks_path).unwrap()).unwrap();
         let tasks: Vec<Value> = modes
@@ -107,7 +101,7 @@ def handle(event):
             "program",
             "publish",
             "--source",
-            example.join("program").to_str().unwrap(),
+            fixture_dir.join("program").to_str().unwrap(),
             "--store",
             store.to_str().unwrap(),
         ])
@@ -115,7 +109,7 @@ def handle(event):
         let cache = temp.path().join("cache");
         Self {
             _temp: temp,
-            example,
+            fixture_dir,
             store,
             cache,
             markers,
@@ -127,7 +121,7 @@ def handle(event):
             .join("../../sdk/python/ledgence/worker/bootstrap.py");
         let mut child = Command::new(env!("CARGO_BIN_EXE_ledgence"))
             .args(["worker", "run", "--tasks"])
-            .arg(self.example.join("tasks.json"))
+            .arg(self.fixture_dir.join("tasks.json"))
             .arg("--store")
             .arg(&self.store)
             .arg("--cache")
