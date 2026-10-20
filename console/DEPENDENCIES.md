@@ -17,11 +17,19 @@ is independent of the documentation site's license exceptions.
 | @xyflow/react          | 12.12.0 | Workflow canvas, keyboard access, pan and zoom              | MIT                                  |
 | @dagrejs/dagre         | 3.1.1   | Directed automatic layout behind the Console adapter        | MIT                                  |
 
-Vite 7.3.6 with @vitejs/plugin-react 5.2.0 avoids adopting Vite 8's MPL-licensed
+Vite 7.3.7 with @vitejs/plugin-react 5.2.0 avoids adopting Vite 8's MPL-licensed
 Lightning CSS graph. TypeScript 6.0.3 is within typescript-eslint 8.70.1's supported
 range; selecting TypeScript 7 would exceed that range. These are explicit reviewed
 compatibility choices, not floating `latest` dependencies. The exact development
 tool versions are in `package.json`.
+
+The 2026-10-20 maintenance review selects Vite 7.3.7 to address
+[GHSA-698v-4r3x-3vcv](https://github.com/advisories/GHSA-698v-4r3x-3vcv)
+in its bundled `launch-editor` Windows command handling. The npm archive,
+SHA-512 integrity, SHA-256 and complete bundled license text were reviewed;
+its dependency graph, lifecycle scripts and MIT terms are unchanged. Vite is
+development/build tooling; the deployed Console serves prebuilt static assets
+without running the Vite development server.
 
 Six source primitives are adapted from a pinned shadcn/ui commit: Button, Input,
 Card, Dialog, Table and Skeleton. Their original paths, hashes, MIT license and

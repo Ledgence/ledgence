@@ -1,6 +1,11 @@
 nodeLinker: hoisted
 ignoreScripts: true
-# Keep npm and pnpm on the same reviewed transitive version.
+# Keep npm and pnpm on the same reviewed transitive versions.
 overrides:
   undici: 8.10.2
   source-map-js: 1.2.2
+  http-cache-semantics: 4.3.0
+  sharp: 0.35.5
+  smol-toml: 1.9.1
+  vite: 8.3.4
+  "postcss-nested@6.2.0>postcss-selector-parser": 7.1.6
