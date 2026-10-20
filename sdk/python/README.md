@@ -1,3 +1,5 @@
+![Ledgence](https://ledgence.com/brand/ledgence-logo-v1.png)
+
 # Ledgence Python worker helper
 
 The Rust worker supplies `ledgence.worker` with its Python runner. It supports

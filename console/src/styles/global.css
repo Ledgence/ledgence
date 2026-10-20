@@ -140,12 +140,13 @@ a {
   letter-spacing: -0.6px;
 }
 .brand-mark {
-  height: 18px;
-  width: 14px;
-  border-left: 5px solid var(--muted);
-  border-bottom: 5px solid var(--muted);
-  transform: skewY(-12deg);
-  border-radius: 0 0 0 2px;
+  display: inline-block;
+  flex-shrink: 0;
+  height: 32px;
+  width: 32px;
+  background: currentColor;
+  -webkit-mask: url("/console/brand/mark.svg") center / contain no-repeat;
+  mask: url("/console/brand/mark.svg") center / contain no-repeat;
 }
 .brand-label {
   display: block;

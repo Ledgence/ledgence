@@ -9,6 +9,8 @@ from .steps import validate_bundle
 from .syntax import highlight_snippet
 
 ASSETS = Path(__file__).with_name('presentation')
+# Keep this portable SVG aligned with assets/brand/mark.svg.
+BRAND_MARK = '<svg viewBox="0 0 256 256" aria-hidden="true" focusable="false"><path fill="currentColor" d="M 228 48 C 232 43 234 46 234 55 C 235 111 223 163 196 195 C 188 205 181 204 173 194 C 153 169 132 151 111 150 C 91 149 73 160 57 183 C 54 187 53 187 53 182 C 54 153 44 132 30 110 C 19 93 18 84 27 79 C 47 67 77 82 107 96 C 150 116 190 95 228 48 Z"/></svg>'
 
 FORK_CODE = '''checks = await ctx.fork("checks:0", branches=branches)
 comparison = await ctx.local(
@@ -71,7 +73,7 @@ def render_report(value):
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta http-equiv="Content-Security-Policy" content="{csp}"><title>From a bug to a reviewed fix · Ledgence demo</title><style>{style}</style></head>
 <body><main id="demo">
-<header><div class="brand"><span class="brand-mark" aria-hidden="true">L</span>Ledgence <span class="breadcrumb">/ Workflow demo</span></div><div class="header-tools"><span><i class="mode-dot" aria-hidden="true"></i>Demo playback</span><a class="evidence-link" href="#evidence">View evidence ↗</a></div></header>
+<header><div class="brand"><span class="brand-mark" aria-hidden="true">{BRAND_MARK}</span>Ledgence <span class="breadcrumb">/ Workflow demo</span></div><div class="header-tools"><span><i class="mode-dot" aria-hidden="true"></i>Demo playback</span><a class="evidence-link" href="#evidence">View evidence ↗</a></div></header>
 <section class="hero" aria-labelledby="demo-title"><div><div class="eyebrow">The problem</div><h1 id="demo-title">Fix an empty page<br>in search results.</h1><p class="intro">All 100 search results fit on one page. The app still offers an empty second page.</p></div><div class="solution"><div class="eyebrow">The solution</div><p><strong>Codex proposes the fix.</strong> Ledgence checks it in parallel, brings the evidence together, and waits for your decision.</p><div class="outcome"><span>The target</span><span class="result-chip">100 documents → 1 page</span></div></div></section>
 <section class="workspace" aria-label="Animated workflow demo">
 <div class="workspace-bar"><div class="workspace-name">Document search <span id="entrypoint">start</span></div><div class="playback-tools" aria-label="Playback controls"><button class="icon-button" id="previous" type="button" aria-label="Previous step">←</button><button class="play-button" id="play-pause" type="button" aria-label="Pause demo playback">Ⅱ Pause</button><button class="icon-button" id="next" type="button" aria-label="Next step">→</button><button class="icon-button" id="restart" type="button" aria-label="Restart demo playback">↺</button></div></div>
