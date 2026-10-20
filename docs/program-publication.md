@@ -37,8 +37,12 @@ already prepared package.
 The development CLI adds `ledgence program new invoice-issuer` and
 `ledgence program new invoice-flow --kind workflow`. These commands create
 editable Python code, unit tests, development dependency metadata and a build
-configuration in a new directory. They run offline and do not install, build,
-publish or execute anything. **They are not in published 0.5.0 binaries.** See
+configuration in a new directory. The development dependencies include
+`ledgence-worker` for authoring and `ledgence-client` for submitting and inspecting
+executions, both pinned to the generating CLI's version. `uv sync` installs them;
+program builds use the separate runtime requirements. The scaffolding commands
+run offline and do not install, build, publish or execute anything.
+**They are not in published 0.5.0 binaries.** See
 [the scaffolding contract](cli.md#create-a-python-program) for source-build
 prerequisites, generated files and explicit target flags.
 

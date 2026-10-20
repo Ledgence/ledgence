@@ -5,7 +5,10 @@ requires-python = ">=3.11"
 dependencies = []
 
 [dependency-groups]
-dev = ["ledgence-worker=={{LEDGENCE_VERSION}}"]
+dev = [
+    "ledgence-worker=={{LEDGENCE_VERSION}}",
+    "ledgence-client=={{LEDGENCE_VERSION}}",
+]
 
 [tool.uv]
 package = false

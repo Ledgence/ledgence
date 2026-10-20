@@ -19,13 +19,16 @@ Alternatively, use a standard virtual environment:
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install "ledgence-worker=={{LEDGENCE_VERSION}}"
+python -m pip install "ledgence-worker=={{LEDGENCE_VERSION}}" "ledgence-client=={{LEDGENCE_VERSION}}"
 python -m unittest discover -s tests -v
 ```
 
 `ledgence-worker` provides the `ledgence.worker` authoring API, editor imports,
-and local tests. It is a development dependency: the deployed Rust worker
-supplies the runtime helper. Do not vendor it into the application package.
+and local tests. `ledgence-client` provides `AsyncClient` from `ledgence.client`
+for submitting tasks and workflows and inspecting their executions from this
+environment. Both are development dependencies pinned to the generating CLI
+version; `uv sync` installs them. The deployed Rust worker supplies its runtime
+helper, so do not vendor `ledgence-worker` into the application package.
 These unit tests validate the business function and handler or workflow
 registration. Use a real Ledgence installation to test orchestration, retries,
 waits, and durable results; calling a workflow handler directly is not a local
