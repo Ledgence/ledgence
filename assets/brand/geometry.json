@@ -1,0 +1,17 @@
+{
+  "concept": "I / Curvatura",
+  "viewBox": "0 0 256 256",
+  "path": "M 228 48 C 232 43 234 46 234 55 C 235 111 223 163 196 195 C 188 205 181 204 173 194 C 153 169 132 151 111 150 C 91 149 73 160 57 183 C 54 187 53 187 53 182 C 54 153 44 132 30 110 C 19 93 18 84 27 79 C 47 67 77 82 107 96 C 150 116 190 95 228 48 Z",
+  "fold": "M 27 79 C 62 69 118 114 173 194 C 153 169 132 151 111 150 C 91 149 73 160 57 183 C 54 187 53 187 53 182 C 54 153 44 132 30 110 C 19 93 18 84 27 79 Z",
+  "colors": {
+    "graphite": "#202126",
+    "offwhite": "#F5F5F7",
+    "nearblack": "#0C0D10",
+    "silver": "#747C89",
+    "lightSilver": "#B9C0CE"
+  },
+  "wordmark": "Inter 400, optical kerning, outlined",
+  "source": "logo-explorations-2026-10-20/round-4-scientific/i-curvatura.png",
+  "method": "Hand-authored cubic Bezier SVG; concept crescent removed.",
+  "date": "2026-10-20"
+}

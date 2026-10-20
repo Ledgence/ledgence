@@ -1,3 +1,5 @@
+![Ledgence](https://ledgence.com/brand/ledgence-logo-v1.png)
+
 # Ledgence
 
 Run your agents and data pipelines on infrastructure you control.

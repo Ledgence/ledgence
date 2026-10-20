@@ -28,6 +28,17 @@ instance's `allowed_origins`: the proxy preserves the browser Origin. Retain
 causes write requests to be rejected. The development server contains no demo API
 or mock data.
 
+## Brand assets
+
+The Curvatura master artwork lives in [`../assets/brand/`](../assets/brand/).
+`public/brand/` contains unchanged copies of the mark, theme-aware favicon,
+and Apple touch icon. The shell uses the mark as a CSS mask in the current text
+color for its expanded sidebar, collapsed sidebar, and mobile header. Keep
+these copies aligned with the masters; do not redraw the mark in CSS.
+
+All brand files are served locally under `/console/brand/` and included in the
+generated asset manifest. Console requires no external image or font service.
+
 ## Checks and build
 
 ```sh

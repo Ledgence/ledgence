@@ -65,6 +65,16 @@ Code examples must follow the checked-in SDK and examples. Only advertise verifi
 
 `astro.config.mjs` owns sidebar labels and clean URL routing. `src/styles/docs.css` adapts the neutral Ledgence palette. Search is entirely static; no vendor account, external search service or runtime server is required. System light/dark appearance, keyboard search, mobile navigation, heading links and copyable code are supplied by Starlight.
 
+## Brand assets
+
+The Curvatura master artwork lives in [`../assets/brand/`](../assets/brand/).
+`public/brand/` contains the unchanged mark, Apple touch icon, and social image
+used by this site; `public/favicon.svg` copies the theme-aware master favicon.
+The header renders the mark as a CSS mask in the current text color, preserving
+contrast in both themes. Social metadata in `astro.config.mjs` references the
+local 1280 × 640 image. Update these copies from the masters together; do not
+redraw the symbol in CSS or change its geometry independently.
+
 ## Publish
 
 Infrastructure and upload tooling live in the sibling `ledgence-landing-frontend`

@@ -49,9 +49,6 @@
   width: 44px;
   height: 44px;
 }
-.console-sidebar .shell-collapse--brand:hover .brand-mark {
-  border-color: var(--ink);
-}
 .console-shell[data-sidebar-collapsed="true"] .shell-sidebar-header {
   justify-content: center;
 }
@@ -186,8 +183,8 @@
   }
   .shell-header .shell-mobile-mark {
     display: block;
-    width: 14px;
-    height: 18px;
+    width: 28px;
+    height: 28px;
     flex-shrink: 0;
   }
   .shell-header .theme-control select {

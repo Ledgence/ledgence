@@ -1,3 +1,5 @@
+![Ledgence](https://ledgence.com/brand/ledgence-logo-v1.png)
+
 # ledgence-orchestration-api
 
 Portable Rust contracts for Ledgence task orchestration and worker delivery:

@@ -1,3 +1,5 @@
+![Ledgence](https://ledgence.com/brand/ledgence-logo-v1.png)
+
 # ledgence-worker-api
 
 Portable Rust contracts for Ledgence worker adapters: immutable program identity,

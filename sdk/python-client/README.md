@@ -1,3 +1,5 @@
+![Ledgence](https://ledgence.com/brand/ledgence-logo-v1.png)
+
 # Ledgence Python client
 
 An MIT-licensed, asynchronous Python client for submitting tasks and workflows,
