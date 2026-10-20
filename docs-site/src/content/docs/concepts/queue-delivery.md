@@ -11,7 +11,7 @@ leases, workflow checkpoints and results in both built-in delivery modes.
 
 | Mode in 0.6.0 | How workers acquire work | Setup |
 | --- | --- | --- |
-| Integrated HTTP acquisition | Workers request assignments from the task service, using bounded waits. No external broker is needed. | Default in the [local source stack](/tutorials/run-locally). |
+| Integrated HTTP acquisition | Workers request assignments from the task service, using bounded waits. No external broker is needed. | Default in all [local installation routes](/getting-started/installation). |
 | SQS-compatible external delivery | Workers receive compact dispatch references from SQS Standard or ElasticMQ, then claim the exact work from the task service. | Enable the `sqs` build feature and provide matching server/worker delivery configuration. |
 
 The SQS adapter has been validated against local ElasticMQ. That qualification

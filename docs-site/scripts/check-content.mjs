@@ -33,7 +33,20 @@ export function pageMetadata(text, path) {
   const description = match[1].match(/^description:\s*(.+)$/m)?.[1];
   if (!title || !description) throw new Error(`${path}: title and description are required`);
   const body = text.slice(match[0].length);
-  if (/^# /m.test(body)) throw new Error(`${path}: the title already provides h1`);
+  // A Python/TOML/shell comment inside a fenced example is not a page heading.
+  let fence;
+  for (const line of body.split('\n')) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
+      continue;
+    }
+    if (marker && !(marker[1][0] === '`' && marker[2].includes('`'))) {
+      fence = marker[1];
+      continue;
+    }
+    if (/^# /.test(line)) throw new Error(`${path}: the title already provides h1`);
+  }
   if (/\b(?:TODO|TBD|COMING SOON)\b/.test(body)) throw new Error(`${path}: unfinished content`);
   return { title: title.replace(/^['"]|['"]$/g, ''), description: description.replace(/^['"]|['"]$/g, ''), body };
 }
@@ -56,8 +69,8 @@ export function writeMarkdownExports(directory, pages, revision, productRevision
       list.push(`Released: ${feature.title} (source ${feature.sourceRef}; verified ${feature.verifiedOn}). See https://docs.ledgence.com${feature.guide}.`, '');
     }
   }
-  for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {
-    list.push(`## ${section === 'how-to' ? 'How-to guides' : section[0].toUpperCase() + section.slice(1)}`, '');
+  for (const section of ['getting-started', 'tutorials', 'how-to', 'reference', 'concepts']) {
+    list.push(`## ${section === 'getting-started' ? 'Start here' : section === 'how-to' ? 'How-to guides' : section[0].toUpperCase() + section.slice(1)}`, '');
     for (const page of exported.filter(page => page.slug.startsWith(`${section}/`))) {
       list.push(`- [${page.title}](https://docs.ledgence.com/markdown/${page.path}): ${page.description}`);
     }
@@ -72,7 +85,7 @@ export function prepareContent() {
     const path = file.slice(source.length + 1).replaceAll('\\', '/');
     return { path, slug: path.replace(/\.mdx?$/, '').replace(/^index$/, ''), ...pageMetadata(readFileSync(file, 'utf8'), path) };
   });
-  for (const section of ['tutorials', 'how-to', 'reference', 'concepts']) {
+  for (const section of ['getting-started', 'tutorials', 'how-to', 'reference', 'concepts']) {
     if (!pages.some(page => page.slug.startsWith(`${section}/`))) throw new Error(`Missing ${section} content`);
   }
   const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();

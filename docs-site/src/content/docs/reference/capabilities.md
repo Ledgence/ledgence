@@ -8,6 +8,9 @@ user guides and operating limits. The installer, native bundles, Python client,
 worker helper, Rust API crates, container images, and local kit belong to the
 same release.
 
+For a new local installation, start with [Choose your installation](/getting-started/installation),
+then [Run your first task](/tutorials/first-task). This page is a feature map.
+
 ## Program authoring
 
 The 0.6.0 CLI creates functional task and workflow projects with both
@@ -59,9 +62,10 @@ prerequisite of the corresponding live example, not of Ledgence self-hosting.
 | Method | Availability |
 | --- | --- |
 | One-line installer with persistent shell setup. | **Published 0.6.0.** [Install the CLI](/how-to/install-native#one-line-installation). |
-| Native archives for Linux x86_64/glibc and macOS Apple silicon. | **Published 0.6.0.** [Manual installation](/how-to/install-native#before-you-start). |
+| Native archives for Linux x86_64/glibc and macOS Apple silicon. | **Published 0.6.0.** [Manual installation](/how-to/manual-native-installation). |
 | Python client on PyPI and two Rust API crates on crates.io. | **Published 0.6.0.** [Package reference](/reference/releases). These do not install the server stack. |
-| Docker Hub images for Linux amd64 and arm64, with a matching digest-pinned local kit. | **Published 0.6.0.** [Manage the stack with `ledgence local`](/how-to/run-local-distribution). |
+| Docker Hub images for Linux amd64 and arm64, with a matching digest-pinned local kit. | **Published 0.6.0.** [CLI-managed installation](/how-to/install-native) or [direct Compose](/how-to/install-compose). |
+| Build the CLI from the released source tag and use the published runtime kit. | **Published 0.6.0 source.** [Compile the CLI](/how-to/build-cli-from-source). |
 | Build the local Docker Compose stack from source. | **Published 0.6.0 source.** [Source tutorial](/tutorials/run-locally). |
 | Install `ledgence.worker` in an application's environment for imports, editor support and local business-logic tests. | **Published 0.6.0 on PyPI.** [Develop Python programs](/how-to/develop-python-programs). Add `ledgence-worker` as a development dependency matching the worker. |
 

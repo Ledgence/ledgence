@@ -1,19 +1,19 @@
 ---
-title: Build with Ledgence.
-description: Run agents, coordinate workflows, and operate a self-hosted Ledgence instance with Console.
+title: Start with Ledgence
+description: Choose a local installation, run your first task, then build a workflow that reuses it.
 tableOfContents: false
 ---
 
-<p class="ld-home-intro">Run your agents, follow their workflows, and understand what is happening on your infrastructure.</p>
+<p class="ld-home-intro">Run Python programs on workers, combine them into workflows, and see each execution in your browser. Start with a greeting; no AI account or API key is needed.</p>
 
-<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.6</span> Public releases are here <span aria-hidden="true">→</span></a>
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.6.0</span> Versions and downloads <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
-    <span class="ld-eyebrow">Ledgence 0.6.0 · durable agents and workflows</span>
-    <h2>See your work in motion.</h2>
-    <p>Start a self-hosted instance, inspect real executions, and explore the workflow graph, registered programs, and worker processes.</p>
-    <div class="ld-start-actions"><a class="ld-start-link" href="/tutorials/use-console">Explore Console <span aria-hidden="true">↗</span></a><a class="ld-install-link" href="/how-to/install-native">Install and run locally <span aria-hidden="true">→</span></a></div>
+    <span class="ld-eyebrow">New to Ledgence?</span>
+    <h2>One task. Then a workflow.</h2>
+    <p>Choose how to install Ledgence once. Then follow two short lessons with real Python files you can open, edit, and run.</p>
+    <div class="ld-start-actions"><a class="ld-start-link" href="/getting-started/installation">Choose an installation <span aria-hidden="true">→</span></a><a class="ld-install-link" href="/tutorials/first-task">Already running? Create your first task <span aria-hidden="true">→</span></a></div>
   </div>
   <div class="ld-worker-card" aria-label="Illustration of a worker with six process slots">
     <span>Your worker</span>
@@ -21,41 +21,48 @@ tableOfContents: false
   </div>
 </div>
 
-Explore a complete agent workflow: [fix an empty page with Codex](/tutorials/codex-change-review). Follow the problem, the animated workflow replay, and the code behind independent branches, measured checks, and a human decision.
+## Follow the learning path
 
-## Choose your starting point
-
-| Need | Guide |
-| --- | --- |
-| Install the CLI in one command and configure your shell. | [Installation](/how-to/install-native) |
-| Start and manage the local stack from published images. | [Local distribution](/how-to/run-local-distribution) |
-| Update an existing installation to 0.6.0. | [Upgrade guide](/how-to/upgrade-to-0-6) — update the CLI and running services separately. |
-| Build the Docker Compose examples from source. | [Local source tutorial](/tutorials/run-locally) |
-| Create a functional Python task or workflow. | [Python development setup](/how-to/develop-python-programs) — generate code, tests and version-pinned development dependencies with `program new`. |
-| Build for a worker runtime and upload an immutable program. | [Build and publish programs](/how-to/build-and-publish-programs) — explicit targets and saved recovery receipts. |
-| Submit work and receive results after disconnecting. | [Result waiting and callbacks](/how-to/receive-results) |
-| Connect an MCP client to an existing instance. | [MCP setup](/how-to/connect-mcp) |
-| Operate workers and diagnose executions. | [Observability](/how-to/configure-observability), [queue delivery](/concepts/queue-delivery), and [Console](/reference/console) |
-
-Use the [capability map](/reference/capabilities) to find every supported area,
-its limits and release availability. Ledgence 0.6.0 adds functional Python
-project scaffolding and fixes Console checkpoint navigation, trace rendering and
-Docker build cleanup. Explicit builds, immutable HTTP publication, recovery
-receipts, the one-line installer and `ledgence local` remain available.
-
-## Find your way
+Keep your editor and a terminal open. Each lesson names the files to create,
+explains the commands, and shows the result you should see.
 
 <div class="ld-doc-grid">
-  <a class="ld-doc-card" href="/tutorials/use-console"><span class="ld-doc-card-title">Tutorials <span aria-hidden="true">→</span></span><span>Learn through complete, guided examples with a result you can check.</span></a>
-  <a class="ld-doc-card" href="/how-to/register-agent"><span class="ld-doc-card-title">How-to guides <span aria-hidden="true">→</span></span><span>Register an agent, coordinate parallel work, or wait for an external event.</span></a>
-  <a class="ld-doc-card" href="/reference/console"><span class="ld-doc-card-title">Reference <span aria-hidden="true">→</span></span><span>Look up methods, fields, limits, and precise behavior.</span></a>
-  <a class="ld-doc-card" href="/concepts/self-hosted-console"><span class="ld-doc-card-title">Concepts <span aria-hidden="true">→</span></span><span>Understand the instance boundary, worker observations, checkpoints, and recovery.</span></a>
+  <a class="ld-doc-card" href="/getting-started/installation"><span class="ld-doc-card-title">1. Install locally <span aria-hidden="true">→</span></span><span>Choose automatic setup, direct Docker Compose, or a CLI built from source. Follow only your chosen route.</span></a>
+  <a class="ld-doc-card" href="/tutorials/first-task"><span class="ld-doc-card-title">2. Hello, Ledgence! <span aria-hidden="true">→</span></span><span>Create a Python task, publish it, and receive its greeting from a real worker.</span></a>
+  <a class="ld-doc-card" href="/tutorials/first-workflow"><span class="ld-doc-card-title">3. Your first workflow <span aria-hidden="true">→</span></span><span>Invoke the same greeting task from a workflow. Learn how it waits and resumes.</span></a>
+  <a class="ld-doc-card" href="/tutorials/use-console"><span class="ld-doc-card-title">4. Explore your executions <span aria-hidden="true">→</span></span><span>Inspect input and output, follow the workflow graph, and open its child task.</span></a>
 </div>
 
-## A few names to know
+## Three names you will use
 
-Your **agent** is application code. You publish that code and its prepared dependencies as a **program package**. A **task** asks a worker to execute it. A **workflow** coordinates tasks and branches through registered **entrypoints**. Checkpoints save the state needed to resume at the next entrypoint.
+A **program** is your Python code packaged for a worker. You publish a program
+once, then ask Ledgence to execute it as many times as you need.
 
-Ledgence also runs data pipelines and other application code. The initial runtime is Python; the platform is built in Rust.
+A **task** is one execution of a program. It receives input and produces a result.
 
-<p class="ld-home-status">Released guides target Ledgence 0.6.0: project scaffolding, program builds and publication, durable approvals, model/tool recovery, MCP, and workflows with a self-hosted Console. Install the CLI and run the local stack from published images, or build from source. Check the <a href="/reference/releases">release reference</a> before installing or upgrading. Run code you trust on infrastructure you control.</p>
+A **workflow** coordinates tasks and other workflows. When it needs to wait,
+Ledgence saves its progress and releases the worker slot until it can continue.
+
+The **CLI** is the `ledgence` command in your terminal. The **Console** is the web
+interface for your running installation. Python packages help you write programs
+and send requests; installing those packages alone does not start Ledgence.
+
+## After the first lessons
+
+| What you want to do | Next guide |
+| --- | --- |
+| Develop an existing Python project | [Program development](/how-to/develop-python-programs) |
+| Package dependencies or publish a new version | [Build and publish programs](/how-to/build-and-publish-programs) |
+| Run several tasks at once | [Parallel tasks](/how-to/parallel-tasks) |
+| Add independent workflow branches | [Local work and distributed branches](/how-to/fork-workflow-branches) |
+| Wait for a person or another system | [Action approvals](/how-to/require-approval) and [external events](/how-to/wait-for-event) |
+| Build an agent that can recover completed calls | [Model and tool recovery](/how-to/recover-agent-calls) |
+| Connect an MCP client | [MCP setup](/how-to/connect-mcp) |
+| Run a complete agent example | [Code review with Codex](/tutorials/codex-change-review) |
+
+Use [Manage your local stack](/how-to/run-local-distribution) for logs and
+restarts, and [Upgrade to 0.6.0](/how-to/upgrade-to-0-6) for an existing
+installation. Detailed contracts live in [Reference](/reference/capabilities);
+[Concepts](/concepts/execution-model) explains how the pieces work together.
+
+<p class="ld-home-status">These guides target the published Ledgence 0.6.0 release. Ledgence is open source and self-hosted. Run programs you trust; worker processes are not a sandbox for hostile code.</p>

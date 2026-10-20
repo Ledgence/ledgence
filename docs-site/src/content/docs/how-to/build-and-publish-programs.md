@@ -3,6 +3,10 @@ title: Build and publish Python programs
 description: Prepare explicit application inputs for a worker runtime, upload immutable bytes, and recover interrupted publication without rebuilding.
 ---
 
+Publishing your first program? Follow [Hello, Ledgence!](/tutorials/first-task)
+for a complete editor-to-result lesson. This guide explains custom inputs,
+dependencies, targets, and interrupted uploads after you know that basic flow.
+
 **Available in Ledgence 0.6.0.** Use matching CLI and orchestrator components
 and explicitly enable the server's publication writer. Earlier saved local kits
 retain their image and configuration; a new CLI does not upgrade those services.
@@ -66,7 +70,7 @@ A minimal configuration for `src/invoice.py` looks like this. Replace
 `REPLACE_WITH_WORKER_RUNTIME_DIGEST` with the actual 64-character lowercase image
 digest. Values are literal TOML; shell variables are not expanded.
 
-```toml
+```toml title="ledgence.toml"
 schema_version = 1
 
 [program]
@@ -88,7 +92,7 @@ image = "ledgence/ledgence@sha256:REPLACE_WITH_WORKER_RUNTIME_DIGEST"
 
 Save this as `ledgence.toml` in the project root. For example, the handler can be:
 
-```python
+```python title="src/invoice.py"
 def handle(event):
     return {"invoice_id": event["data"]["invoice_id"], "accepted": True}
 ```

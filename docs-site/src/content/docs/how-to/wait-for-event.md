@@ -9,13 +9,13 @@ An event supplies application input. To authorize an immutable action and its ex
 
 ## Prerequisites
 
-Use the matching orchestrator, worker, and database migrations from the `v0.6.0` source tag, as in [Run Ledgence locally](/tutorials/run-locally). Package your controller with runtime protocol **3**, publish it, and connect a worker to its queue. To send events, use the [Python client](/reference/python-client) with the same server, tenant, and namespace as the workflow.
+Start a 0.6.0 instance through [local installation](/getting-started/installation). The [first workflow](/tutorials/first-workflow) covers creating and publishing a controller. Package your controller with runtime protocol **3**, publish it, and connect a worker to its queue. To send events, use the [Python client](/reference/python-client) with the same server, tenant, and namespace as the workflow.
 
-The controller below is application code to package and publish, with `program:handle` as its manifest handler. It is not a preinstalled example.
+Save the controller below as `program.py` in a new workflow project, with `program:handle` as its manifest handler. Build and publish that project before submitting it. It is not a preinstalled example.
 
 ## Return an event-wait decision
 
-```python
+```python title="program.py"
 from enum import StrEnum
 from ledgence.worker.workflow import Workflow
 

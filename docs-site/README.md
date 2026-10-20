@@ -24,7 +24,7 @@ The build checks page metadata, collects dependency notices, renders every page 
 
 ## Authoring
 
-Edit `src/content/docs/`. Every page needs a `title` and `description`. Begin body headings at `##`. Keep one reader need per page; link across types for additional context. The four sections already contain real content: do not add empty placeholders. Use `agent` in approachable prose while preserving exact `program`, task, workflow and worker API names.
+Edit `src/content/docs/`. Every page needs a `title` and `description`. Begin body headings at `##`. Keep one reader need per page; link across types for additional context. The installation selector leads into the four content types; do not add empty placeholders. Use `agent` in approachable prose while preserving exact `program`, task, workflow and worker API names.
 
 The site provides Diátaxis learning paths and release installation guidance. The [capability map](src/content/docs/reference/capabilities.md) links the implemented execution, integration and operational features. Existing `../docs/` contracts remain the detailed source for limits and protocol semantics. Move and link material deliberately as coverage grows; never present code snippets as runnable unless prerequisites and package publication are described.
 
@@ -37,6 +37,29 @@ updated repository guides use `develop`. Generated `public/source.json` records
 the exact documentation build revision separately from the product release
 revision. Keep historical release notes, versioned upgrade guides and pinned
 example corpora intact when refreshing current references.
+
+Beginner tutorials follow one continuous path: choose one installation method,
+run a small task, compose that same task in a workflow, then inspect those
+executions in Console. Keep alternative installation commands on their own
+pages; do not restart infrastructure or switch to unrelated programs halfway
+through a lesson. Put advanced operations and full-source builds outside this
+path.
+
+For runnable Python examples, name the file, show its complete contents with a
+code-fence title such as `python title="submit.py"`, explain the relevant lines,
+and then show the terminal command that runs it. Prefer an editor and ordinary
+files over Python embedded in shell heredocs. State the current directory,
+prerequisites, expected output and next step. Label partial reference snippets
+as fragments. Use environment variables only when the interface needs them;
+explain their purpose, scope and lifetime, or use a named configuration file.
+A reader should understand what each step changes.
+
+The first task and workflow lessons have runnable counterparts in
+`../examples/hello-ledgence/`. The documentation tests compare all complete
+Python snippets with those files so they cannot silently drift apart. When
+changing the learning path, run its unit tests and execute the documented
+publication/submission sequence against the stated released runtime; a static
+build alone cannot prove the example works.
 
 Code examples must follow the checked-in SDK and examples. Only advertise verified registry versions and native targets. The self-hosted Console serves one instance and has no tenant administration or scope selectors. Describe the retained CLI/SDK fields as a fixed compatibility binding. Do not imply a vendor-hosted dashboard, exactly-once effects, or public multi-tenant isolation. Review the local trusted-code boundary where relevant.
 

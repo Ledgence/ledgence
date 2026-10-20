@@ -9,7 +9,7 @@ Self-host without a required vendor account.
 
 [Documentation](https://docs.ledgence.com) ·
 [Capabilities](https://docs.ledgence.com/reference/capabilities) ·
-[Quickstart](https://docs.ledgence.com/tutorials/run-locally) ·
+[First task](https://docs.ledgence.com/tutorials/first-task) ·
 [Examples](examples/README.md) ·
 [Console guide](https://docs.ledgence.com/tutorials/use-console) ·
 [Releases](https://github.com/Ledgence/ledgence/releases) ·
@@ -17,32 +17,22 @@ Self-host without a required vendor account.
 
 ## Get started
 
-- **Choose an installation:** see [installation and local startup](docs/installation.md)
-  for the native CLI, Python client, and `ledgence local` container stack.
-- **Choose an example:** browse the [example catalog](examples/README.md) for Python programs,
-  workflow patterns, client usage, and optional provider integrations.
-- **Explore Console:** follow the [Console tutorial](https://docs.ledgence.com/tutorials/use-console)
-  to inspect executions, workflows, registered programs, and worker process slots in your browser.
-- **Run the complete stack:** follow the [local tutorial](https://docs.ledgence.com/tutorials/run-locally)
-  to start PostgreSQL, the orchestrator, a worker, and example programs with Docker Compose.
-- **Try the native worker:** [install the Linux x86_64 or macOS Apple Silicon bundle](https://docs.ledgence.com/how-to/install-native)
-  and run a Python program without building Rust.
-- **Connect an application:** install the [Python client](sdk/python-client/README.md)
-  to submit tasks and workflows to your Ledgence service.
-- **Create a program:** the 0.6.0 CLI supports `ledgence program new invoice-issuer`
-  for a task or `ledgence program new invoice-flow --kind workflow` for a workflow,
-  including code, tests, both Python development packages and build configuration.
-  See [creating a project](docs/cli.md#create-a-python-program).
-- **Develop Python programs:** install the [worker helper](sdk/python/README.md#install-for-local-development)
-  in your application's environment for imports, editor support and local business-logic tests.
-  Add `ledgence-worker==0.6.0` as a development dependency matching your worker.
-- **Build and upload a program:** use the explicit Docker
-  builder, HTTP publication and durable retry receipts; see [build and publication](docs/program-publication.md).
-  Use a matching 0.6.0 server with uploads enabled; saved local kits are not upgraded automatically.
-- **Connect an MCP client:** use [`ledgence mcp serve`](docs/mcp.md) to discover programs, submit work, and inspect results through the existing API. Available since 0.3.1.
-- **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
-  with ChatGPT sign-in, documentation tools and durable human review, or the
-  [Google ADK and Gemini variant](examples/support-agent/README.md).
+1. [Choose a local installation](https://docs.ledgence.com/getting-started/installation):
+   automatic setup, direct Docker Compose, or a CLI built from source.
+2. [Run your first task](https://docs.ledgence.com/tutorials/first-task): create a
+   Python project, publish it, and print `Hello, Ledgence!` from a real worker.
+3. [Build your first workflow](https://docs.ledgence.com/tutorials/first-workflow):
+   reuse that task and learn how a workflow waits and resumes.
+4. [Explore the executions](https://docs.ledgence.com/tutorials/use-console):
+   inspect input, output, status, and the workflow graph in Console.
+
+The lessons use named files in your editor and short terminal commands. Browse
+[examples](examples/README.md) after the first lessons for parallel work,
+durable approvals, recoverable agent calls, and optional provider integrations.
+Existing applications can install the [Python client](sdk/python-client/README.md)
+and [worker helper](sdk/python/README.md) separately; those packages do not start
+a Ledgence instance. Detailed installation options are in
+[the installation guide](docs/installation.md).
 
 **Ledgence 0.6.0** adds functional Python task and workflow scaffolding with
 version-pinned authoring and client dependencies. It fixes Docker build cleanup
@@ -89,9 +79,8 @@ Open the Console URL printed by `up` (normally `http://127.0.0.1:8080/console/`)
 The new instance starts without application programs or executions.
 `ledgence local down` stops it while preserving data. See the
 [local distribution guide](https://docs.ledgence.com/how-to/run-local-distribution)
-for platforms, state and upgrade behavior. To populate Console, follow the
-[optional examples](docs/installation.md#run-the-optional-container-examples),
-including the handoff from the CLI-managed stack to a separate Compose project.
+for platforms, state and upgrade behavior. To populate Console, follow [your first task](https://docs.ledgence.com/tutorials/first-task)
+using this same running instance; the next lesson reuses it for a workflow.
 The installer needs no Rust, Python, Node, Docker or administrator access; Docker is required for the local
 container stack and explicit program builds, and native Python workers require a matching host interpreter.
 
@@ -154,15 +143,14 @@ Operational guides cover [worker delivery](docs/worker-delivery.md),
 and [retention maintenance](docs/retention.md). The [docs-site source](docs-site/README.md)
 lives beside the implementation so documentation can evolve with the code.
 
-## Run a program from source
+## Create a Python program
 
 Start a minimal Python application with the installed Ledgence 0.6.0 CLI,
 Python 3.11 or newer and uv. Run these commands in your application workspace:
 
 ```sh
-project_dir="$(mktemp -d)"
-ledgence program new "$project_dir/hello"
-cd "$project_dir/hello"
+ledgence program new hello-ledgence
+cd hello-ledgence
 uv sync
 uv run python -m unittest discover -s tests -v
 ```
@@ -177,11 +165,11 @@ development dependencies for authoring programs and using `AsyncClient` to
 submit and inspect executions against a running service. These development
 dependencies are separate from the program's runtime build requirements.
 
-For deployment, choose the worker target in `ledgence.toml`, then follow
-[program builds and publication](docs/program-publication.md). Local unit tests
-do not prove orchestration or durable recovery. To execute through a worker,
-follow the [native HTTP walkthrough](docs/http-orchestration.md#run-a-task) or
-[local Compose deployment](docs/local-deployment.md). The
+This creates and tests code on your computer; it has not run through a worker
+yet. Continue with [Your first task](https://docs.ledgence.com/tutorials/first-task#3-choose-the-worker-runtime-once)
+to choose the worker target in `ledgence.toml`, build and publish the program,
+and create a `submit.py` file that runs it on your existing local stack.
+For advanced publication behavior, use [program builds and publication](docs/program-publication.md). The
 [CLI guide](docs/cli.md) documents all command groups, and the
 [bundle packaging guide](docs/releasing.md) covers release qualification.
 

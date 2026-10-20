@@ -46,15 +46,15 @@ test('static output rejects native tools and unreviewed WebAssembly', () => {
 });
 
 
-test('Markdown exports survive index generation and retain all four sections', () => {
+test('Markdown exports survive index generation and retain the installation selector and all four content sections', () => {
   const directory = mkdtempSync(join(tmpdir(), 'ledgence-doc-markdown-'));
   try {
-    const pages = ['tutorials', 'how-to', 'reference', 'concepts'].map(section => ({
+    const pages = ['getting-started', 'tutorials', 'how-to', 'reference', 'concepts'].map(section => ({
       path: `${section}/example.md`, slug: `${section}/example`, title: `${section} example`,
       description: 'An exported document.', body: '[Workflow context](/reference/workflow-context)\n',
     }));
     writeMarkdownExports(directory, pages, 'fixture-revision');
-    assert.equal(checkMarkdownExports(directory), 4);
+    assert.equal(checkMarkdownExports(directory), 5);
     for (const page of pages) {
       const exported = readFileSync(join(directory, 'markdown', page.path), 'utf8');
       assert.ok(exported.startsWith(`# ${page.title}\n`));
@@ -146,4 +146,34 @@ test('Markdown index distinguishes released and development features with their 
     assert.ok(index.includes('Console is included in source v1.2.0'));
     assert.doesNotMatch(index, /Development-only: CLI installation|Released: Preview integration|undefined/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test('first lessons retain complete named Python files matching the runnable examples', () => {
+  const lessons = [
+    ['first-task', 'task', ['program.py', 'submit.py']],
+    ['first-workflow', 'workflow', ['program.py', 'tests/test_program.py', 'submit.py']],
+  ];
+  for (const [lesson, example, filenames] of lessons) {
+    const page = readFileSync(new URL(`../src/content/docs/tutorials/${lesson}.md`, import.meta.url), 'utf8');
+    const blocks = [...page.matchAll(/^```python title="([^"]+)"\n([\s\S]*?)^```/gm)];
+    for (const filename of filenames) {
+      const matches = blocks.filter(block => block[1] === filename);
+      assert.equal(matches.length, 1, `${lesson}: exactly one complete ${filename} block is required`);
+      const source = readFileSync(new URL(`../../examples/hello-ledgence/${example}/${filename}`, import.meta.url), 'utf8');
+      assert.equal(matches[0][2], source, `${lesson}: ${filename} differs from its executable example`);
+    }
+  }
+});
+
+
+test('page headings are checked outside code fences, preserving explanatory code comments', () => {
+  const header = '---\ntitle: Example\ndescription: A useful example.\n---\n';
+  for (const fence of ['```', '~~~~']) {
+    const block = `${fence}python title="program.py"\n# A code comment\n${fence}\n`;
+    assert.doesNotThrow(() => pageMetadata(header + block + '## Next step', 'example.md'));
+    assert.throws(() => pageMetadata(header + block + '# Duplicate page title', 'example.md'), /h1/);
+  }
+  assert.doesNotThrow(() => pageMetadata(header + '````text\n```\n# Still code\n````', 'example.md'));
+  assert.doesNotThrow(() => pageMetadata(header + '```text\n~~~\n# Still code\n```', 'example.md'));
 });

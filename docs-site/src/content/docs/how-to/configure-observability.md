@@ -19,6 +19,13 @@ export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 export OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=local
 ```
 
+These variables configure the telemetry exporter, so an environment setting is
+appropriate here. The first two select the collector's trace and metric URLs;
+`OTEL_EXPORTER_OTLP_PROTOCOL` selects their wire format; the resource attribute
+labels the environment as `local`. `export` affects this terminal and processes
+started from it until you close it or `unset` the variables. For a managed
+service, place the same settings in that service's configuration instead.
+
 Endpoints must include the signal path. Configure either signal alone if that
 is all you need. The default `ledgence` build includes the optional `otel`
 feature; instrumentation remains off without an explicit endpoint.
@@ -46,9 +53,10 @@ when the destination needs additional credentials or transport settings.
 
 ## Add correlated program logs
 
-Use runtime protocol 2 or 3 and the worker helper supplied with Ledgence:
+In your program's `program.py`, use the worker helper supplied with Ledgence
+and runtime protocol 2 or 3:
 
-```python
+```python title="program.py"
 from ledgence.worker import get_logger
 
 log = get_logger(__name__)

@@ -120,11 +120,11 @@ See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/
 
 ## Serving Console
 
-The [local tutorial](/tutorials/use-console) builds and serves Console through Compose. The 0.6.0 [native bundles](/how-to/install-native) include a matching `console/` directory, so you do not need to build frontend assets when using those bundles. For a source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.6.0/console/README.md). A regular Cargo build does not run frontend tooling.
+All three [local installation paths](/getting-started/installation) serve the published Console. The [Console tutorial](/tutorials/use-console) explores the executions from the task and workflow lessons without rebuilding the platform. The 0.6.0 [native bundles](/how-to/install-native) include a matching `console/` directory, so you do not need to build frontend assets when using those bundles. For a source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.6.0/console/README.md). A regular Cargo build does not run frontend tooling.
 
-Create an instance configuration file:
+For a manually operated service, create an instance configuration file named `instance.json`:
 
-```json
+```json title="instance.json"
 {
   "instance_id": "local",
   "name": "Local instance",
@@ -132,18 +132,21 @@ Create an instance configuration file:
 }
 ```
 
-With `DATABASE_URL` set for the intended PostgreSQL database, run from the source checkout:
+For this manual setup, `DATABASE_URL` supplies the PostgreSQL connection string
+to migrations and the server. Set it in the service environment for your intended
+database; the local Docker kit configures its own connection automatically.
+With the CLI installed and those settings in place:
 
 ```sh
-cargo run --locked -p ledgence-cli -- orchestrator migrate
-cargo run --locked -p ledgence-cli -- orchestrator serve \
+ledgence orchestrator migrate
+ledgence orchestrator serve \
   --store /absolute/path/to/program-store \
   --bind 127.0.0.1:8080 \
   --instance-config /absolute/path/to/instance.json \
-  --console-dir console/dist
+  --console-dir /absolute/path/to/console-assets
 ```
 
-Replace the paths with your actual store and saved configuration. On a new database, omitting the compatibility scope chooses `default/default`; legacy CLI, SDK, and worker requests must use that same binding. Existing data needs its original binding explicitly configured. See [One self-hosted instance](/concepts/self-hosted-console).
+Replace the paths with your actual store, saved configuration and Console assets. A source build produces assets in `console/dist`; a complete native bundle can select its bundled assets automatically as described below. On a new database, omitting the compatibility scope chooses `default/default`; legacy CLI, SDK, and worker requests must use that same binding. Existing data needs its original binding explicitly configured. See [One self-hosted instance](/concepts/self-hosted-console).
 
 Keep `--instance-config` on every subsequent startup, including headless operation. In a complete 0.6.0 native bundle, supplying `--instance-config` automatically selects the bundled Console when `--console-dir` is omitted; omission does not disable it. A source build or a bundle packaged with `--headless` can omit `--console-dir` to run without assets while preserving the instance binding. Missing, modified, or incompatible selected assets fail startup before coordinators begin. Distribute the asset manifest and retained legal notices with the built files.
 

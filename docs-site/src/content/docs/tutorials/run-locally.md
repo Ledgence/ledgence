@@ -1,72 +1,107 @@
 ---
-title: Run Ledgence locally
-description: Start a local stack, publish its example agents, and observe real task and workflow results.
+title: Build the full stack from source
+description: An advanced walkthrough for building Ledgence's container image from a release checkout and exercising its bundled examples.
 ---
 
-Run a complete Ledgence 0.6.0 stack on your machine and watch it execute a task and a checkpoint workflow. You will use the repository's Compose example, which includes a database, an orchestrator serving Console, a worker, and a small callback receiver.
+Use this walkthrough when you want to build the **Ledgence platform image** from
+source and exercise its bundled integration examples. It is intended for
+contributors and operators investigating the platform.
 
-This tutorial builds the image from source. For a faster first startup without a
-checkout, [install the CLI](/how-to/install-native) and run the [published image
-distribution](/how-to/run-local-distribution). Both paths are part of 0.6.0 and
-create separate deployments; stop one before using the other's default port 8080.
+For your first application, choose [a local installation](/getting-started/installation)
+and start with [Hello Ledgence](/tutorials/first-task). Those routes use released
+runtime images and teach you to write your own program.
 
-This tutorial uses the `v0.6.0` source release. Its invoice and summary programs use application version `1.0.0`; its typed workflow controller uses `1.0.1`. Use a fresh deployment, or follow [Upgrade to 0.6.0](/how-to/upgrade-to-0-6) before adopting existing data.
-
-Allow extra time for the first image build. You do not need a hosted account, Rust, or Python installed on your computer for this tutorial.
+Here you will build the `v0.6.0` source release in Docker. Its Compose deployment
+includes a database, orchestrator, Console, worker and callback receiver. It is
+a separate project from an installation managed by `ledgence local` or the
+published kit. Stop another stack before reusing port 8080.
 
 ## Before you start
 
-You need Git and Docker Engine or Docker Desktop with Compose 2.23.1 or newer supporting `up --wait` and inline configs. Docker must run Linux containers on `amd64` or `arm64`. The first build downloads its pinned images, Rust dependencies, and frontend dependencies.
+You need Git and Docker Engine or Docker Desktop with Compose **2.23.1 or newer**,
+running Linux containers on `amd64` or `arm64`. Rust, Node and Python are supplied
+by the container build; they do not need to be installed on your host.
 
-The example binds its API to `127.0.0.1:8080`. It uses local demo credentials and runs trusted code; use it on your own machine rather than exposing it as a public service.
+Allow additional time and disk space for the first build. It downloads pinned
+base images, Rust dependencies and frontend dependencies. Use a fresh deployment
+for this walkthrough; follow [Upgrade to 0.6.0](/how-to/upgrade-to-0-6) before
+adopting retained data from another version.
 
 ## 1. Get the source
 
-In a directory where you keep projects:
+In the directory where you keep projects:
 
 ```sh
-git clone --branch v0.6.0 --depth 1 https://github.com/Ledgence/ledgence.git
-cd ledgence
+git clone --branch v0.6.0 --depth 1 https://github.com/Ledgence/ledgence.git ledgence-source
+cd ledgence-source
 ```
 
-This checks out the published `v0.6.0` source tag. Git may report a detached HEAD; that is expected when following a release tag. Compose builds the image locally from this version. Run the remaining commands from this repository root. If you already have a checkout, use a separate clone to follow along without changing work in progress.
+This checks out the published release tag. Git's detached-HEAD notice is expected.
+Use a separate clone if you already have work in progress. Keep running the
+remaining terminal commands from this repository root.
 
-## 2. Start the stack
+## 2. Save the build settings
+
+Open your editor and create **`ledgence-source.env` next to the repository**,
+not inside it. The resulting layout is:
+
+```text
+projects/
+  ledgence-source.env
+  ledgence-source/
+    deploy/
+    crates/
+    ...
+```
+
+For this unmodified release checkout, put these settings in the file:
+
+```dotenv
+# Source commit recorded in the built image and Console.
+LEDGENCE_SOURCE_REVISION=b63c40edcb1e3f52035bcf87392129ed5f9132f2
+# This walkthrough starts from an unmodified release checkout.
+LEDGENCE_SOURCE_DIRTY=false
+# The API listens on this port on your computer.
+LEDGENCE_HTTP_PORT=8080
+# One consumer/process slot demonstrates process reuse in the example.
+LEDGENCE_CONCURRENCY=1
+```
+
+Compose reads this file when passed `--env-file`. Saving these settings once
+keeps later starts and stops consistent without repeated terminal exports.
+`git rev-parse HEAD` shows the source commit; if you change the platform source,
+update that value to the selected commit and set `LEDGENCE_SOURCE_DIRTY=true`
+while it has uncommitted changes.
+
+## 3. Build and start the stack
 
 ```sh
-export LEDGENCE_SOURCE_REVISION="$(git rev-parse HEAD)"
-export LEDGENCE_SOURCE_DIRTY="$(test -z "$(git status --porcelain)" && echo false || echo true)"
-docker compose -f deploy/local/compose.yaml build
-docker compose -f deploy/local/compose.yaml up -d --wait --wait-timeout 120
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml build
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml up --detach --wait --wait-timeout 120
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml ps
 ```
 
-Compose starts PostgreSQL, applies the schema migration, then starts the orchestrator and worker. The command returns when the long-running services are ready. The migration service exits successfully after doing its work.
+`--project-name ledgence-source` keeps this deployment's containers and data
+separate from the published kit's example project. PostgreSQL starts first,
+then the migrator applies the schema. The migrator exits successfully; the
+long-running services remain running. The command waits for startup readiness.
 
-Check the services:
+The API binds to `127.0.0.1:8080`. The deployment uses local demo credentials and
+trusted code; it is not a recipe for exposing a public service.
+
+## 4. Publish and run the bundled examples
 
 ```sh
-docker compose -f deploy/local/compose.yaml ps
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml run --rm --no-deps publish
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml run --rm --no-deps demo
 ```
 
-Keep the example's default worker concurrency of **one**. The next step uses it to demonstrate process reuse.
+`publish` prepares and registers `invoice-issuer` and `workflow-summary`, both
+application version `1.0.0`, plus `workflow-example` version `1.0.1`. The worker
+retrieves their immutable packages when needed. `demo` then submits invoice tasks,
+runs the workflow, and checks completion callbacks.
 
-## 3. Publish the example packages
-
-```sh
-docker compose -f deploy/local/compose.yaml run --rm --no-deps publish
-```
-
-This prepares three immutable packages for the container's Python version and platform: `invoice-issuer`, `workflow-example`, and `workflow-summary`.
-
-Publishing makes their code available in the shared program store and registers the verified references in Console. Open [Console](http://127.0.0.1:8080/console/) to inspect **Programs** and **Executions**. The worker fetches and verifies a package when it needs to execute it.
-
-## 4. Run the example
-
-```sh
-docker compose -f deploy/local/compose.yaml run --rm --no-deps demo
-```
-
-The command submits two invoice tasks, runs a workflow, and checks their completion callbacks. Its final JSON includes:
+Its final JSON includes:
 
 ```json
 {
@@ -81,40 +116,49 @@ The command submits two invoice tasks, runs a workflow, and checks their complet
 }
 ```
 
-The complete output also contains generated task, workflow, and subscription IDs, plus a process ID. Those values will differ on your machine.
+Generated execution and process IDs differ between runs. `passed: true` means
+the example checked that two invoice tasks reused a healthy process, the
+workflow completed, and the callback receiver accepted its notifications. The
+workflow fetches four short pages, releases its worker slot while a summary task
+runs, then resumes to return the result.
 
-`passed: true` means the example checked that both invoice tasks reused the same healthy process, the workflow finished, and the callback receiver accepted the notifications. The workflow fetched four short pages, released its worker slot while a separate summary task ran, then resumed to return the result.
+Open [Console](http://127.0.0.1:8080/console/) to inspect the registered programs
+and recorded executions. Repeating `demo` uses fresh submission keys; publishing
+identical package bytes again is safe.
 
-You can run `demo` again: each invocation uses fresh submission keys. Publishing the same package bytes again is also safe.
+This walkthrough builds a local image tagged `ledgence:local`. That mutable tag
+is **not** a valid digest-pinned `program build` target. The beginner tutorials
+use the published runtime image instead; do not substitute this local tag into
+their program configuration.
 
-## 5. Keep the stack for the next tutorial
+## 5. Keep or stop the source stack
 
-Continue with [your first workflow](/tutorials/first-workflow) to submit the published workflow yourself and understand its two typed entrypoints. Use [Explore Ledgence Console](/tutorials/use-console) to inspect its recorded graph, trace, input, and output.
-
-When you finish, stop the local services:
+Stop the services from the same checkout:
 
 ```sh
-docker compose -f deploy/local/compose.yaml down --timeout 65
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml down --timeout 65
 ```
 
-This preserves the database, published packages, worker cache, and callback records in named volumes. Start them again with the same `up` command from step 2.
+This preserves the database, published programs, worker cache and callback
+records in named volumes. Start again with the same `up` command from step 3.
+Keep the environment file and project name consistent; the native CLI does not
+manage or upgrade this source-Compose deployment.
 
 ## If the example does not finish
 
-Read the service logs:
-
 ```sh
-docker compose -f deploy/local/compose.yaml logs --tail 100 orchestrator worker
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml logs --tail 100 orchestrator worker
 ```
 
-Confirm that the publication command completed and that no other application uses port 8080. To choose a different port, set `LEDGENCE_HTTP_PORT` before starting the stack and use that port for client connections.
+Check that publication succeeded and port 8080 is available. To use a different
+port, stop this stack, change `LEDGENCE_HTTP_PORT` in `ledgence-source.env`, and
+start it again; use the new port when opening Console or connecting a client.
+Keep concurrency 1 for the process-reuse assertion.
 
-Use the same source checkout, Compose project name, file list and port setting
-when restarting this stack. A native CLI update does not rebuild or upgrade a
-source Compose deployment. Before adopting retained data with a different
-source version, follow its upgrade guide and validate a database and
-program-store backup.
+The demo receiver stores at most 256 callback events. Repeated demonstrations
+can fill it; it is not a production callback service. The
+[source deployment reference](https://github.com/Ledgence/ledgence/blob/develop/docs/local-deployment.md)
+covers more options, including SQS-compatible delivery through ElasticMQ.
 
-The sample callback receiver has a capacity of 256 events. It is a bounded demonstration receiver; repeated testing can fill it. The [local deployment guide](https://github.com/Ledgence/ledgence/blob/develop/docs/local-deployment.md) covers its lifecycle and deployment options.
-
-**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.6.0/deploy/local/compose.yaml) · [Example assertions](https://github.com/Ledgence/ledgence/blob/v0.6.0/deploy/local/demo.py)
+**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.6.0/deploy/local/compose.yaml) ·
+[Example assertions](https://github.com/Ledgence/ledgence/blob/v0.6.0/deploy/local/demo.py)

@@ -1,101 +1,302 @@
 ---
 title: Run tasks in parallel
-description: Stage independent child tasks, wait for their terminal outcomes, and collect successful results.
+description: Reuse the greeting task for several names, wait durably for every child, and collect their results.
 ---
 
-Use distributed child tasks when work should run as independently scheduled executions, each with its own attempts and lease. Stage the children together, then return a checkpoint that waits for all of them.
+The [first workflow](/tutorials/first-workflow) requests one greeting task.
+This guide extends that pattern: submit several names, create one child task
+for each name, and collect the greetings when all children finish.
 
-For concurrent I/O inside one controller invocation, use `ctx.gather` with `ctx.local` instead. The [execution model](/concepts/execution-model) explains the difference.
+Use distributed tasks when each operation should have its own execution,
+attempts, and scheduling. For concurrent I/O inside one workflow activation,
+use `ctx.gather` with `ctx.local` instead. See the
+[execution model](/concepts/execution-model) for that distinction.
 
-For branches in the parent's exact package that can start while the parent continues local work, see [Mix local work and workflow branches](/how-to/fork-workflow-branches). Entrypoints and forks have been available since 0.2.0; that guide uses the current 0.6.0 release.
+## Before you start
 
-## Prerequisites
+Complete the task and workflow tutorials. Leave your local **0.6.0** stack
+running with `hello-ledgence@0.1.0` published and a worker consuming `demo`.
+This example reuses that task's `{"name": "Ledgence"}` input and
+`{"message": "Hello, Ledgence!"}` output.
 
-You need a running orchestrator and workers connected to the queues you choose. Publish the child program before submitting the controller, and package the controller with runtime protocol **3**.
+From the folder containing your tutorial projects, create another workflow:
 
-The example below uses the real `workflow-summary` program from [your first workflow](/tutorials/first-workflow). Its input is `{"pages": [...]}` and its output contains `pages` and `characters`. If using the local Compose stack, keep the queue as `demo`.
+```sh
+ledgence program new parallel-greetings --kind workflow
+cd parallel-greetings
+uv sync
+```
 
-## Stage the children and save their keys
+Open this project in your editor. Copy the entire `[target]` section from
+`hello-workflow/ledgence.toml` into this project's `ledgence.toml`, replacing
+the generated target. Both programs run on the same worker. Keep the new
+program ID `parallel-greetings`, application version `0.1.0`, and kind
+`workflow`.
 
-Use this as the controller module, with `program:handle` as its manifest handler. Publish it as a new program or version; it is not already included in the Compose example.
+## Request several children
 
-```python
+Replace **`parallel-greetings/program.py`** with:
+
+```python title="program.py"
+"""Request one greeting per name and collect the children in input order."""
 from enum import StrEnum
+
 from ledgence.worker.workflow import Workflow
+
 
 class Entry(StrEnum):
     START = "start"
     COLLECT = "collect"
 
+
 workflow = Workflow(Entry)
 
-@workflow.entrypoint(Entry.START, default=True)
-def start(event, ctx):
-    batches = event["data"]["batches"]
-    if len(batches) > 64:
-        return ctx.fail("too_many_batches", "Use at most 64 batches")
 
-    keys = [f"summary:{index}" for index in range(len(batches))]
+@workflow.entrypoint(Entry.START, default=True)
+async def start(event, ctx):
+    data = event["data"]
+    names = data.get("names") if isinstance(data, dict) else None
+    if not isinstance(names, list) or not 1 <= len(names) <= 64:
+        return ctx.fail("invalid_input", "Provide a list of 1 to 64 names.")
+    if any(
+        not isinstance(name, str) or not name.strip() or len(name) > 200
+        for name in names
+    ):
+        return ctx.fail(
+            "invalid_input", "Each name must contain 1 to 200 nonblank characters."
+        )
+
+    # Stable keys identify these logical children if this activation is retried.
+    keys = [f"greeting:{index}" for index in range(len(names))]
     children = [
         ctx.task(
             key,
-            program="workflow-summary",
-            version="1.0.0",
+            program="hello-ledgence",
+            version="0.1.0",
             queue="demo",
-            data={"pages": pages},
+            data={"name": name},
         )
-        for key, pages in zip(keys, batches)
+        for key, name in zip(keys, names)
     ]
+    # Save the keys explicitly; Python variables do not survive a durable wait.
     return ctx.suspend(
         continuation=Entry.COLLECT,
         state={"keys": keys},
         until=children,
     )
 
+
 @workflow.entrypoint(Entry.COLLECT)
-def collect(event, ctx):
+async def collect(event, ctx):
     keys = ctx.state["keys"]
     inputs = ctx.inputs
-    unsuccessful = [
-        key for key in keys
-        if inputs[key]["outcome"]["kind"] != "succeeded"
-    ]
-    if unsuccessful:
-        return ctx.fail("batch_failed", "A summary task did not succeed")
+    # Failed and cancelled children also satisfy the wait.
+    if any(inputs[key]["state"] != "succeeded" for key in keys):
+        return ctx.fail("greeting_failed", "A greeting task did not succeed.")
     return ctx.complete({
-        "summaries": [ctx.get_result(key) for key in keys],
+        "messages": [ctx.get_result(key)["message"] for key in keys],
     })
+
 
 handle = workflow.build()
 ```
 
-For example, submit the controller with:
+`ctx.task` describes each child; it does not wait for that child's result.
+Returning `ctx.suspend` saves the commands, child keys, and continuation in one
+checkpoint. Ledgence schedules the children and releases the parent's
+execution slot while it waits. `COLLECT` runs after **all** listed children
+reach a terminal state.
 
-```json
-{
-  "batches": [
-    ["First page", "Second page"],
-    ["Another page"]
-  ]
-}
+Saving the keys in input order makes the result order predictable, even if the
+children finish in a different order. Failed and cancelled children are
+checked before `ctx.get_result`, which only reads successful output.
+
+## Test the workflow decisions
+
+The scaffold's generated tests exercise its original greeting implementation.
+Replace **`tests/test_program.py`** with tests for these handlers:
+
+```python title="tests/test_program.py"
+"""Check workflow decisions locally before trying the real orchestrator."""
+import unittest
+from unittest.mock import Mock
+
+from program import Entry, collect, start
+
+
+class ProgramTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invalid_input_stages_no_children(self):
+        invalid_inputs = [
+            None,
+            {},
+            {"names": []},
+            {"names": ["Ada"] * 65},
+            {"names": [42]},
+            {"names": [" "]},
+            {"names": ["x" * 201]},
+        ]
+        for data in invalid_inputs:
+            with self.subTest(data=data):
+                ctx = Mock()
+                await start({"data": data}, ctx)
+                ctx.fail.assert_called_once()
+                self.assertEqual(ctx.fail.call_args.args[0], "invalid_input")
+                ctx.task.assert_not_called()
+                ctx.suspend.assert_not_called()
+
+    async def test_checkpoint_keeps_every_child_key(self):
+        for count in (1, 3, 64):
+            with self.subTest(count=count):
+                names = [f"Person {index}" for index in range(count)]
+                keys = [f"greeting:{index}" for index in range(count)]
+                ctx = Mock()
+                # Simple references let us inspect the saved wait decision.
+                ctx.task.side_effect = lambda key, **kwargs: key
+                await start({"data": {"names": names}}, ctx)
+                self.assertEqual(ctx.task.call_count, count)
+                for call, key, name in zip(ctx.task.call_args_list, keys, names):
+                    self.assertEqual(call.args, (key,))
+                    self.assertEqual(call.kwargs, {
+                        "program": "hello-ledgence",
+                        "version": "0.1.0",
+                        "queue": "demo",
+                        "data": {"name": name},
+                    })
+                ctx.suspend.assert_called_once_with(
+                    continuation=Entry.COLLECT, state={"keys": keys}, until=keys
+                )
+                ctx.fail.assert_not_called()
+
+    async def test_unsuccessful_child_does_not_read_results(self):
+        for state in ("failed", "cancelled"):
+            with self.subTest(state=state):
+                ctx = Mock()
+                ctx.state = {"keys": ["greeting:0", "greeting:1"]}
+                ctx.inputs = {
+                    "greeting:0": {"state": "succeeded"},
+                    "greeting:1": {"state": state},
+                }
+                await collect({}, ctx)
+                ctx.fail.assert_called_once_with(
+                    "greeting_failed", "A greeting task did not succeed."
+                )
+                ctx.get_result.assert_not_called()
+                ctx.complete.assert_not_called()
+
+    async def test_results_follow_saved_key_order(self):
+        ctx = Mock()
+        ctx.state = {"keys": ["greeting:0", "greeting:1"]}
+        ctx.inputs = {
+            "greeting:1": {"state": "succeeded"},
+            "greeting:0": {"state": "succeeded"},
+        }
+        outputs = {
+            "greeting:0": {"message": "Hello, Ada!"},
+            "greeting:1": {"message": "Hello, Linus!"},
+        }
+        ctx.get_result.side_effect = outputs.__getitem__
+        await collect({}, ctx)
+        ctx.complete.assert_called_once_with({
+            "messages": ["Hello, Ada!", "Hello, Linus!"],
+        })
+        ctx.fail.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-`workflow.build()` validates the registered entrypoints. The initial submission invokes `start`; the accepted checkpoint schedules `collect` after the children finish. Existing string-based controllers remain supported.
+Run the four tests from `parallel-greetings`:
 
-After packaging and publication, submit it through `client.workflows.submit(...)` using your controller's program ID and version. See the [Python client reference](/reference/python-client) for the submission fields and the [package contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md) for publication.
+```sh
+uv run python -m unittest discover -s tests -v
+```
 
-## Handle every terminal outcome
+These tests check input bounds, checkpoint contents, and result handling.
+The mock context does not schedule tasks or persist checkpoints. The next
+section exercises that behavior through your running Ledgence installation.
 
-`until=children` waits for **all** listed children to become terminal. Failed and cancelled children also satisfy the wait. Inspect `ctx.inputs` before reading successful output with `ctx.get_result`.
+## Publish and try it
 
-The example fails the whole workflow when a batch does not succeed. Your controller can instead store partial results or schedule a recovery task using a new child key.
+Build and publish from the `parallel-greetings` directory, as in the workflow
+tutorial:
+
+```sh
+ledgence program build
+ledgence program publish --server http://127.0.0.1:8080 --register
+```
+
+Create **`parallel-greetings/submit.py`**:
+
+```python title="submit.py"
+"""Ask the workflow to greet three people using the existing task program."""
+import asyncio
+
+from ledgence.client import AsyncClient
+
+
+async def main():
+    async with AsyncClient(
+        "http://127.0.0.1:8080", tenant="acme", namespace="demo"
+    ) as client:
+        workflow = await client.workflows.submit(
+            program="parallel-greetings",
+            version="0.1.0",
+            queue="demo",
+            data={"names": ["Ledgence", "Ada", "Linus"]},
+            idempotency_key="parallel-greetings-1",
+        )
+        print("Workflow:", workflow.id)
+        output = await workflow.result(timeout=60)
+        for message in output["messages"]:
+            print(message)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Run the file:
+
+```sh
+uv run python submit.py
+```
+
+After the workflow ID, expect:
+
+```text
+Hello, Ledgence!
+Hello, Ada!
+Hello, Linus!
+```
+
+Open the workflow in [Console](/tutorials/use-console) to inspect its three
+child tasks. Repeating this submission unchanged returns the same workflow.
+Choose a new idempotency key when changing the names or requesting another
+run. The 60-second timeout limits the client's wait; it does not cancel or
+resubmit the workflow.
 
 ## Choose capacity deliberately
 
-Tasks become eligible for independent scheduling after the checkpoint is accepted. They execute simultaneously only when matching workers have spare capacity. A worker with concurrency one runs them sequentially; the controller's durable wait does not occupy its slot.
+Children become eligible for scheduling after the checkpoint is accepted.
+They execute simultaneously only when matching workers have spare capacity.
+A worker with concurrency one runs them sequentially; the parent's durable
+wait does not occupy its slot.
 
-A checkpoint can stage at most 64 combined task/subworkflow commands and wait for at most 64 children. Its encoded decision must also fit within 256 KiB, so large page bodies can reach the byte limit earlier. Use references to application-managed storage for large inputs.
+A checkpoint can stage at most 64 combined task/subworkflow commands and wait
+for at most 64 children. Its encoded decision must also fit within 256 KiB.
+Use references to application-managed storage for larger inputs.
 
-Child keys belong to the whole workflow. Reuse a key only for the same child binding; use an iteration suffix such as `summary:round-2:0` when a loop should create new work.
+Child keys belong to the whole workflow. Reuse a key only for the same child
+binding. If a loop should create new work, include an iteration in its keys,
+such as `greeting:round-2:0`.
+
+This example fails the workflow if any greeting fails or is cancelled. A
+different application can collect partial results or schedule recovery work
+under new child keys.
+
+**Next:** [Mix local work and workflow branches](/how-to/fork-workflow-branches)
+for branches that use the parent's package and can start while it continues
+local work.
 
 **Related:** [Workflow context reference](/reference/workflow-context) · [Checkpoint contracts](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/workflows.md)
