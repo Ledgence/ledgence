@@ -100,7 +100,14 @@ The initial general allowlist is small:
 
 These are permissive terms compatible with the intended application model when their conditions are met. They are not identical licenses. For an `OR` expression, an allowed alternative may satisfy the choice; an `AND` expression requires all applicable terms. An SPDX exception such as `Apache-2.0 WITH LLVM-exception` is a distinct expression and must be reviewed before adding a narrow crate/version exception. Unknown or unapproved expressions fail the gate. License clarifications must be based on the actual files and pinned file hashes, not an inferred label.
 
-A narrowly scoped exception allows `CDLA-Permissive-2.0` for `webpki-root-certs` version `1.0.9`. This package supplies root-certificate data through the TLS verifier's WebAssembly target path in the all-target graph; it is not required by the currently tested Linux/macOS builds. Section 2.1 requires making the agreement text available with shared data, including modified data. It does not require publishing application source or displaying product branding. Keep the package's full license text with distributions that include this data. This review does not add CDLA to the general allowlist or approve later versions automatically. See the [CDLA-Permissive-2.0 agreement](https://cdla.dev/permissive-2-0/).
+A narrowly scoped exception allows `CDLA-Permissive-2.0` for `webpki-root-certs` version `1.0.10`. This package supplies root-certificate data through the TLS verifier's WebAssembly target path in the all-target graph; it is not required by the currently tested Linux/macOS builds. Section 2.1 requires making the agreement text available with shared data, including modified data. It does not require publishing application source or displaying product branding. Keep the package's full license text with distributions that include this data. This review does not add CDLA to the general allowlist or approve later versions automatically. See the [CDLA-Permissive-2.0 agreement](https://cdla.dev/permissive-2-0/).
+
+The 0.6.1 maintenance update also selects `rustls-webpki 0.103.16` (ISC).
+The actual published archives, manifests and license files for both updates
+were reviewed; package checksums and retained license texts are recorded in
+[the incremental inventory](../legal/third-party/release-0.6.1-notice-inventory.json).
+Neither update introduces a new dependency or changes the selected features.
+Release notice generation still inventories the complete distribution.
 
 Primary license texts: [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0), [ISC](https://opensource.org/license/isc), [BSD-3-Clause](https://opensource.org/license/bsd-3-clause), [Unicode-3.0](https://www.unicode.org/license.txt).
 
