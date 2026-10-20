@@ -6,7 +6,7 @@ tableOfContents: false
 
 <p class="ld-home-intro">Run Python programs on workers, combine them into workflows, and see each execution in your browser. Start with a greeting; no AI account or API key is needed.</p>
 
-<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.6.0</span> Versions and downloads <span aria-hidden="true">→</span></a>
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.6.1</span> Versions and downloads <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
@@ -61,8 +61,8 @@ and send requests; installing those packages alone does not start Ledgence.
 | Run a complete agent example | [Code review with Codex](/tutorials/codex-change-review) |
 
 Use [Manage your local stack](/how-to/run-local-distribution) for logs and
-restarts, and [Upgrade to 0.6.0](/how-to/upgrade-to-0-6) for an existing
+restarts, and [Upgrade to 0.6.1](/how-to/upgrade-to-0-6-1) for an existing
 installation. Detailed contracts live in [Reference](/reference/capabilities);
 [Concepts](/concepts/execution-model) explains how the pieces work together.
 
-<p class="ld-home-status">These guides target the published Ledgence 0.6.0 release. Ledgence is open source and self-hosted. Run programs you trust; worker processes are not a sandbox for hostile code.</p>
+<p class="ld-home-status">These guides target the published Ledgence 0.6.1 release. Ledgence is open source and self-hosted. Run programs you trust; worker processes are not a sandbox for hostile code.</p>

@@ -1,21 +1,21 @@
 # Registry packages
 
 The preserved `v0.3.0` source tag had no published registry packages or native
-distribution. Use the 0.6.0 versions below.
+distribution. Use the 0.6.1 versions below.
 
 Ledgence distributes a Python client and reusable Rust adapter contracts separately
 from native worker/orchestrator release bundles.
 
-The following packages are publicly available at **0.6.0**:
+The following packages are publicly available at **0.6.1**:
 
 | Registry | Package | Purpose |
 | --- | --- | --- |
-| PyPI | [`ledgence-client`](https://pypi.org/project/ledgence-client/0.6.0/) | Async task/workflow client; import `ledgence.client` |
-| PyPI | [`ledgence-worker`](https://pypi.org/project/ledgence-worker/0.6.0/) | Dependency-free program authoring helpers; import `ledgence.worker` |
-| crates.io | [`ledgence-worker-api`](https://crates.io/crates/ledgence-worker-api/0.6.0) | Worker execution, runtime, artifact and telemetry contracts |
-| crates.io | [`ledgence-orchestration-api`](https://crates.io/crates/ledgence-orchestration-api/0.6.0) | Task/workflow orchestration and delivery contracts |
+| PyPI | [`ledgence-client`](https://pypi.org/project/ledgence-client/0.6.1/) | Async task/workflow client; import `ledgence.client` |
+| PyPI | [`ledgence-worker`](https://pypi.org/project/ledgence-worker/0.6.1/) | Dependency-free program authoring helpers; import `ledgence.worker` |
+| crates.io | [`ledgence-worker-api`](https://crates.io/crates/ledgence-worker-api/0.6.1) | Worker execution, runtime, artifact and telemetry contracts |
+| crates.io | [`ledgence-orchestration-api`](https://crates.io/crates/ledgence-orchestration-api/0.6.1) | Task/workflow orchestration and delivery contracts |
 
-Native bundles for **0.6.0** include Console on Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64. The historical first native bundle remains **v0.1.0 for macOS arm64**.
+Native bundles for **0.6.1** include Console on Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64. The historical first native bundle remains **v0.1.0 for macOS arm64**.
 See the [release reference](https://docs.ledgence.com/reference/releases) for the
 artifact matrix. Package publication does not imply a native bundle exists for
 that version or platform. Public APIs may evolve before 1.0.
@@ -25,15 +25,15 @@ that version or platform. Public APIs may evolve before 1.0.
 In an active Python 3.11+ virtual environment:
 
 ```sh
-python -m pip install "ledgence-client==0.6.0"
+python -m pip install "ledgence-client==0.6.1"
 ```
 
 For Rust adapters, use Rust 1.98 or newer and add the contract you need:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "0.6.0"
-ledgence-orchestration-api = "0.6.0"
+ledgence-worker-api = "0.6.1"
+ledgence-orchestration-api = "0.6.1"
 ```
 
 Rust implementation crates and binaries have `publish = false`. Installing
@@ -44,15 +44,15 @@ See [dependency policy](dependencies.md).
 
 ## Install the worker helper for development
 
-`ledgence-worker==0.6.0` provides `ledgence.worker` for authoring and testing
+`ledgence-worker==0.6.1` provides `ledgence.worker` for authoring and testing
 programs in a Python 3.11+ application environment. It has no runtime dependencies.
 Use a version matching the deployed worker, as a development dependency:
 
 ```sh
-uv add --dev "ledgence-worker==0.6.0"
+uv add --dev "ledgence-worker==0.6.1"
 ```
 
-The pip alternative is `python -m pip install "ledgence-worker==0.6.0"` in the
+The pip alternative is `python -m pip install "ledgence-worker==0.6.1"` in the
 application's activated environment. Source installation remains available from
 `sdk/python`; the historical `v0.4.0` tag lacks this package's metadata. The helper
 does not install the CLI, services or client. The Rust worker supplies its own
@@ -168,7 +168,7 @@ unverified cache authorizes publication. Actions are pinned to commit revisions.
 See [CI qualification](ci.md) for suite coverage and retained timing evidence.
 
 For publication, select the matching annotated version tag, for example
-`v0.6.0`, and set `publish=true`. Rust and both Python versions must match that tag,
+`v0.6.1`, and set `publish=true`. Rust and both Python versions must match that tag,
 its commit must be contained in `main`, and checkout must be clean.
 The tag is prepared through the normal tested feature/develop/release Git flow;
 this workflow does not promote branches or create tags.
@@ -183,7 +183,7 @@ branch, dispatch it with GitHub CLI:
 gh workflow run publish.yml --ref develop -f publish=false
 
 # Publish an already qualified, annotated release tag.
-gh workflow run publish.yml --ref v0.6.0 \
+gh workflow run publish.yml --ref v0.6.1 \
   -f publish=true -f registry=both -f crates_auth=trusted
 ```
 

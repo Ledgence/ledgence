@@ -17,10 +17,10 @@ bundle, package, checksum, installer and kit has passed its download checks.
 See [CI qualification](ci.md) for the independent source and delivery suites,
 artifact reuse, timing evidence and exact-commit requirements.
 
-The current stable release is **0.6.0**, including functional Python project
-scaffolding, version-pinned development dependencies and improvements to Docker
-build cleanup and Console execution inspection. See the
-[0.6.0 release notes](releases/0.6.0.md). Its supported distributions passed
+The current stable release is **0.6.1**, with the Curvature identity and updated
+installation and first-program learning path, plus TLS certificate validation
+and trust-data updates. See the
+[0.6.1 release notes](releases/0.6.1.md). Its supported distributions passed
 qualification and public download verification. The historical 0.4.1 release
 also completed publication and is preserved as a stable version.
 
@@ -143,7 +143,7 @@ Check that:
 Only an explicitly selected, validated candidate should later be promoted to a
 stable version. The bundle tooling does not publish or promote `main`. Registry
 packages use the separate gated [registry release workflow](registry-packages.md).
-For 0.6.0, that workflow qualifies and publishes both `ledgence-client` and
+For 0.6.1, that workflow qualifies and publishes both `ledgence-client` and
 `ledgence-worker` under the `pypi` environment, then checks their downloaded bytes
 and fresh registry installation together. Keep each Python project's own trusted
 publisher configured; the exact identity and initial setup procedure are
@@ -153,7 +153,7 @@ package does not replace that runtime layout.
 Required legal notices do not require users to open-source their applications. See [dependency policy](dependencies.md) and
 [local image distribution boundaries](local-deployment.md#qualification-and-distribution-boundary).
 
-For 0.6.0, also retain program build/publication acceptance from the actual
+For 0.6.1, also retain program build/publication acceptance from the actual
 selected container image and matching CLI. It must prepare the native-dependency
 example for each qualified image architecture, verify immutable repetition and
 receipt recovery, execute it in the worker, and check persistence and execution
@@ -161,9 +161,9 @@ after restart. Fake builders and standalone package tests do not establish this
 runtime compatibility. A complete native bundle must include that release's
 verified local kit; installing it must not rewrite an existing saved installation.
 
-After all 0.6.0 distribution channels are verified, update the public installation
+After all 0.6.1 distribution channels are verified, update the public installation
 commands, package matrix, release notes and current-release descriptions together.
-Promote `programScaffolding` and refresh the other verified release features in
+Refresh the verified release features, including `programScaffolding`, in
 `docs-site/source-features.json` with the verified source tag and actual
 verification date, and update `docs-site/release.json` only to
 artifacts that really exist. Explain how existing operators enable the explicit
@@ -193,7 +193,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.6.0 --output /tmp/ledgence-stable
+  --version 0.6.1 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -220,10 +220,10 @@ and requires the selected archive's expected SHA256. Dispatch it on the matching
 annotated release tag after that commit is included in `main`:
 
 ```sh
-gh workflow run promote-bundle.yml --ref v0.6.0 \
+gh workflow run promote-bundle.yml --ref v0.6.1 \
   -f candidate_run=RUN_ID \
   -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
-  -f version=0.6.0
+  -f version=0.6.1
 ```
 
 It checks the clean tag identity and source-equivalent candidate, promotes the

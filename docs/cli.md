@@ -5,14 +5,14 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-**Release availability:** Ledgence **0.6.0** includes program builds, HTTP
+**Release availability:** Ledgence **0.6.1** includes program builds, HTTP
 publication and recovery receipts alongside the existing `local` commands and
 installed-resource defaults. See [program preparation and HTTP publication](#program-preparation-and-publication)
 and [installation and local startup](installation.md). Existing saved local
 installations retain their kit and image; updating a CLI alone does not upgrade
 services or enable uploads.
 
-Ledgence 0.6.0 includes `program new` for functional task and workflow projects.
+Ledgence 0.6.1 includes `program new` for functional task and workflow projects.
 See [create a Python program](#create-a-python-program).
 
 The unified executable replaces the command layout in the historical `v0.1.1` source tag and
@@ -52,7 +52,7 @@ explicit runtime configuration. See [observability](observability.md) and
 ## Command groups
 
 Use `ledgence <group> <command> --help` for the supported flags. These groups
-are available in 0.6.0.
+are available in 0.6.1.
 MCP requires its build feature.
 
 | Group | Commands | Purpose |
@@ -72,7 +72,7 @@ appropriate interface for the operation you need.
 
 ## Create a Python program
 
-**Available in Ledgence 0.6.0.** [Install the CLI](installation.md), or build
+**Available in Ledgence 0.6.1.** [Install the CLI](installation.md), or build
 `ledgence-cli` from matching source as shown above. Once the executable is on your
 `PATH`:
 
@@ -133,7 +133,7 @@ production dependencies and deployment.
 
 ## Local stack lifecycle
 
-A complete 0.6.0 installation supplies a versioned
+A complete 0.6.1 installation supplies a versioned
 `local/` distribution next to `bin/`; a source build can use `--distribution DIR`
 to select a separately qualified kit. Docker Engine or Docker Desktop must
 already be running Linux containers, with Docker Compose 2.23.1 or newer.
@@ -202,7 +202,7 @@ locations, platform support and the existing source deployment route.
 
 ## Installed resources
 
-Ledgence 0.6.0 locates resources relative to the actual executable, resolving
+Ledgence 0.6.1 locates resources relative to the actual executable, resolving
 symlink launchers first. Move the complete native bundle together; copying only
 `bin/ledgence` omits its runtime helper, Console assets and legal notices.
 
@@ -258,7 +258,7 @@ an explicit scoped operator operation through `orchestrator retain`.
 
 ## Program preparation and publication
 
-Use matching 0.6.0 CLI and server components. Enable the server writer explicitly;
+Use matching 0.6.1 CLI and server components. Enable the server writer explicitly;
 updating the CLI alone does not add upload capability to an existing stack.
 
 ```sh
@@ -340,5 +340,5 @@ tools. No worker, database, or model provider starts in the MCP process.
 See [MCP setup, tools and recovery](mcp.md).
 
 `--no-default-features` omits both MCP and OpenTelemetry. Add `--features mcp`
-to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.6.0 native bundle or build the matching source for MCP; earlier 0.2.0
+to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.6.1 native bundle or build the matching source for MCP; earlier 0.2.0
 binaries retain their original command set.

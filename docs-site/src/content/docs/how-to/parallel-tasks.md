@@ -14,7 +14,7 @@ use `ctx.gather` with `ctx.local` instead. See the
 
 ## Before you start
 
-Complete the task and workflow tutorials. Leave your local **0.6.0** stack
+Complete the task and workflow tutorials. Leave your local **0.6.1** stack
 running with `hello-ledgence@0.1.0` published and a worker consuming `demo`.
 This example reuses that task's `{"name": "Ledgence"}` input and
 `{"message": "Hello, Ledgence!"}` output.
@@ -299,4 +299,4 @@ under new child keys.
 for branches that use the parent's package and can start while it continues
 local work.
 
-**Related:** [Workflow context reference](/reference/workflow-context) · [Checkpoint contracts](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/workflows.md)
+**Related:** [Workflow context reference](/reference/workflow-context) · [Checkpoint contracts](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/workflows.md)

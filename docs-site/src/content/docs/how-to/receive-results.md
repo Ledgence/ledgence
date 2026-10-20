@@ -3,7 +3,7 @@ title: Receive results without keeping a client connected
 description: Choose bounded waiting, reconnect by execution ID, or durable completion webhooks for long-running tasks and workflows.
 ---
 
-Ledgence 0.6.0 supports both bounded client waiting and durable completion
+Ledgence 0.6.1 supports both bounded client waiting and durable completion
 subscriptions. Use waiting for an interactive caller; use a subscription when
 the application should receive a notification after disconnecting.
 
@@ -123,4 +123,4 @@ For waits **inside a workflow**, use durable joins, timers or
 [external-event waits](/how-to/wait-for-event), which release the worker slot.
 An application's HTTP callback subscription is a separate integration.
 
-**Source:** [Completion contract](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/completion-notifications.md) · [Result contract](https://github.com/Ledgence/ledgence/blob/develop/docs/task-results.md)
+**Source:** [Completion contract](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/completion-notifications.md) · [Result contract](https://github.com/Ledgence/ledgence/blob/develop/docs/task-results.md)

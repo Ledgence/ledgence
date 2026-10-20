@@ -9,7 +9,7 @@ next:
   link: /tutorials/first-task
 ---
 
-This method compiles the **command-line tool** from the Ledgence 0.6.0 source
+This method compiles the **command-line tool** from the Ledgence 0.6.1 source
 tag. The database, orchestrator, Console and worker still run from the published
 Docker images, so you can follow the same task and workflow tutorials afterward.
 
@@ -38,7 +38,7 @@ platform. The container kit supports `linux/amd64` and `linux/arm64`.
 In the directory where you keep projects:
 
 ```sh
-git clone --branch v0.6.0 --depth 1 https://github.com/Ledgence/ledgence.git ledgence-source
+git clone --branch v0.6.1 --depth 1 https://github.com/Ledgence/ledgence.git ledgence-source
 cd ledgence-source
 cargo install --path crates/ledgence-cli --locked
 ```
@@ -56,7 +56,7 @@ Check it directly:
 command -v ledgence
 ```
 
-The version should be **0.6.0**. `command -v` should identify the same Cargo
+The version should be **0.6.1**. `command -v` should identify the same Cargo
 installation. If another `ledgence` takes precedence, put Cargo's bin directory
 first for this terminal:
 
@@ -82,8 +82,8 @@ checkout, move back to its parent and create a separate installation folder:
 cd ..
 mkdir ledgence-local
 cd ledgence-local
-curl --fail --location --output ledgence-0.6.0-local.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.0/ledgence-0.6.0-local.tar.gz
-curl --fail --location --output ledgence-0.6.0-local.tar.gz.sha256 https://github.com/Ledgence/ledgence/releases/download/v0.6.0/ledgence-0.6.0-local.tar.gz.sha256
+curl --fail --location --output ledgence-0.6.1-local.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.1/ledgence-0.6.1-local.tar.gz
+curl --fail --location --output ledgence-0.6.1-local.tar.gz.sha256 https://github.com/Ledgence/ledgence/releases/download/v0.6.1/ledgence-0.6.1-local.tar.gz.sha256
 ```
 
 Check the downloaded archive with the command for your operating system:
@@ -91,19 +91,19 @@ Check the downloaded archive with the command for your operating system:
 **Linux:**
 
 ```sh
-sha256sum -c ledgence-0.6.0-local.tar.gz.sha256
+sha256sum -c ledgence-0.6.1-local.tar.gz.sha256
 ```
 
 **macOS:**
 
 ```sh
-shasum -a 256 -c ledgence-0.6.0-local.tar.gz.sha256
+shasum -a 256 -c ledgence-0.6.1-local.tar.gz.sha256
 ```
 
 Continue only after `OK`, then extract it:
 
 ```sh
-tar -xzf ledgence-0.6.0-local.tar.gz
+tar -xzf ledgence-0.6.1-local.tar.gz
 ```
 
 Use the **published kit**, not `deploy/distribution` from the checkout: that
@@ -114,7 +114,7 @@ source directory is a packaging template without a qualified runtime image.
 Stay in the `ledgence-local` directory containing the extracted kit:
 
 ```sh
-ledgence local up --distribution "$PWD/ledgence-0.6.0-local"
+ledgence local up --distribution "$PWD/ledgence-0.6.1-local"
 ledgence local status
 ```
 
@@ -142,5 +142,5 @@ ledgence local up
 and image: use a [separate state directory](/how-to/run-local-distribution#start-your-local-stack)
 if you already have one, rather than trying to replace its files.
 
-**Source:** [CLI package](https://github.com/Ledgence/ledgence/blob/v0.6.0/crates/ledgence-cli/Cargo.toml) ·
-[Rust toolchain](https://github.com/Ledgence/ledgence/blob/v0.6.0/rust-toolchain.toml)
+**Source:** [CLI package](https://github.com/Ledgence/ledgence/blob/v0.6.1/crates/ledgence-cli/Cargo.toml) ·
+[Rust toolchain](https://github.com/Ledgence/ledgence/blob/v0.6.1/rust-toolchain.toml)

@@ -3,7 +3,7 @@ title: Capabilities and availability
 description: Find published Ledgence capabilities, setup guides and operating limits.
 ---
 
-**0.6.0 is the current published release.** This page maps its capabilities to
+**0.6.1 is the current published release.** This page maps its capabilities to
 user guides and operating limits. The installer, native bundles, Python client,
 worker helper, Rust API crates, container images, and local kit belong to the
 same release.
@@ -13,7 +13,7 @@ then [Run your first task](/tutorials/first-task). This page is a feature map.
 
 ## Program authoring
 
-The 0.6.0 CLI creates functional task and workflow projects with both
+The 0.6.1 CLI creates functional task and workflow projects with both
 `ledgence-worker` and `ledgence-client` pinned as development dependencies.
 
 | Capability | Where to start |
@@ -25,12 +25,12 @@ building, publishing and execution remain explicit operations.
 
 ## Execution and composition
 
-| Capability in 0.6.0 | Where to start |
+| Capability in 0.6.1 | Where to start |
 | --- | --- |
 | Package Python code with prepared dependencies; fetch and cache immutable artifacts on demand. | [Register a program](/how-to/register-agent) |
 | Reuse a bounded process pool across programs, with one concurrency setting. | [Execution model](/concepts/execution-model) |
 | Submit tasks and workflows, inspect status/results, and request cancellation. | [Python client](/reference/python-client) and [CLI](/reference/cli) |
-| Find tasks by state, queue, business correlation and submission time, using bounded pagination. | [Task discovery contract](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/task-discovery.md) |
+| Find tasks by state, queue, business correlation and submission time, using bounded pagination. | [Task discovery contract](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/task-discovery.md) |
 | Compose workflows using typed entrypoints, explicit local steps, distributed tasks and owned subworkflows. | [Your first workflow](/tutorials/first-workflow) and [workflow context](/reference/workflow-context) |
 | Fork independently checkpointed branches, perform local work, and join selected branches. | [Mix local work and branches](/how-to/fork-workflow-branches) |
 | Suspend for tasks, timers or external events and resume without retaining a waiting worker process. | [Wait for an event](/how-to/wait-for-event) |
@@ -40,7 +40,7 @@ building, publishing and execution remain explicit operations.
 
 ## Inspection and integrations
 
-| Capability in 0.6.0 | Where to start |
+| Capability in 0.6.1 | Where to start |
 | --- | --- |
 | Browse Programs, Executions and Workers in the self-hosted Console. | [Explore Console](/tutorials/use-console) |
 | Inspect a workflow's recorded graph or trace view, and navigate into child executions. | [Console reference](/reference/console) |
@@ -49,7 +49,7 @@ building, publishing and execution remain explicit operations.
 | Export optional OTLP HTTP/protobuf traces and metrics, and write correlated Python logs. | [Configure observability](/how-to/configure-observability) |
 | Use integrated HTTP acquisition or the optional SQS Standard / ElasticMQ adapter. | [Queue delivery](/concepts/queue-delivery) |
 | Implement custom Rust ports and adapters without exposing provider SDK types in core contracts. | [Rust API packages](/reference/releases#rust-adapter-contracts) |
-| Preview and apply scoped, bounded retention cleanup after at least 90 days of terminal retention. | [Retention contract](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/retention.md) |
+| Preview and apply scoped, bounded retention cleanup after at least 90 days of terminal retention. | [Retention contract](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/retention.md) |
 
 Provider clients and agent frameworks belong to application packages. The
 [example catalog](https://github.com/Ledgence/ledgence/blob/develop/examples/README.md)
@@ -61,24 +61,24 @@ prerequisite of the corresponding live example, not of Ledgence self-hosting.
 
 | Method | Availability |
 | --- | --- |
-| One-line installer with persistent shell setup. | **Published 0.6.0.** [Install the CLI](/how-to/install-native#one-line-installation). |
-| Native archives for Linux x86_64/glibc and macOS Apple silicon. | **Published 0.6.0.** [Manual installation](/how-to/manual-native-installation). |
-| Python client on PyPI and two Rust API crates on crates.io. | **Published 0.6.0.** [Package reference](/reference/releases). These do not install the server stack. |
-| Docker Hub images for Linux amd64 and arm64, with a matching digest-pinned local kit. | **Published 0.6.0.** [CLI-managed installation](/how-to/install-native) or [direct Compose](/how-to/install-compose). |
-| Build the CLI from the released source tag and use the published runtime kit. | **Published 0.6.0 source.** [Compile the CLI](/how-to/build-cli-from-source). |
-| Build the local Docker Compose stack from source. | **Published 0.6.0 source.** [Source tutorial](/tutorials/run-locally). |
-| Install `ledgence.worker` in an application's environment for imports, editor support and local business-logic tests. | **Published 0.6.0 on PyPI.** [Develop Python programs](/how-to/develop-python-programs). Add `ledgence-worker` as a development dependency matching the worker. |
+| One-line installer with persistent shell setup. | **Published 0.6.1.** [Install the CLI](/how-to/install-native#one-line-installation). |
+| Native archives for Linux x86_64/glibc and macOS Apple silicon. | **Published 0.6.1.** [Manual installation](/how-to/manual-native-installation). |
+| Python client on PyPI and two Rust API crates on crates.io. | **Published 0.6.1.** [Package reference](/reference/releases). These do not install the server stack. |
+| Docker Hub images for Linux amd64 and arm64, with a matching digest-pinned local kit. | **Published 0.6.1.** [CLI-managed installation](/how-to/install-native) or [direct Compose](/how-to/install-compose). |
+| Build the CLI from the released source tag and use the published runtime kit. | **Published 0.6.1 source.** [Compile the CLI](/how-to/build-cli-from-source). |
+| Build the local Docker Compose stack from source. | **Published 0.6.1 source.** [Source tutorial](/tutorials/run-locally). |
+| Install `ledgence.worker` in an application's environment for imports, editor support and local business-logic tests. | **Published 0.6.1 on PyPI.** [Develop Python programs](/how-to/develop-python-programs). Add `ledgence-worker` as a development dependency matching the worker. |
 
 ## Program preparation and publication
 
-Ledgence 0.6.0 includes explicit Docker preparation for Linux worker
+Ledgence 0.6.1 includes explicit Docker preparation for Linux worker
 runtimes, immutable HTTP artifact uploads and saved retry receipts. Optional
 subsequent registration is bound to the exact uploaded descriptor. The existing
 filesystem publication path remains supported. See [Build and publish Python
 programs](/how-to/build-and-publish-programs) for prerequisites, configuration,
 limits and interrupted-operation recovery.
 
-These features require matching 0.6.0 CLI/server components and explicit server
+These features require matching 0.6.1 CLI/server components and explicit server
 write enablement. They are not silently added to existing saved local kits. Docker belongs to the local builder; prepared ZIP uploads need no
 Docker dependency on the server. Program identity remains global within each
 store, with one artifact per program ID and version; there is no multiarchitecture

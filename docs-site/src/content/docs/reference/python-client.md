@@ -5,7 +5,7 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers `ledgence-client` **0.6.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
+This reference covers `ledgence-client` **0.6.1**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
 ## Installation
 
@@ -13,13 +13,13 @@ A project created with `ledgence program new` already declares the client;
 run `uv sync` in that project. For an existing uv application, add it with:
 
 ```sh
-uv add "ledgence-client==0.6.0"
+uv add "ledgence-client==0.6.1"
 ```
 
-If you use pip instead, run `python -m pip install "ledgence-client==0.6.0"`
+If you use pip instead, run `python -m pip install "ledgence-client==0.6.1"`
 inside your application's activated virtual environment. Choose the command
 for your environment manager; do not run both. The optional `otel` extra is
-`ledgence-client[otel]==0.6.0` when your application needs tracing integration.
+`ledgence-client[otel]==0.6.1` when your application needs tracing integration.
 
 The client does not include a server, worker, or Python worker helper. Start a
 complete stack through [local installation](/getting-started/installation), then
@@ -161,4 +161,4 @@ Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="app
 
 A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.6.0/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.6.1/sdk/python-client/src/ledgence/client)

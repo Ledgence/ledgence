@@ -10,7 +10,7 @@ next:
 ---
 
 Choose this method if you want to operate Compose yourself. You will download
-the **0.6.0 local kit**, which pulls the released Ledgence image by its immutable
+the **0.6.1 local kit**, which pulls the released Ledgence image by its immutable
 digest. You do not clone the repository or build the runtime image.
 
 For a shorter setup managed by the CLI, choose
@@ -25,7 +25,7 @@ port.
 
 The commands below use a Bash, Zsh or POSIX terminal with `curl` and `tar`. They
 assume a fresh installation. If you already have local Ledgence data, read
-[the upgrade guide](/how-to/upgrade-to-0-6) before changing its kit or image.
+[the upgrade guide](/how-to/upgrade-to-0-6-1) before changing its kit or image.
 
 ## 1. Install the CLI for your programs
 
@@ -34,7 +34,7 @@ The Compose stack itself does not require a host CLI, but the next tutorials use
 native host, install it now:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.6.0/install.sh | sh -s -- --version 0.6.0
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.6.1/install.sh | sh -s -- --version 0.6.1
 . "$HOME/.local/share/ledgence/env"
 ledgence --version
 ```
@@ -55,8 +55,8 @@ In the directory where you keep local projects, create a new folder:
 ```sh
 mkdir ledgence-local
 cd ledgence-local
-curl --fail --location --output ledgence-0.6.0-local.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.0/ledgence-0.6.0-local.tar.gz
-curl --fail --location --output ledgence-0.6.0-local.tar.gz.sha256 https://github.com/Ledgence/ledgence/releases/download/v0.6.0/ledgence-0.6.0-local.tar.gz.sha256
+curl --fail --location --output ledgence-0.6.1-local.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.1/ledgence-0.6.1-local.tar.gz
+curl --fail --location --output ledgence-0.6.1-local.tar.gz.sha256 https://github.com/Ledgence/ledgence/releases/download/v0.6.1/ledgence-0.6.1-local.tar.gz.sha256
 ```
 
 Verify that the download matches the release checksum. Use **one** command for
@@ -65,20 +65,20 @@ your operating system:
 **Linux:**
 
 ```sh
-sha256sum -c ledgence-0.6.0-local.tar.gz.sha256
+sha256sum -c ledgence-0.6.1-local.tar.gz.sha256
 ```
 
 **macOS:**
 
 ```sh
-shasum -a 256 -c ledgence-0.6.0-local.tar.gz.sha256
+shasum -a 256 -c ledgence-0.6.1-local.tar.gz.sha256
 ```
 
 Continue only if the archive reports `OK`. Then extract it:
 
 ```sh
-tar -xzf ledgence-0.6.0-local.tar.gz
-cd ledgence-0.6.0-local
+tar -xzf ledgence-0.6.1-local.tar.gz
+cd ledgence-0.6.1-local
 ```
 
 Verify the extracted files, again using the command for your system:
@@ -101,7 +101,7 @@ the exact runtime image and Python version.
 
 ## 3. Start Ledgence
 
-Run these commands **inside `ledgence-0.6.0-local`**:
+Run these commands **inside `ledgence-0.6.1-local`**:
 
 ```sh
 docker compose --project-name ledgence-local --file compose.yaml pull
@@ -142,5 +142,5 @@ CLI-created project; they do not operate this direct Compose installation.
 For optional prebuilt example programs, follow the kit's `README.md`. To learn
 how to write your own code, follow the first task tutorial instead.
 
-**Source:** [0.6.0 release assets](https://github.com/Ledgence/ledgence/releases/tag/v0.6.0) ·
-[Local kit contract](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/container-distribution.md)
+**Source:** [0.6.1 release assets](https://github.com/Ledgence/ledgence/releases/tag/v0.6.1) ·
+[Local kit contract](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/container-distribution.md)

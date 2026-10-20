@@ -11,7 +11,7 @@ instead; the CLI does not adopt a separately created Compose project.
 
 A CLI-managed installation uses a verified, versioned Docker Compose kit.
 The kit pins the runtime image by digest and includes PostgreSQL, a migrator,
-the orchestrator with Console, and one worker. Ledgence 0.6.0 supports
+the orchestrator with Console, and one worker. Ledgence 0.6.1 supports
 `linux/amd64` and `linux/arm64` containers with CPython 3.14.
 
 ## Before you start
@@ -106,7 +106,7 @@ or execution history.
 
 There is no `local restore`, automatic stack upgrade, database rollback, or
 migration to another Docker engine. Validate a compatible restore before an
-explicit version upgrade. See [Upgrade to 0.6.0](/how-to/upgrade-to-0-6).
+explicit version upgrade. See [Upgrade to 0.6.1](/how-to/upgrade-to-0-6-1).
 
 ## Programs, examples, and direct Compose
 
@@ -116,7 +116,7 @@ not make one program ZIP portable across both architectures. The
 [first task tutorial](/tutorials/first-task) shows how to select that target,
 prepare a program and publish it.
 
-The 0.6.0 kit enables HTTP program publication and gives the orchestrator write
+The 0.6.1 kit enables HTTP program publication and gives the orchestrator write
 access to the shared program store. The worker reads that store. An older saved
 kit retains its original behavior even after you update the CLI.
 
@@ -141,5 +141,5 @@ built from a checkout, use the [advanced source walkthrough](/tutorials/run-loca
 These are separate lifecycle methods; do not mix their commands against one
 installation.
 
-**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.6.0/crates/ledgence-cli/src/local.rs) ·
+**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.6.1/crates/ledgence-cli/src/local.rs) ·
 [Distribution contract](https://github.com/Ledgence/ledgence/blob/develop/docs/container-distribution.md)

@@ -10,7 +10,7 @@ location yourself. For a first local stack, choose one of the
 
 ## Before you start
 
-Ledgence 0.6.0 publishes native archives for **Linux x86_64/glibc** and **macOS
+Ledgence 0.6.1 publishes native archives for **Linux x86_64/glibc** and **macOS
 Apple silicon**. Linux qualification uses Ubuntu 24.04. Other Linux distributions
 need compatible host libraries; the bundle's `candidate-provenance.json` records
 its dynamic requirements. There are no native Windows, Linux ARM64, macOS Intel,
@@ -27,8 +27,8 @@ Create a **new** directory in a location where you intend to keep the bundle:
 ```sh
 mkdir -p ~/tools
 cd ~/tools
-mkdir ledgence-0.6.0-download
-cd ledgence-0.6.0-download
+mkdir ledgence-0.6.1-download
+cd ledgence-0.6.1-download
 ```
 
 Choose the block for your host. Download checksums from the same release as the
@@ -38,17 +38,17 @@ lists more than one release file.
 **Linux x86_64/glibc:**
 
 ```sh
-curl --fail --location --output ledgence-0.6.0-x86_64-unknown-linux-gnu.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.0/ledgence-0.6.0-x86_64-unknown-linux-gnu.tar.gz
-curl --fail --location --output SHA256SUMS https://github.com/Ledgence/ledgence/releases/download/v0.6.0/SHA256SUMS
-grep '  ledgence-0.6.0-x86_64-unknown-linux-gnu.tar.gz$' SHA256SUMS | sha256sum -c
+curl --fail --location --output ledgence-0.6.1-x86_64-unknown-linux-gnu.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.1/ledgence-0.6.1-x86_64-unknown-linux-gnu.tar.gz
+curl --fail --location --output SHA256SUMS https://github.com/Ledgence/ledgence/releases/download/v0.6.1/SHA256SUMS
+grep '  ledgence-0.6.1-x86_64-unknown-linux-gnu.tar.gz$' SHA256SUMS | sha256sum -c
 ```
 
 **macOS Apple silicon:**
 
 ```sh
-curl --fail --location --output ledgence-0.6.0-aarch64-apple-darwin.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.0/ledgence-0.6.0-aarch64-apple-darwin.tar.gz
-curl --fail --location --output SHA256SUMS https://github.com/Ledgence/ledgence/releases/download/v0.6.0/SHA256SUMS
-grep '  ledgence-0.6.0-aarch64-apple-darwin.tar.gz$' SHA256SUMS | shasum -a 256 -c
+curl --fail --location --output ledgence-0.6.1-aarch64-apple-darwin.tar.gz https://github.com/Ledgence/ledgence/releases/download/v0.6.1/ledgence-0.6.1-aarch64-apple-darwin.tar.gz
+curl --fail --location --output SHA256SUMS https://github.com/Ledgence/ledgence/releases/download/v0.6.1/SHA256SUMS
+grep '  ledgence-0.6.1-aarch64-apple-darwin.tar.gz$' SHA256SUMS | shasum -a 256 -c
 ```
 
 Continue only after your archive reports `OK`. Extract it and verify all files
@@ -57,16 +57,16 @@ inside, again choosing your host's block.
 **Linux:**
 
 ```sh
-tar -xzf ledgence-0.6.0-x86_64-unknown-linux-gnu.tar.gz
-cd ledgence-0.6.0-x86_64-unknown-linux-gnu
+tar -xzf ledgence-0.6.1-x86_64-unknown-linux-gnu.tar.gz
+cd ledgence-0.6.1-x86_64-unknown-linux-gnu
 sha256sum -c SHA256SUMS
 ```
 
 **macOS:**
 
 ```sh
-tar -xzf ledgence-0.6.0-aarch64-apple-darwin.tar.gz
-cd ledgence-0.6.0-aarch64-apple-darwin
+tar -xzf ledgence-0.6.1-aarch64-apple-darwin.tar.gz
+cd ledgence-0.6.1-aarch64-apple-darwin
 shasum -a 256 -c SHA256SUMS
 ```
 
@@ -107,17 +107,17 @@ follow [Your first task](/tutorials/first-task).
 ## Install the Python client
 
 The native CLI and Python packages are separate. If your application calls the
-HTTP API, add `ledgence-client==0.6.0` to that application's existing environment.
+HTTP API, add `ledgence-client==0.6.1` to that application's existing environment.
 For example, from an existing uv project with Python 3.11+:
 
 ```sh
-uv add "ledgence-client==0.6.0"
+uv add "ledgence-client==0.6.1"
 ```
 
 For a pip-managed project, use its activated virtual environment:
 
 ```sh
-python -m pip install "ledgence-client==0.6.0"
+python -m pip install "ledgence-client==0.6.1"
 ```
 
 Choose your existing package manager; these are alternatives, not two required
@@ -141,7 +141,7 @@ installation. Prepare these resources first:
 | Worker | A separately installed CPython 3.11–3.14 interpreter, prepared programs matching its platform and Python major/minor, a private cache, and access to the program store and orchestration API. |
 | Console | The bundled static files, served by the orchestrator; no Node server is required. |
 
-Use the [PostgreSQL configuration guide](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/postgres.md)
+Use the [PostgreSQL configuration guide](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/postgres.md)
 and [HTTP orchestration guide](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md)
 for connection settings and worker startup. Those settings identify real
 infrastructure, so they are intentionally not supplied as local tutorial defaults.
@@ -167,7 +167,7 @@ and a writable filesystem store. Review the
 [publication requirements](/how-to/build-and-publish-programs#before-you-start)
 before enabling it. The example above does not start a worker or enable that writer.
 
-Before replacing existing services, follow [Upgrade to 0.6.0](/how-to/upgrade-to-0-6).
+Before replacing existing services, follow [Upgrade to 0.6.1](/how-to/upgrade-to-0-6-1).
 
-**Source:** [Release archives and checksums](https://github.com/Ledgence/ledgence/releases/tag/v0.6.0) ·
-[Bundle verification](https://github.com/Ledgence/ledgence/blob/v0.6.0/tools/release/verify.py)
+**Source:** [Release archives and checksums](https://github.com/Ledgence/ledgence/releases/tag/v0.6.1) ·
+[Bundle verification](https://github.com/Ledgence/ledgence/blob/v0.6.1/tools/release/verify.py)
