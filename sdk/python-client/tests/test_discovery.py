@@ -2,10 +2,11 @@ import asyncio
 from dataclasses import FrozenInstanceError
 import json
 import time
+import threading
 import unittest
 from unittest.mock import patch
 
-from aiohttp import web
+from aiohttp import StreamReader, web
 
 from ledgence.client import (
     AsyncClient, InputError, ProtocolError, RequestTimeout, TaskPage, TaskState,
@@ -243,26 +244,93 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(raised.exception.dispatched)
         self.assertEqual(self.requests, [])
 
-    async def test_list_deadline_includes_transfer_and_page_validation(self):
-        client = await self.open_client(request_timeout=.03)
+    async def assert_list_timeout_at_stage(self, entered):
+        loop = asyncio.get_running_loop()
+        timeouts = []
+        original_timeout = asyncio.timeout_at
 
-        async def delayed(request):
-            await asyncio.sleep(.1)
-            return response(self.reply)
+        def controlled_timeout(deadline):
+            if asyncio.current_task() not in self.client._transport._operations:
+                return original_timeout(deadline)
+            # Preserve real cancellation/mapping, but expire only after the
+            # stage under test starts, independent of HTTP/thread scheduling.
+            timeout = original_timeout(None)
+            timeouts.append(timeout)
+            return timeout
 
-        self.callback = delayed
-        with self.assertRaises(RequestTimeout) as raised:
-            await client.tasks.list()
-        self.assertTrue(raised.exception.dispatched)
-        self.callback = None
+        with patch("ledgence.client.transport.asyncio.timeout_at", controlled_timeout):
+            request = asyncio.create_task(self.client.tasks.list())
+            try:
+                await asyncio.wait_for(entered.wait(), 5)
+                self.assertEqual(len(timeouts), 1)
+                timeouts[0].reschedule(loop.time())
+                with self.assertRaises(RequestTimeout) as raised:
+                    await asyncio.wait_for(request, 5)
+                self.assertTrue(raised.exception.dispatched)
+                self.assertEqual(raised.exception.request_id, "request")
+                self.assertEqual(len(self.requests), 1)
+                self.assertFalse(self.client._transport._operations)
+            finally:
+                if not request.done():
+                    request.cancel()
+                await asyncio.gather(request, return_exceptions=True)
+
+    async def test_list_deadline_includes_response_body_transfer(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        original_chunks = StreamReader.iter_chunked
+
+        async def streaming(request):
+            reply = web.StreamResponse(headers={
+                "Content-Type": "application/json", "Request-Id": "request",
+            })
+            await reply.prepare(request)
+            await reply.write(b'{"items":[')
+            await release.wait()
+            try:
+                await reply.write(b'],"next_cursor":null}')
+                await reply.write_eof()
+            except ConnectionError:
+                pass
+            return reply
+
+        async def observed_chunks(reader, size):
+            async for chunk in original_chunks(reader, size):
+                yield chunk
+                # The client consumed the first chunk and is about to wait
+                # for the rest of the body, so expiry tests transfer itself.
+                entered.set()
+
+        self.callback = streaming
+        with patch.object(StreamReader, "iter_chunked", observed_chunks), \
+                patch.object(discovery._TaskQuery, "parse") as parse:
+            try:
+                await self.assert_list_timeout_at_stage(entered)
+                parse.assert_not_called()
+            finally:
+                release.set()
+
+    async def test_list_deadline_includes_page_validation(self):
+        loop = asyncio.get_running_loop()
+        entered = asyncio.Event()
+        release = threading.Event()
+        parsed = threading.Event()
         original = discovery._TaskQuery.parse
 
-        def delayed_parse(query, raw, scope):
-            time.sleep(.1)
-            return original(query, raw, scope)
+        def blocked_parse(query, raw, scope):
+            loop.call_soon_threadsafe(entered.set)
+            release.wait()
+            result = original(query, raw, scope)
+            parsed.set()
+            return result
 
-        with patch.object(discovery._TaskQuery, "parse", delayed_parse):
-            with self.assertRaises(RequestTimeout) as raised:
-                await client.tasks.list()
-        self.assertTrue(raised.exception.dispatched)
-        self.assertEqual(len(self.requests), 2)
+        with patch.object(discovery._TaskQuery, "parse", blocked_parse):
+            try:
+                await self.assert_list_timeout_at_stage(entered)
+                self.assertFalse(parsed.is_set())
+                self.assertEqual(len(self.client._transport._codec._pending), 1)
+            finally:
+                release.set()
+                await asyncio.wait_for(self.client.close(), 5)
+        self.assertTrue(parsed.is_set())
+        self.assertFalse(self.client._transport._codec._pending)
