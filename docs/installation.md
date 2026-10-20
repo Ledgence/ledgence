@@ -2,7 +2,7 @@
 
 Start with [Choose a local installation](https://docs.ledgence.com/getting-started/installation).
 Choose one route; each gives you an API, Console, PostgreSQL and a Python worker.
-The guides target the published **Ledgence 0.6.0** release.
+The guides target the published **Ledgence 0.6.1** release.
 
 ## Choose what to install
 
@@ -44,7 +44,7 @@ This installs the CLI and its matching kit, not Docker or application dependenci
 ## Pin a version or use a custom installation
 
 Use the [installer options](https://docs.ledgence.com/how-to/install-native#shell-setup-and-installer-options)
-for exact versions and custom prefixes. The tutorials use 0.6.0 components.
+for exact versions and custom prefixes. The tutorials use 0.6.1 components.
 For manual checksums and archive extraction, follow
 [manual native installation](https://docs.ledgence.com/how-to/manual-native-installation).
 
@@ -166,7 +166,7 @@ For an existing application that submits work, add the client to that applicatio
 environment with its package manager. For a uv project:
 
 ```sh
-uv add "ledgence-client==0.6.0"
+uv add "ledgence-client==0.6.1"
 ```
 
 The [client README](../sdk/python-client/README.md) and
@@ -178,7 +178,7 @@ optional tracing and the API. Installing a client does not start a server or wor
 For an existing Python program project:
 
 ```sh
-uv add --dev "ledgence-worker==0.6.0"
+uv add --dev "ledgence-worker==0.6.1"
 ```
 
 The helper provides `ledgence.worker` imports and types for your editor and

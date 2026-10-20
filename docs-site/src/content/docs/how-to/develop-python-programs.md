@@ -8,14 +8,14 @@ Install `ledgence-worker` in your application's development environment to use
 writing programs. The helper uses only the Python standard library. The separate
 [`ledgence-client`](/reference/python-client) submits and observes executions.
 
-**Available in Ledgence 0.6.0.** Install a helper version matching the deployed
+**Available in Ledgence 0.6.1.** Install a helper version matching the deployed
 worker. The package does not install a CLI, service or local workflow execution
 harness; invocation context still requires execution by Ledgence.
 
 ## Create a project with the CLI
 
-**Available in Ledgence 0.6.0.** [Install the CLI](/how-to/install-native) and
-ensure `ledgence --version` reports 0.6.0. Source builds remain available through
+**Available in Ledgence 0.6.1.** [Install the CLI](/how-to/install-native) and
+ensure `ledgence --version` reports 0.6.1. Source builds remain available through
 the [CLI reference](/reference/cli#build-and-inspect).
 
 For the development and test commands below, install Python 3.11 or newer and
@@ -90,7 +90,7 @@ Use Python 3.11 or newer and your application's existing environment and package
 manager. From an existing uv project:
 
 ```sh
-uv add --dev "ledgence-worker==0.6.0"
+uv add --dev "ledgence-worker==0.6.1"
 uv run python -c "from ledgence.worker.workflow import Workflow; from ledgence.worker import current_invocation; print('worker imports ready')"
 ```
 
@@ -98,7 +98,7 @@ Select the project's `.venv` interpreter in your editor; no `PYTHONPATH` is need
 For pip, activate the application's existing virtual environment and run:
 
 ```sh
-python -m pip install "ledgence-worker==0.6.0"
+python -m pip install "ledgence-worker==0.6.1"
 python -c "from ledgence.worker.workflow import Workflow; print('worker imports ready')"
 ```
 
@@ -179,7 +179,7 @@ automatically a deployable program artifact. Publish code and prepared runtime
 dependencies as an immutable program with handler `program:handle` and runtime
 protocol **3**. The worker does not install dependencies during execution.
 
-Ledgence 0.6.0 offers an explicit Docker preparation adapter and
+Ledgence 0.6.1 offers an explicit Docker preparation adapter and
 HTTP publication with saved retry receipts. Follow [Build and publish Python
 programs](/how-to/build-and-publish-programs) when both CLI and server support it.
 It requires a target and digest-pinned worker runtime image and never infers a

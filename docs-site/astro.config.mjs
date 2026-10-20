@@ -60,12 +60,13 @@ export default defineConfig({
       { label: 'Operate your installation', collapsed: true, items: [
         { label: 'Manage the local stack', slug: 'how-to/run-local-distribution' },
         { label: 'Configure observability', slug: 'how-to/configure-observability' },
-        { label: 'Upgrade to 0.6.0', slug: 'how-to/upgrade-to-0-6' },
+        { label: 'Upgrade to 0.6.1', slug: 'how-to/upgrade-to-0-6-1' },
         { label: 'Advanced setup', collapsed: true, items: [
           { label: 'Manual archives and native services', slug: 'how-to/manual-native-installation' },
           { label: 'Build the full stack from source', slug: 'tutorials/run-locally' },
         ] },
         { label: 'Earlier upgrades', collapsed: true, items: [
+          { label: 'Upgrade to 0.6.0', slug: 'how-to/upgrade-to-0-6' },
           { label: 'Upgrade to 0.5.0', slug: 'how-to/upgrade-to-0-5' },
           { label: 'Upgrade to 0.4.0', slug: 'how-to/upgrade-to-0-4' },
           { label: 'Upgrade to 0.3.1', slug: 'how-to/upgrade-to-0-3' },

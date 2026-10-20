@@ -36,17 +36,17 @@ and [worker helper](sdk/python/README.md) separately; those packages do not star
 a Ledgence instance. Detailed installation options are in
 [the installation guide](docs/installation.md).
 
-**Ledgence 0.6.0** adds functional Python task and workflow scaffolding with
-version-pinned authoring and client dependencies. It fixes Docker build cleanup
-and Console checkpoint navigation and trace rendering, and updates the TLS and
-archive dependencies. Program builds, immutable publication and recovery receipts
-remain available. The CLI, Console, client, worker helper and Rust API crates
-share version **0.6.0**. Native bundles target **Linux x86_64/glibc** and
+**Ledgence 0.6.1** introduces the Curvature identity and a guided path from
+local installation to a first task and workflow, and updates TLS certificate
+validation and trust data. It retains the functional
+Python scaffolding, program builds and publication, and recovery capabilities
+of the 0.6 series. The CLI, Console, client, worker helper and Rust API crates
+share version **0.6.1**. Native bundles target **Linux x86_64/glibc** and
 **macOS arm64** and include a matching digest-pinned local kit; container runtimes
 support Linux amd64 and arm64. The one-line installer and `ledgence local` remain
 available. Action-bound approvals, model/tool recovery and MCP were introduced
-in 0.3.1. See the [release notes](docs/releases/0.6.0.md),
-[upgrade guidance](docs/releases/0.6.0.md#upgrade-and-operating-scope) and
+in 0.3.1. See the [release notes](docs/releases/0.6.1.md),
+[upgrade guidance](docs/releases/0.6.1.md#upgrade-and-operating-scope) and
 [release reference](https://docs.ledgence.com/reference/releases). Before 1.0,
 public APIs may evolve; pin versions and review changes before upgrading.
 
@@ -147,7 +147,7 @@ lives beside the implementation so documentation can evolve with the code.
 
 ## Create a Python program
 
-Start a minimal Python application with the installed Ledgence 0.6.0 CLI,
+Start a minimal Python application with the installed Ledgence 0.6.1 CLI,
 Python 3.11 or newer and uv. Run these commands in your application workspace:
 
 ```sh
@@ -242,7 +242,7 @@ collapsible sidebar and light, dark or system appearance keep the same operator
 views usable across screen sizes. Registered programs and worker process slots
 connect package identity and observed capacity to the work you are inspecting.
 
-Console ships in the 0.6.0 native bundles and the published container runtime.
+Console ships in the 0.6.1 native bundles and the published container runtime.
 The [source Compose deployment](docs/local-deployment.md) remains available.
 Publish and register the local examples, then open `http://127.0.0.1:8080/console/`. The
 [guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through

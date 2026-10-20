@@ -9,7 +9,7 @@ An event supplies application input. To authorize an immutable action and its ex
 
 ## Prerequisites
 
-Start a 0.6.0 instance through [local installation](/getting-started/installation). The [first workflow](/tutorials/first-workflow) covers creating and publishing a controller. Package your controller with runtime protocol **3**, publish it, and connect a worker to its queue. To send events, use the [Python client](/reference/python-client) with the same server, tenant, and namespace as the workflow.
+Start a 0.6.1 instance through [local installation](/getting-started/installation). The [first workflow](/tutorials/first-workflow) covers creating and publishing a controller. Package your controller with runtime protocol **3**, publish it, and connect a worker to its queue. To send events, use the [Python client](/reference/python-client) with the same server, tenant, and namespace as the workflow.
 
 Save the controller below as `program.py` in a new workflow project, with `program:handle` as its manifest handler. Build and publish that project before submitting it. It is not a preinstalled example.
 
@@ -106,4 +106,4 @@ An event must be accepted strictly before an installed deadline to win. At or af
 
 Complete encoded events are limited to 64 KiB. Wait keys and event IDs are limited to 128 UTF-8 bytes. See the [workflow context reference](/reference/workflow-context) for duration and activation limits.
 
-**Source:** [External event contract](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/workflow-events.md) · [Client event API](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#external-workflow-events)
+**Source:** [External event contract](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/workflow-events.md) · [Client event API](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#external-workflow-events)

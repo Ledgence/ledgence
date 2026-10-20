@@ -11,7 +11,7 @@ For your first application, choose [a local installation](/getting-started/insta
 and start with [Hello Ledgence](/tutorials/first-task). Those routes use released
 runtime images and teach you to write your own program.
 
-Here you will build the `v0.6.0` source release in Docker. Its Compose deployment
+Here you will build the `v0.6.1` source release in Docker. Its Compose deployment
 includes a database, orchestrator, Console, worker and callback receiver. It is
 a separate project from an installation managed by `ledgence local` or the
 published kit. Stop another stack before reusing port 8080.
@@ -24,7 +24,7 @@ by the container build; they do not need to be installed on your host.
 
 Allow additional time and disk space for the first build. It downloads pinned
 base images, Rust dependencies and frontend dependencies. Use a fresh deployment
-for this walkthrough; follow [Upgrade to 0.6.0](/how-to/upgrade-to-0-6) before
+for this walkthrough; follow [Upgrade to 0.6.1](/how-to/upgrade-to-0-6-1) before
 adopting retained data from another version.
 
 ## 1. Get the source
@@ -32,7 +32,7 @@ adopting retained data from another version.
 In the directory where you keep projects:
 
 ```sh
-git clone --branch v0.6.0 --depth 1 https://github.com/Ledgence/ledgence.git ledgence-source
+git clone --branch v0.6.1 --depth 1 https://github.com/Ledgence/ledgence.git ledgence-source
 cd ledgence-source
 ```
 
@@ -160,5 +160,5 @@ can fill it; it is not a production callback service. The
 [source deployment reference](https://github.com/Ledgence/ledgence/blob/develop/docs/local-deployment.md)
 covers more options, including SQS-compatible delivery through ElasticMQ.
 
-**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.6.0/deploy/local/compose.yaml) ·
-[Example assertions](https://github.com/Ledgence/ledgence/blob/v0.6.0/deploy/local/demo.py)
+**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.6.1/deploy/local/compose.yaml) ·
+[Example assertions](https://github.com/Ledgence/ledgence/blob/v0.6.1/deploy/local/demo.py)

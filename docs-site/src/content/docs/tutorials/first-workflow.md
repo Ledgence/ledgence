@@ -13,7 +13,7 @@ coordinates when to continue. Our workflow has two entrypoints: **start** and
 
 ## Before you start
 
-Complete [Run your first task](/tutorials/first-task). Leave the local **0.6.0**
+Complete [Run your first task](/tutorials/first-task). Leave the local **0.6.1**
 stack running and `hello-ledgence@0.1.0` published. Keep your editor open; you
 will create a second project beside the first one.
 

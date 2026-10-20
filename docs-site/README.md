@@ -30,9 +30,9 @@ The site provides Diátaxis learning paths and release installation guidance. Th
 
 Keep `release.json` tied to the verified public release. Record each public source feature in `source-features.json` with its verified release ref/date and guide. Future unreleased features use `availability: development` and a guide that states the prerequisites. The generated `source.json` and `llms.txt` retain this distinction. Do not advance release versions or qualification dates because a documentation build succeeds. At release time, verify the installer, native bundles, matching kit and public images before changing their availability or promoting the one-line installation path.
 
-The `v0.6.0` source tag freezes the implementation and its preparation-time
+The `v0.6.1` source tag freezes the implementation and its preparation-time
 documentation. Post-publication guides in this checkout reflect verified release
-availability. Implementation links remain pinned to `v0.6.0`; references to
+availability. Implementation links remain pinned to `v0.6.1`; references to
 updated repository guides use `develop`. Generated `public/source.json` records
 the exact documentation build revision separately from the product release
 revision. Keep historical release notes, versioned upgrade guides and pinned

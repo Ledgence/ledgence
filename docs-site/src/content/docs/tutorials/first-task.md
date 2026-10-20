@@ -14,7 +14,7 @@ asks a worker to run it.
 ## Before you start
 
 - Complete one of the [local installation paths](/getting-started/installation)
-  and leave the Ledgence **0.6.0** stack running at `http://127.0.0.1:8080`.
+  and leave the Ledgence **0.6.1** stack running at `http://127.0.0.1:8080`.
   The three paths lead to the same starting point for this lesson.
 - Have Python **3.11 or newer** and
   [uv](https://docs.astral.sh/uv/getting-started/installation/) installed on your
@@ -25,7 +25,7 @@ asks a worker to run it.
 
 You do not need a model provider, an API key, Rust, or a clone of the Ledgence
 repository. If you have an older saved local stack, follow the
-[upgrade guide](/how-to/upgrade-to-0-6) first; installing a newer CLI alone does
+[upgrade guide](/how-to/upgrade-to-0-6-1) first; installing a newer CLI alone does
 not upgrade its running services.
 
 ## 1. Create a project
@@ -115,10 +115,10 @@ unchanged.
 platform = "linux/amd64"
 python = "3.14"
 protocol = 3
-image = "docker.io/ledgence/ledgence@sha256:8ec977f455daab3b7b039b48d4c6bcdb73c84bc29b7e2a71d2a4cbeeb9519e05"
+image = "docker.io/ledgence/ledgence@sha256:baffb9d9a84bd811e14ffdd7c3e02a36c5c6294eba0bc39cb50aa652ddb3216a"
 ```
 
-The image digest selects the exact published **0.6.0** runtime used by the local
+The image digest selects the exact published **0.6.1** runtime used by the local
 installation. Python `3.14` here describes the worker, not a requirement to
 change the Python version in your editor. This one-time configuration lets the
 builder prepare files for the right worker. For a different deployment, use
@@ -138,7 +138,7 @@ that package to your local instance and registers it in Console. Both commands
 print JSON reports when they succeed. Neither command runs the task.
 
 Your program is now **`hello-ledgence` version `0.1.0`**. That is your
-application's version; it is independent of Ledgence's `0.6.0` version. Leave
+application's version; it is independent of Ledgence's `0.6.1` version. Leave
 this terminal in the project directory for the next step.
 
 ## 5. Submit the task from a Python file
