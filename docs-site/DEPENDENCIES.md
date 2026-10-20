@@ -1,6 +1,6 @@
 # Documentation dependency review
 
-Reviewed 2026-09-22 against `package-lock.json`: 374 locked packages, including optional platform variants. The initial macOS ARM64 installation contained 271 packages. Package totals can differ across platforms; the lockfile and generated manifest are authoritative.
+Reviewed 2026-10-20 against `package-lock.json`: 374 locked packages, including optional platform variants. The initial macOS ARM64 installation contained 271 packages. Package totals can differ across platforms; the lockfile and generated manifest are authoritative.
 
 ## Purpose and boundaries
 
@@ -27,9 +27,44 @@ Additional licenses are accepted only for the exact package/version/expression e
 - `argparse@2.0.1`: Python-2.0. Preserve the full bundled Python license history and terms. The parser is unmodified documentation tooling; the terms do not require proprietary application source disclosure.
 - `tslib@2.8.1`: 0BSD. A permissive license used by optional build-tool WebAssembly support. This review does not add 0BSD to the general allowlist.
 - `lightningcss@1.33.0` and its matching native variants: MPL-2.0. This CSS transformation tool runs during the build. Its implementation is not part of the generated site or Ledgence product. MPL remains applicable to the tool's covered files; copying or distributing those files requires a new review. [MPL terms](https://www.mozilla.org/en-US/MPL/2.0/)
-- `@img/sharp-libvips-* @1.3.3`, plus the locked Sharp Windows/WebAssembly variants at 0.35.4: LGPL-3.0-or-later or the original compound expression. These are image-processing tools, not website runtime dependencies. Every term in an `AND` expression is retained; none is treated as an alternative. The original libvips `README.md` license table and `versions.json` identify its bundled libraries, including LGPL, MPL, font, image-codec, and patent terms. [Matching source/build recipes](https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9)
+- `@img/sharp-libvips-* @1.3.4`, plus the locked Sharp Windows/WebAssembly variants at 0.35.5: LGPL-3.0-or-later or the original compound expression. These are image-processing tools, not website runtime dependencies. Every term in an `AND` expression is retained; none is treated as an alternative. The original libvips `README.md` license table and `versions.json` identify its bundled libraries, including LGPL, MPL, font, image-codec, and patent terms. [Matching source/build recipes](https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7)
 
 These limited tooling uses do not place Ledgence applications or generated HTML/CSS/images under MPL or LGPL. This is not a blanket approval for those licenses, nor a legal bundle for redistributing the build tools. Shipping tool binaries, embedding their implementation in client assets, modifying them, or linking them into Ledgence requires reviewing source-offer, relinking, modification, and notice obligations before making that change. Only static site files are distributed here.
+
+### 0.6.1 build dependency maintenance
+
+The direct Astro, Starlight and font versions remain unchanged. Matching npm
+and pnpm overrides select the following reviewed transitive versions:
+
+| Package | Version | Reason and primary source |
+| --- | --- | --- |
+| http-cache-semantics | 4.3.0 | Refresh the cache-policy implementation beyond the affected `<=4.2.0` range: [GHSA-ch52-4w7c-c8xp](https://github.com/advisories/GHSA-ch52-4w7c-c8xp), [selected source](https://github.com/kornelski/http-cache-semantics/tree/b1d4bd682fbab0252985de45219f4e7497c0067c). |
+| postcss-selector-parser | 7.1.6 | Fix quadratic selector parsing: [GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf). |
+| Sharp / bundled libvips | 0.35.5 / 1.3.4 | The published bundle includes librsvg 2.63.2: [Sharp advisory](https://github.com/lovell/sharp/security/advisories/GHSA-wq5f-xc86-pv6w), [release](https://github.com/lovell/sharp/releases/tag/v0.35.5). |
+| smol-toml | 1.9.1 | Fix quadratic key scanning, with the follow-up patch: [GHSA-r4xh-jqrq-34v2](https://github.com/advisories/GHSA-r4xh-jqrq-34v2), [release](https://github.com/squirrelchat/smol-toml/releases/tag/v1.9.1). |
+| Vite | 8.3.4 | Includes corrected Windows editor argument escaping: [GHSA-698v-4r3x-3vcv](https://github.com/advisories/GHSA-698v-4r3x-3vcv), [release](https://github.com/vitejs/vite/releases/tag/v8.3.4). |
+
+Expressive Code 0.44.2 still requests `postcss-nested ^6.0.1`, whose 6.2.0
+release requests selector-parser 6. The override is scoped to that exact
+`postcss-nested@6.2.0` parent and selects parser 7.1.6. This deliberately crosses
+its declared parser major range; it does not upgrade or downgrade Starlight,
+Expressive Code or nested. The parser's 7.0 change makes insertions during
+iteration safe, so nested's selector mutation needs compatibility verification.
+All 69 upstream [nested 6.2.0 fixtures](https://github.com/postcss/postcss-nested/blob/6.2.0/index.test.js)
+passed against this selection, using Node's built-in test runner in a private
+review copy, along with the documentation tests and full static build. Revisit
+this scoped override when Expressive Code adopts a corrected parser normally.
+
+Vite's compatible PostCSS, Nano ID, Rolldown and OXC type dependencies also move
+within their existing permitted ranges. The lock retains the same 374 package
+paths, including optional platform variants, and introduces no new dependency
+names or license expressions. Changed JavaScript packages retain MIT,
+BSD-2-Clause or BSD-3-Clause terms; Sharp retains Apache-2.0. Its native variants
+retain their original compound expressions. The libvips component table and
+version inventory remain build-tool provenance; the selected archive includes
+librsvg 2.63.2 and retains the reviewed LGPL/MPL and other component terms.
+The exact identities in `scripts/licenses.mjs` are refreshed without broadening
+the general license allowlist. No tool binary is added to the static output.
 
 ### Upstream declarations without full license text
 

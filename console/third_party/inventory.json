@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "lockfile_sha256": "3a3beaebb90ccd938483705d2f40b94eff84907f54c8818f817421c185b17a7c",
+  "lockfile_sha256": "fda21d8c395bbba8a0270ce0561383a451d914409f7cde17fdb73bab00e7c45e",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -6064,20 +6064,20 @@
     },
     {
       "name": "vite",
-      "version": "7.3.6",
+      "version": "7.3.7",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitejs/vite.git",
         "directory": "packages/vite"
       },
-      "archive": "https://registry.npmjs.org/vite/-/vite-7.3.6.tgz",
-      "integrity": "sha512-4XP60spRGjSZFf1qYH+dJIkK2znL3zQfl9KkOV9MkkRR/3Dls0dxaBsQPTloEc5BLXWPL9vsOxopxyKoMmDueg==",
-      "sha256": "c90bd3ea5e6a301d6aac20d22b314fad893a7ac7b010b91a4ac65bb68dd947a6",
+      "archive": "https://registry.npmjs.org/vite/-/vite-7.3.7.tgz",
+      "integrity": "sha512-AHEzTORMbi7/7aXp7w7KZ5+DCUdSeLsJz0grY8xHpc9DHdYb0vQu6DqJfm2tOw3gDExNgPgnJTXxM6syYFHaCA==",
+      "sha256": "61819c1c5e0b526a012b39b5d4dfb9d10875ced139554f9105a8999990ce7b08",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/vite@7.3.6/LICENSE.md",
+          "file": "third_party/packages/vite@7.3.7/LICENSE.md",
           "archive_path": "package/LICENSE.md",
           "sha256": "a77a1c089806b39ad339535bdf3677f636c91d96693e8ad7b11fe733f650ea64"
         }
@@ -6342,7 +6342,7 @@
     "prettier": "3.9.9",
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.1",
-    "vite": "7.3.6",
+    "vite": "7.3.7",
     "vitest": "4.1.11",
     "vitest-browser-react": "2.3.0"
   },
