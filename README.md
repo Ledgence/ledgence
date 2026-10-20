@@ -173,6 +173,10 @@ The generated task accepts `data={"name": "Ada"}` and returns
 Use `--kind workflow` to generate the same minimal behavior with an enum-based
 default workflow entrypoint. The generated README explains development and
 packaging; the command does not install dependencies or start services.
+`uv sync` installs the version-pinned `ledgence-worker` and `ledgence-client`
+development dependencies for authoring programs and using `AsyncClient` to
+submit and inspect executions against a running service. These development
+dependencies are separate from the program's runtime build requirements.
 
 For deployment, choose the worker target in `ledgence.toml`, then follow
 [program builds and publication](docs/program-publication.md). Local unit tests

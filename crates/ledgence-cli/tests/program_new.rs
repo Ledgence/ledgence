@@ -77,6 +77,26 @@ fn read_toml(path: &Path) -> toml::Value {
     toml::from_str(&fs::read_to_string(path).unwrap()).unwrap()
 }
 
+fn assert_development_dependencies(pyproject: &toml::Value) {
+    assert_eq!(pyproject["tool"]["uv"]["package"].as_bool(), Some(false));
+    let dependencies = pyproject["dependency-groups"]["dev"].as_array().unwrap();
+    for package in ["ledgence-worker", "ledgence-client"] {
+        assert!(
+            dependencies.contains(&toml::Value::String(format!(
+                "{package}=={}",
+                env!("CARGO_PKG_VERSION")
+            ))),
+            "{package} must be available for development at the CLI version"
+        );
+    }
+    assert!(
+        pyproject["project"]
+            .get("dependencies")
+            .is_none_or(|value| value.as_array().unwrap().is_empty()),
+        "the starter has no application runtime dependencies"
+    );
+}
+
 #[test]
 fn default_scaffold_is_offline_and_separates_source_from_development_files() {
     let temporary = tempfile::tempdir().unwrap();
@@ -122,23 +142,7 @@ fn default_scaffold_is_offline_and_separates_source_from_development_files() {
         );
     }
 
-    let pyproject = read_toml(&project.join("pyproject.toml"));
-    assert_eq!(pyproject["tool"]["uv"]["package"].as_bool(), Some(false));
-    assert!(
-        pyproject["dependency-groups"]["dev"]
-            .as_array()
-            .unwrap()
-            .contains(&toml::Value::String(format!(
-                "ledgence-worker=={}",
-                env!("CARGO_PKG_VERSION")
-            )))
-    );
-    assert!(
-        pyproject["project"]
-            .get("dependencies")
-            .is_none_or(|value| value.as_array().unwrap().is_empty()),
-        "the bundled worker helper is a development dependency"
-    );
+    assert_development_dependencies(&read_toml(&project.join("pyproject.toml")));
     assert!(
         fs::read_to_string(project.join("requirements.txt"))
             .unwrap()
@@ -179,10 +183,9 @@ fn explicit_target_and_name_are_preserved_for_both_program_kinds() {
         assert_eq!(config["target"]["platform"].as_str(), Some(platform));
         assert_eq!(config["target"]["python"].as_str(), Some("3.14"));
         assert_eq!(config["target"]["image"].as_str(), Some(image.as_str()));
-        assert_eq!(
-            read_toml(&project.join("pyproject.toml"))["project"]["name"].as_str(),
-            Some("hello.world")
-        );
+        let pyproject = read_toml(&project.join("pyproject.toml"));
+        assert_eq!(pyproject["project"]["name"].as_str(), Some("hello.world"));
+        assert_development_dependencies(&pyproject);
     }
 }
 

@@ -48,8 +48,14 @@ invoice-issuer/
 
 Scaffolding runs offline and invokes no Python, uv, Git, Docker or services.
 The separate `uv sync` step installs the development environment and may access
-the package index. `pyproject.toml` uses `package = false` and pins the
-`ledgence-worker` development dependency to the CLI version that created it.
+the package index. `pyproject.toml` uses `package = false` and pins both
+`ledgence-worker` and `ledgence-client` as development dependencies to the CLI
+version that created it. The helper supports authoring programs; the client
+provides `from ledgence.client import AsyncClient` to submit and inspect
+executions against a running Ledgence service. Both are available after
+`uv sync`, without additional dependency commands. They are not automatically
+included in the program artifact: runtime dependencies belong in the build's
+`requirements.txt`, and the worker supplies its own helper at execution time.
 The initial program version is `0.1.0`. The directory basename becomes its ID;
 use `--name ID` to choose a different ID without changing the directory name.
 Names must begin and end with a lowercase letter or digit; dots, underscores and

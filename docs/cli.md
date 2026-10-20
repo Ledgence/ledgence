@@ -100,10 +100,15 @@ JSON result with the absolute `directory`, `program` identity, `kind`, generated
 and validated, not that a worker or Docker image has been contacted.
 
 `pyproject.toml` declares a uv application project (`package = false`) with
-`ledgence-worker` pinned as a development dependency to the generating CLI's
-version. The worker supplies its own helper at execution time. Generated tests
-exercise business logic and handler imports; they are not an offline durable
-workflow runtime. From the generated directory, with uv and Python available:
+`ledgence-worker` and `ledgence-client` pinned as development dependencies to the
+generating CLI's version. The helper supports program authoring; the client
+provides `from ledgence.client import AsyncClient` for submitting and inspecting
+executions against a running service. `uv sync` installs both into the project
+environment. The worker supplies its own helper at execution time; these
+development dependencies are not automatically included in the program build.
+Generated tests exercise business logic and handler imports; they are not an
+offline durable workflow runtime. From the generated directory, with uv and
+Python available:
 
 ```sh
 uv sync
