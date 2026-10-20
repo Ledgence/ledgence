@@ -12,9 +12,8 @@ package. No agent framework or model provider is required.
 
 ## Install for local development
 
-This source prepares `ledgence-worker` version **0.6.0**, requiring Python
-3.11+. Source versioning does not establish registry availability. For a version
-published on PyPI, install the version matching your worker
+`ledgence-worker` version **0.6.0** is published on PyPI and requires Python
+3.11+. Install the version matching your worker
 in your application's existing uv project as a development dependency:
 
 ```sh

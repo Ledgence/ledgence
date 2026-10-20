@@ -3,7 +3,7 @@ title: Build and publish Python programs
 description: Prepare explicit application inputs for a worker runtime, upload immutable bytes, and recover interrupted publication without rebuilding.
 ---
 
-**Available in Ledgence 0.5.0.** Use matching CLI and orchestrator components
+**Available in Ledgence 0.6.0.** Use matching CLI and orchestrator components
 and explicitly enable the server's publication writer. Earlier saved local kits
 retain their image and configuration; a new CLI does not upgrade those services.
 [Filesystem publication and separate registration](/how-to/register-agent)
@@ -18,17 +18,17 @@ start with [Develop Python programs](/how-to/develop-python-programs).
 
 You need:
 
-- The 0.5.0 `ledgence` CLI and local Docker running Linux containers.
+- The 0.6.0 `ledgence` CLI and local Docker running Linux containers.
 - The worker's explicit platform, exact CPython major/minor and digest-pinned
   runtime image. A Mac's architecture or a server URL cannot select these for you.
-- A matching 0.5.0 server with `--allow-program-publication`, an instance configuration
+- A matching 0.6.0 server with `--allow-program-publication`, an instance configuration
   and a writable filesystem program store. An HTTPS read-only store cannot
   enable this writer.
 
-The 0.5.0 Compose templates enable the server's writer and leave the
+The 0.6.0 Compose templates enable the server's writer and leave the
 worker's program mount read-only. An already saved kit keeps its original image,
 settings and data; installing a newer CLI does not upgrade it. Use a separate
-state directory with a matching 0.5.0 kit for evaluation. Do not edit
+state directory with a matching 0.6.0 kit for evaluation. Do not edit
 copied kit files to bypass their checksum checks. See
 [local distribution operations](/how-to/run-local-distribution).
 
@@ -40,12 +40,12 @@ publisher authentication.
 
 ## Create or choose application source
 
-With a current development CLI, `ledgence program new invoice-issuer` creates a
+With the 0.6.0 CLI, `ledgence program new invoice-issuer` creates a
 task project; add `--kind workflow` for a workflow. It generates code, unit tests,
 development dependencies and `ledgence.toml` without installing or executing
-anything. **Scaffolding is not in published 0.5.0 binaries.** Follow
-[Create a project with the development CLI](/how-to/develop-python-programs#create-a-project-with-the-development-cli)
-for source-build prerequisites and the complete authoring steps.
+anything. Follow
+[Create a project with the CLI](/how-to/develop-python-programs#create-a-project-with-the-cli)
+for prerequisites and the complete authoring steps.
 
 Replace the generated target placeholders before building, or supply all three
 `--platform`, `--python` and `--image` flags at creation time. They must describe

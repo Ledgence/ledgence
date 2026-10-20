@@ -29,30 +29,32 @@ Self-host without a required vendor account.
   and run a Python program without building Rust.
 - **Connect an application:** install the [Python client](sdk/python-client/README.md)
   to submit tasks and workflows to your Ledgence service.
-- **Create a program:** the development CLI supports `ledgence program new invoice-issuer`
+- **Create a program:** the 0.6.0 CLI supports `ledgence program new invoice-issuer`
   for a task or `ledgence program new invoice-flow --kind workflow` for a workflow,
-  including code, tests and build configuration. See [creating a project](docs/cli.md#create-a-python-program);
-  this command requires a development build and is not in published 0.5.0 binaries.
+  including code, tests, both Python development packages and build configuration.
+  See [creating a project](docs/cli.md#create-a-python-program).
 - **Develop Python programs:** install the [worker helper](sdk/python/README.md#install-for-local-development)
   in your application's environment for imports, editor support and local business-logic tests.
-  Add `ledgence-worker==0.5.0` as a development dependency matching your worker.
+  Add `ledgence-worker==0.6.0` as a development dependency matching your worker.
 - **Build and upload a program:** use the explicit Docker
   builder, HTTP publication and durable retry receipts; see [build and publication](docs/program-publication.md).
-  Use a matching 0.5.0 server with uploads enabled; saved local kits are not upgraded automatically.
+  Use a matching 0.6.0 server with uploads enabled; saved local kits are not upgraded automatically.
 - **Connect an MCP client:** use [`ledgence mcp serve`](docs/mcp.md) to discover programs, submit work, and inspect results through the existing API. Available since 0.3.1.
 - **Run a real agent workflow:** try the [Codex support agent](examples/codex-support-agent/README.md)
   with ChatGPT sign-in, documentation tools and durable human review, or the
   [Google ADK and Gemini variant](examples/support-agent/README.md).
 
-**Ledgence 0.5.0** adds target-specific Python program builds, immutable HTTP
-publication and saved recovery receipts, plus the installable `ledgence-worker`
-authoring package. The CLI, Console, client, worker helper and Rust API crates
-share version **0.5.0**. Native bundles target **Linux x86_64/glibc** and
+**Ledgence 0.6.0** adds functional Python task and workflow scaffolding with
+version-pinned authoring and client dependencies. It fixes Docker build cleanup
+and Console checkpoint navigation and trace rendering, and updates the TLS and
+archive dependencies. Program builds, immutable publication and recovery receipts
+remain available. The CLI, Console, client, worker helper and Rust API crates
+share version **0.6.0**. Native bundles target **Linux x86_64/glibc** and
 **macOS arm64** and include a matching digest-pinned local kit; container runtimes
 support Linux amd64 and arm64. The one-line installer and `ledgence local` remain
 available. Action-bound approvals, model/tool recovery and MCP were introduced
-in 0.3.1. See the [release notes](docs/releases/0.5.0.md),
-[upgrade guidance](docs/releases/0.5.0.md#upgrade-and-operating-scope) and
+in 0.3.1. See the [release notes](docs/releases/0.6.0.md),
+[upgrade guidance](docs/releases/0.6.0.md#upgrade-and-operating-scope) and
 [release reference](https://docs.ledgence.com/reference/releases). Before 1.0,
 public APIs may evolve; pin versions and review changes before upgrading.
 
@@ -154,15 +156,12 @@ lives beside the implementation so documentation can evolve with the code.
 
 ## Run a program from source
 
-Start a minimal Python application with `program new`. This command is available
-in current development source; published 0.5.0 binaries retain their original
-command set. From the repository root, with Rust through rustup, Python 3.11 or
-newer and uv installed:
+Start a minimal Python application with the installed Ledgence 0.6.0 CLI,
+Python 3.11 or newer and uv. Run these commands in your application workspace:
 
 ```sh
-cargo build -p ledgence-cli --locked
 project_dir="$(mktemp -d)"
-./target/debug/ledgence program new "$project_dir/hello"
+ledgence program new "$project_dir/hello"
 cd "$project_dir/hello"
 uv sync
 uv run python -m unittest discover -s tests -v
@@ -253,7 +252,7 @@ collapsible sidebar and light, dark or system appearance keep the same operator
 views usable across screen sizes. Registered programs and worker process slots
 connect package identity and observed capacity to the work you are inspecting.
 
-Console ships in the 0.5.0 native bundles and the published container runtime.
+Console ships in the 0.6.0 native bundles and the published container runtime.
 The [source Compose deployment](docs/local-deployment.md) remains available.
 Publish and register the local examples, then open `http://127.0.0.1:8080/console/`. The
 [guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through

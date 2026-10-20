@@ -20,7 +20,7 @@ pnpm build
 pnpm preview
 ```
 
-The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors, feature-guide links and assets. `release.json` records the 0.5 release tag, native targets and independently published package versions. `public/source.json` keeps release identity separate from the documentation checkout revision. The product SHA is optional: the build resolves the local release tag when it exists and otherwise omits the unknown SHA instead of substituting HEAD or a historical hash. `source-features.json` records Console, the installer, local distribution, worker authoring package and program publication as part of the same release; generated provenance uses the `release` channel. Native documentation targets Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64, with dynamic requirements preserved in bundle provenance. Complete release qualification and verify the published artifacts before deploying updated release documentation. A public release does not imply a stable 1.0 API.
+The build checks page metadata, collects dependency notices, renders every page to static HTML, generates Pagefind search, exports Markdown with `llms.txt`, and checks local links, anchors, feature-guide links and assets. `release.json` records the 0.6 release tag, native targets and independently published package versions. `public/source.json` keeps release identity separate from the documentation checkout revision. The product SHA is optional: the build resolves the local release tag when it exists and otherwise omits the unknown SHA instead of substituting HEAD or a historical hash. `source-features.json` records Console, the installer, local distribution, worker authoring package, program publication and project scaffolding as part of the same release; generated provenance uses the `release` channel. Native documentation targets Linux x86_64/glibc (Ubuntu 24.04 qualification) and macOS arm64, with dynamic requirements preserved in bundle provenance. Complete release qualification and verify the published artifacts before deploying updated release documentation. A public release does not imply a stable 1.0 API.
 
 ## Authoring
 
@@ -30,9 +30,9 @@ The site provides Diátaxis learning paths and release installation guidance. Th
 
 Keep `release.json` tied to the verified public release. Record each public source feature in `source-features.json` with its verified release ref/date and guide. Future unreleased features use `availability: development` and a guide that states the prerequisites. The generated `source.json` and `llms.txt` retain this distinction. Do not advance release versions or qualification dates because a documentation build succeeds. At release time, verify the installer, native bundles, matching kit and public images before changing their availability or promoting the one-line installation path.
 
-The `v0.5.0` source tag freezes the implementation and its preparation-time
+The `v0.6.0` source tag freezes the implementation and its preparation-time
 documentation. Post-publication guides in this checkout reflect verified release
-availability. Implementation links remain pinned to `v0.5.0`; references to
+availability. Implementation links remain pinned to `v0.6.0`; references to
 updated repository guides use `develop`. Generated `public/source.json` records
 the exact documentation build revision separately from the product release
 revision. Keep historical release notes, versioned upgrade guides and pinned

@@ -1,22 +1,22 @@
 ---
 title: Releases and packages
-description: Ledgence 0.5.0 distribution channels, supported native targets, upgrade requirements, and historical releases.
+description: Ledgence 0.6.0 distribution channels, supported native targets, upgrade requirements, and historical releases.
 ---
 
-Ledgence 0.5.0 adds explicit program builds, immutable HTTP publication and saved recovery receipts, plus the installable Python worker helper. It retains the one-line CLI installer and local stack managed with `ledgence local`. Source, native bundles, the local kit, both Python packages and Rust API crates use version **0.5.0**. Public APIs may evolve before 1.0; pin versions and review the [upgrade guide](/how-to/upgrade-to-0-5).
+Ledgence 0.6.0 adds functional Python task and workflow scaffolding with version-pinned worker and client development dependencies. It fixes Docker build cleanup and Console execution inspection, and updates TLS and archive dependencies. It retains the one-line CLI installer and local stack managed with `ledgence local`. Source, native bundles, the local kit, both Python packages and Rust API crates use version **0.6.0**. Public APIs may evolve before 1.0; pin versions and review the [upgrade guide](/how-to/upgrade-to-0-6).
 
 ## Distributions
 
 | Distribution | Version and scope |
 | --- | --- |
-| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.5.0) | `v0.5.0`: platform, Console, Compose deployment, examples, and contracts. |
-| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.5.0) | `0.5.0`: Linux x86_64/glibc and macOS arm64, with Console. |
-| [Installer and local kit](https://github.com/Ledgence/ledgence/releases/tag/v0.5.0) | `install.sh` and `ledgence-0.5.0-local.tar.gz`; the matching kit also ships in each native bundle. |
-| [Container runtime on Docker Hub](https://hub.docker.com/r/ledgence/ledgence) | `0.5.0`: Linux amd64 and arm64, CPython 3.14, pinned by digest in the local kit. |
-| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.5.0/) | `ledgence-client==0.5.0` |
-| [Python worker helper on PyPI](https://pypi.org/project/ledgence-worker/0.5.0/) | `ledgence-worker==0.5.0`, for application development |
-| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.5.0) | `ledgence-worker-api = "=0.5.0"` |
-| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.5.0) | `ledgence-orchestration-api = "=0.5.0"` |
+| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.6.0) | `v0.6.0`: platform, Console, Compose deployment, examples, and contracts. |
+| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.6.0) | `0.6.0`: Linux x86_64/glibc and macOS arm64, with Console. |
+| [Installer and local kit](https://github.com/Ledgence/ledgence/releases/tag/v0.6.0) | `install.sh` and `ledgence-0.6.0-local.tar.gz`; the matching kit also ships in each native bundle. |
+| [Container runtime on Docker Hub](https://hub.docker.com/r/ledgence/ledgence) | `0.6.0`: Linux amd64 and arm64, CPython 3.14, pinned by digest in the local kit. |
+| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.6.0/) | `ledgence-client==0.6.0` |
+| [Python worker helper on PyPI](https://pypi.org/project/ledgence-worker/0.6.0/) | `ledgence-worker==0.6.0`, for application development |
+| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.6.0) | `ledgence-worker-api = "=0.6.0"` |
+| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.6.0) | `ledgence-orchestration-api = "=0.6.0"` |
 
 The Linux native target is `x86_64-unknown-linux-gnu`, built and qualified on Ubuntu 24.04. The macOS target is `aarch64-apple-darwin`. Archive provenance records actual dynamic-library requirements; Linux qualification is not a claim of compatibility with every distribution. The source-based [Compose tutorial](/tutorials/run-locally) builds its own Linux container image and does not require a published Ledgence container image.
 
@@ -40,10 +40,15 @@ stack with `ledgence local up`. The CLI uses the bundled kit, waits for readines
 and prints the Console URL. No source checkout, Rust, Node, or host Python is
 needed for this container stack. See [local lifecycle and data preservation](/how-to/run-local-distribution).
 
-The [0.5.0 upgrade guide](/how-to/upgrade-to-0-5) distinguishes CLI installation
+The [0.6.0 upgrade guide](/how-to/upgrade-to-0-6) distinguishes CLI installation
 from service upgrades. Existing saved stacks retain their image and settings.
 
 ## Unified CLI
+
+Create a task with `ledgence program new invoice-issuer`, or add `--kind workflow`
+for a workflow with a typed default entrypoint. Scaffolding runs offline and
+creates source, tests and build configuration. `uv sync` installs the generated
+worker and client development dependencies. See [Python authoring](/how-to/develop-python-programs).
 
 The native bundle contains one executable, `bin/ledgence`, with `program`, `worker`, `orchestrator`, `task`, `approval`, `mcp`, and `local` command groups. Inspect it with `ledgence --help` and `ledgence --version`. Worker and orchestrator still run as separate processes. Build from source with `cargo build --locked -p ledgence-cli`; see the [CLI reference and migration table](/reference/cli).
 
@@ -64,7 +69,7 @@ Register Python `Workflow` handlers with typed entrypoints and use acknowledged 
 ## Python client
 
 ```sh
-python3 -m pip install "ledgence-client==0.5.0"
+python3 -m pip install "ledgence-client==0.6.0"
 ```
 
 Import `from ledgence.client import AsyncClient`. The client requires Python 3.11 or newer; the supported qualification matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The optional `otel` extra integrates tracing. This client communicates with an existing service; it does not install a server, upload packages, or provide `ledgence.worker`.
@@ -75,10 +80,10 @@ Install the [worker authoring package](/how-to/develop-python-programs) in an
 application environment matching the worker release:
 
 ```sh
-uv add --dev "ledgence-worker==0.5.0"
+uv add --dev "ledgence-worker==0.6.0"
 ```
 
-For pip, use `python -m pip install "ledgence-worker==0.5.0"` in an activated
+For pip, use `python -m pip install "ledgence-worker==0.6.0"` in an activated
 virtual environment. The package provides `ledgence.worker`, requires Python
 3.11+ and has no runtime dependencies. It does not install the CLI or run a
 workflow locally. At execution the Rust worker supplies its matching helper.
@@ -86,7 +91,7 @@ workflow locally. At execution the Rust worker supplies its matching helper.
 ## Program builds and publication
 
 [Build and publish programs](/how-to/build-and-publish-programs) describes the
-new explicit Docker builder, digest-pinned worker target, immutable HTTP upload,
+explicit Docker builder, digest-pinned worker target, immutable HTTP upload,
 optional catalog registration and retained receipts. The server writer must be
 enabled. Publication does not execute work or configure artifact replication.
 One program ID/version has one artifact across the entire store; different
@@ -98,13 +103,17 @@ The two API crates expose integration interfaces and require Rust 1.98 or newer:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "=0.5.0"
-ledgence-orchestration-api = "=0.5.0"
+ledgence-worker-api = "=0.6.0"
+ledgence-orchestration-api = "=0.6.0"
 ```
 
-Read the [worker API](https://docs.rs/ledgence-worker-api/0.5.0/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.5.0/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.5 crates. Rust `RegisterProgram` struct literals must initialize the new `expected_descriptor` field; it remains optional in HTTP JSON. The approval variants and service operations introduced in 0.3 remain part of the contracts.
+Read the [worker API](https://docs.rs/ledgence-worker-api/0.6.0/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.6.0/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.6 crates. Their public contracts are unchanged from 0.5.0; the earlier `RegisterProgram.expected_descriptor` field remains optional in HTTP JSON. The approval variants and service operations introduced in 0.3 remain part of the contracts.
 
 ## Historical releases
+
+**0.5.0** introduced target-specific program builds, immutable HTTP publication
+and saved retry receipts. Its [historical upgrade guide](/how-to/upgrade-to-0-5)
+remains available for those changes. Existing release assets and tags are unchanged.
 
 **0.4.0** introduced the verified installer, installed-resource discovery,
 published container images and `ledgence local`. Its saved local installations
@@ -135,10 +144,10 @@ CPython runtime and PostgreSQL service. Ledgence executes operator-trusted code;
 
 Optional HTTP completion notifications, integrated or SQS-compatible queue
 delivery, OTLP tracing/metrics, execution retention and task discovery are also
-part of 0.5.0. See [results and callbacks](/how-to/receive-results),
+part of 0.6.0. See [results and callbacks](/how-to/receive-results),
 [queue delivery](/concepts/queue-delivery), [observability](/how-to/configure-observability)
 and the [capability map](/reference/capabilities) for their setup and limits.
 
 Ledgence-owned code is MIT licensed and supports self-hosting without a mandatory vendor account. Applications can remain proprietary; third-party components retain their licenses and notices.
 
-**Source:** [0.5.0 release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.5.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md)
+**Source:** [0.6.0 release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.6.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md)
