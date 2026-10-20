@@ -80,3 +80,4 @@ jobs:
             ${{ runner.temp }}/console-native
             console/playwright-report
             console/test-results
+            console/tests/components/__screenshots__

@@ -24,6 +24,11 @@ HTTP publication and saved recovery receipts. See the
 qualification and public download verification. The historical 0.4.1 release
 also completed publication and is preserved as a stable version.
 
+The next prepared release is **0.6.0**. Its [preparation notes](releases/0.6.0.md)
+cover Python project scaffolding, CLI consolidation and execution-inspection
+fixes. Qualification and publication remain pending; preparation does not change
+the verified stable version above.
+
 For future releases, keep public metadata at the last verified version until all
 channels are complete. A source version bump or local build does not establish
 registry, native-bundle, image or website availability. Never reuse an older

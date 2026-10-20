@@ -308,11 +308,14 @@ class Deployment:
         self.counter = 0
         self.scope = {"tenant_id": "tenant_http", "namespace": "billing"}
         self.queue = "python-http"
-        self.server_port = unused_port()
-        self.server_url = f"http://127.0.0.1:{self.server_port}"
         self.environment = dict(os.environ, DATABASE_URL=database_url, RUST_LOG="info")
         self.publish("invoice", "1.0.0")
         self.artifacts = ArtifactServer(self.store)
+        # Bind the in-process listener before probing a free API port. Otherwise
+        # the artifact server can reuse that just-released port and answer the
+        # orchestrator readiness probe with an unrelated HTML response.
+        self.server_port = unused_port()
+        self.server_url = f"http://127.0.0.1:{self.server_port}"
 
     def command(self, binary, args, expected=0):
         result = subprocess.run([str(self.binaries / binary)] + args, env=self.environment,

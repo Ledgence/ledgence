@@ -1,0 +1,37 @@
+{
+  "scope": "Incremental Rustls and ZIP dependency updates for Ledgence 0.6; complete distribution notices are collected by the release gate.",
+  "packages": [
+    {
+      "package": "rustls",
+      "version": "0.23.46",
+      "declared_license": "Apache-2.0 OR ISC OR MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.71",
+      "archive_url": "https://static.crates.io/crates/rustls/rustls-0.23.46.crate",
+      "archive_sha256": "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf",
+      "upstream_revision": "f04804fa13341a9b1dc02b5d1dd8a746f2c4b7fb",
+      "notices": [
+        {
+          "path": "legal/third-party/rustls-0.23.46-LICENSE-MIT",
+          "sha256": "709e3175b4212f7b13aa93971c9f62ff8c69ec45ad8c6532a7e0c41d7a7d6f8c"
+        }
+      ]
+    },
+    {
+      "package": "zip",
+      "version": "9.0.5",
+      "declared_license": "MIT",
+      "selected_license": "MIT",
+      "rust_version": "1.88",
+      "archive_url": "https://static.crates.io/crates/zip/zip-9.0.5.crate",
+      "archive_sha256": "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e",
+      "upstream_revision": "0123ed144cfa7d672dae78b79a034d8900f9aaeb",
+      "notices": [
+        {
+          "path": "legal/third-party/zip-9.0.5-LICENSE",
+          "sha256": "58545fed1565e42d687aecec6897d35c6d37ccb71479a137c0deb2203e125c79"
+        }
+      ]
+    }
+  ]
+}
