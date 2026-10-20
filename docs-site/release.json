@@ -1,12 +1,12 @@
 {
-  "series": "0.5",
-  "sourceRef": "v0.5.0",
-  "nativeVersion": "0.5.0",
-  "clientVersion": "0.5.0",
-  "rustApiVersion": "0.5.0",
+  "series": "0.6",
+  "sourceRef": "v0.6.0",
+  "nativeVersion": "0.6.0",
+  "clientVersion": "0.6.0",
+  "rustApiVersion": "0.6.0",
   "nativeTargets": [
     "x86_64-unknown-linux-gnu",
     "aarch64-apple-darwin"
   ],
-  "verifiedOn": "2026-10-07"
+  "verifiedOn": "2026-10-20"
 }

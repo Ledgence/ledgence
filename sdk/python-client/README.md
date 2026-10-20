@@ -8,12 +8,9 @@ arm64. Public APIs may evolve before version 1.0.
 
 ## Installation
 
-For a version published on [PyPI](https://pypi.org/project/ledgence-client/),
-install the client version matching your service in a virtual environment.
-This source prepares version **0.6.0**; source versioning does not establish
-registry availability. Check
-[registry availability](https://pypi.org/project/ledgence-client/0.6.0/) before
-using the registry command:
+Version **0.6.0** is available on
+[PyPI](https://pypi.org/project/ledgence-client/0.6.0/). Install the client version
+matching your service in a virtual environment:
 
 ```sh
 python3 -m venv .venv

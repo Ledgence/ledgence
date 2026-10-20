@@ -1,6 +1,6 @@
 # Build and publish Python programs
 
-Available in **Ledgence 0.5.0** with matching CLI and orchestrator components.
+Available in **Ledgence 0.6.0** with matching CLI and orchestrator components.
 The server writer must be enabled explicitly. Earlier saved local kits keep
 their original image and configuration; a CLI update does not enable uploads
 in those stacks. Existing filesystem publication and separate registration
@@ -34,7 +34,7 @@ already prepared package.
 
 ## Start from a new source project
 
-The development CLI adds `ledgence program new invoice-issuer` and
+The 0.6.0 CLI includes `ledgence program new invoice-issuer` and
 `ledgence program new invoice-flow --kind workflow`. These commands create
 editable Python code, unit tests, development dependency metadata and a build
 configuration in a new directory. The development dependencies include
@@ -42,8 +42,7 @@ configuration in a new directory. The development dependencies include
 executions, both pinned to the generating CLI's version. `uv sync` installs them;
 program builds use the separate runtime requirements. The scaffolding commands
 run offline and do not install, build, publish or execute anything.
-**They are not in published 0.5.0 binaries.** See
-[the scaffolding contract](cli.md#create-a-python-program) for source-build
+See [the scaffolding contract](cli.md#create-a-python-program) for installation
 prerequisites, generated files and explicit target flags.
 
 Before `program build`, replace the generated target placeholders with the
@@ -194,11 +193,11 @@ read-only store remains supported, but cannot enable this filesystem writer.
 The server and worker do not need Docker or a provider account to accept and
 execute an already prepared package.
 
-The 0.5.0 local Compose templates give the orchestrator write access to
+The 0.6.0 local Compose templates give the orchestrator write access to
 `/programs` and leave the worker's mount read-only. Both see the same volume.
 **Existing saved kits are not rewritten or upgraded.** Installing a newer CLI
 cannot enable uploads in an older stack. Use a separate state directory and a
-matching 0.5.0 kit for evaluation, or plan an explicit
+matching 0.6.0 kit for evaluation, or plan an explicit
 operator-managed upgrade with backups. Do not edit a copied kit to bypass its
 checksum checks, silently replace its image, or delete persistent volumes.
 

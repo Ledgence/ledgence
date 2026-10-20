@@ -5,14 +5,14 @@ records each response, and stages a distributed summary task. It then returns a
 checkpoint. The child uses the released worker slot; a later controller
 activation reads its result. The controller registers typed `START` and `COLLECT`
 entrypoints instead of routing continuation strings manually. Worker concurrency
-can remain **1** throughout. Use matching 0.5.0 workers and orchestrator with all
+can remain **1** throughout. Use matching 0.6.0 workers and orchestrator with all
 database migrations installed; the historical 0.1 releases lack this API.
 
 From the repository root, build and prepare both packages. Use CPython 3.11 or
 newer and a disposable PostgreSQL 18 database. The explicit preparation below
 packages these existing standard-library examples for this same host and
 interpreter and refuses existing output. For a new application, start with
-`ledgence program new` from the current development CLI; use [program build](../../docs/program-publication.md)
+`ledgence program new` from the 0.6.0 CLI; use [program build](../../docs/program-publication.md)
 for target-specific application dependencies:
 
 ```sh

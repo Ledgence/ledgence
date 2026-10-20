@@ -7,7 +7,7 @@ Use distributed child tasks when work should run as independently scheduled exec
 
 For concurrent I/O inside one controller invocation, use `ctx.gather` with `ctx.local` instead. The [execution model](/concepts/execution-model) explains the difference.
 
-For branches in the parent's exact package that can start while the parent continues local work, see [Mix local work and workflow branches](/how-to/fork-workflow-branches). Entrypoints and forks have been available since 0.2.0; that guide uses the current 0.5.0 release.
+For branches in the parent's exact package that can start while the parent continues local work, see [Mix local work and workflow branches](/how-to/fork-workflow-branches). Entrypoints and forks have been available since 0.2.0; that guide uses the current 0.6.0 release.
 
 ## Prerequisites
 
@@ -98,4 +98,4 @@ A checkpoint can stage at most 64 combined task/subworkflow commands and wait fo
 
 Child keys belong to the whole workflow. Reuse a key only for the same child binding; use an iteration suffix such as `summary:round-2:0` when a loop should create new work.
 
-**Related:** [Workflow context reference](/reference/workflow-context) · [Checkpoint contracts](https://github.com/Ledgence/ledgence/blob/v0.5.0/docs/workflows.md)
+**Related:** [Workflow context reference](/reference/workflow-context) · [Checkpoint contracts](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/workflows.md)

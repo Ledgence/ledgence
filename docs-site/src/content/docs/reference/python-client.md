@@ -5,20 +5,20 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers `ledgence-client` **0.5.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
+This reference covers `ledgence-client` **0.6.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
 ## Installation
 
 In a virtual environment:
 
 ```sh
-python3 -m pip install "ledgence-client==0.5.0"
+python3 -m pip install "ledgence-client==0.6.0"
 ```
 
 The optional `otel` extra adds the tracing API integration:
 
 ```sh
-python3 -m pip install "ledgence-client[otel]==0.5.0"
+python3 -m pip install "ledgence-client[otel]==0.6.0"
 ```
 
 The client does not include a server, worker, or Python worker helper. Use [Run Ledgence locally](/tutorials/run-locally) for a complete stack and [Releases and packages](/reference/releases) for the available distributions.
@@ -157,4 +157,4 @@ Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="app
 
 A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.5.0/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.6.0/sdk/python-client/src/ledgence/client)

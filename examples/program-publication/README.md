@@ -1,12 +1,12 @@
 # Build and publish a Python workflow
 
-Use the **Ledgence 0.5.0** CLI and a matching server with program publication
+Use the **Ledgence 0.6.0** CLI and a matching server with program publication
 enabled. This example renders a title as HTML using a native Python wheel, and
 records the operation
 as a local workflow step. No model, cloud credentials or application database
 is needed.
 
-1. Start a **new** local installation using the matching 0.5.0 kit. Keep existing
+1. Start a **new** local installation using the matching 0.6.0 kit. Keep existing
    installations unchanged; use a separate `--directory` and free `--port` if
    needed. See the
    [build and publication guide](../../docs/program-publication.md). If you use a
@@ -32,9 +32,9 @@ workflow. Docker is used only by the local builder; the server and worker need
 no Docker API to accept or execute a prepared program.
 
 Submit it with the matching Python client. In an existing uv application project,
-install it with `uv add "ledgence-client==0.5.0"`, save the following code as
+install it with `uv add "ledgence-client==0.6.0"`, save the following code as
 `submit.py`, and run `uv run python submit.py`. With an activated virtual
-environment instead, use `python -m pip install "ledgence-client==0.5.0"`
+environment instead, use `python -m pip install "ledgence-client==0.6.0"`
 and `python submit.py`.
 
 ```python

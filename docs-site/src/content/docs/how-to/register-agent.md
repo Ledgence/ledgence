@@ -5,7 +5,7 @@ description: Add a published immutable program to the self-hosted Console catalo
 
 Register a program so operators can discover its exact versions, inspect runtime requirements, and start it from **Programs** in Console. Registration is independent of execution: submitting a task does not automatically add its package to the catalog.
 
-This guide applies to Ledgence 0.5.0. Start a matching instance using [Explore Ledgence Console](/tutorials/use-console).
+This guide applies to Ledgence 0.6.0. Start a matching instance using [Explore Ledgence Console](/tutorials/use-console).
 
 For a remote server with uploads enabled, [build and publish a program](/how-to/build-and-publish-programs)
 with `publish --server URL --register` and retain its recovery receipt. This guide
@@ -15,7 +15,7 @@ The Console form remains registration-only.
 ## Publish the package first
 
 If you are still writing the program, [Develop Python programs](/how-to/develop-python-programs)
-covers installing `ledgence-worker==0.5.0`, editor setup and business-logic tests.
+covers installing `ledgence-worker==0.6.0`, editor setup and business-logic tests.
 Publication below uses the worker's immutable program contract.
 
 Prepare the application, its dependencies, and `ledgence-program.json` for the worker's target Python version and platform. Publish with the matching `ledgence` executable from the native bundle or a source build:
@@ -87,7 +87,7 @@ Metadata changes never replace the artifact digest. Publish changed code or depe
 
 ## Recover from an interrupted registration
 
-Publication and registration are separate operations. In 0.5.0, `publish --server URL --register` binds registration to the uploaded
+Publication and registration are separate operations. In 0.6.0, `publish --server URL --register` binds registration to the uploaded
 descriptor. `program register` can also require both `--expected-digest` and
 `--expected-size`. If you used HTTP
 publication, preserve its receipt and sibling ZIP and resume the saved operation
