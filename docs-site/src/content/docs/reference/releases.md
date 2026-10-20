@@ -139,8 +139,12 @@ The `ledgence.worker` import namespace was already present in 0.1.1. The move fr
 ## Operating scope
 
 Native service deployments require separately supplied CPython, PostgreSQL,
-brokers, and host libraries. The local container distribution supplies its
-CPython runtime and PostgreSQL service. Ledgence executes operator-trusted code; reusable subprocesses do not isolate hostile programs. Checkpoints and retries do not provide exactly-once external effects. Preserve tested backups before upgrading a durable deployment.
+and compatible host libraries. An external broker is required only for
+SQS-compatible delivery; integrated HTTP acquisition needs no external broker.
+The local container distribution supplies its CPython runtime and PostgreSQL
+service. Ledgence executes operator-trusted code; reusable subprocesses do not
+isolate hostile programs. Checkpoints and retries do not provide exactly-once
+external effects. Preserve tested backups before upgrading a durable deployment.
 
 Optional HTTP completion notifications, integrated or SQS-compatible queue
 delivery, OTLP tracing/metrics, execution retention and task discovery are also

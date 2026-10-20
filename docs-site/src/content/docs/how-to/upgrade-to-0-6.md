@@ -31,6 +31,8 @@ the worker's architecture, Python major/minor and native libraries.
 
 ## Create new programs
 
+For the development and test commands below, install Python 3.11 or newer and uv.
+
 ```sh
 ledgence program new invoice-issuer
 cd invoice-issuer
