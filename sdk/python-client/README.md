@@ -30,14 +30,14 @@ python -m pip install /path/to/ledgence_client-0.6.0-py3-none-any.whl
 ```
 
 The client connects to an existing Ledgence service. Follow the
-[local tutorial](https://docs.ledgence.com/tutorials/run-locally) to start one and
-publish the example programs. The [client reference](https://docs.ledgence.com/reference/python-client)
+[installation guide](https://docs.ledgence.com/getting-started/installation) to start one. Then [publish the greeting task](https://docs.ledgence.com/tutorials/first-task). The [client reference](https://docs.ledgence.com/reference/python-client)
 provides a shorter guide to everyday operations; the contracts below cover their
 behavior in detail.
 
 ## Submit a task
 
-After running the local tutorial's program publication step:
+After publishing `hello-ledgence@0.1.0` in the first task tutorial, save this as
+`submit.py` and run it in the environment where you installed the client:
 
 ```python
 import asyncio
@@ -48,10 +48,9 @@ async def main():
         "http://127.0.0.1:8080", tenant="acme", namespace="demo"
     ) as client:
         task = await client.tasks.submit(
-            program="invoice-issuer", version="1.0.0", queue="demo",
-            data={"invoice_id": "INV-1042"},
-            idempotency_key="issue:INV-1042",
-            correlation_key="INV-1042",
+            program="hello-ledgence", version="0.1.0", queue="demo",
+            data={"name": "Ledgence"},
+            idempotency_key="client-readme:hello:1",
         )
         print(task.id)
         output = await task.result(timeout=60)
@@ -99,21 +98,24 @@ Cancellation outcomes have no deciding attempt or output. The status's
 ## Workflow references and observations
 
 A workflow starts a published controller program that returns explicit checkpoint
-decisions. Use the same submission arguments with `client.workflows`:
+decisions. First publish `hello-workflow@0.1.0` using the
+[workflow tutorial](https://docs.ledgence.com/tutorials/first-workflow).
+Inside the same `async with AsyncClient(...) as client` block, replace the task
+submission with this fragment:
 
 ```python
 workflow = await client.workflows.submit(
-    program="workflow-example", version="1.0.1", queue="demo",
-    data={"urls": ["http://receiver:8091/page.txt"] * 4, "queue": "demo"},
+    program="hello-workflow", version="0.1.0", queue="demo",
+    data={"name": "Ledgence"},
     idempotency_key="docs:workflow:1", correlation_key="docs:workflow",
 )
 print(workflow.id)
 output = await workflow.result(timeout=60)
 ```
 
-This uses the controller published by the local tutorial and the same `acme/demo`
-client scope as the task example. The receiver URL is reachable from its worker
-container. Application package versions are independent of the client version.
+This workflow calls the greeting task from the earlier lesson and uses the same
+`acme/demo` client scope. Application package versions are independent of the
+client version.
 
 Save the workflow ID and reconnect with `client.workflows.handle(workflow_id)`.
 `status()` returns `WorkflowStatus`; `outcome()` returns `WorkflowResult` with

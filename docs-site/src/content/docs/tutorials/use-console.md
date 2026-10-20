@@ -1,129 +1,129 @@
 ---
 title: Explore Ledgence Console
-description: Start Ledgence 0.6.0 Console, run the example agents, and follow their executions and worker processes.
+description: Inspect the greeting task and workflow you just ran, then follow the workflow's child task from its graph.
+next:
+  label: Run tasks in parallel
+  link: /how-to/parallel-tasks
 ---
 
-Run the local stack, then use Console to follow a real task from its input to its result, inspect a completed workflow, and explore the worker's process slots.
+Use Console to see **the executions you created in the previous two lessons**.
+You already have everything you need; there is no new image to build, program
+to download, or example service to start.
 
-**Availability:** Console is included in Ledgence 0.6.0. This tutorial uses its source checkout and Compose deployment. Follow [Run Ledgence locally](/tutorials/run-locally#1-get-the-source) to obtain `v0.6.0`, or use the [native installation guide](/how-to/install-native) for prebuilt assets. For an initially empty instance, `ledgence local up` starts Console directly; the source tutorial below additionally publishes and runs example programs.
+## Before you start
 
-## 1. Check your source checkout
+Complete [Run your first task](/tutorials/first-task) and
+[Run your first workflow](/tutorials/first-workflow), and leave the stack
+running. Keep the task ID and workflow ID printed by your `submit.py` files.
 
-Open a terminal at the Ledgence repository root. Confirm that it contains `console/` and that `deploy/local/compose.yaml` starts the orchestrator with `--instance-config` and `--console-dir`.
+Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/).
+The orchestrator serves Console as part of your local installation. Its main
+sections are **Programs**, **Executions**, and **Workers**.
 
-```sh
-test -f console/package.json
-git rev-parse HEAD
-git status --short
-```
+## 1. Find your published programs
 
-Use Git and Docker Engine or Docker Desktop with **Compose 2.23.1 or newer** and Linux containers on `amd64` or `arm64`. The first build downloads pinned images and Rust and frontend dependencies. Docker builds the Console assets; Node, Rust, and Python are not required on your host.
+Open **Programs**. You should see:
 
-Use a fresh local deployment for this tutorial. If an earlier Ledgence deployment already uses the `ledgence-local` Compose project, follow the [upgrade guidance](/reference/console#upgrades) before changing its source or database. The example API is bound to `127.0.0.1:8080` and uses local demonstration credentials.
-
-## 2. Start the stack
-
-Record the source identity and build the local image:
-
-```sh
-export LEDGENCE_SOURCE_REVISION="$(git rev-parse HEAD)"
-export LEDGENCE_SOURCE_DIRTY="$(test -z "$(git status --porcelain)" && echo false || echo true)"
-docker compose -f deploy/local/compose.yaml build
-docker compose -f deploy/local/compose.yaml up -d --wait --wait-timeout 120
-```
-
-Compose starts PostgreSQL, runs the explicit migration, then starts the orchestrator, a worker, and the example callback receiver. The Rust orchestrator serves the built Console; there is no separate frontend server to start.
-
-Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/). You should see **Local instance** with **Executions**, **Programs** and **Workers** in the navigation. This is one self-hosted instance, with no tenant or workspace selection.
-
-The lists can be empty at this point. Leave the worker's default concurrency at **one** so the example can check process reuse.
-
-On desktop, use **Collapse sidebar** in the sidebar header to give the content more room; the Ledgence mark expands it again. Choose **System**, **Light** or **Dark** from **Appearance** in the header.
-
-## 3. Publish and register the examples
-
-```sh
-docker compose -f deploy/local/compose.yaml run --rm --no-deps publish
-```
-
-This command prepares three immutable packages for the container's runtime and publishes them into the shared program store. It then registers each exact reference in the instance catalog:
-
-| Program | Version | Declared use |
+| Program | Version | Kind |
 | --- | --- | --- |
-| `invoice-issuer` | `1.0.0` | Task |
-| `workflow-example` | `1.0.1` | Workflow controller |
-| `workflow-summary` | `1.0.0` | Task |
+| `hello-ledgence` | `0.1.0` | Task |
+| `hello-workflow` | `0.1.0` | Workflow |
 
-Open **Programs**, choose `invoice-issuer`, and open version `1.0.0`. The page shows the verified digest, Python version, operating system, architecture, and handler. This application version is independent of the Ledgence platform version.
+Open `hello-ledgence` and its version `0.1.0`. Its details describe the package
+you built: its content digest, Python version, platform, and handler. This is
+the **program**, not an individual execution of it.
 
-## 4. Run and inspect the example
+If a program is absent, check that its `program publish --register` command
+succeeded. Publication stores executable bytes; registration makes that exact
+reference discoverable in this list.
 
-Back in your terminal:
+## 2. Inspect the standalone task
 
-```sh
-docker compose -f deploy/local/compose.yaml run --rm --no-deps demo
-```
+Open **Executions**, set **Type** to **Task**, and choose **Apply filters**.
+Find the task ID printed by the first lesson. **More filters** includes an
+execution ID filter if your instance already has many executions.
 
-The final JSON contains `passed: true`, two task IDs, a workflow ID, and a workflow output. Keep those IDs visible.
+Open the task:
 
-In **Executions**, open either invoice task by its ID. In **General**, open **Input** to see the invoice request and **Output** to inspect the returned invoice ID, process ID, and invocation counter. **Trace** contains the attempts and durable history.
+- **General → Input** shows the submitted `name`.
+- **General → Output** shows the greeting when the task has succeeded.
+- **Trace** shows its attempt and recorded history.
 
-As the history grows, scroll to load older rows. Filter by type, status and submitted date; **More filters** contains exact program/version and execution ID filters. The table updates automatically on its first page. Browsing older results pauses those updates; **Refresh executions** returns to the latest matching work with your filters retained.
-
-In **Executions**, set **Type** to **Workflow**, select **Apply filters**, and open the workflow ID printed by the demo. Its detail offers **Graph**, **Trace** and **General**. Graph shows entrypoint invocation nodes, the recorded local page-fetch steps and the child task `summarize`. Select a node or Trace row to inspect it; select **Open task** on the child to inspect its input and output. Local records connect to their invoking entrypoint without claiming dependencies between the local calls. Use Back or Up to return and explore another part of the workflow. A subworkflow opens its own graph, one level at a time. Completed work stays visible; these views reflect work that happened and do not predict future steps.
-
-Try **Full screen** in the explorer. Pan or zoom, use **Fit** to see the loaded graph, and choose **Reorganize** to restore its automatic layout after moving a card. These controls change only the view. Press Escape to return without losing the selected node or camera position.
-
-Under **General → Output**, expect:
+For the first submission, the output is:
 
 ```json
-{
-  "page_count": 4,
-  "summary": {
-    "characters": 84,
-    "pages": 4
-  }
-}
+{"message": "Hello, Ledgence!"}
 ```
 
-The example finishes quickly. A completed history is the expected outcome; you do not need to catch a waiting state on screen.
+If you opened the second task from the optional input change, it says
+`Hello, Ada!` instead. The task's status should be **Succeeded**. These examples
+finish quickly; you do not need to catch them while they are running.
 
-## 5. Submit an invoice from Console
+## 3. Follow the workflow's actual graph
 
-Open **Executions → New execution** and enter:
+Return to **Executions**, set **Type** to **Workflow**, choose **Apply filters**,
+and open the workflow ID from the second lesson.
+
+Open **Graph**. You should be able to identify the `start` entrypoint, the
+`greeting` child task, and the resumed `finish` entrypoint. These are records of
+what actually ran. The graph does not predict future work or infer dependencies
+from timestamps.
+
+Select the **greeting** node. Its details link to the child execution through
+**Open task**. Follow that link to inspect the child's input and output. This
+child has its own task ID, distinct from the standalone task in the first
+lesson. Use the browser's **Back** button to return to the workflow and continue
+exploring.
+
+Switch to **Trace** to see the same durable execution records arranged by time
+and status. **Graph** emphasizes how operations relate; **Trace** helps you
+inspect when they ran. Optional OpenTelemetry instrumentation can add diagnostic
+data, but an external tracing backend is not required for this graph.
+
+Under **General → Output**, the workflow has the same greeting object as its
+child. The workflow returned it through `ctx.complete`.
+
+For larger workflows, **Fit** brings the loaded graph into view, and
+**Full screen** gives you more space. A subworkflow opens its own graph when you
+navigate into it; a canvas shows one workflow level at a time.
+
+## 4. Submit a new greeting from Console
+
+You can also request work without writing another client script. Open
+**Executions → New execution** and enter:
 
 | Field | Value |
 | --- | --- |
-| Program ID | `invoice-issuer` |
-| Exact version | `1.0.0` |
+| Program ID | `hello-ledgence` |
+| Exact version | `0.1.0` |
 | Queue | `demo` |
-| JSON input | `{"invoice_id":"CONSOLE-1042"}` |
+| JSON input | `{"name":"Console"}` |
 
-Select **Verify reference**, then **Submit execution**. Console opens the accepted execution. Its **Output** should contain `"invoice_id": "CONSOLE-1042"` once the worker completes it. The process ID and invocation counter depend on the worker's current reusable process.
+Choose **Verify reference**, then **Submit execution**. Console opens the new
+task. Once it succeeds, open **General → Output** and expect:
 
-Submitting is a write to your running instance. **Run again** creates new work with a new submission identity; it does not reconnect to the previous result.
-
-## 6. Inspect the worker
-
-Open **Workers** and select the worker session. Its configured capacity is one. The process grid may show a warm process after the invoice completes; that process is available for compatible future work while still occupying a process slot.
-
-Select the slot to inspect its process identity, program, digest, and any validated execution link. The observation timestamp tells you how recent this information is. An old report does not prove that a process has stopped.
-
-You have now inspected a package, submitted an execution, followed a durable workflow, and connected the result to worker observations. Continue with [Register an agent](/how-to/register-agent) for your own packages, or [Console reference](/reference/console) for exact behavior.
-
-## Stop the local stack
-
-```sh
-docker compose -f deploy/local/compose.yaml down --timeout 65
+```json
+{"message": "Hello, Console!"}
 ```
 
-This preserves the named database, program store, worker cache, and callback volumes. Start the same deployment with the earlier `up` command when you want to continue.
+This is a real submission to your local instance. **Run again** requests new
+work; it does not merely reopen the earlier result.
 
-If startup or publication fails, inspect the services and logs:
+## 5. Inspect the worker
 
-```sh
-docker compose -f deploy/local/compose.yaml ps
-docker compose -f deploy/local/compose.yaml logs --tail 100 orchestrator worker
-```
+Open **Workers** and select the worker session. You can inspect its configured
+capacity, reported processes, and execution links when available. A process
+may remain warm after a task completes so the worker can reuse it for compatible
+work.
 
-A blank program registry usually means publication or registration has not completed. Repeat `publish` to reconcile an interrupted registration; it is safe for identical package bytes. If Console returns 404, check that your checkout and running image include Console and that the orchestrator was started with `--console-dir`.
+These are reported observations. Check their timestamps before interpreting
+an old report as the worker's current state. A single worker can execute
+different programs; it is not permanently assigned to the greeting task.
+
+You have now connected published code, individual executions, and workflow
+composition. Continue with [Run tasks in parallel](/how-to/parallel-tasks) or
+use the [Console reference](/reference/console) for the complete interface.
+
+When you are finished, return to the stop command in your chosen
+[installation guide](/getting-started/installation). Stopping the local stack
+normally preserves its data so you can return to these executions later.

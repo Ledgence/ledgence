@@ -1,0 +1,21 @@
+schema_version = 1
+
+[program]
+id = "hello-workflow"
+version = "0.1.0"
+handler = "program:handle"
+kind = "workflow"
+
+[source]
+root = "."
+include = ["program.py"]
+
+[dependencies]
+requirements = "requirements.txt"
+
+[target]
+# Use linux/arm64 instead if the local Docker worker is aarch64.
+platform = "linux/amd64"
+python = "3.14"
+protocol = 3
+image = "docker.io/ledgence/ledgence@sha256:8ec977f455daab3b7b039b48d4c6bcdb73c84bc29b7e2a71d2a4cbeeb9519e05"

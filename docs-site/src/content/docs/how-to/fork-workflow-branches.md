@@ -9,7 +9,16 @@ Use a fork when parts of the same workflow package need independent execution, r
 
 ## Prepare the source deployment
 
-Start with the 0.6.0 [checkpoint workflow setup](https://github.com/Ledgence/ledgence/blob/develop/examples/checkpoint-workflow/README.md). It builds the `ledgence` executable, applies database migrations, starts PostgreSQL-backed orchestration and a connected worker, and installs the client from the same checkout. The instructions define `LEDGENCE_PYTHON` and `workflow_demo`; retain those values for the commands below.
+This advanced guide uses the source deployment from the 0.6.0 [checkpoint workflow setup](https://github.com/Ledgence/ledgence/blob/develop/examples/checkpoint-workflow/README.md). That setup builds the `ledgence` executable, applies database migrations, starts PostgreSQL-backed orchestration and a connected worker, and installs the client from the same checkout. It is a separate setup from the introductory Docker tutorials.
+
+The setup defines two shell variables that the commands below reuse:
+
+| Variable | Meaning |
+| --- | --- |
+| `LEDGENCE_PYTHON` | The full path to the host CPython interpreter used to prepare and run the programs. |
+| `workflow_demo` | The temporary workspace containing the program store, cache, prepared packages, and client virtual environment. |
+
+Keep that terminal open. If you use another terminal, set these variables to the **same paths printed or selected during setup**; do not create a new temporary workspace. The paths keep publication, the running worker, and the client pointed at the same deployment.
 
 The source checkout must contain migration `20260928000000_workflow_forks.sql`, and the deployment must have applied all migrations. Upgrade workers and orchestrators together. The host supplies CPython 3.11 or newer; use the same Python major/minor and target platform when preparing and running the package.
 
@@ -19,7 +28,7 @@ The example works with worker concurrency **1**. The worker and client use the s
 
 The [complete mixed workflow example](https://github.com/Ledgence/ledgence/blob/develop/examples/mixed-workflow/README.md) has one local computation and two distributed branches. Its double branch saves a timer checkpoint before completing; its triple branch completes directly. The parent collects both terminal outcomes.
 
-```python
+```python title="program.py — mixed workflow handlers"
 from enum import StrEnum
 
 from ledgence.worker.workflow import Workflow
@@ -142,28 +151,47 @@ From the repository root, with the source deployment above still running:
 
 Preparation writes a protocol 3 manifest with `handler: "program:handle"` for the current interpreter and target. Use a fresh output directory; preparation refuses to overwrite an existing one. The commands publish application version `mixed-workflow@1.0.1`; that application version is separate from the Ledgence platform version. Publish a new immutable application version when changing its code.
 
-Submit through the client environment created during setup:
+In your editor, create **`submit_mixed.py`** in the repository root and paste:
 
-```sh
-"$workflow_demo/client/bin/python" - <<'PYTHON'
+```python title="submit_mixed.py"
+"""Submit the mixed workflow to the source deployment prepared above."""
 import asyncio
+
 from ledgence.client import AsyncClient
 
+
 async def main():
-    async with AsyncClient("http://127.0.0.1:8080", tenant="acme", namespace="demo") as client:
+    async with AsyncClient(
+        "http://127.0.0.1:8080", tenant="acme", namespace="demo"
+    ) as client:
         run = await client.workflows.submit(
-            program="mixed-workflow", version="1.0.1", queue="workflows",
+            program="mixed-workflow",
+            version="1.0.1",
+            queue="workflows",
             data={"values": [1, 2, 3], "queue": "workflows"},
             idempotency_key="mixed-workflow:1.0.1:1",
         )
-        print(run.id)
+        print("Workflow:", run.id)
         print(await run.result(timeout=60))
 
-asyncio.run(main())
-PYTHON
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-The result is:
+Run that file from the repository root using the client virtual environment
+created during setup:
+
+```sh
+"$workflow_demo/client/bin/python" submit_mixed.py
+```
+
+The path before `submit_mixed.py` selects the Python interpreter that already
+has `ledgence.client` installed. It does not change your system Python or
+install another copy of the client. This script runs on your computer and
+submits work to the orchestrator; the worker runs the published program.
+
+After the workflow ID, the result is:
 
 ```json
 {"local": {"count": 3, "sum": 6}, "double": 12, "triple": 18}

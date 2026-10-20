@@ -65,3 +65,11 @@ jobs:
         run: |
           PYTHONPATH="$RUNNER_TEMP/client-runtime:$PWD/sdk/python-client/src:$PWD/sdk/python" \
             python -m unittest discover -s examples/codex-change-review/tests -v
+      - name: Test the introductory greeting task
+        working-directory: examples/hello-ledgence/task
+        run: python -m unittest discover -s tests -v
+      - name: Test the introductory workflow with the worker helper
+        working-directory: examples/hello-ledgence/workflow
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sdk/python
+        run: python -m unittest discover -s tests -v

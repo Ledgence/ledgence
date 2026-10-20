@@ -1,0 +1,2 @@
+# No production dependencies: this example uses the Python standard library.
+# The worker supplies ledgence.worker; do not bundle it in the application.

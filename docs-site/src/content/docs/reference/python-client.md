@@ -9,19 +9,23 @@ This reference covers `ledgence-client` **0.6.0**, published on PyPI. It require
 
 ## Installation
 
-In a virtual environment:
+A project created with `ledgence program new` already declares the client;
+run `uv sync` in that project. For an existing uv application, add it with:
 
 ```sh
-python3 -m pip install "ledgence-client==0.6.0"
+uv add "ledgence-client==0.6.0"
 ```
 
-The optional `otel` extra adds the tracing API integration:
+If you use pip instead, run `python -m pip install "ledgence-client==0.6.0"`
+inside your application's activated virtual environment. Choose the command
+for your environment manager; do not run both. The optional `otel` extra is
+`ledgence-client[otel]==0.6.0` when your application needs tracing integration.
 
-```sh
-python3 -m pip install "ledgence-client[otel]==0.6.0"
-```
-
-The client does not include a server, worker, or Python worker helper. Use [Run Ledgence locally](/tutorials/run-locally) for a complete stack and [Releases and packages](/reference/releases) for the available distributions.
+The client does not include a server, worker, or Python worker helper. Start a
+complete stack through [local installation](/getting-started/installation), then
+use the [first task tutorial](/tutorials/first-task) for a complete `submit.py` file.
+The snippets below show API calls **inside** an asynchronous function and open
+client; they are reference fragments rather than standalone scripts.
 
 The current self-hosted Console operates one instance. Older client scope fields remain for compatibility; they must match the server binding and do not provide tenant administration. The Compose example uses `acme/demo`; a new instance with an omitted binding uses `default/default`. See [One self-hosted instance](/concepts/self-hosted-console).
 
@@ -72,15 +76,15 @@ Send a prepared command with `await client.tasks.submit(submission)` or `await c
 
 ```python
 workflow = await client.workflows.submit(
-    program="workflow-example",
-    version="1.0.1",
+    program="hello-workflow",
+    version="0.1.0",
     queue="demo",
-    data={"urls": ["http://receiver:8091/page.txt"] * 4, "queue": "demo"},
+    data={"name": "Ledgence"},
     idempotency_key="docs:workflow:1",
 )
 ```
 
-This uses the `workflow-example@1.0.1` package published by the [local stack tutorial](/tutorials/run-locally). Application package versions are independent of the Ledgence client version.
+This uses the `hello-workflow@0.1.0` program published in [your first workflow](/tutorials/first-workflow). Application package versions are independent of the Ledgence client version.
 
 The returned handle has an `id`. Construct a handle for an existing execution with `client.tasks.handle(task_id)` or `client.workflows.handle(workflow_id)`; construction makes no network request.
 

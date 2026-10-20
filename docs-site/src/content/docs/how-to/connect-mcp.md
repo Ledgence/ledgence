@@ -9,15 +9,14 @@ start infrastructure or require an AI framework.
 
 ## Install and configure
 
-Use the executable from a [native bundle](/how-to/install-native), or build the
-matching source:
+Use the CLI from your [chosen installation](/getting-started/installation).
+The local tutorial instance uses the following server and compatibility binding:
 
 ```sh
-cargo build -p ledgence-cli --locked
-./target/debug/ledgence mcp serve \
+ledgence mcp serve \
   --server http://127.0.0.1:8080 \
   --tenant acme \
-  --namespace billing
+  --namespace demo
 ```
 
 Configure your MCP host to launch that executable with those arguments. The
@@ -30,7 +29,7 @@ Use an absolute executable path in the host configuration. For hosts using
   "mcpServers": {
     "ledgence": {
       "command": "/absolute/path/to/ledgence",
-      "args": ["mcp", "serve", "--server", "http://127.0.0.1:8080", "--tenant", "acme", "--namespace", "billing"]
+      "args": ["mcp", "serve", "--server", "http://127.0.0.1:8080", "--tenant", "acme", "--namespace", "demo"]
     }
   }
 }
@@ -41,8 +40,8 @@ fixed at startup. The API may be remote; no MCP network listener is opened.
 `--no-default-features --features mcp` builds this command without telemetry or SQS.
 
 Set `--tenant` and `--namespace` to the running instance's saved binding. The
-source Compose tutorial uses `acme/demo`; a new instance with omitted scope uses
-`default/default`. The `acme/billing` values above are examples. A catalog scope
+local installation routes use `acme/demo`; a new instance with omitted scope uses
+`default/default`. A catalog scope
 mismatch is rejected; it does not switch installations. See
 [One self-hosted instance](/concepts/self-hosted-console).
 
@@ -53,15 +52,16 @@ status/results, task listing, cancellation, external workflow events, and
 approval inspection. Program discovery requires an installation catalog with
 matching scope and registered packages; serving the Console frontend is optional.
 
-For `ledgence_task_submit`, provide:
+After publishing the task in [Hello, Ledgence!](/tutorials/first-task), provide
+this input to `ledgence_task_submit`:
 
 ```json
 {
-  "program": "invoice-issuer",
-  "version": "1.0.0",
-  "queue": "billing",
-  "data": {"invoice_id": "INV-1042"},
-  "idempotency_key": "issue:INV-1042"
+  "program": "hello-ledgence",
+  "version": "0.1.0",
+  "queue": "demo",
+  "data": {"name": "Ledgence"},
+  "idempotency_key": "hello-ledgence:mcp:1"
 }
 ```
 

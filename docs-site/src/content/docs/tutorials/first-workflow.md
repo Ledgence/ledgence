@@ -1,151 +1,244 @@
 ---
 title: Run your first workflow
-description: Follow a real workflow from concurrent local steps to a distributed task and a resumed continuation.
+description: Compose the greeting task from the previous lesson and resume the workflow when its result is ready.
 ---
 
-Submit the workflow published in [Run Ledgence locally](/tutorials/run-locally), then follow the code that produced its result. You will see how local work, a distributed task, and a checkpoint fit together—even with a single worker slot.
+You already have a task that says hello. Now create a workflow that asks that
+same task to do the work, waits durably for its outcome, and returns the greeting.
+You will not copy the greeting logic into the workflow.
 
-This tutorial follows the `v0.6.0` source release and its typed `workflow-example@1.0.1` controller. For independently checkpointed branches, see the [typed entrypoints and forks guide](/how-to/fork-workflow-branches).
-
-When writing your own program, [Develop Python programs](/how-to/develop-python-programs)
-shows how to install the helper into your editor's environment and test business
-logic using the published `ledgence-worker==0.6.0` helper. Match the helper
-version to the worker that will execute your program.
+A **task** performs work. A **workflow** composes tasks and other workflows and
+coordinates when to continue. Our workflow has two entrypoints: **start** and
+**finish**.
 
 ## Before you start
 
-Complete the local tutorial and leave its stack running. The `publish` command must have succeeded so that `workflow-example@1.0.1` and `workflow-summary@1.0.0` are available.
+Complete [Run your first task](/tutorials/first-task). Leave the local **0.6.0**
+stack running and `hello-ledgence@0.1.0` published. Keep your editor open; you
+will create a second project beside the first one.
 
-For this tutorial, also install CPython 3.11 or newer on your host. The commands below use `python3`; check its version first. Keep your terminal at the Ledgence repository root.
+The sequence will be:
 
-## 1. Prepare the client
+1. The `start` entrypoint requests one greeting task.
+2. Ledgence saves the checkpoint and runs that task.
+3. The `finish` entrypoint receives its outcome and completes the workflow.
 
-Create a virtual environment outside the checkout and install the published Python client matching the tutorial's source version:
+## 1. Create the workflow project
+
+If your terminal is still inside `hello-ledgence`, run:
 
 ```sh
-python3 --version
-export LEDGENCE_TUTORIAL_DIR="$(mktemp -d)"
-python3 -m venv "$LEDGENCE_TUTORIAL_DIR/client"
-"$LEDGENCE_TUTORIAL_DIR/client/bin/python" -m pip install "ledgence-client==0.6.0"
+cd ..
+ledgence program new hello-workflow --kind workflow
+cd hello-workflow
+uv sync
 ```
 
-The SDK talks to the local API. It does not upload packages or execute the workflow in this client process. The controller uses application version `1.0.1` and its summary task uses `1.0.0`; those versions are separate from Ledgence 0.6.0.
+Open `hello-workflow` in your editor. The `--kind workflow` option creates a
+workflow scaffold and marks the program as a workflow in `ledgence.toml`.
+`uv sync` installs both Python SDKs into this project's `.venv`.
 
-## 2. Submit the workflow
+In **`ledgence.toml`**, replace its generated `[target]` section with the
+**entire `[target]` section from your previous `hello-ledgence/ledgence.toml`**.
+Both programs will run on the same worker, so their platform, Python version,
+protocol, and runtime image must match. Keep this new project's program ID
+`hello-workflow`, version `0.1.0`, and kind `workflow` unchanged.
 
-Run this complete script in the same terminal:
+## 2. Write the workflow
+
+Replace **`hello-workflow/program.py`** with:
+
+```python title="program.py"
+"""A workflow reuses the greeting task and completes when it succeeds."""
+from enum import StrEnum
+
+from ledgence.worker.workflow import Workflow
+
+
+class Entry(StrEnum):
+    START = "start"
+    FINISH = "finish"
+
+
+workflow = Workflow(Entry)
+
+
+@workflow.entrypoint(Entry.START, default=True)
+async def start(event, ctx):
+    # Describe a child task. The checkpoint makes its creation durable.
+    greeting = ctx.task(
+        "greeting",
+        program="hello-ledgence",
+        version="0.1.0",
+        queue="demo",
+        data=event["data"],
+    )
+    # End this activation and resume at FINISH when the child is terminal.
+    return ctx.suspend(continuation=Entry.FINISH, state={}, until=[greeting])
+
+
+@workflow.entrypoint(Entry.FINISH)
+async def finish(event, ctx):
+    # A terminal child may have failed or been cancelled; check before reading.
+    if ctx.inputs["greeting"]["state"] != "succeeded":
+        return ctx.fail("greeting_failed", "The greeting task did not succeed.")
+    return ctx.complete(ctx.get_result("greeting"))
+
+
+handle = workflow.build()
+```
+
+Read the code in three parts:
+
+- **Entry points.** `Entry` names the supported places to begin or resume.
+  The decorators register their functions; `default=True` selects `start` for
+  a new workflow. `workflow.build()` validates the registry and exposes the
+  `handle` function the worker calls.
+- **Request and wait.** `ctx.task` describes a child task using the program
+  published in the previous lesson. `"greeting"` is a stable key for this
+  operation within the workflow. Returning `ctx.suspend` commits the request
+  and the continuation, then ends this entrypoint activation.
+- **Resume and finish.** Ledgence invokes `finish` after the child reaches a
+  terminal state. `ctx.inputs` tells you whether it succeeded, failed, or was
+  cancelled. A successful child's saved output is available through
+  `ctx.get_result("greeting")`.
+
+The workflow releases its execution slot while waiting. Its original Python
+variables are not kept alive; Ledgence resumes through the registered
+entrypoint and saved state. We use `state={}` because this example needs no
+additional values between entrypoints. The greeting task remains a leaf: the
+workflow is responsible for orchestration.
+
+## 3. Update and run the tests
+
+The generated tests refer to the scaffold's original `greet` function, which
+this workflow no longer has. Replace **`tests/test_program.py`** with:
+
+```python title="tests/test_program.py"
+"""Test registration and outcome handling; orchestration needs a running stack."""
+import inspect
+import unittest
+from unittest.mock import Mock
+
+from program import finish, handle, workflow
+
+
+class ProgramTests(unittest.IsolatedAsyncioTestCase):
+    def test_workflow_registration(self):
+        # build() validates the enum entries and exactly one default entrypoint.
+        self.assertIs(workflow.build(), handle)
+        self.assertTrue(inspect.iscoroutinefunction(handle))
+
+    async def test_unsuccessful_child_does_not_read_a_result(self):
+        for state in ("failed", "cancelled"):
+            with self.subTest(state=state):
+                ctx = Mock()
+                ctx.inputs = {"greeting": {"state": state}}
+                await finish({}, ctx)
+                ctx.fail.assert_called_once_with(
+                    "greeting_failed", "The greeting task did not succeed."
+                )
+                ctx.get_result.assert_not_called()
+                ctx.complete.assert_not_called()
+
+    async def test_success_returns_the_child_output(self):
+        ctx = Mock()
+        ctx.inputs = {"greeting": {"state": "succeeded"}}
+        ctx.get_result.return_value = {"message": "Hello, Ledgence!"}
+        await finish({}, ctx)
+        ctx.complete.assert_called_once_with({"message": "Hello, Ledgence!"})
+        ctx.fail.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+Run them from `hello-workflow`:
 
 ```sh
-"$LEDGENCE_TUTORIAL_DIR/client/bin/python" - <<'PYTHON'
+uv run python -m unittest discover -s tests -v
+```
+
+All three tests should pass. They check registration and ensure that failed or
+cancelled children are handled without trying to read a successful result.
+The mock context is only for testing this decision logic. It does not run a
+workflow or prove that checkpoints survive a restart; we will exercise the
+real orchestrator next.
+
+## 4. Build and publish the workflow
+
+```sh
+ledgence program build
+ledgence program publish --server http://127.0.0.1:8080 --register
+```
+
+You now have two published programs: `hello-ledgence@0.1.0` and
+`hello-workflow@0.1.0`. The first is a task program; the second composes it.
+You do not need to rebuild or republish the task from the earlier lesson.
+
+## 5. Submit the workflow
+
+Create **`hello-workflow/submit.py`** and paste:
+
+```python title="submit.py"
+"""Submit the workflow that calls the previously published greeting task."""
 import asyncio
-import json
+
 from ledgence.client import AsyncClient
+
 
 async def main():
     async with AsyncClient(
         "http://127.0.0.1:8080", tenant="acme", namespace="demo"
     ) as client:
         workflow = await client.workflows.submit(
-            program="workflow-example",
-            version="1.0.1",
+            program="hello-workflow",
+            version="0.1.0",
             queue="demo",
-            data={
-                "urls": ["http://receiver:8091/page.txt"] * 4,
-                "queue": "demo",
-            },
-            idempotency_key="docs:first-workflow:1",
-            correlation_key="docs:first-workflow",
+            data={"name": "Ledgence"},
+            idempotency_key="hello-workflow-1",
         )
         print("Workflow:", workflow.id)
         output = await workflow.result(timeout=60)
-        print(json.dumps(output, indent=2))
+        print(output["message"])
 
-asyncio.run(main())
-PYTHON
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-If you selected a different API port in the local tutorial, update the client URL. The page URL stays unchanged: `receiver` is the hostname the **worker container** uses on the Compose network.
+Run it:
 
-You should receive a workflow ID and:
-
-```json
-{
-  "page_count": 4,
-  "summary": {
-    "characters": 84,
-    "pages": 4
-  }
-}
+```sh
+uv run python submit.py
 ```
 
-## 3. Follow the default entrypoint
+Expect a workflow ID and **Hello, Ledgence!**. Keep the workflow ID for the next
+lesson. This workflow creates a **new child task**; it does not reconnect to the
+standalone task you submitted earlier.
 
-Open `examples/checkpoint-workflow/controller/program.py`. It declares an enum and registers its handlers:
+Repeat the script unchanged to retrieve the same workflow through its
+idempotency key. To request another workflow, use a new key such as
+`hello-workflow-2`. If you change the input name, change the key too.
 
-```python
-from enum import StrEnum
-from ledgence.worker.workflow import Workflow
+As with a task, `result(timeout=60)` only limits the client's wait. It does not
+cancel or resubmit the workflow. You can reconnect using
+`client.workflows.handle(workflow_id)`; [Receive results](/how-to/receive-results)
+explains how.
 
-class Entry(StrEnum):
-    START = "start"
-    COLLECT = "collect"
+## 6. Understand what you built
 
-workflow = Workflow(Entry)
+The final output is the same greeting as the task lesson, but the execution
+history now also records how the work was composed: a starting entrypoint, an
+owned child task, the wait for its outcome, and a resumed entrypoint. Those
+records let you inspect the execution in Console.
 
-@workflow.entrypoint(Entry.START, default=True)
-async def start(event, ctx):
-    # The complete handler first validates URLs and queue.
-    urls, queue = input_data(event)
-    pages = await ctx.gather(*[
-        ctx.local(f"page-{index}", fetch, url=url)
-        for index, url in enumerate(urls)
-    ])
-```
+**Next:** [Explore Ledgence Console](/tutorials/use-console) to find both your
+standalone task and this workflow, then follow the child task from its graph.
 
-The four asynchronous fetches overlap inside one invocation. Each `ctx.local` call gives a fetch a stable key and records its returned page durably before the await completes.
+After that, [Checkpoints and recovery](/concepts/checkpoints-and-recovery)
+explains persistence and [Run tasks in parallel](/how-to/parallel-tasks) extends
+the same pattern to several children.
 
-The next lines stage a separate task:
-
-```python
-child = ctx.task(
-    "summarize",
-    program="workflow-summary",
-    version="1.0.0",
-    queue=queue,
-    data={"pages": pages},
-)
-return ctx.suspend(
-    continuation=Entry.COLLECT,
-    state={"page_count": len(pages)},
-    until=[child],
-)
-```
-
-Returning this decision commits the next continuation and its state. The controller invocation ends, freeing the worker slot. Once the checkpoint is accepted, the summary task can be dispatched.
-
-## 4. Follow the resumed entrypoint
-
-The summary program counts the pages and their characters. When it finishes, Ledgence schedules another controller activation at `Entry.COLLECT`. The registered `collect(event, ctx)` handler checks failed or cancelled child outcomes before reading a successful result.
-
-The controller returns:
-
-```python
-return ctx.complete({
-    "page_count": ctx.state["page_count"],
-    "summary": ctx.get_result("summarize"),
-})
-```
-
-The saved JSON state supplies the page count. The child result supplies the summary. Python variables from the earlier invocation are not restored.
-
-The module exports `handle = workflow.build()`, which validates the registry and returns the package handler. In your own workflow, inspect failed or cancelled child outcomes before calling `get_result`; [Run tasks in parallel](/how-to/parallel-tasks) shows that pattern. Existing string-based controllers remain supported.
-
-## 5. Observe the same execution again
-
-Run the submission script again unchanged. The same key and input return the existing workflow, so you see the same workflow ID and result. Change the key to `docs:first-workflow:2` when you intentionally want a new execution.
-
-The 60-second timeout limits how long the client observes the result. It does not cancel or submit the workflow again. Save the workflow ID to reconnect through `client.workflows.handle(workflow_id)` later.
-
-You have now followed a complete checkpoint: local results, a distributed child, a saved continuation, and a final output. Read [Checkpoints and recovery](/concepts/checkpoints-and-recovery) to see what happens when an activation stops unexpectedly.
-
-**Source:** [Controller and summary example](https://github.com/Ledgence/ledgence/tree/v0.6.0/examples/checkpoint-workflow) · [Python client](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md)
+**Example files:** [Hello Ledgence](https://github.com/Ledgence/ledgence/tree/develop/examples/hello-ledgence).

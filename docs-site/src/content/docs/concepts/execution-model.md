@@ -62,7 +62,7 @@ When the condition is satisfied, Ledgence schedules a new activation at the save
 
 Console's [workflow graph](/reference/console) follows these recorded executions. It shows one workflow level at a time; open a branch to inspect that child workflow's entrypoints. It does not need a separate graph declaration in your application.
 
-This is why the [first workflow tutorial](/tutorials/first-workflow) can run a controller and its summary child with worker concurrency one.
+This is why the [first workflow tutorial](/tutorials/first-workflow) can run a controller and its greeting task with worker concurrency one.
 
 ## Client time and execution time differ
 

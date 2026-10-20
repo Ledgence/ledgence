@@ -21,25 +21,34 @@ This replaces the command layout in the historical `v0.1.1` source tag and
 native `0.1.0` bundle. Those artifacts retain their original executables and
 commands; use their bundled documentation when operating them.
 
-## Build and inspect
+<span id="build-and-inspect"></span>
+
+## Inspect the installed CLI
+
+After following your chosen [installation route](/getting-started/installation),
+run these commands in any terminal:
 
 ```sh
-cargo build -p ledgence-cli --locked
-./target/debug/ledgence --help
-./target/debug/ledgence --version
-./target/debug/ledgence program --help
-./target/debug/ledgence worker --help
-./target/debug/ledgence orchestrator --help
-./target/debug/ledgence task --help
-./target/debug/ledgence approval --help
-./target/debug/ledgence mcp --help
-./target/debug/ledgence local --help
+ledgence --help
+ledgence --version
+ledgence program --help
+ledgence worker --help
+ledgence orchestrator --help
+ledgence task --help
+ledgence approval --help
+ledgence mcp --help
+ledgence local --help
 ```
 
-Use `cargo run --locked -p ledgence-cli -- COMMAND ...` to run directly from the
-checkout. `ledgence --version` reports the compiled platform version; an exact
-program version passed to `ledgence program register --version VALUE` continues
-to identify the application package.
+`ledgence --version` reports the platform version. A program's `--version`
+identifies your application's package and has a separate lifecycle.
+
+### Source build features
+
+For compilation instructions, use [Build the CLI from source](/how-to/build-cli-from-source).
+Within a source checkout, `cargo run --locked -p ledgence-cli -- COMMAND ...`
+runs a command without installing it. Cargo commands in this subsection are for
+people changing the CLI; an installed release needs no Rust build.
 
 The default features are `otel` and `mcp`. `otel` enables optional telemetry for
 administration, worker and orchestrator commands. The MCP command does not
@@ -73,7 +82,7 @@ Console or MCP for workflow and event operations.
 ## Create a Python program
 
 **Available in Ledgence 0.6.0.** [Install the CLI](/how-to/install-native), or
-build `ledgence-cli` from matching source as shown above. Once the executable is
+[build the CLI from matching source](/how-to/build-cli-from-source). Once the executable is
 on your `PATH`:
 
 ```sh
