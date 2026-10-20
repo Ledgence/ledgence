@@ -1,0 +1,37 @@
+{
+  "scope": "Incremental TLS dependency updates for Ledgence 0.6.1; complete distribution notices are collected by the release gate.",
+  "packages": [
+    {
+      "package": "rustls-webpki",
+      "version": "0.103.16",
+      "declared_license": "ISC",
+      "selected_license": "ISC",
+      "rust_version": "1.71",
+      "archive_url": "https://static.crates.io/crates/rustls-webpki/rustls-webpki-0.103.16.crate",
+      "archive_sha256": "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
+      "upstream_revision": "8ecdcc76f56b68fda67a6adf7976f5eed5006a4c",
+      "notices": [
+        {
+          "path": "legal/third-party/rustls-webpki-0.103.16-LICENSE",
+          "sha256": "5b698ca13897be3afdb7174256fa1574f8c6892b8bea1a66dd6469d3fe27885a"
+        }
+      ]
+    },
+    {
+      "package": "webpki-root-certs",
+      "version": "1.0.10",
+      "declared_license": "CDLA-Permissive-2.0",
+      "selected_license": "CDLA-Permissive-2.0",
+      "rust_version": "1.71",
+      "archive_url": "https://static.crates.io/crates/webpki-root-certs/webpki-root-certs-1.0.10.crate",
+      "archive_sha256": "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb",
+      "upstream_revision": "70760478b9d3ea729b22faa0b5324da38a297c1c",
+      "notices": [
+        {
+          "path": "legal/third-party/webpki-root-certs-1.0.10-LICENSE",
+          "sha256": "e271993808fec50ab29350b39539cdec611a9103f827e0aa26d61da70e2d33f8"
+        }
+      ]
+    }
+  ]
+}
