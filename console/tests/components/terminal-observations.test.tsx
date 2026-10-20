@@ -1,7 +1,12 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import {
+  defaultScheduler,
+  notifyManager,
+  QueryClientProvider,
+  type QueryClient,
+} from "@tanstack/react-query";
 import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
@@ -27,6 +32,7 @@ afterEach(() => {
   for (const client of clients) client.clear();
   clients.length = 0;
   vi.restoreAllMocks();
+  notifyManager.setScheduler(defaultScheduler);
 });
 function response(value: unknown, status = 200) {
   return new Response(stringifyUserJson(value), {
@@ -348,11 +354,25 @@ for (const explicit of [false, true]) {
       }
       throw new Error(`Unexpected request ${path}`);
     });
-    const { view, client } = await mount(
+    const { view, client, route } = await mount(
       "/workflows/wf_invoice_1042?tab=Local+steps" +
         (explicit ? "&activation=task_controller_1" : ""),
     );
-    await expect.poll(() => reads).toBe(1);
+    // A fetch invocation is not yet an accepted/rendered observation, and the
+    // default activation must finish canonicalizing before this test advances it.
+    await expect
+      .element(
+        view.getByText(
+          "Accepted local checkpoints; these are not distributed task attempts.",
+        ),
+      )
+      .toBeVisible();
+    await expect
+      .poll(() =>
+        new URL(route(), "http://console.test").searchParams.get("activation"),
+      )
+      .toBe("task_controller_1");
+    expect(reads).toBe(1);
     currentActivation = "task_controller_2";
     await refreshParent(client, "workflows/inspect");
     await expect
@@ -361,8 +381,21 @@ for (const explicit of [false, true]) {
       )
       .toHaveValue("task_controller_1");
     expect(reads).toBe(1);
+    // invalidateQueries waits for the request, not TanStack's scheduled React
+    // notification. Hold those notifications to exercise that separation.
+    const notifications: (() => void)[] = [];
+    notifyManager.setScheduler((callback) => notifications.push(callback));
     terminal = true;
     await refreshParent(client, "workflows/inspect");
+    expect(reads).toBe(1);
+    await expect
+      .element(view.getByText("running", { exact: true }))
+      .toBeVisible();
+    notifyManager.setScheduler(defaultScheduler);
+    for (const notify of notifications) notify();
+    await expect
+      .element(view.getByText("succeeded", { exact: true }))
+      .toBeVisible();
     await expect.poll(() => reads, { timeout: 1000 }).toBe(2);
     const step = dto.localStepPage(field("local_steps")).items[0];
     if (!step) throw new Error("Missing local checkpoint fixture");

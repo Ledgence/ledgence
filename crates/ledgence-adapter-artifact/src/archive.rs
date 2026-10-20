@@ -71,13 +71,14 @@ pub(crate) fn inspect_for_publication<B: AsRef<[u8]>>(
     let mut manifest = None;
     for (index, raw_name) in raw_names.into_iter().enumerate() {
         let mut entry = archive.by_index(index)?;
-        if entry.name() != raw_name || entry.encrypted() {
+        let entry_name = entry.name()?;
+        if entry_name != raw_name || entry.encrypted() {
             return Err(AdapterError::Invalid(
                 "unsupported ZIP name encoding or encryption".into(),
             ));
         }
         let directory = entry.is_dir();
-        let name = safe_name(entry.name(), directory)?;
+        let name = safe_name(&entry_name, directory)?;
         if name.eq_ignore_ascii_case("ledgence/__init__.py") {
             return Err(AdapterError::Invalid(
                 "the ledgence namespace must not have a root __init__.py".into(),

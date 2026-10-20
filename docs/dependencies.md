@@ -274,6 +274,46 @@ in [the versioned notice](../legal/third-party/rustls-0.23.45-LICENSE-MIT).
 The published archive checksum is recorded in `Cargo.lock`.
 [Upstream release](https://github.com/rustls/rustls/releases/tag/v/0.23.45).
 
+## Release 0.6 TLS and archive dependency update
+
+Release preparation updates the locked Rustls dependency from `0.23.45` to
+`0.23.46` and the artifact adapter's ZIP dependency from `8.6.0` to exact
+`9.0.5`. These releases address the upstream advisories below without suppressing
+advisory checks or broadening the license policy:
+
+| Dependency | Upstream advisory records | Selected license and declared Rust minimum |
+| --- | --- | --- |
+| Rustls `0.23.46` | [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html), [0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html), [0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html), [0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html) | MIT alternative of `Apache-2.0 OR ISC OR MIT`; Rust `1.71`. |
+| ZIP `9.0.5` | [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367.html), [0368](https://rustsec.org/advisories/RUSTSEC-2026-0368.html), [0369](https://rustsec.org/advisories/RUSTSEC-2026-0369.html) | MIT; Rust `1.88`. |
+
+The actual published crate archives were checked against the registry checksums
+and the committed lockfile. Their original
+[Rustls MIT notice](../legal/third-party/rustls-0.23.46-LICENSE-MIT) and
+[ZIP MIT notice](../legal/third-party/zip-9.0.5-LICENSE) are retained with archive,
+source revision and notice hashes in the
+[incremental inventory](../legal/third-party/release-0.6-notice-inventory.json).
+Both declared Rust minima fit the repository's pinned toolchain. No product
+branding, source-disclosure requirement or vendor account is introduced.
+
+ZIP defaults remain disabled; `deflate-flate2` uses the existing `flate2`
+`rust_backend` selection. Its macOS/BSD target dependency reuses the existing
+`nix 0.31.3` with `fs`; encryption and additional codecs remain unselected.
+Rustls keeps its existing TLS feature and provider selections. These updates
+change only those two registry package versions, not the set of external
+packages. [Rustls release](https://github.com/rustls/rustls/releases/tag/v/0.23.46),
+[ZIP release](https://github.com/zip-rs/zip2/releases/tag/v9.0.5),
+[ZIP manifest](https://github.com/zip-rs/zip2/blob/v9.0.5/Cargo.toml).
+
+The ZIP 9 migration handles its fallible filename decoding before applying
+Ledgence's existing raw-name and portable-path checks. Ledgence retains its
+bounded member inspection and custom materialization; it does not switch to
+ZIP's high-level extraction helpers. The package profile still excludes
+symlinks, encrypted entries and ZIP64; cache materialization strips write and
+special permission bits while preserving read and executable permissions. Upstream
+advisory presence alone does not establish that every affected feature was
+reachable in Ledgence. Artifact, publication, runtime and dependency gates
+remain required for the changed graph. [ZIP migration history](https://github.com/zip-rs/zip2/blob/v9.0.5/CHANGELOG.md).
+
 ## Candidate notice collection and local image runtime
 
 `tools/release/notices.py` inventories the target-selected normal/build graph of `ledgence-cli` and its dependencies with all features, retains exact legal files (including nested native-code license directories), records crate archive checksums from Cargo.lock, and includes the pinned Rust distribution's COPYRIGHT-library.html, COPYRIGHT.html and license directory. Missing legal material fails collection; version-specific files already reviewed under legal/third-party can fill omissions in published archives. Development-only and other-target dependencies are not described as linked into the candidate. The full cargo-deny gate still checks the broader selected workspace graph.

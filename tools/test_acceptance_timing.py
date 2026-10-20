@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -104,6 +105,50 @@ class TimingTests(unittest.TestCase):
                 ('scenario', 'resume', 'failed'),
             ])
             self.assertGreaterEqual(timings[1]['elapsed_seconds'], timings[0]['elapsed_seconds'])
+
+
+class ListenerIdentityTests(unittest.TestCase):
+    def test_api_port_cannot_be_reused_by_the_artifact_listener(self):
+        # Model a kernel immediately reusing the last released ephemeral port.
+        # The artifact listener is real, so querying the wrong endpoint would
+        # return its HTML 404 instead of the orchestrator's JSON health reply.
+        preferred = harness.unused_port()
+        original_bind = harness.http.server.ThreadingHTTPServer.server_bind
+        original_artifact = harness.ArtifactServer
+
+        def bind_preferred(server):
+            if server.server_address[1] == 0:
+                server.server_address = ("127.0.0.1", preferred)
+            original_bind(server)
+
+        class ArtifactServer(original_artifact):
+            def __init__(self, directory):
+                with patch.object(harness.http.server.ThreadingHTTPServer, "server_bind", bind_preferred):
+                    super().__init__(directory)
+
+        def next_port():
+            with socket.socket() as listener:
+                try:
+                    listener.bind(("127.0.0.1", preferred))
+                except OSError:
+                    listener.bind(("127.0.0.1", 0))
+                return listener.getsockname()[1]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with patch.object(harness, "unused_port", next_port), \
+                    patch.object(harness, "ArtifactServer", ArtifactServer), \
+                    patch.object(harness.Deployment, "publish"):
+                deployment = harness.Deployment(ROOT, directory, directory, sys.executable,
+                                                "postgres://unused/unused", "psql")
+            try:
+                self.assertNotEqual(deployment.server_url, deployment.artifacts.url,
+                                    "the API probe must not address the artifact HTTP server")
+                # The selected API address remains available for the subprocess.
+                with socket.socket() as listener:
+                    listener.bind(("127.0.0.1", deployment.server_port))
+            finally:
+                deployment.artifacts.close()
 
 
 class AcquisitionWaitTests(unittest.TestCase):
