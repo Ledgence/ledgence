@@ -18,7 +18,8 @@ harness; invocation context still requires execution by Ledgence.
 ensure `ledgence --version` reports 0.6.0. Source builds remain available through
 the [CLI reference](/reference/cli#build-and-inspect).
 
-In the directory where you keep application projects, create a task:
+For the development and test commands below, install Python 3.11 or newer and
+uv. In the directory where you keep application projects, create a task:
 
 ```sh
 ledgence program new invoice-issuer

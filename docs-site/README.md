@@ -44,7 +44,19 @@ Code examples must follow the checked-in SDK and examples. Only advertise verifi
 
 ## Publish
 
-Infrastructure and upload tooling live in the sibling `ledgence-landing-frontend` repository, alongside the existing AWS setup. Run `pnpm deploy:docs:infra` once and `pnpm deploy:docs` to build and upload this site, using the ordinary AWS credential chain. Use `--source` to choose a different checkout; consult that script's help. No credentials are stored in this project.
+Infrastructure and upload tooling live in the sibling `ledgence-landing-frontend`
+repository, alongside the existing AWS setup. Run these commands there, with
+infrastructure setup needed only when creating or changing that infrastructure:
+
+```sh
+pnpm deploy:docs:infra --profile ledgence-platform --expected-account 919333997957
+pnpm deploy:docs --profile ledgence-platform --expected-account 919333997957
+```
+
+Every deployment must use the explicit `ledgence-platform` profile and verify
+account `919333997957`; abort on any mismatch. Never deploy with `ledgence-llc`
+or organization account `816975651859`. Use `--source` to choose a different
+checkout; consult that script's help. No credentials are stored in this project.
 
 The build uses `build.format: directory` and no trailing slash. The deployment script uploads HTML plus extensionless aliases (for example, `tutorials/run-locally/index.html` is also served at `/tutorials/run-locally`) for clean URLs on a private S3 REST origin, without a CloudFront function. The root uses `index.html`; missing pages keep a 404 response.
 
