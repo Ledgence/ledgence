@@ -69,7 +69,12 @@ Code examples must follow the checked-in SDK and examples. Only advertise verifi
 
 The Curvatura master artwork lives in [`../assets/brand/`](../assets/brand/).
 `public/brand/` contains the unchanged mark, Apple touch icon, and social image
-used by this site; `public/favicon.svg` copies the theme-aware master favicon.
+used by this site. `public/favicon-curvature-v1.svg` copies the theme-aware
+master favicon; `public/favicon-curvature-v1.png` copies the 180 × 180 touch
+icon as a fallback for browsers without SVG favicon support. The previous
+`public/favicon.svg` remains available for older pages. When the favicon changes,
+publish it under a new filename and update `astro.config.mjs` so browsers do not
+reuse an icon cached under the previous URL.
 The header renders the mark as a CSS mask in the current text color, preserving
 contrast in both themes. Social metadata in `astro.config.mjs` references the
 local 1280 × 640 image. Update these copies from the masters together; do not
