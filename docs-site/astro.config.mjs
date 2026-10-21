@@ -10,8 +10,9 @@ export default defineConfig({
   integrations: [starlight({
     title: 'Ledgence',
     description: 'Learn to run agents and workflows on infrastructure you control.',
-    favicon: '/favicon.svg',
+    favicon: '/favicon-curvature-v1.svg',
     head: [
+      { tag: 'link', attrs: { rel: 'icon', type: 'image/png', sizes: '180x180', href: '/favicon-curvature-v1.png' } },
       { tag: 'link', attrs: { rel: 'apple-touch-icon', sizes: '180x180', href: '/brand/apple-touch-icon.png' } },
       { tag: 'meta', attrs: { property: 'og:image', content: 'https://docs.ledgence.com/brand/social-github.png' } },
       { tag: 'meta', attrs: { property: 'og:image:width', content: '1280' } },
