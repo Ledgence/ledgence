@@ -31,6 +31,24 @@ its dependency graph, lifecycle scripts and MIT terms are unchanged. Vite is
 development/build tooling; the deployed Console serves prebuilt static assets
 without running the Vite development server.
 
+The 2026-10-28 maintenance review selects Vitest 4.1.12 and its matching
+`@vitest/*` packages to address
+[GHSA-qxg6-89mg-rqv8](https://github.com/advisories/GHSA-qxg6-89mg-rqv8) and
+[GHSA-xp26-3454-mjgp](https://github.com/advisories/GHSA-xp26-3454-mjgp) in
+`@vitest/mocker`. It also selects Zod 4.6.6 to address
+[GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+The ten Vitest archives and Zod archive were checked against their npm SHA-512
+integrities, with SHA-256 values and complete legal files retained in the inventory.
+All eleven versions were published more than 24 hours before review. Their MIT
+license material is unchanged, and they add no installation lifecycle scripts.
+The other 298 package versions and archive integrities are unchanged.
+
+These packages support tests and linting. Zod is used by `eslint-plugin-react-hooks`
+and its `zod-validation-error` peer. The `zod: 4.6.6` override keeps both paths on the
+reviewed fix within their supported `^3.25.0 || ^4.0.0` ranges. Remove or advance the
+override only after reviewing the replacement graph and confirming that both paths
+remain patched. These development tools do not run in a deployed Console.
+
 Six source primitives are adapted from a pinned shadcn/ui commit: Button, Input,
 Card, Dialog, Table and Skeleton. Their original paths, hashes, MIT license and
 adaptation notes are in `third_party/shadcn/provenance.json`. No generator runs at

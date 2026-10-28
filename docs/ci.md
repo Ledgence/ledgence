@@ -79,6 +79,15 @@ paths change; it does not launch a second copy of CI, documentation, Console or
 examples. Expected skipped reusable jobs in that push workflow are not successful
 validation and must not be counted as such.
 
+After promotion to `main`, let its applicable validation workflows finish even
+when the same commit already passed on `develop`. Cancelling those runs leaves
+the branch without completed checks; cancellation is not a passing result.
+Record the branch, commit, run ID and attempt when reporting validation.
+A later rerun may detect newly published dependency advisories against an
+unchanged lockfile. Review and test compatible dependency fixes through the
+normal integration and release process; do not suppress the audit or replace
+previously published artifacts to make an old commit pass.
+
 Every manual Registry packages dispatch, including qualification with
 `publish=false`, runs all four source workflows and both package gates for the
 selected source. Publishing requires all of them to pass in that dispatch and

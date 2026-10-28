@@ -48,7 +48,7 @@ ledgence-adapter-artifact = { version = "0.6.1", path = "crates/ledgence-adapter
 ledgence-adapter-subprocess = { version = "0.6.1", path = "crates/ledgence-adapter-subprocess" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "fs", "net", "signal"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "fs", "net", "signal"] }
 sha2 = "0.10.9"
 tempfile = "3.27.0"
 tracing = "0.1.44"

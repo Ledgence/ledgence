@@ -86,6 +86,28 @@ cargo deny --locked check
 
 The policy checks all workspace roots, enabled features, and normal, build, development, and transitive dependencies. Unpublished workspace crates and development dependencies are not excluded. All resolved target dependencies are examined; checking a target's metadata is not a claim that it has been built or tested. [Graph configuration](https://embarkstudios.github.io/cargo-deny/checks/cfg.html), [license configuration](https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html).
 
+### Runtime and cryptographic maintenance
+
+The development lockfile selects `ctutils 0.4.4` and `tokio 1.53.3` to address
+[RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385.html) and
+[RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html).
+`ctutils` reaches the platform through the existing RustCrypto digest graph used
+by SQLx and the optional AWS adapter. Its patch corrects constant-time mask
+generation and 128-bit comparisons. Tokio's patch deprecates the affected safe
+`AsyncFd` constructors; Ledgence does not call those constructors. The workspace
+Tokio requirement starts at `1.53.3`; no Ledgence API, configuration, or feature
+selection changes.
+
+The published archives and license files were reviewed: `ctutils` retains its
+MIT OR Apache-2.0 choice, and Tokio retains MIT. Their license texts, resolved
+dependency lists and feature definitions are unchanged from the previously
+locked versions. `ctutils` now requires Rust 1.87, below Ledgence's existing
+Rust 1.98 minimum.
+No package, advisory exception, or license allowance is added. Release notice
+generation retains the original package license files, and each release must
+qualify its own complete dependency graph. These development selections do not
+change the contents or availability of previously published releases.
+
 ## License review
 
 The initial general allowlist is small:
