@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "lockfile_sha256": "fda21d8c395bbba8a0270ce0561383a451d914409f7cde17fdb73bab00e7c45e",
+  "lockfile_sha256": "d465c7700b191f27049e14f7f0e219d3e482dd5fd55919b9f0a1639a1a60ae7e",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -3088,20 +3088,20 @@
     },
     {
       "name": "@vitest/browser",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/browser"
       },
-      "archive": "https://registry.npmjs.org/@vitest/browser/-/browser-4.1.11.tgz",
-      "integrity": "sha512-bwMovvAeuTFOK5kIFevw4VEf+1gVEICv4SYK4k3knJOxl6b1zEWud8mYKD73e1B0odAn174h1MofURy2TPWf3w==",
-      "sha256": "8c6ee7eba8d93684daca6ff95be2b740692d3c30cf8caf5885c09618c515532e",
+      "archive": "https://registry.npmjs.org/@vitest/browser/-/browser-4.1.12.tgz",
+      "integrity": "sha512-Yl/6JIxJrcMlWMqKPoRkMhZy9sDpaAXdSJ+90hMVEJVE94tVysjp34SXTwCXJSIXjAtW2ha33qEjMeGG0G/Z0Q==",
+      "sha256": "1017c877e0449dc95aaeedd2f5ed19cdf69502bf8e3c93029bb9d16063df783a",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__browser@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__browser@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3109,20 +3109,20 @@
     },
     {
       "name": "@vitest/browser-playwright",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/browser-playwright"
       },
-      "archive": "https://registry.npmjs.org/@vitest/browser-playwright/-/browser-playwright-4.1.11.tgz",
-      "integrity": "sha512-riLBxPqwnJ0lWs2DN2WeUfYeKLoAjbP2Xx8cLQdSddzMi20sksIa6K2mPz79DyMZKKVKH2ksOC2yJvtNcZg8cg==",
-      "sha256": "276dd3335d9ff95b0e01643b6bef5c36e58d8114e054dc53759cd859f16812d8",
+      "archive": "https://registry.npmjs.org/@vitest/browser-playwright/-/browser-playwright-4.1.12.tgz",
+      "integrity": "sha512-bU/TcyiBwFUijaIltxKXxgpQmLu9njO/t6G9wiD2LjSFX6SfmyUOf+pOJ8N26KsvhFOHWfVdzNS6P62ab/ONlA==",
+      "sha256": "e9849c5dce3de3afb072e01d63b89aa3b20ca2adb63b5ec14758c75265dcd8e1",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__browser-playwright@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__browser-playwright@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3130,20 +3130,20 @@
     },
     {
       "name": "@vitest/expect",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/expect"
       },
-      "archive": "https://registry.npmjs.org/@vitest/expect/-/expect-4.1.11.tgz",
-      "integrity": "sha512-VX2x5vNJXET47KAFzwERI+KRMtTTCSWTfSMKsW7JsUsXV4psq++e3DvZpuTDOpHcxytiDs6p2nhVb2tVDiiUYw==",
-      "sha256": "503d668851ce760fb60bb2b4681452089d8658a5fbd2b1f626dece4c1fbcc57f",
+      "archive": "https://registry.npmjs.org/@vitest/expect/-/expect-4.1.12.tgz",
+      "integrity": "sha512-vFlTt+YEu9WBpNjdGayNmlMVzrWPi1+sv853/7t2FU7hpO5gAFBKHzQmkCq5Xjpr+evegF2994LQT3hF3mRlqQ==",
+      "sha256": "8c932064dafe90dca40312b44c5b63623c8c7e03bb9b38c4bd9af2f5701f7bb6",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__expect@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__expect@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3151,20 +3151,20 @@
     },
     {
       "name": "@vitest/mocker",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/mocker"
       },
-      "archive": "https://registry.npmjs.org/@vitest/mocker/-/mocker-4.1.11.tgz",
-      "integrity": "sha512-2XJVD55d1o5AZous5CCGKS74g/riOj9odEt2bQpCVZeblHyHdnMeFl4jl0XjU21stf4mbjUkew2eXQZt65g5CQ==",
-      "sha256": "5f42c3959636909c506885ef643f4a4e4d024bd7939934465f280c42164eb142",
+      "archive": "https://registry.npmjs.org/@vitest/mocker/-/mocker-4.1.12.tgz",
+      "integrity": "sha512-fKShNpKZzupWZuY0z7egydvL0sqW4INEZBEExMBMAa6izlENEVHwoXgdaTCaBZ5fwlr4xf2o1wXC83n9RpO+NA==",
+      "sha256": "8f9ac0144028329f5c649c031608b8877efea748cdbded0d7f41d60f9be49c52",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__mocker@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__mocker@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3172,20 +3172,20 @@
     },
     {
       "name": "@vitest/pretty-format",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/pretty-format"
       },
-      "archive": "https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-4.1.11.tgz",
-      "integrity": "sha512-yiZzPbGTS9Sr/JpFl8zHrcIkAofNbFV6k21vIgQN/cY/oxZeXhJv5sc/MBJ5jFKWmWs+oJHw0UXLZjmf931+Vw==",
-      "sha256": "4eff485284e6338a567b63be5f6a74c0b42b9e30e0164a8006d832c26130e51b",
+      "archive": "https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-4.1.12.tgz",
+      "integrity": "sha512-XW9O8+Mxx4VpCtkYdMJLZQQwsVryP9wk7cPKDxtXFfwSak6yRh5+2fep/Y0XF/ElBvJHq8bcYdi6aeuai0opZA==",
+      "sha256": "929beb93dafed9e676e55f07919839643231679384020a5ef9c2d02022a5dd80",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__pretty-format@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__pretty-format@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3193,20 +3193,20 @@
     },
     {
       "name": "@vitest/runner",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/runner"
       },
-      "archive": "https://registry.npmjs.org/@vitest/runner/-/runner-4.1.11.tgz",
-      "integrity": "sha512-LztvUgdwMNJMIkj3hQnnxiC2Xy1zNxq928W/xhjCLaNCzqTZOudjwbQf6v9IntZGPw132i2Lq2rgTRZHD3JHNw==",
-      "sha256": "335051b85fce0ad3788c67b84b7949835b5eeeb20b785d8e3741eb396fc23d58",
+      "archive": "https://registry.npmjs.org/@vitest/runner/-/runner-4.1.12.tgz",
+      "integrity": "sha512-NKlVKCr5QnCe8jijdMnmkpHHU+WTqiLFR6G0pHji9uRjXK9xJl1k1nTw6F3pOOj2PDcsDt2GKQMI7wIsaT491w==",
+      "sha256": "061db956dceb2b291e1a4ceb3c5b7e31c368e75b34411953402e339ef566e6cf",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__runner@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__runner@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3214,20 +3214,20 @@
     },
     {
       "name": "@vitest/snapshot",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/snapshot"
       },
-      "archive": "https://registry.npmjs.org/@vitest/snapshot/-/snapshot-4.1.11.tgz",
-      "integrity": "sha512-pN7ikn1ON7h8ee4gIAp4AzyK+zBtJPzVbqOgu5LCEh4VaJVbPQcgYQYJIMGQPXVeJJq1fnfazis7a5pFNPahog==",
-      "sha256": "6893221f95ccea0c56dfbcc6e95ae2198fd086e6de5e11caf12baf1cf2b0c605",
+      "archive": "https://registry.npmjs.org/@vitest/snapshot/-/snapshot-4.1.12.tgz",
+      "integrity": "sha512-ko1y1Qgb/slzQ9mr+b89Cuqud8WG1TKtsPD8r7ZUBdvVOGt85Af2HwCqHujrhwJq95hs/9RM7fcAPg57o1vlzw==",
+      "sha256": "10b57fb1cb37d110309dd64e22a154bf26bd98526cc1ea5307b2f2478cbdddf5",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__snapshot@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__snapshot@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3235,20 +3235,20 @@
     },
     {
       "name": "@vitest/spy",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/spy"
       },
-      "archive": "https://registry.npmjs.org/@vitest/spy/-/spy-4.1.11.tgz",
-      "integrity": "sha512-apNa/prQy2qCeywhnixOHPRCgGNhvg7T4Dapfl1GahLp/R+uhBm5cPyFoNVyqsNd2h1nJxL6BqqdIjiABL60YA==",
-      "sha256": "9b15875da96e769a19b3c9e2c316459528c57b9c20168c5abaa1ce050b7c8490",
+      "archive": "https://registry.npmjs.org/@vitest/spy/-/spy-4.1.12.tgz",
+      "integrity": "sha512-RGq9x4JNGNTZHEJxvN0oSiJjeSCExm0n2gZKKJZHY9cX5AVA6M7VJILBT3ZJ/tJ/0J9uWT7fETV9/btoi//vSg==",
+      "sha256": "eb9a67720d1082f33bfc5cf3a41ee6d297e994cf26013dae0ad807a474fa44a3",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__spy@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__spy@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -3256,20 +3256,20 @@
     },
     {
       "name": "@vitest/utils",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/utils"
       },
-      "archive": "https://registry.npmjs.org/@vitest/utils/-/utils-4.1.11.tgz",
-      "integrity": "sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==",
-      "sha256": "ac1150697c2b1b5b14322f3ac85de74a405228291de1265f2e453c6db9544ee6",
+      "archive": "https://registry.npmjs.org/@vitest/utils/-/utils-4.1.12.tgz",
+      "integrity": "sha512-Q3awXrwOfEV+qc3WmO5ONyE0yO7Q1gQ9/oyHxGLZ/pl7N3NO/ZztqQwKLuwMkV+CA1JYSIeO3gkHnRDIo4AVaA==",
+      "sha256": "0c25f072d4afcb52fa48266177111ca90bc4116c66473170959aae1d57db347d",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/@vitest__utils@4.1.11/LICENSE",
+          "file": "third_party/packages/@vitest__utils@4.1.12/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
         }
@@ -6085,20 +6085,20 @@
     },
     {
       "name": "vitest",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/vitest-dev/vitest.git",
         "directory": "packages/vitest"
       },
-      "archive": "https://registry.npmjs.org/vitest/-/vitest-4.1.11.tgz",
-      "integrity": "sha512-fhACrNXUidIbGSBr5FlbuBkO7VWC1ZyLl0DO4CU2DrQoAPxX84Ysxs+HeGQpii5lZWV1Q4gBZTTu49mF+A6Edw==",
-      "sha256": "81875725211b8c43a30213579456954603d471d022587ce0e6842d44d9ed162b",
+      "archive": "https://registry.npmjs.org/vitest/-/vitest-4.1.12.tgz",
+      "integrity": "sha512-5eWdz2yb3ajxWF3C8C4TjkXl7FGm3n2E/VlazALrQHzK7nYMSGFnCZto0bbPNl77AwkOZVLk0YnBAejUu0NiWA==",
+      "sha256": "ac79c9561c99eabc1cc29e0a839cbd03d1ff0e45bbecb5a2edfa6c3827c823d1",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/vitest@4.1.11/LICENSE.md",
+          "file": "third_party/packages/vitest@4.1.12/LICENSE.md",
           "archive_path": "package/LICENSE.md",
           "sha256": "881d660c26831481b697e39724d4a35c9f86e07b67156d4aeb693a0b39910435"
         }
@@ -6240,19 +6240,19 @@
     },
     {
       "name": "zod",
-      "version": "4.6.5",
+      "version": "4.6.6",
       "declared_license": "MIT",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/colinhacks/zod.git"
       },
-      "archive": "https://registry.npmjs.org/zod/-/zod-4.6.5.tgz",
-      "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==",
-      "sha256": "a78c0c533de30dc1c4afc259ac43ac06e390cb0da8d2e32eae355301b50b36fc",
+      "archive": "https://registry.npmjs.org/zod/-/zod-4.6.6.tgz",
+      "integrity": "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==",
+      "sha256": "312553620ac82cbb25d505100fbb41c1e219b3cd6979cf93c3a1b4dd5b79e039",
       "scripts": {},
       "notices": [
         {
-          "file": "third_party/packages/zod@4.6.5/LICENSE",
+          "file": "third_party/packages/zod@4.6.6/LICENSE",
           "archive_path": "package/LICENSE",
           "sha256": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8"
         }
@@ -6334,7 +6334,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "5.2.0",
-    "@vitest/browser-playwright": "4.1.11",
+    "@vitest/browser-playwright": "4.1.12",
     "eslint": "10.11.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.7",
@@ -6343,10 +6343,10 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.1",
     "vite": "7.3.7",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "vitest-browser-react": "2.3.0"
   },
-  "build_policy_sha256": "bc09ff74dd9db68cf0ff925a3c6bf27bf9703d03eb818c882fced0ff303b2d38",
+  "build_policy_sha256": "63500f3a0ef9fad75d3e1a99e59387c0b4f5ab20868d8fc559e44350b8c1e91b",
   "reviewed_patches": {
     "@xyflow/system@0.0.83": {
       "file": "patches/@xyflow__system@0.0.83.patch",
