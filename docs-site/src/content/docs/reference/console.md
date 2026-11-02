@@ -188,7 +188,8 @@ In matching development builds, open **Execution History**, select a workflow
 and choose a local step in **Graph** or **Trace**. Open the operation details
 to see the effective arguments and accepted result. Model and tool calls show
 their saved callable and version. Ordinary local steps show the input and result
-saved by the program.
+saved by the program. A default applied inside an ordinary Python callable
+can be absent from the recorded input.
 
 The recorded attempt and timestamp tell you when the result became durable.
 To investigate reuse, check the observations for a later attempt. An absent

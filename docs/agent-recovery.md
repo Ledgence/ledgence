@@ -164,8 +164,9 @@ In matching development builds, open a workflow execution in Console, select a
 local step in Graph or Trace, and open its operation details. For a model or tool
 operation, the inspector shows the callable, its version, the effective arguments
 (including bound defaults), the result stored in the journal, and the attempt and
-time of acceptance. For an ordinary local step it shows the recorded input and
-output. The graph and list responses contain only metadata. Console fetches the
+time of acceptance. For an ordinary local step it shows the keyword arguments supplied to
+`ctx.local` and the accepted output. A default applied inside the Python
+callable can be absent from that recorded input. The graph and list responses contain only metadata. Console fetches the
 payload when you open the inspector.
 
 The acceptance attempt identifies the worker attempt that committed the result.
