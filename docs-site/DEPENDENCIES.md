@@ -1,6 +1,6 @@
 # Documentation dependency review
 
-Reviewed 2026-10-20 against `package-lock.json`: 374 locked packages, including optional platform variants. The initial macOS ARM64 installation contained 271 packages. Package totals can differ across platforms; the lockfile and generated manifest are authoritative.
+Reviewed 2026-11-02 against `package-lock.json`: 374 locked packages, including optional platform variants. The initial macOS ARM64 installation contained 271 packages. Package totals can differ across platforms; the lockfile and generated manifest are authoritative.
 
 ## Purpose and boundaries
 
@@ -16,7 +16,9 @@ Ledgence-owned code remains MIT. Third-party files retain their own licenses. In
 
 ## Transitive review
 
-The build requires Node.js 22.19 or newer (Node.js 24 is recommended). Undici, used by Astro’s build-time font tooling, is pinned to MIT-licensed 8.10.2 in both npm and pnpm overrides. Version 8.11.0 was less than 24 hours old when this lock was created: npm selected it, while pnpm 11’s default release-age check selected 8.10.2. The matched pin preserves that protection and makes imports reproducible. Keep both overrides synchronized when deliberately upgrading. npm deduplication also coalesces optional `@emnapi/core` and `@emnapi/wasi-threads` entries to their already reviewed compatible versions (1.11.1 and 1.2.2).
+The build requires Node.js 22.19 or newer (Node.js 24 is recommended). Both package managers pin Undici 8.12.2 for Astro's build-time font tooling and Zod 4.6.6 for schema validation. These versions fit their callers' declared dependency ranges and retain the MIT license. Undici fixes eight advisories affecting the 8.x series, including TLS option handling, redirect caching and resource consumption. Zod fixes resource exhaustion when validating oversized collections. [Undici release](https://github.com/nodejs/undici/releases/tag/v8.12.2), [Zod advisory](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+
+Keep npm and pnpm overrides synchronized when upgrading. npm deduplication also coalesces optional `@emnapi/core` and `@emnapi/wasi-threads` entries to their already reviewed compatible versions (1.11.1 and 1.2.2).
 
 The locked JavaScript graph primarily uses MIT, ISC, Apache-2.0, BSD-2-Clause, BSD-3-Clause, BlueOak-1.0.0, and CC0-1.0. All installed packages provided public source repository metadata. The generated manifest preserves repository locations, registry archive URLs, integrity values, declared SPDX expressions, and original notice hashes. Bundled legal texts (including Astro, Vite, Rolldown, and Pagefind notices) are collected unchanged, rather than treating the package's top-level SPDX field as exhaustive.
 
@@ -84,7 +86,7 @@ No reviewed term requires Ledgence product branding, logos, promotional credits,
 ## Update and release gates
 
 1. Pin direct versions and review the full npm lockfile change, source availability, bundled notices, and intended coupling. Do not broadly allow a new SPDX expression merely to make a build pass.
-2. Install from the lockfile with `npm ci --ignore-scripts`. Review any lifecycle script before enabling it.
+2. Install from the lockfile with `npm ci --ignore-scripts` and run `npm audit --audit-level=low`. CI checks the npm advisory registry once in the npm job and verifies that importing the npm lock produces the committed pnpm lock in the pnpm job. Review any lifecycle script before enabling it.
 3. Run `npm run licenses` (or `node scripts/licenses.mjs --check` for a read-only audit), then the normal site build and checks. The collector fails on unreviewed licenses, missing required packages, mismatched installed metadata, missing legal text outside the exact reviewed cases, or altered vendored upstream notices.
 4. Preserve `public/notices/` in `dist/notices/`, including `LEDGENCE-LICENSE.txt`, `manifest.json`, original package notices, and the pinned Pagefind license. Keep the notices link in the site footer.
 5. Inspect the static output and deploy only `dist/`. A change that introduces a server, native build binaries, or any of the narrowly excepted build helpers into shipped assets invalidates this review and must be assessed before release.
