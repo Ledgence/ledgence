@@ -49,6 +49,17 @@ reviewed fix within their supported `^3.25.0 || ^4.0.0` ranges. Remove or advanc
 override only after reviewing the replacement graph and confirming that both paths
 remain patched. These development tools do not run in a deployed Console.
 
+The 2026-11-02 lint-tooling review pins minimatch 11.0.3 for the v10
+ranges requested by ESLint, its config-array loader and the TypeScript ESLint
+parser. This addresses [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+These tools use the public `Minimatch` constructor, its matching methods and
+the `minimatch` function. Both CommonJS and ESM are available on the pinned
+Node 24.21.0. Revisit the override when those consumers support v11 directly.
+The new matcher uses `@isaacs/nonrecursive-glob-match@1.0.3`, a Blue Oak
+licensed package with its TypeScript source in the npm archive. Neither package
+is included in the browser bundle. Their upstream license files are retained in
+the inventory. The other 308 exact package versions are unchanged.
+
 Six source primitives are adapted from a pinned shadcn/ui commit: Button, Input,
 Card, Dialog, Table and Skeleton. Their original paths, hashes, MIT license and
 adaptation notes are in `third_party/shadcn/provenance.json`. No generator runs at
@@ -74,7 +85,7 @@ not require promotional branding.
 
 ## Full dependency graph
 
-`third_party/inventory.json` records all 309 locked packages, including optional
+`third_party/inventory.json` records all 310 locked packages, including optional
 platform packages: exact npm archive, lockfile integrity, archive SHA-256,
 repository metadata, declared license, lifecycle scripts and hashes of retained
 legal material. Archive integrity was verified against the lockfile before review.
@@ -84,7 +95,7 @@ The ordinary allowed licenses are MIT, ISC, Apache-2.0, BSD-2-Clause and BSD-3-C
 The inventory additionally records these exact reviewed packages:
 
 - `tslib@2.8.1`: 0BSD, including its copyright notice.
-- `minimatch@10.2.6`: BlueOak-1.0.0; build/lint tooling, with the full supplied license.
+- `minimatch@11.0.3` and `@isaacs/nonrecursive-glob-match@1.0.3` use BlueOak-1.0.0 for lint tooling. The inventory retains both complete licenses.
 - `caniuse-lite@1.0.30001812`: CC-BY-4.0, unmodified browser-compatibility data used by
   build tooling. Its attribution/license material is retained; it is not application
   code included in the browser bundle.

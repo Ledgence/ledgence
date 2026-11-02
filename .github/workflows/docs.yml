@@ -26,7 +26,10 @@ jobs:
         with:
           node-version-file: docs-site/.nvmrc
       - if: matrix.manager == 'npm'
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --no-audit
+      - name: Audit locked documentation dependencies
+        if: matrix.manager == 'npm'
+        run: npm audit --audit-level=low
       - if: matrix.manager == 'pnpm'
         run: |
           npm install --global pnpm@11.19.0 --ignore-scripts

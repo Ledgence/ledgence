@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "lockfile_sha256": "7abe1f2a29a6bb90907fac31b28a50584db9436119beeec27d0591dd9eb28156",
+  "lockfile_sha256": "da98a123b9bce53a56221cf2004d928c696abc16913ecc4e3be71b64fb4f26f2",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -1328,6 +1328,29 @@
           "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
         }
       ]
+    },
+    {
+      "name": "@isaacs/nonrecursive-glob-match",
+      "version": "1.0.3",
+      "declared_license": "BlueOak-1.0.0",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/isaacs/nonrecursive-glob-match.git"
+      },
+      "archive": "https://registry.npmjs.org/@isaacs/nonrecursive-glob-match/-/nonrecursive-glob-match-1.0.3.tgz",
+      "integrity": "sha512-SI7kyKHq4XXDRozw+r9GlRZkia1ZkFrpLW98r2IC2Bpr8YkFGE3fvjzmxCG0x78A++69HmDNrDvSMYBZmHGpKA==",
+      "sha256": "9c67e29b5fea7f3736c427cf061c81fa0546f3587f397fa303e46c8dbf8e9998",
+      "scripts": {
+        "prepare": "tshy && bash scripts/build.sh"
+      },
+      "notices": [
+        {
+          "file": "third_party/packages/@isaacs__nonrecursive-glob-match@1.0.3/LICENSE.md",
+          "archive_path": "package/LICENSE.md",
+          "sha256": "8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004"
+        }
+      ],
+      "notice_review": "Development tooling only; retain the complete supplied Blue Oak license. No copyleft or branding condition. The archive includes TypeScript sources. Its npm gitHead matches the upstream v1.0.3 tag."
     },
     {
       "name": "@jridgewell/gen-mapping",
@@ -4938,26 +4961,26 @@
     },
     {
       "name": "minimatch",
-      "version": "10.2.6",
+      "version": "11.0.3",
       "declared_license": "BlueOak-1.0.0",
       "repository": {
         "type": "git",
         "url": "git@github.com:isaacs/minimatch"
       },
-      "archive": "https://registry.npmjs.org/minimatch/-/minimatch-10.2.6.tgz",
-      "integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==",
-      "sha256": "5a3d2c8074a28229665727e47b8a1090941856a7962905efe05d20d3760355f8",
+      "archive": "https://registry.npmjs.org/minimatch/-/minimatch-11.0.3.tgz",
+      "integrity": "sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==",
+      "sha256": "175b2fd9c9d3611e06980341c1be226c7af72b1f414eefb424dca1be9cd9e8ae",
       "scripts": {
         "prepare": "tshy"
       },
       "notices": [
         {
-          "file": "third_party/packages/minimatch@10.2.6/LICENSE.md",
+          "file": "third_party/packages/minimatch@11.0.3/LICENSE.md",
           "archive_path": "package/LICENSE.md",
           "sha256": "2c7c5d22ed5a8ee968c64757710979afcd77438c48b4a265b94e615babd8a901"
         }
       ],
-      "notice_review": "minimatch 10.2.6 build tooling only; retain complete supplied Blue Oak license. No copyleft or branding condition."
+      "notice_review": "Development tooling only; retain the complete supplied Blue Oak license. No copyleft or branding condition."
     },
     {
       "name": "mrmime",
@@ -6313,8 +6336,9 @@
   ],
   "reviewed_special_licenses": {
     "tslib@2.8.1": "0BSD",
-    "minimatch@10.2.6": "BlueOak-1.0.0",
-    "caniuse-lite@1.0.30001812": "CC-BY-4.0"
+    "caniuse-lite@1.0.30001812": "CC-BY-4.0",
+    "minimatch@11.0.3": "BlueOak-1.0.0",
+    "@isaacs/nonrecursive-glob-match@1.0.3": "BlueOak-1.0.0"
   },
   "direct_dependencies": {
     "@dagrejs/dagre": "3.1.1",
@@ -6346,7 +6370,7 @@
     "vitest": "4.1.12",
     "vitest-browser-react": "2.3.0"
   },
-  "build_policy_sha256": "a7c42438285e02ac4ae50f9829ebacfb555f2374e65223550b828d1b7a79b774",
+  "build_policy_sha256": "d3af3e0f2be2fd537553176c010bfbb3c9815d5a00039d97bbf9289536908975",
   "reviewed_patches": {
     "@xyflow/system@0.0.83": {
       "file": "patches/@xyflow__system@0.0.83.patch",
