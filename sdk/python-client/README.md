@@ -11,13 +11,13 @@ arm64. Public APIs may evolve before version 1.0.
 ## Installation
 
 Install the client version matching your service in a virtual environment.
-For Ledgence **0.6.1**, first check its
-[PyPI availability](https://pypi.org/project/ledgence-client/0.6.1/), then run:
+For Ledgence **0.7.0**, first check its
+[PyPI availability](https://pypi.org/project/ledgence-client/0.7.0/), then run:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install "ledgence-client==0.6.1"
+python -m pip install "ledgence-client==0.7.0"
 ```
 
 Use Python 3.11 or newer. Native Ledgence bundles and registry packages
@@ -28,7 +28,7 @@ Pin your client version and review release notes before upgrading.
 For an unreleased checkout or a locally qualified build, install its wheel:
 
 ```sh
-python -m pip install /path/to/ledgence_client-0.6.1-py3-none-any.whl
+python -m pip install /path/to/ledgence_client-0.7.0-py3-none-any.whl
 ```
 
 The client connects to an existing Ledgence service. Follow the
@@ -456,7 +456,7 @@ IDs remain distinct from tracing IDs.
 
 ## Workflow approvals
 
-The development client and server provide a scope-wide inbox. By default it lists
+Matching 0.7.0 clients and servers provide a scope-wide inbox. By default it lists
 pending requests, earliest deadline first. Pass an exact `program_id` to filter,
 or `status=None` to include every persisted status. Read the full effective
 action before preparing a decision.
