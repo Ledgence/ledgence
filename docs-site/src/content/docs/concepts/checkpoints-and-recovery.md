@@ -11,11 +11,10 @@ That boundary makes recovery explicit: your controller chooses the next entrypoi
 
 A checkpoint records the next continuation and state together with staged child registrations and the chosen wait. The coordinator applies these changes atomically, so a committed checkpoint does not leave its child registrations or dispatch obligations only in process memory.
 
-On the development branch, the PostgreSQL coordinator also remembers program
+In 0.7.0 the PostgreSQL coordinator remembers program
 versions it has finished resolving when a large decision needs another attempt.
 A replacement coordinator can continue with the remaining lookups. Children
-become runnable together when the complete decision commits. Upgrading from
-0.6.1 to this checkout requires running the matching orchestrator migrations.
+become runnable together when the complete decision commits. When upgrading from 0.6.1, [migrate the database](/how-to/upgrade-to-0-7) before restarting services.
 
 A resumed handler receives the original CloudEvent and a separate workflow context. The context contains the saved state and frozen outcomes for that activation. Python locals, open sockets, coroutine stacks, and in-memory clients are not restored.
 
@@ -96,4 +95,4 @@ The PostgreSQL adapter also bounds retries of failed completion-obligation appli
 
 For exact methods and byte limits, use the [workflow context reference](/reference/workflow-context). To practice the successful path, follow [your first workflow](/tutorials/first-workflow).
 
-**Source:** [Workflow persistence and recovery](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/workflows.md#persistence-and-recovery) · [Event races and recovery](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/workflow-events.md#identity-races-and-recovery) · [Task result semantics](https://github.com/Ledgence/ledgence/blob/develop/docs/task-results.md)
+**Source:** [Workflow persistence and recovery](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflows.md#persistence-and-recovery) · [Event races and recovery](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflow-events.md#identity-races-and-recovery) · [Task result semantics](https://github.com/Ledgence/ledgence/blob/develop/docs/task-results.md)

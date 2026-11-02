@@ -91,7 +91,7 @@ framework adapters and dynamic tool discovery require their own integration.
 
 ### Inspect the tool call in Console
 
-With matching development builds, open this workflow in Graph or Trace. Select
+With matching 0.7.0 components, open this workflow in Graph or Trace. Select
 the local step `tool:turn:0:lookup:0` and open its details. Its recorded arguments
 include the order ID and the default region `us-east`. Its stored result includes
 the shipping status used by the next model call. Inspecting it does not call

@@ -47,7 +47,7 @@ strings and argument JSON is preserved losslessly. Graph wait kinds include
 approval database migration before starting matching components. See
 [the approval contract](../../../docs/workflow-approvals.md).
 
-Development builds include the additive `POST /v1/console/approvals/inbox`
+Ledgence 0.7.0 includes the additive `POST /v1/console/approvals/inbox`
 read route. It accepts an optional status, exact program ID and cursor, plus a
 page limit. The fixed instance scope governs which workflows are visible.
 Summary rows omit application arguments. Their workflow ID and key identify
@@ -55,7 +55,7 @@ the existing inspection route, whose full action is required for a decision.
 The cursor orders by deadline, workflow ID and approval key.
 [Inbox fields and availability](../../../docs/workflow-approvals.md#approval-inbox).
 
-Matching development builds also support an optional exclusive `due_before`
+Matching components also support an optional exclusive `due_before`
 (UTC epoch milliseconds) on the approval inbox and the exact-key
 `GET /v1/console/workflows/local-steps/inspect` detail read. Both are additive.
 [Local-step response and errors](../../../docs/console-query-model.md#inspect-one-local-step).

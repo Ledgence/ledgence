@@ -12,8 +12,7 @@ covers the interface and operational behavior.
 ## Open the local deployment
 
 Follow [local deployment](local-deployment.md), including the explicit publication
-command, then open [Console](http://127.0.0.1:8080/console/). Release 0.6.1 includes Executions, Programs and Workers.
-Development builds also include Approvals for reviewing work across runs in the instance.
+command, then open [Console](http://127.0.0.1:8080/console/). Ledgence 0.7.0 includes Executions, Programs, Workers and Approvals.
 The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
 
@@ -54,9 +53,9 @@ any registered version; mixed kinds and unspecified kinds stay explicit.
 
 ## Find approvals across workflows
 
-The **Approvals** navigation item in development builds opens the inbox for
+The **Approvals** navigation item opens the inbox for
 the bound instance. It lists pending requests by deadline and supports filters
-for program and status. Open a request to inspect or decide its exact action
+for program, status and an exclusive deadline. Open a request to inspect or decide its exact action
 and navigate to its workflow. [Approval inbox contract](workflow-approvals.md#approval-inbox).
 
 ## Explore a workflow
@@ -112,7 +111,7 @@ for scope, bounds, replay and unavailable-measurement behavior.
 ## Native startup
 
 Build assets explicitly with the pinned toolchain in [Console build guide](https://github.com/Ledgence/ledgence/blob/develop/console/README.md),
-or use the `console/` directory from the matching 0.6.1 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
+or use the `console/` directory from the matching 0.7.0 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
 build/test does not run frontend tooling. Create a server-only instance file:
 
 ```json
@@ -137,7 +136,7 @@ cargo run -p ledgence-cli -- orchestrator serve --store /path/to/program-store \
 
 For a newly built native bundle use `bin/ledgence orchestrator serve` and
 `--console-dir /absolute/path/to/bundle/console`. Keep `--instance-config` on every
-startup. In a complete 0.6.1 native bundle, `--instance-config` automatically
+startup. In a complete 0.7.0 native bundle, `--instance-config` automatically
 selects the bundled Console when `--console-dir` is omitted. To run without
 assets, use a source build or a bundle packaged with `--headless`, and omit
 `--console-dir`; the instance binding remains required. A missing,
@@ -146,7 +145,7 @@ The console source manifest and retained notices accompany the assets.
 
 ## Register immutable programs
 
-Ledgence 0.6.1 can prepare and upload programs from the CLI with
+Ledgence 0.7.0 can prepare and upload programs from the CLI with
 [`program build` and `publish --server URL --register`](program-publication.md).
 The Console registration form still registers an existing store reference; it
 does not become a code uploader. Publication must be explicitly enabled on the
@@ -271,6 +270,6 @@ API, identity and execution guarantees.
 
 ## Inspect an accepted operation
 
-With a development build, open a local step in Graph or Trace to inspect its
+Open a local step in Graph or Trace to inspect its
 accepted arguments and result on demand. The attempt that recorded the result
 can differ from a later attempt that reused it. [Operation inspection](agent-recovery.md#inspect-an-accepted-operation).

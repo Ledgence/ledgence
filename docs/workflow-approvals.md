@@ -118,7 +118,7 @@ existing allowed-Origin checks; an Origin check is not user authentication.
 
 ## Approval inbox
 
-Available in matching builds from `develop`. Apply the orchestrator migrations
+Available in Ledgence 0.7.0. Apply the orchestrator migrations
 before starting the updated service. The migration includes existing retained
 approvals. Release 0.6.1 supports review from a known workflow.
 

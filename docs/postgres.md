@@ -9,24 +9,27 @@ success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
-## Upgrade from 0.6.1 to a development build
+## Upgrade from 0.6.1 to 0.7.0
 
-When upgrading from 0.6.1, stop application writers and run `ledgence orchestrator migrate` against the installation database before starting the updated service. Migration `20261102000000_workflow_resolution_progress.sql` preserves partial child-program resolution progress across retries. Migration `20261102010000_approval_inbox.sql` backfills indexed metadata for existing approval requests. Allow maintenance time and storage for the backfill and indexes in proportion to retained approvals. Listing a page reads metadata ordered by deadline. The original request and decision remain the records used to inspect or settle an approval. [Inbox contract](workflow-approvals.md#approval-inbox).
+When upgrading from 0.6.1, stop the orchestrator, workers and any other writers. Back up the database and program store, then run `ledgence orchestrator migrate` against the installation database before starting the updated service. Migration `20261102000000_workflow_resolution_progress.sql` preserves partial child-program resolution progress across retries. Migration `20261102010000_approval_inbox.sql` backfills indexed metadata for existing approval requests. Allow maintenance time and storage for the backfill and indexes in proportion to retained approvals. Listing a page reads metadata ordered by deadline. The original request and decision remain the records used to inspect or settle an approval. [Inbox contract](workflow-approvals.md#approval-inbox).
 
 To rehearse the upgrade on a disposable PostgreSQL 18 instance, extract the
-checksum-verified 0.6.1 native bundle for your machine, then build the candidate
-binary and Console. Set `LEDGENCE_POSTGRES_URL` to the test server. The check
+checksum-verified native bundles for 0.6.1 and 0.7.0 for your machine. Run the
+following command from the 0.7.0 source checkout. Set `LEDGENCE_POSTGRES_URL`
+to the disposable server's connection URL. The check
 creates and drops a uniquely named database there. Use a fresh evidence directory.
 
 ```sh
 python3.13 tools/check-approval-upgrade.py \
   --previous-bundle /path/to/extracted-0.6.1 \
-  --binaries target/debug --console-dist console/dist \
+  --binaries /path/to/extracted-0.7.0/bin \
+  --console-dist /path/to/extracted-0.7.0/console \
+  --candidate-runner /path/to/extracted-0.7.0/runtime/ledgence/worker/bootstrap.py \
   --evidence /path/to/new-upgrade-evidence
 ```
 
 The released worker creates an approval and a tool result. The check stops all
-writers, applies the migrations with the candidate binary, inspects the retained
+writers, applies the migrations with the 0.7.0 binary, inspects the retained
 result, submits the approval decision twice and verifies one resumption and one
 simulated effect.
 
