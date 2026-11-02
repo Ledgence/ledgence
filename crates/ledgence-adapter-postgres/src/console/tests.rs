@@ -3,6 +3,7 @@ use crate::tests::{TestDb, acquire_command, assignment, command, completed, desc
 use serde_json::{Value, json};
 use sqlx::{AssertSqlSafe, Execute};
 mod executions;
+mod local_step;
 fn pagination() -> ConsolePagination {
     ConsolePagination {
         limit: 1,

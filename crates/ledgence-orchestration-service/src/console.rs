@@ -29,6 +29,18 @@ impl ConsoleQueryService for ConsoleApplicationService {
         })
     }
 
+    fn inspect_local_step<'a>(
+        &'a self,
+        lookup: &'a ConsoleLocalStepLookup,
+    ) -> ContractFuture<'a, ConsoleLocalStepDetail> {
+        Box::pin(async move {
+            lookup.validate()?;
+            let detail = self.store.inspect_local_step(&self.scope, lookup).await?;
+            lookup.validate_reply(&detail)?;
+            Ok(detail)
+        })
+    }
+
     fn explore_approval<'a>(
         &'a self,
         focus: &'a ConsoleApprovalFocus,

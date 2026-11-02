@@ -82,6 +82,50 @@ impl ConsoleQueryStore for PostgresStore {
             Ok(reply)
         }))
     }
+    fn inspect_local_step<'a>(
+        &'a self,
+        scope: &'a Scope,
+        lookup: &'a ConsoleLocalStepLookup,
+    ) -> ContractFuture<'a, ConsoleLocalStepDetail> {
+        Box::pin(self.run(|| async {
+            self.require_scope(scope)?;
+            lookup.validate()?;
+            // One statement observes retention and the exact record in the same snapshot.
+            let row = sqlx::query(
+                "SELECT w.workflow_id, r.activation_id, r.step_key, r.callable,
+                        r.attempt_id, r.accepted_at_ms, r.record_bytes
+                 FROM workflow_local_results r
+                 JOIN workflow_activations a ON a.activation_id=r.activation_id
+                 JOIN workflow_runs w ON w.workflow_id=a.workflow_id
+                 JOIN tasks t ON t.task_id=a.task_id
+                 WHERE r.activation_id=$1 AND r.step_key=$2 AND w.workflow_id=$3
+                   AND w.tenant_id=$4 AND w.namespace=$5 AND w.retiring_at_ms IS NULL
+                   AND t.tenant_id=$4 AND t.namespace=$5 AND t.retiring_at_ms IS NULL",
+            )
+            .bind(&lookup.activation_id)
+            .bind(&lookup.step_key)
+            .bind(&lookup.workflow_id)
+            .bind(&scope.tenant_id)
+            .bind(&scope.namespace)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(ContractError::NotFound)?;
+            let step = ConsoleLocalStep {
+                workflow_id: row.try_get("workflow_id")?,
+                activation_id: row.try_get("activation_id")?,
+                step_key: row.try_get("step_key")?,
+                callable: row.try_get("callable")?,
+                attempt_id: row.try_get("attempt_id")?,
+                accepted_at: number(&row, "accepted_at_ms")?,
+            };
+            let bytes: &[u8] = row.try_get("record_bytes")?;
+            let record = decode_unique_json(bytes, WORKFLOW_LOCAL_RECORD_MAX_BYTES)
+                .map_err(|_| corrupt("accepted local record"))?;
+            ConsoleLocalStepDetail::from_record(step, record)
+                .map_err(|_| corrupt("accepted local record").into())
+        }))
+    }
+
     fn explore_approval<'a>(
         &'a self,
         scope: &'a Scope,

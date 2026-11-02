@@ -124,6 +124,7 @@ pub(super) const ROUTES: &[(&str, &str)] = &[
     ("/v1/console/workflows/waits", "GET"),
     ("/v1/console/workflows/history", "GET"),
     ("/v1/console/workflows/local-steps", "GET"),
+    ("/v1/console/workflows/local-steps/inspect", "GET"),
     ("/v1/console/programs", "GET"),
     ("/v1/console/programs/versions", "GET"),
     ("/v1/console/programs/inspect", "GET"),
@@ -295,6 +296,17 @@ pub(super) async fn dispatch(
                     observed_at: now()?,
                 })
                 .await;
+        }
+        if path == "/v1/console/workflows/local-steps/inspect" {
+            let lookup = ConsoleLocalStepLookup {
+                workflow_id: required(&fields, "workflow_id")?,
+                activation_id: required(&fields, "activation_id")?,
+                step_key: required(&fields, "step_key")?,
+            };
+            lookup.validate()?;
+            let detail = console.queries.inspect_local_step(&lookup).await?;
+            lookup.validate_reply(&detail)?;
+            return server.encode(detail).await;
         }
         if path == "/v1/console/workflows/explorer"
             && let Some(approval_key) = fields.get("approval_key")
@@ -717,6 +729,9 @@ fn fields(raw: &str, path: &str) -> Result<BTreeMap<String, String>> {
         | "/v1/console/workflows/status"
         | "/v1/console/workflows/result" => &["workflow_id"],
         "/v1/console/workflows/local-steps" => &["workflow_id", "activation_id", "limit", "cursor"],
+        "/v1/console/workflows/local-steps/inspect" => {
+            &["workflow_id", "activation_id", "step_key"]
+        }
         "/v1/console/workflows/activations"
         | "/v1/console/workflows/children"
         | "/v1/console/workflows/waits"

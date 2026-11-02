@@ -5,9 +5,23 @@ use ledgence_orchestration_api::console::*;
 #[derive(Default)]
 pub(super) struct Queries {
     calls: Mutex<Vec<ConsoleQuery>>,
+    local: Mutex<Option<ConsoleLocalStepDetail>>,
     reply: Mutex<Option<ConsoleQueryReply>>,
 }
 impl ConsoleQueryService for Queries {
+    fn inspect_local_step<'a>(
+        &'a self,
+        _: &'a ConsoleLocalStepLookup,
+    ) -> ContractFuture<'a, ConsoleLocalStepDetail> {
+        Box::pin(async move {
+            self.local
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or(ContractError::NotFound)
+        })
+    }
+
     fn query_console<'a>(
         &'a self,
         query: &'a ConsoleQuery,
@@ -979,5 +993,76 @@ async fn focused_explorer_is_optional_for_preexisting_console_adapters() {
         .await
         .unwrap();
     assert_eq!(invalid.status(), 400);
+    assert!(queries.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn local_step_inspector_serves_one_lossless_bound_result() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let running = setup(&mock, &queries).await;
+    let client = reqwest::Client::new();
+    let route = "/v1/console/workflows/local-steps/inspect";
+    let fields = [
+        ("workflow_id", "flow"),
+        ("activation_id", "act"),
+        ("step_key", "a +/%é"),
+    ];
+    let url = query_url(&running, route, &fields);
+    assert_eq!(client.get(url.clone()).send().await.unwrap().status(), 404);
+    let detail = ConsoleLocalStepDetail {
+        step: ConsoleLocalStep {
+            workflow_id: "flow".into(),
+            activation_id: "act".into(),
+            step_key: "a +/%é".into(),
+            callable: "tool:billing:apply".into(),
+            attempt_id: "attempt".into(),
+            accepted_at: 41,
+        },
+        kind: ConsoleOperationKind::Tool,
+        version: Some("v1".into()),
+        arguments: json!({"amount":1.0,"id":u64::MAX}),
+        result: json!({"operation":"issued"}),
+    };
+    *queries.local.lock().unwrap() = Some(detail.clone());
+    let response = client.get(url.clone()).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_headers(&response);
+    let value: Value = serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+    assert_eq!(value["arguments"]["id"].as_u64(), Some(u64::MAX));
+    assert!(value["arguments"]["amount"].is_f64());
+    assert_eq!(value, serde_json::to_value(&detail).unwrap());
+    for bad in [
+        ("tenant_id", "escape"),
+        ("step_key", "other"),
+        ("cursor", "unrelated"),
+    ] {
+        let mut fields = fields.to_vec();
+        fields.push(bad);
+        assert_eq!(
+            client
+                .get(query_url(&running, route, &fields))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            400
+        );
+    }
+    assert_eq!(
+        client
+            .get(query_url(&running, route, &fields[..2]))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    let mut mismatch = detail;
+    mismatch.step.activation_id = "unrelated".into();
+    *queries.local.lock().unwrap() = Some(mismatch);
+    let response = client.get(url).send().await.unwrap();
+    assert_eq!(response.status(), 503);
+    assert!(!response.text().await.unwrap().contains("issued"));
     assert!(queries.calls.lock().unwrap().is_empty());
 }

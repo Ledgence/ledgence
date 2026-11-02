@@ -329,8 +329,21 @@ pub fn fixtures() -> Value {
         next_cursor: None,
         observed_at: at,
     };
+    let step = ConsoleLocalStep {
+        workflow_id: workflow.workflow_id.clone(),
+        activation_id: "task_controller_1".into(),
+        step_key: "tool:lookup:0".into(),
+        callable: "tool:billing:lookup".into(),
+        attempt_id: "att_controller_1".into(),
+        accepted_at: at,
+    };
+    let local_step_detail = ConsoleLocalStepDetail::from_record(step.clone(), LocalStepRecord {
+        key: step.step_key, callable: step.callable,
+        input: json!({"v":1,"kind":"tool","version":"v1","arguments":{"id":u64::MAX,"factor":1.0}}),
+        output: json!({"balance":-0.0}),
+    }).unwrap();
     let mut result = json!({"contract_version":CONSOLE_CONTRACT_VERSION,"config":config,"tasks":tasks,"task_status":ConsoleObservedTaskStatus{task:status,observed_at:at},"task_detail":task_detail,"attempts":attempts,"attempt_detail":attempt_detail,
-        "workflows":workflows,"workflow_status":ConsoleObservedWorkflowStatus{workflow,observed_at:at},"workflow_detail":workflow_detail,"activations":activations,"children":children,"waits":waits,"local_steps":local_steps,"workflow_history":workflow_history,
+        "workflows":workflows,"workflow_status":ConsoleObservedWorkflowStatus{workflow,observed_at:at},"workflow_detail":workflow_detail,"activations":activations,"children":children,"waits":waits,"local_steps":local_steps,"local_step_detail":local_step_detail,"workflow_history":workflow_history,
         "pending_result":pending,"null_result":success,"numeric_payload":numeric_payload,
         "programs":programs,"program_versions":versions,"program_detail":program_detail,"program_receipt":program_receipt,"workers":workers,"worker_detail":worker_detail});
     result
