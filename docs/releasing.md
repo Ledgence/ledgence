@@ -65,6 +65,10 @@ Console, using the pinned frontend toolchain and a disposable PostgreSQL 18.6
 service for relocated verification. Set `include_console=false` to run only the
 headless jobs; set `candidate=rc.N` to select the candidate label.
 
+The Linux Console job also upgrades a retained approval and an accepted tool
+result from the checksum-pinned 0.6.1 bundle with the packaged candidate,
+including its Python runner. Its evidence is retained separately.
+
 Each successful job retains its verified archive, `SHA256SUMS` and provenance as
 an Actions artifact for 30 days. Artifact names distinguish the headless targets
 from `candidate-console-linux-x86_64`. These are reviewable candidates; the
