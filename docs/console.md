@@ -12,9 +12,8 @@ covers the interface and operational behavior.
 ## Open the local deployment
 
 Follow [local deployment](local-deployment.md), including the explicit publication
-command, then open [Console](http://127.0.0.1:8080/console/). The navigation contains
-Executions, Programs and Workers. These views use
-durable execution records, registered programs and actual worker observations.
+command, then open [Console](http://127.0.0.1:8080/console/). Release 0.6.1 includes Executions, Programs and Workers.
+Development builds also include Approvals for reviewing work across runs in the instance.
 The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
 
@@ -52,6 +51,13 @@ activations remain inside their workflow. Program/version history and exact-ID
 lookup include children automatically. Executions remain discoverable even when
 their packages have not been added to the registry. Catalog type filters match
 any registered version; mixed kinds and unspecified kinds stay explicit.
+
+## Find approvals across workflows
+
+The **Approvals** navigation item in development builds opens the inbox for
+the bound instance. It lists pending requests by deadline and supports filters
+for program and status. Open a request to inspect or decide its exact action
+and navigate to its workflow. [Approval inbox contract](workflow-approvals.md#approval-inbox).
 
 ## Explore a workflow
 

@@ -39,7 +39,7 @@ WRITE_TOOLS = {"ledgence_task_submit", "ledgence_task_cancel", "ledgence_workflo
 READ_TOOLS = {"ledgence_program_list", "ledgence_program_versions", "ledgence_program_inspect",
               "ledgence_task_list", "ledgence_task_status", "ledgence_task_result",
               "ledgence_workflow_status", "ledgence_workflow_result", "ledgence_approval_list",
-              "ledgence_approval_inspect"}
+              "ledgence_approval_inspect", "ledgence_approval_inbox"}
 
 
 def task_arguments(d, key, **data):
@@ -286,6 +286,10 @@ def scenarios(d, record, sessions):
 
     approved = main.tool("ledgence_workflow_submit", workflow_arguments(d, "mcp-approval", approval=True))
     wait_workflow(main, approved["workflow_id"])
+    inbox = main.tool("ledgence_approval_inbox", {"program_id": "mcp-workflow"})
+    summary = next(item for item in inbox["items"] if item["workflow_id"] == approved["workflow_id"])
+    assert summary["status"] == "pending" and summary["key"] == "review", summary
+    assert "action" not in summary and "proposed_arguments" not in summary, summary
     approvals = main.tool("ledgence_approval_list", {"workflow_id": approved["workflow_id"]})
     inspection = main.tool("ledgence_approval_inspect", {"workflow_id": approved["workflow_id"], "key": "review"})
     assert inspection["status"] == "pending" and inspection["action"]["arguments"] == {"value": 7}, inspection

@@ -74,6 +74,7 @@ those hints do not replace application authorization.
 | `ledgence_task_result`, `ledgence_workflow_result` | Current result; `outcome: null` means no terminal result is available yet. |
 | `ledgence_task_cancel`, `ledgence_workflow_cancel` | Explicitly request execution cancellation. |
 | `ledgence_workflow_send_event` | Deliver an original CloudEvent to an application wait key. |
+| `ledgence_approval_inbox` (development) | Discover approval summaries within the server's configured scope. Defaults to pending. Use the returned workflow ID and key with approval inspection. |
 | `ledgence_approval_list`, `ledgence_approval_inspect` | Read persisted requests and their exact effective action. |
 
 Program discovery reads the existing installation catalog. Configure the

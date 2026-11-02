@@ -39,5 +39,11 @@
     "sourceRef": "v0.6.1",
     "guide": "/how-to/develop-python-programs#create-a-project-with-the-cli",
     "verifiedOn": "2026-10-20"
+  },
+  "approvalInbox": {
+    "title": "Approval inbox across workflows",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/require-approval#find-pending-requests-across-workflows"
   }
 }

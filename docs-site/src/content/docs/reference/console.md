@@ -17,7 +17,7 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 | Programs | Registered program references, versions, digests, manifests, declared kinds and descriptive metadata. | Register a published reference, update descriptive metadata explicitly, open a submission form or matching execution history. |
 | Workers | Worker sessions, configured capacity, observation freshness, process slots, and validated task/attempt links. | Inspect the latest available observation and follow execution links. |
 
-**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs** and **Workers** are the three navigation destinations. Worker inspection does not provide a drain, kill, or scaling command.
+**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs** and **Workers** are the three navigation destinations in 0.6.1. Development builds add **Approvals**. Worker inspection does not provide a drain, kill, or scaling command.
 
 Workflow **Graph** and **Trace** use the same retained execution records. Graph shows one workflow and its direct children; a subworkflow is an opaque node that opens its own graph. Select work to inspect it; open a child execution to drill in. Back restores the previous navigation entry, Up follows ownership, and breadcrumbs select ancestors. Completed work remains visible. Correlation keys and timestamps do not prove dependencies. The graph does not predict future branches or edit a workflow definition.
 
@@ -73,6 +73,9 @@ Cancellation is a request. Active process cleanup and workflow child draining ma
 Inputs, results, events, and command bodies are not persisted to browser local storage or analytics. Appearance, sidebar collapse and Graph/Trace preferences may persist. Filters, resource identifiers and selected nodes can appear in navigation URLs; scroll, focus and graph presentation are retained in bounded navigation memory.
 
 ## Review durable action approvals
+
+In development builds the **Approvals** navigation item opens the instance inbox.
+See [Find pending requests across workflows](/how-to/require-approval#find-pending-requests-across-workflows).
 
 Open **General → Approvals** in a workflow detail to inspect its persisted action requests.
 Review the action name and version, effective arguments, optional original

@@ -9,6 +9,10 @@ success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
+## Approval inbox migration in development
+
+When upgrading from 0.6.1, stop application writers and run `ledgence orchestrator migrate` against the installation database before starting the updated service. Migration `20261102010000_approval_inbox.sql` backfills indexed metadata for existing approval requests. Allow maintenance time and storage for the backfill and indexes in proportion to retained approvals. Listing a page reads metadata ordered by deadline. The original request and decision remain the records used to inspect or settle an approval. [Inbox contract](workflow-approvals.md#approval-inbox).
+
 ## Using the adapter
 
 Create `PostgresStore` with a connection URL and `PostgresOptions`, then explicitly apply its migrations. The normal constructor never changes the schema. A migration example is available:

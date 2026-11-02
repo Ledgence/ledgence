@@ -4,11 +4,13 @@ import copy
 import json
 from http_acceptance.harness import eventually, exchange
 
-SCENARIOS = ("approvals", "approval-example")
+SCENARIOS = ("approvals", "approval-example", "approval-inbox")
 
 async def run(d, names, record, snapshot):
     from ledgence.client import AsyncClient, RetryPolicy, ApprovalDecisionUncertain, ApprovalStatus
     options = dict(tenant=d.scope["tenant_id"], namespace=d.scope["namespace"])
+    if "approval-inbox" in names:
+        await verify_inbox(d, record, options, snapshot)
     if "approvals" in names:
         proxy = d.proxy()
         worker = d.start_worker(server=proxy.url, concurrency=1)
@@ -117,4 +119,74 @@ async def run(d, names, record, snapshot):
             assert output=={"status":"approved","result":{"simulated":True,"amount":50,"currency":"USD"},
                 "proposed_arguments":{"amount":100},"approved_arguments":{"amount":50,"currency":"USD"}},output
             record("approval-example",dict(workflow_id=handle.id,output=output,source="examples/durable-approval/program.py"))
+        await asyncio.to_thread(worker.stop)
+
+
+async def verify_inbox(d, record, options, snapshot):
+    from ledgence.client import AsyncClient, ApprovalStatus, Conflict
+
+    program_id = "approval-controller"
+    worker = d.start_worker(concurrency=1)
+    marker = d.directory / "inbox-resumptions.jsonl"
+    try:
+        async with (AsyncClient(d.server_url, **options) as first,
+                    AsyncClient(d.server_url, **options) as second,
+                    AsyncClient(d.server_url, tenant=options["tenant"], namespace="other-inbox") as foreign):
+            handles = []
+            for name, timeout_ms in (("earliest", 180_000), ("later", 360_000)):
+                handles.append(await first.workflows.submit(
+                    program=program_id, version="1.0.0", queue=d.queue,
+                    idempotency_key="inbox:" + name, data={"marker": str(marker), "timeout_ms": timeout_ms},
+                ))
+
+            async def discover(client):
+                page = await client.workflows.approval_inbox(program_id=program_id, limit=1)
+                assert [row.workflow_id for row in page.items] == [handles[0].id] and page.next_cursor
+                later = await client.workflows.approval_inbox(program_id=program_id, limit=1, cursor=page.next_cursor)
+                assert [row.workflow_id for row in later.items] == [handles[1].id] and later.next_cursor is None
+                row = page.items[0]
+                return await client.workflows.handle(row.workflow_id).approval(row.key)
+
+            for h in handles:
+                await asyncio.to_thread(eventually, lambda: snapshot(d, h.id)["state"] == "waiting",
+                                        timeout=110, description="both requests enter the durable inbox")
+            left, right = await asyncio.gather(discover(first), discover(second))
+            assert left.to_dict() == right.to_dict()
+            assert not (await foreign.workflows.approval_inbox(program_id=program_id)).items
+            cli = await asyncio.to_thread(d.command, "ledgence", [
+                "approval", "inbox", "--server", d.server_url, "--tenant", options["tenant"],
+                "--namespace", options["namespace"], "--program", program_id, "--limit", "2",
+            ])
+            assert [row["workflow_id"] for row in cli["items"]] == [h.id for h in handles], cli
+
+            async def decide(client, proposal, outcome):
+                handle = client.workflows.handle(proposal.workflow_id)
+                command = handle.prepare_approval_decision(
+                    proposal, decision_id="inbox:" + outcome, decision=outcome, reviewer="operator-" + outcome,
+                )
+                try:
+                    return await handle.decide_approval(command)
+                except Conflict:
+                    return None
+
+            receipts = await asyncio.gather(decide(first, left, "approve"), decide(second, right, "reject"))
+            accepted, = [receipt for receipt in receipts if receipt is not None]
+            assert not accepted.already_accepted
+            status = accepted.approval.status
+            result = await handles[0].result(timeout=110)
+            assert result["status"] == status.value
+            evidence = [json.loads(line) for line in marker.read_text().splitlines()]
+            resumed = [row["activation"] for row in evidence if row["kind"] == "resume"]
+            settled = await handles[0].approval("refund")
+            assert settled.decision == accepted.approval.decision and settled.status is status
+            assert resumed == [settled.resumed_activation_id], (evidence, settled)
+            assert sum(row["kind"] == "effect" for row in evidence) == int(status is ApprovalStatus.APPROVED)
+            pending = await first.workflows.approval_inbox(program_id=program_id)
+            assert [row.workflow_id for row in pending.items] == [handles[1].id]
+            closed = await second.workflows.approval_inbox(status=status, program_id=program_id)
+            assert handles[0].id in {row.workflow_id for row in closed.items}
+            await handles[1].cancel()
+            record("approval-inbox", {"winner": status.value, "resumed_activation": resumed[0],
+                                       "two_operators": True, "isolated_namespace": True, "cli_discovery": True})
+    finally:
         await asyncio.to_thread(worker.stop)

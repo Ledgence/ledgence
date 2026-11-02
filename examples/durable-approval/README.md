@@ -38,6 +38,12 @@ run = await client.workflows.submit(
 print(run.id)
 ```
 
+If several workflows request refunds, open **Approvals** in a development
+build of Console and filter by program `durable-approval`. From the
+matching Python client, `await client.workflows.approval_inbox(program_id="durable-approval")`
+finds pending requests in the client's scope. Select a request to inspect the
+effective amount before deciding. [Inbox contract](../../docs/workflow-approvals.md#approval-inbox).
+
 Inspect `await run.approvals()` or use the workflow's **General → Approvals** view in
 Console after its first activation. A key does not exist until the workflow has
 committed its request. Reconnect at any time with
