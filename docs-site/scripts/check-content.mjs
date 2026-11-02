@@ -89,10 +89,12 @@ export function prepareContent() {
     if (!pages.some(page => page.slug.startsWith(`${section}/`))) throw new Error(`Missing ${section} content`);
   }
   const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  const dirty = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', '.'],
+    { cwd: root, encoding: 'utf8' }).length > 0;
   const productRevision = releaseRevision();
   const sourceInfo = {
     ...(productRevision ? { revision: productRevision } : {}),
-    ref: release.sourceRef, documentationRevision: revision,
+    ref: release.sourceRef, documentationRevision: revision, documentationDirty: dirty,
     channel: 'release', sourceFeatures, series: release.series, nativeVersion: release.nativeVersion,
     clientVersion: release.clientVersion, rustApiVersion: release.rustApiVersion,
     nativeTargets: release.nativeTargets, verifiedOn: release.verifiedOn,
@@ -102,7 +104,7 @@ export function prepareContent() {
   mkdirSync(join(root, 'public'), { recursive: true });
   writeFileSync(join(root, 'src/generated/source.json'), JSON.stringify(sourceInfo, null, 2) + '\n');
   writeFileSync(join(root, 'public/source.json'), JSON.stringify(sourceInfo, null, 2) + '\n');
-  writeMarkdownExports(join(root, 'public'), pages, revision, productRevision);
+  writeMarkdownExports(join(root, 'public'), pages, dirty ? revision + ' (local changes)' : revision, productRevision);
   console.log(`Validated ${pages.length} documentation pages; generated Markdown and source metadata.`);
   return pages;
 }
