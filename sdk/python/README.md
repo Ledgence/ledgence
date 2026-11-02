@@ -16,15 +16,15 @@ package. No agent framework or model provider is required.
 
 `ledgence-worker` requires Python 3.11+. Install the version matching your
 worker in your application's existing uv project as a development dependency.
-For Ledgence **0.6.1**, use:
+For Ledgence **0.7.0**, use:
 
 ```sh
-uv add --dev "ledgence-worker==0.6.1"
+uv add --dev "ledgence-worker==0.7.0"
 ```
 
-For pip, use `python -m pip install "ledgence-worker==0.6.1"` in the application's
+For pip, use `python -m pip install "ledgence-worker==0.7.0"` in the application's
 activated virtual environment. Check
-[registry availability](https://pypi.org/project/ledgence-worker/0.6.1/) before
+[registry availability](https://pypi.org/project/ledgence-worker/0.7.0/) before
 using these commands. For an unreleased checkout, use the local source
 installation below. The historical `v0.4.0` source tag does not contain this
 package's `pyproject.toml`.
