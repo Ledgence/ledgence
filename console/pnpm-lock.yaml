@@ -12,6 +12,7 @@ overrides:
 
 patchedDependencies:
   '@xyflow/system@0.0.83': 5bb2dbf7a659c5abc2776087ca263fb707abfe3da27393fca9bbe56e7429d343
+  lossless-json@4.3.1: f2a6efe8268ac46922f439b25a66a3be2e898ebb57e0f4b08d999aac0f1f3e39
 
 importers:
 
@@ -31,7 +32,7 @@ importers:
         version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lossless-json:
         specifier: 4.3.1
-        version: 4.3.1
+        version: 4.3.1(patch_hash=f2a6efe8268ac46922f439b25a66a3be2e898ebb57e0f4b08d999aac0f1f3e39)
       lucide-react:
         specifier: 1.48.0
         version: 1.48.0(react@19.3.0)
@@ -2789,7 +2790,7 @@ snapshots:
     dependencies:
       p-locate: 5.0.0
 
-  lossless-json@4.3.1: {}
+  lossless-json@4.3.1(patch_hash=f2a6efe8268ac46922f439b25a66a3be2e898ebb57e0f4b08d999aac0f1f3e39): {}
 
   lru-cache@5.1.1:
     dependencies:

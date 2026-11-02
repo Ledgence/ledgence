@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "lockfile_sha256": "d465c7700b191f27049e14f7f0e219d3e482dd5fd55919b9f0a1639a1a60ae7e",
+  "lockfile_sha256": "7abe1f2a29a6bb90907fac31b28a50584db9436119beeec27d0591dd9eb28156",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -6346,7 +6346,7 @@
     "vitest": "4.1.12",
     "vitest-browser-react": "2.3.0"
   },
-  "build_policy_sha256": "63500f3a0ef9fad75d3e1a99e59387c0b4f5ab20868d8fc559e44350b8c1e91b",
+  "build_policy_sha256": "a7c42438285e02ac4ae50f9829ebacfb555f2374e65223550b828d1b7a79b774",
   "reviewed_patches": {
     "@xyflow/system@0.0.83": {
       "file": "patches/@xyflow__system@0.0.83.patch",
@@ -6358,6 +6358,18 @@
       "reason": "Preserve the NodeBase constraint explicitly in InternalNodeBase under TypeScript 6 exactOptionalPropertyTypes. Declaration-only intersection; no runtime JavaScript, CSS or license changes.",
       "upstream_archive_sha256": "fc5d6ec987f33c14a83295d3deaaed2e36309ca3271d56f04c8442fba17e0d23",
       "reviewed_archive_file_count": 186
+    },
+    "lossless-json@4.3.1": {
+      "file": "patches/lossless-json@4.3.1.patch",
+      "sha256": "f2a6efe8268ac46922f439b25a66a3be2e898ebb57e0f4b08d999aac0f1f3e39",
+      "changed_files": [
+        "lib/esm/parse.js",
+        "lib/esm/LosslessNumber.js",
+        "lib/esm/stringify.js"
+      ],
+      "upstream_archive_sha256": "f71665240257ee183b98fd1b4e0a7cb81156ddff3f01070ea9331258902c1e5c",
+      "reason": "Keep all JSON keys as own data properties, reject duplicate names and distinguish numeric tokens from user objects.",
+      "reviewed_archive_file_count": 68
     }
   }
 }
