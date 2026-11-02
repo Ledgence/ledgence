@@ -106,3 +106,134 @@ test("approvals remain readable and keyboard-accessible inside workflow General"
     page.getByRole("button", { name: "View submitted decision" }),
   ).toBeFocused();
 });
+
+test("the inbox filters across workflows, pages by cursor and reconciles another reviewer's decision", async ({
+  page,
+}) => {
+  const original = approvalFixture();
+  const requests: {
+    status: string | null;
+    program_id: string | null;
+    cursor: string | null;
+    limit: number;
+  }[] = [];
+  let decided = false,
+    inspected = 0,
+    sent = 0;
+  await page.route("**/v1/console/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    let value: unknown;
+    if (path.endsWith("/config")) value = field("config");
+    else if (path.endsWith("/approvals/inbox")) {
+      const input = route.request().postDataJSON() as (typeof requests)[number];
+      requests.push(input);
+      const row = (i: number) => ({
+        workflow_id: "wf-" + String(i).padStart(3, "0"),
+        key: "refund",
+        activation_id: "act-" + i,
+        program_id: "billing",
+        program_version: "1",
+        action_name: "refund_invoice",
+        action_version: "1",
+        created_at: 1000,
+        deadline: 2000 + i,
+        status: decided && i === 25 ? "rejected" : "pending",
+      });
+      const rows = Array.from({ length: 26 }, (_, i) => row(i)).filter(
+        (r) =>
+          (!input.status || r.status === input.status) &&
+          (!input.program_id || r.program_id === input.program_id),
+      );
+      const offset = input.cursor === "approved-fixture-cursor" ? 25 : 0;
+      value = {
+        items: rows.slice(offset, offset + input.limit),
+        next_cursor:
+          rows.length > offset + input.limit ? "approved-fixture-cursor" : null,
+      };
+    } else if (path.endsWith("/approvals/inspect")) {
+      inspected++;
+      expect(route.request().postDataJSON()).toEqual({
+        workflow_id: "wf-025",
+        key: "refund",
+      });
+      value = {
+        ...approvalFixture(decided ? "rejected" : "pending"),
+        workflow_id: "wf-025",
+        key: "refund",
+        activation_id: "act-25",
+        action: { ...original.action, name: "refund_invoice", version: "1" },
+      };
+    } else if (path.endsWith("/approvals/decide")) {
+      sent++;
+      decided = true;
+      return route.fulfill({ status: 409, body: "" });
+    } else return route.fulfill({ status: 404, body: "missing fixture" });
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Ledgence-Console-Contract": "5",
+        "Ledgence-Instance-Id": "instance_demo",
+      },
+      body: stringifyUserJson(value),
+    });
+  });
+  await page.goto("/console/approvals?limit=25");
+  await expect(
+    page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name: "Approvals" }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(
+    page.getByRole("row").filter({ hasText: "wf-000" }),
+  ).toBeVisible();
+  expect(requests[0]).toEqual({
+    status: "pending",
+    program_id: null,
+    cursor: null,
+    limit: 25,
+  });
+  expect(inspected).toBe(0);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "wf-025" })
+    .getByRole("link", { name: "refund_invoice" })
+    .click();
+  const card = page.getByRole("article", { name: "Approval refund" });
+  await expect(card.locator("pre").first()).toContainText(
+    "18446744073709551615",
+  );
+  await card.getByRole("button", { name: "Approve", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Reviewer", exact: true })
+    .fill("Jamie");
+  await page.getByRole("button", { name: "Confirm approval" }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("status", { name: "Approval decision status" }),
+  ).toContainText("rejected");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("status", { name: "Approval decision status" }),
+  ).toContainText("Casey");
+  expect(sent).toBe(1);
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "Back to approvals" }).click();
+  await expect(page).toHaveURL(/cursor=approved-fixture-cursor/);
+  await page
+    .getByRole("combobox", { name: "Status", exact: true })
+    .selectOption("all");
+  await page.getByLabel("Program ID", { exact: true }).fill("billing");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(
+    page.getByRole("row").filter({ hasText: "wf-025" }),
+  ).toContainText("rejected");
+  expect(requests.at(-1)).toMatchObject({
+    program_id: "billing",
+    status: null,
+    cursor: null,
+  });
+});

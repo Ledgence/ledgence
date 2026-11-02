@@ -57,6 +57,7 @@ function routes(
     next?: string;
     nodes?: ReturnType<typeof fixtureNodes>;
     running?: boolean;
+    anchor?: ReturnType<typeof explorerNode>;
   } = {},
 ) {
   function executionDetail(id: string) {
@@ -75,19 +76,29 @@ function routes(
       "wf_invoice_1042";
     if (url.pathname.endsWith("/workflows/inspect"))
       return response(executionDetail(id));
-    if (url.pathname.endsWith("/workflows/explorer"))
+    if (url.pathname.endsWith("/workflows/explorer")) {
+      const requested = url.searchParams.get("approval_key");
+      if (
+        requested &&
+        (options.anchor?.kind !== "external_wait" ||
+          options.anchor.key !== requested)
+      )
+        return new Response(null, { status: 404 });
       return response({
         workflow: executionDetail(id),
         page: {
           items:
-            id === "wf_review"
-              ? [entrypoint("review_activation", "review")]
-              : (options.nodes ?? fixtureNodes()),
+            requested && options.anchor
+              ? [options.anchor]
+              : id === "wf_review"
+                ? [entrypoint("review_activation", "review")]
+                : (options.nodes ?? fixtureNodes()),
           observed_at: detail(id).observed_at,
           next_cursor: options.next ?? null,
         },
         evidence: "retained_records_only",
       });
+    }
     if (url.pathname.endsWith("/executions/ancestry")) {
       const identity = (value: string) => ({
         execution: { kind: "workflow", id: value },
@@ -550,4 +561,67 @@ it("keeps supplementary work and time controls behind explicit disclosures", asy
   await expect
     .element(view.getByLabelText("From", { exact: true }))
     .toBeVisible();
+});
+
+it("opens a late approval with one indexed read, then traverses the ordinary workflow history", async () => {
+  const anchor = explorerNode({
+    kind: "external_wait",
+    id: "opaque-late-node",
+    activation_id: "act_late",
+    revision: "789",
+    entrypoint: "review",
+    relations: [],
+    key: "refund",
+    wait_kind: "approval",
+    registered_at: 97000,
+    deadline: 99000,
+    closed_at: null,
+    wake_reason: null,
+    resumed_activation_id: null,
+  });
+  const fetch = routes({ anchor, next: "after-approval" });
+  const { view } = await mount(
+    "/workflows/wf_invoice_1042?tab=Graph&approval_key=refund&approval_activation=act_late",
+  );
+  const reads = () =>
+    fetch.mock.calls
+      .map(([input]) => new URL(String(input), location.origin))
+      .filter((u) => u.pathname.endsWith("/workflows/explorer"))
+      .map((u) => [
+        u.searchParams.get("approval_key"),
+        u.searchParams.get("cursor"),
+      ]);
+  const inspector = view.getByRole("complementary", {
+    name: "Selected work details",
+  });
+  await expect
+    .element(inspector.getByRole("heading", { name: "Approval · refund" }))
+    .toBeVisible();
+  expect(reads()).toEqual([["refund", null]]);
+  await view.getByRole("button", { name: "Next", exact: true }).click();
+  await expect.poll(reads).toEqual([
+    ["refund", null],
+    [null, "after-approval"],
+  ]);
+  await view.getByRole("button", { name: "View workflow from start" }).click();
+  await expect.poll(reads).toEqual([
+    ["refund", null],
+    [null, "after-approval"],
+    [null, null],
+  ]);
+  await expect
+    .element(view.getByRole("button", { name: "View workflow from start" }))
+    .not.toBeInTheDocument();
+});
+
+it("offers the workflow start when an approval wait is unavailable", async () => {
+  routes();
+  const { view } = await mount(
+    "/workflows/wf_invoice_1042?tab=Graph&approval_key=gone&approval_activation=old",
+  );
+  await expect
+    .element(view.getByRole("alert"))
+    .toHaveTextContent("Resource not found");
+  await view.getByRole("button", { name: "View workflow from start" }).click();
+  await expect.element(view.getByRole("alert")).not.toBeInTheDocument();
 });

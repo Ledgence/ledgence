@@ -234,3 +234,13 @@ assets without inline script or evaluation. All bundled resources are local.
 See [DEPENDENCIES.md](DEPENDENCIES.md) for the exact dependency review policy and
 [`third_party/inventory.json`](third_party/inventory.json) for provenance and legal
 material. Ledgence-owned Console code is MIT; third-party licenses remain their own.
+
+### Approval inbox
+
+Development builds include **Approvals** in the main navigation. It lists the
+instance's pending requests across workflows, earliest deadline first. Filter
+by status and exact program ID to find retained decisions. Opening a request
+loads its recorded effective action for review. Follow the workflow link to
+open Graph at the recorded approval wait, including waits deep in a long
+workflow. Select **View workflow from start** to see the original first page. The inbox uses the instance's existing access
+boundary and decision contract.

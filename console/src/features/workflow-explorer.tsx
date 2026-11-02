@@ -177,12 +177,16 @@ export function WorkflowExplorer({
     saveExplorerState(location.key, next);
     setSaved({ key: location.key, value: next });
   }
+  const approvalKey = params.get("approval_key");
+  const approvalActivation = params.get("approval_activation");
+  const anchor = paging.cursor ? null : approvalKey;
   const query = useResource(
     "workflows/explorer",
     {
       workflow_id: workflowId,
       limit: Math.min(paging.limit, config.limits.max_visible_workflow_nodes),
       cursor: paging.cursor,
+      approval_key: anchor,
     },
     (value) => {
       const result = workflowExplorer(value);
@@ -195,6 +199,17 @@ export function WorkflowExplorer({
         result.page.items.length
       )
         throw new ContractError("Duplicate explorer node identity.");
+      if (anchor) {
+        const first = result.page.items[0];
+        if (
+          first?.kind !== "external_wait" ||
+          first.wait_kind !== "approval" ||
+          first.key !== anchor
+        )
+          throw new ContractError(
+            "The graph page does not start at the requested approval.",
+          );
+      }
       return result;
     },
     {
@@ -210,12 +225,24 @@ export function WorkflowExplorer({
   );
   useTerminalRefresh(
     active,
-    [workflowId, paging.cursor, paging.limit],
+    [workflowId, paging.cursor, paging.limit, anchor],
     query,
     visible,
   );
   const nodes = query.data?.page.items ?? [];
-  const selectedId = params.get("node");
+  // The anchor selects a page; inspection within that page uses opaque server node IDs.
+  const lookingForApproval = !!anchor && approvalActivation !== null;
+  const selectedId =
+    params.get("node") ??
+    (lookingForApproval
+      ? nodes.find(
+          (node) =>
+            node.kind === "external_wait" &&
+            node.wait_kind === "approval" &&
+            node.key === approvalKey &&
+            node.activation_id === approvalActivation,
+        )?.id
+      : null);
   const selected = nodes.find((node) => node.id === selectedId);
   const search = state.search.toLocaleLowerCase();
   const filtered = nodes.filter(
@@ -232,6 +259,7 @@ export function WorkflowExplorer({
   ).length;
   function changeParam(key: string, value: string | null) {
     const next = new URLSearchParams(params);
+    if (key === "node") next.delete("approval_activation");
     if (value) next.set(key, value);
     else next.delete(key);
     // Shareable selection/view changes retain the current entry's presentation.
@@ -239,6 +267,17 @@ export function WorkflowExplorer({
       preventScrollReset: true,
       state: { ...location.state, restoreNavigationKey: location.key },
     });
+  }
+  function openFirstPage() {
+    const next = new URLSearchParams(params);
+    for (const key of [
+      "approval_key",
+      "approval_activation",
+      "explorer_cursor",
+      "node",
+    ])
+      next.delete(key);
+    setParams(next, { state: location.state });
   }
   function select(id: string) {
     if (id === selectedId) return;
@@ -380,6 +419,14 @@ export function WorkflowExplorer({
           <span>{maximized ? "Exit full screen" : "Full screen"}</span>
         </Button>
       </div>
+      {approvalKey && (
+        <div className="summary-line">
+          <span className="muted">Opened from approval {approvalKey}</span>
+          <Button variant="outline" onClick={openFirstPage}>
+            View workflow from start
+          </Button>
+        </div>
+      )}
       {query.isPending && <LoadingState label="Loading recorded execution" />}
       {query.error && (
         <QueryError
@@ -400,7 +447,9 @@ export function WorkflowExplorer({
               Missing work may be on another page or unavailable.
             </p>
           )}
-          <div className={`explorer-body${selectedId ? " has-selection" : ""}`}>
+          <div
+            className={`explorer-body${selectedId || lookingForApproval ? " has-selection" : ""}`}
+          >
             <div className="explorer-stage">
               <div
                 className={`explorer-canvas explorer-${view}`}
@@ -423,7 +472,7 @@ export function WorkflowExplorer({
                         scope={`${workflowId}:${paging.cursor ?? "first"}`}
                         nodes={nodes}
                         edges={graphEdges(edges)}
-                        selectedId={selectedId}
+                        selectedId={selectedId ?? null}
                         select={select}
                         matchingIds={
                           search ? filtered.map((node) => node.id) : undefined
@@ -440,7 +489,7 @@ export function WorkflowExplorer({
                     workflowActive={
                       !terminal(query.data.workflow.summary.workflow.state)
                     }
-                    selectedId={selectedId}
+                    selectedId={selectedId ?? null}
                     select={select}
                     state={state}
                     updateState={updateState}
@@ -448,7 +497,7 @@ export function WorkflowExplorer({
                 )}
               </div>
             </div>
-            {visible && selectedId && (
+            {visible && (selectedId || lookingForApproval) && (
               <aside
                 ref={inspector}
                 tabIndex={-1}
