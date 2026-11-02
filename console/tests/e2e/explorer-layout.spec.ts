@@ -173,6 +173,94 @@ async function mount(
     },
   };
 }
+for (const [tab, kind] of [
+  ["Graph", "model"],
+  ["Trace", "tool"],
+] as const) {
+  test(`${tab} opens the exact ${kind} record only when requested`, async ({
+    page,
+  }) => {
+    await mount(page, false, Infinity, "mixed_local");
+    const snapshot = explorerCase("mixed_local");
+    const local = snapshot.page.items.find(
+      (n) => n.kind === "local" && n.accepted_at !== null,
+    );
+    if (local?.kind !== "local") throw Error("Expected an accepted local step");
+    local.callable = kind + ":example:quote";
+    const workflow = snapshot.workflow.summary.workflow.workflow_id;
+    let reads = 0;
+    let finished = 0;
+    // React StrictMode can abort its first development mount. Only a completed
+    // HTTP read delivered a record; neither mount may read before disclosure.
+    page.on("requestfinished", (req) => {
+      if (
+        new URL(req.url()).pathname ===
+        "/v1/console/workflows/local-steps/inspect"
+      )
+        finished++;
+    });
+    await page.route("**/v1/console/workflows/explorer?*", (route) =>
+      route.fulfill({
+        headers,
+        body: stringifyUserJson(snapshot),
+      }),
+    );
+    await page.route(
+      "**/v1/console/workflows/local-steps/inspect?*",
+      (route) => {
+        expect(
+          Object.fromEntries(new URL(route.request().url()).searchParams),
+        ).toEqual({
+          workflow_id: workflow,
+          activation_id: local.activation_id,
+          step_key: local.key,
+        });
+        reads++;
+        return route.fulfill({
+          headers,
+          body: stringifyUserJson({
+            kind,
+            version: "v4",
+            step: {
+              workflow_id: workflow,
+              activation_id: local.activation_id,
+              step_key: local.key,
+              callable: local.callable,
+              attempt_id: local.accepting_attempt_id,
+              accepted_at: local.accepted_at,
+            },
+            arguments: parseUserJson('{"id":18446744073709551615}', 128),
+            result: false,
+          }),
+        });
+      },
+    );
+    await page.goto(
+      `/console/workflows/${encodeURIComponent(workflow)}?${new URLSearchParams({ tab, node: local.id })}`,
+    );
+    const panel = page.getByRole("complementary", {
+      name: "Selected work details",
+    });
+    await expect(
+      panel.getByRole("heading", { name: local.key, exact: true }),
+    ).toBeVisible();
+    expect(reads).toBe(0);
+    await panel.getByText("Inspect durable operation").click();
+    await expect(
+      panel.getByText(kind === "model" ? "Model call" : "Tool call", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(panel.getByText("v4", { exact: true })).toBeVisible();
+    await expect(panel.getByLabel("Effective arguments")).toContainText(
+      "18446744073709551615",
+    );
+    await expect(panel.getByLabel("Accepted result")).toHaveText("false");
+    await expect.poll(() => finished).toBe(1);
+    await page.getByRole("button", { name: "Close details" }).click();
+    await expect(panel).toHaveCount(0);
+  });
+}
 async function expectNoManualWorkflowControls(page: Page) {
   await expect(
     page.getByRole("button", { name: "Refresh", exact: true }),

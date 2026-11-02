@@ -30,9 +30,38 @@ import {
   TableCell,
 } from "../components/ui/table";
 import { Button } from "../components/ui/button";
+import { filterTimestamp } from "./execution-history-filters";
 import { ApprovalCard } from "./approvals";
 
 export function ApprovalInboxPage() {
+  const [params, setParams] = useSearchParams();
+  const cutoff = params.get("due_before");
+  const dueBefore = filterTimestamp(cutoff);
+  if (cutoff !== null && dueBefore === null)
+    return (
+      <>
+        <PageHeading title="Approvals" />
+        <ErrorState
+          title="Invalid deadline filter"
+          message="The due-before value in this link is outside the supported UTC date range."
+        />
+        <Button
+          variant="outline"
+          onClick={() => {
+            const next = new URLSearchParams(params);
+            next.delete("due_before");
+            next.delete("cursor");
+            setParams(next);
+          }}
+        >
+          Clear deadline filter
+        </Button>
+      </>
+    );
+  return <FilteredInbox dueBefore={dueBefore} />;
+}
+
+function FilteredInbox({ dueBefore }: { dueBefore: number | null }) {
   const { polling, capabilities } = useInstance();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
@@ -46,6 +75,7 @@ export function ApprovalInboxPage() {
   const input = {
     status,
     program_id: program,
+    ...(dueBefore === null ? {} : { due_before: dueBefore }),
     cursor: paging.cursor,
     limit: paging.limit,
   };
@@ -67,7 +97,7 @@ export function ApprovalInboxPage() {
       />
       <form
         className="filters"
-        key={JSON.stringify([status, program])}
+        key={JSON.stringify([status, program, dueBefore])}
         onSubmit={(event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
@@ -76,6 +106,8 @@ export function ApprovalInboxPage() {
           const id = String(data.get("program_id") ?? "").trim();
           if (state !== "pending") next.set("status", state);
           if (id) next.set("program_id", id);
+          const cutoff = String(data.get("due_before") ?? "");
+          if (cutoff) next.set("due_before", String(Date.parse(cutoff + "Z")));
           setParams(next);
         }}
       >
@@ -97,6 +129,21 @@ export function ApprovalInboxPage() {
             defaultValue={program ?? ""}
             placeholder="All programs"
             maxLength={128}
+          />
+        </label>
+        <label>
+          Due before (UTC)
+          <input
+            name="due_before"
+            type="datetime-local"
+            step="any"
+            min="1970-01-01T00:00"
+            max="9999-12-31T23:59:59.999"
+            defaultValue={
+              dueBefore === null
+                ? ""
+                : new Date(dueBefore).toISOString().slice(0, -1)
+            }
           />
         </label>
         <Button variant="outline" type="submit">

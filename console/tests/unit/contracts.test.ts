@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig, record } from "../../src/api/codecs";
+import { operationDetail } from "../../src/api/operation";
 import * as dto from "../../src/api/resources";
 import { taskPage, workflowPage, taskResult } from "../../src/api/resources";
 import * as schema from "../../src/api/schema";
@@ -56,6 +57,12 @@ describe("Rust-produced Console contract", () => {
     ])
       expect(encoded).toContain(token);
   });
+  it("preserves the durable operation's accepted JSON number tokens", () => {
+    const detail = operationDetail(field("local_step_detail"));
+    const encoded = stringifyUserJson([detail.arguments, detail.result]);
+    for (const token of ["18446744073709551615", "1.0", "-0.0"])
+      expect(encoded).toContain(token);
+  });
   it("rejects unknown fields and numeric u64s", () => {
     expect(() => record({ id: "x", scope: {} }, ["id"])).toThrow();
     for (const value of [1, "01", "18446744073709551616", "-1"])
@@ -74,6 +81,7 @@ const decoders = {
   children: dto.childPage,
   waits: dto.workflowWaits,
   local_steps: dto.localStepPage,
+  local_step_detail: operationDetail,
   workflow_history: dto.workflowHistoryPage,
   programs: dto.programPage,
   program_versions: dto.programVersions,

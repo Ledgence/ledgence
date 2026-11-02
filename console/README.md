@@ -239,7 +239,8 @@ material. Ledgence-owned Console code is MIT; third-party licenses remain their 
 
 Development builds include **Approvals** in the main navigation. It lists the
 instance's pending requests across workflows, earliest deadline first. Filter
-by status and exact program ID to find retained decisions. Opening a request
+by status, exact program ID and **Due before (UTC)**. A deadline exactly at the
+chosen instant is excluded. Opening a request
 loads its recorded effective action for review. After a decision or expiry, the
 review page checks for the resumed activation while the workflow remains open
 and reads the request once more when the workflow closes. If the request is
@@ -249,3 +250,14 @@ Follow the workflow link to open Graph at the recorded approval wait, including
 waits deep in a long workflow. Select **View workflow from start** to see the
 original first page. The inbox uses the instance's existing access boundary and
 decision contract.
+
+### Inspect a durable operation
+
+In a workflow's **Graph** or **Trace**, select a local step with an accepted
+result and expand **Inspect durable operation**. Opening this section fetches
+the step’s recorded input and accepted result. Ordinary local steps show the input
+supplied by the workflow. Model and tool calls show the effective arguments
+and operation version bound to the durable call. The accepting attempt and
+acceptance time come from the durable record. A replay observation describes
+one observed attempt; it does not count every reuse. If only timing or failure
+was observed, the node has no durable result to inspect.

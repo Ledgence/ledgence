@@ -187,6 +187,7 @@ it("validates inbox filters, deadline ties and the metadata-only contract", () =
     status: "pending" as const,
     program_id: "billing",
     cursor: "previous",
+    due_before: 51,
     limit: 2,
   };
   const decode = approvalInboxPage(input);
@@ -214,6 +215,8 @@ it("validates inbox filters, deadline ties and the metadata-only contract", () =
     [{ ...one, action: { arguments: {} } }],
     [one, two, { ...two, deadline: 60 }],
     [{ ...one, deadline: 0 }],
+    [{ ...one, deadline: 51 }],
+    [{ ...one, deadline: 52 }],
   ]) {
     expect(() => decode({ items, next_cursor: null })).toThrow();
   }

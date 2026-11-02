@@ -34,7 +34,7 @@ export function historyStates(kind: string): readonly string[] {
 export function compatibleHistoryState(kind: string, state: string): string {
   return historyStates(kind).includes(state) ? state : "";
 }
-function timestamp(value: string | null): number | null {
+export function filterTimestamp(value: string | null): number | null {
   if (value === null || !/^\d+$/.test(value)) return null;
   const number = Number(value);
   return Number.isSafeInteger(number) &&
@@ -47,7 +47,7 @@ export function historyDateValue(
   params: URLSearchParams,
   key: "submitted_from" | "submitted_until",
 ): string {
-  const number = timestamp(params.get(key));
+  const number = filterTimestamp(params.get(key));
   if (number === null || (key === "submitted_until" && number === 0)) return "";
   // An exclusive midnight belongs to the previous inclusive calendar day.
   return new Date(number - (key === "submitted_until" ? 1 : 0))
@@ -56,7 +56,7 @@ export function historyDateValue(
 }
 export function hasExactHistoryDates(params: URLSearchParams): boolean {
   return ["submitted_from", "submitted_until"].some((key) => {
-    const number = timestamp(params.get(key));
+    const number = filterTimestamp(params.get(key));
     return number !== null && number % dayMs !== 0;
   });
 }
@@ -97,7 +97,7 @@ export function applyHistoryFilters(
         message: "Choose valid UTC dates on or after January 1, 1970.",
       };
     // Keep timestamp-precise deep links when only another filter changes.
-    const original = timestamp(previous.get(key));
+    const original = filterTimestamp(previous.get(key));
     const at =
       original !== null && value === historyDateValue(previous, key)
         ? original

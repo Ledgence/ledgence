@@ -114,6 +114,7 @@ test("the inbox filters across workflows, pages by cursor and reconciles another
   const requests: {
     status: string | null;
     program_id: string | null;
+    due_before?: number;
     cursor: string | null;
     limit: number;
   }[] = [];
@@ -142,7 +143,8 @@ test("the inbox filters across workflows, pages by cursor and reconciles another
       const rows = Array.from({ length: 26 }, (_, i) => row(i)).filter(
         (r) =>
           (!input.status || r.status === input.status) &&
-          (!input.program_id || r.program_id === input.program_id),
+          (!input.program_id || r.program_id === input.program_id) &&
+          (input.due_before === undefined || r.deadline < input.due_before),
       );
       const offset = input.cursor === "approved-fixture-cursor" ? 25 : 0;
       value = {
@@ -236,4 +238,23 @@ test("the inbox filters across workflows, pages by cursor and reconciles another
     status: null,
     cursor: null,
   });
+  const cutoff = page.getByLabel("Due before (UTC)", { exact: true });
+  await cutoff.fill("1970-01-01T00:00:02.025");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(page).toHaveURL(/due_before=2025/);
+  await expect(
+    page.getByRole("row").filter({ hasText: "wf-024" }),
+  ).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "wf-025" })).toHaveCount(
+    0,
+  );
+  expect(requests.at(-1)).toMatchObject({ due_before: 2025, cursor: null });
+  const count = requests.length;
+  await page.goto("/console/approvals?due_before=invalid");
+  await expect(page.getByText("Invalid deadline filter")).toBeVisible();
+  expect(requests).toHaveLength(count);
+  await page.getByRole("button", { name: "Clear deadline filter" }).click();
+  await expect(
+    page.getByRole("row").filter({ hasText: "wf-000" }),
+  ).toBeVisible();
 });

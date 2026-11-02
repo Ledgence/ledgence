@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
-import { isLosslessNumber } from "lossless-json";
 import { ContractError } from "./codecs";
 import { stringifyUserJson } from "./json";
 
@@ -20,12 +19,7 @@ const reason = s.refine(
 
 const argumentsObject = s.refine(
   s.payload,
-  (value) =>
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    !isLosslessNumber(value) &&
-    bytes(value) <= 32 * 1024,
+  (value) => s.isJsonObject(value) && bytes(value) <= 32 * 1024,
   "Approval arguments must be a JSON object.",
 );
 export const approvalAction = s.refine(
@@ -120,6 +114,7 @@ const summary = s.object({
 export function approvalInboxPage(query: {
   status: ApprovalStatus | null;
   program_id: string | null;
+  due_before?: number;
   cursor: string | null;
   limit: number;
 }) {
@@ -140,6 +135,8 @@ export function approvalInboxPage(query: {
         return (
           (query.status === null || query.status === item.status) &&
           (query.program_id === null || query.program_id === item.program_id) &&
+          (query.due_before === undefined ||
+            item.deadline < query.due_before) &&
           item.created_at <= item.deadline &&
           item.deadline - item.created_at <= 31_536_000_000 &&
           (!prev ||
