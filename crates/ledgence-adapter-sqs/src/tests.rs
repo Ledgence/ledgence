@@ -36,6 +36,34 @@ fn success(id: &str) -> Value {
 }
 
 #[test]
+fn direct_http_transport_requires_local_credentials_and_two_plain_loopback_urls() {
+    use bounded_http::Transport;
+    for endpoint in [
+        "http://127.0.0.1:9324",
+        "http://localhost:9324",
+        "http://[::1]:9324",
+    ] {
+        let direct = options(endpoint);
+        assert_eq!(direct.validated_transport().unwrap(), Transport::LocalHttp);
+        let mut standard = direct.clone();
+        standard.local_credentials = false;
+        assert_eq!(standard.validated_transport().unwrap(), Transport::Standard);
+    }
+    let local_tls = options("https://localhost:9324");
+    assert_eq!(
+        local_tls.validated_transport().unwrap(),
+        Transport::LocalTls
+    );
+    for queue in ["https://127.0.0.1/q", "http://queue.example.test/q"] {
+        let mut mixed = options("http://127.0.0.1:9324");
+        mixed.queue_url = queue.into();
+        assert_eq!(mixed.validated_transport().unwrap(), Transport::LocalTls);
+    }
+    let aws = SqsOptions::new("us-east-1", "https://sqs.us-east-1.amazonaws.com/123/queue");
+    assert_eq!(aws.validated_transport().unwrap(), Transport::Standard);
+}
+
+#[test]
 fn rejects_unsupported_configuration() {
     let good = options("http://127.0.0.1:9324");
     assert!(good.validate().is_ok());

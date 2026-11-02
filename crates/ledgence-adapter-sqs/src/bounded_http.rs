@@ -17,23 +17,38 @@ use http_body_util::{BodyExt, Limited};
 // a promise to accept oversized/malformed per-record fields after decoding.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 10 * (16 * 1024 + 16 * 1024) * 6 + 64 * 1024;
 
-pub(crate) fn client(allow_environment_proxy: bool) -> SharedHttpClient {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Transport {
+    Standard,
+    LocalTls,
+    LocalHttp,
+}
+
+pub(crate) fn client(transport: Transport) -> SharedHttpClient {
     let inner = Builder::new().build_with_connector_fn(move |settings, components| {
-        let mut connector = ConnectorBuilder::default().tls_provider(tls::Provider::Rustls(
-            tls::rustls_provider::CryptoMode::AwsLc,
-        ));
+        let mut connector = ConnectorBuilder::default();
         connector.set_connector_settings(settings.cloned());
         if let Some(runtime) = components {
             connector.set_sleep_impl(runtime.sleep_impl());
         }
         // Match the pinned SDK behavior for production credentials. Explicit
         // loopback test credentials stay on the direct local connection.
-        connector.set_proxy_config(Some(if allow_environment_proxy {
+        connector.set_proxy_config(Some(if transport == Transport::Standard {
             ProxyConfig::from_env()
         } else {
             ProxyConfig::disabled()
         }));
-        connector.build()
+        // Plain HTTP loopback does not need native roots. Loading a platform
+        // trust store here can exhaust the queue verification deadline.
+        if transport == Transport::LocalHttp {
+            connector.build_http()
+        } else {
+            connector
+                .tls_provider(tls::Provider::Rustls(
+                    tls::rustls_provider::CryptoMode::AwsLc,
+                ))
+                .build()
+        }
     });
     http_client_fn(move |settings, components| {
         SharedHttpConnector::new(BoundedConnector {
