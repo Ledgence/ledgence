@@ -33,7 +33,7 @@ or mock data.
 The Curvatura master artwork lives in [`../assets/brand/`](../assets/brand/).
 `public/brand/` contains unchanged copies of the mark, theme-aware favicon,
 and Apple touch icon. The shell uses the mark as a CSS mask in the current text
-color for its expanded sidebar, collapsed sidebar, and mobile header. Keep
+color for its expanded sidebar, collapsed sidebar, and mobile navigation. Keep
 these copies aligned with the masters; do not redraw the mark in CSS.
 
 All brand files are served locally under `/console/brand/` and included in the
@@ -217,11 +217,14 @@ missing reports never become fabricated process slots.
 
 ## Interface and dependencies
 
-The shell has a persistent collapsible desktop sidebar, compact mobile navigation,
-and light/dark/system appearance. Collapse from the sidebar header; its Ledgence
-mark expands it again without navigating. Execution details share one header for
-the instance, ancestry and title, with status and timing directly below;
-primary date/type/status filters stay visible and advanced exact filters expand on demand. The explorer can expand to
+On desktop, **Collapse sidebar** makes room for the content. Select the Ledgence
+mark to expand the sidebar again. In development builds, choose **System**,
+**Light** or **Dark** from **Appearance** in the sidebar. On small screens, the
+same control appears beside the four navigation links. List pages open directly
+with their content. Execution details keep the title, Back button and ancestry
+together, with status and timing below.
+
+Primary date/type/status filters stay visible and advanced exact filters expand on demand. The explorer can expand to
 full screen with Escape to exit, keeps selection and canvas state, and opens its
 inspector only when work is selected. Secondary evidence remains available in an
 expandable work list.

@@ -9,22 +9,39 @@ for (const width of [320, 375, 768, 1280]) {
       route.fulfill({ status: 503, body: "Unavailable" }),
     );
     await page.goto("/console/");
+    const sidebar = page.getByRole("complementary", {
+      name: "Console sidebar",
+    });
+    const navigation = sidebar.getByRole("navigation", {
+      name: "Main navigation",
+    });
+    const appearance = sidebar.getByRole("combobox", { name: "Appearance" });
+    await expect(navigation).toBeVisible();
+    await expect(appearance).toBeVisible();
     await expect(
-      page.getByRole("navigation", { name: "Main navigation" }),
-    ).toBeVisible();
+      page.getByRole("combobox", { name: "Appearance" }),
+    ).toHaveCount(1);
+    await expect(page.locator(".shell-header")).toBeHidden();
+    if (width <= 768) {
+      const link = (await navigation
+        .getByRole("link", { name: "Workers" })
+        .boundingBox())!;
+      const control = (await appearance.boundingBox())!;
+      expect(control.height).toBeGreaterThanOrEqual(44);
+      const center = control.y + control.height / 2;
+      expect(center).toBeGreaterThanOrEqual(link.y);
+      expect(center).toBeLessThanOrEqual(link.y + link.height);
+    }
     await expect(page.getByRole("alert")).toContainText("cannot connect");
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
-    await page
-      .getByRole("combobox", { name: "Appearance" })
-      .selectOption("dark");
+    await appearance.click({ trial: true });
+    await appearance.selectOption("dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await page
-      .getByRole("combobox", { name: "Appearance" })
-      .selectOption("light");
+    await appearance.selectOption("light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 }
@@ -47,8 +64,8 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
     sidebar.getByRole("link", { name: "Ledgence Console home" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("banner").getByRole("button", { name: /sidebar/ }),
-  ).toHaveCount(0);
+    page.getByRole("button", { name: "Collapse sidebar", exact: true }),
+  ).toHaveCount(1);
   await expect(collapse).toHaveAttribute("title", "Collapse sidebar");
   expect((await collapse.boundingBox())!.y).toBeLessThan(80);
   await collapse.focus();
@@ -73,7 +90,12 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
     page.getByRole("link", { name: "Executions", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("link", { name: "Documentation" })).toBeVisible();
+  const appearance = sidebar.getByRole("combobox", { name: "Appearance" });
+  await appearance.click({ trial: true });
+  await appearance.selectOption("dark");
   await page.reload();
+  await expect(appearance).toHaveValue("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(
     page.getByRole("button", { name: "Expand sidebar" }),
   ).toBeVisible();
@@ -86,7 +108,10 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
   for (const name of ["Executions", "Programs", "Approvals", "Workers"]) {
     await expect(navigation.getByText(name, { exact: true })).toBeVisible();
   }
+  await appearance.click({ trial: true });
+  await appearance.selectOption("system");
   await navigation.getByRole("link", { name: "Workers" }).click();
+  await expect(appearance).toHaveValue("system");
   await expect(page).toHaveURL(/\/workers$/);
   await expect(
     navigation.getByRole("link", { name: "Workers" }),
@@ -148,7 +173,7 @@ test("sidebar remains operable when preference storage is blocked", async ({
   ).toBeVisible();
 });
 
-test("a long instance name stays bounded beside the header controls", async ({
+test("a long instance name remains available without reserving a page header", async ({
   page,
 }) => {
   const fixture = parseUserJson(
@@ -192,12 +217,11 @@ test("a long instance name stays bounded beside the header controls", async ({
   for (const width of [320, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(name).toBeVisible();
-    await expect(page.locator(".shell-page-heading")).toBeHidden();
+    await expect(page.locator(".shell-header")).toBeHidden();
     const nameBox = (await name.boundingBox())!;
-    const appearanceBox = (await page
-      .getByRole("combobox", { name: "Appearance" })
-      .boundingBox())!;
-    expect(nameBox.x + nameBox.width).toBeLessThan(appearanceBox.x);
+    expect(nameBox.width).toBeGreaterThan(0);
+    expect(nameBox.x).toBeGreaterThanOrEqual(0);
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(width);
     expect(
       await name.evaluate(
         (element) => element.scrollWidth > element.clientWidth,

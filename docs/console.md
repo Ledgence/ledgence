@@ -40,9 +40,12 @@ demand; normal updates read bounded metadata. Hidden/offline pages pause polling
 The browser validates instance identity and contract version before accepting
 responses.
 
-Use **Collapse sidebar** in its header to make room for inspection; the Ledgence
-mark expands it again. **Appearance** offers System, Light and Dark. The browser
-remembers these preferences without storing execution payloads.
+Use **Collapse sidebar** to make room for inspection. Select the Ledgence mark
+to expand it again. In 0.7.0, choose **System**, **Light** or **Dark** with the
+**Appearance** control in the top bar. In development builds, find it in the
+desktop sidebar or beside the navigation links on small screens. **System**
+follows your device setting. The browser remembers the choice when local
+storage is available.
 
 The global history starts with root workflows and standalone tasks. **Include
 child executions** adds ordinary child tasks and subworkflows; controller

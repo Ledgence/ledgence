@@ -77,16 +77,11 @@
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.shell-header:has(.execution-heading-context) .instance-header-name {
-  max-width: 20ch;
-  flex-shrink: 1;
+.shell-header {
+  margin-bottom: 16px;
 }
-.shell-header:has(.execution-heading-context) .shell-page-heading {
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
-}
-.console-workspace:has(.execution-heading-context) .main-content {
-  padding-top: clamp(16px, 2vw, 28px);
+.main-content:has(> .shell-header) {
+  padding-top: 16px;
 }
 .execution-summary {
   display: flex;
@@ -181,28 +176,6 @@
   margin-left: auto;
 }
 @media (max-width: 768px) {
-  .shell-header:has(.execution-heading-context) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0 12px;
-  }
-  .shell-header:has(.execution-heading-context) .shell-header-leading {
-    display: contents;
-  }
-  .shell-header:has(.execution-heading-context) .instance-header-name {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .shell-header:has(.execution-heading-context) .theme-control {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .shell-header:has(.execution-heading-context) .shell-page-heading {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    border: 0;
-    padding: 0;
-  }
   .execution-heading-context .context-actions .button,
   .execution-heading-context .context-actions .back-link {
     width: 36px;
