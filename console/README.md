@@ -237,7 +237,7 @@ material. Ledgence-owned Console code is MIT; third-party licenses remain their 
 
 ### Approval inbox
 
-Development builds include **Approvals** in the main navigation. It lists the
+Ledgence 0.7.0 includes **Approvals** in the main navigation. It lists the
 instance's pending requests across workflows, earliest deadline first. Filter
 by status, exact program ID and **Due before (UTC)**. A deadline exactly at the
 chosen instant is excluded. Opening a request

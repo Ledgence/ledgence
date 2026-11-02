@@ -38,7 +38,7 @@ run = await client.workflows.submit(
 print(run.id)
 ```
 
-If several workflows request refunds, open **Approvals** in a development
+If several workflows request refunds, open **Approvals** in a 0.7.0
 build of Console and filter by program `durable-approval`. From the
 matching Python client, `await client.workflows.approval_inbox(program_id="durable-approval")`
 finds pending requests in the client's scope. Select a request to inspect the

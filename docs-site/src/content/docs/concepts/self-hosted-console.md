@@ -3,9 +3,9 @@ title: One self-hosted instance
 description: Understand the Console deployment boundary, program catalog, and distinction between durable execution state and worker observations.
 ---
 
-A self-hosted Ledgence installation is one operating environment. Console organizes work into **Executions**, **Programs** and **Workers**. Executions combines task and workflow history, Programs holds registered immutable packages, and Workers shows process observations. There is no tenant administration, workspace switcher, or organization model to configure.
+A self-hosted Ledgence installation is one operating environment. Console has four sections. **Executions** shows task and workflow history. **Programs** holds registered immutable packages. **Approvals** lists requests from workflows in this instance. **Workers** shows process observations. There is no tenant administration, workspace switcher, or organization model to configure.
 
-Console is included in Ledgence 0.6.1. The [Console tutorial](/tutorials/use-console) explains how to start a matching deployment; the historical 0.1 releases predate it.
+Console is included in Ledgence 0.7.0. The [Console tutorial](/tutorials/use-console) explains how to start a matching deployment; the historical 0.1 releases predate it.
 
 ## The interface belongs to the instance
 

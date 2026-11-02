@@ -5,7 +5,7 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers `ledgence-client` **0.6.1**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
+This reference covers `ledgence-client` **0.7.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
 ## Installation
 
@@ -13,13 +13,13 @@ A project created with `ledgence program new` already declares the client;
 run `uv sync` in that project. For an existing uv application, add it with:
 
 ```sh
-uv add "ledgence-client==0.6.1"
+uv add "ledgence-client==0.7.0"
 ```
 
-If you use pip instead, run `python -m pip install "ledgence-client==0.6.1"`
+If you use pip instead, run `python -m pip install "ledgence-client==0.7.0"`
 inside your application's activated virtual environment. Choose the command
 for your environment manager; do not run both. The optional `otel` extra is
-`ledgence-client[otel]==0.6.1` when your application needs tracing integration.
+`ledgence-client[otel]==0.7.0` when your application needs tracing integration.
 
 The client does not include a server, worker, or Python worker helper. Start a
 complete stack through [local installation](/getting-started/installation), then
@@ -153,7 +153,7 @@ Both task and workflow handles expose `prepare_subscribe(destination=..., idempo
 
 Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. `await subscription.status()` observes delivery; after `exhausted`, `subscription.prepare_retry(expected_generation=status.generation)` prepares an explicit new delivery generation for `await subscription.retry(command)`. This retries the notification, not the task or workflow. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#durable-completion-subscriptions) for status fields and uncertainty handling.
 
-## Discover approvals in development
+## Discover approvals across workflows
 
 Call `await client.workflows.approval_inbox(program_id="durable-approval")`
 to find pending requests in the client's scope. Use `status=None` for all
@@ -170,4 +170,4 @@ Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="app
 
 A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.6.1/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.7.0/sdk/python-client/src/ledgence/client)

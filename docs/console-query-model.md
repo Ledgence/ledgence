@@ -171,7 +171,7 @@ shared workflow lock while reading the proposal and sampling database time, so
 a concurrent decision cannot produce a false expired observation. See
 [workflow approvals](workflow-approvals.md) for API and effect guarantees.
 
-## Approval inbox in development
+## Approval inbox
 
 `POST /v1/console/approvals/inbox` reads a bounded page of approval metadata
 within the configured instance scope. It orders by deadline and includes the
@@ -185,7 +185,7 @@ can move a request out of a filtered view between page reads. [Inbox contract](w
 
 ## Inspect one local step
 
-Development builds accept `GET /v1/console/workflows/local-steps/inspect` with
+Ledgence 0.7.0 accepts `GET /v1/console/workflows/local-steps/inspect` with
 `workflow_id`, `activation_id` and `step_key`. The server obtains the scope from
 the instance. A successful response contains the local-step summary in `step`,
 a `kind` of `local`, `model` or `tool`, a nullable `version`, and `arguments`

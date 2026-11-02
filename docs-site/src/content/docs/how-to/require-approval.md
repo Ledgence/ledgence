@@ -5,11 +5,11 @@ description: Persist an effective action, review its exact arguments, and resume
 
 Use a durable approval when a reviewer must authorize the exact action your workflow will execute. Ledgence stores the request and releases the worker slot while it waits.
 
-**Availability:** introduced in **Ledgence 0.3.1**; this guide uses **0.6.0** with matching worker, orchestrator, runtime helper, Python client and Console contract **5**. Apply migrations with old writers stopped; follow [Upgrade to 0.6.0](/how-to/upgrade-to-0-6).
+**Availability:** introduced in **Ledgence 0.3.1**; this guide uses **0.7.0** with matching worker, orchestrator, runtime helper, Python client and Console contract **5**. Apply migrations with old writers stopped; follow [Upgrade to 0.7.0](/how-to/upgrade-to-0-7).
 
 ## Prepare the workflow
 
-Start with the [durable approval example](https://github.com/Ledgence/ledgence/blob/v0.6.0/examples/durable-approval/README.md), which includes preparation, publication, and submission instructions for a source deployment. Use host CPython 3.11 or newer, with the same Python major/minor when preparing and running the package. The controller uses runtime protocol **3**.
+Start with the [durable approval example](https://github.com/Ledgence/ledgence/blob/v0.7.0/examples/durable-approval/README.md), which includes preparation, publication, and submission instructions for a source deployment. Use host CPython 3.11 or newer, with the same Python major/minor when preparing and running the package. The controller uses runtime protocol **3**.
 
 Validate and normalize arguments **before** requesting approval. This controller pattern proposes a simulated refund of 100 but limits the effective amount to 50:
 
@@ -58,12 +58,12 @@ The request key is one-shot within its workflow. Use a new key for a changed act
 
 ## Find pending requests across workflows
 
-To plan a review shift, use **Due before (UTC)** in the development Console.
+To plan a review shift, use **Due before (UTC)** in Console.
 For example, 17:00 UTC on November 6 includes a request due at 16:59:59 UTC that
 day and excludes one due at exactly 17:00. The CLI equivalent is
 `--due-before 2026-11-06T17:00:00Z`.
 
-**Development builds.** Open **Approvals** in Console to see requests from all
+Open **Approvals** in Console to see requests from all
 workflows in this instance, with the earliest deadline first. Choose a program
 to narrow the list. Open a request and compare the effective action with what
 you intended before approving it. The workflow link opens its graph at the approval
@@ -76,7 +76,6 @@ ledgence approval inbox --server http://127.0.0.1:8080 --tenant acme --namespace
 
 The summary includes the workflow ID and approval key. Use them in the existing
 workflow detail or with `ledgence approval inspect` to read the arguments.
-Published 0.6.1 installations can follow the per-workflow steps below.
 
 ## Review the stored request
 
@@ -119,4 +118,4 @@ Approval, rejection, and expiry resume one logical activation. Cancellation clos
 
 `approved_local` accepts no replacement arguments. It checks the saved callable identity and version, uses a private copy of the approved arguments, and reuses an acknowledged local result on activation retry. The callable remains operator-trusted Python code. An external effect can succeed **before** its local result commits; use the external service's idempotency mechanism or reconcile that gap. Durable approval does not guarantee exactly-once external effects.
 
-For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.6.0/docs/workflow-approvals.md).
+For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflow-approvals.md).

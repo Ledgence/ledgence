@@ -160,7 +160,7 @@ live model integration or throughput target.
 
 ## Inspect an accepted operation
 
-In matching development builds, open a workflow execution in Console, select a
+In Ledgence 0.7.0, open a workflow execution in Console, select a
 local step in Graph or Trace, and open its operation details. For a model or tool
 operation, the inspector shows the callable, its version, the effective arguments
 (including bound defaults), the result stored in the journal, and the attempt and
