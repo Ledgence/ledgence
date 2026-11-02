@@ -86,6 +86,9 @@ export function WorkflowApprovals({
                   item.revision,
                 ])}
                 approval={item}
+                unavailable={
+                  query.error instanceof ApiError && query.error.status === 404
+                }
               />
             ))}
           </div>
@@ -138,7 +141,13 @@ function ActionDetails({ approval }: { approval: Approval }) {
   );
 }
 
-export function ApprovalCard({ approval }: { approval: Approval }) {
+export function ApprovalCard({
+  approval,
+  unavailable = false,
+}: {
+  approval: Approval;
+  unavailable?: boolean;
+}) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState<"approve" | "reject">("approve");
@@ -174,7 +183,7 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
       ? receipt
       : approval;
   const locked = command.command !== null;
-  const editable = current.status === "pending" && !locked;
+  const editable = current.status === "pending" && !locked && !unavailable;
   function submit() {
     if (!editable || expected.current) return;
     const attribution = reviewer.trim();
@@ -330,6 +339,10 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
                 ? "This exact decision was already recorded."
                 : "Decision recorded."}{" "}
               Current status: {current.status}.
+            </p>
+          ) : unavailable && !locked ? (
+            <p className="notice" role="status">
+              This request is no longer available for a decision.
             </p>
           ) : conflict || (current.status !== "pending" && !locked) ? (
             <p

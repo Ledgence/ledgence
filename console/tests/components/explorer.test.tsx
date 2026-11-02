@@ -55,6 +55,7 @@ function detail(id: string) {
 function routes(
   options: {
     next?: string;
+    cursors?: Record<string, string | null>;
     nodes?: ReturnType<typeof fixtureNodes>;
     running?: boolean;
     anchor?: ReturnType<typeof explorerNode>;
@@ -94,7 +95,9 @@ function routes(
                 ? [entrypoint("review_activation", "review")]
                 : (options.nodes ?? fixtureNodes()),
           observed_at: detail(id).observed_at,
-          next_cursor: options.next ?? null,
+          next_cursor: options.cursors
+            ? (options.cursors[url.searchParams.get("cursor") ?? ""] ?? null)
+            : (options.next ?? null),
         },
         evidence: "retained_records_only",
       });
@@ -579,7 +582,10 @@ it("opens a late approval with one indexed read, then traverses the ordinary wor
     wake_reason: null,
     resumed_activation_id: null,
   });
-  const fetch = routes({ anchor, next: "after-approval" });
+  const fetch = routes({
+    anchor,
+    cursors: { "": "after-approval", "after-approval": "later", later: null },
+  });
   const { view } = await mount(
     "/workflows/wf_invoice_1042?tab=Graph&approval_key=refund&approval_activation=act_late",
   );
@@ -603,12 +609,17 @@ it("opens a late approval with one indexed read, then traverses the ordinary wor
     ["refund", null],
     [null, "after-approval"],
   ]);
+  await view.getByRole("button", { name: "Next", exact: true }).click();
+  await view
+    .getByRole("button", {
+      name: "tests:0 · Local step · accepted",
+      exact: true,
+    })
+    .click();
+  await view.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect.poll(() => reads().at(-1)).toEqual([null, "after-approval"]);
   await view.getByRole("button", { name: "View workflow from start" }).click();
-  await expect.poll(reads).toEqual([
-    ["refund", null],
-    [null, "after-approval"],
-    [null, null],
-  ]);
+  await expect.poll(() => reads().at(-1)).toEqual([null, null]);
   await expect
     .element(view.getByRole("button", { name: "View workflow from start" }))
     .not.toBeInTheDocument();

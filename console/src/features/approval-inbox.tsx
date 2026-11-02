@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { useEffect, useRef } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { useInstance } from "../app/instance";
 import {
@@ -7,7 +8,10 @@ import {
   approvalStatuses,
 } from "../api/approvals";
 import { useApprovalRead } from "../api/use-approval-read";
-import { usePagination } from "../api/hooks";
+import { usePagination, useResource } from "../api/hooks";
+import { ApiError, retryableRead } from "../api/errors";
+import { observedWorkflow, terminal } from "../api/resources";
+import { ContractError } from "../api/codecs";
 import { LoadingState, ErrorState } from "../components/async-state";
 import {
   BackLink,
@@ -260,9 +264,72 @@ function ApprovalReview({
               {workflow}
             </Link>
           </p>
-          <ApprovalCard approval={query.data} />
+          <ApprovalCard
+            approval={query.data}
+            unavailable={
+              query.error instanceof ApiError && query.error.status === 404
+            }
+          />
+          {query.data.status !== "pending" &&
+            query.data.status !== "cancelled" &&
+            query.data.resumed_activation_id === null &&
+            (!query.error || retryableRead(query.error)) && (
+              <ResumeObservation
+                workflow={workflow}
+                fetching={query.isFetching}
+                refresh={query.refetch}
+              />
+            )}
         </>
       )}
     </>
   );
+}
+
+function ResumeObservation({
+  workflow,
+  fetching,
+  refresh,
+}: {
+  workflow: string;
+  fetching: boolean;
+  refresh: () => Promise<unknown>;
+}) {
+  const { polling } = useInstance();
+  const state = useResource(
+    "workflows/status",
+    { workflow_id: workflow },
+    (value) => {
+      const result = observedWorkflow(value);
+      if (result.workflow.workflow_id !== workflow)
+        throw new ContractError(
+          "The observed workflow does not match this approval.",
+        );
+      return result;
+    },
+    {
+      interval: (value) =>
+        value && terminal(value.workflow.state)
+          ? false
+          : polling.waiting_workflow_ms,
+    },
+  );
+  // A decision and its resumed activation commit separately. Read the approval
+  // after each status observation, including the last one after workflow closure.
+  // Wait out earlier in-flight reads so the final observation cannot join one.
+  const observed = state.isSuccess
+    ? state.dataUpdatedAt
+    : state.error instanceof ApiError && state.error.status === 404
+      ? state.errorUpdatedAt
+      : 0;
+  const lastRead = useRef(0);
+  useEffect(() => {
+    if (observed && !fetching && lastRead.current !== observed) {
+      lastRead.current = observed;
+      void refresh();
+    }
+  }, [observed, fetching, refresh]);
+  return state.error ? (
+    <QueryError error={state.error} retry={() => void state.refetch()} />
+  ) : null;
 }

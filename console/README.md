@@ -240,7 +240,12 @@ material. Ledgence-owned Console code is MIT; third-party licenses remain their 
 Development builds include **Approvals** in the main navigation. It lists the
 instance's pending requests across workflows, earliest deadline first. Filter
 by status and exact program ID to find retained decisions. Opening a request
-loads its recorded effective action for review. Follow the workflow link to
-open Graph at the recorded approval wait, including waits deep in a long
-workflow. Select **View workflow from start** to see the original first page. The inbox uses the instance's existing access
-boundary and decision contract.
+loads its recorded effective action for review. After a decision or expiry, the
+review page checks for the resumed activation while the workflow remains open
+and reads the request once more when the workflow closes. If the request is
+retired during review, the page disables new decisions.
+
+Follow the workflow link to open Graph at the recorded approval wait, including
+waits deep in a long workflow. Select **View workflow from start** to see the
+original first page. The inbox uses the instance's existing access boundary and
+decision contract.
