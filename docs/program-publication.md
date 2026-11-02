@@ -111,7 +111,9 @@ The CLI never copies the whole project by default. Recursive selections skip
 hidden paths, environments, caches, credentials/secrets directories, SSH private
 key names, and bytecode. Explicitly selecting an excluded path fails before its
 contents are read. Destination collisions, case collisions, links, special files,
-nonportable names and input/output overlap are rejected. Keep secrets outside
+nonportable names and input/output overlap are rejected. Choose an output whose
+prepared directory and adjacent build receipt are both outside the selected
+inputs, such as the default `.ledgence/prepared`. Keep secrets outside
 application selections: filename exclusions are not a secret scanner. A manifest
 already present at the project root or included as the package manifest must
 agree with the configuration.

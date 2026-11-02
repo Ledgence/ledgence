@@ -212,6 +212,45 @@ async fn explicit_linux_target_outputs_verified_package_and_external_receipt() {
     );
 }
 #[tokio::test]
+async fn build_outputs_cannot_contaminate_later_builds() {
+    let fixture = Fixture::new();
+    let docker = FakeDocker::success();
+    let source = fixture.root.join("src/application");
+    for destination in ["src/application/new/build1", "src/application/venv"] {
+        // Although "venv" is excluded, its adjacent "venv.build.json" would be included.
+        let error = execute(fixture.options(destination), &docker)
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("overlaps selected"), "{error}");
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&source, fixture.root.join("source-alias")).unwrap();
+        let error = execute(fixture.options("source-alias/new/build1"), &docker)
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("overlaps selected"), "{error}");
+    }
+    if fixture.root.join("SRC").is_dir() {
+        fixture.change("root = \"src\"", "root = \"SRC\"");
+        let error = execute(fixture.options("src/application/new/build1"), &docker)
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("overlaps selected"), "{error}");
+    }
+    assert!(docker.calls.lock().unwrap().is_empty());
+    assert_eq!(fs::read_dir(&source).unwrap().count(), 1);
+    let excluded = execute(fixture.options("src/application/.build/prepared"), &docker)
+        .await
+        .unwrap();
+    let fresh = execute(fixture.options("build2"), &docker).await.unwrap();
+    assert_eq!(excluded.descriptor, fresh.descriptor);
+}
+
+#[tokio::test]
 async fn output_and_receipt_are_never_overwritten() {
     let fixture = Fixture::new();
     let docker = FakeDocker::success();
