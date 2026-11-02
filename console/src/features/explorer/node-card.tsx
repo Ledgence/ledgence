@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { Handle, Position } from "@xyflow/react";
 import {
-  ArrowRight,
   Box,
-  Check,
-  Circle,
   Clock3,
   Code2,
   GitFork,
@@ -13,22 +10,10 @@ import {
   Radio,
   ShieldCheck,
   Workflow,
-  X,
 } from "lucide-react";
+import { statusAppearance } from "../../components/status-appearance";
 import type { ExplorerNode } from "../../api/explorer";
 import { micros, nodeLabel, nodeStatus, nodeType } from "../explorer-model";
-
-function statusAppearance(status: string) {
-  if (["succeeded", "accepted", "returned", "replayed"].includes(status))
-    return { Icon: Check, tone: "success" };
-  if (["failed", "failing", "decision rejected"].includes(status))
-    return { Icon: X, tone: "failure" };
-  if (["running", "active", "waiting", "wait registered"].includes(status))
-    return { Icon: Clock3, tone: "waiting" };
-  if (status.includes("scheduled"))
-    return { Icon: ArrowRight, tone: "neutral" };
-  return { Icon: Circle, tone: "neutral" };
-}
 
 function recordedDuration(node: ExplorerNode) {
   if (node.kind === "local" && node.observation)

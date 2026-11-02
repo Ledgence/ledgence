@@ -294,11 +294,11 @@ export function timelineBounds(
   observedAt: number,
   workflowActive = true,
 ) {
-  if (!rows.length) return { start: observedAt, end: observedAt + 1 };
+  if (!rows.length) return { start: observedAt, end: observedAt };
   const start = Math.min(...rows.map((row) => row.timing.start));
   // An observation made after completion must not stretch a completed run.
   const end = Math.max(
-    start + 1,
+    start,
     ...rows.map(
       (row) =>
         row.timing.end ??

@@ -61,10 +61,12 @@ export function WorkflowDetailPage() {
           detail?.summary.controller.program.id ||
           "Workflow"
         }
-        description={
-          detail
-            ? `Workflow · ${detail.summary.controller.program.id} / ${detail.summary.controller.program.version}`
-            : "Workflow execution"
+        context={
+          detail && {
+            label: "Workflow program",
+            value: detail.summary.controller.program.id,
+            version: detail.summary.controller.program.version,
+          }
         }
         metadata={
           <>

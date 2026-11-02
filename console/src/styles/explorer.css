@@ -12,21 +12,11 @@
   width: 100%;
   position: relative;
   isolation: isolate;
-  --graph-surface: light-dark(
-    color-mix(in srgb, var(--bg) 72%, var(--well)),
-    var(--bg)
-  );
-  --graph-connector: light-dark(
-    color-mix(in srgb, var(--muted) 65%, var(--line)),
-    #b9c0ce
-  );
-  --graph-grid: light-dark(var(--line), #252a35);
-  --node-line: light-dark(
-    color-mix(in srgb, var(--line) 90%, var(--muted)),
-    color-mix(in srgb, var(--control-line) 78%, var(--line))
-  );
-  --node-reflection: light-dark(transparent, #7b869450);
-  --node-shadow: light-dark(rgb(0 0 0 / 3%), #0000008c);
+  --graph-surface: color-mix(in srgb, var(--well) 65%, var(--surface));
+  --graph-connector: color-mix(in srgb, var(--muted) 85%, var(--line));
+  --graph-grid: color-mix(in srgb, var(--muted) 29%, var(--graph-surface));
+  --node-line: color-mix(in srgb, var(--line) 74%, var(--muted));
+  --node-shadow: light-dark(rgb(20 28 42 / 8%), rgb(0 0 0 / 30%));
   --xy-background-color: var(--graph-surface);
   --xy-node-boxshadow-hover-default: none;
   --xy-node-boxshadow-selected-default: none;
@@ -46,16 +36,9 @@
   padding: 0;
   border: 1px solid var(--node-line);
   border-radius: 10px;
-  background: linear-gradient(
-    145deg,
-    light-dark(var(--surface), #252a35),
-    var(--surface)
-  );
+  background: var(--surface);
   color: var(--ink);
-  box-shadow:
-    inset 0 1px 0 var(--node-reflection),
-    0 2px 3px var(--node-shadow),
-    0 5px 14px var(--node-shadow);
+  box-shadow: 0 2px 5px var(--node-shadow);
   transition:
     border-color var(--motion),
     box-shadow var(--motion);
@@ -75,10 +58,7 @@
   height: 30px;
   border-radius: 7px;
   color: var(--muted);
-  background: light-dark(
-    color-mix(in srgb, var(--side) 72%, var(--bg)),
-    var(--well)
-  );
+  background: var(--well);
 }
 .work-card-content {
   flex: 1;
@@ -101,8 +81,8 @@
   gap: 6px;
   margin-bottom: 3px;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 12px;
+  line-height: 15px;
 }
 .work-card-footer {
   display: flex;
@@ -111,13 +91,10 @@
   gap: 10px;
   min-height: 30px;
   padding: 6px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  border-top: 1px solid var(--line);
   border-radius: 0 0 10px 10px;
-  background: light-dark(
-    color-mix(in srgb, var(--side) 35%, var(--bg)),
-    var(--well)
-  );
-  font-size: 11px;
+  background: color-mix(in srgb, var(--well) 45%, var(--surface));
+  font-size: 12px;
   line-height: 15px;
 }
 .work-card-status {
@@ -145,6 +122,9 @@
 .work-card .tone-waiting {
   color: var(--waiting);
 }
+.work-card .tone-active {
+  color: var(--accent);
+}
 .work-card .tone-neutral {
   color: var(--muted);
 }
@@ -161,17 +141,11 @@
   border-radius: 50%;
 }
 .work-card-entrypoint {
-  border-color: light-dark(
-    color-mix(in srgb, var(--focus) 35%, var(--line)),
-    var(--node-line)
-  );
-  box-shadow:
-    inset 0 1px 0 var(--node-reflection),
-    0 2px 5px var(--node-shadow);
+  border-color: color-mix(in srgb, var(--ink) 45%, var(--line));
 }
 .work-card-entrypoint .work-card-icon {
-  color: var(--focus);
-  background: color-mix(in srgb, var(--focus) 9%, var(--bg));
+  color: var(--on-primary);
+  background: var(--primary);
 }
 .work-card-entrypoint strong {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -246,9 +220,7 @@
 .workflow-flow .react-flow__node:focus-visible .work-card {
   border-color: var(--focus);
   background: var(--selected);
-  box-shadow:
-    0 0 0 2px var(--focus),
-    inset 0 1px 0 var(--node-reflection);
+  box-shadow: 0 0 0 2px var(--focus);
 }
 .workflow-flow .react-flow__node:focus-visible {
   outline: none;
@@ -292,7 +264,7 @@
 .graph-tools .button {
   min-height: 36px;
   padding: 7px 9px;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .graph-tools .button svg {
@@ -310,12 +282,13 @@
   top: 12px;
   left: 14px;
   display: flex;
-  gap: 15px;
-  padding: 5px 8px;
+  gap: 12px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--graph-surface);
+  background: var(--surface);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   pointer-events: none;
 }
 .graph-legend span {
@@ -348,6 +321,18 @@
 .execution-explorer .explorer-toolbar {
   gap: 12px;
   flex-wrap: wrap;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.execution-explorer .explorer-toolbar:has(+ .explorer-body) {
+  border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.execution-explorer .explorer-toolbar + .explorer-body {
+  margin-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
 }
 .execution-explorer .segmented {
   flex: 0 0 auto;
@@ -387,9 +372,9 @@
 .execution-explorer .explorer-search input {
   width: 100%;
   padding-left: 34px;
-  min-height: 38px;
+  min-height: 40px;
   background: var(--input-bg);
-  font-size: 12px;
+  font-size: 14px;
 }
 .execution-explorer .explorer-toolbar .check-label {
   width: auto;
@@ -423,21 +408,31 @@
 .execution-explorer .explorer-record-count {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
-  font-size: 12px;
   color: var(--muted);
+}
+.explorer-record-count > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--ink);
+}
+.explorer-record-count > div {
+  display: grid;
+  min-width: 0;
 }
 .execution-explorer .explorer-record-count strong {
   color: var(--ink);
-  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 320px;
 }
-.execution-explorer .explorer-record-count > span {
-  flex-shrink: 0;
+.explorer-record-count span {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .execution-explorer .explorer-inspector {
   position: static;
@@ -448,7 +443,7 @@
   border-left: 1px solid var(--line);
   overflow: auto;
   overscroll-behavior: contain;
-  font-size: 12px;
+  font-size: 14px;
   scrollbar-gutter: stable;
 }
 .execution-explorer .explorer-inspector > * + * {
@@ -461,11 +456,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 40px;
-  margin: 0 -4px;
+  min-height: 48px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 600;
 }
 .execution-explorer .explorer-inspector-toolbar .button {
   min-height: 30px;
@@ -485,7 +482,7 @@
   gap: 12px;
 }
 .execution-explorer .explorer-inspector .field dt {
-  font-size: 11px;
+  font-size: 12px;
 }
 .execution-explorer .explorer-inspector > .button {
   width: 100%;
@@ -528,6 +525,8 @@
   margin-top: 14px;
 }
 .execution-explorer .execution-timeline {
+  --row-columns: minmax(140px, 30%) minmax(0, 1fr);
+  --row-inset: 10px;
   min-height: 100%;
   padding: 16px 18px;
 }
@@ -548,35 +547,98 @@
 .execution-explorer .timeline-range label {
   min-width: 160px;
 }
-.execution-explorer .timeline-caption {
-  max-width: 70ch;
+.execution-explorer .timeline-window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 13px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
 }
+.execution-explorer .timeline-caption {
+  max-width: 80ch;
+  margin: 4px 0 14px;
+}
+.timeline-ruler {
+  display: grid;
+  align-items: center;
+  grid-template-columns: var(--row-columns);
+  gap: 10px;
+  padding: 6px var(--row-inset);
+  border-block: 1px solid var(--line);
+  background: var(--well);
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.timeline-scale {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+}
+.timeline-scale > :nth-child(2) {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 .execution-explorer .timeline-viewport {
-  height: max(240px, calc(var(--explorer-height) - 142px));
+  height: max(240px, calc(var(--explorer-height) - 170px));
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
 .execution-explorer .timeline-row {
-  border-radius: 6px;
-  grid-template-columns: minmax(140px, 30%) minmax(0, 1fr);
+  border-radius: 0;
+  grid-template-columns: var(--row-columns);
+  padding-inline: var(--row-inset);
 }
 .execution-explorer .timeline-row:hover {
   background: var(--hover);
 }
+.timeline-row {
+  --interval-ink: var(--muted);
+}
+.timeline-row[data-tone="success"] {
+  --interval-ink: var(--success);
+}
+.timeline-row[data-tone="failure"] {
+  --interval-ink: var(--failure);
+}
+.timeline-row[data-tone="waiting"] {
+  --interval-ink: var(--waiting);
+}
+.timeline-row[data-tone="active"] {
+  --interval-ink: var(--accent);
+}
+.execution-explorer .timeline-row-label strong {
+  font-weight: 600;
+}
+.execution-explorer .timeline-row-label small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.execution-explorer .timeline-row .status {
+  justify-self: start;
+}
 .execution-explorer .timeline-bar {
-  background: var(--focus);
-  opacity: 0.7;
+  background: var(--interval-ink);
+  opacity: 1;
 }
 .execution-explorer .timeline-open {
   background: repeating-linear-gradient(
     135deg,
-    var(--focus) 0,
-    var(--focus) 3px,
+    var(--interval-ink) 0,
+    var(--interval-ink) 3px,
     var(--well) 3px,
     var(--well) 5px
   );
 }
 .execution-explorer .timeline-milestone {
-  background: var(--focus);
+  background: var(--interval-ink);
 }
 .execution-explorer.explorer-maximized {
   --explorer-height: calc(100dvh - 216px);
@@ -649,8 +711,7 @@
     gap: 5px;
   }
   .execution-explorer .explorer-record-count {
-    flex-wrap: wrap;
-    gap: 4px 10px;
+    gap: 8px;
   }
   .execution-explorer .explorer-record-count strong {
     max-width: 180px;
@@ -660,11 +721,15 @@
     bottom: 10px;
   }
   .execution-explorer .execution-timeline {
+    --row-columns: minmax(100px, 42%) minmax(0, 1fr);
+    --row-inset: 6px;
     padding: 12px 8px;
   }
-  .execution-explorer .timeline-row {
-    grid-template-columns: minmax(110px, 42%) minmax(0, 1fr);
-    padding: 8px;
+  .timeline-scale > :nth-child(2) {
+    display: none;
+  }
+  .execution-explorer .timeline-window {
+    font-size: 12px;
   }
   .execution-explorer .explorer-inspector {
     padding: 0 16px 18px;

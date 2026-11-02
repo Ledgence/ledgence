@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useState, type ReactNode } from "react";
-import { NavLink, Link, useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 import {
   Activity,
   ArrowUpRight,
@@ -9,6 +9,7 @@ import {
   FileText,
   Layers2,
   Monitor,
+  Cpu,
   PanelLeftClose,
   Server,
 } from "lucide-react";
@@ -34,12 +35,21 @@ function readSidebarCollapsed(): boolean {
 
 export function AppShell({
   instanceName,
+  serverVersion,
   children,
 }: {
   instanceName: string;
+  serverVersion?: string | undefined;
   children: ReactNode;
 }) {
-  const location = useLocation();
+  const { pathname } = useLocation();
+  const section = pathname.split("/")[1];
+  const activeSection =
+    section === "workflows"
+      ? "executions"
+      : section === "agents"
+        ? "programs"
+        : section;
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
   const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
@@ -75,7 +85,9 @@ export function AppShell({
                 aria-label="Ledgence Console home"
               >
                 <span className="brand-mark" aria-hidden="true" />
-                <span className="sidebar-label">ledgence</span>
+                <span className="brand-wordmark sidebar-label">
+                  ledgence<span className="brand-product">Console</span>
+                </span>
               </Link>
             )}
             {/* Keep this button mounted so keyboard focus survives either shape. */}
@@ -100,28 +112,26 @@ export function AppShell({
             className="navigation shell-navigation"
             aria-label="Main navigation"
           >
+            <span className="shell-caption sidebar-label" aria-hidden="true">
+              Workspace
+            </span>
             {sections.map(({ to, title, icon: Icon }) => (
-              <NavLink
+              <Link
                 key={to}
                 to={to}
                 aria-label={title}
                 title={collapsed ? title : undefined}
-                className={({ isActive }) =>
-                  isActive ||
-                  (to === "/executions" &&
-                    location.pathname.startsWith("/workflows")) ||
-                  (to === "/programs" &&
-                    location.pathname.startsWith("/agents"))
-                    ? "active"
-                    : undefined
-                }
+                aria-current={to === `/${activeSection}` ? "page" : undefined}
               >
                 <Icon aria-hidden="true" />
                 <span className="sidebar-label">{title}</span>
-              </NavLink>
+              </Link>
             ))}
           </nav>
           <div className="sidebar-footer shell-sidebar-footer">
+            <span className="shell-caption sidebar-label" aria-hidden="true">
+              Resources
+            </span>
             <a
               href="https://docs.ledgence.com/"
               target="_blank"
@@ -141,6 +151,16 @@ export function AppShell({
               <FileText aria-hidden="true" />
               <span className="sidebar-label">Notices</span>
             </a>
+            {serverVersion && (
+              <div
+                className="shell-version"
+                title={`Server version ${serverVersion}`}
+              >
+                <Cpu aria-hidden="true" />
+                <span className="sidebar-label">Server version</span>
+                <code className="sidebar-label">{serverVersion}</code>
+              </div>
+            )}
           </div>
         </aside>
         <div className="workspace console-workspace">

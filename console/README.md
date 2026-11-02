@@ -226,6 +226,13 @@ full screen with Escape to exit, keeps selection and canvas state, and opens its
 inspector only when work is selected. Secondary evidence remains available in an
 expandable work list.
 
+In development builds, the expanded sidebar shows the connected server version.
+Execution history groups its filters and results together. Names and states lead each
+row, with technical IDs beneath the names. State badges pair a label with a symbol.
+Program and worker entries group identity, version or capacity, and related actions.
+The Graph legend distinguishes fork membership from other execution links. The Trace
+ruler shows elapsed time across the visible range of recorded work.
+
 The interface uses responsive tables, local system fonts, visible focus, semantic controls and
 reduced-motion support. Selected shadcn primitives are adapted locally; Radix Dialog supplies modal behavior and React Flow supplies graph interaction. The modal scroll lock inserts reviewed CSS at runtime,
 so the server's CSP permits inline styles while keeping scripts restricted to local
