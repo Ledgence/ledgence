@@ -14,7 +14,7 @@ use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 /// A dedicated filesystem cache with exclusive process ownership. Clones share
@@ -54,8 +54,51 @@ impl Drop for Owner {
         }
     }
 }
-struct Pin {
-    _owner: Arc<Owner>,
+struct CachedArtifact {
+    owner: Arc<Owner>,
+    descriptor: ProgramDescriptor,
+    manifest: ProgramManifest,
+    verification: Mutex<()>,
+}
+
+impl CachedArtifact {
+    fn new(
+        owner: &Arc<Owner>,
+        descriptor: ProgramDescriptor,
+        manifest: ProgramManifest,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            owner: Arc::clone(owner),
+            descriptor,
+            manifest,
+            verification: Mutex::new(()),
+        })
+    }
+
+    fn prepared(self: &Arc<Self>) -> PreparedArtifact {
+        PreparedArtifact::new(
+            self.owner
+                .root
+                .join(self.descriptor.digest.hex())
+                .join("content"),
+            self.manifest.clone(),
+            self.descriptor.digest.clone(),
+            self.clone(),
+        )
+    }
+
+    fn verify(&self, limits: &ArtifactLimits) -> Result<()> {
+        let _guard = self
+            .verification
+            .lock()
+            .map_err(|_| AdapterError::Invalid("cache entry verification poisoned".into()))?;
+        let directory = self.owner.root.join(self.descriptor.digest.hex());
+        let (stored, mut plan, _) = read_entry(&directory, limits)?;
+        if stored != self.descriptor {
+            return Err(AdapterError::Invalid("cached descriptor changed".into()));
+        }
+        plan.verify(&directory.join("content"))
+    }
 }
 #[derive(Default)]
 struct State {
@@ -67,11 +110,24 @@ struct State {
     bytes: u64,
 }
 struct Entry {
-    descriptor: ProgramDescriptor,
-    manifest: ProgramManifest,
+    // The index owns one reference. Every verifier and prepared handle holds another.
+    artifact: Arc<CachedArtifact>,
     bytes: u64,
     touched: u64,
-    pin: Weak<Pin>,
+}
+
+impl State {
+    fn pin(&self, descriptor: &ProgramDescriptor) -> Result<Option<Arc<CachedArtifact>>> {
+        let Some(entry) = self.entries.get(descriptor.digest.hex()) else {
+            return Ok(None);
+        };
+        if entry.artifact.descriptor != *descriptor {
+            return Err(AdapterError::Invalid(
+                "descriptor differs from cached immutable identity".into(),
+            ));
+        }
+        Ok(Some(Arc::clone(&entry.artifact)))
+    }
 }
 impl FileArtifactCache {
     pub fn new(
@@ -164,11 +220,9 @@ impl FileArtifactCache {
             state.entries.insert(
                 name,
                 Entry {
-                    descriptor,
-                    manifest: plan.manifest,
+                    artifact: CachedArtifact::new(&owner, descriptor, plan.manifest),
                     bytes,
                     touched: 0,
-                    pin: Weak::new(),
                 },
             );
         }
@@ -181,38 +235,36 @@ impl FileArtifactCache {
             }),
         })
     }
-    fn lookup_sync(&self, descriptor: &ProgramDescriptor) -> Result<Option<PreparedArtifact>> {
-        self.inner.limits.descriptor(descriptor)?;
-        let mut state = self
-            .inner
+    fn state(&self) -> Result<MutexGuard<'_, State>> {
+        self.inner
             .state
             .lock()
-            .map_err(|_| AdapterError::Invalid("cache state poisoned".into()))?;
-        self.hit(&mut state, descriptor)
+            .map_err(|_| AdapterError::Invalid("cache state poisoned".into()))
     }
-    fn hit(
-        &self,
-        state: &mut State,
-        descriptor: &ProgramDescriptor,
-    ) -> Result<Option<PreparedArtifact>> {
-        let Some(entry) = state.entries.get_mut(descriptor.digest.hex()) else {
-            return Ok(None);
-        };
-        if entry.descriptor != *descriptor {
-            return Err(AdapterError::Invalid(
-                "descriptor differs from cached immutable identity".into(),
-            ));
-        }
-        let directory = self.inner.owner.root.join(descriptor.digest.hex());
-        let (stored, mut plan, _) = read_entry(&directory, &self.inner.limits)?;
-        if stored != *descriptor {
-            return Err(AdapterError::Invalid("cached descriptor changed".into()));
-        }
-        plan.verify(&directory.join("content"))?;
+
+    fn lookup_sync(&self, descriptor: &ProgramDescriptor) -> Result<Option<PreparedArtifact>> {
+        self.inner.limits.descriptor(descriptor)?;
+        let pinned = self.state()?.pin(descriptor)?;
+        pinned
+            .map(|artifact| self.verified_hit(artifact))
+            .transpose()
+    }
+
+    fn verified_hit(&self, artifact: Arc<CachedArtifact>) -> Result<PreparedArtifact> {
+        // The pin prevents eviction while we check the archive and extracted files.
+        // Neither verification nor waiting for this digest holds the index lock.
+        artifact.verify(&self.inner.limits)?;
+        let mut state = self.state()?;
         state.clock = state.clock.saturating_add(1);
-        entry.touched = state.clock;
-        Ok(Some(pin_entry(&self.inner.owner, entry)))
+        let touched = state.clock;
+        state
+            .entries
+            .get_mut(artifact.descriptor.digest.hex())
+            .expect("pinned entry cannot be evicted")
+            .touched = touched;
+        Ok(artifact.prepared())
     }
+
     fn publish_sync(
         &self,
         descriptor: ProgramDescriptor,
@@ -244,14 +296,11 @@ impl FileArtifactCache {
             return Err(AdapterError::Limit("descriptor bytes".into()));
         }
         let bytes = entry_size(&descriptor, plan.expanded_bytes, encoded.len() as u64)?;
-        let mut state = self
-            .inner
-            .state
-            .lock()
-            .map_err(|_| AdapterError::Invalid("cache state poisoned".into()))?;
+        let mut state = self.state()?;
         clean_staging(&self.inner.owner, &mut state, &remove)?;
-        if let Some(prepared) = self.hit(&mut state, &descriptor)? {
-            return Ok(prepared);
+        if let Some(artifact) = state.pin(&descriptor)? {
+            drop(state);
+            return self.verified_hit(artifact);
         }
         evict(
             &self.inner.owner,
@@ -302,17 +351,15 @@ impl FileArtifactCache {
         }
         state.staging.remove(&name);
         state.clock = state.clock.saturating_add(1);
-        let mut entry = Entry {
-            descriptor,
-            manifest: plan.manifest,
+        let artifact = CachedArtifact::new(&self.inner.owner, descriptor, plan.manifest);
+        let prepared = artifact.prepared();
+        let key = artifact.descriptor.digest.hex().to_owned();
+        let entry = Entry {
+            artifact,
             bytes,
             touched: state.clock,
-            pin: Weak::new(),
         };
-        let prepared = pin_entry(&self.inner.owner, &mut entry);
-        state
-            .entries
-            .insert(entry.descriptor.digest.hex().to_owned(), entry);
+        state.entries.insert(key, entry);
         // Rename already made a complete entry visible. Register it before the
         // final durability barrier, so a failed parent sync remains recoverable
         // through lookup/retry without restarting the cache owner.
@@ -345,23 +392,6 @@ fn is_digest_name(name: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
-fn pin_entry(owner: &Arc<Owner>, entry: &mut Entry) -> PreparedArtifact {
-    let pin = entry.pin.upgrade().unwrap_or_else(|| {
-        Arc::new(Pin {
-            _owner: Arc::clone(owner),
-        })
-    });
-    entry.pin = Arc::downgrade(&pin);
-    PreparedArtifact::new(
-        owner
-            .root
-            .join(entry.descriptor.digest.hex())
-            .join("content"),
-        entry.manifest.clone(),
-        entry.descriptor.digest.clone(),
-        pin,
-    )
-}
 fn evict(owner: &Owner, state: &mut State, required: u64, budget: u64) -> Result<()> {
     evict_with_remove(owner, state, required, budget, remove_tree)
 }
@@ -384,7 +414,7 @@ fn evict_with_remove(
         let victim = state
             .entries
             .iter()
-            .filter(|(_, entry)| entry.pin.strong_count() == 0)
+            .filter(|(_, entry)| Arc::strong_count(&entry.artifact) == 1)
             .min_by_key(|(_, entry)| entry.touched)
             .map(|(key, _)| key.clone())
             .ok_or(AdapterError::Pressure)?;
@@ -586,6 +616,9 @@ impl Drop for Stage {
         }
     }
 }
+
+#[cfg(test)]
+mod concurrency_tests;
 
 #[cfg(test)]
 mod staging_tests;

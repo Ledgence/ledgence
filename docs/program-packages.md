@@ -98,6 +98,8 @@ The cache has one exclusive owner, a retained lock, and pins that prevent evicti
 
 The default limits are 64 MiB compressed, 256 MiB expanded, 64 MiB per file, 4,096 entries, a 64 KiB manifest, a 16 KiB descriptor, and a 1 GiB cache content quota. Quota accounting includes compressed archives, extracted regular-file bytes, and descriptors. Publication reserves quota for staged artifact content before writing it. Filesystem allocation overhead, downloaded memory buffers, and process scratch space are outside that content quota. Archive bytes are buffered in memory with bounded size; streaming cache publication is future work.
 
+Each filesystem cache hit verifies the stored archive and extracted content again. The cache pins the entry during this check so that eviction cannot remove files being read. Hits for different digests can verify concurrently. Concurrent checks of the same digest run one at a time. Each active check buffers one archive, so memory use depends on the sizes of the packages being checked together.
+
 Warm and active sessions retain cache pins. Unpinned entries can be evicted; the core can retire idle processes when their pins prevent an otherwise valid package fitting. Oversized or invalid packages fail directly. Each session receives a separate temporary working directory, preserved between its invocations and removed after confirmed cleanup. Access package resources relative to the module's `__file__`.
 
 The package model follows the deployment/runtime separation described in [AWS's Python package documentation](https://docs.aws.amazon.com/lambda/latest/dg/python-package.html), without requiring AWS services or SDKs.
