@@ -387,3 +387,58 @@ async fn activation_context_rejects_approval_from_another_scope_on_both_boundari
         Err(ContractError::Unavailable(_))
     ));
 }
+
+#[tokio::test]
+async fn approval_inbox_roundtrips_compact_metadata_and_rejects_invalid_adapter_pages() {
+    let mock = Arc::new(Mock::default());
+    let running = setup(&mock).await;
+    let client = HttpTaskService::new(&running.url).unwrap();
+    let query = ApprovalInboxQuery {
+        scope: scope(),
+        status: Some(ApprovalStatus::Pending),
+        program_id: Some("support".into()),
+        cursor: None,
+        limit: 10,
+    };
+    let item = ApprovalInboxItem {
+        workflow_id: "wf".into(),
+        key: "review".into(),
+        activation_id: "act".into(),
+        program_id: "support".into(),
+        program_version: "1".into(),
+        action_name: "publish".into(),
+        action_version: "v1".into(),
+        status: ApprovalStatus::Pending,
+        created_at: 5,
+        deadline: 5000,
+    };
+    let page = ApprovalInboxPage {
+        items: vec![item.clone()],
+        next_cursor: None,
+    };
+    mock.set("approval_inbox", Ok(page.clone()));
+    assert_eq!(client.approval_inbox(&query).await.unwrap(), page);
+    mock.set(
+        "approval_inbox",
+        Ok(ApprovalInboxPage {
+            items: vec![ApprovalInboxItem {
+                program_id: "other".into(),
+                ..item
+            }],
+            next_cursor: None,
+        }),
+    );
+    assert!(matches!(
+        client.approval_inbox(&query).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    let response = reqwest::Client::new()
+        .post(format!("{}/v1/workflows/approvals/inbox", running.url))
+        .header("content-type", "application/json")
+        .body(json!({"scope":scope(),"limit":101}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(mock.calls.lock().unwrap().len(), 2);
+}

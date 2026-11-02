@@ -497,6 +497,17 @@ pub trait WorkflowStore: Send + Sync {
             ))
         })
     }
+    /// Discover compact approval metadata across workflows in a single scope.
+    fn approval_inbox<'a>(
+        &'a self,
+        _query: &'a ApprovalInboxQuery,
+    ) -> ContractFuture<'a, ApprovalInboxPage> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "approval inbox is unsupported by this adapter".into(),
+            ))
+        })
+    }
     fn list_approvals<'a>(
         &'a self,
         _scope: &'a Scope,
@@ -623,6 +634,17 @@ pub trait WorkflowService: Send + Sync {
         Box::pin(async {
             Err(ContractError::InvalidInput(
                 "workflow approvals are unsupported by this adapter".into(),
+            ))
+        })
+    }
+    /// Discover compact approval metadata across workflows in a single scope.
+    fn approval_inbox<'a>(
+        &'a self,
+        _query: &'a ApprovalInboxQuery,
+    ) -> ContractFuture<'a, ApprovalInboxPage> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "approval inbox is unsupported by this adapter".into(),
             ))
         })
     }

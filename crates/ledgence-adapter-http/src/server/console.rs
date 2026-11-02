@@ -96,6 +96,7 @@ impl ConsoleServices {
 pub(super) const ROUTES: &[(&str, &str)] = &[
     ("/v1/console/approvals/inspect", "POST"),
     ("/v1/console/approvals/list", "POST"),
+    ("/v1/console/approvals/inbox", "POST"),
     ("/v1/console/approvals/decide", "POST"),
     ("/v1/console/executions", "GET"),
     ("/v1/console/executions/ancestry", "GET"),
@@ -307,10 +308,17 @@ pub(super) async fn dispatch(
                     id: required(&fields, "id")?,
                 },
             },
-            "/v1/console/workflows/explorer" => ConsoleQuery::Explorer {
-                workflow_id: required(&fields, "workflow_id")?,
-                page,
-            },
+            "/v1/console/workflows/explorer" => {
+                let workflow_id = required(&fields, "workflow_id")?;
+                match fields.get("approval_key") {
+                    Some(key) => ConsoleQuery::ExplorerAtApproval {
+                        workflow_id,
+                        approval_key: key.clone(),
+                        page,
+                    },
+                    None => ConsoleQuery::Explorer { workflow_id, page },
+                }
+            }
             "/v1/console/workflows/input" => ConsoleQuery::WorkflowInput {
                 workflow_id: required(&fields, "workflow_id")?,
             },
@@ -662,7 +670,7 @@ fn fields(raw: &str, path: &str) -> Result<BTreeMap<String, String>> {
             "cursor",
         ],
         "/v1/console/executions/ancestry" => &["kind", "id"],
-        "/v1/console/workflows/explorer" => &["workflow_id", "limit", "cursor"],
+        "/v1/console/workflows/explorer" => &["workflow_id", "limit", "cursor", "approval_key"],
         "/v1/console/workflows/input" => &["workflow_id"],
         "/v1/console/attempts/observations" => &["attempt_id"],
         "/v1/console/programs/catalog" => &[

@@ -9,6 +9,12 @@ pub enum ConsoleQuery {
         workflow_id: String,
         page: ConsolePagination,
     },
+    /// Start an ordinary explorer page at the exact recorded approval wait.
+    ExplorerAtApproval {
+        workflow_id: String,
+        approval_key: String,
+        page: ConsolePagination,
+    },
     WorkflowInput {
         workflow_id: String,
     },
@@ -67,6 +73,7 @@ impl ConsoleQuery {
         match self {
             Self::Executions { page, .. }
             | Self::Explorer { page, .. }
+            | Self::ExplorerAtApproval { page, .. }
             | Self::Tasks { page, .. }
             | Self::Attempts { page, .. }
             | Self::Workflows { page, .. }
@@ -85,7 +92,7 @@ impl ConsoleQuery {
     pub fn binding(&self, scope: &Scope) -> Result<ConsoleCursorBinding> {
         scope.validate()?;
         let (endpoint, parent, filters, descending, numeric_keys) = match self {
-            Self::Explorer { workflow_id, .. } => (
+            Self::Explorer { workflow_id, .. } | Self::ExplorerAtApproval { workflow_id, .. } => (
                 "workflows/explorer/v4",
                 vec![workflow_id.clone()],
                 Ok(Value::Null),
@@ -217,6 +224,15 @@ impl ConsoleQuery {
         })
     }
     pub fn validate(&self, scope: &Scope) -> Result<Option<ConsolePosition>> {
+        if let Self::ExplorerAtApproval {
+            approval_key, page, ..
+        } = self
+        {
+            validate_text(approval_key, 128)?;
+            if page.cursor.is_some() {
+                return Err(invalid("approval_key and cursor are mutually exclusive"));
+            }
+        }
         let binding = self.binding(scope)?;
         self.pagination()
             .map_or(Ok(None), |page| page.validate(&binding))
@@ -249,6 +265,21 @@ impl ConsoleQueryReply {
         let binding = query.binding(scope)?;
         let mismatch = || inconsistent("console adapter returned inconsistent observation");
         match (self, query) {
+            (
+                Self::Explorer(reply),
+                ConsoleQuery::ExplorerAtApproval {
+                    workflow_id,
+                    approval_key,
+                    page,
+                },
+            ) => {
+                reply.validate(workflow_id, page, &binding)?;
+                if !matches!(reply.page.items.first().map(|n| &n.data),
+                    Some(ConsoleExplorerData::ExternalWait{key,wait_kind:ConsoleWaitKind::Approval,..}) if key==approval_key)
+                {
+                    return Err(mismatch());
+                }
+            }
             (Self::Explorer(reply), ConsoleQuery::Explorer { workflow_id, page }) => {
                 reply.validate(workflow_id, page, &binding)?
             }

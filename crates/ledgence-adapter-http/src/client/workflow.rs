@@ -34,6 +34,23 @@ impl WorkflowService for HttpTaskService {
             .await
         })
     }
+    fn approval_inbox<'a>(
+        &'a self,
+        query: &'a ApprovalInboxQuery,
+    ) -> ContractFuture<'a, ApprovalInboxPage> {
+        Box::pin(async move {
+            query.validate()?;
+            let expected = query.clone();
+            self.post_validated(
+                "v1/workflows/approvals/inbox",
+                query,
+                APPROVAL_SNAPSHOT_MAX_BYTES,
+                move |reply: &ApprovalInboxPage| reply.validate_for(&expected),
+            )
+            .await
+        })
+    }
+
     fn list_approvals<'a>(
         &'a self,
         scope: &'a Scope,

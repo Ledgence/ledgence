@@ -199,6 +199,9 @@ impl ResponseValue for ApprovalDecisionReceipt {
         self.validate()
     }
 }
+impl ResponseValue for ApprovalInboxPage {
+    const MAX_BYTES: usize = APPROVAL_INBOX_PAGE_MAX_BYTES;
+}
 impl ResponseValue for ApprovalPage {
     const MAX_BYTES: usize = 1024 * 1024;
     fn validate_values(&self) -> Result<()> {

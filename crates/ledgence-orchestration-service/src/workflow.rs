@@ -286,6 +286,19 @@ impl WorkflowService for ApplicationService {
             Ok(reply)
         })
     }
+    fn approval_inbox<'a>(
+        &'a self,
+        query: &'a ApprovalInboxQuery,
+    ) -> ContractFuture<'a, ApprovalInboxPage> {
+        Box::pin(async move {
+            query.validate()?;
+            let reply = self.workflows()?.approval_inbox(query).await?;
+            reply
+                .validate_for(query)
+                .map_err(|_| approval_reply_error())?;
+            Ok(reply)
+        })
+    }
     fn list_approvals<'a>(
         &'a self,
         scope: &'a Scope,

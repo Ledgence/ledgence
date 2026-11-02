@@ -1,5 +1,6 @@
 //! Workflow mutations use workflow -> work/task row ordering. Ordinary task
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
+mod approval_inbox;
 mod approvals;
 mod data;
 mod execution;
@@ -27,6 +28,12 @@ impl WorkflowStore for PostgresStore {
         key: &'a str,
     ) -> ContractFuture<'a, ApprovalSnapshot> {
         Box::pin(self.run(move || self.approval_once(scope, workflow_id, key)))
+    }
+    fn approval_inbox<'a>(
+        &'a self,
+        query: &'a ApprovalInboxQuery,
+    ) -> ContractFuture<'a, ApprovalInboxPage> {
+        Box::pin(self.run(move || self.approval_inbox_once(query)))
     }
     fn list_approvals<'a>(
         &'a self,

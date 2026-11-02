@@ -10,7 +10,7 @@ fn action() -> ApprovalAction {
 fn ordinary_event(workflow: &WorkflowSnapshot, key: &str) -> WorkflowEventCommand {
     WorkflowEventCommand {scope:scope(),workflow_id:workflow.workflow_id.clone(),key:key.into(),event:WorkflowEvent::new(json!({"specversion":"1.0","id":format!("evt_{key}"),"source":"urn:test","type":"approved","datacontenttype":"application/json","data":{"approved":true}})).unwrap()}
 }
-fn wait(key: &str, timeout_ms: u64) -> WorkflowAction {
+pub(super) fn wait(key: &str, timeout_ms: u64) -> WorkflowAction {
     WorkflowAction::Wait {
         state: json!({"checkpoint":"saved"}),
         continuation: "after_review".into(),
@@ -23,7 +23,7 @@ fn wait(key: &str, timeout_ms: u64) -> WorkflowAction {
         },
     }
 }
-fn decide(
+pub(super) fn decide(
     workflow: &WorkflowSnapshot,
     activation: &Assignment,
     key: &str,
@@ -235,6 +235,15 @@ async fn zero_deadline_freezes_expired_wake_and_cancellation_closes_pending_requ
     let expired = inspect(&db.store, &workflow, "expire").await;
     assert_eq!(expired.created_at, expired.deadline);
     assert_eq!(expired.status, ApprovalStatus::Expired);
+    assert_eq!(
+        db.store
+            .approval_inbox(&super::inbox::query(Some(ApprovalStatus::Expired)))
+            .await
+            .unwrap()
+            .items[0]
+            .key,
+        "expire"
+    );
     assert!(matches!(
         db.store.decide_approval(&command).await,
         Err(ContractError::ObsoleteOperation)

@@ -25,6 +25,7 @@ impl ConsoleQueryStore for PostgresStore {
             let observed_at = db::now(&mut tx).await?;
             let reply = match query {
                 ConsoleQuery::Explorer { .. }
+                | ConsoleQuery::ExplorerAtApproval { .. }
                 | ConsoleQuery::WorkflowInput { .. }
                 | ConsoleQuery::Ancestry { .. } => {
                     explorer::query(&mut tx, scope, query, position.as_ref(), observed_at).await?

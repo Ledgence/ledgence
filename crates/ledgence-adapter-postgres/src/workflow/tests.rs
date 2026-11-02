@@ -1180,3 +1180,6 @@ mod upgrade;
 
 #[path = "resolution_tests.rs"]
 mod resolution;
+
+#[path = "approval_inbox_tests.rs"]
+mod inbox;

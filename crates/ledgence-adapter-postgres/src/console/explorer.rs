@@ -18,6 +18,11 @@ pub(super) async fn query(
         ConsoleQuery::Explorer {
             workflow_id,
             page: request,
+        }
+        | ConsoleQuery::ExplorerAtApproval {
+            workflow_id,
+            page: request,
+            ..
         } => {
             let ConsoleQueryReply::Workflow(workflow) = workflows::query(
                 connection,
@@ -32,8 +37,17 @@ pub(super) async fn query(
             else {
                 return Err(corrupt("workflow explorer header").into());
             };
-            let mut sql = explorer_query(workflow_id, request.limit, position)?;
+            let approval_key = match query {
+                ConsoleQuery::ExplorerAtApproval { approval_key, .. } => {
+                    Some(approval_key.as_str())
+                }
+                _ => None,
+            };
+            let mut sql = explorer_query(workflow_id, request.limit, position, approval_key)?;
             let rows = sql.build().fetch_all(&mut *connection).await?;
+            if approval_key.is_some() && rows.is_empty() {
+                return Err(ContractError::NotFound.into());
+            }
             let mut items = rows
                 .iter()
                 .map(|row| {
@@ -139,11 +153,22 @@ pub(super) fn explorer_query(
     workflow: &str,
     limit: u32,
     position: Option<&ConsolePosition>,
+    approval_key: Option<&str>,
 ) -> Result<QueryBuilder<Postgres>> {
     let mut sql = QueryBuilder::new(
         "SELECT activation_id,trunc(revision)::text AS revision_text,entrypoint,kind,record_key,metadata_bytes FROM workflow_explorer_records WHERE workflow_id=",
     );
     sql.push_bind(workflow.to_owned());
+    // Inbox approval (workflow,key) and recorded wait (activation,kind,key)
+    // are both indexed unique identities. An absent anchor yields no rows;
+    // subsequent pages use the ordinary exclusive cursor.
+    if let Some(key) = approval_key {
+        sql.push(" AND (revision,kind,record_key) >= (SELECT r.revision,r.kind,r.record_key \
+                 FROM workflow_approvals a JOIN workflow_explorer_records r \
+                 ON r.activation_id=a.activation_id AND r.kind='external_wait' AND r.record_key=a.wait_key \
+                 AND r.workflow_id=a.workflow_id WHERE a.workflow_id=")
+            .push_bind(workflow.to_owned()).push(" AND a.wait_key=").push_bind(key.to_owned()).push(")");
+    }
     if let Some(position) = position {
         let kind = position_text(position, 1)?;
         let key = position_text(position, 2)?;
