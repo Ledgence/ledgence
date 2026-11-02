@@ -231,8 +231,8 @@ Operational metrics are available through the optional OTLP adapter; see [metric
 
 ## Self-hosted Console
 
-[Ledgence Console](docs/console.md) brings **Executions**, **Programs**, and
-**Workers** into one self-hosted interface. Follow tasks and workflows in a
+[Ledgence Console](docs/console.md) brings **Executions**, **Programs**, **Approvals**,
+and **Workers** into one self-hosted interface. Follow tasks and workflows in a
 filterable execution table with infinite scrolling. Inspect a workflow one level
 at a time in Graph, follow its recorded intervals in Trace, and open General for
 inputs, outputs and resources. Task Trace shows attempts and lifecycle history.

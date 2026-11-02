@@ -1,13 +1,23 @@
 /* SPDX-License-Identifier: MIT */
 /* Keep a single filter row and a native table, including on narrow screens. */
-.filters.history-filters--calendar {
-  padding: 16px 18px 0;
+.resource-list .filters.history-filters--calendar {
+  padding: 16px 20px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--well) 32%, var(--surface));
 }
 .history-filters--calendar .filter-primary {
   grid-template-columns:
-    minmax(156px, 1fr) minmax(156px, 1fr) minmax(110px, 0.7fr)
-    minmax(164px, 1fr) auto;
+    minmax(110px, 0.78fr) minmax(155px, 1fr) minmax(146px, 1fr)
+    minmax(146px, 1fr) auto;
   gap: 12px;
+}
+.history-filters--calendar .advanced-filters summary,
+.history-filters--calendar .advanced-filters .filter-extra,
+.history-filters--calendar .advanced-filters .check-label {
+  font-size: 13px;
 }
 .history-filters--calendar .filter-actions {
   flex-wrap: nowrap;
@@ -33,10 +43,12 @@
   margin-top: 4px;
   max-width: 34ch;
 }
-.table-panel.history-table-panel {
-  min-width: 0;
-  padding: 0;
-  overflow: hidden;
+.history-browsing-note {
+  margin: 0;
+  padding: 12px 20px;
+  background: var(--well);
+  color: var(--muted);
+  font-size: 13px;
 }
 .history-table-scroll {
   overflow-x: auto;
@@ -53,12 +65,22 @@
 /* Keep the table chrome recessed against the raised rows. */
 .history-table-panel .history-table thead,
 .history-table-panel .history-load-more {
-  background: var(--input-bg);
+  background: var(--well);
 }
 .history-table-panel .history-table th,
 .history-table-panel .history-table td {
   padding: 16px 18px;
   vertical-align: middle;
+}
+.history-table-panel .history-table td {
+  font-size: 14px;
+}
+.history-table-panel .history-table th {
+  font-size: 12px;
+  font-weight: 600;
+}
+.history-table-panel .history-table .execution-id {
+  font-size: 12px;
 }
 .history-table-panel .history-table th:first-child,
 .history-table-panel .history-table td:first-child {
@@ -72,6 +94,7 @@
   min-width: 115px;
 }
 .history-table-panel .history-table th:nth-child(3) {
+  min-width: 110px;
   width: 10%;
 }
 .history-table-panel .history-table th:nth-child(4) {
@@ -105,8 +128,16 @@
   overflow-wrap: anywhere;
 }
 .history-table-panel .history-table .execution-kind {
-  font-size: 12px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
   color: var(--muted);
+}
+.history-table-panel .execution-kind svg {
+  width: 15px;
+  height: 15px;
 }
 .history-elapsed,
 .history-submitted {
@@ -114,13 +145,14 @@
   white-space: nowrap;
 }
 .history-load-more {
-  min-height: 62px;
+  min-height: 48px;
   display: grid;
   align-items: center;
   padding: 16px 20px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  border-radius: 0 0 var(--radius) var(--radius);
 }
 .history-load-error {
   display: flex;
@@ -167,8 +199,8 @@
   }
 }
 @media (max-width: 768px) {
-  .filters.history-filters--calendar {
-    padding: 14px 14px 0;
+  .resource-list .filters.history-filters--calendar {
+    padding: 14px 16px 0;
   }
   .history-table-panel .history-table th,
   .history-table-panel .history-table td {
@@ -178,6 +210,32 @@
   .history-table-panel .history-table td:first-child {
     padding-left: 14px;
     min-width: 205px;
+  }
+  .history-table-panel .table.execution-table.history-table {
+    width: 900px;
+    table-layout: fixed;
+  }
+  .history-table-panel .table.history-table:has(th:nth-child(7)) {
+    width: 1030px;
+  }
+  .history-table-panel .history-table th:first-child {
+    width: 205px;
+  }
+  .history-table-panel .history-table th:nth-child(2) {
+    width: 118px;
+  }
+  .history-table-panel .history-table th:nth-child(3) {
+    width: 110px;
+  }
+  .history-table-panel .history-table th:nth-child(4) {
+    width: 172px;
+  }
+  .history-table-panel .history-table th:nth-child(5) {
+    width: 165px;
+  }
+  .history-table-panel .history-table th:nth-child(6),
+  .history-table-panel .history-table th:nth-child(7) {
+    width: 130px;
   }
   .history-load-more {
     padding: 14px;
@@ -208,4 +266,37 @@
   width: 100%;
   min-height: 44px;
   padding-right: 32px;
+}
+
+/* Closed, unfiltered searches have room for both actions on one mobile row. */
+@container (min-width: 270px) and (max-width: 620px) {
+  .resource-list
+    .filters[data-default-filters]:has(> .advanced-filters:not([open])) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    padding-bottom: 10px;
+
+    > .filter-primary {
+      display: contents;
+    }
+    .filter-actions {
+      grid-area: 3 / 2;
+      justify-self: end;
+    }
+    > .advanced-filters {
+      grid-area: 3 / 1;
+      align-self: center;
+      margin: 0;
+    }
+  }
+}
+@media (max-width: 359px) {
+  .history-table-panel .history-table :is(th, td):first-child {
+    width: 170px;
+    min-width: 170px;
+  }
+  .history-table-panel .history-table th:nth-child(6) {
+    width: 165px;
+  }
 }

@@ -53,6 +53,7 @@ export function ExecutionDetailPage() {
         kind="task"
         id={taskId}
         title={task?.correlation_key || "Task execution"}
+        context={task && { label: "Task queue", value: task.queue }}
         metadata={
           <>
             {task && (

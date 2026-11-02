@@ -34,7 +34,10 @@ function Console() {
     staleTime: Infinity,
   });
   return (
-    <AppShell instanceName={config.data?.instance_name ?? "Ledgence"}>
+    <AppShell
+      instanceName={config.data?.instance_name ?? "Ledgence"}
+      serverVersion={config.data?.server_version}
+    >
       {config.isPending ? (
         <LoadingState label="Connecting to your instance" />
       ) : config.isError ? (

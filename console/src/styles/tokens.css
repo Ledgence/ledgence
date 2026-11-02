@@ -1,64 +1,39 @@
 /* SPDX-License-Identifier: MIT */
 :root {
   color-scheme: light dark;
-  --bg: #fff;
-  --side: #f7f8fa;
-  --well: #f3f4f6;
-  --ink: #20252e;
-  --muted: #606b79;
-  --line: #dce0e7;
-  --hover: #eef0f4;
-  --primary: #20252e;
-  --on-primary: #fff;
-  --success: #386649;
-  --waiting: #795626;
-  --failure: #a33f48;
-  --focus: #516cbd;
-  /* Landing-inspired dark surfaces; preserve the existing light palette.
-     light-dark follows explicit appearance and the system color scheme. */
-  --surface: light-dark(var(--bg), #242832);
-  --input-bg: light-dark(var(--bg), var(--well));
-  --control-line: light-dark(var(--line), #8d98a9);
-  --selected: light-dark(var(--hover), #30343d);
+  --bg: light-dark(#f6f7f9, #101216);
+  --surface: light-dark(#fff, #1b1e24);
+  --well: light-dark(#eff1f4, #22262e);
+  --ink: light-dark(#202126, #f5f5f7);
+  --muted: light-dark(#525e6d, #b4becc);
+  --line: light-dark(#d6dbe2, #363c46);
+  --control-line: light-dark(#89939f, #788494);
+  --hover: light-dark(#edf0f4, #292e37);
+  --selected: light-dark(#e7edf2, #313946);
+  --input-bg: var(--surface);
+  --primary: light-dark(#242930, #e9ecf1);
+  --on-primary: light-dark(#fff, #171a20);
+  --accent: light-dark(#225d81, #91c4e8);
+  --focus: light-dark(#246990, #93d2fb);
+  --success: light-dark(#226347, #96d9b8);
+  --waiting: light-dark(#83520e, #f3c982);
+  --failure: light-dark(#9a3446, #f6a8b4);
+  /* The graphite navigation belongs to the brand in both appearances. */
+  --side: light-dark(#f1f3f6, #191c22);
+  --rail: #1c1e23;
+  --rail-ink: #f5f5f7;
+  --rail-muted: #b9c0ce;
+  --rail-hover: #2b2f36;
+  --rail-selected: #383d46;
+  --rail-line: #393e46;
   --radius: 10px;
   --motion: 150ms;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0c0d10;
-  --side: #0c0d10;
-  --well: #171a21;
-  --ink: #f2f2f4;
-  --muted: #a0a3ad;
-  --line: #30343d;
-  --hover: #30343d;
-  --primary: #f2f2f4;
-  --on-primary: #0c0d10;
-  --success: #adc1b4;
-  --waiting: #d5bd92;
-  --failure: #e4a0a8;
-  --focus: #b9c0ce;
 }
 :root[data-theme="light"] {
   color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0c0d10;
-    --side: #0c0d10;
-    --well: #171a21;
-    --ink: #f2f2f4;
-    --muted: #a0a3ad;
-    --line: #30343d;
-    --hover: #30343d;
-    --primary: #f2f2f4;
-    --on-primary: #0c0d10;
-    --success: #adc1b4;
-    --waiting: #d5bd92;
-    --failure: #e4a0a8;
-    --focus: #b9c0ce;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

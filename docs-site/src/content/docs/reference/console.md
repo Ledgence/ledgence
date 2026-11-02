@@ -9,12 +9,20 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 
 **General → Approvals** reviews immutable actions and recorded decisions. See [Require approval before an action](/how-to/require-approval).
 
+In the development Console, the expanded sidebar shows the connected server version.
+Open **Executions** to find a run by name or ID and read its labeled status. On a
+workflow, **Graph** distinguishes fork membership with dashed links. **Trace** adds
+a relative time scale for comparing when the recorded steps ran. For a local step,
+the badge shows its durable result when one exists. The bar describes the observed
+attempt. A later failed or cancelled call can appear alongside an earlier accepted result.
+
 ## Views and actions
 
 | View | Recorded information | Available actions |
 | --- | --- | --- |
 | Executions | Unified task/workflow history. Task details provide Trace and General; workflow details also provide Graph. Input, output, attempts, resources and durable history remain available. | Submit an exact program reference, run again as new work, request cancellation, inspect a child execution, send an event to a recorded workflow wait. |
 | Programs | Registered program references, versions, digests, manifests, declared kinds and descriptive metadata. | Register a published reference, update descriptive metadata explicitly, open a submission form or matching execution history. |
+| Approvals | Requests across workflows in this instance, ordered by deadline. | Filter by status, program or deadline, review the recorded action and follow its workflow wait. |
 | Workers | Worker sessions, configured capacity, observation freshness, process slots, and validated task/attempt links. | Inspect the latest available observation and follow execution links. |
 
 **Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs**, **Approvals** and **Workers** are the four navigation destinations. Worker inspection does not provide a drain, kill, or scaling command.

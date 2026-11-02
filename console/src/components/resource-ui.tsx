@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
-import { Check, Copy, RefreshCw, Circle, ArrowLeft } from "lucide-react";
+import { Check, Copy, RefreshCw, ArrowLeft, Search, Inbox } from "lucide-react";
+import { statusAppearance } from "./status-appearance";
 import { ApiError } from "../api/errors";
 import { ContractError } from "../api/codecs";
 import { stringifyUserJson } from "../api/json";
@@ -40,9 +41,13 @@ export function CopyText({
   );
 }
 export function Status({ value }: { value: string }) {
+  const { Icon, tone } = statusAppearance(value);
   return (
-    <span className={`status status-${value}`}>
-      <Circle aria-hidden="true" />
+    <span
+      className={`status status-${value.replaceAll(" ", "-")}`}
+      data-tone={tone}
+    >
+      <Icon aria-hidden="true" />
       {value.replaceAll("_", " ")}
     </span>
   );
@@ -133,6 +138,9 @@ export function Empty({
 }) {
   return (
     <section className="empty-state">
+      <span className="empty-mark" aria-hidden="true">
+        {filtered ? <Search /> : <Inbox />}
+      </span>
       <h2>{filtered ? "No matching records" : "Nothing here yet"}</h2>
       <p>{children}</p>
     </section>

@@ -1,4 +1,8 @@
 /* SPDX-License-Identifier: MIT */
+.detail-tabs .button svg {
+  width: 16px;
+  height: 16px;
+}
 .detail-sections {
   display: grid;
   gap: 0.75rem;
@@ -34,6 +38,12 @@
   gap: 0.25rem;
   min-width: 0;
 }
+.detail-section-heading button:hover {
+  background: var(--hover);
+}
+.detail-section-heading button:focus-visible {
+  outline-offset: -4px;
+}
 .detail-section-title {
   font-weight: 600;
 }
@@ -54,7 +64,8 @@
 }
 .detail-section-content {
   min-width: 0;
-  padding: 0 1.25rem 1.25rem;
+  padding: 1.25rem;
+  border-top: 1px solid var(--line);
 }
 .detail-section-content > .card {
   padding: 0;
@@ -83,7 +94,7 @@
     padding: 0.875rem;
   }
   .detail-section-content {
-    padding: 0 0.875rem 0.875rem;
+    padding: 0.875rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {

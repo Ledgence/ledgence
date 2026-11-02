@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import type { ExplorerNode } from "../../src/api/explorer";
+import { explorerNode, type ExplorerNode } from "../../src/api/explorer";
 import { Trace } from "../../src/features/explorer/trace";
 import { entrypoint } from "../explorer-fixture";
 import "../../src/styles/global.css";
@@ -124,4 +124,93 @@ it("keeps the trace filled at the latest activity after appends and viewport res
   await page.viewport(1440, 2800);
   await expect.poll(() => viewport().clientHeight).toBeGreaterThan(2000);
   await expectFollowing();
+});
+
+it.each([
+  ["failed", "failure"],
+  ["cancelled", "neutral"],
+] as const)(
+  "distinguishes the %s observed call from its accepted durable result",
+  async (state, tone) => {
+    const local = explorerNode({
+      kind: "local",
+      id: "local:lookup",
+      activation_id: "activation_main",
+      entrypoint: "main",
+      revision: "1",
+      relations: [],
+      key: "lookup",
+      callable: "app.lookup",
+      accepted_at: 1200,
+      accepting_attempt_id: "accepted_attempt",
+      observation: {
+        state,
+        attempt_id: "observed_attempt",
+        started_at: 1310,
+        elapsed_us: "195000",
+      },
+    });
+    const view = await render(trace([local]));
+    await expect
+      .element(view.getByText("accepted", { exact: true }))
+      .toBeVisible();
+    await expect
+      .element(view.getByText(`Call ${state} · main`, { exact: true }))
+      .toBeVisible();
+    const row = viewport().querySelector<HTMLButtonElement>(".timeline-row")!;
+    expect(row.dataset.tone).toBe(tone);
+    expect(row.querySelector<HTMLElement>(".status")!.dataset.tone).toBe(
+      "success",
+    );
+    const bar = row.querySelector<HTMLElement>(".timeline-bar")!;
+    const normalized = (token: string) => {
+      const sample = document.createElement("span");
+      sample.style.color = `var(--${token})`;
+      row.append(sample);
+      const color = getComputedStyle(sample).color;
+      sample.remove();
+      return color;
+    };
+    expect(getComputedStyle(bar).backgroundColor).toBe(
+      normalized(state === "failed" ? "failure" : "muted"),
+    );
+    expect(getComputedStyle(row.querySelector(".status")!).color).toBe(
+      normalized("success"),
+    );
+    const header = document.querySelector(".timeline-window")!.textContent;
+    expect(header).toContain("310");
+    expect(header).toContain("505");
+    await expect
+      .element(view.getByText("195 ms", { exact: true }))
+      .toBeVisible();
+  },
+);
+
+it("shows one timestamp and zero elapsed time for a single retained milestone", async () => {
+  const at = 253402300799999;
+  const fork = explorerNode({
+    kind: "fork",
+    id: "fork:work",
+    activation_id: "activation_main",
+    entrypoint: "main",
+    revision: "1",
+    relations: [],
+    key: "work",
+    branch_keys: ["branch"],
+    accepted_at: at,
+    accepting_attempt_id: "attempt",
+  });
+  const view = await render(trace([fork]));
+  await expect.element(view.getByText("From window start")).toBeVisible();
+  expect(
+    document
+      .querySelector(".execution-timeline")!
+      .getAttribute("data-timeline-end"),
+  ).toBe(String(at));
+  expect(
+    document.querySelector(".timeline-window time")!.getAttribute("datetime"),
+  ).toBe(new Date(at).toISOString());
+  expect(document.querySelector(".timeline-scale")!.textContent).toBe("0 ms");
+  expect(document.querySelector(".timeline-milestone")).not.toBeNull();
+  expect(document.querySelector(".timeline-bar")).toBeNull();
 });

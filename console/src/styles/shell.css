@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 .console-shell.console-shell--adaptive {
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: 222px minmax(0, 1fr);
 }
 .console-shell.console-shell--adaptive[data-sidebar-collapsed="true"] {
   grid-template-columns: 72px minmax(0, 1fr);
@@ -8,14 +8,17 @@
 .console-shell .console-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 32px;
-  padding: 20px 12px 14px;
+  gap: 24px;
+  padding: 18px 14px 16px;
+  background: var(--rail);
+  color: var(--rail-ink);
+  border-right: 1px solid var(--rail-line);
 }
 .console-sidebar .shell-sidebar-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 44px;
+  min-height: 48px;
 }
 .console-sidebar .shell-brand {
   flex: 1;
@@ -23,6 +26,32 @@
   min-height: 44px;
   padding: 0 10px;
   gap: 10px;
+  color: var(--rail-ink);
+}
+.brand-wordmark {
+  font-size: 21px;
+  letter-spacing: -0.06em;
+  font-weight: 610;
+  line-height: 1.1;
+}
+.brand-product {
+  display: block;
+  margin-top: 3px;
+  color: var(--rail-muted);
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 450;
+  letter-spacing: 0.02em;
+}
+.console-sidebar .shell-caption {
+  padding: 0 12px;
+  margin: 4px 0 5px;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  color: var(--rail-muted);
 }
 .console-sidebar .shell-collapse {
   display: inline-flex;
@@ -35,11 +64,11 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--muted);
+  color: var(--rail-muted);
 }
 .console-sidebar .shell-collapse:hover {
-  background: var(--hover);
-  color: var(--ink);
+  background: var(--rail-hover);
+  color: var(--rail-ink);
 }
 .console-sidebar .shell-collapse svg {
   width: 18px;
@@ -58,7 +87,7 @@
 .console-sidebar .shell-navigation {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .console-sidebar .shell-navigation a,
 .console-sidebar .shell-sidebar-footer a {
@@ -67,28 +96,53 @@
   gap: 12px;
   border-radius: 8px;
   white-space: nowrap;
+  color: var(--rail-muted);
+}
+.console-sidebar .shell-navigation a:hover,
+.console-sidebar .shell-sidebar-footer a:hover {
+  color: var(--rail-ink);
+  background: var(--rail-hover);
+}
+.console-sidebar :focus-visible {
+  outline: 2px solid #b7daf1;
+  outline-offset: 2px;
 }
 .console-sidebar .shell-navigation a {
   font-size: 14px;
 }
-.console-sidebar .shell-navigation a.active,
 .console-sidebar .shell-navigation a[aria-current="page"] {
-  background: var(--surface);
-  box-shadow:
-    inset 2px 0 var(--focus),
-    0 1px 3px color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--rail-ink);
+  background: var(--rail-selected);
+  box-shadow: inset 3px 0 var(--rail-muted);
+  font-weight: 600;
 }
 .console-sidebar .shell-sidebar-footer {
-  padding: 28px 0 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--rail-line);
   display: grid;
   gap: 2px;
 }
 .console-sidebar .shell-sidebar-footer a {
   font-size: 13px;
 }
-.console-sidebar .shell-sidebar-footer a:hover {
-  background: var(--hover);
-  color: var(--ink);
+.shell-version {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 16px 14px 2px;
+  border-top: 1px solid var(--rail-line);
+  color: var(--rail-muted);
+  font-size: 13px;
+}
+.shell-version code {
+  margin-left: auto;
+  color: var(--rail-ink);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.console-shell[data-sidebar-collapsed="true"] .shell-version {
+  display: none;
 }
 .console-sidebar .shell-sidebar-footer a > svg:last-child:not(:first-child) {
   width: 14px;
@@ -122,16 +176,25 @@
 .console-workspace .shell-header {
   min-height: 64px;
   padding: 10px 32px;
-  border-bottom: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
   color: var(--muted);
 }
 .shell-header .instance-header-name {
   flex: 0 1 auto;
   max-width: min(28ch, 30vw);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--ink);
 }
 .shell-header .shell-instance-icon {
   flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--well);
 }
 .shell-header .instance-header-name > span:last-child {
   overflow: hidden;
@@ -141,8 +204,8 @@
 .shell-header .theme-control select {
   min-height: 36px;
   padding: 6px 8px;
-  border-color: transparent;
-  font-size: 12px;
+  border-color: var(--line);
+  font-size: 13px;
   color: var(--muted);
 }
 .shell-header .theme-control select:hover {
@@ -160,6 +223,7 @@
   .console-shell .console-sidebar {
     display: contents;
   }
+  .console-sidebar .shell-caption,
   .console-sidebar .shell-sidebar-header,
   .console-sidebar .shell-sidebar-footer {
     display: none;
@@ -202,14 +266,28 @@
     border-radius: 12px;
   }
   .console-shell .shell-navigation a {
+    color: var(--muted);
     flex-direction: row;
     justify-content: center;
     padding: 10px 6px;
     gap: 7px;
     font-size: 13px;
   }
+  .console-sidebar .shell-navigation a[aria-current="page"] {
+    color: var(--ink);
+    background: var(--surface);
+    box-shadow: inset 0 -2px var(--ink);
+  }
+  .console-sidebar :focus-visible {
+    outline-color: var(--focus);
+  }
+  .console-shell .shell-navigation a:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
   .console-shell[data-sidebar-collapsed="true"]
     .shell-navigation
+    a
     .sidebar-label {
     display: inline;
   }
