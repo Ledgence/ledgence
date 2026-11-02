@@ -169,7 +169,8 @@ version="1", arguments={...})` supports actions defined by other adapters.
 On the resumed entrypoint, `ctx.approval` is an immutable typed observation.
 Check `ctx.approval.status is ApprovalStatus.APPROVED`, then
 `await ctx.approved_local(fn, version="1")` to execute only the saved effective
-arguments through a durable local step. This helper accepts no replacement
+arguments through a durable local step. Business argument names such as `key`
+are passed to the callable exactly as approved. This helper accepts no replacement
 arguments and verifies the callable identity/version. Copies returned by
 `ctx.wake`, `ctx.approval.action.arguments`, or `ctx.approval.to_dict()` cannot
 change its private execution binding. Rejected and expired requests resume with
