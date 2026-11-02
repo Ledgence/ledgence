@@ -82,6 +82,31 @@ impl ConsoleQueryStore for PostgresStore {
             Ok(reply)
         }))
     }
+    fn explore_approval<'a>(
+        &'a self,
+        scope: &'a Scope,
+        focus: &'a ConsoleApprovalFocus,
+    ) -> ContractFuture<'a, ConsoleWorkflowExplorer> {
+        Box::pin(self.run(|| async {
+            self.require_scope(scope)?;
+            focus.validate(scope)?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_read().await?;
+            let observed_at = db::now(&mut tx).await?;
+            let reply = explorer::workflow_page(
+                &mut tx,
+                scope,
+                &focus.workflow_id,
+                &focus.page,
+                explorer::ExplorerStart::Approval(&focus.approval_key),
+                observed_at,
+            )
+            .await?;
+            focus.validate_reply(scope, &reply)?;
+            tx.commit().await?;
+            Ok(reply)
+        }))
+    }
 }
 fn corrupt(label: &str) -> ContractError {
     ContractError::Unavailable(format!("invalid console persistence: {label}"))

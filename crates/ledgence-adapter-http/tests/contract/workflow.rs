@@ -8,6 +8,12 @@ impl WorkflowService for Mock {
     ) -> ContractFuture<'a, ApprovalSnapshot> {
         Box::pin(async move { self.reply("approval", json!([scope, workflow_id, key])) })
     }
+    fn approval_inbox<'a>(
+        &'a self,
+        query: &'a ApprovalInboxQuery,
+    ) -> ContractFuture<'a, ApprovalInboxPage> {
+        Box::pin(async move { self.reply("approval_inbox", query) })
+    }
     fn list_approvals<'a>(
         &'a self,
         scope: &'a Scope,

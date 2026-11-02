@@ -62,7 +62,7 @@ MCP requires its build feature.
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
-| `approval` | `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
+| `approval` | `inbox` (development), `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
 | `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
 
 There is no separate `workflow` command group. Workflow and event operations
@@ -309,6 +309,13 @@ Use `task list` to discover work, `task status` for scheduling metadata,
 cancellation. See the [HTTP quickstart](http-orchestration.md#run-a-task) for
 complete examples and the [task result contract](task-results.md) for outcome
 semantics.
+
+## Find pending approvals
+
+In development builds, run `ledgence approval inbox --server URL --tenant TENANT --namespace NAMESPACE`
+to discover pending actions without a workflow ID. Filter by `--program ID` or
+`--status` (including `all`). Continue with `--cursor` from `next_cursor` and
+the same filters. Use the returned workflow ID and key with `approval inspect`.
 
 ## Durable approvals
 

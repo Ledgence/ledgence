@@ -57,6 +57,14 @@ async function mount(page: Page, result = "pending_result") {
       "",
     );
     requests.push(name);
+    if (name === "approvals/inbox") {
+      await route.fulfill({
+        status: 200,
+        headers,
+        body: JSON.stringify({ items: [], next_cursor: null }),
+      });
+      return;
+    }
     if (name === "executions/ancestry") {
       const url = new URL(route.request().url());
       const kind = url.searchParams.get("kind");

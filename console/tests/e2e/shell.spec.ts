@@ -83,7 +83,7 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
     page.getByRole("button", { name: "Expand sidebar" }),
   ).toBeHidden();
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
-  for (const name of ["Executions", "Programs", "Workers"]) {
+  for (const name of ["Executions", "Programs", "Approvals", "Workers"]) {
     await expect(navigation.getByText(name, { exact: true })).toBeVisible();
   }
   await navigation.getByRole("link", { name: "Workers" }).click();

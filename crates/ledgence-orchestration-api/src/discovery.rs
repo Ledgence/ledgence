@@ -146,12 +146,7 @@ impl TaskListQuery {
             position: position.clone(),
         })
         .map_err(|_| invalid("could not encode task cursor"))?;
-        const HEX: &[u8; 16] = b"0123456789abcdef";
-        let mut cursor = String::with_capacity(bytes.len() * 2);
-        for byte in bytes {
-            cursor.push(char::from(HEX[usize::from(byte >> 4)]));
-            cursor.push(char::from(HEX[usize::from(byte & 15)]));
-        }
+        let cursor = crate::cursor::encode(&bytes);
         if cursor.len() > TASK_CURSOR_MAX_BYTES {
             return Err(invalid("task cursor exceeds size limit"));
         }
@@ -159,21 +154,8 @@ impl TaskListQuery {
     }
 
     fn decode_cursor(&self, scope: &Scope, text: &str) -> Result<TaskPosition> {
-        if text.is_empty() || text.len() > TASK_CURSOR_MAX_BYTES || !text.len().is_multiple_of(2) {
-            return Err(invalid("invalid task cursor"));
-        }
-        let digit = |byte| match byte {
-            b'0'..=b'9' => Ok(byte - b'0'),
-            b'a'..=b'f' => Ok(byte - b'a' + 10),
-            _ => Err(invalid("invalid task cursor")),
-        };
-        let bytes = text
-            .as_bytes()
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| Ok((digit(pair[0])? << 4) | digit(pair[1])?))
-            .collect::<Result<Vec<u8>>>()?;
+        let bytes = crate::cursor::decode(text, TASK_CURSOR_MAX_BYTES)
+            .ok_or_else(|| invalid("invalid task cursor"))?;
         let cursor: Cursor = decode_unique_json(&bytes, TASK_CURSOR_MAX_BYTES / 2)
             .map_err(|_| invalid("invalid task cursor"))?;
         if cursor.version != 1 || cursor.scope != *scope || cursor.filters != self.filters {

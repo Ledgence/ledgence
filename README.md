@@ -53,6 +53,10 @@ public APIs may evolve; pin versions and review changes before upgrading.
 The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
 original commands and do not include Console.
 
+In development builds, the [approval inbox](docs/workflow-approvals.md#approval-inbox)
+finds requests across workflows in one tenant and namespace. Review the effective
+action in Console or discover requests through the CLI, Python client or MCP.
+
 ### Install and start Ledgence
 
 Install the latest stable release on a supported native platform:

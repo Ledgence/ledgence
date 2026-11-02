@@ -4,7 +4,8 @@ use ledgence_orchestration_api::console::{
     ConsoleProgramKind, ProgramDisplayMetadata, RegisterProgram,
 };
 use ledgence_orchestration_api::{
-    ContractError, Result, Scope, TaskFilters, TaskListQuery, validate_text,
+    ApprovalInboxQuery, ApprovalStatus, ContractError, Result, Scope, TaskFilters, TaskListQuery,
+    validate_text,
 };
 use ledgence_worker_api::ProgramRef;
 use std::{collections::HashMap, path::PathBuf};
@@ -392,6 +393,7 @@ mod program_tests {
 
 #[derive(Debug)]
 pub enum ApprovalOperation {
+    Inbox(ApprovalInboxQuery),
     Inspect {
         scope: Scope,
         workflow_id: String,
@@ -423,6 +425,33 @@ fn parse_approval(mut args: impl Iterator<Item = String>) -> Result<Command> {
     }
     let server = required(&mut options, "--server")?;
     let operation = match operation.as_str() {
+        "inbox" => {
+            let scope = Scope {
+                tenant_id: required(&mut options, "--tenant")?,
+                namespace: required(&mut options, "--namespace")?,
+            };
+            let status = match options.remove("--status") {
+                None => Some(ApprovalStatus::Pending),
+                Some(value) if value == "all" => None,
+                Some(value) => Some(
+                    serde_json::from_value(serde_json::Value::String(value))
+                        .map_err(|_| invalid("invalid approval status"))?,
+                ),
+            };
+            let query = ApprovalInboxQuery {
+                scope,
+                status,
+                program_id: options.remove("--program"),
+                cursor: options.remove("--cursor"),
+                limit: number(&mut options, "--limit")?
+                    .map(u32::try_from)
+                    .transpose()
+                    .map_err(|_| invalid("invalid approval inbox limit"))?
+                    .unwrap_or(50),
+            };
+            query.validate()?;
+            ApprovalOperation::Inbox(query)
+        }
         "decide" => ApprovalOperation::Decide(required(&mut options, "--file")?.into()),
         "inspect" | "list" => {
             let scope = Scope {

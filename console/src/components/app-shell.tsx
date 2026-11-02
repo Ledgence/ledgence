@@ -5,6 +5,7 @@ import {
   Activity,
   ArrowUpRight,
   BookOpen,
+  Inbox,
   FileText,
   Layers2,
   Monitor,
@@ -19,6 +20,7 @@ const sidebarStorageKey = "ledgence.console.sidebar-collapsed";
 const sections = [
   { to: "/executions", title: "Executions", icon: Activity },
   { to: "/programs", title: "Programs", icon: Layers2 },
+  { to: "/approvals", title: "Approvals", icon: Inbox },
   { to: "/workers", title: "Workers", icon: Server },
 ];
 

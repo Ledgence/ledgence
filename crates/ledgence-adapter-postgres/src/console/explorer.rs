@@ -15,63 +15,17 @@ pub(super) async fn query(
     at: u64,
 ) -> StoreResult<ConsoleQueryReply> {
     match query {
-        ConsoleQuery::Explorer {
-            workflow_id,
-            page: request,
-        } => {
-            let ConsoleQueryReply::Workflow(workflow) = workflows::query(
+        ConsoleQuery::Explorer { workflow_id, page } => Ok(ConsoleQueryReply::Explorer(
+            workflow_page(
                 connection,
                 scope,
-                &ConsoleQuery::Workflow {
-                    workflow_id: workflow_id.clone(),
-                },
-                None,
+                workflow_id,
+                page,
+                ExplorerStart::Page(position),
                 at,
             )
-            .await?
-            else {
-                return Err(corrupt("workflow explorer header").into());
-            };
-            let mut sql = explorer_query(workflow_id, request.limit, position)?;
-            let rows = sql.build().fetch_all(&mut *connection).await?;
-            let mut items = rows
-                .iter()
-                .map(|row| {
-                    let data: ConsoleExplorerData =
-                        codec::decode(&row.try_get::<Vec<u8>, _>("metadata_bytes")?)?;
-                    let activation_id: String = row.try_get("activation_id")?;
-                    if data.kind() != row.try_get::<String, _>("kind")?
-                        || data.key() != row.try_get::<String, _>("record_key")?
-                    {
-                        return Err(corrupt("explorer record identity").into());
-                    }
-                    Ok(ConsoleExplorerNode {
-                        id: serde_json::to_string(&(
-                            data.kind(),
-                            workflow_id,
-                            &activation_id,
-                            data.key(),
-                        ))
-                        .map_err(|_| corrupt("explorer identity"))?,
-                        activation_id,
-                        revision: unsigned(row, "revision_text")?,
-                        entrypoint: row.try_get("entrypoint")?,
-                        relations: Vec::new(),
-                        data,
-                    })
-                })
-                .collect::<StoreResult<Vec<_>>>()?;
-            hydrate(connection, scope, workflow_id, &mut items).await?;
-            for node in &mut items {
-                node.relations = node.derive_relations(workflow_id)?;
-            }
-            let page = bounded_page(items, &workflow, scope, query, request, at)?;
-            Ok(ConsoleQueryReply::Explorer(ConsoleWorkflowExplorer {
-                workflow,
-                page,
-                evidence: "retained_records_only".into(),
-            }))
-        }
+            .await?,
+        )),
         ConsoleQuery::WorkflowInput { workflow_id } => {
             let bytes: Vec<u8> = sqlx::query_scalar("SELECT submission_bytes FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND retiring_at_ms IS NULL")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(workflow_id).fetch_optional(connection).await?.ok_or(ContractError::NotFound)?;
@@ -95,11 +49,79 @@ pub(super) async fn query(
     }
 }
 
+pub(super) enum ExplorerStart<'a> {
+    Page(Option<&'a ConsolePosition>),
+    Approval(&'a str),
+}
+
+pub(super) async fn workflow_page(
+    connection: &mut PgConnection,
+    scope: &Scope,
+    workflow_id: &str,
+    request: &ConsolePagination,
+    start: ExplorerStart<'_>,
+    at: u64,
+) -> StoreResult<ConsoleWorkflowExplorer> {
+    let ConsoleQueryReply::Workflow(workflow) = workflows::query(
+        connection,
+        scope,
+        &ConsoleQuery::Workflow {
+            workflow_id: workflow_id.to_owned(),
+        },
+        None,
+        at,
+    )
+    .await?
+    else {
+        return Err(corrupt("workflow explorer header").into());
+    };
+    let (position, approval_key) = match start {
+        ExplorerStart::Page(position) => (position, None),
+        ExplorerStart::Approval(key) => (None, Some(key)),
+    };
+    let mut sql = explorer_query(workflow_id, request.limit, position, approval_key)?;
+    let rows = sql.build().fetch_all(&mut *connection).await?;
+    if approval_key.is_some() && rows.is_empty() {
+        return Err(ContractError::NotFound.into());
+    }
+    let mut items = rows
+        .iter()
+        .map(|row| {
+            let data: ConsoleExplorerData =
+                codec::decode(&row.try_get::<Vec<u8>, _>("metadata_bytes")?)?;
+            let activation_id: String = row.try_get("activation_id")?;
+            if data.kind() != row.try_get::<String, _>("kind")?
+                || data.key() != row.try_get::<String, _>("record_key")?
+            {
+                return Err(corrupt("explorer record identity").into());
+            }
+            Ok(ConsoleExplorerNode {
+                id: serde_json::to_string(&(data.kind(), workflow_id, &activation_id, data.key()))
+                    .map_err(|_| corrupt("explorer identity"))?,
+                activation_id,
+                revision: unsigned(row, "revision_text")?,
+                entrypoint: row.try_get("entrypoint")?,
+                relations: Vec::new(),
+                data,
+            })
+        })
+        .collect::<StoreResult<Vec<_>>>()?;
+    hydrate(connection, scope, workflow_id, &mut items).await?;
+    for node in &mut items {
+        node.relations = node.derive_relations(workflow_id)?;
+    }
+    let page = bounded_page(items, &workflow, scope, request, at)?;
+    Ok(ConsoleWorkflowExplorer {
+        workflow,
+        page,
+        evidence: "retained_records_only".into(),
+    })
+}
+
 fn bounded_page(
     mut items: Vec<ConsoleExplorerNode>,
     workflow: &ConsoleWorkflowDetail,
     scope: &Scope,
-    query: &ConsoleQuery,
     request: &ConsolePagination,
     at: u64,
 ) -> StoreResult<ConsolePage<ConsoleExplorerNode>> {
@@ -121,6 +143,10 @@ fn bounded_page(
     let more = count < items.len();
     items.truncate(count);
     let next_cursor = if more {
+        let query = ConsoleQuery::Explorer {
+            workflow_id: workflow.summary.workflow.workflow_id.clone(),
+            page: request.clone(),
+        };
         Some(request.next_cursor(
             &query.binding(scope)?,
             &items.last().expect("nonempty bounded page").position(),
@@ -139,11 +165,22 @@ pub(super) fn explorer_query(
     workflow: &str,
     limit: u32,
     position: Option<&ConsolePosition>,
+    approval_key: Option<&str>,
 ) -> Result<QueryBuilder<Postgres>> {
     let mut sql = QueryBuilder::new(
         "SELECT activation_id,trunc(revision)::text AS revision_text,entrypoint,kind,record_key,metadata_bytes FROM workflow_explorer_records WHERE workflow_id=",
     );
     sql.push_bind(workflow.to_owned());
+    // Inbox approval (workflow,key) and recorded wait (activation,kind,key)
+    // are both indexed unique identities. An absent anchor yields no rows;
+    // subsequent pages use the ordinary exclusive cursor.
+    if let Some(key) = approval_key {
+        sql.push(" AND (revision,kind,record_key) >= (SELECT r.revision,r.kind,r.record_key \
+                 FROM workflow_approvals a JOIN workflow_explorer_records r \
+                 ON r.activation_id=a.activation_id AND r.kind='external_wait' AND r.record_key=a.wait_key \
+                 AND r.workflow_id=a.workflow_id WHERE a.workflow_id=")
+            .push_bind(workflow.to_owned()).push(" AND a.wait_key=").push_bind(key.to_owned()).push(")");
+    }
     if let Some(position) = position {
         let kind = position_text(position, 1)?;
         let key = position_text(position, 2)?;

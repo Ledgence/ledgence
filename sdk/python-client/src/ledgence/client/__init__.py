@@ -32,7 +32,7 @@ from .workflow_models import (
 from .workflows import WorkflowHandle
 from .approval_models import (
     ApprovalAction, ApprovalDecision, ApprovalDecisionCommand, ApprovalDecisionReceipt,
-    ApprovalPage, ApprovalStatus, WorkflowApproval,
+    ApprovalInboxItem, ApprovalInboxPage, ApprovalPage, ApprovalStatus, WorkflowApproval,
 )
 from .errors import ApprovalDecisionUncertain
 
@@ -42,7 +42,7 @@ __all__ += [
     "WorkflowCancelled", "WorkflowWaitTimeout", "WorkflowCancellationUncertain",
     "WorkflowEventCommand", "WorkflowEventReceipt", "WorkflowEventUncertain",
     "ApprovalAction", "ApprovalDecision", "ApprovalDecisionCommand", "ApprovalDecisionReceipt",
-    "ApprovalPage", "ApprovalStatus", "WorkflowApproval", "ApprovalDecisionUncertain",
+    "ApprovalInboxItem", "ApprovalInboxPage", "ApprovalPage", "ApprovalStatus", "WorkflowApproval", "ApprovalDecisionUncertain",
 ]
 
 from .completion_models import (

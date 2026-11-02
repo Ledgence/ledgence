@@ -96,6 +96,7 @@ impl ConsoleServices {
 pub(super) const ROUTES: &[(&str, &str)] = &[
     ("/v1/console/approvals/inspect", "POST"),
     ("/v1/console/approvals/list", "POST"),
+    ("/v1/console/approvals/inbox", "POST"),
     ("/v1/console/approvals/decide", "POST"),
     ("/v1/console/executions", "GET"),
     ("/v1/console/executions/ancestry", "GET"),
@@ -294,6 +295,19 @@ pub(super) async fn dispatch(
                     observed_at: now()?,
                 })
                 .await;
+        }
+        if path == "/v1/console/workflows/explorer"
+            && let Some(approval_key) = fields.get("approval_key")
+        {
+            let focus = ConsoleApprovalFocus {
+                workflow_id: required(&fields, "workflow_id")?,
+                approval_key: approval_key.clone(),
+                page,
+            };
+            focus.validate(scope)?;
+            let reply = console.queries.explore_approval(&focus).await?;
+            focus.validate_reply(scope, &reply)?;
+            return metadata(server, reply).await;
         }
         let query = match path {
             "/v1/console/executions" => ConsoleQuery::Executions {
@@ -662,7 +676,7 @@ fn fields(raw: &str, path: &str) -> Result<BTreeMap<String, String>> {
             "cursor",
         ],
         "/v1/console/executions/ancestry" => &["kind", "id"],
-        "/v1/console/workflows/explorer" => &["workflow_id", "limit", "cursor"],
+        "/v1/console/workflows/explorer" => &["workflow_id", "limit", "cursor", "approval_key"],
         "/v1/console/workflows/input" => &["workflow_id"],
         "/v1/console/attempts/observations" => &["attempt_id"],
         "/v1/console/programs/catalog" => &[

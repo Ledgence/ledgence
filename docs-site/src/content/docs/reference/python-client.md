@@ -153,6 +153,14 @@ Both task and workflow handles expose `prepare_subscribe(destination=..., idempo
 
 Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. `await subscription.status()` observes delivery; after `exhausted`, `subscription.prepare_retry(expected_generation=status.generation)` prepares an explicit new delivery generation for `await subscription.retry(command)`. This retries the notification, not the task or workflow. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#durable-completion-subscriptions) for status fields and uncertainty handling.
 
+## Discover approvals in development
+
+Call `await client.workflows.approval_inbox(program_id="durable-approval")`
+to find pending requests in the client's scope. Use `status=None` for all
+statuses. Each summary supplies `workflow_id` and `key` for reading the
+stored action. Pass the returned `next_cursor` as `cursor` with the same
+filters to read another page.
+
 ## Durable approval decisions
 
 `await workflow.approval(key)` returns a committed request; `await workflow.approvals(after_key=None, limit=10)` lists requests in key order. Pass the page's `next_cursor` as `after_key`. Inspect the typed status and exact `approval.action.arguments` before deciding; `proposed_arguments` is optional audit context.

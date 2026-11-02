@@ -193,7 +193,7 @@
   .console-sidebar .shell-navigation {
     order: -1;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin: 0 20px 8px;
     padding: 4px;
     gap: 4px;
@@ -244,5 +244,13 @@
   .console-shell .shell-navigation a > svg {
     width: 16px;
     height: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .console-shell .shell-navigation a {
+    flex-direction: column;
+    gap: 3px;
+    padding-inline: 2px;
   }
 }

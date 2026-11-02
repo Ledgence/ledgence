@@ -116,6 +116,45 @@ to inspect and decide endpoints belongs behind the installation's authenticated
 application boundary. The Console uses the installation's fixed scope and
 existing allowed-Origin checks; an Origin check is not user authentication.
 
+## Approval inbox
+
+Available in matching builds from `develop`. Apply the orchestrator migrations
+before starting the updated service. The migration includes existing retained
+approvals. Release 0.6.1 supports review from a known workflow.
+
+Open **Approvals** in the Console navigation to see pending requests for the
+instance. Filter by the workflow program ID or switch to a terminal status to
+find a reviewed request. Open a row to load its effective arguments and the
+workflow that requested the action. The graph link opens at the recorded
+approval wait, including waits beyond the first page. Review and decide using the same frozen
+command described above. Revisit the detail if another reviewer acts first.
+
+From a matching CLI, run:
+
+```sh
+ledgence approval inbox --server http://127.0.0.1:8080 --tenant acme --namespace demo
+```
+
+The public HTTP route is `POST /v1/workflows/approvals/inbox`. The body contains
+`scope`, optional `status`, `program_id` and `cursor`, and a required integer
+`limit` from 1 to 100. A null or absent status selects all statuses on HTTP.
+Console, CLI, Python and MCP start with pending requests. The Console route,
+`POST /v1/console/approvals/inbox`, takes its scope from the instance.
+
+The response contains `items` and a nullable `next_cursor`. Each item identifies
+the workflow, activation, approval key, workflow program and version, action
+name and version, creation time, deadline and persisted status. The list omits
+arguments, decisions and checkpoint data. Inspect the approval by workflow ID
+and key to read its effective action and any recorded decision.
+
+Requests sort by earliest deadline with workflow ID and key breaking ties.
+Pass the opaque cursor with the same scope and filters to continue. Pages
+reflect committed state when read. A request may leave the pending view while
+you are paging. Refresh from the first page to discover newly pending work.
+The coordinator records expiry, so a passed deadline can still appear with
+a pending status until that transition commits. The decision endpoint checks
+the deadline against the database clock.
+
 ## CLI and HTTP
 
 ```sh
@@ -222,12 +261,14 @@ cargo test -p ledgence-orchestration-api --lib workflow_approvals --locked
 cargo test -p ledgence-adapter-http --all-features --test contract workflow::approvals --locked
 # An owned disposable PostgreSQL 18 server is required for this command.
 LEDGENCE_POSTGRES_URL=postgres://USER:PASSWORD@127.0.0.1:5432/ledgence \
-  python3.13 tools/check-workflows.py --scenario approvals --scenario approval-example \
+  python3.13 tools/check-workflows.py --scenario approvals --scenario approval-example --scenario approval-inbox \
   --psql /path/to/psql --binaries target/debug --evidence /path/to/new-evidence
 ```
 
 The process gate checks unchanged proposals through an orchestrator restart,
 lost decision responses and identical reconciliation, changed-action rejection,
 rejection/expiry/cancellation, worker-slot release, CLI interoperability, and an
-activation retry after its approved local result has committed. Adding
+activation retry after its approved local result has committed. The inbox scenario
+races opposite decisions from two operators and checks that the workflow resumes
+once and that another namespace cannot discover the requests. Adding
 `--endpoint http://127.0.0.1:9324` runs against a disposable local ElasticMQ queue.

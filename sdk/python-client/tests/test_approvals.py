@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import test_workflows
 from ledgence.client import (
-    ApprovalDecisionCommand, ApprovalDecisionReceipt, ApprovalDecisionUncertain,
+    ApprovalDecisionCommand, ApprovalDecisionReceipt, ApprovalDecisionUncertain, ApprovalInboxItem, ApprovalInboxPage,
     ApprovalStatus, AsyncClient, Conflict, InputError, ProtocolError, RequestTimeout,
     ServiceError,
 )
@@ -63,6 +63,59 @@ class ApprovalClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requests[0][:3], ("POST", "/v1/workflows/approvals/inspect", {}))
         self.assertEqual(json.loads(self.requests[0][3]), {"scope": SCOPE, "workflow_id": "workflow", "key": "refund"})
         self.assertEqual(json.loads(self.requests[1][3]), {"scope": SCOPE, "workflow_id": "workflow", "after_key": "a", "limit": 1})
+
+    async def test_scope_inbox_discovers_a_workflow_and_opens_its_immutable_action(self):
+        summary = {"workflow_id": "workflow", "key": "refund", "activation_id": "requested",
+                   "program_id": "refunds", "program_version": "1", "action_name": "program:refund",
+                   "action_version": "1", "created_at": 10, "deadline": 100, "status": "pending"}
+
+        async def serve(request, body):
+            if request.path.endswith("/inspect"):
+                return response(snapshot())
+            if json.loads(body)["cursor"] == "opaque":
+                return response({"items": [], "next_cursor": None})
+            return response({"items": [summary], "next_cursor": "opaque"})
+
+        self.callback = serve
+        page = await self.client.workflows.approval_inbox(program_id="refunds", limit=1)
+        self.assertIsInstance(page, ApprovalInboxPage)
+        item, = page.items
+        self.assertIsInstance(item, ApprovalInboxItem)
+        self.assertIs(item.status, ApprovalStatus.PENDING)
+        self.assertEqual(self.requests[0][:3], ("POST", "/v1/workflows/approvals/inbox", {}))
+        self.assertEqual(json.loads(self.requests[0][3]), {"scope": SCOPE, "status": "pending",
+                         "program_id": "refunds", "cursor": None, "limit": 1})
+        self.assertEqual(page.next_cursor, "opaque")
+        next_page = await self.client.workflows.approval_inbox(program_id="refunds", limit=1,
+                                                              cursor=page.next_cursor)
+        self.assertEqual(next_page.items, ())
+        self.assertIsNone(next_page.next_cursor)
+        approval = await self.client.workflows.handle(item.workflow_id).approval(item.key)
+        self.assertEqual(approval.action.arguments, {"amount": 50})
+        await self.client.workflows.approval_inbox(status=None, limit=1)
+        self.assertIsNone(json.loads(self.requests[-1][3])["status"])
+
+    async def test_inbox_rejects_invalid_queries_and_mismatched_summaries(self):
+        for query in ({"status": "unknown"}, {"program_id": ".."}, {"cursor": ""},
+                      {"limit": 0}, {"limit": True}, {"cursor": "x" * 8193}):
+            with self.assertRaises(InputError):
+                await self.client.workflows.approval_inbox(**query)
+        self.assertEqual(self.requests, [])
+        item = {"workflow_id": "w", "key": "x", "activation_id": "a", "program_id": "p",
+                "program_version": "1", "action_name": "refund", "action_version": "1",
+                "created_at": 1, "deadline": 50, "status": "pending"}
+        for rows, cursor in [
+            ([item | {"program_id": "other"}], None), ([item | {"status": "rejected"}], None),
+            ([item | {"deadline": True}], None), ([item | {"arguments": {}}], None),
+            ([item, item | {"workflow_id": "a"}], None),
+            ([item, item | {"deadline": 51}], None), ([item], "short-page"),
+            ([item, item | {"workflow_id": "z"}], "same-cursor"),
+        ]:
+            async def serve(request, body):
+                return response({"items": rows, "next_cursor": cursor})
+            self.callback = serve
+            with self.assertRaises(ProtocolError):
+                await self.client.workflows.approval_inbox(program_id="p", limit=2, cursor="same-cursor")
 
     async def test_frozen_decision_and_uncertainty_reconciliation_send_identical_bytes(self):
         bodies = []

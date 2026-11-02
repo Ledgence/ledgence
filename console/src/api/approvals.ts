@@ -44,6 +44,15 @@ const decision = s.object({
   reason: s.nullable(reason),
   decided_at: s.timestamp,
 });
+export const approvalStatuses = [
+  "pending",
+  "approved",
+  "rejected",
+  "expired",
+  "cancelled",
+] as const;
+export type ApprovalStatus = (typeof approvalStatuses)[number];
+const approvalStatus = s.enumeration(...approvalStatuses);
 export const approval = s.refine(
   s.object({
     workflow_id: identifier,
@@ -54,13 +63,7 @@ export const approval = s.refine(
     proposed_arguments: s.nullable(argumentsObject),
     created_at: s.timestamp,
     deadline: s.timestamp,
-    status: s.enumeration(
-      "pending",
-      "approved",
-      "rejected",
-      "expired",
-      "cancelled",
-    ),
+    status: approvalStatus,
     decision: s.nullable(decision),
     resumed_activation_id: s.nullable(identifier),
   }),
@@ -94,6 +97,63 @@ function compareKeys(left: string, right: string): number {
     if (difference) return difference;
   }
   return a.length - b.length;
+}
+export function approvalFor(workflowId: string, key: string) {
+  return s.refine(
+    approval,
+    (item) => item.workflow_id === workflowId && item.key === key,
+    "The approval does not match the requested workflow and key.",
+  );
+}
+const summary = s.object({
+  workflow_id: identifier,
+  key: identifier,
+  activation_id: identifier,
+  program_id: identifier,
+  program_version: identifier,
+  action_name: s.id,
+  action_version: identifier,
+  created_at: s.timestamp,
+  deadline: s.timestamp,
+  status: approvalStatus,
+});
+export function approvalInboxPage(query: {
+  status: ApprovalStatus | null;
+  program_id: string | null;
+  cursor: string | null;
+  limit: number;
+}) {
+  return s.refine(
+    s.object({
+      items: s.array(summary, query.limit),
+      next_cursor: s.nullable(
+        s.refine(
+          s.string,
+          (v) => new TextEncoder().encode(v).length <= 8192,
+          "Approval inbox cursor exceeds the response limit.",
+        ),
+      ),
+    }),
+    ({ items, next_cursor }) =>
+      items.every((item, i) => {
+        const prev = items[i - 1];
+        return (
+          (query.status === null || query.status === item.status) &&
+          (query.program_id === null || query.program_id === item.program_id) &&
+          item.created_at <= item.deadline &&
+          item.deadline - item.created_at <= 31_536_000_000 &&
+          (!prev ||
+            (prev.deadline - item.deadline ||
+              compareKeys(prev.workflow_id, item.workflow_id) ||
+              compareKeys(prev.key, item.key)) < 0)
+        );
+      }) &&
+      (next_cursor === null ||
+        (next_cursor.length > 0 &&
+          next_cursor !== query.cursor &&
+          items.length === query.limit)),
+    "The approval inbox page does not match the requested filters or order.",
+  );
 }
 export function approvalPageForWorkflow(
   workflowId: string,

@@ -31,7 +31,8 @@ def equivalent(left, right):
 
 
 def static_and_contract(d, record):
-    deep_links = ("/console/", "/console/executions/unknown-id", "/console/workflows/unknown-id",
+    deep_links = ("/console/", "/console/approvals", "/console/approvals/review?workflow=wf_example&key=refund",
+                  "/console/executions/unknown-id", "/console/workflows/unknown-id",
                   "/console/programs", "/console/programs/invoice", "/console/programs/invoice/versions/1.0.0",
                   "/console/workers/unknown-id", "/console/agents/invoice/versions/1.0.0",
                   "/console/agents/invoice", "/console/executions/task%2F%20%25%C3%A9",
@@ -265,6 +266,13 @@ def durable_approval(d, record):
     assert proposal["action"] == {"name": "program:simulate_refund", "version": "1",
                                   "arguments": {"amount": 50, "currency": "USD"}}
     assert proposal["proposed_arguments"] == {"amount": 100}
+    filters = {"status": "pending", "program_id": "durable-approval", "limit": 10}
+    inbox = d.api("POST", "approvals/inbox", filters)
+    assert [item["workflow_id"] for item in inbox["items"]] == [workflow_id], inbox
+    item = inbox["items"][0]
+    assert item["activation_id"] == proposal["activation_id"] and item["key"] == reference["key"]
+    assert item["action_name"] == proposal["action"]["name"] and "action" not in item
+    d.api("POST", "approvals/inbox", dict(filters, scope=d.scope), expected=400)
     page = d.api("POST", "approvals/list", {"workflow_id": workflow_id, "after_key": None, "limit": 1})
     equivalent(page, {"items": [proposal], "next_cursor": None})
     d.api("POST", "approvals/inspect", dict(reference, scope=d.scope), expected=400)
@@ -285,6 +293,9 @@ def durable_approval(d, record):
     assert lost.is_set()
     receipt = d.api("POST", "approvals/decide", decision, base=proxy.url)
     assert receipt["already_accepted"] and receipt["approval"]["status"] == "approved"
+    assert d.api("POST", "approvals/inbox", filters) == {"items": [], "next_cursor": None}
+    closed = d.api("POST", "approvals/inbox", dict(filters, status="approved"))
+    assert [item["workflow_id"] for item in closed["items"]] == [workflow_id], closed
     calls = proxy.commands("/v1/console/approvals/decide")
     assert len(calls) == 2 and calls[0]["body"] == calls[1]["body"]
     result = d.workflow_result(workflow_id)
@@ -301,6 +312,18 @@ def durable_approval(d, record):
     graph = d.api("GET", "workflows/explorer", workflow_id=workflow_id, limit=100)
     wait = next(node for node in graph["page"]["items"] if node["kind"] == "external_wait")
     assert wait["wait_kind"] == "approval" and wait["wake_reason"] == "approved"
+    first = d.api("GET", "workflows/explorer", workflow_id=workflow_id, limit=1)["page"]
+    assert first["items"][0]["id"] != wait["id"], first
+    anchored = d.api("GET", "workflows/explorer", workflow_id=workflow_id,
+                     approval_key=reference["key"], limit=1)["page"]
+    assert [node["id"] for node in anchored["items"]] == [wait["id"]], anchored
+    d.api("GET", "workflows/explorer", workflow_id=workflow_id, approval_key="missing", limit=1, expected=404)
+    d.api("GET", "workflows/explorer", workflow_id=workflow_id, approval_key=reference["key"],
+          limit=1, cursor=first["next_cursor"], expected=400)
+    if anchored["next_cursor"] is not None:
+        following = d.api("GET", "workflows/explorer", workflow_id=workflow_id,
+                          limit=1, cursor=anchored["next_cursor"])["page"]
+        assert following["items"] and following["items"][0]["id"] != wait["id"], following
     assert wait["resumed_activation_id"] == current["resumed_activation_id"]
     assert any(relation["kind"] == "resumes" for relation in wait["relations"])
     record("durable-approval-console", {"workflow_id": workflow_id, "effective_arguments": current["action"]["arguments"],

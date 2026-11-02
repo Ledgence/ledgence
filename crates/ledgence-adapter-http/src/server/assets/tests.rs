@@ -98,6 +98,15 @@ async fn static_routes_preserve_api_failures_and_only_fallback_for_navigation() 
     for (method, path, status, contains) in [
         ("GET", "/console", 308, "location: /console/"),
         ("GET", "/console/workflows/wf_1", 200, "<main>Console"),
+        ("GET", "/console/approvals", 200, "<main>Console"),
+        (
+            "GET",
+            "/console/approvals/review?workflow_id=w&key=k",
+            200,
+            "<main>Console",
+        ),
+        ("GET", "/console/approvals/other", 404, "no-store"),
+        ("GET", "/console/approvals/review/other", 404, "no-store"),
         ("GET", "/console/programs", 200, "<main>Console"),
         ("GET", "/console/programs/name", 200, "<main>Console"),
         (

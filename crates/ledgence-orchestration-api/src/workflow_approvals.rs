@@ -267,7 +267,7 @@ fn decision_fields(id: &str, reviewer: &str, reason: Option<&str>) -> Result<()>
     }
     Ok(())
 }
-fn timestamp(at: u64) -> Result<()> {
+pub(crate) fn timestamp(at: u64) -> Result<()> {
     if at > 253_402_300_799_999 {
         Err(invalid("approval timestamp exceeds supported range"))
     } else {

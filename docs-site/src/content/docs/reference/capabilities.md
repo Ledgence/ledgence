@@ -57,6 +57,12 @@ includes framework-free workflow patterns, a Google ADK/Gemini support agent,
 Codex workflows, durable approvals and operation recovery. Model access is a
 prerequisite of the corresponding live example, not of Ledgence self-hosting.
 
+### Approval inbox in development
+
+Find pending actions across workflow runs within the instance or configured
+scope. Console, CLI, Python and MCP share the same deadline-ordered listing.
+Requires matching development builds. [Find pending requests across workflows](/how-to/require-approval#find-pending-requests-across-workflows).
+
 ## Installation channels
 
 | Method | Availability |

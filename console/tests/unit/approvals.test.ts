@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   approval,
   approvalPage,
+  approvalInboxPage,
+  approvalFor,
   approvalPageForWorkflow,
   decisionReceipt,
   sameAction,
@@ -178,4 +180,46 @@ describe("approval contracts", () => {
       }),
     ).toThrow();
   });
+});
+
+it("validates inbox filters, deadline ties and the metadata-only contract", () => {
+  const input = {
+    status: "pending" as const,
+    program_id: "billing",
+    cursor: "previous",
+    limit: 2,
+  };
+  const decode = approvalInboxPage(input);
+  const one = {
+    workflow_id: "a",
+    key: "refund",
+    activation_id: "act",
+    program_id: "billing",
+    program_version: "1",
+    action_name: "transfer",
+    action_version: "1",
+    created_at: 1,
+    deadline: 50,
+    status: "pending",
+  };
+  const two = { ...one, workflow_id: "b" };
+  expect(decode({ items: [one, two], next_cursor: "next" }).items).toHaveLength(
+    2,
+  );
+  for (const items of [
+    [two, one],
+    [one, one],
+    [{ ...one, status: "approved" }],
+    [{ ...one, program_id: "another" }],
+    [{ ...one, action: { arguments: {} } }],
+    [one, two, { ...two, deadline: 60 }],
+    [{ ...one, deadline: 0 }],
+  ]) {
+    expect(() => decode({ items, next_cursor: null })).toThrow();
+  }
+  expect(() =>
+    decode({ items: [one, two], next_cursor: "previous" }),
+  ).toThrow();
+  const inspect = approvalFor("some-other-workflow", approvalFixture().key);
+  expect(() => inspect(approvalFixture())).toThrow();
 });

@@ -204,6 +204,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("/v1/workflows/events", "POST"),
     ("/v1/workflows/approvals/inspect", "POST"),
     ("/v1/workflows/approvals/list", "POST"),
+    ("/v1/workflows/approvals/inbox", "POST"),
     ("/v1/workflows/approvals/decide", "POST"),
     ("/v1/workflows/activations/context", "POST"),
     ("/v1/workflows/local-results", "POST"),

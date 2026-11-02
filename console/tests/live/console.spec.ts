@@ -262,9 +262,16 @@ test("real durable approval audit renders its effective action and resumed activ
   expect(approval.status).toBe("approved");
   expect(approval.resumed_activation_id).not.toBeNull();
   const errors = noRuntimeErrors(page);
-  await page.goto(
-    `/console/workflows/${encodeURIComponent(workflow.id)}?tab=General&section=approvals`,
-  );
+  await page.goto("/console/approvals");
+  await page
+    .getByRole("combobox", { name: "Status", exact: true })
+    .selectOption("approved");
+  await page.getByLabel("Program ID", { exact: true }).fill("durable-approval");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  const row = page.getByRole("row").filter({ hasText: workflow.id });
+  await row
+    .getByRole("link", { name: "program:simulate_refund", exact: true })
+    .click();
   const card = page.getByRole("article", { name: "Approval refund" });
   await expect(card).toBeVisible();
   await expect(
@@ -301,6 +308,21 @@ test("real durable approval audit renders its effective action and resumed activ
     fullPage: false,
     animations: "disabled",
   });
+  await page.getByRole("link", { name: workflow.id, exact: true }).click();
+  const inspector = page.getByRole("complementary", {
+    name: "Selected work details",
+  });
+  await expect(
+    inspector.getByText("refund", { exact: true }).first(),
+  ).toBeVisible();
+  await page.goBack();
+  await page.getByRole("link", { name: "Back to approvals" }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Status", exact: true }),
+  ).toHaveValue("approved");
+  await expect(
+    page.getByRole("row").filter({ hasText: workflow.id }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -363,7 +385,12 @@ test("WebKit remains usable through ten minutes of real polling and reconnect", 
       expect(errors).toEqual([]);
       rounds++;
       if (rounds % 3 === 0) {
-        for (const title of ["Executions", "Programs", "Workers"]) {
+        for (const title of [
+          "Executions",
+          "Programs",
+          "Approvals",
+          "Workers",
+        ]) {
           await page.getByRole("link", { name: title, exact: true }).click();
           await ready(page, title);
         }

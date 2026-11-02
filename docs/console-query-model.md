@@ -170,3 +170,15 @@ these explicit detail endpoints. Approval inspect/list operations hold a brief
 shared workflow lock while reading the proposal and sampling database time, so
 a concurrent decision cannot produce a false expired observation. See
 [workflow approvals](workflow-approvals.md) for API and effect guarantees.
+
+## Approval inbox in development
+
+`POST /v1/console/approvals/inbox` reads a bounded page of approval metadata
+within the configured instance scope. It orders by deadline and includes the
+workflow ID, wait key and owning activation for navigation. Detail reads and
+decision reconciliation use the existing approval endpoints. An initial explorer GET can take `approval_key`
+to seek directly to the recorded wait in the given workflow. Its first node is
+the requested wait and its next cursor uses ordinary explorer paging. Supply
+either the key or a cursor per request. A missing or retired target returns 404.
+A changed status
+can move a request out of a filtered view between page reads. [Inbox contract](workflow-approvals.md#approval-inbox).

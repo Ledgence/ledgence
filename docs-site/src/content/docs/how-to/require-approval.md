@@ -56,6 +56,23 @@ For submission data `{"amount": 100}`, the effective arguments are `{"amount": 5
 
 The request key is one-shot within its workflow. Use a new key for a changed action or another review round. Every approval has a finite timeout; the database owns its deadline. Inspect and list responses report persisted status, so a request can remain `pending` after its deadline until the coordinator commits expiry. New decisions are still rejected at or after the deadline.
 
+## Find pending requests across workflows
+
+**Development builds.** Open **Approvals** in Console to see requests from all
+workflows in this instance, with the earliest deadline first. Choose a program
+to narrow the list. Open a request and compare the effective action with what
+you intended before approving it. The workflow link opens its graph at the approval
+wait. You can return to the list to review another
+workflow. In the CLI, the equivalent discovery command is:
+
+```sh
+ledgence approval inbox --server http://127.0.0.1:8080 --tenant acme --namespace demo
+```
+
+The summary includes the workflow ID and approval key. Use them in the existing
+workflow detail or with `ledgence approval inspect` to read the arguments.
+Published 0.6.1 installations can follow the per-workflow steps below.
+
 ## Review the stored request
 
 After the first activation commits, open the workflow in Console and select **General → Approvals**. Inspect the action name, version, effective arguments, original proposal, and deadline before choosing **Approve** or **Reject**. The execution graph links its approval wait to the same review section.

@@ -300,6 +300,12 @@ time filters; pass its returned cursor with unchanged filters for another page.
 `task history --after N` starts after a recorded sequence, and `task attempt`
 requires both task and attempt IDs.
 
+## Approval inbox in development
+
+Use `ledgence approval inbox --server URL --tenant TENANT --namespace NAMESPACE` to find pending
+requests. Pass `--status all` for all retained statuses, `--program ID` for an exact workflow
+program, and `--cursor` to continue from a response's `next_cursor`. [Walkthrough](/how-to/require-approval#find-pending-requests-across-workflows).
+
 ## Approval decisions
 
 Use `approval list` and `inspect` to review persisted requests and their exact

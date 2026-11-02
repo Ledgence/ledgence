@@ -71,7 +71,7 @@ pub(crate) fn label<T: Serialize>(value: &T) -> Result<String> {
     }
 }
 
-fn enum_value<T: DeserializeOwned>(value: String) -> Result<T> {
+pub(crate) fn enum_value<T: DeserializeOwned>(value: String) -> Result<T> {
     serde_json::from_value(serde_json::Value::String(value))
         .map_err(|_| corrupt("unknown state or transition"))
 }
@@ -84,7 +84,7 @@ pub(crate) fn ms(value: u64) -> Result<i64> {
     i64::try_from(value).map_err(|_| corrupt("timestamp overflow"))
 }
 
-fn timestamp(value: i64) -> Result<u64> {
+pub(crate) fn timestamp(value: i64) -> Result<u64> {
     let value = u64::try_from(value).map_err(|_| corrupt("negative timestamp"))?;
     ms(value)?;
     Ok(value)

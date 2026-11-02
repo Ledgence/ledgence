@@ -11,6 +11,14 @@ struct ConsoleReference {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ConsoleInbox {
+    status: Option<ApprovalStatus>,
+    program_id: Option<String>,
+    cursor: Option<String>,
+    limit: u32,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConsoleList {
     workflow_id: String,
     after_key: Option<String>,
@@ -88,6 +96,30 @@ pub(super) async fn post(
     let service = server.workflows.as_deref().ok_or(ContractError::NotFound)?;
     let console = console_scope.is_some();
     match path.rsplit('/').next() {
+        Some("inbox") => {
+            let query: ApprovalInboxQuery = if let Some(scope) = console_scope {
+                let value: ConsoleInbox = server.decode(bytes, APPROVAL_SNAPSHOT_MAX_BYTES).await?;
+                ApprovalInboxQuery {
+                    scope: scope.clone(),
+                    status: value.status,
+                    program_id: value.program_id,
+                    cursor: value.cursor,
+                    limit: value.limit,
+                }
+            } else {
+                server.decode(bytes, APPROVAL_SNAPSHOT_MAX_BYTES).await?
+            };
+            server.require_scope(&query.scope)?;
+            query.validate()?;
+            record_scope(&query.scope);
+            let reply = service.approval_inbox(&query).await?;
+            server
+                .blocking(move || {
+                    reply.validate_for(&query).map_err(|_| invalid_reply())?;
+                    encode_bounded(&reply, APPROVAL_INBOX_PAGE_MAX_BYTES)
+                })
+                .await
+        }
         Some("inspect") => {
             let command: ApprovalReference = if let Some(scope) = console_scope {
                 let value: ConsoleReference =

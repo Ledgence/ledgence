@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useInstance } from "../app/instance";
-import { apiPath, request } from "../api/client";
+import { useApprovalRead } from "../api/use-approval-read";
 import { ContractError } from "../api/codecs";
 import { freezeCommand, useCommand } from "../api/commands";
-import { retryableRead } from "../api/errors";
-import { stringifyUserJson } from "../api/json";
+import { ApiError } from "../api/errors";
 import { useTerminalRefresh } from "../api/terminal-refresh";
 import {
   approvalPageForWorkflow,
@@ -45,38 +44,12 @@ export function WorkflowApprovals({
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const cursor = params.get("approval_cursor");
-  const body = stringifyUserJson({
-    workflow_id: workflowId,
-    after_key: cursor,
-    limit: 10,
-  });
-  const path = apiPath("approvals/list");
-  const query = useQuery({
-    queryKey: [
-      globalThis.location.origin,
-      config.contract_version,
-      config.instance_id,
-      path,
-      body,
-    ],
-    queryFn: async ({ signal }) =>
-      (
-        await request(
-          path,
-          approvalPageForWorkflow(workflowId, cursor),
-          signal,
-          config.instance_id,
-          { body, maximumBytes: config.limits.submission_max_bytes },
-          1024 * 1024,
-        )
-      ).value,
-    refetchInterval: (current) =>
-      current.state.error && !retryableRead(current.state.error)
-        ? false
-        : active
-          ? config.polling.waiting_workflow_ms
-          : false,
-  });
+  const query = useApprovalRead(
+    "list",
+    { workflow_id: workflowId, after_key: cursor, limit: 10 },
+    approvalPageForWorkflow(workflowId, cursor),
+    () => (active ? config.polling.waiting_workflow_ms : false),
+  );
   useTerminalRefresh(active, [workflowId, cursor], query);
   function changePage(next: string | null) {
     const search = new URLSearchParams(params);
@@ -113,6 +86,9 @@ export function WorkflowApprovals({
                   item.revision,
                 ])}
                 approval={item}
+                unavailable={
+                  query.error instanceof ApiError && query.error.status === 404
+                }
               />
             ))}
           </div>
@@ -165,7 +141,13 @@ function ActionDetails({ approval }: { approval: Approval }) {
   );
 }
 
-export function ApprovalCard({ approval }: { approval: Approval }) {
+export function ApprovalCard({
+  approval,
+  unavailable = false,
+}: {
+  approval: Approval;
+  unavailable?: boolean;
+}) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState<"approve" | "reject">("approve");
@@ -184,6 +166,12 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
     },
     () => void client.invalidateQueries(),
   );
+  const conflict =
+    command.mutation.error instanceof ApiError &&
+    command.mutation.error.status === 409;
+  useEffect(() => {
+    if (conflict) void client.invalidateQueries();
+  }, [conflict, client]);
   const receipt = command.mutation.data?.approval;
   // Keep acceptance ahead of stale reads, then allow polling to add the resume.
   const current =
@@ -195,7 +183,7 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
       ? receipt
       : approval;
   const locked = command.command !== null;
-  const editable = current.status === "pending" && !locked;
+  const editable = current.status === "pending" && !locked && !unavailable;
   function submit() {
     if (!editable || expected.current) return;
     const attribution = reviewer.trim();
@@ -351,6 +339,22 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
                 ? "This exact decision was already recorded."
                 : "Decision recorded."}{" "}
               Current status: {current.status}.
+            </p>
+          ) : unavailable && !locked ? (
+            <p className="notice" role="status">
+              This request is no longer available for a decision.
+            </p>
+          ) : conflict || (current.status !== "pending" && !locked) ? (
+            <p
+              className="notice"
+              role="status"
+              aria-label="Approval decision status"
+            >
+              {conflict && "The server declined your decision. "}Recorded
+              request status: {current.status}.
+              {current.decision && (
+                <> Recorded reviewer: {current.decision.reviewer}.</>
+              )}
             </p>
           ) : (
             <>

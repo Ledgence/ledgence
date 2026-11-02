@@ -382,6 +382,49 @@ fn validate_child_wait(wait: Option<&ConsoleChildWait>) -> Result<()> {
     }
     Ok(())
 }
+/// First explorer page anchored at an authoritative approval wait. Subsequent
+/// pages use the ordinary workflow explorer cursor.
+#[derive(Debug, Clone)]
+pub struct ConsoleApprovalFocus {
+    pub workflow_id: String,
+    pub approval_key: String,
+    pub page: ConsolePagination,
+}
+
+impl ConsoleApprovalFocus {
+    fn binding(&self, scope: &Scope) -> Result<ConsoleCursorBinding> {
+        ConsoleQuery::Explorer {
+            workflow_id: self.workflow_id.clone(),
+            page: self.page.clone(),
+        }
+        .binding(scope)
+    }
+
+    pub fn validate(&self, scope: &Scope) -> Result<()> {
+        validate_text(&self.approval_key, 128)?;
+        if self.page.cursor.is_some() {
+            return Err(invalid("approval_key and cursor are mutually exclusive"));
+        }
+        self.page.validate(&self.binding(scope)?)?;
+        Ok(())
+    }
+
+    pub fn validate_reply(&self, scope: &Scope, reply: &ConsoleWorkflowExplorer) -> Result<()> {
+        self.validate(scope)?;
+        reply.validate(&self.workflow_id, &self.page, &self.binding(scope)?)?;
+        match reply.page.items.first().map(|node| &node.data) {
+            Some(ConsoleExplorerData::ExternalWait {
+                key,
+                wait_kind: ConsoleWaitKind::Approval,
+                ..
+            }) if key == &self.approval_key => Ok(()),
+            _ => Err(inconsistent(
+                "explorer did not start at the requested approval wait",
+            )),
+        }
+    }
+}
+
 /// Consistent, bounded reads; no acquisition, expiry, renewal or workflow wake.
 pub trait ConsoleQueryStore: Send + Sync {
     fn query_console<'a>(
@@ -389,6 +432,19 @@ pub trait ConsoleQueryStore: Send + Sync {
         scope: &'a Scope,
         query: &'a ConsoleQuery,
     ) -> ContractFuture<'a, ConsoleQueryReply>;
+
+    /// Optionally locate a recorded approval wait without traversing prior pages.
+    fn explore_approval<'a>(
+        &'a self,
+        _scope: &'a Scope,
+        _focus: &'a ConsoleApprovalFocus,
+    ) -> ContractFuture<'a, ConsoleWorkflowExplorer> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "focused approval explorer is unavailable".into(),
+            ))
+        })
+    }
 }
 /// Scope is immutable application context, never a browser parameter.
 pub trait ConsoleQueryService: Send + Sync {
@@ -396,4 +452,16 @@ pub trait ConsoleQueryService: Send + Sync {
         &'a self,
         query: &'a ConsoleQuery,
     ) -> ContractFuture<'a, ConsoleQueryReply>;
+
+    /// Optionally locate a recorded approval wait without traversing prior pages.
+    fn explore_approval<'a>(
+        &'a self,
+        _focus: &'a ConsoleApprovalFocus,
+    ) -> ContractFuture<'a, ConsoleWorkflowExplorer> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "focused approval explorer is unavailable".into(),
+            ))
+        })
+    }
 }

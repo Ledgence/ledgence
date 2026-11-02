@@ -956,3 +956,28 @@ async fn console_rejects_inconsistent_task_detail_from_adapters() {
     mock.set("inspect", Ok(valid));
     assert_eq!(client.get(url).send().await.unwrap().status(), 200);
 }
+
+#[tokio::test]
+async fn focused_explorer_is_optional_for_preexisting_console_adapters() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(Queries::default());
+    let running = setup(&mock, &queries).await;
+    let client = reqwest::Client::new();
+    let path = "/v1/console/workflows/explorer";
+    let mut fields = vec![("workflow_id", "wf"), ("approval_key", "review")];
+    let unsupported = client
+        .get(query_url(&running, path, &fields))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsupported.status(), 503);
+    assert_headers(&unsupported);
+    fields.push(("cursor", "opaque"));
+    let invalid = client
+        .get(query_url(&running, path, &fields))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), 400);
+    assert!(queries.calls.lock().unwrap().is_empty());
+}

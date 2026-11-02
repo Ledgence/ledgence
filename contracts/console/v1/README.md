@@ -46,3 +46,11 @@ strings and argument JSON is preserved losslessly. Graph wait kinds include
 `approval`, with wake reasons `approved`, `rejected`, or `expired`. Apply the
 approval database migration before starting matching components. See
 [the approval contract](../../../docs/workflow-approvals.md).
+
+Development builds include the additive `POST /v1/console/approvals/inbox`
+read route. It accepts an optional status, exact program ID and cursor, plus a
+page limit. The fixed instance scope governs which workflows are visible.
+Summary rows omit application arguments. Their workflow ID and key identify
+the existing inspection route, whose full action is required for a decision.
+The cursor orders by deadline, workflow ID and approval key.
+[Inbox fields and availability](../../../docs/workflow-approvals.md#approval-inbox).

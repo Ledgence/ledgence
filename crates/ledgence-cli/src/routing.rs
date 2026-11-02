@@ -60,6 +60,12 @@ const COMMANDS: &[Leaf] = &[
     },
     Leaf {
         group: "approval",
+        name: "inbox",
+        options: "--server URL --tenant ID --namespace NAME [--status pending|approved|rejected|expired|cancelled|all] [--program ID] [--cursor CURSOR] [--limit 1..100]",
+        description: "Find approval requests across workflows, earliest deadline first. Defaults to pending requests and 50 items. Pass next_cursor with the same filters. Inspect a returned workflow and key to review its effective arguments.",
+    },
+    Leaf {
+        group: "approval",
         name: "list",
         options: "--server URL --tenant ID --namespace NAME --workflow ID [--after-key KEY] [--limit 1..10]",
         description: "List persisted approval requests, ordered by key. Pass next_cursor as --after-key to read the next page.",
