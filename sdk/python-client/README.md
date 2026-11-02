@@ -456,6 +456,23 @@ IDs remain distinct from tracing IDs.
 
 ## Workflow approvals
 
+The development client and server provide a scope-wide inbox. By default it lists
+pending requests, earliest deadline first. Pass an exact `program_id` to filter,
+or `status=None` to include every persisted status. Read the full effective
+action before preparing a decision.
+
+```python
+page = await client.workflows.approval_inbox(program_id="refunds", limit=20)
+for item in page.items:
+    workflow = client.workflows.handle(item.workflow_id)
+    approval = await workflow.approval(item.key)
+    print(approval.status, approval.action.name, approval.action.arguments)
+```
+
+Pass `page.next_cursor` as `cursor` with the same filters to continue when it
+is present. Each page reflects the current database state. A request can change
+status between discovery and inspection.
+
 `await workflow.approval(key)` inspects a committed request.
 `await workflow.approvals(after_key=None, limit=10)` returns a bounded, ordered
 `ApprovalPage`; pass its `next_cursor` as `after_key` for the next page. Read

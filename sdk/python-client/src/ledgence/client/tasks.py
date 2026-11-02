@@ -27,10 +27,8 @@ _UNSET = object()
 
 
 def _program(program, version):
-    for name, value in (("program", program), ("version", version)):
-        if type(value) is not str or value in (".", "..") or not re.fullmatch(r"[a-z0-9._-]{1,128}", value):
-            raise InputError(f"invalid {name}")
-    return {"id": program, "version": version}
+    return {"id": codec.program_component(program, "program"),
+            "version": codec.program_component(version, "version")}
 
 
 def _trace(raw):

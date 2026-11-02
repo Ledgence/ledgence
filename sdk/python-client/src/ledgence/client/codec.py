@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import unicodedata
 
 from .errors import InputError, ProtocolError
@@ -33,6 +34,12 @@ def text(value, name: str, maximum: int = 128, *, empty: bool = False,
             not noncharacters and (0xFDD0 <= ord(c) <= 0xFDEF or ord(c) & 0xFFFE == 0xFFFE)
         ) for c in value
     ):
+        raise InputError(f"invalid {name}")
+    return value
+
+
+def program_component(value, name: str) -> str:
+    if type(value) is not str or value in (".", "..") or not re.fullmatch(r"[a-z0-9._-]{1,128}", value):
         raise InputError(f"invalid {name}")
     return value
 

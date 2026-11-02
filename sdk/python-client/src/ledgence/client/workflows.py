@@ -15,8 +15,8 @@ from .models import RetryPolicy, Scope, TraceContext
 from .tasks import _UNSET
 from .approval_models import (
     APPROVAL_LIMIT, APPROVAL_PAGE_LIMIT, ApprovalDecisionCommand, ApprovalDecisionReceipt,
-    ApprovalPage, ApprovalStatus, WorkflowApproval, _reason, parse_approval,
-    parse_approval_page, parse_approval_receipt,
+    INBOX_CURSOR_MAX_BYTES, ApprovalInboxPage, ApprovalPage, ApprovalStatus, WorkflowApproval, _reason, parse_approval,
+    parse_approval_page, parse_approval_receipt, parse_inbox_page,
 )
 from .errors import ApprovalDecisionUncertain
 from .workflow_models import (
@@ -84,6 +84,33 @@ class Workflows:
         except TransportError as exc:
             raise SubmissionUncertain(submission, exc) from exc
         return WorkflowHandle(self._client, status.workflow_id)
+
+    async def approval_inbox(self, *, status: ApprovalStatus | str | None = ApprovalStatus.PENDING,
+                             program_id: str | None = None, cursor: str | None = None,
+                             limit: int = 50) -> ApprovalInboxPage:
+        """Find requests across workflows in this scope. Pass status=None for every status."""
+        if status is not None:
+            if type(status) not in (str, ApprovalStatus):
+                raise InputError("invalid approval inbox status")
+            try:
+                status = ApprovalStatus(status)
+            except ValueError as exc:
+                raise InputError("invalid approval inbox status") from exc
+        if program_id is not None:
+            codec.program_component(program_id, "program_id")
+        if cursor is not None:
+            codec.text(cursor, "cursor", INBOX_CURSOR_MAX_BYTES)
+        codec.integer(limit, "limit", 1, 100)
+        scope = self._client.scope
+        return await self._client._require_transport().exchange(
+            "POST", "/v1/workflows/approvals/inbox",
+            body=codec.encode({"scope": {"tenant_id": scope.tenant_id, "namespace": scope.namespace},
+                               "status": status.value if status else None, "program_id": program_id,
+                               "cursor": cursor, "limit": limit}),
+            deadline=asyncio.get_running_loop().time() + self._client.request_timeout,
+            parser=lambda raw: parse_inbox_page(raw, status, program_id, cursor, limit),
+            limit=APPROVAL_PAGE_LIMIT,
+        )
 
     def handle(self, workflow_id: str) -> WorkflowHandle:
         """Construct a scoped reference without checking existence or submitting work."""

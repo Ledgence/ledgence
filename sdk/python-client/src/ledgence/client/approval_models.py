@@ -12,6 +12,7 @@ from .models import Scope, _scope
 ACTION_LIMIT = 32 * 1024
 APPROVAL_LIMIT = 96 * 1024
 APPROVAL_PAGE_LIMIT = 1024 * 1024
+INBOX_CURSOR_MAX_BYTES = 8192
 MAX_APPROVAL_WAIT_MS = 31_536_000_000
 
 
@@ -80,6 +81,26 @@ class WorkflowApproval:
 @dataclass(frozen=True, slots=True)
 class ApprovalPage:
     items: tuple[WorkflowApproval, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalInboxItem:
+    workflow_id: str
+    key: str
+    activation_id: str
+    program_id: str
+    program_version: str
+    action_name: str
+    action_version: str
+    created_at: int
+    deadline: int
+    status: ApprovalStatus
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalInboxPage:
+    items: tuple[ApprovalInboxItem, ...]
     next_cursor: str | None
 
 
@@ -204,6 +225,48 @@ def parse_approval_page(raw, scope, workflow_id, after_key, limit, base_url):
         return ApprovalPage(items, cursor)
     except (ValueError, TypeError, KeyError, UnicodeError) as exc:
         raise ProtocolError("invalid workflow approval page") from exc
+
+
+def _inbox_item(raw):
+    codec.fields(raw, set(ApprovalInboxItem.__dataclass_fields__))
+    for name in ("workflow_id", "key", "activation_id", "action_version"):
+        codec.text(raw[name], name)
+    codec.text(raw["action_name"], "action_name", 512)
+    for name in ("program_id", "program_version"):
+        codec.program_component(raw[name], name)
+    created = codec.integer(raw["created_at"], "created_at", 0, codec.MAX_TIMESTAMP)
+    deadline = codec.integer(raw["deadline"], "deadline", 0, codec.MAX_TIMESTAMP)
+    if not 0 <= deadline - created <= MAX_APPROVAL_WAIT_MS:
+        raise InputError("invalid approval deadline")
+    return ApprovalInboxItem(**(raw | {"status": ApprovalStatus(raw["status"])}))
+
+
+def parse_inbox_page(raw, status, program_id, cursor, limit):
+    try:
+        codec.fields(raw, {"items", "next_cursor"})
+        if type(raw["items"]) is not list or len(raw["items"]) > limit:
+            raise InputError("invalid approval inbox page length")
+        items = tuple(_inbox_item(row) for row in raw["items"])
+        previous = None
+        seen = set()
+        for item in items:
+            if ((status is not None and item.status != status)
+                    or (program_id is not None and item.program_id != program_id)):
+                raise InputError("approval inbox row differs from the requested filters")
+            identity = (item.workflow_id, item.key)
+            order = (item.deadline, *identity)
+            if identity in seen or (previous is not None and order <= previous):
+                raise InputError("approval inbox is unordered or contains repeated requests")
+            seen.add(identity)
+            previous = order
+        next_cursor = raw["next_cursor"]
+        if next_cursor is not None:
+            codec.text(next_cursor, "next_cursor", INBOX_CURSOR_MAX_BYTES)
+            if len(items) != limit or cursor == next_cursor:
+                raise InputError("approval inbox cursor does not advance a full page")
+        return ApprovalInboxPage(items, next_cursor)
+    except (ValueError, TypeError, KeyError, UnicodeError) as exc:
+        raise ProtocolError("invalid approval inbox response") from exc
 
 
 def parse_approval_receipt(raw, command):
