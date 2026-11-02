@@ -143,6 +143,31 @@ jobs:
       - name: Verify candidate archive checksum
         working-directory: ${{ runner.temp }}/ledgence-candidate
         run: shasum -a 256 -c SHA256SUMS
+      - name: Upgrade a pending 0.6.1 approval with the packaged candidate
+        run: |
+          baseline=ledgence-0.6.1-x86_64-unknown-linux-gnu
+          rehearsal="$RUNNER_TEMP/approval-upgrade"
+          mkdir -p "$rehearsal/previous" "$rehearsal/candidate"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+            "https://github.com/Ledgence/ledgence/releases/download/v0.6.1/$baseline.tar.gz" \
+            --output "$rehearsal/previous.tar.gz"
+          echo "7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be  $rehearsal/previous.tar.gz" | sha256sum --check
+          tar -xzf "$rehearsal/previous.tar.gz" --strip-components=1 -C "$rehearsal/previous"
+          archives=("$RUNNER_TEMP"/ledgence-candidate/*.tar.gz)
+          test "${#archives[@]}" -eq 1
+          tar -xzf "${archives[0]}" --strip-components=1 -C "$rehearsal/candidate"
+          python tools/check-approval-upgrade.py --previous-bundle "$rehearsal/previous" \
+            --binaries "$rehearsal/candidate/bin" --console-dist "$rehearsal/candidate/console" \
+            --candidate-runner "$rehearsal/candidate/runtime/ledgence/worker/bootstrap.py" \
+            --evidence "$rehearsal/evidence"
+      - name: Retain upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-upgrade-linux-x86_64
+          path: ${{ runner.temp }}/approval-upgrade/evidence/
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Retain verified Console candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

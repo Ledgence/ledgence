@@ -35,6 +35,10 @@ A workflow adapter can implement `WorkflowStore::approval_inbox` to list scoped
 approval summaries across workflows. Console adapters can implement
 `ConsoleQueryStore::explore_approval` to start a graph page at its recorded
 approval wait. Subsequent pages use the ordinary workflow explorer cursor.
+The optional `ConsoleQueryStore::inspect_local_step` method reads a retained
+accepted result by workflow, activation and step key within the bound scope.
+It carries the exact result, effective arguments and accepting attempt.
+Returned model and tool records use the versioned durable operation binding.
 Existing adapters return `ContractError::Unavailable` for these optional reads
 until they implement them.
 

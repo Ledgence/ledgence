@@ -69,3 +69,28 @@ fn existing_ports_report_missing_focused_explorer_without_dispatching_an_old_que
         );
     }
 }
+
+#[test]
+fn old_adapters_can_decline_local_result_inspection() {
+    let scope = Scope {
+        tenant_id: "acme".into(),
+        namespace: "test".into(),
+    };
+    let lookup = ConsoleLocalStepLookup {
+        workflow_id: "workflow".into(),
+        activation_id: "act".into(),
+        step_key: "key".into(),
+    };
+    let store: &dyn ConsoleQueryStore = &ExistingAdapter;
+    let service: &dyn ConsoleQueryService = &ExistingAdapter;
+    let mut cx = Context::from_waker(Waker::noop());
+    for mut response in [
+        store.inspect_local_step(&scope, &lookup),
+        service.inspect_local_step(&lookup),
+    ] {
+        assert!(matches!(
+            response.as_mut().poll(&mut cx),
+            Poll::Ready(Err(ContractError::Unavailable(_)))
+        ));
+    }
+}

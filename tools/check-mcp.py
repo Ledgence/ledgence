@@ -290,6 +290,9 @@ def scenarios(d, record, sessions):
     summary = next(item for item in inbox["items"] if item["workflow_id"] == approved["workflow_id"])
     assert summary["status"] == "pending" and summary["key"] == "review", summary
     assert "action" not in summary and "proposed_arguments" not in summary, summary
+    for cutoff, expected in [(summary["deadline"], False), (summary["deadline"] + 1, True)]:
+        before = main.tool("ledgence_approval_inbox", {"program_id": "mcp-workflow", "due_before": cutoff})
+        assert (summary in before["items"]) == expected, before
     approvals = main.tool("ledgence_approval_list", {"workflow_id": approved["workflow_id"]})
     inspection = main.tool("ledgence_approval_inspect", {"workflow_id": approved["workflow_id"], "key": "review"})
     assert inspection["status"] == "pending" and inspection["action"]["arguments"] == {"value": 7}, inspection

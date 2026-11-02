@@ -6,6 +6,7 @@ pub(super) fn query(status: Option<ApprovalStatus>) -> ApprovalInboxQuery {
         scope: scope(),
         status,
         program_id: None,
+        due_before: None,
         cursor: None,
         limit: 100,
     }
@@ -102,6 +103,20 @@ async fn inbox_backfills_existing_requests_fences_decisions_and_hides_retired_ow
     assert_eq!(first.items[0].workflow_id, earlier.workflow_id);
     assert_eq!(first.items[0].action_name, r"send-\u0000");
     assert_eq!(first.items[0].activation_id, approve.activation_id);
+    let before = first.items[0].deadline;
+    for (cutoff, expected) in [(before, 0), (before + 1, 1)] {
+        let page = db
+            .store
+            .approval_inbox(&ApprovalInboxQuery {
+                due_before: Some(cutoff),
+                limit: 1,
+                ..pending.clone()
+            })
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), expected);
+        assert!(page.next_cursor.is_none());
+    }
     let cursor = first.next_cursor.unwrap();
     assert!(
         db.store
@@ -263,31 +278,45 @@ async fn inbox_seek_uses_ordered_indexes_for_every_filter_combination() {
             limit: 10,
             ..query(status)
         };
-        let mut builder = super::super::approval_inbox::select(
-            &query,
-            Some(ApprovalInboxPosition {
-                deadline: 3900,
-                workflow_id: "wf_19500".into(),
-                key: "review".into(),
-            }),
-        )
-        .unwrap();
-        let mut sql = builder.build();
-        let args = sql.take_arguments().unwrap().unwrap();
-        let explain = AssertSqlSafe(format!("EXPLAIN (ANALYZE,BUFFERS) {}", sql.sql().as_str()));
-        let plan = sqlx::query_scalar_with::<_, String, _>(explain, args)
-            .fetch_all(&mut *c)
-            .await
-            .unwrap()
-            .join("\n");
-        println!("approval inbox filters {status:?} {program:?}:\n{plan}");
-        assert!(
-            plan.contains("Index Scan")
-                && plan.contains("Index Cond")
-                && !plan.contains("Seq Scan")
-                && !plan.contains("Sort Key"),
-            "{plan}"
-        );
+        for cutoff in [None, Some(4100)] {
+            let query = ApprovalInboxQuery {
+                due_before: cutoff,
+                ..query.clone()
+            };
+            let mut builder = super::super::approval_inbox::select(
+                &query,
+                Some(ApprovalInboxPosition {
+                    deadline: 3900,
+                    workflow_id: "wf_19500".into(),
+                    key: "review".into(),
+                }),
+            )
+            .unwrap();
+            let mut sql = builder.build();
+            let args = sql.take_arguments().unwrap().unwrap();
+            let explain =
+                AssertSqlSafe(format!("EXPLAIN (ANALYZE,BUFFERS) {}", sql.sql().as_str()));
+            let plan = sqlx::query_scalar_with::<_, String, _>(explain, args)
+                .fetch_all(&mut *c)
+                .await
+                .unwrap()
+                .join("\n");
+            println!("approval inbox filters {status:?} {program:?}:\n{plan}");
+            assert!(
+                plan.contains("Index Scan")
+                    && plan.contains("Index Cond")
+                    && !plan.contains("Seq Scan")
+                    && !plan.contains("Sort Key"),
+                "{plan}"
+            );
+            if cutoff.is_some() {
+                assert!(
+                    plan.lines()
+                        .any(|line| line.contains("Index Cond:") && line.contains("deadline_ms <")),
+                    "{plan}"
+                );
+            }
+        }
     }
     drop(c);
     db.finish().await;

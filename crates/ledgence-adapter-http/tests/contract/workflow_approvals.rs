@@ -397,6 +397,7 @@ async fn approval_inbox_roundtrips_compact_metadata_and_rejects_invalid_adapter_
         scope: scope(),
         status: Some(ApprovalStatus::Pending),
         program_id: Some("support".into()),
+        due_before: Some(5001),
         cursor: None,
         limit: 10,
     };
@@ -418,6 +419,15 @@ async fn approval_inbox_roundtrips_compact_metadata_and_rejects_invalid_adapter_
     };
     mock.set("approval_inbox", Ok(page.clone()));
     assert_eq!(client.approval_inbox(&query).await.unwrap(), page);
+    assert!(matches!(
+        client
+            .approval_inbox(&ApprovalInboxQuery {
+                due_before: Some(5000),
+                ..query.clone()
+            })
+            .await,
+        Err(ContractError::Unavailable(_))
+    ));
     mock.set(
         "approval_inbox",
         Ok(ApprovalInboxPage {
@@ -440,5 +450,5 @@ async fn approval_inbox_roundtrips_compact_metadata_and_rejects_invalid_adapter_
         .await
         .unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
-    assert_eq!(mock.calls.lock().unwrap().len(), 2);
+    assert_eq!(mock.calls.lock().unwrap().len(), 3);
 }

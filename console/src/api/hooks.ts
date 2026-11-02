@@ -13,6 +13,7 @@ export function useResource<T>(
     interval?: number | false | ((value: T | undefined) => number | false);
     staleTime?: number;
     maximumBytes?: number;
+    gcTime?: number;
   } = {},
 ) {
   const config = useInstance();
@@ -43,6 +44,7 @@ export function useResource<T>(
           ? options.interval(query.state.data)
           : (options.interval ?? false),
     staleTime: options.staleTime ?? 0,
+    ...(options.gcTime !== undefined && { gcTime: options.gcTime }),
   });
 }
 // Cursor predecessors follow the current URL, including browser Back/Forward.

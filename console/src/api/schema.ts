@@ -72,6 +72,14 @@ export function array<T>(decode: Decoder<T>, max = 100): Decoder<T[]> {
   };
 }
 export const payload: Decoder<unknown> = (value) => value;
+export function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !isLosslessNumber(value)
+  );
+}
 export function variant<S extends Record<string, Decoder<unknown>>>(
   shape: S,
 ): Decoder<Decoded<S[keyof S]>> {

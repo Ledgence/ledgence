@@ -462,7 +462,10 @@ or `status=None` to include every persisted status. Read the full effective
 action before preparing a decision.
 
 ```python
-page = await client.workflows.approval_inbox(program_id="refunds", limit=20)
+from datetime import datetime, timezone
+
+cutoff = datetime(2026, 11, 6, 17, tzinfo=timezone.utc)
+page = await client.workflows.approval_inbox(program_id="refunds", due_before=cutoff, limit=20)
 for item in page.items:
     workflow = client.workflows.handle(item.workflow_id)
     approval = await workflow.approval(item.key)

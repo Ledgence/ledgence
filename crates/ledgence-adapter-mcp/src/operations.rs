@@ -287,6 +287,7 @@ impl ToolDispatcher {
                     scope: self.scope.clone(),
                     status: args.status,
                     program_id: args.program_id,
+                    due_before: args.due_before,
                     cursor: args.cursor,
                     limit: args.limit,
                 };
@@ -460,6 +461,7 @@ struct ApprovalInbox {
     #[serde(default = "pending_status")]
     status: Option<ApprovalStatus>,
     program_id: Option<String>,
+    due_before: Option<Timestamp>,
     cursor: Option<String>,
     #[serde(default = "default_limit")]
     limit: u32,
@@ -603,6 +605,11 @@ mod tests {
                 json!({"scope":{"tenant_id":"other","namespace":"other"}}),
             ),
             ("ledgence_approval_inbox", json!({"limit":101})),
+            (
+                "ledgence_approval_inbox",
+                json!({"due_before":253402300800000_u64}),
+            ),
+            ("ledgence_approval_inbox", json!({"due_before":"tomorrow"})),
             ("ledgence_approval_inbox", json!({"status":"bad"})),
             ("ledgence_approval_inbox", json!({"program_id":".."})),
             ("ledgence_program_list", json!({"tenant_id":"other"})),

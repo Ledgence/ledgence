@@ -304,7 +304,7 @@ requires both task and attempt IDs.
 
 Use `ledgence approval inbox --server URL --tenant TENANT --namespace NAMESPACE` to find pending
 requests. Pass `--status all` for all retained statuses, `--program ID` for an exact workflow
-program, and `--cursor` to continue from a response's `next_cursor`. [Walkthrough](/how-to/require-approval#find-pending-requests-across-workflows).
+program, `--due-before 2026-11-06T17:00:00Z` for earlier deadlines, and `--cursor` to continue from a response's `next_cursor`. [Walkthrough](/how-to/require-approval#find-pending-requests-across-workflows).
 
 ## Approval decisions
 

@@ -177,6 +177,14 @@ test("real fork graph distinguishes parent locals, explores review, and restores
   // Transformed cards can report 0.999998 visibility from subpixel rounding.
   // Allow that rounding; the normal click still verifies pointer reachability.
   await expect(localCard).toBeInViewport({ ratio: 0.999 });
+  const detailReads: string[] = [];
+  page.on("request", (req) => {
+    if (
+      new URL(req.url()).pathname ===
+      "/v1/console/workflows/local-steps/inspect"
+    )
+      detailReads.push(req.url());
+  });
   await localCard.click();
   await expect(
     page
@@ -188,6 +196,23 @@ test("real fork graph distinguishes parent locals, explores review, and restores
       .getByRole("complementary", { name: "Selected work details" })
       .getByText("Callable observation", { exact: true }),
   ).toBeVisible();
+  expect(detailReads).toHaveLength(0);
+  const inspector = page.getByRole("complementary", {
+    name: "Selected work details",
+  });
+  await inspector.getByText("Inspect durable operation").click();
+  await expect(inspector.getByLabel("Recorded input")).toContainText(
+    '"candidate"',
+  );
+  await expect(inspector.getByLabel("Accepted result")).toContainText(
+    '"passed": true',
+  );
+  expect(Object.fromEntries(new URL(detailReads[0]!).searchParams)).toEqual({
+    workflow_id: root.id,
+    activation_id: local.activation_id,
+    step_key: "tests:0",
+  });
+  await inspector.getByText("Inspect durable operation").click();
   // The canvas pans independently of document scrolling. Bring the complete
   // loaded graph into view after the inspector changes its available width.
   await page.getByRole("button", { name: "Fit", exact: true }).click();

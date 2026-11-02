@@ -182,3 +182,19 @@ the requested wait and its next cursor uses ordinary explorer paging. Supply
 either the key or a cursor per request. A missing or retired target returns 404.
 A changed status
 can move a request out of a filtered view between page reads. [Inbox contract](workflow-approvals.md#approval-inbox).
+
+## Inspect one local step
+
+Development builds accept `GET /v1/console/workflows/local-steps/inspect` with
+`workflow_id`, `activation_id` and `step_key`. The server obtains the scope from
+the instance. A successful response contains the local-step summary in `step`,
+a `kind` of `local`, `model` or `tool`, a nullable `version`, and `arguments`
+and `result` as application JSON. Use lossless JSON decoding. The summary
+includes `attempt_id` and `accepted_at` (UTC epoch milliseconds). Both refer to
+the accepted journal entry. For a recognized model/tool binding the response
+unwraps the effective arguments and operation version. Other local records
+return their stored input and a null version.
+
+A missing, mismatched or retired identity returns 404. Invalid parameters return
+400. An adapter without the optional read capability returns 503. Requesting the
+detail reads one retained record and has no execution side effects.

@@ -365,13 +365,13 @@ class Deployment:
         self.proxies.append(proxy)
         return proxy
 
-    def start_worker(self, server=None, concurrency=1, cache="cache"):
+    def start_worker(self, server=None, concurrency=1, cache="cache", *, runner=None):
         self.counter += 1
         args = [str(self.binaries / "ledgence"), "worker", "connect", "--server",
                 server or self.server_url, "--tenant", self.scope["tenant_id"], "--namespace",
                 self.scope["namespace"], "--queue", self.queue, "--store", self.artifacts.url,
                 "--cache", str(self.directory / cache), "--python", self.python,
-                "--runner", str(self.root / "sdk/python/ledgence/worker/bootstrap.py"),
+                "--runner", str(runner or self.root / "sdk/python/ledgence/worker/bootstrap.py"),
                 "--concurrency", str(concurrency)]
         process = Process(args, self.directory, f"worker-{self.counter}", self.environment)
         self.processes.append(process)

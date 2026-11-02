@@ -267,6 +267,24 @@ test("real durable approval audit renders its effective action and resumed activ
     .getByRole("combobox", { name: "Status", exact: true })
     .selectOption("approved");
   await page.getByLabel("Program ID", { exact: true }).fill("durable-approval");
+  const cutoff = page.getByLabel("Due before (UTC)", { exact: true });
+  // datetime-local normalizes a fractional second such as ".860" to ".86".
+  // Playwright fill requires the shortest HTML value after that normalization.
+  function inputInstant(milliseconds: number) {
+    return new Date(milliseconds)
+      .toISOString()
+      .slice(0, -1)
+      .replace(/0+$/u, "")
+      .replace(/\.$/u, "")
+      .replace(/(T\d{2}:\d{2}):00$/u, "$1");
+  }
+  await cutoff.fill(inputInstant(approval.deadline));
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(page).toHaveURL(new RegExp("due_before=" + approval.deadline));
+  await expect(
+    page.getByText("No approval requests match this view."),
+  ).toBeVisible();
+  await cutoff.fill(inputInstant(approval.deadline + 1));
   await page.getByRole("button", { name: "Apply filters" }).click();
   const row = page.getByRole("row").filter({ hasText: workflow.id });
   await row

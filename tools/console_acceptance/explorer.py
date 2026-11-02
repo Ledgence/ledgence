@@ -94,6 +94,14 @@ def run(d, publish, record):
     assert local["accepted_at"] is not None
     assert local["observation"]["state"] == "returned"
     assert local["activation_id"] == fork["activation_id"]
+    inspector = "workflows/local-steps/inspect"
+    identity = dict(workflow_id=root, activation_id=local["activation_id"], step_key=local["key"])
+    detail = d.api("GET", inspector, **identity)
+    assert detail["step"]["accepted_at"] == local["accepted_at"]
+    assert detail["kind"] == "local" and detail["version"] is None
+    assert detail["arguments"] == {"candidate": {"value": 7}}
+    assert detail["result"] == result["outcome"]["output"]["tests"]
+    d.api("GET", inspector, **dict(identity, step_key="missing"), expected=404)
     relations = relation_map(nodes)
     require_relation(local, "invokes",
                      {"kind": "entrypoint", "activation_id": local["activation_id"]},

@@ -14,6 +14,7 @@ struct ConsoleReference {
 struct ConsoleInbox {
     status: Option<ApprovalStatus>,
     program_id: Option<String>,
+    due_before: Option<Timestamp>,
     cursor: Option<String>,
     limit: u32,
 }
@@ -103,6 +104,7 @@ pub(super) async fn post(
                     scope: scope.clone(),
                     status: value.status,
                     program_id: value.program_id,
+                    due_before: value.due_before,
                     cursor: value.cursor,
                     limit: value.limit,
                 }

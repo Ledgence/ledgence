@@ -20,6 +20,9 @@ pub(super) fn select(
     if let Some(program) = &query.program_id {
         sql.push(" AND a.program_id=").push_bind(program);
     }
+    if let Some(at) = query.due_before {
+        sql.push(" AND a.deadline_ms < ").push_bind(codec::ms(at)?);
+    }
     if let Some(position) = after {
         sql.push(" AND (a.deadline_ms,a.workflow_id,a.wait_key) > (")
             .push_bind(codec::ms(position.deadline)?)

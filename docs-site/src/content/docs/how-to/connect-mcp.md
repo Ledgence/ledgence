@@ -80,4 +80,4 @@ HTTP, model sampling, prompts/resources, package uploads, or MCP Tasks-extension
 state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.6.1/docs/mcp.md)
 for limits, error semantics, verification and architecture.
 
-Development builds also expose `ledgence_approval_inbox` in read-only mode. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
+Development builds also expose `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).

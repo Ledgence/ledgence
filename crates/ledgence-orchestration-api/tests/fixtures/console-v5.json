@@ -5423,6 +5423,25 @@
       }
     }
   ],
+  "local_step_detail": {
+    "arguments": {
+      "factor": 1.0,
+      "id": 18446744073709551615
+    },
+    "kind": "tool",
+    "result": {
+      "balance": -0.0
+    },
+    "step": {
+      "accepted_at": 1790409600000,
+      "activation_id": "task_controller_1",
+      "attempt_id": "att_controller_1",
+      "callable": "tool:billing:lookup",
+      "step_key": "tool:lookup:0",
+      "workflow_id": "wf_invoice_1042"
+    },
+    "version": "v1"
+  },
   "local_steps": {
     "items": [
       {

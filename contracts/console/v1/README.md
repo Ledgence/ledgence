@@ -18,7 +18,7 @@ pnpm --dir console contracts:check
 ```
 
 All `/v1/console/*` responses identify the fixed instance with
-`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 4`. The browser rejects
+`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 5`. The browser rejects
 responses that disagree with the configuration used for its query keys.
 Queries and commands reject unknown and duplicate fields. The internal binding
 is never selected by a Console request or exposed in its response DTOs.
@@ -54,3 +54,8 @@ Summary rows omit application arguments. Their workflow ID and key identify
 the existing inspection route, whose full action is required for a decision.
 The cursor orders by deadline, workflow ID and approval key.
 [Inbox fields and availability](../../../docs/workflow-approvals.md#approval-inbox).
+
+Matching development builds also support an optional exclusive `due_before`
+(UTC epoch milliseconds) on the approval inbox and the exact-key
+`GET /v1/console/workflows/local-steps/inspect` detail read. Both are additive.
+[Local-step response and errors](../../../docs/console-query-model.md#inspect-one-local-step).

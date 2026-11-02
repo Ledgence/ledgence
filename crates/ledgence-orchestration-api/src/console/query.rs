@@ -427,6 +427,19 @@ impl ConsoleApprovalFocus {
 
 /// Consistent, bounded reads; no acquisition, expiry, renewal or workflow wake.
 pub trait ConsoleQueryStore: Send + Sync {
+    /// Inspect one retained journal result without paging or fetching an activation context.
+    fn inspect_local_step<'a>(
+        &'a self,
+        _scope: &'a Scope,
+        _lookup: &'a ConsoleLocalStepLookup,
+    ) -> ContractFuture<'a, ConsoleLocalStepDetail> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "local step inspection is unavailable".into(),
+            ))
+        })
+    }
+
     fn query_console<'a>(
         &'a self,
         scope: &'a Scope,
@@ -448,6 +461,18 @@ pub trait ConsoleQueryStore: Send + Sync {
 }
 /// Scope is immutable application context, never a browser parameter.
 pub trait ConsoleQueryService: Send + Sync {
+    /// Inspect one retained journal result without paging or fetching an activation context.
+    fn inspect_local_step<'a>(
+        &'a self,
+        _lookup: &'a ConsoleLocalStepLookup,
+    ) -> ContractFuture<'a, ConsoleLocalStepDetail> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "local step inspection is unavailable".into(),
+            ))
+        })
+    }
+
     fn query_console<'a>(
         &'a self,
         query: &'a ConsoleQuery,

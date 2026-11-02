@@ -20,6 +20,7 @@ import {
   nodeTiming,
   type RecordedRelation,
 } from "../explorer-model";
+import { OperationRecord } from "./operation-record";
 import { RelationList } from "./relations";
 export function NodeInspector({
   node,
@@ -32,6 +33,7 @@ export function NodeInspector({
   relations: RecordedRelation[];
   select: (id: string) => void;
 }) {
+  const [inspectOperation, setInspectOperation] = useState(false);
   const location = useLocation();
   const [params] = useSearchParams();
   const timing = nodeTiming(node);
@@ -168,29 +170,44 @@ export function NodeInspector({
       )}
       {node.kind === "local" && (
         <>
-          <p>
-            This operation runs inside the workflow’s process. It is not an
-            independently scheduled task. An invocation records which entrypoint
-            requested it; it does not prove completion or a dependency on
-            another local step.
-          </p>
+          <p>This operation runs inside the workflow’s process.</p>
           <Fields>
             <Field label="Callable">{node.callable}</Field>
             <Field label="Durable result accepted">
               <When value={node.accepted_at} />
             </Field>
           </Fields>
+          {node.accepted_at !== null ? (
+            <details
+              onToggle={(event) =>
+                setInspectOperation(event.currentTarget.open)
+              }
+            >
+              <summary>Inspect durable operation</summary>
+              {inspectOperation && (
+                <OperationRecord workflowId={workflowId} node={node} />
+              )}
+            </details>
+          ) : (
+            <p className="muted">
+              No accepted result is recorded for this step.
+            </p>
+          )}
           {node.observation ? (
             <>
               <Fields>
+                <Field label="Observed attempt">
+                  {node.observation.attempt_id}
+                </Field>
                 <Field label="Callable observation">
                   {node.observation.state} ·{" "}
                   {micros(node.observation.elapsed_us)}
                 </Field>
               </Fields>
               <p className="muted">
-                Returned means the callable returned; durable result acceptance
-                is separate. Replay reuses an accepted result.
+                {node.observation.state === "replayed"
+                  ? "This attempt was observed reusing an accepted result."
+                  : "This observation describes one attempt. Other attempts may have reused an accepted result."}
               </p>
               <LocalResources attemptId={node.observation.attempt_id} />
             </>

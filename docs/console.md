@@ -268,3 +268,9 @@ request. Only the server decides eligibility and expiry. After an uncertain
 response, retry the frozen decision; the Console does not replace it with a
 new command. See [durable workflow approvals](workflow-approvals.md) for the
 API, identity and execution guarantees.
+
+## Inspect an accepted operation
+
+With a development build, open a local step in Graph or Trace to inspect its
+accepted arguments and result on demand. The attempt that recorded the result
+can differ from a later attempt that reused it. [Operation inspection](agent-recovery.md#inspect-an-accepted-operation).
