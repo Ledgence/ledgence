@@ -25,7 +25,6 @@ impl ConsoleQueryStore for PostgresStore {
             let observed_at = db::now(&mut tx).await?;
             let reply = match query {
                 ConsoleQuery::Explorer { .. }
-                | ConsoleQuery::ExplorerAtApproval { .. }
                 | ConsoleQuery::WorkflowInput { .. }
                 | ConsoleQuery::Ancestry { .. } => {
                     explorer::query(&mut tx, scope, query, position.as_ref(), observed_at).await?
@@ -79,6 +78,31 @@ impl ConsoleQueryStore for PostgresStore {
                 }
             };
             reply.validate(scope, query)?;
+            tx.commit().await?;
+            Ok(reply)
+        }))
+    }
+    fn explore_approval<'a>(
+        &'a self,
+        scope: &'a Scope,
+        focus: &'a ConsoleApprovalFocus,
+    ) -> ContractFuture<'a, ConsoleWorkflowExplorer> {
+        Box::pin(self.run(|| async {
+            self.require_scope(scope)?;
+            focus.validate(scope)?;
+            let mut connection = self.transaction_connection().await?;
+            let mut tx = connection.begin_read().await?;
+            let observed_at = db::now(&mut tx).await?;
+            let reply = explorer::workflow_page(
+                &mut tx,
+                scope,
+                &focus.workflow_id,
+                &focus.page,
+                explorer::ExplorerStart::Approval(&focus.approval_key),
+                observed_at,
+            )
+            .await?;
+            focus.validate_reply(scope, &reply)?;
             tx.commit().await?;
             Ok(reply)
         }))

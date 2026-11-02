@@ -296,6 +296,19 @@ pub(super) async fn dispatch(
                 })
                 .await;
         }
+        if path == "/v1/console/workflows/explorer"
+            && let Some(approval_key) = fields.get("approval_key")
+        {
+            let focus = ConsoleApprovalFocus {
+                workflow_id: required(&fields, "workflow_id")?,
+                approval_key: approval_key.clone(),
+                page,
+            };
+            focus.validate(scope)?;
+            let reply = console.queries.explore_approval(&focus).await?;
+            focus.validate_reply(scope, &reply)?;
+            return metadata(server, reply).await;
+        }
         let query = match path {
             "/v1/console/executions" => ConsoleQuery::Executions {
                 filters: execution_filters(&fields)?,
@@ -308,17 +321,10 @@ pub(super) async fn dispatch(
                     id: required(&fields, "id")?,
                 },
             },
-            "/v1/console/workflows/explorer" => {
-                let workflow_id = required(&fields, "workflow_id")?;
-                match fields.get("approval_key") {
-                    Some(key) => ConsoleQuery::ExplorerAtApproval {
-                        workflow_id,
-                        approval_key: key.clone(),
-                        page,
-                    },
-                    None => ConsoleQuery::Explorer { workflow_id, page },
-                }
-            }
+            "/v1/console/workflows/explorer" => ConsoleQuery::Explorer {
+                workflow_id: required(&fields, "workflow_id")?,
+                page,
+            },
             "/v1/console/workflows/input" => ConsoleQuery::WorkflowInput {
                 workflow_id: required(&fields, "workflow_id")?,
             },

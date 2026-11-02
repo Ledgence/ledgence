@@ -28,4 +28,16 @@ impl ConsoleQueryService for ConsoleApplicationService {
             Ok(reply)
         })
     }
+
+    fn explore_approval<'a>(
+        &'a self,
+        focus: &'a ConsoleApprovalFocus,
+    ) -> ContractFuture<'a, ConsoleWorkflowExplorer> {
+        Box::pin(async move {
+            focus.validate(&self.scope)?;
+            let reply = self.store.explore_approval(&self.scope, focus).await?;
+            focus.validate_reply(&self.scope, &reply)?;
+            Ok(reply)
+        })
+    }
 }

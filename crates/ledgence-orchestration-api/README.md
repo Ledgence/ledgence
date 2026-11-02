@@ -31,6 +31,13 @@ acknowledging an operation. This crate provides no database, HTTP service, broke
 or worker implementation; those components remain in the Ledgence source
 repository and release bundles.
 
+A workflow adapter can implement `WorkflowStore::approval_inbox` to list scoped
+approval summaries across workflows. Console adapters can implement
+`ConsoleQueryStore::explore_approval` to start a graph page at its recorded
+approval wait. Subsequent pages use the ordinary workflow explorer cursor.
+Existing adapters return `ContractError::Unavailable` for these optional reads
+until they implement them.
+
 Requires Rust 1.98 or newer. The pre-1.0 API may change between minor versions.
 See the [published API documentation](https://docs.rs/ledgence-orchestration-api),
 [delivery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/delivery-contract.md)

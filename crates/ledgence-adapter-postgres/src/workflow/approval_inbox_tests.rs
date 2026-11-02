@@ -297,7 +297,7 @@ async fn inbox_seek_uses_ordered_indexes_for_every_filter_combination() {
 #[ignore = "requires PostgreSQL 18"]
 async fn inbox_explorer_targets_late_wait_even_on_page_of_one_and_returns_normal_continuation() {
     use ledgence_orchestration_api::console::{
-        ConsolePagination, ConsoleQuery, ConsoleQueryReply, ConsoleQueryStore,
+        ConsoleApprovalFocus, ConsolePagination, ConsoleQuery, ConsoleQueryReply, ConsoleQueryStore,
     };
     let db = TestDb::new().await;
     let (wf, first) = request(&db.store, scope(), "agent-a", "first", 120_000).await;
@@ -331,16 +331,17 @@ async fn inbox_explorer_targets_late_wait_even_on_page_of_one_and_returns_normal
     };
     assert_eq!(first_page.page.items.len(), 1);
     assert_ne!(first_page.page.items[0].data.key(), "review:late");
-    let target = ConsoleQuery::ExplorerAtApproval {
+    let target = ConsoleApprovalFocus {
         workflow_id: wf.workflow_id.clone(),
         approval_key: "review:late".into(),
         page: page.clone(),
     };
-    let reply = db.store.query_console(&scope(), &target).await.unwrap();
-    reply.validate(&scope(), &target).unwrap();
-    let ConsoleQueryReply::Explorer(focused) = reply else {
-        panic!("unexpected response")
-    };
+    let focused = db.store.explore_approval(&scope(), &target).await.unwrap();
+    target.validate_reply(&scope(), &focused).unwrap();
+    assert!(matches!(
+        target.validate_reply(&scope(), &first_page),
+        Err(ContractError::Unavailable(_))
+    ));
     let node = &focused.page.items[0];
     assert_eq!(node.data.key(), "review:late");
     assert_eq!(node.activation_id, second.activation_id);
@@ -349,13 +350,13 @@ async fn inbox_explorer_targets_late_wait_even_on_page_of_one_and_returns_normal
         limit: 1,
         cursor: Some(focused.page.next_cursor.unwrap()),
     };
-    let invalid = ConsoleQuery::ExplorerAtApproval {
+    let invalid = ConsoleApprovalFocus {
         workflow_id: wf.workflow_id.clone(),
         approval_key: "review:late".into(),
         page: next.clone(),
     };
     assert!(matches!(
-        db.store.query_console(&scope(), &invalid).await,
+        db.store.explore_approval(&scope(), &invalid).await,
         Err(ContractError::InvalidInput(_))
     ));
     let normal = ConsoleQuery::Explorer {
@@ -371,16 +372,16 @@ async fn inbox_explorer_targets_late_wait_even_on_page_of_one_and_returns_normal
     let mut other = scope();
     other.tenant_id = "other".into();
     assert!(matches!(
-        db.store.query_console(&other, &target).await,
+        db.store.explore_approval(&other, &target).await,
         Err(ContractError::NotFound)
     ));
-    let missing = ConsoleQuery::ExplorerAtApproval {
+    let missing = ConsoleApprovalFocus {
         workflow_id: wf.workflow_id.clone(),
         approval_key: "absent".into(),
         page,
     };
     assert!(matches!(
-        db.store.query_console(&scope(), &missing).await,
+        db.store.explore_approval(&scope(), &missing).await,
         Err(ContractError::NotFound)
     ));
     db.finish().await;
