@@ -633,3 +633,55 @@ async fn approval_reads_keep_exact_scope_key_and_cursor() {
         exchange.await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn approval_inbox_targets_the_scope_and_encodes_status_and_program_filters() {
+    for status in [None, Some("all"), Some("expired")] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = format!("http://{}", listener.local_addr().unwrap());
+        let exchange = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (header, body) = request(&mut socket).await;
+            assert!(header.starts_with("POST /v1/workflows/approvals/inbox HTTP/1.1"));
+            let expected_status = match status {
+                None => json!("pending"),
+                Some("all") => Value::Null,
+                Some(value) => json!(value),
+            };
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({
+                    "scope":{"tenant_id":"tenant","namespace":"billing"}, "status":expected_status,
+                    "program_id":"refunds","limit":50,"cursor":null
+                })
+            );
+            respond(&mut socket, "200 OK", r#"{"items":[],"next_cursor":null}"#).await;
+        });
+        let mut args = vec![
+            "approval",
+            "inbox",
+            "--server",
+            &server,
+            "--tenant",
+            "tenant",
+            "--namespace",
+            "billing",
+            "--program",
+            "refunds",
+        ];
+        if let Some(status) = status {
+            args.extend(["--status", status]);
+        }
+        let reply = invoke(&args).await;
+        assert!(
+            reply.status.success(),
+            "{}",
+            String::from_utf8_lossy(&reply.stderr)
+        );
+        exchange.await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&reply.stdout).unwrap(),
+            json!({"items":[],"next_cursor":null})
+        );
+    }
+}

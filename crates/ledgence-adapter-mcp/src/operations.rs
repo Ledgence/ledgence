@@ -281,6 +281,21 @@ impl ToolDispatcher {
                 }
                 encode(reply, true)?
             }
+            "ledgence_approval_inbox" => {
+                let args: ApprovalInbox = parse(arguments)?;
+                let query = ApprovalInboxQuery {
+                    scope: self.scope.clone(),
+                    status: args.status,
+                    program_id: args.program_id,
+                    cursor: args.cursor,
+                    limit: args.limit,
+                };
+                query.validate().map_err(ToolError::arguments)?;
+                let page = remote(self.workflows.approval_inbox(&query).await, false)?;
+                page.validate_for(&query)
+                    .map_err(|_| invalid_reply(false))?;
+                encode(page, false)?
+            }
             "ledgence_approval_list" => {
                 let args: ApprovalList = parse(arguments)?;
                 validate_text(&args.workflow_id, 128).map_err(ToolError::arguments)?;
@@ -441,6 +456,19 @@ struct WorkflowReference {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ApprovalInbox {
+    #[serde(default = "pending_status")]
+    status: Option<ApprovalStatus>,
+    program_id: Option<String>,
+    cursor: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: u32,
+}
+fn pending_status() -> Option<ApprovalStatus> {
+    Some(ApprovalStatus::Pending)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ApprovalReference {
     workflow_id: String,
     key: String,
@@ -570,6 +598,13 @@ mod tests {
                 "ledgence_approval_inspect",
                 json!({"workflow_id":"workflow","key":"approve","decision":"approve"}),
             ),
+            (
+                "ledgence_approval_inbox",
+                json!({"scope":{"tenant_id":"other","namespace":"other"}}),
+            ),
+            ("ledgence_approval_inbox", json!({"limit":101})),
+            ("ledgence_approval_inbox", json!({"status":"bad"})),
+            ("ledgence_approval_inbox", json!({"program_id":".."})),
             ("ledgence_program_list", json!({"tenant_id":"other"})),
             ("ledgence_program_versions", json!({"program":".."})),
             (
@@ -604,6 +639,11 @@ mod tests {
     }
     #[test]
     fn default_task_list_and_explicit_cloud_event_identity_are_preserved() {
+        let pending: ApprovalInbox = parse(&json!({})).unwrap();
+        assert_eq!(pending.status, Some(ApprovalStatus::Pending));
+        assert_eq!(pending.limit, 50);
+        let unfiltered: ApprovalInbox = parse(&json!({"status":null})).unwrap();
+        assert_eq!(unfiltered.status, None);
         let approvals: ApprovalList = parse(&json!({"workflow_id":"workflow"})).unwrap();
         validate_approval_page(None, approvals.limit).unwrap();
         assert_eq!(approvals.limit, 10);

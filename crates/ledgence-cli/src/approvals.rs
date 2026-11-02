@@ -9,6 +9,7 @@ pub async fn execute(
     operation: ApprovalOperation,
 ) -> Result<Vec<u8>> {
     match operation {
+        ApprovalOperation::Inbox(query) => encode(service.approval_inbox(&query).await?),
         ApprovalOperation::Inspect {
             scope,
             workflow_id,

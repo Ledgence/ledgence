@@ -121,6 +121,19 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             true,
         ),
         tool(
+            "ledgence_approval_inbox",
+            "Find approval summaries across workflows in the configured scope, earliest deadline first. Omit status for pending requests or set it to null for all statuses. Pass next_cursor with the same filters. Use ledgence_approval_inspect with the returned workflow_id and key for the effective action.",
+            object(
+                json!({
+                    "status":{"type":["string","null"],"enum":["pending","approved","rejected","expired","cancelled",null],"default":"pending"},
+                    "program_id":identifier(), "cursor":cursor(), "limit":limit()
+                }),
+                &[],
+            ),
+            true,
+            false,
+        ),
+        tool(
             "ledgence_approval_list",
             "List durable approval requests for a workflow. These are persisted observations; expiration may await coordinator processing. This server cannot approve or reject requests.",
             object(
@@ -220,7 +233,7 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 15);
+        assert_eq!(all.len(), 16);
         assert!(
             all.iter()
                 .all(|tool| tool.input_schema["additionalProperties"] == false)

@@ -43,7 +43,7 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
     for (group, leaves) in [
         ("local", vec!["up", "status", "logs", "down"]),
         ("program", vec!["new", "build", "publish", "register"]),
-        ("approval", vec!["list", "inspect", "decide"]),
+        ("approval", vec!["inbox", "list", "inspect", "decide"]),
         ("mcp", vec!["serve"]),
         ("worker", vec!["run", "connect"]),
         ("orchestrator", vec!["migrate", "serve", "retain"]),
