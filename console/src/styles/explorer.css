@@ -12,11 +12,10 @@
   width: 100%;
   position: relative;
   isolation: isolate;
-  --graph-surface: color-mix(in srgb, var(--well) 65%, var(--surface));
-  --graph-connector: color-mix(in srgb, var(--muted) 85%, var(--line));
-  --graph-grid: color-mix(in srgb, var(--muted) 29%, var(--graph-surface));
-  --node-line: color-mix(in srgb, var(--line) 74%, var(--muted));
-  --node-shadow: light-dark(rgb(20 28 42 / 8%), rgb(0 0 0 / 30%));
+  --graph-surface: light-dark(#f7f8f8, #070a0c);
+  --graph-connector: light-dark(#505f64, #9baab0);
+  --graph-grid: light-dark(#cbd2d4, #30383d);
+  --node-line: light-dark(#879397, #76878c);
   --xy-background-color: var(--graph-surface);
   --xy-node-boxshadow-hover-default: none;
   --xy-node-boxshadow-selected-default: none;
@@ -38,7 +37,6 @@
   border-radius: 10px;
   background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 2px 5px var(--node-shadow);
   transition:
     border-color var(--motion),
     box-shadow var(--motion);
@@ -93,7 +91,10 @@
   padding: 6px 12px;
   border-top: 1px solid var(--line);
   border-radius: 0 0 10px 10px;
-  background: color-mix(in srgb, var(--well) 45%, var(--surface));
+  background: light-dark(
+    #f6f8f7,
+    color-mix(in srgb, var(--well) 45%, var(--surface))
+  );
   font-size: 12px;
   line-height: 15px;
 }
@@ -740,5 +741,31 @@
   }
   .execution-explorer.explorer-maximized .explorer-toolbar {
     top: -12px;
+  }
+}
+
+@container console-light {
+  .work-card strong {
+    font-size: 15px;
+  }
+  .work-card-entrypoint strong {
+    font: 600 14px/20px var(--technical-font);
+  }
+  .work-card-kind,
+  .work-card-footer {
+    font-size: 13px;
+    line-height: 16px;
+  }
+  .work-card-status {
+    font-weight: 550;
+  }
+  .work-card-revision {
+    font-size: 12px;
+  }
+  .work-card-gate strong {
+    font-size: 13px;
+  }
+  .work-card-local strong {
+    font-size: 14px;
   }
 }

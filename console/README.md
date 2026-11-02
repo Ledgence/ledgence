@@ -220,9 +220,12 @@ missing reports never become fabricated process slots.
 On desktop, **Collapse sidebar** makes room for the content. Select the Ledgence
 mark to expand the sidebar again. In development builds, choose **System**,
 **Light** or **Dark** from **Appearance** in the sidebar. On small screens, the
-same control appears beside the four navigation links. List pages open directly
-with their content. Execution details keep the title, Back button and ancestry
-together, with status and timing below.
+same control appears beside the four navigation links. **System** is the default
+and follows changes to the device appearance. The browser remembers the selected
+preference when local storage is available.
+
+List pages open directly with their content. Execution details keep the title,
+Back button and ancestry together, with status and timing below.
 
 Primary date/type/status filters stay visible and advanced exact filters expand on demand. The explorer can expand to
 full screen with Escape to exit, keeps selection and canvas state, and opens its

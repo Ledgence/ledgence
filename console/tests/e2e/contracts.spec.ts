@@ -412,6 +412,41 @@ test("workflow relationships use recorded creation IDs", async ({ page }) => {
   );
   await expect(page.locator(".activation-group")).toContainText("task_child_1");
 });
+test("execution history follows system appearance until an operator overrides it", async ({
+  page,
+}) => {
+  await mount(page);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/console/executions");
+  const appearance = page.getByRole("combobox", { name: "Appearance" });
+  const header = page.getByRole("columnheader", {
+    name: "Execution",
+    exact: true,
+  });
+  const textStyle = () =>
+    header.evaluate((element) => {
+      const { color, fontSize } = getComputedStyle(element);
+      return { color, fontSize };
+    });
+
+  await expect(appearance).toHaveValue("system");
+  const light = await textStyle();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(header).not.toHaveCSS("color", light.color);
+  await expect(header).not.toHaveCSS("font-size", light.fontSize);
+  const dark = await textStyle();
+
+  await appearance.selectOption("light");
+  await expect.poll(textStyle).toEqual(light);
+  await page.reload();
+  await expect(appearance).toHaveValue("light");
+  await expect.poll(textStyle).toEqual(light);
+
+  await appearance.selectOption("system");
+  await expect.poll(textStyle).toEqual(dark);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(textStyle).toEqual(light);
+});
 for (const width of [320, 375, 768, 1280])
   for (const theme of ["light", "dark"]) {
     test(`execution table reflows at ${width}px in ${theme}`, async ({

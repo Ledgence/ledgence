@@ -563,9 +563,14 @@ a {
 }
 .status[data-tone="success"] {
   color: var(--success);
+  background: light-dark(#e0f4e8, #112b20);
 }
 .status[data-tone="failure"] {
   color: var(--failure);
+  background: light-dark(
+    #fbe8ec,
+    color-mix(in srgb, currentColor 9%, var(--surface))
+  );
 }
 .status[data-tone="active"] {
   color: var(--accent);
@@ -1538,6 +1543,7 @@ summary {
   font-weight: 550;
 }
 .execution-table .execution-id {
+  font-variant-numeric: tabular-nums;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 10px;
 }
@@ -1797,5 +1803,17 @@ summary {
   }
   .execution-context .breadcrumbs {
     flex-basis: auto;
+  }
+}
+
+@container console-light {
+  .status,
+  .timeline-row .status {
+    font-size: 13px;
+  }
+  .worker-session-id {
+    font-family: var(--technical-font);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
   }
 }

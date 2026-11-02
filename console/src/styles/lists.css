@@ -302,3 +302,11 @@
     width: 109px;
   }
 }
+
+@container console-light {
+  .resource-list .resource-id {
+    font-family: var(--technical-font);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+}

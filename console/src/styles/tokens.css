@@ -1,39 +1,47 @@
 /* SPDX-License-Identifier: MIT */
 :root {
   color-scheme: light dark;
-  --bg: light-dark(#f6f7f9, #101216);
-  --surface: light-dark(#fff, #1b1e24);
-  --well: light-dark(#eff1f4, #22262e);
-  --ink: light-dark(#202126, #f5f5f7);
-  --muted: light-dark(#525e6d, #b4becc);
-  --line: light-dark(#d6dbe2, #363c46);
-  --control-line: light-dark(#89939f, #788494);
-  --hover: light-dark(#edf0f4, #292e37);
-  --selected: light-dark(#e7edf2, #313946);
-  --input-bg: var(--surface);
-  --primary: light-dark(#242930, #e9ecf1);
-  --on-primary: light-dark(#fff, #171a20);
-  --accent: light-dark(#225d81, #91c4e8);
-  --focus: light-dark(#246990, #93d2fb);
-  --success: light-dark(#226347, #96d9b8);
-  --waiting: light-dark(#83520e, #f3c982);
-  --failure: light-dark(#9a3446, #f6a8b4);
+  --bg: light-dark(#f4f5f5, #040506);
+  --surface: light-dark(#fff, #101316);
+  --well: light-dark(#ebeeee, #191d21);
+  --ink: light-dark(#121619, #f8faf9);
+  --muted: light-dark(#404b50, #c5cdd0);
+  --line: light-dark(#c4cbcd, #394148);
+  --control-line: light-dark(#707b7f, #74828b);
+  --hover: light-dark(#eef2f2, #20292c);
+  --selected: light-dark(#e4edf0, #253135);
+  --input-bg: light-dark(#fff, #0b0e10);
+  --primary: light-dark(#171d20, #f3f7f6);
+  --on-primary: light-dark(#fff, #101416);
+  --accent: light-dark(#124f79, #a2d4ff);
+  --focus: light-dark(#005f96, #a4dbff);
+  --success: light-dark(#005632, #72fab0);
+  --waiting: light-dark(#754708, #fbd684);
+  --failure: light-dark(#8e1935, #ffabb9);
   /* The graphite navigation belongs to the brand in both appearances. */
-  --side: light-dark(#f1f3f6, #191c22);
-  --rail: #1c1e23;
-  --rail-ink: #f5f5f7;
-  --rail-muted: #b9c0ce;
-  --rail-hover: #2b2f36;
-  --rail-selected: #383d46;
-  --rail-line: #393e46;
+  --side: light-dark(#f1f3f3, #0e1113);
+  --rail: light-dark(#111517, #090b0d);
+  --rail-ink: light-dark(#fbfcfc, #f4f8f7);
+  --rail-muted: light-dark(#cbd1d3, #c6ced1);
+  --rail-hover: light-dark(#21282b, #1b2124);
+  --rail-selected: light-dark(#2c3438, #252c30);
+  --rail-line: light-dark(#394449, #343d43);
+  --technical-font: Menlo, Consolas, "Liberation Mono", ui-monospace, monospace;
   --radius: 10px;
   --motion: 150ms;
+}
+/* The named container scopes light typography without changing layout. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    container-name: console-light;
+  }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
 }
 :root[data-theme="light"] {
   color-scheme: light;
+  container-name: console-light;
 }
 @media (prefers-reduced-motion: reduce) {
   :root {
