@@ -261,12 +261,14 @@ cargo test -p ledgence-orchestration-api --lib workflow_approvals --locked
 cargo test -p ledgence-adapter-http --all-features --test contract workflow::approvals --locked
 # An owned disposable PostgreSQL 18 server is required for this command.
 LEDGENCE_POSTGRES_URL=postgres://USER:PASSWORD@127.0.0.1:5432/ledgence \
-  python3.13 tools/check-workflows.py --scenario approvals --scenario approval-example \
+  python3.13 tools/check-workflows.py --scenario approvals --scenario approval-example --scenario approval-inbox \
   --psql /path/to/psql --binaries target/debug --evidence /path/to/new-evidence
 ```
 
 The process gate checks unchanged proposals through an orchestrator restart,
 lost decision responses and identical reconciliation, changed-action rejection,
 rejection/expiry/cancellation, worker-slot release, CLI interoperability, and an
-activation retry after its approved local result has committed. Adding
+activation retry after its approved local result has committed. The inbox scenario
+races opposite decisions from two operators and checks that the workflow resumes
+once and that another namespace cannot discover the requests. Adding
 `--endpoint http://127.0.0.1:9324` runs against a disposable local ElasticMQ queue.
