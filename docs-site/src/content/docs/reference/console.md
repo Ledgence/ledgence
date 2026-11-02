@@ -35,7 +35,9 @@ Edges distinguish invocation, registration, branch membership, waiting for termi
 
 ## Navigation and graph controls
 
-Collapse the desktop sidebar with its header control; select the Ledgence mark to expand it again. **Appearance** offers System, Light and Dark. The instance, ancestry and execution title share one header so the detail view leaves room for the work itself.
+Use **Collapse sidebar** to make room for the workflow. Select the Ledgence mark to expand it again. In **0.7.0**, choose **System**, **Light** or **Dark** from **Appearance** in the top bar. **System** follows your device setting.
+
+In **development builds**, find **Appearance** in the desktop sidebar or beside the four navigation links on small screens. Lists open directly with their content. Execution details keep the title, Back button and links to parent executions together.
 
 In Graph, pan, zoom or drag cards to inspect the recorded execution. **Fit** frames the loaded nodes; **Reorganize** restores automatic positions. Dragging does not change the workflow or its dependencies. Incoming status updates preserve the camera and existing card positions.
 

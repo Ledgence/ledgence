@@ -8,13 +8,15 @@ import {
   Inbox,
   FileText,
   Layers2,
+  ChevronDown,
   Monitor,
+  Moon,
+  Sun,
   Cpu,
   PanelLeftClose,
   Server,
 } from "lucide-react";
 import { applyTheme, readTheme, type Theme } from "../app/theme";
-import { ShellHeaderTargetContext } from "../app/header-slot-context";
 import "../styles/shell.css";
 
 const sidebarStorageKey = "ledgence.console.sidebar-collapsed";
@@ -52,7 +54,7 @@ export function AppShell({
         : section;
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
-  const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
+  const ThemeIcon = { system: Monitor, light: Sun, dark: Moon }[theme];
   function changeTheme(value: string) {
     if (value !== "system" && value !== "light" && value !== "dark") return;
     setTheme(value);
@@ -68,7 +70,7 @@ export function AppShell({
     }
   }
   return (
-    <ShellHeaderTargetContext.Provider value={headerTarget}>
+    <>
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
@@ -107,14 +109,15 @@ export function AppShell({
               )}
             </button>
           </div>
+          <div className="shell-workspace-id">
+            <span className="brand-mark" aria-hidden="true" />
+            <span title={instanceName}>{instanceName}</span>
+          </div>
           <nav
             id="console-navigation"
             className="navigation shell-navigation"
             aria-label="Main navigation"
           >
-            <span className="shell-caption sidebar-label" aria-hidden="true">
-              Workspace
-            </span>
             {sections.map(({ to, title, icon: Icon }) => (
               <Link
                 key={to}
@@ -151,6 +154,25 @@ export function AppShell({
               <FileText aria-hidden="true" />
               <span className="sidebar-label">Notices</span>
             </a>
+            <label className="shell-theme" title={`Appearance: ${theme}`}>
+              <ThemeIcon aria-hidden="true" />
+              <span className="shell-theme-label" aria-hidden="true">
+                Appearance
+              </span>
+              <span className="shell-theme-value" aria-hidden="true">
+                {theme}
+              </span>
+              <ChevronDown className="shell-theme-chevron" aria-hidden="true" />
+              <select
+                aria-label="Appearance"
+                value={theme}
+                onChange={(event) => changeTheme(event.target.value)}
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
             {serverVersion && (
               <div
                 className="shell-version"
@@ -164,31 +186,6 @@ export function AppShell({
           </div>
         </aside>
         <div className="workspace console-workspace">
-          <header className="instance-header shell-header">
-            <div className="shell-header-leading">
-              <div className="instance-header-name">
-                <span
-                  className="brand-mark shell-mobile-mark"
-                  aria-hidden="true"
-                />
-                <Server className="shell-instance-icon" aria-hidden="true" />
-                <span title={instanceName}>{instanceName}</span>
-              </div>
-              <div className="shell-page-heading" ref={setHeaderTarget} />
-            </div>
-            <label className="theme-control">
-              <Monitor aria-hidden="true" />
-              <span className="sr-only">Appearance</span>
-              <select
-                value={theme}
-                onChange={(event) => changeTheme(event.target.value)}
-              >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
-          </header>
           <main id="main-content" className="main-content" tabIndex={-1}>
             {children}
             <footer className="mobile-notices">
@@ -204,6 +201,6 @@ export function AppShell({
           </main>
         </div>
       </div>
-    </ShellHeaderTargetContext.Provider>
+    </>
   );
 }

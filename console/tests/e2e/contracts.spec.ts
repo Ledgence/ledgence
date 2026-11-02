@@ -175,6 +175,7 @@ test("header Back preserves the filtered list after reloading a detail", async (
     .getByRole("button", { name: "Back", exact: true })
     .click();
   await expect(page).toHaveURL(new URL(list, page.url()).href);
+  await expect(page.locator(".shell-header")).toBeHidden();
   await expect(
     page.getByRole("combobox", { name: "Status", exact: true }),
   ).toHaveValue("active");
@@ -201,7 +202,7 @@ for (const width of [320, 390, 1280]) {
       await page.goto(
         `/console/${kind === "task" ? "executions" : "workflows"}/${id}?tab=General`,
       );
-      const header = page.locator(".shell-header");
+      const header = page.getByRole("main").locator(".shell-header");
       const heading = header.getByRole("heading", {
         level: 1,
         name: title,
@@ -212,9 +213,12 @@ for (const width of [320, 390, 1280]) {
       });
       await expect(heading).toBeVisible();
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(header.locator(".instance-header-name")).toHaveText(
-        instanceName,
-      );
+      const sidebar = page.getByRole("complementary", {
+        name: "Console sidebar",
+      });
+      await expect(
+        page.getByTitle(instanceName, { exact: true }),
+      ).toBeVisible();
       await expect(
         ancestry.getByRole("link", { name: "Executions", exact: true }),
       ).toBeVisible();
@@ -222,7 +226,7 @@ for (const width of [320, 390, 1280]) {
         header.getByRole("button", { name: "Back", exact: true }),
       ).toBeVisible();
       await expect(
-        header.getByRole("combobox", { name: "Appearance" }),
+        sidebar.getByRole("combobox", { name: "Appearance" }),
       ).toBeVisible();
       await expect(
         page.getByRole("button", { name: "General", exact: true }),
@@ -283,29 +287,17 @@ for (const width of [320, 390, 1280]) {
           parseFloat(getComputedStyle(element).fontSize),
         ),
       ).toBeGreaterThanOrEqual(15);
-      if (width >= 768) {
-        const instanceBox = (await header
-          .locator(".instance-header-name")
-          .boundingBox())!;
-        const ancestryBox = (await ancestry.boundingBox())!;
-        expect(
-          Math.abs(
-            instanceBox.y +
-              instanceBox.height / 2 -
-              titleBox.y -
-              titleBox.height / 2,
-          ),
-        ).toBeLessThanOrEqual(2);
-        expect(instanceBox.x + instanceBox.width).toBeLessThan(ancestryBox.x);
-        expect(headerBox.height).toBeLessThanOrEqual(80);
-      } else {
-        expect(headerBox.height).toBeLessThanOrEqual(120);
-        expect(
-          (await header
-            .getByRole("button", { name: "Back", exact: true })
-            .boundingBox())!.height,
-        ).toBeGreaterThanOrEqual(44);
-      }
+      const backBox = (await header
+        .getByRole("button", { name: "Back", exact: true })
+        .boundingBox())!;
+      expect(
+        Math.abs(
+          backBox.y + backBox.height / 2 - titleBox.y - titleBox.height / 2,
+        ),
+      ).toBeLessThanOrEqual(2);
+      expect(backBox.x + backBox.width).toBeLessThanOrEqual(titleBox.x);
+      expect(headerBox.height).toBeLessThanOrEqual(80);
+      if (width <= 768) expect(backBox.height).toBeGreaterThanOrEqual(44);
       if (
         testInfo.project.name === "chromium" &&
         (width === 390 || width === 1280)

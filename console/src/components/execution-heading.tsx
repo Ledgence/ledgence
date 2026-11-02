@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import type { ReactNode } from "react";
 import { Box, Workflow } from "lucide-react";
-import { ShellHeaderContent } from "../app/header-slot";
 import { ExecutionContext } from "./execution-context";
 import "../styles/execution-heading.css";
 
@@ -23,9 +22,9 @@ export function ExecutionHeading({
   const Icon = kind === "workflow" ? Workflow : Box;
   return (
     <>
-      <ShellHeaderContent>
+      <header className="shell-header">
         <ExecutionContext kind={kind} id={id} title={title} />
-      </ShellHeaderContent>
+      </header>
       <div className="execution-summary">
         <div className="execution-summary-identity">
           <span className="execution-kind-icon" aria-hidden="true">
