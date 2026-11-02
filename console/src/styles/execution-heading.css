@@ -157,6 +157,7 @@
   min-width: 0;
 }
 .execution-summary .copy-value code {
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -200,5 +201,13 @@
   .execution-summary .copy-value .button {
     min-width: 44px;
     min-height: 44px;
+  }
+}
+
+@container console-light {
+  .execution-summary .copy-value code {
+    font-family: var(--technical-font);
+    font-size: 13px;
+    letter-spacing: normal;
   }
 }

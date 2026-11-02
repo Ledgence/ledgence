@@ -300,3 +300,21 @@
     width: 165px;
   }
 }
+
+@container console-light {
+  .history-table-panel .history-table th,
+  .history-table .cell-secondary {
+    font-size: 13px;
+  }
+  .history-table-panel .history-table .execution-name {
+    font-weight: 600;
+  }
+  .history-table-panel .history-table .execution-id {
+    font-family: var(--technical-font);
+    font-size: 13px;
+    max-width: 30ch;
+  }
+  .history-filters--calendar :is(input, select):focus-visible {
+    outline-offset: 2px;
+  }
+}

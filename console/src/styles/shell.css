@@ -104,7 +104,7 @@
   background: var(--rail-hover);
 }
 .console-sidebar :focus-visible {
-  outline: 2px solid #b7daf1;
+  outline: 2px solid light-dark(#b7daf1, var(--focus));
   outline-offset: 2px;
 }
 .console-sidebar .shell-navigation a {
@@ -217,7 +217,7 @@
   background: var(--rail-hover);
 }
 .shell-theme:has(select:focus-visible) {
-  outline: 2px solid #b7daf1;
+  outline: 2px solid light-dark(#b7daf1, var(--focus));
   outline-offset: 2px;
 }
 @media (min-width: 769px) {
