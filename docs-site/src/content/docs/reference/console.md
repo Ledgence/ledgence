@@ -181,3 +181,16 @@ Existing `/agents` and workflow links remain supported. Migrations can lock writ
 A database containing multiple historical bindings is rejected; migration does not delete or reassign records. Older binaries must not run concurrently against a bound database. Returning to a version that ignores the binding requires a coordinated offline rollback plan.
 
 The catalog persists independently of execution-history retention. Retention does not turn a registered package into an execution or delete immutable artifacts as a side effect.
+
+## Inspect an accepted operation
+
+In matching development builds, open **Execution History**, select a workflow
+and choose a local step in **Graph** or **Trace**. Open the operation details
+to see the effective arguments and accepted result. Model and tool calls show
+their saved callable and version. Ordinary local steps show the input and result
+saved by the program.
+
+The recorded attempt and timestamp tell you when the result became durable.
+To investigate reuse, check the observations for a later attempt. An absent
+observation leaves that attempt's replay behavior unknown. Console retrieves
+payloads only when the inspector is opened.

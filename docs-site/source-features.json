@@ -45,5 +45,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/require-approval#find-pending-requests-across-workflows"
+  },
+  "durableOperationInspector": {
+    "title": "Inspect an accepted durable operation",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/reference/console#inspect-an-accepted-operation"
   }
 }

@@ -157,3 +157,19 @@ lost acknowledgments, and records per-attempt evidence. Add
 `--endpoint http://127.0.0.1:9324` to use a disposable local ElasticMQ queue.
 Its provider fixtures are synthetic: the gate proves recovery behavior, not a
 live model integration or throughput target.
+
+## Inspect an accepted operation
+
+In matching development builds, open a workflow execution in Console, select a
+local step in Graph or Trace, and open its operation details. For a model or tool
+operation, the inspector shows the callable, its version, the effective arguments
+(including bound defaults), the result stored in the journal, and the attempt and
+time of acceptance. For an ordinary local step it shows the recorded input and
+output. The graph and list responses contain only metadata. Console fetches the
+payload when you open the inspector.
+
+The acceptance attempt identifies the worker attempt that committed the result.
+A later attempt can reuse it. Consult attempt observations for reported replays.
+Missing observations leave replay history unknown. A workflow checkpoint stores
+the application's continuation state separately. Retention removes the journal
+with its workflow. [Console read contract](console-query-model.md#inspect-one-local-step).

@@ -56,6 +56,9 @@ original commands and do not include Console.
 In development builds, the [approval inbox](docs/workflow-approvals.md#approval-inbox)
 finds requests across workflows in one tenant and namespace. Review the effective
 action in Console or discover requests through the CLI, Python client or MCP.
+From a recorded local step in the workflow graph or trace, open the
+[operation inspector](docs/agent-recovery.md#inspect-an-accepted-operation) to see
+the arguments, accepted result and worker attempt that recorded it.
 
 ### Install and start Ledgence
 

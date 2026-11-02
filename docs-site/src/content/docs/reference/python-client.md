@@ -157,7 +157,8 @@ Save the returned subscription ID and reconnect with `client.completions.handle(
 
 Call `await client.workflows.approval_inbox(program_id="durable-approval")`
 to find pending requests in the client's scope. Use `status=None` for all
-statuses. Each summary supplies `workflow_id` and `key` for reading the
+statuses. Pass `due_before` as UTC epoch milliseconds or a timezone-aware
+Python `datetime` to select deadlines strictly earlier than that instant. Each summary supplies `workflow_id` and `key` for reading the
 stored action. Pass the returned `next_cursor` as `cursor` with the same
 filters to read another page.
 

@@ -57,6 +57,12 @@ includes framework-free workflow patterns, a Google ADK/Gemini support agent,
 Codex workflows, durable approvals and operation recovery. Model access is a
 prerequisite of the corresponding live example, not of Ledgence self-hosting.
 
+### Durable operation inspection in development
+
+From a workflow graph or trace, open a local step to see the arguments, accepted
+result and recording attempt. Model and tool steps also show the version saved
+with the call. [Inspect an accepted operation](/reference/console#inspect-an-accepted-operation).
+
 ### Approval inbox in development
 
 Find pending actions across workflow runs within the instance or configured

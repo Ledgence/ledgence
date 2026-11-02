@@ -136,7 +136,7 @@ ledgence approval inbox --server http://127.0.0.1:8080 --tenant acme --namespace
 ```
 
 The public HTTP route is `POST /v1/workflows/approvals/inbox`. The body contains
-`scope`, optional `status`, `program_id` and `cursor`, and a required integer
+`scope`, optional `status`, `program_id`, `due_before` and `cursor`, and a required integer
 `limit` from 1 to 100. A null or absent status selects all statuses on HTTP.
 Console, CLI, Python and MCP start with pending requests. The Console route,
 `POST /v1/console/approvals/inbox`, takes its scope from the instance.
@@ -146,6 +146,10 @@ the workflow, activation, approval key, workflow program and version, action
 name and version, creation time, deadline and persisted status. The list omits
 arguments, decisions and checkpoint data. Inspect the approval by workflow ID
 and key to read its effective action and any recorded decision.
+
+Set `due_before` to an instant in UTC epoch milliseconds to select deadlines
+strictly earlier than it. Omit it or send null for all deadlines. The filter
+applies to the recorded deadline independently of status.
 
 Requests sort by earliest deadline with workflow ID and key breaking ties.
 Pass the opaque cursor with the same scope and filters to continue. Pages

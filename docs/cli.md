@@ -314,7 +314,8 @@ semantics.
 
 In development builds, run `ledgence approval inbox --server URL --tenant TENANT --namespace NAMESPACE`
 to discover pending actions without a workflow ID. Filter by `--program ID` or
-`--status` (including `all`). Continue with `--cursor` from `next_cursor` and
+`--status` (including `all`). Add `--due-before 2026-11-06T17:00:00Z` for
+deadlines strictly earlier than the given instant. Continue with `--cursor` from `next_cursor` and
 the same filters. Use the returned workflow ID and key with `approval inspect`.
 
 ## Durable approvals

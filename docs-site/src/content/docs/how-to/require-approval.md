@@ -58,6 +58,11 @@ The request key is one-shot within its workflow. Use a new key for a changed act
 
 ## Find pending requests across workflows
 
+To plan a review shift, use **Due before (UTC)** in the development Console.
+For example, 17:00 UTC on November 6 includes a request due at 16:59:59 UTC that
+day and excludes one due at exactly 17:00. The CLI equivalent is
+`--due-before 2026-11-06T17:00:00Z`.
+
 **Development builds.** Open **Approvals** in Console to see requests from all
 workflows in this instance, with the earliest deadline first. Choose a program
 to narrow the list. Open a request and compare the effective action with what
