@@ -407,6 +407,38 @@ pub enum ApprovalOperation {
     },
     Decide(PathBuf),
 }
+fn parse_due_before(value: &str) -> Result<u64> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+    if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return value
+            .parse()
+            .map_err(|_| invalid("--due-before exceeds the supported range"));
+    }
+    let error = || {
+        invalid(
+            "--due-before must be Unix milliseconds or an RFC 3339 timestamp with millisecond precision",
+        )
+    };
+    if !matches!(value.as_bytes().get(10), Some(b'T' | b't')) {
+        return Err(error());
+    }
+    // Refuse finer precision, including digits that the nanosecond parser would discard.
+    if value
+        .split_once('.')
+        .is_some_and(|(_, sub)| sub.bytes().take_while(u8::is_ascii_digit).count() > 3)
+    {
+        return Err(error());
+    }
+    let nanos = OffsetDateTime::parse(value, &Rfc3339)
+        .map_err(|_| error())?
+        .unix_timestamp_nanos();
+    if nanos % 1_000_000 != 0 {
+        return Err(error());
+    }
+    u64::try_from(nanos / 1_000_000).map_err(|_| error())
+}
+
 fn parse_approval(mut args: impl Iterator<Item = String>) -> Result<Command> {
     let operation = args
         .next()
@@ -442,6 +474,11 @@ fn parse_approval(mut args: impl Iterator<Item = String>) -> Result<Command> {
                 scope,
                 status,
                 program_id: options.remove("--program"),
+                due_before: options
+                    .remove("--due-before")
+                    .as_deref()
+                    .map(parse_due_before)
+                    .transpose()?,
                 cursor: options.remove("--cursor"),
                 limit: number(&mut options, "--limit")?
                     .map(u32::try_from)

@@ -1,5 +1,6 @@
 """Scoped approval observations, immutable commands and uncertain decisions (MIT)."""
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -95,8 +96,29 @@ class ApprovalClientTests(unittest.IsolatedAsyncioTestCase):
         await self.client.workflows.approval_inbox(status=None, limit=1)
         self.assertIsNone(json.loads(self.requests[-1][3])["status"])
 
+    async def test_inbox_uses_exact_utc_milliseconds_and_enforces_exclusive_deadline(self):
+        cutoff = datetime(1970, 1, 1, 2, 30, 0, 51000, timezone(timedelta(hours=2, minutes=30)))
+        row = {"workflow_id": "w", "key": "x", "activation_id": "a", "program_id": "p",
+               "program_version": "1", "action_name": "refund", "action_version": "1",
+               "created_at": 1, "deadline": 50, "status": "pending"}
+
+        async def serve(request, body):
+            return response({"items": [row], "next_cursor": None})
+        self.callback = serve
+        for value in (51, cutoff):
+            page = await self.client.workflows.approval_inbox(due_before=value)
+            self.assertEqual(json.loads(self.requests[-1][3])["due_before"], 51)
+            self.assertEqual(page.items[0].deadline, 50)
+        for value in (50, 0):
+            with self.assertRaises(ProtocolError):
+                await self.client.workflows.approval_inbox(due_before=value)
+            self.assertEqual(json.loads(self.requests[-1][3])["due_before"], value)
+
     async def test_inbox_rejects_invalid_queries_and_mismatched_summaries(self):
         for query in ({"status": "unknown"}, {"program_id": ".."}, {"cursor": ""},
+                      {"due_before": -1}, {"due_before": True}, {"due_before": 253402300800000},
+                      {"due_before": datetime(2026, 11, 6)},
+                      {"due_before": datetime(2026, 11, 6, microsecond=1, tzinfo=timezone.utc)},
                       {"limit": 0}, {"limit": True}, {"cursor": "x" * 8193}):
             with self.assertRaises(InputError):
                 await self.client.workflows.approval_inbox(**query)

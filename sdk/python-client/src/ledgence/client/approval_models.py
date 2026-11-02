@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 import json
 
@@ -241,7 +242,20 @@ def _inbox_item(raw):
     return ApprovalInboxItem(**(raw | {"status": ApprovalStatus(raw["status"])}))
 
 
-def parse_inbox_page(raw, status, program_id, cursor, limit):
+def inbox_cutoff(value: int | datetime | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.utcoffset() is None:
+            raise InputError("due_before requires a timezone-aware datetime")
+        delta = value - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        if delta.microseconds % 1000:
+            raise InputError("due_before requires millisecond precision")
+        value = delta // timedelta(milliseconds=1)
+    return codec.integer(value, "due_before", 0, codec.MAX_TIMESTAMP)
+
+
+def parse_inbox_page(raw, status, program_id, due_before, cursor, limit):
     try:
         codec.fields(raw, {"items", "next_cursor"})
         if type(raw["items"]) is not list or len(raw["items"]) > limit:
@@ -251,7 +265,8 @@ def parse_inbox_page(raw, status, program_id, cursor, limit):
         seen = set()
         for item in items:
             if ((status is not None and item.status != status)
-                    or (program_id is not None and item.program_id != program_id)):
+                    or (program_id is not None and item.program_id != program_id)
+                    or (due_before is not None and item.deadline >= due_before)):
                 raise InputError("approval inbox row differs from the requested filters")
             identity = (item.workflow_id, item.key)
             order = (item.deadline, *identity)

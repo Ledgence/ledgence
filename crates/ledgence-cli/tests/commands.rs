@@ -636,7 +636,11 @@ async fn approval_reads_keep_exact_scope_key_and_cursor() {
 
 #[tokio::test]
 async fn approval_inbox_targets_the_scope_and_encodes_status_and_program_filters() {
-    for status in [None, Some("all"), Some("expired")] {
+    for (status, cutoff) in [
+        (None, None),
+        (Some("all"), Some("1970-01-01T02:30:02.001+02:30")),
+        (Some("expired"), Some("2001")),
+    ] {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let server = format!("http://{}", listener.local_addr().unwrap());
         let exchange = tokio::spawn(async move {
@@ -648,13 +652,14 @@ async fn approval_inbox_targets_the_scope_and_encodes_status_and_program_filters
                 Some("all") => Value::Null,
                 Some(value) => json!(value),
             };
-            assert_eq!(
-                serde_json::from_slice::<Value>(&body).unwrap(),
-                json!({
-                    "scope":{"tenant_id":"tenant","namespace":"billing"}, "status":expected_status,
-                    "program_id":"refunds","limit":50,"cursor":null
-                })
-            );
+            let mut expected = json!({
+                "scope":{"tenant_id":"tenant","namespace":"billing"}, "status":expected_status,
+                "program_id":"refunds","limit":50,"cursor":null
+            });
+            if cutoff.is_some() {
+                expected["due_before"] = json!(2001);
+            }
+            assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), expected);
             respond(&mut socket, "200 OK", r#"{"items":[],"next_cursor":null}"#).await;
         });
         let mut args = vec![
@@ -669,6 +674,9 @@ async fn approval_inbox_targets_the_scope_and_encodes_status_and_program_filters
             "--program",
             "refunds",
         ];
+        if let Some(cutoff) = cutoff {
+            args.extend(["--due-before", cutoff]);
+        }
         if let Some(status) = status {
             args.extend(["--status", status]);
         }
@@ -682,6 +690,39 @@ async fn approval_inbox_targets_the_scope_and_encodes_status_and_program_filters
         assert_eq!(
             serde_json::from_slice::<Value>(&reply.stdout).unwrap(),
             json!({"items":[],"next_cursor":null})
+        );
+    }
+}
+
+#[tokio::test]
+async fn approval_inbox_rejects_ambiguous_or_out_of_range_deadlines_before_connecting() {
+    for value in [
+        "+2001",
+        "253402300800000",
+        "2026-11-06",
+        "2026-11-06T17:00:00",
+        "2026-11-06T17:00:00.1234Z",
+        "1969-12-31T23:59:59.999Z",
+        "2026-02-30T00:00:00Z",
+    ] {
+        let reply = invoke(&[
+            "approval",
+            "inbox",
+            "--server",
+            "http://127.0.0.1:1",
+            "--tenant",
+            "tenant",
+            "--namespace",
+            "billing",
+            "--due-before",
+            value,
+        ])
+        .await;
+        let error = String::from_utf8_lossy(&reply.stderr);
+        assert!(
+            !reply.status.success()
+                && (error.contains("--due-before") || error.contains("approval timestamp")),
+            "{value}: {error}"
         );
     }
 }

@@ -16,6 +16,9 @@ pub struct ApprovalInboxQuery {
     pub scope: Scope,
     pub status: Option<ApprovalStatus>,
     pub program_id: Option<String>,
+    /// Include approvals whose deadline is strictly earlier than this UTC epoch millisecond.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_before: Option<Timestamp>,
     pub cursor: Option<String>,
     pub limit: u32,
 }
@@ -44,6 +47,9 @@ struct Cursor {
     scope: Scope,
     status: Option<ApprovalStatus>,
     program_id: Option<String>,
+    // Absence preserves the original v1 cursor encoding for unbounded queries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    due_before: Option<Timestamp>,
     position: ApprovalInboxPosition,
 }
 
@@ -57,6 +63,9 @@ impl ApprovalInboxQuery {
                 version: "1".into(),
             }
             .validate()?;
+        }
+        if let Some(at) = self.due_before {
+            crate::workflow_approvals::timestamp(at)?;
         }
         if !(1..=APPROVAL_INBOX_MAX_LIMIT).contains(&self.limit) {
             return Err(invalid("approval inbox limit must be between 1 and 100"));
@@ -73,6 +82,10 @@ impl ApprovalInboxQuery {
             || cursor.scope != self.scope
             || cursor.status != self.status
             || cursor.program_id != self.program_id
+            || cursor.due_before != self.due_before
+            || self
+                .due_before
+                .is_some_and(|at| cursor.position.deadline >= at)
         {
             return Err(error());
         }
@@ -86,6 +99,7 @@ impl ApprovalInboxQuery {
             scope: self.scope.clone(),
             status: self.status,
             program_id: self.program_id.clone(),
+            due_before: self.due_before,
             position: item.position(),
         })
         .map_err(|_| invalid("could not encode approval inbox cursor"))?;
@@ -156,6 +170,7 @@ impl ApprovalInboxPage {
             item.validate().map_err(|_| inconsistent())?;
             let position = item.position();
             if previous.as_ref().is_some_and(|p| &position <= p)
+                || query.due_before.is_some_and(|at| item.deadline >= at)
                 || query.status.is_some_and(|s| s != item.status)
                 || query
                     .program_id
@@ -188,6 +203,7 @@ mod tests {
             },
             status: Some(ApprovalStatus::Pending),
             program_id: Some("agent".into()),
+            due_before: None,
             limit: 1,
             cursor: None,
         }
@@ -206,6 +222,66 @@ mod tests {
             status: ApprovalStatus::Pending,
         }
     }
+    #[test]
+    fn due_before_is_exclusive_and_part_of_the_cursor_identity() {
+        let base = query();
+        let legacy = br#"{"version":1,"scope":{"tenant_id":"a","namespace":"ns"},"status":"pending","program_id":"agent","position":{"deadline":100,"workflow_id":"wf","key":"a"}}"#;
+        assert_eq!(
+            base.next_cursor(&item("a")).unwrap(),
+            crate::cursor::encode(legacy)
+        );
+        let bounded = ApprovalInboxQuery {
+            due_before: Some(101),
+            ..base.clone()
+        };
+        let cursor = bounded.next_cursor(&item("a")).unwrap();
+        let next = ApprovalInboxQuery {
+            cursor: Some(cursor),
+            ..bounded.clone()
+        };
+        assert_eq!(next.validate().unwrap(), Some(item("a").position()));
+        for due_before in [None, Some(102), Some(0)] {
+            assert!(
+                ApprovalInboxQuery {
+                    due_before,
+                    ..next.clone()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            ApprovalInboxQuery {
+                cursor: Some(crate::cursor::encode(legacy)),
+                ..bounded.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            ApprovalInboxQuery {
+                due_before: Some(253_402_300_800_000),
+                ..base.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        let page = ApprovalInboxPage {
+            items: vec![item("a")],
+            next_cursor: None,
+        };
+        page.validate_for(&bounded).unwrap();
+        for due_before in [100, 99, 0] {
+            assert!(
+                page.validate_for(&ApprovalInboxQuery {
+                    due_before: Some(due_before),
+                    ..base.clone()
+                })
+                .is_err()
+            );
+        }
+    }
+
     #[test]
     fn filters_and_scope_bind_a_cursor_and_limit_can_change_between_pages() {
         let first = query();

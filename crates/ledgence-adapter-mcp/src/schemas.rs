@@ -126,7 +126,9 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             object(
                 json!({
                     "status":{"type":["string","null"],"enum":["pending","approved","rejected","expired","cancelled",null],"default":"pending"},
-                    "program_id":identifier(), "cursor":cursor(), "limit":limit()
+                    "program_id":identifier(),
+                    "due_before":{"type":["integer","null"],"minimum":0,"maximum":253402300799999_u64,"description":"Exclusive deadline cutoff in Unix epoch milliseconds (UTC)."},
+                    "cursor":cursor(), "limit":limit()
                 }),
                 &[],
             ),
