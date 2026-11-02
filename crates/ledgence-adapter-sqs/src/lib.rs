@@ -63,6 +63,10 @@ impl SqsOptions {
     }
 
     pub fn validate(&self) -> Result<()> {
+        self.validated_transport().map(|_| ())
+    }
+
+    fn validated_transport(&self) -> Result<bounded_http::Transport> {
         if self.region.is_empty()
             || self.region.len() > 128
             || !self
@@ -72,24 +76,23 @@ impl SqsOptions {
         {
             return Err(invalid("invalid SQS region"));
         }
-        validate_url(&self.queue_url)?;
-        if let Some(endpoint) = &self.endpoint_url {
-            validate_url(endpoint)?;
-        }
-        if self.local_credentials {
-            let endpoint = self.endpoint_url.as_deref().ok_or_else(|| {
+        let queue = validate_url(&self.queue_url)?;
+        let endpoint = self.endpoint_url.as_deref().map(validate_url).transpose()?;
+        let transport = if self.local_credentials {
+            let endpoint = endpoint.ok_or_else(|| {
                 invalid("local SQS credentials require an explicit loopback endpoint")
             })?;
-            let url = validate_url(endpoint)?;
-            let loopback = url.host().is_some_and(|host| match host {
-                url::Host::Domain(domain) => domain == "localhost",
-                url::Host::Ipv4(ip) => ip.is_loopback(),
-                url::Host::Ipv6(ip) => ip.is_loopback(),
-            });
-            if !loopback {
+            if !is_loopback(&endpoint) {
                 return Err(invalid("local SQS credentials require a loopback endpoint"));
             }
-        }
+            if endpoint.scheme() == "http" && queue.scheme() == "http" && is_loopback(&queue) {
+                bounded_http::Transport::LocalHttp
+            } else {
+                bounded_http::Transport::LocalTls
+            }
+        } else {
+            bounded_http::Transport::Standard
+        };
         if !(Duration::from_millis(1)..=Duration::from_secs(30)).contains(&self.operation_timeout)
             || !self
                 .operation_timeout
@@ -108,7 +111,7 @@ impl SqsOptions {
                 "SQS visibility must be whole seconds between 30 and 43200",
             ));
         }
-        Ok(())
+        Ok(transport)
     }
 }
 
@@ -123,11 +126,11 @@ pub struct SqsQueue {
 impl SqsQueue {
     /// Load credentials and verify queue capabilities within one finite budget.
     pub async fn connect(options: SqsOptions) -> Result<Self> {
-        options.validate()?;
+        let transport = options.validated_transport()?;
         let deadline = Instant::now() + options.operation_timeout;
         let client = run_until(deadline, "configuration", async {
             let behavior = BehaviorVersion::v2026_01_12();
-            let http = bounded_http::client(!options.local_credentials);
+            let http = bounded_http::client(transport);
             let mut config = aws_config::defaults(behavior)
                 .region(Region::new(options.region.clone()))
                 .http_client(http.clone())
@@ -466,6 +469,14 @@ fn validate_batch(count: usize) -> Result<()> {
     }
     Ok(())
 }
+fn is_loopback(url: &url::Url) -> bool {
+    url.host().is_some_and(|host| match host {
+        url::Host::Domain(domain) => domain == "localhost",
+        url::Host::Ipv4(ip) => ip.is_loopback(),
+        url::Host::Ipv6(ip) => ip.is_loopback(),
+    })
+}
+
 fn validate_url(value: &str) -> Result<url::Url> {
     if value.len() > 4096 {
         return Err(invalid("SQS URL exceeds byte limit"));

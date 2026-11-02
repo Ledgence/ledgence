@@ -34,8 +34,10 @@ The `v0.6.1` source tag freezes the implementation and its preparation-time
 documentation. Post-publication guides in this checkout reflect verified release
 availability. Implementation links remain pinned to `v0.6.1`; references to
 updated repository guides use `develop`. Generated `public/source.json` records
-the exact documentation build revision separately from the product release
-revision. Keep historical release notes, versioned upgrade guides and pinned
+the documentation checkout commit separately from the product release revision.
+`documentationDirty` marks a local preview built with uncommitted docs changes.
+The deployment builds a clean copy of the selected commit and checks the revision
+before uploading. Keep historical release notes, versioned upgrade guides and pinned
 example corpora intact when refreshing current references.
 
 Beginner tutorials follow one continuous path: choose one installation method,

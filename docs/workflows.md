@@ -140,6 +140,15 @@ an activation do not change that activation's frozen inputs or checkpoint
 revision. A stale worker cannot add new local results or replace an accepted
 controller outcome; exact accepted receipts can be reconciled after expiry.
 
+The coordinator resolves distinct program versions concurrently, up to four at a
+time per claimed decision, within a 20-second resolution window. Newly resolved
+commands that use the same program version share one lookup. PostgreSQL keeps
+completed bindings when it releases a decision for retry. After restart, the next
+coordinator resumes the remaining lookups and schedules children together when
+all bindings are ready. A custom workflow store can provide this same recovery
+by implementing `retry_work_with_bindings`. Its compatibility default retries
+using previously registered children.
+
 The PostgreSQL adapter bounds retries of failed completion-obligation application:
 once that obligation is at least 24 hours old, a further transient application
 failure fails the workflow and starts draining its owned tasks. Age is measured

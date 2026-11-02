@@ -71,6 +71,23 @@ class ApprovalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.commits), 1)
         with self.assertRaises(AttributeError): context.approval._encoded = b"changed"
 
+    async def test_approved_business_argument_names_survive_execution_and_replay(self):
+        calls = []
+
+        def put(*, key, fn, self):
+            calls.append([key, fn, self])
+            return key
+
+        arguments = {"key": "invoice", "fn": "issue", "self": "issuer"}
+        raw = snapshot(action=ApprovalAction.for_callable(
+            put, version="1", arguments=arguments).to_dict())
+        self.assertEqual(await self.approved_context(raw).approved_local(put, version="1"), "invoice")
+        resumed = self.approved_context(raw, local_steps=self.commits)
+        self.assertEqual(await resumed.approved_local(put, version="1"), "invoice")
+        self.assertEqual(calls, [["invoice", "issue", "issuer"]])
+        self.assertEqual(len(self.commits), 1)
+        self.assertEqual(self.commits[0]["input"], arguments)
+
     async def test_pending_rejected_expired_cancelled_and_wrong_binding_never_execute(self):
         for status in ("rejected", "expired"):
             context = self.approved_context(snapshot(status=status))

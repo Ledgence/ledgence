@@ -76,6 +76,11 @@ for (const kind of ["task", "workflow"] as const) {
         await view
           .getByRole("combobox", { name: "Execution kind" })
           .selectOptions("workflow");
+      const data =
+        '{"__proto__":2,"nested":[{"isLosslessNumber":true,"__proto__":{"id":9007199254740993}}]}';
+      await view
+        .getByRole("textbox", { name: "JSON input", exact: true })
+        .fill(data);
       await view
         .getByRole("button", {
           name: kind === "task" ? "Submit execution" : "Start workflow",
@@ -83,6 +88,7 @@ for (const kind of ["task", "workflow"] as const) {
         })
         .click();
       await expect.poll(() => requests.length).toBe(1);
+      expect(requests[0]?.body).toContain(`"data":${data}`);
       if (destination === "other-page") {
         await router.navigate("/other");
         await expect

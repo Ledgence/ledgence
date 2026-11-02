@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- A stable statement-time cutoff permits an index range on tasks_expiry.\n-- expire_one still validates fresh wall time after locking each candidate.\nSELECT task_id\nFROM tasks\nWHERE state = 'active'\n  AND next_expiry_ms <= floor(extract(epoch FROM statement_timestamp()) * 1000)::bigint\nORDER BY next_expiry_ms, task_id\nLIMIT $1\nFOR NO KEY UPDATE SKIP LOCKED\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "19eb9c407696a0cd52fb2ab92b156a539be8471666465d1fcf788bbafd758f9d"
+}

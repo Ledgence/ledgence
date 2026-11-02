@@ -60,11 +60,11 @@ for (const item of inventory.packages) {
       throw new Error(`Missing or changed notice: ${notice.file}`);
   }
 }
-// This declaration-only compatibility patch is reviewed separately from the
-// original npm archive. Lock/build-policy hashes bind its pnpm registration;
-// the checks below also bind the local file bytes before any notices are built.
+// Review local patches separately from the upstream npm archives. The lock and
+// build policy bind their registration, and the inventory binds their exact bytes.
 const expectedPatches = new Map([
   ["@xyflow/system@0.0.83", "patches/@xyflow__system@0.0.83.patch"],
+  ["lossless-json@4.3.1", "patches/lossless-json@4.3.1.patch"],
 ]);
 const reviewedPatches = inventory.reviewed_patches;
 if (

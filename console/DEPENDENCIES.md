@@ -126,6 +126,16 @@ gate verifies the exact patch path and SHA-256 and rejects unexpected patch file
 Re-review the archive, types and lockfile before replacing or removing it after an
 upstream fix. Original xyflow copyright and MIT permission notices remain intact.
 
+## Reviewed JSON handling patch
+
+The Console imports the ESM build of MIT-licensed `lossless-json@4.3.1`.
+Its local patch creates own data properties for all JSON object keys and rejects
+every duplicate key. Only instances of the parser's number class represent
+numeric tokens. This keeps user objects intact when their fields are named
+`__proto__` or `isLosslessNumber`. The upstream archive and its license are
+unchanged in the inventory. The lockfile and license gate bind the patch to that
+archive. Recheck formatting, HTTP submissions and numeric precision when upgrading.
+
 ## Installation and distribution gates
 
 - Strict peer versions and exact Node/pnpm engines are enforced.

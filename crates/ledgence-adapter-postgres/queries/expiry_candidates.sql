@@ -6,3 +6,4 @@ WHERE state = 'active'
   AND next_expiry_ms <= floor(extract(epoch FROM statement_timestamp()) * 1000)::bigint
 ORDER BY next_expiry_ms, task_id
 LIMIT $1
+FOR NO KEY UPDATE SKIP LOCKED

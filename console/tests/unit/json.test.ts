@@ -18,8 +18,25 @@ describe("lossless user JSON", () => {
         `{"value":${value}}`,
       ));
   }
-  it("rejects duplicate keys", () =>
-    expect(() => parseUserJson('{"id":1,"id":2}', 1024)).toThrow(/Duplicate/));
+  it.each([
+    '{"__proto__":2}',
+    '{"__proto__":{"isLosslessNumber":true},"constructor":"user"}',
+    '[{"toString":null,"isLosslessNumber":true,"value":"19"}]',
+  ])("preserves user object keys in %s", (source) => {
+    const value = parseUserJson(source, 1024);
+    expect(stringifyUserJson(value)).toBe(source);
+    expect(
+      stringifyUserJson(parseUserJson(formatUserJson(source, 1024), 1024)),
+    ).toBe(source);
+  });
+  it.each([
+    '{"id":1,"id":2}',
+    '{"id":1,"id":1}',
+    '{"a":[{"id":1,"\\u0069d":1}]}',
+    '{"__proto__":{},"__proto__":{}}',
+  ])("rejects duplicate keys in %s", (source) => {
+    expect(() => parseUserJson(source, 1024)).toThrow(/Duplicate/);
+  });
   it("bounds UTF-8 bytes", () =>
     expect(() => parseUserJson('"é"', 3)).toThrow(/limit/));
   it("formats without rounding", () =>

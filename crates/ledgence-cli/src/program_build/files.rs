@@ -99,6 +99,49 @@ fn selected(root: &Path, relative: &Path) -> Result<PathBuf> {
     }
     Ok(path)
 }
+/// Resolve existing ancestors (including symlinks) before creating any output directories.
+pub(super) fn output_parent(path: &Path) -> Result<PathBuf> {
+    let mut parent = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                parent.pop();
+            }
+            Component::CurDir => {}
+            component => {
+                parent.push(component);
+                match parent.canonicalize() {
+                    Ok(resolved) => parent = resolved,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return Err(operational("cannot resolve build output parent")),
+                }
+            }
+        }
+    }
+    Ok(parent)
+}
+
+fn check_output_overlap(input: &Path, output: &Path) -> Result<()> {
+    // Match the filesystem's spelling on case-insensitive volumes.
+    let input = input
+        .canonicalize()
+        .map_err(|_| invalid("cannot resolve selected build input"))?;
+    for destination in [output, &super::receipt_path(output)] {
+        if input.starts_with(destination)
+            || destination.strip_prefix(&input).is_ok_and(|suffix| {
+                !suffix
+                    .components()
+                    .any(|part| part.as_os_str().to_str().is_some_and(excluded))
+            })
+        {
+            return Err(invalid(
+                "build output or receipt overlaps selected application input",
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let metadata =
         fs::symlink_metadata(path).map_err(|_| invalid("cannot read a required build input"))?;
@@ -175,7 +218,8 @@ impl Plan {
         for include in &config.source.include {
             portable(include)?;
             let input = selected(&source, include)?;
-            plan.collect(&input, include, output, &manifest)?;
+            check_output_overlap(&input, output)?;
+            plan.collect(&input, include, &manifest)?;
         }
         for extra in &config.files {
             reject_excluded(&extra.source)?;
@@ -184,7 +228,8 @@ impl Plan {
             if !path.is_file() {
                 return Err(invalid("additional files must be regular files"));
             }
-            plan.collect(&path, &extra.destination, output, &manifest)?;
+            check_output_overlap(&path, output)?;
+            plan.collect(&path, &extra.destination, &manifest)?;
         }
         if let Some(dependencies) = &config.dependencies {
             reject_excluded(&dependencies.requirements)?;
@@ -203,14 +248,8 @@ impl Plan {
         &mut self,
         path: &Path,
         destination: &Path,
-        output: &Path,
         manifest: &ProgramManifest,
     ) -> Result<()> {
-        if path.starts_with(output) {
-            return Err(invalid(
-                "build output cannot be included as application input",
-            ));
-        }
         self.visited += 1;
         if self.visited > MAX_ENTRIES - 1 {
             return Err(invalid("too many selected build entries"));
@@ -237,7 +276,6 @@ impl Plan {
                 self.collect(
                     &entry.path(),
                     &destination.join(entry.file_name()),
-                    output,
                     manifest,
                 )?;
             }

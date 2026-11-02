@@ -119,14 +119,24 @@ pub(super) async fn lock_activation(
     let workflow = status_record(&row)?;
     // Only authority metadata is read: local receipts must not decode or transfer
     // task input, frozen inputs, checkpoint, event or accepted report payloads.
-    let row = sqlx::query("SELECT t.workflow_id,t.workflow_activation_id,t.state AS task_state,t.current_attempt_id,t.cancel_requested_at_ms,a.state AS attempt_state,a.lease_id,a.generation,a.worker_session_id,a.consumer_id,a.expires_at_ms,a.authority_deadline_ms,a.deadline_ms,a.execution_may_have_started,EXISTS(SELECT 1 FROM accepted_settlements s WHERE s.attempt_id=a.attempt_id) AS settled FROM tasks t JOIN attempts a ON a.task_id=t.task_id WHERE t.tenant_id=$1 AND t.namespace=$2 AND t.task_id=$3 AND a.attempt_id=$4 FOR NO KEY UPDATE OF t")
-        .bind(&owner.scope.tenant_id).bind(&owner.scope.namespace).bind(&owner.task_id).bind(&owner.attempt_id).fetch_optional(&mut *connection).await?.ok_or(ContractError::OwnershipLost)?;
-    if row
+    let task = sqlx::query("SELECT workflow_id,workflow_activation_id,state,current_attempt_id,cancel_requested_at_ms FROM tasks WHERE tenant_id=$1 AND namespace=$2 AND task_id=$3 FOR NO KEY UPDATE")
+        .bind(&owner.scope.tenant_id).bind(&owner.scope.namespace).bind(&owner.task_id)
+        .fetch_optional(&mut *connection).await?.ok_or(ContractError::OwnershipLost)?;
+    if task
         .try_get::<Option<String>, _>("workflow_activation_id")?
         .as_deref()
         != Some(&owner.task_id)
-        || row.try_get::<Option<String>, _>("workflow_id")?.as_deref() != Some(&workflow_id)
-        || row.try_get::<String, _>("lease_id")? != owner.lease_id
+        || task.try_get::<Option<String>, _>("workflow_id")?.as_deref() != Some(&workflow_id)
+    {
+        return Err(ContractError::OwnershipLost.into());
+    }
+    // A READ COMMITTED statement retains its snapshot while waiting for a lock.
+    // Read attempt and settlement in a fresh statement after acquiring the task,
+    // which serializes renewals, settlements and interactive workflow mutations.
+    let row = sqlx::query("SELECT a.state AS attempt_state,a.lease_id,a.generation,a.worker_session_id,a.consumer_id,a.expires_at_ms,a.authority_deadline_ms,a.deadline_ms,a.execution_may_have_started,EXISTS(SELECT 1 FROM accepted_settlements s WHERE s.attempt_id=a.attempt_id) AS settled FROM attempts a WHERE a.task_id=$1 AND a.attempt_id=$2")
+        .bind(&owner.task_id).bind(&owner.attempt_id)
+        .fetch_optional(&mut *connection).await?.ok_or(ContractError::OwnershipLost)?;
+    if row.try_get::<String, _>("lease_id")? != owner.lease_id
         || row.try_get::<i64, _>("generation")? != i64::from(owner.generation)
         || row.try_get::<String, _>("worker_session_id")? != owner.worker_session_id
         || row.try_get::<i64, _>("consumer_id")? != i64::from(owner.consumer_id)
@@ -139,10 +149,10 @@ pub(super) async fn lock_activation(
     Ok((
         workflow,
         ActivationAuthority {
-            task_state: serde_json::from_value(Value::String(row.try_get("task_state")?))
+            task_state: serde_json::from_value(Value::String(task.try_get("state")?))
                 .map_err(|_| corrupt("task state"))?,
-            current_attempt_id: row.try_get("current_attempt_id")?,
-            cancellation_requested: row
+            current_attempt_id: task.try_get("current_attempt_id")?,
+            cancellation_requested: task
                 .try_get::<Option<i64>, _>("cancel_requested_at_ms")?
                 .is_some(),
             attempt_state: serde_json::from_value(Value::String(row.try_get("attempt_state")?))

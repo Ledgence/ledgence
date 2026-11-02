@@ -1,0 +1,34 @@
+diff --git a/lib/esm/parse.js b/lib/esm/parse.js
+--- a/lib/esm/parse.js
++++ b/lib/esm/parse.js
+@@ -64,3 +64,3 @@
+         // biome-ignore lint/suspicious/noPrototypeBuiltins: TODO: replace with hasOwn one day, when browser support is high enough
+-        if (Object.prototype.hasOwnProperty.call(object, key) && !isDeepEqual(value, object[key])) {
++        if (Object.prototype.hasOwnProperty.call(object, key)) {
+           // Note that we could also test `if(key in object) {...}`
+@@ -77,3 +77,3 @@
+         } else {
+-          object[key] = value;
++          Object.defineProperty(object, key, { value, enumerable: true, writable: true, configurable: true });
+         }
+diff --git a/lib/esm/LosslessNumber.js b/lib/esm/LosslessNumber.js
+--- a/lib/esm/LosslessNumber.js
++++ b/lib/esm/LosslessNumber.js
+@@ -61,4 +61,3 @@
+ export function isLosslessNumber(value) {
+-  // @ts-expect-error
+-  return value && typeof value === 'object' && value.isLosslessNumber || false;
++  return value instanceof LosslessNumber;
+ }
+diff --git a/lib/esm/stringify.js b/lib/esm/stringify.js
+--- a/lib/esm/stringify.js
++++ b/lib/esm/stringify.js
+@@ -1 +1,2 @@
++import { isLosslessNumber } from './LosslessNumber.js';
+ import { isNumber } from './utils.js';
+@@ -64,4 +65,3 @@
+     // lossless number, the secret ingredient :)
+-    // @ts-expect-error
+-    if (value?.isLosslessNumber) {
++    if (isLosslessNumber(value)) {
+       return value.toString();

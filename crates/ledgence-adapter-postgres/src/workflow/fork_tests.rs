@@ -759,3 +759,57 @@ async fn fork_ledger_and_combined_child_budgets_are_atomic() {
     assert_eq!(ordinary, 0);
     db.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn fork_waiting_for_dispatch_or_unconfirmed_settlement_uses_committed_authority() {
+    let db = TestDb::new().await;
+    start(&db.store).await;
+    let assigned = acquire(&db.store, "python").await;
+    let owner = &assigned.lease.owner;
+    for settlement in [false, true] {
+        let mut tx = db.store.pool.begin().await.unwrap();
+        let task = db::load_task(&mut tx, &owner.scope, &owner.task_id, true)
+            .await
+            .unwrap();
+        let attempt = db::load_attempt(&mut tx, &task, &owner.attempt_id)
+            .await
+            .unwrap();
+        let now = db::now(&mut tx).await.unwrap();
+        if settlement {
+            let report = completed(&assigned, Quiescence::Unconfirmed, json!("done"));
+            let result = core::settle(&task, &attempt, &report, now).unwrap();
+            db::apply(&mut tx, &result).await.unwrap();
+        } else {
+            let session = db
+                .store
+                .lock_session(&mut tx, &owner.worker_session_id)
+                .await
+                .unwrap();
+            let command = RenewCommand {
+                owner: owner.clone(),
+                intent: RenewIntent::Dispatch,
+                sequence: 1,
+            };
+            let result = core::renew(&task, &attempt, Some(&session), &command, now).unwrap();
+            db::apply(&mut tx, &result).await.unwrap();
+        }
+        let key = if settlement { "late" } else { "live" };
+        let command = fork(&assigned, key, &[key]);
+        let waiting = db.store.fork_workflow(&command);
+        tokio::pin!(waiting);
+        tokio::select! {
+            result = &mut waiting => panic!("fork bypassed pending task transaction: {result:?}"),
+            _ = crate::tests::wait_for_lock_waiter(&db.store) => {}
+        }
+        tx.commit().await.unwrap();
+        if settlement {
+            assert!(matches!(waiting.await, Err(ContractError::OwnershipLost)));
+        } else {
+            assert!(!waiting.await.unwrap().already_accepted);
+        }
+        assert_eq!(count(&db.store, "forks").await, 1);
+        assert_eq!(count(&db.store, "links").await, 1);
+    }
+    db.finish().await;
+}

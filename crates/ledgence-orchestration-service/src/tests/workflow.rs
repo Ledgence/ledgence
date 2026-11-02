@@ -1,5 +1,16 @@
 use super::*;
 
+async fn resolve(
+    service: &ApplicationService,
+    work: &WorkflowWork,
+) -> Result<Vec<ResolvedWorkflowChild>> {
+    let mut resolved = Vec::new();
+    service
+        .resolve_workflow_children(work, &mut resolved)
+        .await?;
+    Ok(resolved)
+}
+
 fn work(commands: serde_json::Value) -> WorkflowWork {
     WorkflowWork {
         id: "completion:task_activation".into(),
@@ -32,7 +43,7 @@ async fn accepted_child_pins_survive_locator_changes_and_batch_resolution_is_sha
         descriptor: descriptor('a'),
     });
     let service = fixture.service.clone();
-    let pending = tokio::spawn(async move { service.resolve_workflow_children(&item).await });
+    let pending = tokio::spawn(async move { resolve(&service, &item).await });
     fixture
         .resolution()
         .await
@@ -58,9 +69,7 @@ async fn fully_registered_children_do_not_depend_on_available_program_store() {
         key: "registered".into(),
         descriptor: descriptor('a'),
     });
-    let resolved = bounded(fixture.service.resolve_workflow_children(&item))
-        .await
-        .unwrap();
+    let resolved = bounded(resolve(&fixture.service, &item)).await.unwrap();
     assert_eq!(resolved[0].descriptor, descriptor('a'));
     assert!(fixture.requests.try_recv().is_err());
 }
@@ -73,24 +82,13 @@ async fn ordinary_child_outputs_are_not_decisions_and_invalid_controller_identit
         task_id: "task_activation".into(),
         activation: false,
     };
-    assert!(
-        fixture
-            .service
-            .resolve_workflow_children(&item)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(resolve(&fixture.service, &item).await.unwrap().is_empty());
     item.source = WorkflowWorkSource::TaskTerminal {
         task_id: "different_controller".into(),
         activation: true,
     };
     assert_eq!(
-        fixture
-            .service
-            .resolve_workflow_children(&item)
-            .await
-            .unwrap_err(),
+        resolve(&fixture.service, &item).await.unwrap_err(),
         ContractError::Conflict
     );
     assert!(fixture.requests.try_recv().is_err());
@@ -107,32 +105,17 @@ async fn child_kind_is_an_immutable_binding_and_workflow_completion_never_resolv
         key: "registered".into(),
         descriptor: descriptor('a'),
     });
-    let resolved = fixture
-        .service
-        .resolve_workflow_children(&item)
-        .await
-        .unwrap();
+    let resolved = resolve(&fixture.service, &item).await.unwrap();
     assert_eq!(resolved[0].kind, WorkflowChildKind::Workflow);
     item.resolved_children[0].kind = WorkflowChildKind::Task;
     assert_eq!(
-        fixture
-            .service
-            .resolve_workflow_children(&item)
-            .await
-            .unwrap_err(),
+        resolve(&fixture.service, &item).await.unwrap_err(),
         ContractError::Conflict
     );
     item.source = WorkflowWorkSource::WorkflowTerminal {
         workflow_id: "child".into(),
     };
-    assert!(
-        fixture
-            .service
-            .resolve_workflow_children(&item)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(resolve(&fixture.service, &item).await.unwrap().is_empty());
     assert!(fixture.requests.try_recv().is_err());
 }
 
@@ -284,7 +267,7 @@ async fn new_distributed_children_respect_catalog_but_persisted_bindings_are_rep
         .unwrap();
     let service = fixture.service.clone();
     let item = work(json!([child("new")]));
-    let pending = tokio::spawn(async move { service.resolve_workflow_children(&item).await });
+    let pending = tokio::spawn(async move { resolve(&service, &item).await });
     fixture
         .resolution()
         .await
@@ -301,12 +284,53 @@ async fn new_distributed_children_respect_catalog_but_persisted_bindings_are_rep
         descriptor: descriptor('b'),
     });
     *catalog.descriptor.lock().unwrap() = Err(ContractError::Unavailable("offline".into()));
-    let result = fixture
-        .service
-        .resolve_workflow_children(&persisted)
-        .await
-        .unwrap();
+    let result = resolve(&fixture.service, &persisted).await.unwrap();
     assert_eq!(result[0].descriptor, descriptor('b'));
     assert_eq!(catalog.reads.load(Ordering::SeqCst), 1);
     assert!(fixture.requests.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn healthy_distinct_programs_make_bounded_progress_across_resolution_windows() {
+    let fixture = Fixture::new();
+    let service = fixture.service;
+    let mut requests = fixture.requests;
+    tokio::spawn(async move {
+        while let Some((program, reply)) = requests.recv().await {
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(8)).await;
+                let mut value = descriptor('a');
+                value.program = program;
+                let _ = reply.send(Ok(value));
+            });
+        }
+    });
+    let commands: Vec<_> = (0..24)
+        .map(|i| {
+            let key = format!("child-{i:02}");
+            let mut command = child(&key);
+            command["program"]["id"] = json!(key);
+            command
+        })
+        .collect();
+    let mut item = work(json!(commands));
+    for window in 1..=3 {
+        let mut resolved = Vec::new();
+        let attempt = tokio::time::timeout(
+            Duration::from_secs(20),
+            service.resolve_workflow_children(&item, &mut resolved),
+        )
+        .await;
+        assert_eq!(resolved.len(), window * 8);
+        if window == 3 {
+            attempt.unwrap().unwrap();
+            for (index, binding) in resolved.iter().enumerate() {
+                assert_eq!(binding.key, format!("child-{index:02}"));
+                assert_eq!(binding.key, binding.descriptor.program.id);
+            }
+        } else {
+            assert!(attempt.is_err());
+        }
+        item.resolved_children = resolved;
+    }
 }

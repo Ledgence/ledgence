@@ -100,7 +100,9 @@ The canonical Rust serialization fixture is
 Strict runtime decoders consume that fixture in tests. Unknown fields or result
 variants fail explicitly. Metadata u64 values remain decimal strings; JSON input,
 output and CloudEvents use `lossless-json` to preserve integer/floating tokens and
-negative zero across inspection, formatting and submission.
+negative zero across inspection, formatting and submission. Every JSON property
+name is treated as user data, including `__proto__`. Duplicate property names
+in one object are rejected.
 
 Lists use bounded keyset pages, exact filters and server observation timestamps.
 Execution history appends the next page automatically near the end of the list,

@@ -449,10 +449,11 @@ pub struct WorkflowWork {
     /// Only controller outcomes are loaded here. Child completion notifications
     /// stay compact; their payloads are read once a continuation needs them.
     pub outcome: Option<TaskOutcome>,
-    /// Previously registered child bindings; their pinned descriptors win on replay.
+    /// Pinned child bindings, including partial resolution saved by the adapter on retry.
     pub resolved_children: Vec<ResolvedWorkflowChild>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResolvedWorkflowChild {
     pub kind: WorkflowChildKind,
     pub key: String,
@@ -584,6 +585,18 @@ pub trait WorkflowStore: Send + Sync {
         resolved: &'a [ResolvedWorkflowChild],
     ) -> ContractFuture<'a, WorkflowProgress>;
     fn retry_work<'a>(&'a self, work: &'a WorkflowWork, reason: &'a str) -> ContractFuture<'a, ()>;
+    /// Release the claimed item after a transient failure. Capable adapters atomically
+    /// retain the supplied partial bindings under the work lease, returning them on
+    /// the next claim even after restart. No child work is scheduled by this call.
+    /// The compatibility default retries from previously registered children only.
+    fn retry_work_with_bindings<'a>(
+        &'a self,
+        work: &'a WorkflowWork,
+        reason: &'a str,
+        _bindings: &'a [ResolvedWorkflowChild],
+    ) -> ContractFuture<'a, ()> {
+        self.retry_work(work, reason)
+    }
     /// Persist permanent decision/application failure and drain owned children.
     fn reject_work<'a>(
         &'a self,

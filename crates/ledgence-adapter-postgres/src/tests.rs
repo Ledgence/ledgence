@@ -222,7 +222,7 @@ fn execution_context(assigned: &Assignment) -> ExecutionContext {
     }
 }
 
-async fn bounded<T>(future: impl Future<Output = T>) -> T {
+pub(crate) async fn bounded<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(10), future)
         .await
         .expect("PostgreSQL test operation stalled")
@@ -236,7 +236,7 @@ async fn history_count(store: &PostgresStore, task_id: &str) -> i64 {
         .unwrap()
 }
 
-async fn wait_for_lock_waiter(store: &PostgresStore) {
+pub(crate) async fn wait_for_lock_waiter(store: &PostgresStore) {
     bounded(async {
         loop {
             let waiting: bool = sqlx::query_scalar(

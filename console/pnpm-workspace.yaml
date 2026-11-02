@@ -16,3 +16,4 @@ overrides:
   zod: 4.6.6
 patchedDependencies:
   "@xyflow/system@0.0.83": patches/@xyflow__system@0.0.83.patch
+  "lossless-json@4.3.1": patches/lossless-json@4.3.1.patch

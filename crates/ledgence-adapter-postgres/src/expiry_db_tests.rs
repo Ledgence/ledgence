@@ -112,10 +112,24 @@ async fn expiry_batch_respects_limit_and_leaves_future_attempts_active() {
         tx.commit().await.unwrap();
     }
 
-    let first = db.store.expire_batch(2).await.unwrap();
-    assert_eq!((first.examined, first.expired), (2, 2));
+    // Keep the oldest due task locked across scans. Even a one-row budget
+    // must reach a different expired attempt rather than repeatedly skipping it.
+    let mut blocker = db.store.pool.begin().await.unwrap();
+    let locked: String = sqlx::query_scalar("SELECT task_id FROM tasks WHERE state='active' ORDER BY next_expiry_ms,task_id LIMIT 1 FOR NO KEY UPDATE")
+        .fetch_one(&mut *blocker).await.unwrap();
+    let first = db.store.expire_batch(1).await.unwrap();
+    assert_eq!((first.examined, first.expired), (1, 1));
     let second = db.store.expire_batch(2).await.unwrap();
     assert_eq!((second.examined, second.expired), (1, 1));
+    let still_active: String = sqlx::query_scalar("SELECT state FROM tasks WHERE task_id=$1")
+        .bind(&locked)
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    assert_eq!(still_active, "active");
+    blocker.rollback().await.unwrap();
+    let third = db.store.expire_batch(2).await.unwrap();
+    assert_eq!((third.examined, third.expired), (1, 1));
     let empty = db.store.expire_batch(2).await.unwrap();
     assert_eq!((empty.examined, empty.expired), (0, 0));
     for (index, assigned) in assignments.iter().enumerate() {

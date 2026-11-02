@@ -129,12 +129,17 @@ async fn execute(options: Options, process: &impl Process) -> Result<BuildResult
     let name = output
         .file_name()
         .ok_or_else(|| invalid("build output must have a directory name"))?;
-    let plan = files::Plan::create(project, &config, &config_bytes, &output)?;
-    fs::create_dir_all(parent).map_err(|_| operational("cannot create build output parent"))?;
-    let parent = parent
-        .canonicalize()
-        .map_err(|_| operational("cannot resolve build output parent"))?;
+    let parent = files::output_parent(parent)?;
     let output = parent.join(name);
+    let plan = files::Plan::create(project, &config, &config_bytes, &output)?;
+    fs::create_dir_all(&parent).map_err(|_| operational("cannot create build output parent"))?;
+    if parent
+        .canonicalize()
+        .map_err(|_| operational("cannot resolve build output parent"))?
+        != parent
+    {
+        return Err(invalid("build output parent changed while planning inputs"));
+    }
     let receipt_file = receipt_path(&output);
     let mut lock_name = std::ffi::OsString::from(".");
     lock_name.push(name);

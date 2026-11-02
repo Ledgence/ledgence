@@ -862,7 +862,7 @@ class WorkflowContext:
         """
         if type(key) is str and key.startswith(_APPROVAL_LOCAL_PREFIX):
             raise WorkflowError("approval local keys are reserved; use approved_local")
-        return self._local(key, fn, **kwargs)
+        return self._local(key, fn, kwargs)
 
     def operation(self, key, fn, *, kind: OperationKind, version: str, arguments: dict):
         """Start a model/tool call with frozen effective JSON keyword arguments.
@@ -926,9 +926,9 @@ class WorkflowContext:
             raise WorkflowError("approval is already bound to a different callable")
         self._approval_callable = fn
         key = _APPROVAL_LOCAL_PREFIX + hashlib.sha256(approval["key"].encode("utf-8")).hexdigest()
-        return self._local(key, fn, **action["arguments"])
+        return self._local(key, fn, action["arguments"])
 
-    def _local(self, key, fn, **kwargs):
+    def _local(self, key, fn, arguments):
         self._active()
         _text(key, "local key")
         if not callable(fn):
@@ -937,7 +937,7 @@ class WorkflowContext:
         name = getattr(fn, "__qualname__", None)
         if not module or not name:
             raise WorkflowError("local callable requires a stable module and qualified name")
-        arguments = _freeze(kwargs, MAX_RECORD_BYTES, authoritative=key in self._records)
+        arguments = _freeze(arguments, MAX_RECORD_BYTES, authoritative=key in self._records)
         return self._bound_local(key, fn, _text(module + ":" + name, "local callable", 512),
                                  arguments, arguments)
 
