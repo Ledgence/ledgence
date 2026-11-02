@@ -1177,3 +1177,6 @@ mod owned;
 
 #[path = "upgrade_tests.rs"]
 mod upgrade;
+
+#[path = "resolution_tests.rs"]
+mod resolution;

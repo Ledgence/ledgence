@@ -11,6 +11,12 @@ That boundary makes recovery explicit: your controller chooses the next entrypoi
 
 A checkpoint records the next continuation and state together with staged child registrations and the chosen wait. The coordinator applies these changes atomically, so a committed checkpoint does not leave its child registrations or dispatch obligations only in process memory.
 
+On the development branch, the PostgreSQL coordinator also remembers program
+versions it has finished resolving when a large decision needs another attempt.
+A replacement coordinator can continue with the remaining lookups. Children
+become runnable together when the complete decision commits. Upgrading from
+0.6.1 to this checkout requires running the matching orchestrator migrations.
+
 A resumed handler receives the original CloudEvent and a separate workflow context. The context contains the saved state and frozen outcomes for that activation. Python locals, open sockets, coroutine stacks, and in-memory clients are not restored.
 
 Register each handler with `@workflow.entrypoint(...)` and select the next enum member in `ctx.join(...)`, `ctx.suspend(...)`, or another decision. Ledgence invokes that handler when the next activation starts. Existing handlers that route on the string `ctx.continuation` remain supported.

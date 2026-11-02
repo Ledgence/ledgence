@@ -1,7 +1,9 @@
 //! Workflow orchestration over an optional transactional store.
 use super::*;
 use ledgence_worker_api::ProgramDescriptor;
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
+
+const RESOLUTIONS_PER_WORK_ITEM: usize = 4;
 
 impl ApplicationService {
     /// Enable workflow operations using the same transactional authority as the
@@ -64,18 +66,22 @@ impl ApplicationService {
     async fn apply_workflow_item(&self, work: WorkflowWork) -> Result<WorkflowProgress> {
         let store = self.workflows()?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-        let resolution =
-            tokio::time::timeout_at(deadline, self.resolve_workflow_children(&work)).await;
+        let mut resolved = Vec::new();
+        let resolution = tokio::time::timeout_at(
+            deadline,
+            self.resolve_workflow_children(&work, &mut resolved),
+        )
+        .await;
         // A resolver may finish in a poll that crosses its deadline. Its result
         // cannot extend the bounded coordinator ownership window.
         if tokio::time::Instant::now() >= deadline {
             store
-                .retry_work(&work, "program resolution deadline exceeded")
+                .retry_work_with_bindings(&work, "program resolution deadline exceeded", &resolved)
                 .await?;
             return Ok(WorkflowProgress::default());
         }
-        let resolved = match resolution {
-            Ok(Ok(children)) => children,
+        match resolution {
+            Ok(Ok(())) => {}
             Ok(Err(error))
                 if matches!(
                     error,
@@ -93,12 +99,18 @@ impl ApplicationService {
                 });
             }
             Ok(Err(error)) => {
-                store.retry_work(&work, &error.to_string()).await?;
+                store
+                    .retry_work_with_bindings(&work, &error.to_string(), &resolved)
+                    .await?;
                 return Ok(WorkflowProgress::default());
             }
             Err(_) => {
                 store
-                    .retry_work(&work, "program resolution deadline exceeded")
+                    .retry_work_with_bindings(
+                        &work,
+                        "program resolution deadline exceeded",
+                        &resolved,
+                    )
                     .await?;
                 return Ok(WorkflowProgress::default());
             }
@@ -126,7 +138,9 @@ impl ApplicationService {
                 })
             }
             Err(error) => {
-                store.retry_work(&work, &error.to_string()).await?;
+                store
+                    .retry_work_with_bindings(&work, &error.to_string(), &resolved)
+                    .await?;
                 Ok(WorkflowProgress::default())
             }
         }
@@ -135,20 +149,21 @@ impl ApplicationService {
     pub(super) async fn resolve_workflow_children(
         &self,
         work: &WorkflowWork,
-    ) -> Result<Vec<ResolvedWorkflowChild>> {
+        resolved: &mut Vec<ResolvedWorkflowChild>,
+    ) -> Result<()> {
         let WorkflowWorkSource::TaskTerminal {
             task_id,
             activation: true,
         } = &work.source
         else {
-            return Ok(Vec::new());
+            return Ok(());
         };
         let outcome = work
             .outcome
             .as_ref()
             .ok_or_else(|| ContractError::Unavailable("missing controller outcome".into()))?;
         let TaskOutcome::Succeeded { output, .. } = outcome else {
-            return Ok(Vec::new());
+            return Ok(());
         };
         let decision = WorkflowDecision::decode(output)?;
         if decision.activation_id != *task_id {
@@ -159,56 +174,75 @@ impl ApplicationService {
                 "registered workflow bindings exceed command limit".into(),
             ));
         }
-        let command_keys: std::collections::BTreeSet<_> = decision
-            .commands()
+        let commands = decision.commands();
+        let positions: BTreeMap<_, _> = commands
             .iter()
-            .map(|command| command.key.as_str())
+            .enumerate()
+            .map(|(index, command)| (command.key.as_str(), index))
             .collect();
-        let mut registered = std::collections::BTreeMap::new();
+        let mut registered = vec![false; commands.len()];
         for binding in &work.resolved_children {
-            if !command_keys.contains(binding.key.as_str()) {
-                return Err(ContractError::Unavailable(
+            let &index = positions.get(binding.key.as_str()).ok_or_else(|| {
+                ContractError::Unavailable(
                     "registered binding does not belong to workflow decision".into(),
-                ));
-            }
+                )
+            })?;
             binding.descriptor.validate().map_err(|_| {
                 ContractError::Unavailable("invalid registered workflow child descriptor".into())
             })?;
-            if registered
-                .insert(
-                    binding.key.clone(),
-                    (binding.kind, binding.descriptor.clone()),
-                )
-                .is_some()
-            {
+            if registered[index] {
                 return Err(ContractError::Unavailable(
                     "duplicate registered workflow child binding".into(),
                 ));
             }
+            let command = &commands[index];
+            if binding.kind != command.kind || binding.descriptor.program != command.program {
+                return Err(ContractError::Conflict);
+            }
+            registered[index] = true;
         }
-        let mut newly_resolved = std::collections::BTreeMap::new();
-        let mut resolved = Vec::with_capacity(decision.commands().len());
-        for command in decision.commands() {
-            let program_key = (command.program.id.clone(), command.program.version.clone());
-            let descriptor = if let Some((kind, descriptor)) = registered.get(&command.key) {
-                if *kind != command.kind || descriptor.program != command.program {
-                    return Err(ContractError::Conflict);
-                }
-                descriptor.clone()
-            } else if let Some(descriptor) = newly_resolved.get(&program_key) {
-                ProgramDescriptor::clone(descriptor)
-            } else {
-                let descriptor = self.resolve_workflow_program(&command.program).await?;
-                newly_resolved.insert(program_key, descriptor.clone());
-                descriptor
+        resolved.extend_from_slice(&work.resolved_children);
+        // Resolve each new program once. Keep the same pinned descriptor for all
+        // newly resolved occurrences, without replacing existing child bindings.
+        let mut groups = BTreeMap::<_, Vec<usize>>::new();
+        for (index, command) in commands.iter().enumerate() {
+            if !registered[index] {
+                groups
+                    .entry((&command.program.id, &command.program.version))
+                    .or_default()
+                    .push(index);
+            }
+        }
+        let mut groups = groups.into_values();
+        let mut pending = tokio::task::JoinSet::new();
+        loop {
+            while pending.len() < RESOLUTIONS_PER_WORK_ITEM
+                && let Some(indices) = groups.next()
+            {
+                let service = self.clone();
+                let program = commands[indices[0]].program.clone();
+                pending.spawn(async move {
+                    let descriptor = service.resolve_workflow_program(&program).await?;
+                    Ok::<_, ContractError>((indices, descriptor))
+                });
+            }
+            let Some(result) = pending.join_next().await else {
+                break;
             };
-            resolved.push(ResolvedWorkflowChild {
-                kind: command.kind,
-                key: command.key.clone(),
-                descriptor,
-            });
+            let (indices, descriptor) = result.map_err(|error| {
+                ContractError::Unavailable(format!("workflow program resolver failed: {error}"))
+            })??;
+            for index in indices {
+                let command = &commands[index];
+                resolved.push(ResolvedWorkflowChild {
+                    kind: command.kind,
+                    key: command.key.clone(),
+                    descriptor: descriptor.clone(),
+                });
+            }
         }
-        Ok(resolved)
+        resolved.sort_by_key(|binding| positions[binding.key.as_str()]);
+        Ok(())
     }
 
     async fn resolve_workflow_program(

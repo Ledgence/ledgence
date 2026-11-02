@@ -169,7 +169,15 @@ impl WorkflowStore for PostgresStore {
         Box::pin(self.run(move || self.apply_work_once(work, resolved)))
     }
     fn retry_work<'a>(&'a self, work: &'a WorkflowWork, reason: &'a str) -> ContractFuture<'a, ()> {
-        Box::pin(self.run(move || self.retry_work_once(work, reason)))
+        Box::pin(self.run(move || self.retry_work_once(work, reason, &[])))
+    }
+    fn retry_work_with_bindings<'a>(
+        &'a self,
+        work: &'a WorkflowWork,
+        reason: &'a str,
+        bindings: &'a [ResolvedWorkflowChild],
+    ) -> ContractFuture<'a, ()> {
+        Box::pin(self.run(move || self.retry_work_once(work, reason, bindings)))
     }
     fn reject_work<'a>(
         &'a self,

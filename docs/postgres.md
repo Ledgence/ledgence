@@ -24,11 +24,16 @@ The supplied deployment command is `ledgence orchestrator migrate`, which reads 
 
 Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
 
+The development checkout adds migration `20261102000000_workflow_resolution_progress.sql`
+for partial workflow program resolution. When upgrading from 0.6.1, stop the
+previous orchestrators, apply migrations and start the matching new binaries.
+Existing work items can run immediately with an empty resolution checkpoint.
+
 The delivery driver accepts `Arc<dyn TaskService>`. Tests can supply this in-process application service directly; the driver has no PostgreSQL dependency. `HttpTaskService` implements the same port for connected workers. The orchestrator composition schedules expiry recovery; custom service compositions remain responsible for it. The worker driver does not run database scans.
 
 The platform does not require a database vendor account or PostgreSQL extension. This adapter supports PostgreSQL 18; compatibility with another major must be tested before changing that support boundary. PostgreSQL is isolated behind portable API ports. Custom adapters must uphold the same atomic and recovery behavior.
 
-`PostgresOptions` configures database pool size, connection acquisition time, SQL statement/lock timeouts, and the total operation deadline. These control database resources; a worker still has its single N for consumers and process slots. The default pool has eight connections, five-second acquisition and statement budgets, and a thirty-second operation budget. Expiry has a thirty-second total default budget even though each shortlisted task commits independently.
+`PostgresOptions` configures database pool size, connection acquisition time, SQL statement/lock timeouts, and the total operation deadline. These control database resources; a worker still has its single N for consumers and process slots. The default pool has eight connections, five-second acquisition and statement budgets, and a thirty-second operation budget. Expiry has a thirty-second total default budget even though each shortlisted task commits independently. Recovery skips locked tasks when selecting its batch, so free expired tasks behind them can be reclaimed.
 
 Configure the connection URL's SSL mode and certificate settings for the deployment. The adapter uses Rustls with native trust roots. The durable-storage assumption is logged tables, synchronous commit, and PostgreSQL's normal durable WAL configuration, including `fsync` and `full_page_writes`. The adapter enables synchronous commit for mutation transactions. Replication and failover policies require separate deployment validation.
 

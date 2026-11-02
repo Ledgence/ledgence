@@ -10,6 +10,45 @@ struct WorkRow {
     task_id: String,
     failures: u32,
     created_at: u64,
+    resolution_bytes: Option<Vec<u8>>,
+}
+
+impl WorkRow {
+    async fn clear_resolution(&self, db: &mut PgConnection, id: &str) -> StoreResult<()> {
+        if self.resolution_bytes.is_some() {
+            sqlx::query("DELETE FROM workflow_resolution_progress WHERE work_id=$1")
+                .bind(id)
+                .execute(db)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Once checkpointed, an immutable child binding also wins over a caller
+    /// retrying with only a subset of the previous lookup results.
+    fn with_pinned<'a>(
+        &self,
+        supplied: &'a [ResolvedWorkflowChild],
+    ) -> StoreResult<std::borrow::Cow<'a, [ResolvedWorkflowChild]>> {
+        let Some(bytes) = &self.resolution_bytes else {
+            return Ok(supplied.into());
+        };
+        let previous: Vec<ResolvedWorkflowChild> = codec::decode(bytes)?;
+        let mut combined = BTreeMap::new();
+        for item in supplied {
+            if combined.insert(item.key.clone(), item.clone()).is_some() {
+                return Err(ContractError::Conflict.into());
+            }
+        }
+        for item in previous {
+            if let Some(new) = combined.insert(item.key.clone(), item.clone())
+                && new != item
+            {
+                return Err(ContractError::Conflict.into());
+            }
+        }
+        Ok(combined.into_values().collect::<Vec<_>>().into())
+    }
 }
 
 impl PostgresStore {
@@ -78,6 +117,14 @@ impl PostgresStore {
                     }
                 }
             }
+            if let Some(bytes) = load_resolution(&mut tx, &row).await? {
+                let partial: Vec<ResolvedWorkflowChild> = codec::decode(&bytes)?;
+                // A registered child always owns its authoritative descriptor.
+                let registered: BTreeSet<_> =
+                    resolved_children.iter().map(|b| b.key.clone()).collect();
+                resolved_children
+                    .extend(partial.into_iter().filter(|b| !registered.contains(&b.key)));
+            }
             batch.push(WorkflowWork {
                 id: row.try_get("id")?,
                 token: row.try_get("lease_token")?,
@@ -104,6 +151,7 @@ impl PostgresStore {
             tx.commit().await?;
             return Ok(WorkflowProgress::default());
         };
+        row.clear_resolution(&mut tx, &work.id).await?;
         let mut now = db::now(&mut tx).await?;
         let mut progress = WorkflowProgress {
             processed: 1,
@@ -208,7 +256,7 @@ impl PostgresStore {
                             &mut tx,
                             &mut run,
                             &decision,
-                            resolved,
+                            &row.with_pinned(resolved)?,
                             processing_trace.as_ref(),
                             now,
                             &mut progress,
@@ -291,6 +339,7 @@ impl PostgresStore {
         &self,
         work: &WorkflowWork,
         reason: &str,
+        bindings: &[ResolvedWorkflowChild],
     ) -> StoreResult<()> {
         let reason: String = reason.chars().take(4096).collect();
         let mut connection = self.transaction_connection().await?;
@@ -316,8 +365,12 @@ impl PostgresStore {
                 now,
             )
             .await?;
+            row.clear_resolution(&mut tx, &work.id).await?;
             finish_work(&mut tx, &work.id, now).await?;
         } else {
+            if !bindings.is_empty() {
+                save_resolution(&mut tx, &run.snapshot.scope, work, &row, bindings).await?;
+            }
             let delay = (500_u64 << row.failures.min(6)).min(30_000);
             sqlx::query("UPDATE workflow_work SET available_at_ms=$2,lease_token=NULL,lease_until_ms=NULL,failures=failures+1,last_error=$3 WHERE id=$1")
                 .bind(&work.id).bind(codec::ms(now + delay)?).bind(reason).execute(&mut *tx).await?;
@@ -344,6 +397,7 @@ impl PostgresStore {
             return Err(corrupt("cancellation work cannot be permanently rejected").into());
         }
         let now = db::now(&mut tx).await?;
+        row.clear_resolution(&mut tx, &work.id).await?;
         fail_run(&mut tx, &mut run, error, now).await?;
         sqlx::query("UPDATE workflow_activations SET applied_at_ms=$2,error_bytes=$3 WHERE activation_id=$1 AND applied_at_ms IS NULL")
             .bind(&row.task_id).bind(codec::ms(now)?).bind(codec::encode(error)?).execute(&mut *tx).await?;
@@ -379,6 +433,69 @@ async fn load_work_run(
     };
     load_run(connection, &scope, Some(id), None, locked).await
 }
+async fn save_resolution(
+    connection: &mut PgConnection,
+    scope: &Scope,
+    work: &WorkflowWork,
+    row: &WorkRow,
+    bindings: &[ResolvedWorkflowChild],
+) -> StoreResult<()> {
+    // lock_work has compared work.source with the persisted notification. The
+    // outcome supplied by a port caller is not authority for pinning programs.
+    if !matches!(
+        work.source,
+        WorkflowWorkSource::TaskTerminal {
+            activation: true,
+            ..
+        }
+    ) || bindings.len() > WORKFLOW_MAX_COMMANDS
+    {
+        return Err(invalid("invalid workflow resolution checkpoint").into());
+    }
+    let result = task_result(connection, scope, &row.task_id).await?;
+    let Some(TaskOutcome::Succeeded { output, .. }) = result.outcome else {
+        return Err(ContractError::Conflict.into());
+    };
+    let decision = WorkflowDecision::decode(&output)?;
+    if decision.activation_id != row.task_id {
+        return Err(ContractError::Conflict.into());
+    }
+    let mut expected: BTreeMap<_, _> = decision
+        .commands()
+        .iter()
+        .map(|c| (c.key.as_str(), c))
+        .collect();
+    let bindings = row.with_pinned(bindings)?;
+    for binding in bindings.iter() {
+        let command = expected
+            .remove(binding.key.as_str())
+            .ok_or(ContractError::Conflict)?;
+        if binding.kind != command.kind || binding.descriptor.program != command.program {
+            return Err(ContractError::Conflict.into());
+        }
+        binding.descriptor.validate().map_err(ContractError::from)?;
+    }
+    sqlx::query("INSERT INTO workflow_resolution_progress(work_id,bindings) VALUES ($1,$2) ON CONFLICT(work_id) DO UPDATE SET bindings=EXCLUDED.bindings")
+        .bind(&work.id).bind(codec::encode(&bindings)?).execute(connection).await?;
+    Ok(())
+}
+
+// The common case never creates or probes a checkpoint. Only retries of a
+// controller decision can have a saved partial set of descriptors.
+async fn load_resolution(
+    connection: &mut PgConnection,
+    row: &PgRow,
+) -> StoreResult<Option<Vec<u8>>> {
+    if row.try_get::<i64, _>("failures")? == 0 || row.try_get::<&str, _>("kind")? != "terminal" {
+        return Ok(None);
+    }
+    Ok(
+        sqlx::query_scalar("SELECT bindings FROM workflow_resolution_progress WHERE work_id=$1")
+            .bind(row.try_get::<&str, _>("id")?)
+            .fetch_optional(connection)
+            .await?,
+    )
+}
 async fn lock_work(
     connection: &mut PgConnection,
     work: &WorkflowWork,
@@ -404,6 +521,7 @@ async fn lock_work(
         return Err(ContractError::OwnershipLost.into());
     }
     Ok(Some(WorkRow {
+        resolution_bytes: load_resolution(connection, &row).await?,
         kind: row.try_get("kind")?,
         task_id: row.try_get("task_id")?,
         failures: u32::try_from(row.try_get::<i64, _>("failures")?)
