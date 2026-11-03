@@ -14,9 +14,11 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `node node_modules/vite/bin/vite.js --host 127.0.0.1 --port ${port}`,
+    // Exercise fresh distribution bytes without the dev client's reconnect reloads.
+    command: `node --run build && node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port ${port} --strictPort`,
     url: `http://127.0.0.1:${port}/console/`,
-    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+    reuseExistingServer: false,
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
