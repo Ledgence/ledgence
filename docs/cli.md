@@ -350,3 +350,11 @@ See [MCP setup, tools and recovery](mcp.md).
 `--no-default-features` omits both MCP and OpenTelemetry. Add `--features mcp`
 to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.7.0 native bundle or build the matching source for MCP; earlier 0.2.0
 binaries retain their original command set.
+
+## Credential access in development
+
+Matching development components support optional installation credentials across
+API operations, workers and Console. Configure the authority, client credential
+files and capabilities using the [instance access guide](instance-access.md).
+The existing operator-trusted mode requires its deployment access boundary.
+Verified ingress identity and durable approval attribution have separate scope.

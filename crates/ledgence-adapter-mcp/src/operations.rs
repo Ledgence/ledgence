@@ -31,6 +31,8 @@ impl ToolError {
     }
     fn backend(error: ContractError, mutation: bool) -> Self {
         let code = match &error {
+            ContractError::Unauthenticated => "unauthenticated",
+            ContractError::Forbidden => "forbidden",
             ContractError::InvalidInput(_) => "invalid_input",
             ContractError::ExternalDispatchRequired => "external_dispatch_required",
             ContractError::InvalidQueueDelivery(_) => "invalid_queue_delivery",

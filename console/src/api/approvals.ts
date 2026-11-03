@@ -204,6 +204,24 @@ export type ApprovalDecision = {
   reason: string | null;
 };
 
+// Used only to restore an exact in-memory command after same-actor reauthentication.
+export function decodeApprovalDecision(value: unknown): ApprovalDecision {
+  const protectedValue =
+    value && typeof value === "object" && "protection" in value;
+  return s.object({
+    workflow_id: identifier,
+    key: identifier,
+    activation_id: identifier,
+    revision: s.decimal,
+    action: approvalAction,
+    decision_id: identifier,
+    decision: s.enumeration("approve", "reject"),
+    reviewer: identifier,
+    reason: s.nullable(s.string),
+    ...(protectedValue ? { protection: s.enumeration("external_effect") } : {}),
+  })(value);
+}
+
 // JSON property order is not part of an action's identity. Number tokens are.
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);

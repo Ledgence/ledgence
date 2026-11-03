@@ -15,6 +15,7 @@ otel = ["dep:ledgence-adapter-otel"]
 sqs = ["dep:ledgence-adapter-sqs"]
 
 [dependencies]
+ledgence-adapter-access.workspace = true
 ledgence-adapter-sqs = { workspace = true, optional = true }
 ledgence-adapter-otel = { workspace = true, optional = true }
 ledgence-adapter-http = { workspace = true, features = ["server", "completion"] }

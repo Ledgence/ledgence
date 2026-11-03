@@ -1,6 +1,6 @@
 //! Binary artifact publication uses an independent transfer budget. It never
 //! changes the thirty-second deadline of task/catalog control operations.
-use super::{ExchangeMetadata, Observer};
+use super::{ExchangeMetadata, HttpCredentials, Observer};
 use ledgence_worker_api::{
     Digest, ProgramDescriptor, PublicationCapabilities, PublicationError, PublicationErrorKind,
     PublicationLimits, PublicationResult, PublishArtifactResult,
@@ -17,6 +17,7 @@ const RESPONSE_LIMIT: usize = 16 * 1024;
 pub struct HttpProgramPublisher {
     client: Client,
     base: Url,
+    authorization: Option<header::HeaderValue>,
     timeout: Duration,
     observer: Option<Arc<Observer>>,
     trace_bridge: Arc<dyn TraceBridge>,
@@ -59,10 +60,24 @@ impl HttpProgramPublisher {
         Ok(Self {
             client,
             base,
+            authorization: None,
             timeout,
             observer: None,
             trace_bridge: Arc::new(NoopTraceBridge),
         })
+    }
+    /// Credentials are scoped to the same destination as control operations.
+    pub fn with_credentials(mut self, credentials: HttpCredentials) -> PublicationResult<Self> {
+        self.authorization =
+            Some(credentials.for_server(&self.base).map_err(|_| {
+                invalid("credential destination does not match publication server")
+            })?);
+        Ok(self)
+    }
+    pub fn with_bearer_token(self, token: &str) -> PublicationResult<Self> {
+        let credentials = HttpCredentials::new(self.base.as_str(), token)
+            .map_err(|_| invalid("invalid publication credential or destination"))?;
+        self.with_credentials(credentials)
     }
     pub fn with_observer(
         mut self,
@@ -80,6 +95,9 @@ impl HttpProgramPublisher {
         mut request: reqwest::RequestBuilder,
         span: &tracing::Span,
     ) -> reqwest::RequestBuilder {
+        if let Some(authorization) = &self.authorization {
+            request = request.header(header::AUTHORIZATION, authorization.clone());
+        }
         if let Some(context) = self
             .trace_bridge
             .context(span)
@@ -121,6 +139,9 @@ impl HttpProgramPublisher {
             let url = self.base.join("v1/programs/publication-capabilities").map_err(|_| invalid("invalid server URL"))?;
             let response = self.request_trace(self.client.get(url), &span).send().await.map_err(|_| unavailable())?;
             observe_headers(&response, &mut metadata, &span);
+            if matches!(response.status().as_u16(), 401 | 403) {
+                return Err(access_rejection(response).await?);
+            }
             if response.status().as_u16() == 404 {
                 return Err(PublicationError::new(PublicationErrorKind::Disabled,
                     "server does not support program publication; use --store or upgrade the server"));
@@ -210,6 +231,9 @@ impl HttpProgramPublisher {
                     .map_err(|_| unknown())?;
                 observe_headers(&response, &mut metadata, &span);
                 let status = response.status().as_u16();
+                if matches!(status, 401 | 403) {
+                    return Err(access_rejection(response).await.map_err(|_| unknown())?);
+                }
                 let bytes = read_response(response).await.map_err(|_| unknown())?;
                 if !matches!(status, 200 | 201) {
                     let rejection: PublicationError =
@@ -292,8 +316,23 @@ async fn read_response(mut response: Response) -> PublicationResult<Vec<u8>> {
     }
     Ok(bytes)
 }
+async fn access_rejection(response: Response) -> PublicationResult<PublicationError> {
+    use ledgence_orchestration_api::{ContractError, decode_unique_json};
+    let status = response.status().as_u16();
+    let bytes = read_response(response).await?;
+    let error: ContractError =
+        decode_unique_json(&bytes, RESPONSE_LIMIT).map_err(|_| unavailable())?;
+    let kind = match (status, error) {
+        (401, ContractError::Unauthenticated) => PublicationErrorKind::Unauthenticated,
+        (403, ContractError::Forbidden) => PublicationErrorKind::Forbidden,
+        _ => return Err(unavailable()),
+    };
+    Ok(PublicationError::new(kind, message(kind)))
+}
 fn expected_status(kind: PublicationErrorKind) -> u16 {
     match kind {
+        PublicationErrorKind::Unauthenticated => 401,
+        PublicationErrorKind::Forbidden => 403,
         PublicationErrorKind::Disabled => 404,
         PublicationErrorKind::InvalidArtifact => 400,
         PublicationErrorKind::TooLarge => 413,
@@ -305,6 +344,8 @@ fn expected_status(kind: PublicationErrorKind) -> u16 {
 }
 fn message(kind: PublicationErrorKind) -> &'static str {
     match kind {
+        PublicationErrorKind::Unauthenticated => "publication requires a valid credential",
+        PublicationErrorKind::Forbidden => "credential does not permit program publication",
         PublicationErrorKind::Disabled => "program publication is not enabled on this server",
         PublicationErrorKind::InvalidArtifact => "server rejected the program artifact",
         PublicationErrorKind::TooLarge => "program archive exceeds server publication limits",

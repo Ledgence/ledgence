@@ -198,10 +198,11 @@ Use the same endpoint, workflow, scope and saved command. Do not create a new
 after expiry or workflow completion while the retained record exists; different
 decisions, reviewers, reasons, request bindings or arguments conflict.
 
-`reviewer` is caller-supplied attribution, not an authenticated identity. Access
-to inspect and decide endpoints belongs behind the installation's authenticated
-application boundary. The Console uses the installation's fixed scope and
-existing allowed-Origin checks; an Origin check is not user authentication.
+`reviewer` is caller-supplied attribution. Published 0.7.0 requires the
+installation's authenticated application boundary to protect inspection and
+decisions. Development builds support [instance credentials](instance-access.md)
+and separate capabilities for sensitive reads and approval decisions. Durable
+verified decision attribution remains subsequent development work.
 
 ## Approval inbox
 

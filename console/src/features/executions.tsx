@@ -1,3 +1,4 @@
+import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -79,14 +80,18 @@ export function ExecutionDetailPage() {
         actions={
           task && (
             <>
-              <Link
-                className="button button-outline"
-                to={`/executions/new?source_task=${encodeURIComponent(taskId)}`}
-              >
-                Run again
-              </Link>
+              <Permission capability="execution_submit">
+                <Link
+                  className="button button-outline"
+                  to={`/executions/new?source_task=${encodeURIComponent(taskId)}`}
+                >
+                  Run again
+                </Link>
+              </Permission>
               {!dto.terminal(task.state) && (
-                <CancelTask key={taskId} taskId={taskId} />
+                <Permission capability="execution_control">
+                  <CancelTask key={taskId} taskId={taskId} />
+                </Permission>
               )}
             </>
           )

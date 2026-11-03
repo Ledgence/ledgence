@@ -360,3 +360,81 @@
     padding-inline: 2px;
   }
 }
+
+.access-card {
+  max-width: 34rem;
+  margin: clamp(1rem, 6vh, 5rem) auto;
+}
+.access-card form {
+  display: grid;
+  gap: 1rem;
+  margin: 1.5rem 0 1rem;
+}
+.console-sidebar .shell-actor {
+  padding: 0 14px;
+  font-size: 13px;
+  color: var(--rail-muted);
+}
+.console-sidebar .shell-actor strong {
+  color: var(--rail-ink);
+}
+.console-sidebar .shell-signout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--rail-muted);
+  font-size: 13px;
+}
+.console-sidebar .shell-signout:hover {
+  color: var(--rail-ink);
+  background: var(--rail-hover);
+}
+.console-sidebar .shell-signout svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.console-shell[data-sidebar-collapsed="true"] .shell-signout {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.console-sidebar .shell-account {
+  display: grid;
+}
+@media (max-width: 768px) {
+  .console-sidebar .shell-sidebar-footer > .shell-account {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 4px 0;
+  }
+  .console-shell .shell-account .sidebar-label {
+    display: inline;
+  }
+  .console-sidebar .shell-actor {
+    margin: 0;
+    padding: 0 4px;
+    color: var(--muted);
+  }
+  .console-sidebar .shell-actor strong {
+    color: var(--ink);
+  }
+  .console-sidebar .shell-signout {
+    padding: 8px 12px;
+    color: var(--muted);
+  }
+  .console-sidebar .shell-signout:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+}

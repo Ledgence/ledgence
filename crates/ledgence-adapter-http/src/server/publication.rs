@@ -9,9 +9,12 @@ use std::time::Duration;
 
 pub const UPLOAD_TIMEOUT_MS: u64 = 120_000;
 pub const MAX_CONCURRENT_UPLOADS: u32 = 2;
-const ARTIFACT_ROUTE: (&str, &str) = ("/v1/programs/{program_id}/{version}/artifact", "PUT");
-pub(super) const ROUTES: &[(&str, &str)] = &[
-    ("/v1/programs/publication-capabilities", "GET"),
+const ARTIFACT_ROUTE: Route = Route::put(
+    "/v1/programs/{program_id}/{version}/artifact",
+    Policy::Publish,
+);
+pub(super) const ROUTES: &[Route] = &[
+    Route::get("/v1/programs/publication-capabilities", Policy::Metadata),
     ARTIFACT_ROUTE,
 ];
 
@@ -84,9 +87,9 @@ impl PublicationService {
     }
 }
 pub(super) fn is_route(route: &str) -> bool {
-    ROUTES.iter().any(|(path, _)| *path == route)
+    ROUTES.iter().any(|entry| entry.path == route)
 }
-pub(super) fn match_route(path: &str) -> Option<&'static (&'static str, &'static str)> {
+pub(super) fn match_route(path: &str) -> Option<&'static Route> {
     let parts: Vec<_> = path.split('/').collect();
     (parts.len() == 6 && parts[1] == "v1" && parts[2] == "programs" && parts[5] == "artifact")
         .then_some(&ARTIFACT_ROUTE)
@@ -114,6 +117,10 @@ fn invalid_artifact() -> PublicationError {
 }
 fn failure(error: PublicationError) -> (u16, Vec<u8>, Option<&'static str>) {
     let (status, code, message) = match error.kind {
+        PublicationErrorKind::Unauthenticated => {
+            (401, "unauthenticated", "authentication required".into())
+        }
+        PublicationErrorKind::Forbidden => (403, "forbidden", "access denied".into()),
         PublicationErrorKind::Disabled => (404, "publication_disabled", disabled().message),
         PublicationErrorKind::InvalidArtifact => {
             (400, "invalid_artifact", invalid_artifact().message)
@@ -168,7 +175,7 @@ pub(super) async fn dispatch(
         .console
         .as_ref()
         .and_then(|console| console.publication.as_ref());
-    if request.uri().path() == ROUTES[0].0 {
+    if request.uri().path() == ROUTES[0].path {
         if request.uri().query().is_some() {
             return failure(invalid_artifact());
         }

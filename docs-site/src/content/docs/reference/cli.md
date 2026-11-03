@@ -339,3 +339,9 @@ See [Connect an MCP client](/how-to/connect-mcp).
 
 `--no-default-features --features mcp` builds MCP without OpenTelemetry or SQS.
 Earlier 0.2.0 binaries do not include this command.
+
+## Instance access in development
+
+Use scoped credentials with matching development components. The
+[instance access guide](/how-to/configure-instance-access) covers provisioning,
+Console identity, client files, capabilities, rotation and operating limits.

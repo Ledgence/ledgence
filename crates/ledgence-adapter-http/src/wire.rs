@@ -65,6 +65,8 @@ fn is_zero(value: &u64) -> bool {
 
 pub(crate) fn error_status(error: &ContractError) -> u16 {
     match error {
+        ContractError::Unauthenticated => 401,
+        ContractError::Forbidden => 403,
         ContractError::InvalidInput(_) => 400,
         ContractError::NotFound | ContractError::UnknownSession => 404,
         ContractError::ExternalDispatchRequired
@@ -81,6 +83,8 @@ pub(crate) fn error_status(error: &ContractError) -> u16 {
 
 pub(crate) fn error_code(error: &ContractError) -> &'static str {
     match error {
+        ContractError::Unauthenticated => "unauthenticated",
+        ContractError::Forbidden => "forbidden",
         ContractError::InvalidInput(_) => "invalid_input",
         ContractError::ExternalDispatchRequired => "external_dispatch_required",
         ContractError::InvalidQueueDelivery(_) => "invalid_queue_delivery",

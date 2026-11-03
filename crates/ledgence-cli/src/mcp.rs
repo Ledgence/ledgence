@@ -10,15 +10,19 @@ pub fn run(_arguments: Vec<String>) -> ExitCode {
 }
 
 #[cfg(feature = "mcp")]
-pub fn run(arguments: Vec<String>) -> ExitCode {
-    use ledgence_adapter_http::{HttpProgramCatalogService, HttpTaskService};
+pub fn run(mut arguments: Vec<String>) -> ExitCode {
+    let credentials = match crate::credentials::take(&mut arguments) {
+        Ok(value) => value,
+        Err(error) => return super::diagnose(error, None),
+    };
+    use ledgence_adapter_http::HttpProgramCatalogService;
     use ledgence_adapter_mcp::ToolDispatcher;
     use std::{sync::Arc, time::Duration};
     let (url, scope, read_only) = match parse(arguments) {
         Ok(options) => options,
         Err(error) => return super::diagnose(error, None),
     };
-    let client = match HttpTaskService::new(&url) {
+    let client = match crate::credentials::task_client(&url, credentials.as_ref()) {
         Ok(client) => Arc::new(client),
         Err(error) => return super::diagnose(error, None),
     };

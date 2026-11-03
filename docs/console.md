@@ -201,13 +201,16 @@ and [query contracts](console-query-model.md).
 
 ## Reverse proxy and upgrades
 
-Protect both `/console/` and `/v1/` with the same access-controlled TLS proxy if
-remote access is required. The instance binding is not authentication. Preserve
+For the published 0.7.0 operator-trusted deployment, protect both `/console/`
+and `/v1/` with the same access-controlled TLS proxy for remote access.
+Development builds can use [instance credentials](instance-access.md) with a
+TLS proxy and an explicit origin. Preserve
 these paths and serve assets/API from the same public origin. Configure that
 exact origin in the server's `allowed_origins`, for example
 `["https://ledgence.example.com"]`; the server does not infer it from proxy headers.
-CLI/worker requests without an Origin remain supported. Loopback listeners infer
-their local HTTP origins when the configured list is empty.
+CLI/worker requests without an Origin remain supported. Operator-trusted loopback
+listeners infer local HTTP origins when the configured list is empty. Credential
+access requires exactly one explicit Console origin.
 
 Console's CSP allows local scripts only, without inline JavaScript or eval. Inline
 CSS is allowed for the reviewed accessible dialog scroll-lock behavior. Do not
@@ -276,3 +279,11 @@ API, identity and execution guarantees.
 Open a local step in Graph or Trace to inspect its
 accepted arguments and result on demand. The attempt that recorded the result
 can differ from a later attempt that reused it. [Operation inspection](agent-recovery.md#inspect-an-accepted-operation).
+
+## Credential access in development
+
+Matching development components support optional installation credentials across
+API operations, workers and Console. Configure the authority, client credential
+files and capabilities using the [instance access guide](instance-access.md).
+The existing operator-trusted mode requires its deployment access boundary.
+Verified ingress identity and durable approval attribution have separate scope.

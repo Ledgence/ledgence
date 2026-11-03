@@ -97,6 +97,48 @@ physical cleanup. Check `result.outcome.quiescence` when cleanup evidence matter
 Cancellation outcomes have no deciding attempt or output. The status's
 `latest_attempt_id` is only a diagnostic reference to earlier work.
 
+## Credentials (development)
+
+For a credential-enabled instance, keep the private credential file supplied by
+your administrator outside application source and pass its path:
+
+```python
+from pathlib import Path
+from ledgence.client import AsyncClient, Forbidden, Unauthenticated
+
+async with AsyncClient(
+    "https://ledgence.example.com",
+    tenant="acme",
+    namespace="demo",
+    credentials_file=Path.home() / ".config/ledgence/operator.json",
+) as client:
+    try:
+        status = await client.tasks.handle("task_id").status()
+    except Unauthenticated:
+        print("The credential is missing, expired, revoked, or invalid.")
+    except Forbidden:
+        print("This credential does not permit the requested operation.")
+```
+
+The file contains exactly `server` and `token`. Its normalized server endpoint
+must match the client, including any base path. On POSIX, it must be a regular
+file owned by the current user without group/other permissions (normally mode
+`0600`); symlinks are rejected. Reads are bounded. HTTPS is required except for
+trusted loopback HTTP development. Authentication does not follow redirects.
+
+Applications using a secret manager can instead pass `token=credential` as a
+programmatic argument. Never supply both options. Do not put reusable tokens in
+source, shell arguments, logs, or task data. The client reads a file at
+construction; create a new client after replacing the credential. No credential
+is included in prepared commands or saved approval decisions.
+
+`Unauthenticated` and `Forbidden` are definitive `ServiceError` subclasses.
+A matching 401/403 response does not become submission or approval uncertainty,
+and the client does not automatically retry it. Existing clients without a
+credential continue to support operator-trusted deployments. These options
+describe development behavior and require matching server support; they are not
+available in published 0.7.0 packages.
+
 ## Workflow references and observations
 
 A workflow starts a published controller program that returns explicit checkpoint
@@ -508,7 +550,7 @@ if approval.status is ApprovalStatus.PENDING:
 Choose `approve` or `reject` only after reviewing the exact stored action. The
 command binds its scope, workflow, request activation/revision, full action,
 and any requested external-effect protection.
-`reviewer` is claimed attribution; deployment authentication and authorization
+`reviewer` is claimed attribution; credential authentication is separate from verified durable decision attribution. Deployment authentication and authorization
 must establish the actual approver. No pending request is created by deciding.
 
 `ApprovalDecisionUncertain` retains the command when the response cannot prove

@@ -2,7 +2,7 @@
 mod receipt;
 use crate::args::invalid;
 use ledgence_adapter_artifact::{ArtifactLimits, PackedProgram, pack_directory, publish_directory};
-use ledgence_adapter_http::{HttpProgramPublisher, HttpTaskService};
+use ledgence_adapter_http::{HttpCredentials, HttpProgramPublisher};
 use ledgence_orchestration_api::{
     ContractError, Result,
     console::{ConsoleProgramKind, ProgramDisplayMetadata, RegisterProgram, RegisterProgramReply},
@@ -38,12 +38,22 @@ enum Command {
     },
     Resume(PathBuf),
 }
-pub fn run(arguments: Vec<String>) -> ExitCode {
+pub fn run(mut arguments: Vec<String>) -> ExitCode {
+    let credentials = match crate::credentials::take(&mut arguments) {
+        Ok(value) => value,
+        Err(error) => return crate::diagnose(error, None),
+    };
     let command = match parse(arguments) {
         Ok(c) => c,
         Err(e) => return crate::diagnose(e, None),
     };
     if let Command::Local { source, store } = command {
+        if credentials.is_some() {
+            return crate::diagnose(
+                invalid("--credentials-file requires HTTP publication"),
+                None,
+            );
+        }
         return match publish_directory(source, store, &ArtifactLimits::default())
             .map_err(worker_error)
         {
@@ -83,7 +93,7 @@ pub fn run(arguments: Vec<String>) -> ExitCode {
         let mut session = match command {
             Command::Resume(path) => Session::open(&path)?,
             Command::Remote { source, server, register, kind, display_name, description, update_metadata } => {
-                let publisher = publisher(&server, trace.clone(), &request_id)?;
+                let publisher = publisher(&server, trace.clone(), &request_id, credentials.as_ref())?;
                 let capabilities = publisher.capabilities().await.map_err(publication_error)?;
                 if !capabilities.enabled { return Err(invalid("server publication is disabled; enable --allow-program-publication with an instance configuration or use --store")); }
                 if register && !capabilities.registration_enabled { return Err(invalid("server catalog registration is unavailable")); }
@@ -104,7 +114,7 @@ pub fn run(arguments: Vec<String>) -> ExitCode {
             Command::Local { .. } => unreachable!(),
         };
         let _ = logs.sink.json(&json!({"level":"INFO", "message":"Publication receipt saved", "receipt":session.path}));
-        let outcome = proceed(&mut session, trace.clone(), &request_id).await;
+        let outcome = proceed(&mut session, trace.clone(), &request_id, credentials.as_ref()).await;
         let registration = session.receipt.registration.as_ref();
         let recovery = registration.map(|r| registration_arguments(&session.receipt.server, r));
         let report = json!({
@@ -171,12 +181,18 @@ async fn proceed(
     session: &mut Session,
     trace: Arc<dyn ledgence_worker_api::TraceBridge>,
     request_id: &Arc<Mutex<Option<String>>>,
+    credentials: Option<&HttpCredentials>,
 ) -> std::result::Result<(), ProceedFailure> {
     // Verify the retained bytes even for a completed receipt: a recovery bundle
     // with missing or changed payload must never be reported as reproducible.
     let archive = session.archive()?;
     if session.receipt.phase == Phase::Prepared {
-        let publisher = publisher(&session.receipt.server, trace.clone(), request_id)?;
+        let publisher = publisher(
+            &session.receipt.server,
+            trace.clone(),
+            request_id,
+            credentials,
+        )?;
         let published = publisher
             .publish(&session.receipt.descriptor, archive)
             .await
@@ -189,7 +205,7 @@ async fn proceed(
         && let Some(command) = &session.receipt.registration
     {
         let observed = request_id.clone();
-        let client = HttpTaskService::new(&session.receipt.server)?
+        let client = crate::credentials::task_client(&session.receipt.server, credentials)?
             .with_trace_bridge(trace)
             .with_observer(move |metadata| {
                 *observed
@@ -369,6 +385,8 @@ fn worker_error(error: ledgence_worker_api::Error) -> ContractError {
 }
 fn publication_error(error: PublicationError) -> ContractError {
     match error.kind {
+        PublicationErrorKind::Unauthenticated => ContractError::Unauthenticated,
+        PublicationErrorKind::Forbidden => ContractError::Forbidden,
         PublicationErrorKind::InvalidArtifact | PublicationErrorKind::TooLarge => {
             invalid(error.message)
         }
@@ -387,10 +405,16 @@ fn publisher(
     server: &str,
     trace: Arc<dyn ledgence_worker_api::TraceBridge>,
     request_id: &Arc<Mutex<Option<String>>>,
+    credentials: Option<&HttpCredentials>,
 ) -> Result<HttpProgramPublisher> {
     let observed = request_id.clone();
-    Ok(HttpProgramPublisher::new(server)
-        .map_err(publication_error)?
+    let mut publisher = HttpProgramPublisher::new(server).map_err(publication_error)?;
+    if let Some(credentials) = credentials {
+        publisher = publisher
+            .with_credentials(credentials.clone())
+            .map_err(publication_error)?;
+    }
+    Ok(publisher
         .with_trace_bridge(trace)
         .with_observer(move |metadata| {
             *observed

@@ -267,3 +267,11 @@ checks. Shutdown first closes HTTP admission and drains accepted requests, then
 stops background recovery; unprocessed obligations remain durable for restart.
 Task statuses include optional `workflow_id` and `workflow_activation_id` for
 linked tasks. Ordinary statuses omit those fields.
+
+## Credential access in development
+
+Matching development components support optional installation credentials across
+API operations, workers and Console. Configure the authority, client credential
+files and capabilities using the [instance access guide](instance-access.md).
+The existing operator-trusted mode requires its deployment access boundary.
+Verified ingress identity and durable approval attribution have separate scope.

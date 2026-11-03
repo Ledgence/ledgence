@@ -28,6 +28,14 @@ class ServiceError(LedgenceError):
         self.code = code
 
 
+class Unauthenticated(ServiceError):
+    """The server rejected missing, invalid, revoked or expired credentials."""
+
+
+class Forbidden(ServiceError):
+    """The authenticated principal lacks permission for this operation."""
+
+
 class NotFound(ServiceError):
     """The requested scoped resource was not found."""
 

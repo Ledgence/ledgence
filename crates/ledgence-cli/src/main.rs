@@ -1,8 +1,10 @@
 //! Unified entry point for program administration and platform services.
 
+mod access;
 mod approvals;
 mod args;
 mod bundle;
+mod credentials;
 mod local;
 mod logging;
 mod mcp;
@@ -45,6 +47,7 @@ fn main() -> ExitCode {
             ledgence_orchestrator::entrypoint(bundle::orchestrator_arguments(arguments))
         }
         Ok(routing::Route::Local(arguments)) => local::run(arguments),
+        Ok(routing::Route::Access(arguments)) => access::run(arguments),
         Ok(routing::Route::ProgramNew(arguments)) => program_new::run(arguments),
         Ok(routing::Route::ProgramBuild(arguments)) => program_build::run(arguments),
         Ok(routing::Route::ProgramPublish(arguments)) => program_publish::run(arguments),
@@ -62,7 +65,11 @@ fn write_stdout(text: &str) -> ExitCode {
     }
 }
 
-fn run_admin(arguments: Vec<String>) -> ExitCode {
+fn run_admin(mut arguments: Vec<String>) -> ExitCode {
+    let credentials = match credentials::take(&mut arguments) {
+        Ok(value) => value,
+        Err(error) => return diagnose(error, None),
+    };
     let command = match Command::parse(arguments) {
         Ok(command) => command,
         Err(error) => return diagnose(error, None),
@@ -77,7 +84,7 @@ fn run_admin(arguments: Vec<String>) -> ExitCode {
         Command::Help => return write_stdout(routing::HELP),
     };
     // Validate the endpoint before optional telemetry or output services start.
-    let client = match HttpTaskService::new(&server) {
+    let client = match credentials::task_client(&server, credentials.as_ref()) {
         Ok(client) => client,
         Err(error) => return diagnose(error, None),
     };

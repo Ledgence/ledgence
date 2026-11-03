@@ -1,4 +1,6 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
+mod credentials;
+pub use credentials::HttpCredentials;
 mod catalog;
 mod publication;
 pub use catalog::HttpProgramCatalogService;
@@ -37,6 +39,7 @@ struct ExchangeBudget {
 pub struct HttpTaskService {
     client: Client,
     base: Url,
+    authorization: Option<header::HeaderValue>,
     timeout: Duration,
     blocking: Arc<Semaphore>,
     observer: Option<Arc<Observer>>,
@@ -87,11 +90,24 @@ impl HttpTaskService {
         Ok(Self {
             client,
             base,
+            authorization: None,
             timeout,
             blocking: Arc::new(Semaphore::new(4)),
             observer: None,
             trace_bridge: Arc::new(NoopTraceBridge),
         })
+    }
+
+    /// Bind a credential to this destination. Redirects remain disabled.
+    pub fn with_credentials(mut self, credentials: HttpCredentials) -> Result<Self> {
+        self.authorization = Some(credentials.for_server(&self.base)?);
+        Ok(self)
+    }
+
+    /// Supply an application-managed bearer credential over HTTPS or loopback HTTP.
+    pub fn with_bearer_token(self, token: &str) -> Result<Self> {
+        let credentials = HttpCredentials::new(self.base.as_str(), token)?;
+        self.with_credentials(credentials)
     }
 
     /// Called once after each observed exchange, including malformed responses.
@@ -290,6 +306,9 @@ impl HttpTaskService {
                     .client
                     .request(method, url)
                     .header(header::ACCEPT, "application/json");
+                if let Some(authorization) = &self.authorization {
+                    request = request.header(header::AUTHORIZATION, authorization.clone());
+                }
                 if let Some(context) = &exchange_trace {
                     request = request.header("traceparent", &context.traceparent);
                     if let Some(state) = &context.tracestate {

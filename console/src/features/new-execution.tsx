@@ -1,3 +1,4 @@
+import { usePermission } from "../app/access-session";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,6 +31,13 @@ const response = variant({
 });
 type Submission = Decoded<typeof submission>;
 export function NewExecutionPage() {
+  return usePermission("execution_submit") ? (
+    <NewExecutionContent />
+  ) : (
+    <Empty>Your credential does not permit submitting executions.</Empty>
+  );
+}
+function NewExecutionContent() {
   const [params] = useSearchParams();
   const source = params.get("source_task");
   const query = useResource("tasks/inspect", { task_id: source }, taskDetail, {

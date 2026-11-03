@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from urllib.parse import urlsplit, urlunsplit
+from os import PathLike
+
+from .credentials import load_token, require_secure_endpoint, validate_token
 
 from yarl import URL
 
@@ -42,11 +45,19 @@ class AsyncClient:
     """Async task and workflow client. Open with async with; all use stays on one event loop."""
 
     def __init__(self, base_url: str, *, tenant: str, namespace: str,
-                 request_timeout: float = 30.0):
+                 request_timeout: float = 30.0, token: str | None = None,
+                 credentials_file: PathLike[str] | str | None = None):
         from .tasks import Tasks
         from .workflows import Workflows
         from .completions import Completions
         self._base_url = _endpoint(base_url)
+        if token is not None and credentials_file is not None:
+            raise InputError("use token or credentials_file, never both")
+        self._token = (load_token(credentials_file, self._base_url, _endpoint)
+                       if credentials_file is not None else
+                       validate_token(token) if token is not None else None)
+        if self._token is not None:
+            require_secure_endpoint(self._base_url)
         self._scope = Scope(tenant, namespace)
         self._request_timeout = codec.duration(request_timeout, "request_timeout", 30.0)
         self.tasks = Tasks(self)
@@ -70,7 +81,7 @@ class AsyncClient:
     async def __aenter__(self) -> AsyncClient:
         if self._closed or self._transport is not None:
             raise ClientClosed("client cannot be reopened or entered twice")
-        self._transport = _Transport(self.base_url)
+        self._transport = _Transport(self.base_url, self._token)
         return self
 
     async def __aexit__(self, exc_type, exc, traceback):

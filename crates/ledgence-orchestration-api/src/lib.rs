@@ -10,6 +10,8 @@
 
 pub use ledgence_worker_api::TraceContext;
 
+mod access;
+pub use access::*;
 mod acquisition;
 mod completion;
 pub mod console;
@@ -56,6 +58,10 @@ use std::{fmt, future::Future, pin::Pin};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "code", content = "message", rename_all = "snake_case")]
 pub enum ContractError {
+    /// Missing, invalid or expired transport credentials. No operation was authorized.
+    Unauthenticated,
+    /// The verified principal lacks permission. No operation was authorized.
+    Forbidden,
     InvalidInput(String),
     /// Integrated acquisition rejected because the queue requires external
     /// dispatch. This exact operation granted no authority and committed no

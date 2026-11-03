@@ -15,6 +15,7 @@ Tracing supplements these records and never supplies missing relationships.
 
 | Crate | Responsibility | Production workspace dependencies |
 | --- | --- | --- |
+| `ledgence-adapter-access` | Optional local opaque-credential verification and provisioning | Orchestration API |
 | `ledgence-worker-api` | Events, manifests, descriptors, runtime input, portable trace carriers, cancellation, and adapter ports | None |
 | `ledgence-adapter-mcp` | Optional stdio MCP server over task, workflow and catalog ports; no HTTP or framework dependency in production | Worker API, orchestration API |
 | `ledgence-adapter-otel` | Optional trace and metrics exporters, context bridge, correlated JSON logging | Worker API |
@@ -23,14 +24,14 @@ Tracing supplements these records and never supplies missing relationships.
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
 | `ledgence-worker` | Internal library for program packaging, local fixture execution and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
-| `ledgence-orchestration-api` | Task/workflow, approval, completion, Console, delivery, lease, and storage/service contracts | Worker API |
+| `ledgence-orchestration-api` | Task/workflow, approval, completion, Console, delivery, lease, and storage/service contracts, portable access audience, principal and verifier contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
 | `ledgence-orchestration-service` | Submission resolution, workflow coordination, and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 | `ledgence-adapter-sqs` | Optional SQS Standard publishing, receiving, acknowledgment and deployment configuration | Orchestration API, worker API |
 | `ledgence-adapter-http` | Optional HTTP task/workflow clients, server routes, Console assets, and completion callback transport | Orchestration API, worker API |
-| `ledgence-orchestrator` | Internal library for HTTP/Console serving, explicit migrations, instance binding, readiness, workflow/expiry recovery, callbacks, and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
-| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator, task, approval, optional MCP, and local-stack commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel and MCP adapters |
+| `ledgence-orchestrator` | Internal library for HTTP/Console serving, explicit migrations, instance binding, readiness, workflow/expiry recovery, callbacks, and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters, access adapter |
+| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator, task, approval, optional MCP, and local-stack commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel and MCP adapters, access adapter |
 
 Since 0.4.0, the CLI locates resources in a complete installed bundle and manages
 a verified Compose kit through `ledgence local`. These distribution features
@@ -116,3 +117,11 @@ parent completion work. Controller-task completion remains separate from workflo
 completion. The store atomically registers parent decisions and new child runs;
 direct-edge cancellation and completion obligations avoid a tree-wide mutable lock.
 The existing worker pool and execution concurrency apply to every activation.
+
+## Instance access in development
+
+The portable `CredentialVerifier` returns a validated principal, installation
+audience and explicit capabilities. The optional access adapter verifies local
+opaque credentials. HTTP ingress applies route policy before command/upload
+dispatch. The production composition binds its authority during instance startup.
+See [instance access](instance-access.md) for activation, client setup and limits.

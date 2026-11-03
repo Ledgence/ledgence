@@ -53,6 +53,15 @@ async with AsyncClient(
 
 Open the client with `async with`, reuse it across calls, and keep it on its owning event loop. It exposes `tasks`, `workflows`, and `completions`. Handles retain their scoped client; reconnect through a new client after the original closes.
 
+## Credentials in development
+
+The development client accepts `credentials_file="access/operator.json"` or
+`token=` in `AsyncClient`. Choose one credential source. Files bind the credential
+to the configured server URL. HTTPS is required for remote access, with loopback
+HTTP supported for development. `Unauthenticated` and `Forbidden` describe
+rejected operations. These options require matching development components.
+[Configure instance access](/how-to/configure-instance-access).
+
 ## Submit a task or root workflow
 
 `client.tasks.prepare(...)` returns a frozen `Submission`. `client.workflows.prepare(...)` returns a distinct `WorkflowSubmission`. Neither sends a request.

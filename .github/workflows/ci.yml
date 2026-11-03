@@ -90,6 +90,7 @@ jobs:
           python -m unittest discover -s tools -p 'test_refund_*.py' -v
           python -m unittest discover -s tools -p 'test_acceptance_timing.py' -v
           python -m unittest discover -s tools -p 'test_program_fixture.py' -v
+          python -m unittest discover -s tools -p 'test_instance_access_gate.py' -v
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
@@ -364,6 +365,14 @@ jobs:
           python tools/check-python-client.py \
             --venv-dir "$RUNNER_TEMP/ledgence-client-e2e-env" \
             --evidence "$RUNNER_TEMP/ledgence-client-package.json"
+      - name: Check instance credentials across real clients, publication and workers
+        if: matrix.suite == 'api'
+        run: |
+          python tools/check-instance-access.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-instance-access-evidence"
       - name: Check installed Python client with PostgreSQL, HTTP and the packaged worker
         if: matrix.suite == 'api'
         run: |

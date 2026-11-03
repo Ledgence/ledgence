@@ -1,3 +1,4 @@
+import { Permission } from "../app/permission";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -61,7 +62,13 @@ export function AgentsPage() {
       <PageHeading
         title="Programs"
         description="Your registered tasks and workflows, ready to run."
-        actions={config.capabilities.programs && <RegisterProgram />}
+        actions={
+          config.capabilities.programs && (
+            <Permission capability="program_publish">
+              <RegisterProgram />
+            </Permission>
+          )
+        }
       />
       <section className="resource-list">
         <header className="resource-list-heading">
@@ -242,7 +249,9 @@ export function AgentDetailPage() {
         actions={
           valid &&
           config.capabilities.programs && (
-            <RegisterProgram key={programId} programId={programId} />
+            <Permission capability="program_publish">
+              <RegisterProgram key={programId} programId={programId} />
+            </Permission>
           )
         }
       />
@@ -384,12 +393,14 @@ export function ProgramVersionPage() {
         }
         actions={
           canUse && (
-            <Link
-              className="button button-primary"
-              to={`/executions/new?program=${encodeURIComponent(programId)}&version=${encodeURIComponent(version)}`}
-            >
-              Use in an execution
-            </Link>
+            <Permission capability="execution_submit">
+              <Link
+                className="button button-primary"
+                to={`/executions/new?program=${encodeURIComponent(programId)}&version=${encodeURIComponent(version)}`}
+              >
+                Use in an execution
+              </Link>
+            </Permission>
           )
         }
       />
@@ -484,11 +495,13 @@ export function ProgramVersionPage() {
                 >
                   Refresh
                 </Button>
-                <RegisterProgram
-                  key={JSON.stringify([programId, version])}
-                  programId={programId}
-                  version={version}
-                />
+                <Permission capability="program_publish">
+                  <RegisterProgram
+                    key={JSON.stringify([programId, version])}
+                    programId={programId}
+                    version={version}
+                  />
+                </Permission>
               </div>
             </section>
           )}

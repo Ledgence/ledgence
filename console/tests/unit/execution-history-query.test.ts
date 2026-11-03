@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { afterEach, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { InfiniteQueryObserver, type QueryClient } from "@tanstack/react-query";
 import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
@@ -57,6 +57,7 @@ function observe(
   subscriptions.push(unsubscribe);
   return { observer, unsubscribe };
 }
+beforeEach(() => vi.stubGlobal("location", { origin: "http://console.test" }));
 afterEach(() => {
   for (const unsubscribe of subscriptions.splice(0)) unsubscribe();
   for (const value of clients.splice(0)) value.clear();

@@ -192,6 +192,19 @@ test("a long instance name remains available without reserving a page header", a
   config.instance_name =
     "Research and operations — " + "production-instance-".repeat(12);
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "5",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const resource = new URL(route.request().url()).pathname.replace(
       "/v1/console/",
       "",
@@ -233,4 +246,19 @@ test("a long instance name remains available without reserving a page header", a
       ),
     ).toBe(true);
   }
+});
+
+// Shell fixtures run against the explicitly operator-trusted deployment mode.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/v1/console/access", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Ledgence-Console-Contract": "5",
+        "Ledgence-Instance-Id": "instance_demo",
+      },
+      body: JSON.stringify({ mode: "operator_trusted" }),
+    }),
+  );
 });

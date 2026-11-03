@@ -59,5 +59,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/require-approval#protect-an-approved-write-in-development"
+  },
+  "instanceAccess": {
+    "title": "Scoped operator and worker credentials",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/configure-instance-access"
   }
 }

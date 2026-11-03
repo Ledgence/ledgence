@@ -1,5 +1,6 @@
 //! Network orchestration composition, including supervised expiry recovery.
 
+mod access;
 mod application;
 mod command;
 mod completion;
@@ -244,6 +245,8 @@ async fn dispatch(
                 delivery_config,
                 completion_config,
                 instance_config,
+                access_config,
+                allow_insecure_console_access,
                 console_dir,
                 allow_program_publication,
             } => {
@@ -258,6 +261,8 @@ async fn dispatch(
                         delivery_config,
                         completion_config,
                         instance_config,
+                        access_config,
+                        allow_insecure_console_access,
                         console_dir,
                         allow_program_publication,
                     },
@@ -277,6 +282,8 @@ struct ServePaths {
     delivery_config: Option<std::path::PathBuf>,
     completion_config: Option<std::path::PathBuf>,
     instance_config: Option<std::path::PathBuf>,
+    access_config: Option<std::path::PathBuf>,
+    allow_insecure_console_access: bool,
     console_dir: Option<std::path::PathBuf>,
     allow_program_publication: bool,
 }
@@ -294,6 +301,8 @@ async fn prepare_and_serve(
         delivery_config,
         completion_config,
         instance_config: instance_config_path,
+        access_config,
+        allow_insecure_console_access,
         console_dir,
         allow_program_publication,
     } = paths;
@@ -306,10 +315,20 @@ async fn prepare_and_serve(
         .await
         .map_err(|error| error.to_string())?;
     let instance_config = instance::load_optional(instance_config_path).await?;
+    let verifier = access::load_optional(
+        access_config,
+        instance_config.as_ref(),
+        bind,
+        allow_insecure_console_access,
+    )
+    .await?;
     // Headless starts perform the same durable binding check. Never start an
     // unbound coordinator on a previously bound database by omitting a flag.
     let instance_context = store
-        .initialize_instance(instance_config.as_ref())
+        .initialize_instance_with_access(
+            instance_config.as_ref(),
+            verifier.as_ref().map(|verifier| verifier.audience()),
+        )
         .await
         .map_err(|error| error.to_string())?;
     let console_assets = match console_dir {
@@ -453,6 +472,14 @@ async fn prepare_and_serve(
     let service = Arc::new(service);
     let console_services = instance_config
         .map(|config| console::services(store.clone(), programs, config, address))
+        .transpose()?;
+    let console_services = console_services
+        .map(|console| match verifier {
+            Some(verifier) => console
+                .with_access(verifier, allow_insecure_console_access)
+                .map_err(|error| error.to_string()),
+            None => Ok(console),
+        })
         .transpose()?;
     let console_services = console_services.map(|console| match &artifact_publication {
         Some(publication) => console.with_publication(publication.clone()),

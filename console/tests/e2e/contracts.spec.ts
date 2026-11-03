@@ -52,6 +52,19 @@ async function mount(page: Page, result = "pending_result") {
     "workers/inspect": "worker_detail",
   };
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "5",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const name = new URL(route.request().url()).pathname.replace(
       "/v1/console/",
       "",

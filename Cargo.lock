@@ -1510,6 +1510,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
+name = "ledgence-adapter-access"
+version = "0.7.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "ledgence-orchestration-api",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
+]
+
+[[package]]
 name = "ledgence-adapter-artifact"
 version = "0.7.0"
 dependencies = [
@@ -1535,6 +1549,7 @@ dependencies = [
  "ledgence-orchestration-api",
  "ledgence-worker-api",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1640,6 +1655,7 @@ dependencies = [
 name = "ledgence-cli"
 version = "0.7.0"
 dependencies = [
+ "ledgence-adapter-access",
  "ledgence-adapter-artifact",
  "ledgence-adapter-http",
  "ledgence-adapter-mcp",
@@ -1698,6 +1714,7 @@ name = "ledgence-orchestrator"
 version = "0.7.0"
 dependencies = [
  "axum",
+ "ledgence-adapter-access",
  "ledgence-adapter-artifact",
  "ledgence-adapter-http",
  "ledgence-adapter-otel",

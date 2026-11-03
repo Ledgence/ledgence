@@ -81,3 +81,9 @@ state. See the [full tool contract and recovery guide](https://github.com/Ledgen
 for limits, error semantics, verification and architecture.
 
 Ledgence 0.7.0 exposes `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
+
+## Instance access in development
+
+Use scoped credentials with matching development components. The
+[instance access guide](/how-to/configure-instance-access) covers provisioning,
+Console identity, client files, capabilities, rotation and operating limits.
