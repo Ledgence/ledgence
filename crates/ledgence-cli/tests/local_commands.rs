@@ -6,7 +6,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    net::TcpListener,
+    io::ErrorKind,
+    net::{Ipv4Addr, TcpListener, UdpSocket},
     os::unix::fs::{PermissionsExt, symlink},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
@@ -21,6 +22,7 @@ struct Fixture {
     directory: PathBuf,
     calls: PathBuf,
     port: u16,
+    _port_reservation: UdpSocket,
 }
 
 impl Fixture {
@@ -47,8 +49,7 @@ impl Fixture {
         let docker = root.join("tools/docker");
         fs::write(&docker, DOCKER).unwrap();
         fs::set_permissions(&docker, fs::Permissions::from_mode(0o755)).unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let (port, reservation) = reserve_fixture_port();
         Self {
             directory: root.join("state with spaces"),
             calls: root.join("docker.jsonl"),
@@ -57,6 +58,7 @@ impl Fixture {
             executable,
             distribution,
             port,
+            _port_reservation: reservation,
         }
     }
 
@@ -105,6 +107,26 @@ impl Fixture {
         serde_json::from_slice(&fs::read(self.directory.join(".ledgence-state.json")).unwrap())
             .unwrap()
     }
+}
+
+// The CLI subprocess must bind TCP itself. Keep a UDP socket on the same number
+// so parallel fixtures, including other test processes, cannot select it. Scan
+// below the default ephemeral TCP range on our Linux and macOS runners.
+fn reserve_fixture_port() -> (u16, UdpSocket) {
+    for port in 20_000..30_000 {
+        let address = (Ipv4Addr::LOCALHOST, port);
+        let reservation = match UdpSocket::bind(address) {
+            Ok(socket) => socket,
+            Err(error) if error.kind() == ErrorKind::AddrInUse => continue,
+            Err(error) => panic!("could not reserve fixture port {port}: {error}"),
+        };
+        match TcpListener::bind(address) {
+            Ok(_) => return (port, reservation),
+            Err(error) if error.kind() == ErrorKind::AddrInUse => continue,
+            Err(error) => panic!("could not check fixture port {port}: {error}"),
+        }
+    }
+    panic!("no local CLI fixture port available")
 }
 
 fn write_kit(path: &Path, version: &str, digest: &str, platforms: &[&str]) {
