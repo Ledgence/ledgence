@@ -823,89 +823,351 @@ async fn protected_admission_report_racing_release_settles_capacity_once() {
     assert_eq!(counters(&db.store).await, (0, 0, 0));
     db.finish().await;
 }
-#[tokio::test]
-#[ignore = "requires PostgreSQL 18"]
-async fn protected_admission_advisory_lock_wait_cannot_backdate_expired_offer() {
-    let db = fixture().await;
-    let (c, o) = park(&db.store, "expired-under-lock", governed()).await;
-    let (_, command) = offer(&db.store, "expired-under-lock", &o).await;
-    let mut saved = snapshot(&db.store, &o).await;
+#[derive(Clone, Copy)]
+enum ExpiryFence {
+    ProviderLock,
+    FinalWrites,
+}
+#[derive(Clone, Copy)]
+enum AuthorityLoss {
+    Lease,
+    Principal,
+}
+async fn shortened_offer(store: &PostgresStore, o: &AdmissionOccurrence, absolute: bool) -> i64 {
+    let mut saved = snapshot(store, o).await;
     let deadline: i64 = sqlx::query_scalar(
-        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint + 2000",
+        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint + 1000",
     )
-    .fetch_one(&db.store.pool)
+    .fetch_one(&store.pool)
     .await
     .unwrap();
     saved.offer.as_mut().unwrap().expires_at = deadline as u64;
+    if absolute {
+        saved.deadline_at = deadline as u64;
+    }
     saved.validate().unwrap();
-    sqlx::query("UPDATE admission_requests SET offer_expires_at_ms=$2,snapshot_bytes=$3 WHERE workflow_id=$1").bind(&o.workflow_id).bind(deadline).bind(codec::encode(&saved).unwrap()).execute(&db.store.pool).await.unwrap();
+    sqlx::query("UPDATE admission_requests SET offer_expires_at_ms=$2,deadline_at_ms=$3,snapshot_bytes=$4 WHERE workflow_id=$1")
+        .bind(&o.workflow_id).bind(deadline).bind(saved.deadline_at as i64).bind(codec::encode(&saved).unwrap())
+        .execute(&store.pool).await.unwrap();
+    deadline
+}
+async fn expiry_barrier<'a>(
+    store: &'a PostgresStore,
+    c: &ProviderClaimCommand,
+    fence: ExpiryFence,
+) -> sqlx::Transaction<'a, sqlx::Postgres> {
+    let mut barrier = store.pool.begin().await.unwrap();
+    match fence {
+        ExpiryFence::ProviderLock => {
+            let business = canonical_json_bytes(
+                &serde_json::to_value((&audience().instance_id, scope(), &c.binding.business))
+                    .unwrap(),
+            )
+            .unwrap();
+            sqlx::query(
+                "SELECT pg_advisory_xact_lock(hashtextextended(encode($1::bytea,'hex'),1))",
+            )
+            .bind(business)
+            .execute(&mut *barrier)
+            .await
+            .unwrap();
+        }
+        ExpiryFence::FinalWrites => {
+            // By this write, the provider grant, source, retained evidence and
+            // admission request are already tentative. Release only after expiry.
+            sqlx::raw_sql("CREATE FUNCTION gate_admission_start() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.started > OLD.started THEN PERFORM pg_advisory_xact_lock(493782); END IF; RETURN NEW; END $$; CREATE TRIGGER gate_admission_start BEFORE UPDATE ON admission_resources FOR EACH ROW EXECUTE FUNCTION gate_admission_start()")
+                .execute(&store.pool).await.unwrap();
+            sqlx::query("SELECT pg_advisory_xact_lock(493782)")
+                .execute(&mut *barrier)
+                .await
+                .unwrap();
+        }
+    }
+    barrier
+}
+async fn expire_while_starting(
+    store: &PostgresStore,
+    command: &ProviderAdmissionStartCommand,
+    principal: &VerifiedPrincipal,
+    deadline: i64,
+    barrier: sqlx::Transaction<'_, sqlx::Postgres>,
+) -> StoreResult<ProviderAdmissionStartReceipt> {
+    let (result, ()) = crate::tests::bounded(async {
+        // Calling once prevents store retries from hiding an incorrect rollback.
+        tokio::join!(
+            store.start_provider_admission_once(principal, command),
+            async {
+                crate::tests::wait_for_lock_waiter(store).await;
+                loop {
+                    let expired: bool = sqlx::query_scalar(
+                        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint >= $1",
+                    )
+                    .bind(deadline)
+                    .fetch_one(&store.pool)
+                    .await
+                    .unwrap();
+                    if expired {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                barrier.rollback().await.unwrap();
+            }
+        )
+    })
+    .await;
+    result
+}
+async fn assert_no_dispatch(store: &PostgresStore, o: &AdmissionOccurrence, credit: i64) {
+    let (operations, sources, effects, entries, probes): (i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM provider_operations), (SELECT count(*) FROM provider_invocations), (SELECT count(*) FROM approved_effect_occurrences), (SELECT count(*) FROM approved_effect_evidence_entries), (SELECT count(*) FROM provider_probe_tasks)",
+    ).fetch_one(&store.pool).await.unwrap();
+    assert_eq!(
+        (operations, sources, effects, entries, probes),
+        (0, 0, 0, 0, 0)
+    );
+    let (claimed, recovered, started): (bool, bool, bool) = sqlx::query_as(
+        "SELECT (SELECT effect_dispatch_claimed FROM workflow_approvals WHERE workflow_id=$1), (SELECT has_provider_operations FROM workflow_runs WHERE workflow_id=$1), (SELECT start_command_bytes IS NOT NULL FROM admission_requests WHERE workflow_id=$1)",
+    ).bind(&o.workflow_id).fetch_one(&store.pool).await.unwrap();
+    assert_eq!((claimed, recovered, started), (false, false, false));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT credit FROM admission_resources WHERE resource_name='provider'"
+        )
+        .fetch_one(&store.pool)
+        .await
+        .unwrap(),
+        credit
+    );
+    let saved = snapshot(store, o).await;
+    assert!(saved.source.is_none() && saved.provider.is_none() && saved.finish.is_none());
+}
+async fn rewait(store: &PostgresStore, a: &Assignment, o: &AdmissionOccurrence) {
+    let ctx = store.activation_context(&a.lease.owner).await.unwrap();
+    apply_decision(
+        store,
+        a,
+        ctx.revision,
+        WorkflowAction::Wait {
+            state: Value::Null,
+            continuation: "admitted".into(),
+            commands: vec![],
+            wait: WorkflowWait::ResourceAdmission {
+                key: "dispatch".into(),
+                request: AdmissionWaitRequest::Existing {
+                    occurrence: o.clone(),
+                },
+                timeout_ms: 60000,
+            },
+        },
+        &[],
+    )
+    .await;
+}
+async fn capacity_expiry_recovers(fence: ExpiryFence, absolute: bool) {
+    let db = fixture().await;
+    let id = "capacity-expired";
+    let (c, o) = park(&db.store, id, governed()).await;
+    let (a, command) = offer(&db.store, id, &o).await;
+    let barrier = expiry_barrier(&db.store, &c, fence).await;
+    let deadline = shortened_offer(&db.store, &o, absolute).await;
+    let before = snapshot(&db.store, &o).await;
     let credit: i64 =
         sqlx::query_scalar("SELECT credit FROM admission_resources WHERE resource_name='provider'")
             .fetch_one(&db.store.pool)
             .await
             .unwrap();
-    let business = canonical_json_bytes(
-        &serde_json::to_value((&audience().instance_id, scope(), &c.binding.business)).unwrap(),
-    )
-    .unwrap();
-    let mut blocker = db.store.pool.begin().await.unwrap();
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(encode($1::bytea,'hex'),1))")
-        .bind(business)
-        .execute(&mut *blocker)
+    let pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM workflow_work WHERE processed_at_ms IS NULL")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    let receipt = expire_while_starting(&db.store, &command, &worker(), deadline, barrier)
         .await
         .unwrap();
-    let p = worker();
-    let (result, ()) = crate::tests::bounded(async {
-        tokio::join!(db.store.start_provider_admission(&p, &command), async {
-            crate::tests::wait_for_lock_waiter(&db.store).await;
-            loop {
-                let expired: bool = sqlx::query_scalar(
-                    "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint >= $1",
-                )
-                .bind(deadline)
-                .fetch_one(&db.store.pool)
-                .await
-                .unwrap();
-                if expired {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-            blocker.rollback().await.unwrap();
-        })
-    })
-    .await;
-    assert!(
-        result.is_err(),
-        "expired offer cannot mint a backdated source"
-    );
-    assert_eq!(counters(&db.store).await, (1, 0, 0));
+    let ProviderAdmissionStartReceipt::Existing {
+        snapshot: observed, ..
+    } = receipt
+    else {
+        panic!("expired capacity must return an observation, not a grant")
+    };
+    assert_eq!(observed.state, AdmissionState::AwaitingRewait);
+    assert_eq!(observed.occurrence, o);
+    assert_eq!(observed.deadline_at, before.deadline_at);
+    assert_eq!(observed.binding, before.binding);
+    assert_eq!(counters(&db.store).await, (0, 0, 0));
+    assert_no_dispatch(&db.store, &o, credit).await;
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
-            "SELECT credit FROM admission_resources WHERE resource_name='provider'"
+            "SELECT count(*) FROM workflow_work WHERE processed_at_ms IS NULL"
         )
         .fetch_one(&db.store.pool)
         .await
         .unwrap(),
-        credit
+        pending
     );
+    // An exact network retry still cannot create a grant from the expired offer.
+    assert!(matches!(
+        db.store
+            .start_provider_admission(&worker(), &command)
+            .await
+            .unwrap(),
+        ProviderAdmissionStartReceipt::Existing { .. }
+    ));
+    rewait(&db.store, &a, &o).await;
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM provider_operations")
+        snapshot(&db.store, &o).await.deadline_at,
+        before.deadline_at
+    );
+    if absolute {
+        let resumed = acquire(&db.store, id).await;
+        let context = db
+            .store
+            .activation_context(&resumed.lease.owner)
+            .await
+            .unwrap();
+        let Some(WorkflowWake::ResourceAdmission(wake)) = context.wake else {
+            panic!("missing deadline wake")
+        };
+        assert!(matches!(
+            wake.selection,
+            AdmissionSelection::Closed {
+                reason: AdmissionClosedReason::Deadline
+            }
+        ));
+        assert_eq!(counters(&db.store).await, (0, 0, 0));
+        assert_no_dispatch(&db.store, &o, credit).await;
+    } else {
+        let (_, mut fresh) = offer(&db.store, id, &o).await;
+        fresh.admission.start_id = "start:fresh".into();
+        fresh.admission.finish_id = "report:fresh".into();
+        assert!(fresh.admission.offer_generation > command.admission.offer_generation);
+        let ProviderAdmissionStartReceipt::Granted { source } = db
+            .store
+            .start_provider_admission(&worker(), &fresh)
+            .await
+            .unwrap()
+        else {
+            panic!("fresh offer must grant")
+        };
+        assert_eq!(source.provider.ticket.occurrence, c.occurrence());
+        assert_eq!(source.admission.occurrence, o);
+        assert!(matches!(
+            db.store
+                .start_provider_admission(&worker(), &fresh)
+                .await
+                .unwrap(),
+            ProviderAdmissionStartReceipt::Existing { .. }
+        ));
+        assert_eq!(counters(&db.store).await, (0, 1, 0));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM provider_invocations")
+                .fetch_one(&db.store.pool)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT credit FROM admission_resources WHERE resource_name='provider'"
+            )
             .fetch_one(&db.store.pool)
             .await
             .unwrap(),
-        0
-    );
-    assert!(
-        !sqlx::query_scalar::<_, bool>(
-            "SELECT effect_dispatch_claimed FROM workflow_approvals WHERE workflow_id=$1"
-        )
-        .bind(c.workflow_id)
-        .fetch_one(&db.store.pool)
-        .await
-        .unwrap()
-    );
+            credit - 60_000
+        );
+    }
     db.finish().await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn protected_admission_advisory_lock_expiry_recovers_by_rewaiting() {
+    capacity_expiry_recovers(ExpiryFence::ProviderLock, false).await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn protected_admission_final_fence_expiry_rolls_back_and_recovers() {
+    capacity_expiry_recovers(ExpiryFence::FinalWrites, false).await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn protected_admission_expiry_rewait_preserves_absolute_deadline() {
+    capacity_expiry_recovers(ExpiryFence::FinalWrites, true).await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn protected_admission_expiry_recovery_preserves_authority_errors() {
+    for fence in [ExpiryFence::ProviderLock, ExpiryFence::FinalWrites] {
+        for loss in [AuthorityLoss::Lease, AuthorityLoss::Principal] {
+            for capacity_expired in [false, true] {
+                let db = fixture().await;
+                let (c, o) = park(&db.store, "expired-authority", governed()).await;
+                let (_, command) = offer(&db.store, "expired-authority", &o).await;
+                let barrier = expiry_barrier(&db.store, &c, fence).await;
+                let deadline = if capacity_expired {
+                    shortened_offer(&db.store, &o, false).await
+                } else {
+                    sqlx::query_scalar(
+                        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint + 1000",
+                    )
+                    .fetch_one(&db.store.pool)
+                    .await
+                    .unwrap()
+                };
+                let p = match loss {
+                    AuthorityLoss::Lease => {
+                        sqlx::query("UPDATE attempts SET expires_at_ms=$2 WHERE attempt_id=$1")
+                            .bind(&command.admission.owner.attempt_id)
+                            .bind(deadline)
+                            .execute(&db.store.pool)
+                            .await
+                            .unwrap();
+                        sqlx::query("UPDATE tasks SET next_expiry_ms=$2 WHERE task_id=$1")
+                            .bind(&command.admission.owner.task_id)
+                            .bind(deadline)
+                            .execute(&db.store.pool)
+                            .await
+                            .unwrap();
+                        worker()
+                    }
+                    AuthorityLoss::Principal => VerifiedPrincipal::new(
+                        PrincipalIdentity {
+                            issuer: audience().issuer(),
+                            subject: "worker".into(),
+                        },
+                        audience(),
+                        "short-lived-worker".into(),
+                        PrincipalClass::Worker,
+                        deadline as u64,
+                        vec![AccessCapability::WorkerExecute],
+                    )
+                    .unwrap(),
+                };
+                let credit: i64 = sqlx::query_scalar(
+                    "SELECT credit FROM admission_resources WHERE resource_name='provider'",
+                )
+                .fetch_one(&db.store.pool)
+                .await
+                .unwrap();
+                let response =
+                    expire_while_starting(&db.store, &command, &p, deadline, barrier).await;
+                match loss {
+                    AuthorityLoss::Lease => assert!(matches!(
+                        response,
+                        Err(StoreError::Contract(ContractError::OwnershipLost))
+                    )),
+                    AuthorityLoss::Principal => assert!(matches!(
+                        response,
+                        Err(StoreError::Contract(ContractError::Unauthenticated))
+                    )),
+                }
+                // Invalid authority cannot commit even the capacity-state recovery.
+                assert_eq!(counters(&db.store).await, (1, 0, 0));
+                assert_no_dispatch(&db.store, &o, credit).await;
+                db.finish().await;
+            }
+        }
+    }
 }
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]

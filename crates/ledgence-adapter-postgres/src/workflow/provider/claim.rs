@@ -1,4 +1,10 @@
 use super::*;
+
+/// Capacity expiry is recoverable by parking the same admission occurrence.
+/// It is not a worker ownership error and must never trigger a new grant here.
+pub(super) struct AdmissionExpired {
+    pub observed_at: u64,
+}
 impl PostgresStore {
     pub(super) async fn claim_provider_once(
         &self,
@@ -39,7 +45,8 @@ impl PostgresStore {
         }
         let receipt = self
             .claim_provider_tx(&mut tx, &worker, &evidence, c, &o, now, None)
-            .await?;
+            .await?
+            .map_err(|_| corrupt("ungoverned provider claim expired admission"))?;
         let now = db::now(&mut tx).await?;
         self.require_effect_worker(p, &o.scope, now)?;
         execution::check_live(&workflow, &authority, &c.owner, now, true)?;
@@ -50,7 +57,7 @@ impl PostgresStore {
     /// Caller holds workflow/task and, for composed admission, the resource lock.
     /// The original occurrence comes from verified approval, never a replacement owner.
     #[allow(clippy::too_many_arguments)]
-    pub(in crate::workflow) async fn claim_provider_tx(
+    pub(super) async fn claim_provider_tx(
         &self,
         tx: &mut PgConnection,
         worker: &EffectWorkerIdentity,
@@ -59,7 +66,7 @@ impl PostgresStore {
         o: &EffectOccurrence,
         now: u64,
         admission_deadline: Option<u64>,
-    ) -> StoreResult<ProviderClaimReceipt> {
+    ) -> StoreResult<std::result::Result<ProviderClaimReceipt, AdmissionExpired>> {
         // Sorted advisory keys serialize only competing provider/business identities.
         // Unique indexes remain the authoritative guard; full bytes detect collisions.
         let business = canonical(&(
@@ -106,8 +113,14 @@ impl PostgresStore {
         // Ungoverned provider calls retain their original SQL path.
         let now = if let Some(deadline) = admission_deadline {
             let fresh = db::now(tx).await?;
-            if fresh < now || fresh >= deadline {
-                return Err(ContractError::OwnershipLost.into());
+            if fresh < now {
+                return Err(ContractError::Unavailable(
+                    "provider admission clock moved backwards".into(),
+                )
+                .into());
+            }
+            if fresh >= deadline {
+                return Ok(Err(AdmissionExpired { observed_at: fresh }));
             }
             fresh
         } else {
@@ -274,6 +287,6 @@ impl PostgresStore {
                 source: Box::new(source),
             }
         };
-        Ok(receipt)
+        Ok(Ok(receipt))
     }
 }

@@ -137,14 +137,19 @@ impl PostgresStore {
         };
         // The helper preserves the original occurrence while the lease belongs to
         // the admission-resumed activation. The generic Claim endpoint cannot do this.
-        let grant_deadline = a
+        let capacity_deadline = a
             .snapshot
             .offer
             .as_ref()
             .ok_or_else(|| corrupt("missing protected offer"))?
             .expires_at
-            .min(a.snapshot.deadline_at)
-            .min(authority.valid_until());
+            .min(a.snapshot.deadline_at);
+        // Retain the workflow/task/resource/request locks if capacity expires.
+        // All tentative provider authority, recovery and accounting are inside
+        // this savepoint; an expiry returns an observation, never another grant.
+        sqlx::query("SAVEPOINT provider_admission_grant")
+            .execute(&mut *tx)
+            .await?;
         let provider = self
             .claim_provider_tx(
                 &mut tx,
@@ -153,13 +158,34 @@ impl PostgresStore {
                 &claim,
                 &subject.ticket.occurrence,
                 now,
-                Some(grant_deadline),
+                Some(capacity_deadline),
             )
             .await?;
+        let provider = match provider {
+            Ok(receipt) => receipt,
+            Err(expired) => {
+                let receipt = self
+                    .recover_expired_provider_admission(
+                        &mut tx,
+                        p,
+                        command,
+                        &name,
+                        expired.observed_at,
+                    )
+                    .await?;
+                tx.commit().await?;
+                return Ok(receipt);
+            }
+        };
         let now = match &provider {
             ProviderClaimReceipt::Dispatch { source, .. } => source.accepted_at,
             _ => db::now(&mut tx).await?,
         };
+        // A still-valid capacity offer cannot extend the task lease or worker
+        // credential. Reject these before constructing a source from fresh time.
+        self.admission_worker(p, &c.occurrence.scope, now)?;
+        self.require_effect_worker(p, &c.occurrence.scope, now)?;
+        execution::check_live(&workflow, &authority, &c.owner, now, true)?;
         if r.offered == 0 || r.started >= u64::from(r.record.policy.max_occupancy) {
             return Err(corrupt("offer occupancy authority").into());
         }
@@ -238,14 +264,72 @@ impl PostgresStore {
         capacity::save_resource(&mut tx, &r).await?;
         admission_wait::notify(&mut tx, &a, now).await?;
         let final_now = db::now(&mut tx).await?;
-        if final_now >= grant_deadline {
-            return Err(ContractError::OwnershipLost.into());
+        if final_now < now {
+            return Err(ContractError::Unavailable(
+                "provider admission clock moved backwards".into(),
+            )
+            .into());
+        }
+        if final_now >= capacity_deadline {
+            let receipt = self
+                .recover_expired_provider_admission(&mut tx, p, command, &name, final_now)
+                .await?;
+            tx.commit().await?;
+            return Ok(receipt);
         }
         self.admission_worker(p, &c.occurrence.scope, final_now)?;
         self.require_effect_worker(p, &c.occurrence.scope, final_now)?;
         execution::check_live(&workflow, &authority, &c.owner, final_now, true)?;
         receipt.validate_for(p, command)?;
         tx.commit().await?;
+        Ok(receipt)
+    }
+
+    /// Cancel a tentative dispatch without dropping the locks that serialize
+    /// this owner and resource. The savepoint also removes claim/source/recovery
+    /// writes and any notifications; only invalidating the old offer commits.
+    async fn recover_expired_provider_admission(
+        &self,
+        tx: &mut PgConnection,
+        p: &VerifiedPrincipal,
+        command: &ProviderAdmissionStartCommand,
+        name: &str,
+        observed_at: u64,
+    ) -> StoreResult<ProviderAdmissionStartReceipt> {
+        sqlx::query("ROLLBACK TO SAVEPOINT provider_admission_grant")
+            .execute(&mut *tx)
+            .await?;
+        let c = &command.admission;
+        let (workflow, authority) = execution::lock_activation(tx, &c.owner).await?;
+        let mut r = capacity::resource(tx, &c.occurrence.scope, name, true).await?;
+        let mut a = capacity::request(tx, &c.occurrence).await?;
+        let now = db::now(tx).await?;
+        if now < observed_at || now < r.high_water || now < a.snapshot.updated_at {
+            return Err(ContractError::Unavailable(
+                "provider admission clock moved backwards".into(),
+            )
+            .into());
+        }
+        self.admission_worker(p, &c.occurrence.scope, now)?;
+        self.require_effect_worker(p, &c.occurrence.scope, now)?;
+        execution::check_live(&workflow, &authority, &c.owner, now, true)?;
+        if !capacity::invalidate_offer(&mut a, &mut r, now)? {
+            return Err(corrupt("expired provider admission retained a live offer").into());
+        }
+        capacity::save_request(tx, &a).await?;
+        capacity::save_resource(tx, &r).await?;
+        let final_now = db::now(tx).await?;
+        if final_now < now {
+            return Err(ContractError::Unavailable(
+                "provider admission clock moved backwards".into(),
+            )
+            .into());
+        }
+        self.admission_worker(p, &c.occurrence.scope, final_now)?;
+        self.require_effect_worker(p, &c.occurrence.scope, final_now)?;
+        execution::check_live(&workflow, &authority, &c.owner, final_now, true)?;
+        let receipt = existing(p, a.snapshot);
+        receipt.validate_for(p, command)?;
         Ok(receipt)
     }
 
