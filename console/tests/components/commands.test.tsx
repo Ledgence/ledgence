@@ -1,7 +1,7 @@
 import { afterEach, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v9.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import { useCommand, freezeCommand } from "../../src/api/commands";
@@ -54,7 +54,7 @@ it("freezes destination, instance, decoder, callback and bytes across rerenders 
       : new Response('{"id":"accepted"}', {
           headers: {
             "Content-Type": "application/json",
-            "Ledgence-Console-Contract": "8",
+            "Ledgence-Console-Contract": "9",
             "Ledgence-Instance-Id": config.instance_id,
           },
         });

@@ -185,18 +185,59 @@ impl AdmissionOperation {
         bound(&self.arguments, ADMISSION_ARGUMENTS_MAX_BYTES)
     }
 }
+/// Disjoint, strict subjects preserve the original operation binding bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AdmissionBinding {
+    Operation(OperationAdmissionBinding),
+    Provider(Box<ProviderAdmissionBinding>),
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdmissionBinding {
+pub struct OperationAdmissionBinding {
     pub resource: String,
     pub program: ProgramDescriptor,
     pub operation: AdmissionOperation,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderAdmissionBinding {
+    pub resource: String,
+    pub program: ProgramDescriptor,
+    pub provider: ProviderAdmissionSubject,
+}
 impl AdmissionBinding {
+    pub fn resource(&self) -> &str {
+        match self {
+            Self::Operation(v) => &v.resource,
+            Self::Provider(v) => &v.resource,
+        }
+    }
+    pub fn program(&self) -> &ProgramDescriptor {
+        match self {
+            Self::Operation(v) => &v.program,
+            Self::Provider(v) => &v.program,
+        }
+    }
+    pub fn operation(&self) -> Option<&AdmissionOperation> {
+        match self {
+            Self::Operation(v) => Some(&v.operation),
+            Self::Provider(_) => None,
+        }
+    }
+    pub fn provider(&self) -> Option<&ProviderAdmissionSubject> {
+        match self {
+            Self::Provider(v) => Some(&v.provider),
+            Self::Operation(_) => None,
+        }
+    }
     pub fn validate(&self) -> Result<()> {
-        name(&self.resource)?;
-        self.program.validate()?;
-        self.operation.validate()
+        name(self.resource())?;
+        self.program().validate()?;
+        match self {
+            Self::Operation(v) => v.operation.validate(),
+            Self::Provider(v) => v.provider.validate_for(&v.program, &v.resource),
+        }
     }
     pub fn digest(&self) -> Result<Digest> {
         self.validate()?;
@@ -206,6 +247,9 @@ impl AdmissionBinding {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AdmissionWaitRequest {
+    Provider {
+        approval_key: String,
+    },
     New {
         resource: String,
         operation: AdmissionOperation,
@@ -217,6 +261,7 @@ pub enum AdmissionWaitRequest {
 impl AdmissionWaitRequest {
     pub fn validate(&self) -> Result<()> {
         match self {
+            Self::Provider { approval_key } => validate_text(approval_key, 128),
             Self::New {
                 resource,
                 operation,

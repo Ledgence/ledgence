@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v8.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json).
+[`console-v9.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v9.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -33,7 +33,7 @@ instance scope, parent and filters. A page is internally consistent; consecutive
 pages can observe later committed changes. The worker slot cursor uses the
 stable slot position, not a changing snapshot sequence.
 
-The HTTP namespace remains `/v1/console`; the Console contract version is 8.
+The HTTP namespace remains `/v1/console`; the Console contract version is 9.
 Explorer nodes carry backend-projected typed relations with references to existing
 workflow-scoped or activation-scoped identities. Relations remain present when an
 endpoint is outside the current page. See the [query model](../../../docs/console-query-model.md)
@@ -102,3 +102,12 @@ uses audited, scope-free `POST /v1/console/admissions/inspect` and validates the
 returned source against the selected node. Cancellation and administrative
 release do not fabricate accepted-operation nodes. Historical C7 fixtures remain
 unchanged and are rejected by a C8 browser.
+
+
+C9 requires an admission wait `subject`: `{ "kind": "operation" }` or
+`{ "kind": "provider", "ticket": { "occurrence": ..., "binding_digest": ... } }`.
+Provider subjects retain the original approval occurrence. The selection kind
+`provider` means a non-executable provider ticket was selected; it is not business
+success. The on-demand native admission inspector accepts the strict disjoint
+provider binding and linked provider evidence, keeping report receipts separate
+from generic `finish` results. C8 fixtures remain historical and unchanged.

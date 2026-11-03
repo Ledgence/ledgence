@@ -131,6 +131,15 @@ class AdmissionSnapshot:
     def finish(self):
         return self.to_dict()["finish"]
 
+    @property
+    def provider(self):
+        """Dispatch evidence, separate from business outcome; absent for ordinary calls."""
+        raw = self.to_dict().get("provider")
+        if raw is None:
+            return None
+        from .provider_admission_models import ProviderAdmissionRecord
+        return ProviderAdmissionRecord(codec.encode(raw, LIMIT, max_depth=96))
+
 
 @dataclass(frozen=True)
 class AdmissionReleaseReceipt:
@@ -287,30 +296,33 @@ def _snapshot(raw, occurrence):
             "source",
             "finish",
         },
+        {"provider"},
     )
     _occurrence(raw["occurrence"], occurrence)
     state = AdmissionState(raw["state"])
     integer(raw["revision"], 1)
     binding = raw["binding"]
-    codec.fields(binding, {"resource", "program", "operation"})
+    is_provider = "provider" in binding
+    codec.fields(binding, {"resource", "program", "provider" if is_provider else "operation"})
     name(binding["resource"])
     program = binding["program"]
     codec.fields(program, {"program", "digest", "size"})
     digest(program["digest"])
-    integer(program["size"], 1)
+    codec.integer(program["size"], "program size", 1)
     codec.fields(program["program"], {"id", "version"})
     for key in ("id", "version"):
         codec.text(program["program"][key], key)
-    operation = binding["operation"]
-    codec.fields(operation, {"callable", "kind", "version", "arguments"})
-    codec.text(operation["callable"], "callable", 512)
-    codec.text(operation["version"], "version")
-    if (
-        operation["kind"] not in ("model", "tool")
-        or type(operation["arguments"]) is not dict
-    ):
-        raise InputError("invalid admission operation")
-    codec.validate_authoritative(operation["arguments"], 64 * 1024)
+    if is_provider:
+        from .provider_admission_models import validate_subject
+        validate_subject(binding, occurrence)
+    else:
+        operation = binding["operation"]
+        codec.fields(operation, {"callable", "kind", "version", "arguments"})
+        codec.text(operation["callable"], "callable", 512)
+        codec.text(operation["version"], "version")
+        if operation["kind"] not in ("model", "tool") or type(operation["arguments"]) is not dict:
+            raise InputError("invalid admission operation")
+        codec.validate_authoritative(operation["arguments"], 64 * 1024)
     created, updated, deadline = (
         timestamp(raw[k]) for k in ("created_at", "updated_at", "deadline_at")
     )
@@ -353,7 +365,21 @@ def _snapshot(raw, occurrence):
         ):
             raise InputError("foreign admission finish")
         codec.validate_authoritative(finish["output"], 64 * 1024)
-    shape = (offer is not None, source is not None, finish is not None)
+    record = raw.get("provider")
+    if "provider" in raw and record is None:
+        raise InputError("null provider admission record")
+    if is_provider:
+        from .provider_admission_models import validate_record
+        if finish is not None:
+            raise InputError("provider admission cannot contain generic result")
+        if record is not None:
+            validate_record(record, binding, occurrence, source, updated, state)
+        elif source is not None:
+            raise InputError("missing linked provider source")
+    elif record is not None:
+        raise InputError("unexpected provider evidence")
+    completed = record is not None and record["report"] is not None and record["report"]["call_completion"] == "completed"
+    shape = (offer is not None, source is not None, finish is not None or completed)
     allowed = {
         AdmissionState.WAITING: (False, False, False),
         AdmissionState.AWAITING_REWAIT: (False, False, False),

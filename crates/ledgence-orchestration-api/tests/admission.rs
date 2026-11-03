@@ -32,7 +32,7 @@ fn operation() -> AdmissionOperation {
     }
 }
 fn binding() -> AdmissionBinding {
-    AdmissionBinding {
+    AdmissionBinding::Operation(OperationAdmissionBinding {
         resource: "models.shared".into(),
         program: ProgramDescriptor {
             program: ProgramRef {
@@ -43,7 +43,7 @@ fn binding() -> AdmissionBinding {
             size: 1,
         },
         operation: operation(),
-    }
+    })
 }
 fn owner() -> LeaseOwner {
     LeaseOwner {
@@ -126,6 +126,7 @@ fn snapshot() -> AdmissionSnapshot {
         offer: None,
         source: Some(source()),
         finish: Some(receipt()),
+        provider: None,
     }
 }
 fn policy() -> ResourcePolicy {
@@ -146,15 +147,15 @@ fn policy() -> ResourcePolicy {
 fn operation_binding_freezes_kind_version_program_and_exact_numeric_arguments() {
     let a = binding();
     let mut b = a.clone();
-    b.operation.arguments = json!({"temperature":1.0,"text":"hello"});
+    operation_binding(&mut b).operation.arguments = json!({"temperature":1.0,"text":"hello"});
     assert_eq!(a.digest().unwrap(), b.digest().unwrap());
-    b.operation.arguments["temperature"] = json!(1);
+    operation_binding(&mut b).operation.arguments["temperature"] = json!(1);
     assert_ne!(a.digest().unwrap(), b.digest().unwrap());
     b = a.clone();
-    b.operation.version = "2".into();
+    operation_binding(&mut b).operation.version = "2".into();
     assert_ne!(a.digest().unwrap(), b.digest().unwrap());
     b = a.clone();
-    b.program.digest = Digest(format!("sha256:{}", "b".repeat(64)));
+    operation_binding(&mut b).program.digest = Digest(format!("sha256:{}", "b".repeat(64)));
     assert_ne!(a.digest().unwrap(), b.digest().unwrap());
     for callable in [
         "app",
@@ -189,6 +190,7 @@ fn wake_and_preloaded_result_preserve_occurrence_offer_and_acceptance_provenance
     }
     let mut context = WorkflowActivationContext {
         admission_result: Some(receipt()),
+        provider_admission: None,
         parent_workflow_id: None,
         root_workflow_id: None,
         v: 1,
@@ -391,4 +393,11 @@ fn strict_shapes_reject_null_and_unknown_fields_without_implicit_defaults() {
         dispatch: AdmissionDispatchPolicy::Quarantined,
     };
     config.validate_for(&audience()).unwrap();
+}
+
+fn operation_binding(binding: &mut AdmissionBinding) -> &mut OperationAdmissionBinding {
+    let AdmissionBinding::Operation(value) = binding else {
+        panic!("expected operation")
+    };
+    value
 }

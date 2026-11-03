@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v9.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { workflowExplorer } from "../../src/api/explorer";
@@ -22,8 +22,15 @@ afterEach(() => {
   clients.splice(0).forEach((v) => v.clear());
   vi.restoreAllMocks();
 });
-async function setup(foreign = false) {
-  const value = admissionSnapshot(cases.snapshot);
+async function setup(foreign = false, governed = false) {
+  const provider = cases.provider as Record<string, unknown>;
+  const responseValue = governed ? provider.completed_pending : cases.snapshot;
+  const value = admissionSnapshot(responseValue);
+  const selectedNode = governed
+    ? workflowExplorer(provider.graph).page.items.find(
+        (v) => v.kind === "admission_wait",
+      )!
+    : node;
   if (foreign) value.finish!.source.owner.attempt_id = "foreign";
   const fetch = vi
     .spyOn(globalThis, "fetch")
@@ -37,10 +44,10 @@ async function setup(foreign = false) {
         origin_activation_id: "act_wf_admission_0",
         key: "summary:0",
       });
-      return new Response(stringifyUserJson(value), {
+      return new Response(stringifyUserJson(governed ? responseValue : value), {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "8",
+          "Ledgence-Console-Contract": "9",
           "Ledgence-Instance-Id": config.instance_id,
         },
       });
@@ -54,7 +61,7 @@ async function setup(foreign = false) {
       <InstanceContext.Provider value={config}>
         <MemoryRouter>
           <NodeInspector
-            node={node}
+            node={selectedNode}
             workflowId="wf_admission"
             relations={[]}
             select={() => {}}
@@ -90,6 +97,28 @@ it("hides result payload when inspection returns foreign attempt provenance", as
   await expect
     .element(view.getByLabelText("Effective arguments"))
     .not.toBeInTheDocument();
+  await expect
+    .element(view.getByLabelText("Accepted result"))
+    .not.toBeInTheDocument();
+});
+
+it("inspects provider call settlement without rendering a successful callback or business outcome", async () => {
+  const { view, fetch } = await setup(false, true);
+  expect(fetch).not.toHaveBeenCalled();
+  await view.getByText("Inspect admission record").click();
+  await expect
+    .element(view.getByLabelText("Approved arguments"))
+    .toHaveTextContent("sales");
+  await expect
+    .element(view.getByLabelText("Provider ticket"))
+    .toHaveTextContent("export:0");
+  await expect
+    .element(
+      view.getByText("Call completion describes capacity settlement.", {
+        exact: false,
+      }),
+    )
+    .toBeVisible();
   await expect
     .element(view.getByLabelText("Accepted result"))
     .not.toBeInTheDocument();

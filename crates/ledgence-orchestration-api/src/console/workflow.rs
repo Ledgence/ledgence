@@ -124,9 +124,45 @@ impl ConsoleProviderWait {
         Ok(())
     }
 }
+/// Public metadata only; action arguments remain in the audited inspector.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ConsoleAdmissionSubject {
+    #[default]
+    Operation,
+    Provider {
+        ticket: ProviderOperationTicket,
+    },
+}
+impl ConsoleAdmissionSubject {
+    pub fn from_binding(binding: &AdmissionBinding) -> Self {
+        match binding.provider() {
+            Some(provider) => Self::Provider {
+                ticket: provider.ticket.clone(),
+            },
+            None => Self::Operation,
+        }
+    }
+    pub fn validate_for(&self, occurrence: &AdmissionOccurrence) -> Result<()> {
+        if let Self::Provider { ticket } = self {
+            ticket.validate()?;
+            if ticket.occurrence.scope != occurrence.scope
+                || ticket.occurrence.workflow_id != occurrence.workflow_id
+                || ticket.occurrence.activation_id != occurrence.origin_activation_id
+            {
+                return Err(invalid(
+                    "provider admission subject disagrees with occurrence",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleAdmissionWait {
+    #[serde(default)]
+    pub subject: ConsoleAdmissionSubject,
     pub parking_activation_id: String,
     pub key: String,
     pub occurrence: AdmissionOccurrence,
@@ -137,6 +173,7 @@ impl ConsoleAdmissionWait {
         validate_text(&self.parking_activation_id, 128)?;
         validate_text(&self.key, 128)?;
         self.occurrence.validate()?;
+        self.subject.validate_for(&self.occurrence)?;
         crate::admission::name(&self.resource)?;
         if self.occurrence.workflow_id != workflow_id {
             return Err(invalid("admission wait belongs to another workflow"));

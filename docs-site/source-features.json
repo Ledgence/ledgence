@@ -97,7 +97,7 @@
     "verifiedOn": "2026-11-03"
   },
   "resourceAdmission": {
-    "title": "Checkpointed resource admission for registered model and tool callbacks",
+    "title": "Checkpointed capacity for registered callbacks and approved provider dispatch",
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/control-resource-capacity"

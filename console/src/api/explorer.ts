@@ -1,3 +1,4 @@
+import { admissionSubject, admissionSubjectMatches } from "./resources";
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
 import { descriptor, programSummary, providerProbe } from "./resources";
@@ -203,6 +204,7 @@ const rawExplorerNode = s.variant({
   admission_wait: s.object({
     ...base,
     kind: s.enumeration("admission_wait"),
+    subject: admissionSubject,
     key: s.id,
     occurrence: admissionOccurrence,
     resource: s.id,
@@ -210,7 +212,13 @@ const rawExplorerNode = s.variant({
     registered_at: s.timestamp,
     closed_at: s.nullable(s.timestamp),
     selection_kind: s.nullable(
-      s.enumeration("offered", "finished", "closed", "needs_review"),
+      s.enumeration(
+        "offered",
+        "finished",
+        "closed",
+        "needs_review",
+        "provider",
+      ),
     ),
     resumed_activation_id: s.nullable(s.id),
   }),
@@ -297,6 +305,7 @@ export const explorerNode = s.refine(
       return new Set(node.member_keys).size === node.member_keys.length;
     if (node.kind === "admission_wait")
       return (
+        admissionSubjectMatches(node.subject, node.occurrence) &&
         node.deadline >= node.registered_at &&
         (node.selection_kind === null) ===
           (node.resumed_activation_id === null) &&

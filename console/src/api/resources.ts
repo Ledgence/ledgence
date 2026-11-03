@@ -243,12 +243,45 @@ export const admissionOccurrence = s.object({
   origin_activation_id: s.id,
   key: s.id,
 });
-export const admissionWait = s.object({
-  parking_activation_id: s.id,
-  key: s.id,
-  occurrence: admissionOccurrence,
-  resource: s.id,
+export const providerTicket = s.object({
+  occurrence: effectOccurrence,
+  binding_digest: s.refine(
+    s.string,
+    (v) => /^sha256:[0-9a-f]{64}$/.test(v),
+    "Invalid provider digest.",
+  ),
 });
+export const admissionSubject = s.variant({
+  operation: s.object({ kind: s.enumeration("operation") }),
+  provider: s.object({
+    kind: s.enumeration("provider"),
+    ticket: providerTicket,
+  }),
+});
+export function admissionSubjectMatches(
+  subject: s.Decoded<typeof admissionSubject>,
+  occurrence: s.Decoded<typeof admissionOccurrence>,
+) {
+  if (subject.kind === "operation") return true;
+  const original = subject.ticket.occurrence;
+  return (
+    original.scope.tenant_id === occurrence.scope.tenant_id &&
+    original.scope.namespace === occurrence.scope.namespace &&
+    original.workflow_id === occurrence.workflow_id &&
+    original.activation_id === occurrence.origin_activation_id
+  );
+}
+export const admissionWait = s.refine(
+  s.object({
+    subject: admissionSubject,
+    parking_activation_id: s.id,
+    key: s.id,
+    occurrence: admissionOccurrence,
+    resource: s.id,
+  }),
+  (v) => admissionSubjectMatches(v.subject, v.occurrence),
+  "Foreign provider admission subject.",
+);
 export const workflowDetail = s.refine(
   s.object({
     summary: workflowSummary,

@@ -126,7 +126,89 @@ an arbitrary SDK. Disable or separately account for SDK retries, redirects,
 nested requests and background tasks. Rate is measured at authorization time,
 not provider arrival time. A callback's returned result is not independent proof
 that an asynchronous provider business operation completed. Protected provider
-composition and standalone task admission are not part of this first path.
+composition uses the separate path below. Standalone task admission remains deferred.
+
+## Compose admission with protected provider dispatch
+
+An approval-bound provider adapter may include
+`admission=ProviderAdmissionRequirement(resource="export-dispatch")` in its binding.
+Import this type from `ledgence.worker.providers`. The resource is part of the
+reviewed immutable intent, alongside the effective arguments and pinned program.
+This is binding version 2; ungoverned version-1 bindings keep their original
+encoding and behavior. Do not add admission after an approval has been accepted.
+
+In the approved continuation, return
+`ctx.request_provider_admission("export-capacity", resume=Entry.DISPATCH,
+state=None, timeout_ms=60_000)`. The backend derives the subject from the original
+accepted approval; application code does not supply a replacement ticket or action.
+After the capacity wait, `await ctx.admitted_provider_operation()` returns a typed
+`ProviderAdmissionOutcomeKind` from `ledgence.worker.provider_admission`:
+
+| Kind | Meaning |
+| --- | --- |
+| `TICKET` | The protected operation has a durable ticket. Continue with `ctx.wait_provider_operation(...)` to learn its business result. |
+| `WAIT_REQUIRED` | Return `ctx.wait_admission(...)` for the existing occurrence. |
+| `NEEDS_REVIEW` | Permission or usage is uncertain. Inspect or wait; do not dispatch again. |
+| `CLOSED` | Admission ended before a ticket became available. No business success is implied. |
+
+The first successful combined Start commits resource usage, the provider's
+one-shot permission and its recovery obligation together. A retry never grants
+another call. Original approval and effect identities survive the new capacity
+wait activation. An equal existing business/provider identity returns its
+existing ticket and releases the unused offer without charging a new rate token.
+If that ticket belongs to another workflow, return or inspect the reference;
+it cannot be adopted as this workflow's native provider wait.
+
+A governed dispatch callback must explicitly separate **call completion** from
+**business knowledge**:
+
+```python
+from ledgence.worker.providers import ProviderDispatchOutcome, ProviderReport
+
+# A fully received HTTP 202 completes this call; the remote export is pending.
+return ProviderDispatchOutcome.completed(
+    ProviderReport.pending(target=request.target, provider_reference=export_id)
+)
+```
+
+Use `ProviderDispatchOutcome.unknown(report)` when the original call's completion
+is uncertain. The worker freezes this envelope before reporting it. A plain
+`ProviderReport`, an exception or an invalid envelope cannot release occupancy.
+The combined Report stores the provider evidence and justified capacity release
+in one transaction. Full provider results stay in the provider ledger; they do
+not enter the smaller generic admission result field. Retried reports preserve
+both the business fact and the completion classification exactly.
+
+| Accepted evidence | Original call occupancy | Business recovery |
+| --- | --- | --- |
+| Completed call + pending report | Released | Continues through finite probes. |
+| Unknown call + successful report | Retained | Success does not prove the original call stopped. |
+| Later successful probe | Unchanged | May complete the business wait. |
+| Operator admission release | Released explicitly | Does not create success or another dispatch grant. |
+
+Probes remain read-only ordinary leaf tasks and return plain `ProviderReport`.
+They are **outside this resource policy** and cannot settle original call occupancy.
+This limit therefore bounds protected dispatch authorizations, not the provider's
+entire asynchronous business workload or all reconciliation traffic. No transaction
+is held during a network call. Hidden SDK retries still require application control.
+
+A frozen original completed-call report may settle usage after lease loss or
+execution retirement. After an explicit operator release it is retained without
+releasing capacity twice. An already accepted unknown-completion report cannot be
+changed to completed under the same identity; use explicit operator release when
+no qualifying original report is available. Business assessments and observations
+remain separate from admission release.
+
+Enable both admission and provider policies with the same audience on every
+replica. Workers require the complete `provider_admission.v1` capability; support
+for the two separate capabilities alone is insufficient. Either admission
+quarantine or provider declared-restore quarantine blocks fresh combined Starts.
+Neither fence discards late evidence. Generic Start/Finish and ordinary provider
+Claim/Report cannot bypass a governed binding.
+
+The [approved export example](../examples/provider-admission/README.md) shows the
+four entrypoints, typed routing and a provider that records received calls and
+CSV effects independently.
 
 ## Restore and operate
 
@@ -157,6 +239,8 @@ All HTTP operations are POST with strict bounded JSON:
 | `/v1/resources/list` | `metadata_read` | `ResourceListQuery` → `ResourcePage` |
 | `/v1/admissions/start` | Worker | `AdmissionStartCommand` → `AdmissionStartReceipt` |
 | `/v1/admissions/finish` | Original worker actor | `AdmissionFinishCommand` → `AdmissionFinishReceipt` |
+| `/v1/provider-admissions/start` | Worker with live lease | `ProviderAdmissionStartCommand` → `ProviderAdmissionStartReceipt` |
+| `/v1/provider-admissions/report` | Original worker actor | `ProviderAdmissionReportCommand` → `ProviderAdmissionReportReceipt` |
 | `/v1/admissions/inspect` | Audited `sensitive_read` | `AdmissionQuery` → `AdmissionSnapshot` |
 | `/v1/admissions/release` | `resource_control` | `AdmissionReleaseCommand` → `AdmissionReleaseReceipt` |
 
@@ -173,7 +257,7 @@ Resource/list metadata contain no callback arguments or results.
 MCP adds `ledgence_resource_list`, `ledgence_resource_inspect` and
 `ledgence_admission_inspect`. `--allow-resource-control` explicitly exposes
 `ledgence_resource_put` and `ledgence_admission_release`; it conflicts with
-`--read-only`. Worker Start/Finish are not MCP tools. API credentials remain the
+`--read-only`. Worker Start/Finish and composed provider Start/Report are not MCP tools. API credentials remain the
 authority even when a tool is enabled. MCP session scope cannot be overridden in arguments.
 
 Resource-policy audit events can be queried with:
@@ -201,10 +285,10 @@ page = await client.audit.list(
 )
 ```
 
-Console C8 renders each wait episode and its resumed entrypoint. An accepted
+Console C9 renders each wait episode and its resumed entrypoint. An accepted
 operation result has its own occurrence-bound inspector. Offer or Start alone
 does not fabricate an executed operation. Graph metadata does not expose arguments
-or results. The scope-free `/v1/console/admissions/inspect` wrapper binds the
+or results. Protected dispatch has a typed provider record and separate admission and business-result waits; it does not fabricate a generic accepted-operation result. The scope-free `/v1/console/admissions/inspect` wrapper binds the
 installation scope and audits the sensitive response.
 
 ## Validation
@@ -217,4 +301,4 @@ through an owned loopback ElasticMQ queue. No provider account or model key is u
 The gate covers parking/restart, ordinary work during a wait, competing capacity,
 lost Start/Finish replies, offer expiry, result replay after worker loss and restore
 quarantine. PostgreSQL tests cover transactional races, policy changes and late reports.
-These checks do not establish a production throughput benchmark or real AWS SQS qualification.
+`--provider` runs the composed export cases, including approval identity across parking, unknown occupancy despite successful probes, duplicate business tickets and original reports after execution retirement. Both delivery modes use the same production paths. These checks do not establish a production throughput benchmark or real AWS SQS qualification.

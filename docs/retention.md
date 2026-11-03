@@ -207,8 +207,17 @@ Execution retention and acceptance evidence therefore have separate lifetimes.
 
 Admission sources with unresolved occupancy remain durable after workflow
 termination. Workflow cleanup must not erase outstanding capacity obligations.
-A qualifying original-source Finish or an explicit audited operator release can
-settle the retained occupancy without reviving the workflow.
+For generic callbacks, an original-source Finish can settle retained occupancy;
+protected provider dispatch uses its original composed Report with explicit call
+completion. An audited operator admission release can also free capacity without
+reviving the workflow. The linked provider source and report remain retained.
+
+Capacity release alone does not remove the unresolved-provider-effect hold on
+execution collection. A terminal provider report or operator assessment must
+close that business handling, in addition to ordinary cleanup and age checks.
+A successful probe may remove the business hold while original call occupancy
+stays uncertain. Admission and provider evidence remain available after eligible
+execution records are collected.
 
 This initial capability has no automatic expiry for admission occurrences,
 frozen bindings, accepted results, resource records or operator policy/release

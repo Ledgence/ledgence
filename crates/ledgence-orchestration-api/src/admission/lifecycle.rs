@@ -180,6 +180,12 @@ pub struct AdmissionSnapshot {
     pub source: Option<AdmissionSource>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub finish: Option<AdmissionFinishReceipt>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider: Option<ProviderAdmissionRecord>,
 }
 impl AdmissionSnapshot {
     pub fn validate(&self) -> Result<()> {
@@ -193,6 +199,37 @@ impl AdmissionSnapshot {
             return Err(invalid("inconsistent admission timestamps"));
         }
         let digest = self.binding.digest()?;
+        match &self.binding {
+            AdmissionBinding::Operation(_) if self.provider.is_some() => {
+                return Err(invalid("operation has provider evidence"));
+            }
+            AdmissionBinding::Provider(binding) => {
+                let ticket = &binding.provider.ticket;
+                if self.finish.is_some()
+                    || ticket.occurrence.scope != self.occurrence.scope
+                    || ticket.occurrence.workflow_id != self.occurrence.workflow_id
+                    || ticket.occurrence.activation_id != self.occurrence.origin_activation_id
+                {
+                    return Err(invalid("provider admission subject mismatch"));
+                }
+                if let Some(record) = &self.provider {
+                    record.validate_for(binding, &self.occurrence)?;
+                    if self.source.as_ref() != record.source.as_ref().map(|v| &v.admission)
+                        || record
+                            .report
+                            .as_ref()
+                            .is_some_and(|v| v.receipt.accepted_at > self.updated_at)
+                    {
+                        return Err(invalid("provider admission evidence mismatch"));
+                    }
+                } else if self.source.is_some() {
+                    return Err(invalid(
+                        "provider admission source is missing linked evidence",
+                    ));
+                }
+            }
+            _ => {}
+        }
         if let Some(o) = &self.offer {
             o.validate()?;
             if o.occurrence != self.occurrence
@@ -232,7 +269,16 @@ impl AdmissionSnapshot {
                 self.offer.is_none() && self.source.is_some() && self.finish.is_none()
             }
             AdmissionState::Finished => {
-                self.offer.is_none() && self.source.is_some() && self.finish.is_some()
+                self.offer.is_none()
+                    && self.source.is_some()
+                    && (self.finish.is_some()
+                        || self
+                            .provider
+                            .as_ref()
+                            .and_then(|v| v.report.as_ref())
+                            .is_some_and(|v| {
+                                v.call_completion == ProviderCallCompletion::Completed
+                            }))
             }
             AdmissionState::AdministrativelyReleased => {
                 self.offer.is_none() && self.source.is_some()
@@ -240,6 +286,30 @@ impl AdmissionSnapshot {
         };
         if !consistent {
             return Err(invalid("inconsistent admission state"));
+        }
+        if let Some(record) = &self.provider {
+            let valid = match self.state {
+                AdmissionState::ClosedBeforeStart => record.source.is_none(),
+                AdmissionState::PossiblyDispatched => {
+                    record.source.is_some() && record.report.is_none()
+                }
+                AdmissionState::UnknownOccupied => {
+                    record.source.is_some()
+                        && record
+                            .report
+                            .as_ref()
+                            .is_none_or(|r| r.call_completion == ProviderCallCompletion::Unknown)
+                }
+                AdmissionState::Finished => record
+                    .report
+                    .as_ref()
+                    .is_some_and(|r| r.call_completion == ProviderCallCompletion::Completed),
+                AdmissionState::AdministrativelyReleased => record.source.is_some(),
+                _ => false,
+            };
+            if !valid {
+                return Err(invalid("inconsistent provider admission state"));
+            }
         }
         bound(self, ADMISSION_RESPONSE_MAX_BYTES)
     }
@@ -293,6 +363,9 @@ pub enum AdmissionClosedReason {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AdmissionSelection {
+    Provider {
+        record: Box<ProviderAdmissionRecord>,
+    },
     Offered {
         offer: AdmissionOffer,
     },
@@ -335,7 +408,33 @@ impl AdmissionWake {
             return Err(invalid("admission wake reuses parking activation"));
         }
         let digest = self.binding.digest()?;
+        if let Some(subject) = self.binding.provider() {
+            let original = &subject.ticket.occurrence;
+            if original.scope != self.occurrence.scope
+                || original.workflow_id != self.occurrence.workflow_id
+                || original.activation_id != self.occurrence.origin_activation_id
+            {
+                return Err(invalid("provider admission wake subject mismatch"));
+            }
+        }
         match &self.selection {
+            AdmissionSelection::Provider { record } => {
+                let AdmissionBinding::Provider(binding) = &self.binding else {
+                    return Err(invalid("provider wake requires provider binding"));
+                };
+                record.validate_for(binding, &self.occurrence)?;
+                if record
+                    .source
+                    .as_ref()
+                    .is_some_and(|s| s.admission.accepted_at > self.selected_at)
+                    || record
+                        .report
+                        .as_ref()
+                        .is_some_and(|r| r.receipt.accepted_at > self.selected_at)
+                {
+                    return Err(invalid("provider evidence postdates selection"));
+                }
+            }
             AdmissionSelection::Offered { offer } => {
                 offer.validate()?;
                 if offer.occurrence != self.occurrence
@@ -347,6 +446,9 @@ impl AdmissionWake {
                 }
             }
             AdmissionSelection::Finished { receipt } => {
+                if self.binding.operation().is_none() {
+                    return Err(invalid("provider wake cannot use generic finish"));
+                }
                 receipt.validate()?;
                 if receipt.source.occurrence != self.occurrence
                     || receipt.source.binding_digest != digest
@@ -363,7 +465,8 @@ impl AdmissionWake {
     pub fn validate_result(&self, result: &AdmissionFinishReceipt) -> Result<()> {
         self.validate()?;
         result.validate()?;
-        if result.source.occurrence != self.occurrence
+        if self.binding.operation().is_none()
+            || result.source.occurrence != self.occurrence
             || result.source.binding_digest != self.binding.digest()?
         {
             return Err(invalid("preloaded admission result binding mismatch"));
@@ -387,6 +490,52 @@ impl AdmissionWake {
                 || receipt.accepted_at != result.accepted_at)
         {
             return Err(invalid("preloaded admission result changed"));
+        }
+        Ok(())
+    }
+    pub fn validate_provider_record(&self, record: &ProviderAdmissionRecord) -> Result<()> {
+        self.validate()?;
+        let AdmissionBinding::Provider(binding) = &self.binding else {
+            return Err(invalid("provider evidence requires provider binding"));
+        };
+        record.validate_for(binding, &self.occurrence)?;
+        match &self.selection {
+            AdmissionSelection::Offered { offer } => {
+                if record
+                    .source
+                    .as_ref()
+                    .is_some_and(|s| !s.admission.matches_offer(offer))
+                {
+                    return Err(invalid("provider evidence offer mismatch"));
+                }
+            }
+            AdmissionSelection::Provider { record: selected } => {
+                if selected.ticket != record.ticket
+                    || selected.source != record.source
+                    || selected.report.as_ref().is_some_and(|r| {
+                        record.report.as_ref().is_none_or(|new| {
+                            r.source != new.source
+                                || r.call_completion != new.call_completion
+                                || r.receipt.report_digest != new.receipt.report_digest
+                                || r.receipt.accepted_at != new.receipt.accepted_at
+                        })
+                    })
+                {
+                    return Err(invalid("retained provider evidence changed"));
+                }
+            }
+            AdmissionSelection::NeedsReview { source_id } => {
+                if record
+                    .source
+                    .as_ref()
+                    .is_none_or(|s| s.admission.source_id != *source_id)
+                {
+                    return Err(invalid("provider evidence source mismatch"));
+                }
+            }
+            AdmissionSelection::Closed { .. } | AdmissionSelection::Finished { .. } => {
+                return Err(invalid("closed admission wake has provider evidence"));
+            }
         }
         Ok(())
     }

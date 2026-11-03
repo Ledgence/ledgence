@@ -847,7 +847,7 @@ class WorkflowContext:
     """One explicit activation. Constructed by the worker, not application code."""
 
     def __init__(self, payload, rpc, *, effect_evidence_v2=False, native_effect_resolution=False,
-                 provider_operation=False, resource_admission=False):
+                 provider_operation=False, resource_admission=False, provider_admission=False):
         if type(effect_evidence_v2) is not bool:
             raise WorkflowError("effect evidence capability must be a boolean")
         if type(native_effect_resolution) is not bool:
@@ -858,6 +858,11 @@ class WorkflowContext:
             raise WorkflowError("provider operation requires native effect resolution and evidence v2")
         if type(resource_admission) is not bool:
             raise WorkflowError("resource admission capability must be a boolean")
+        if type(provider_admission) is not bool:
+            raise WorkflowError("provider admission capability must be a boolean")
+        if provider_admission and not (provider_operation and resource_admission):
+            raise WorkflowError("provider admission requires provider operation and resource admission")
+        self._provider_admission = provider_admission
         self._resource_admission = resource_admission
         self._provider_operation = provider_operation
         self._native_effect_resolution = native_effect_resolution
@@ -865,7 +870,7 @@ class WorkflowContext:
         payload = _freeze(payload, MAX_CONTEXT_BYTES, 96, authoritative=True)
         _fields(payload, {"v", "workflow_id", "activation_id", "revision", "continuation",
                           "state", "inputs", "local_steps"},
-                {"wake", "parent_workflow_id", "root_workflow_id", "admission_result"})
+                {"wake", "parent_workflow_id", "root_workflow_id", "admission_result", "provider_admission"})
         if type(payload["v"]) is not int or payload["v"] != 1:
             raise WorkflowError("unsupported workflow activation version")
         self.workflow_id = _text(payload["workflow_id"], "workflow_id")
@@ -923,6 +928,7 @@ class WorkflowContext:
             self._provider_result = result
         self._admission_wake = None
         self._admission_result = payload.get("admission_result")
+        self._provider_admission_record = payload.get("provider_admission")
         if self._wake is not None and self._wake["kind"] == "resource_admission":
             if not resource_admission:
                 raise WorkflowError("resource admission is unavailable")
@@ -931,14 +937,27 @@ class WorkflowContext:
                     or self._wake["resumed_revision"] != self.revision):
                 raise WorkflowError("admission wake belongs to another workflow activation")
             self._admission_wake = self._wake
+            if "provider" in self._wake["binding"] and not self._provider_admission:
+                raise WorkflowError("atomic provider admission is unavailable")
+        if "provider_admission" in payload:
+            from .provider_admission import matches_record
+            if self._provider_admission_record is None or self._admission_wake is None or "provider" not in self._admission_wake["binding"]:
+                raise WorkflowError("unexpected provider admission record")
+            matches_record(self._admission_wake, self._provider_admission_record)
         if self._admission_result is not None:
             from .admission import _matches_finish
             if self._admission_wake is None or self._admission_wake["selection"]["kind"] == "closed":
                 raise WorkflowError("unexpected admission result")
+            if "provider" in self._admission_wake["binding"]:
+                raise WorkflowError("provider admission cannot preload generic Finish")
             _matches_finish(self._admission_wake, self._admission_result)
         if (self._approval is not None and self.approval.protection == ApprovalProtection.PROVIDER_OPERATION
                 and not self._provider_operation):
             raise WorkflowError("provider operations are unavailable")
+        if (self._approval is not None and self.approval.protection == ApprovalProtection.PROVIDER_OPERATION
+                and self.approval.to_dict()["provider_binding"].get("admission") is not None
+                and not self._provider_admission):
+            raise WorkflowError("atomic provider admission is unavailable")
         # Preserve old payloads; wake and child inputs share one bounded batch.
         combined = self._inputs if self._wake is None else {"inputs": self._inputs, "wake": self._wake}
         _encode(combined, MAX_DECISION_BYTES, 96, authoritative=True)
@@ -1799,6 +1818,8 @@ class WorkflowContext:
         if provider not in self._providers.values() or type(binding) is not ProviderBindingRequest:
             raise WorkflowError("provider approval requires a registered adapter and binding")
         value = ProviderBindingRequest.from_dict(binding.to_dict()).to_dict()
+        if value.get("admission") is not None and not self._provider_admission:
+            raise WorkflowError("atomic provider admission is unavailable")
         if _encode(value["contract"], 12 * 1024) != provider._contract:
             raise WorkflowError("provider approval binding differs from its registered contract")
         action = ApprovalAction(value["contract"]["dispatch_callable"],
@@ -1807,6 +1828,16 @@ class WorkflowContext:
                                       continuation=None, resume=resume, proposed_arguments=None,
                                       protection=ApprovalProtection.PROVIDER_OPERATION,
                                       provider_binding=value)
+
+    def request_provider_admission(self, key, *, resume, state, timeout_ms):
+        """Park the exact approved provider action until shared capacity is offered."""
+        from .provider_admission import request_provider_admission
+        return request_provider_admission(self, key, resume=resume, state=state, timeout_ms=timeout_ms)
+
+    def admitted_provider_operation(self):
+        """Use one composed grant; return a ticket or an explicit admission outcome."""
+        from .provider_admission import admitted_provider_operation
+        return admitted_provider_operation(self)
 
     def approved_provider_operation(self):
         """Dispatch on the single grant and return a durable operation ticket."""
@@ -1959,6 +1990,8 @@ class WorkflowContext:
                 if not self._resource_admission:
                     raise WorkflowError("resource admission is unavailable")
                 request = wait["request"]
+                if request["kind"] == "provider" and not self._provider_admission:
+                    raise WorkflowError("atomic provider admission is unavailable")
                 if request["kind"] == "existing" and request["occurrence"]["workflow_id"] != self.workflow_id:
                     raise WorkflowError("admission occurrence belongs to another workflow")
             if (wait["kind"] == "provider_operation"

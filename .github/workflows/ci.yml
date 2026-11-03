@@ -106,6 +106,7 @@ jobs:
           python -m unittest discover -s tools -p 'test_effect_evidence_fixtures.py' -v
           python -m unittest discover -s tools -p 'test_provider_operations_fixtures.py' -v
           PYTHONPATH=sdk/python python -m unittest discover -s examples/provider-recovery/tests -v
+          PYTHONPATH=sdk/python python -m unittest discover -s examples/provider-admission/tests -v
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
@@ -460,6 +461,10 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-admission-evidence"
+          python tools/check-resource-admission.py --provider --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-provider-admission-evidence"
       - name: Check the same admission recovery through ElasticMQ
         if: matrix.suite == 'admission-sqs'
         run: |
@@ -468,6 +473,11 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-admission-sqs-evidence"
+          python tools/check-resource-admission.py --provider --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-provider-admission-sqs-evidence"
       - name: Check instance credentials across real clients, publication and workers
         if: matrix.suite == 'api'
         run: |

@@ -373,6 +373,9 @@ pub(super) async fn dispatch(
                         supported.push(ledgence_worker_api::PROVIDER_OPERATION_FEATURE);
                     }
                 }
+                if provider_admission::available(server) {
+                    supported.push(ledgence_worker_api::PROVIDER_ADMISSION_FEATURE);
+                }
                 if admissions {
                     supported.push(ledgence_worker_api::RESOURCE_ADMISSION_FEATURE);
                 }

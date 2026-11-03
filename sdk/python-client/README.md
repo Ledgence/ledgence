@@ -938,3 +938,21 @@ surface. The runtime owns their lease identity and execution permission. Use
 `Workflow.operation`, `ctx.request_admission` and `ctx.admitted_operation` from
 [`ledgence.worker`](../python/README.md#durable-resource-admission-development-source)
 for governed execution.
+
+
+### Protected provider admission (development source)
+
+Admission inspection also accepts governed provider bindings: version 2 includes
+`admission.resource`; version 1 omits it and retains its original encoding.
+`ProviderBinding.admission` is an optional `ProviderAdmissionRequirement`.
+`AdmissionSnapshot.provider` exposes an immutable `ProviderAdmissionRecord`;
+`record.call_completion` is `ProviderCallCompletion.COMPLETED`, `UNKNOWN`, or
+`None` when no report has been accepted. `record.to_dict()` returns a fresh copy
+of the linked ticket, source, and report receipt.
+
+These records describe the dispatch and its capacity settlement. They do not
+assert business success: a completed call may have returned a pending provider
+operation. Continue inspecting the protected provider operation for its business
+outcome. A ticket grants no authority to invoke the provider again. These models
+are available in development source and are not part of the published 0.8.0
+client package.

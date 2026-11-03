@@ -114,6 +114,7 @@ pub struct RuntimeFeatures {
 }
 pub const NATIVE_EFFECT_RESOLUTION_FEATURE: &str = "native_effect_resolution.v1";
 pub const PROVIDER_OPERATION_FEATURE: &str = "provider_operation.v1";
+pub const PROVIDER_ADMISSION_FEATURE: &str = "provider_admission.v1";
 pub const RESOURCE_ADMISSION_FEATURE: &str = "resource_admission.v1";
 impl Default for RuntimeFeatures {
     fn default() -> Self {
@@ -138,6 +139,8 @@ impl RuntimeFeatures {
             })
             || serde_json::to_vec(self).map_or(true, |bytes| bytes.len() > 4096)
             || (self.provider_operation() && !self.native_effect_resolution())
+            || (self.provider_admission()
+                && (!self.provider_operation() || !self.resource_admission()))
         {
             return Err(crate::Error::new(
                 crate::ErrorKind::Protocol,
@@ -150,6 +153,11 @@ impl RuntimeFeatures {
         self.supported
             .iter()
             .any(|name| name == NATIVE_EFFECT_RESOLUTION_FEATURE)
+    }
+    pub fn provider_admission(&self) -> bool {
+        self.supported
+            .iter()
+            .any(|name| name == PROVIDER_ADMISSION_FEATURE)
     }
     pub fn resource_admission(&self) -> bool {
         self.supported
@@ -278,5 +286,34 @@ mod feature_tests {
         features.validate().unwrap();
         assert!(features.provider_operation());
         RuntimeFeatures::default().validate().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod provider_admission_tests {
+    use super::*;
+    #[test]
+    fn composition_is_explicit_and_requires_both_capabilities() {
+        let mut features = RuntimeFeatures {
+            v: 1,
+            supported: vec![
+                NATIVE_EFFECT_RESOLUTION_FEATURE.into(),
+                PROVIDER_OPERATION_FEATURE.into(),
+                RESOURCE_ADMISSION_FEATURE.into(),
+            ],
+        };
+        features.validate().unwrap();
+        assert!(!features.provider_admission());
+        features.supported.push(PROVIDER_ADMISSION_FEATURE.into());
+        features.validate().unwrap();
+        for missing in [
+            PROVIDER_OPERATION_FEATURE,
+            RESOURCE_ADMISSION_FEATURE,
+            NATIVE_EFFECT_RESOLUTION_FEATURE,
+        ] {
+            let mut incomplete = features.clone();
+            incomplete.supported.retain(|f| f != missing);
+            assert!(incomplete.validate().is_err());
+        }
     }
 }

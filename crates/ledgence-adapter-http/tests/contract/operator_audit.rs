@@ -12,6 +12,8 @@ mod effect_evidence;
 mod effect_resolution;
 #[path = "provider.rs"]
 mod provider;
+#[path = "provider_admission.rs"]
+mod provider_admission;
 struct Verifier {
     audience: AccessAudience,
 }

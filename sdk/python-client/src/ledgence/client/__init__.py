@@ -100,7 +100,7 @@ __all__ += [
 ]
 
 from .provider_bindings import (
-    ProviderBinding, ProviderBusiness, ProviderContract, ProviderTarget, ProviderDomain,
+    ProviderAdmissionRequirement, ProviderBinding, ProviderBusiness, ProviderContract, ProviderTarget, ProviderDomain,
     ProviderDeduplication, ProviderHorizon, ProviderHorizonKind, ProviderLookup,
     ProviderReconciliationPolicy,
 )
@@ -115,7 +115,7 @@ from .provider_models import (
     ProviderProbeFinishedEntry, ProviderRecoveryStoppedEntry, ProviderEvidenceEntry, ProviderEffectDetail,
 )
 __all__ += [
-    "ProviderBinding", "ProviderBusiness", "ProviderContract", "ProviderTarget", "ProviderDomain",
+    "ProviderAdmissionRequirement", "ProviderBinding", "ProviderBusiness", "ProviderContract", "ProviderTarget", "ProviderDomain",
     "ProviderDeduplication", "ProviderHorizon", "ProviderHorizonKind", "ProviderLookup",
     "ProviderReconciliationPolicy", "ProviderProbeAssignment", "ProviderFilter", "ProviderKnowledgeKind", "ProviderHandlingState",
     "ProviderRecoveryStopReason", "ProviderReportIngress", "ProviderProbeFailureKind", "ProviderUnknown",
@@ -132,3 +132,6 @@ from .admission_models import (AdmissionOccurrence, AdmissionState, AdmissionSna
     ResourcePutReceipt, ResourcePage)
 __all__ += ["AdmissionOccurrence", "AdmissionState", "AdmissionSnapshot", "AdmissionReleaseReceipt",
     "ResourceRate", "ResourcePolicy", "ResourceRecord", "ResourceSnapshot", "ResourcePutReceipt", "ResourcePage"]
+
+from .provider_admission_models import ProviderAdmissionRecord, ProviderCallCompletion
+__all__ += ["ProviderAdmissionRecord", "ProviderCallCompletion"]

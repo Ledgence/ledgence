@@ -59,7 +59,7 @@ fn occurrence() -> AdmissionOccurrence {
     }
 }
 fn binding() -> AdmissionBinding {
-    AdmissionBinding {
+    AdmissionBinding::Operation(OperationAdmissionBinding {
         resource: "shared-model".into(),
         program: descriptor(),
         operation: AdmissionOperation {
@@ -68,9 +68,9 @@ fn binding() -> AdmissionBinding {
             version: "1".into(),
             arguments: json!({"text":CANARY}),
         },
-    }
+    })
 }
-fn start() -> AdmissionStartCommand {
+pub(super) fn start() -> AdmissionStartCommand {
     AdmissionStartCommand {
         owner: owner(),
         occurrence: occurrence(),
@@ -79,7 +79,7 @@ fn start() -> AdmissionStartCommand {
         finish_id: "finish".into(),
     }
 }
-fn source() -> AdmissionSource {
+pub(super) fn source() -> AdmissionSource {
     let c = start();
     AdmissionSource {
         occurrence: c.occurrence,
@@ -115,6 +115,7 @@ fn snapshot() -> AdmissionSnapshot {
         offer: None,
         source: Some(source()),
         finish: None,
+        provider: None,
     }
 }
 #[tokio::test]
@@ -254,7 +255,7 @@ async fn sensitive_admission_payload_is_withheld_when_audit_cannot_commit() {
     let r = AdmissionClient::inspect_admission(&client, &q)
         .await
         .unwrap();
-    assert_eq!(r.binding.operation.arguments["text"], CANARY);
+    assert_eq!(r.binding.operation().unwrap().arguments["text"], CANARY);
     {
         let observations = f.auditor.observations.lock().unwrap();
         assert_eq!(

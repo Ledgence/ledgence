@@ -49,6 +49,12 @@ impl WorkflowOperations {
             report_id: payload.report_id,
         };
         command.validate().map_err(runtime_error)?;
+        if command.binding.admission.is_some() {
+            return Err(Error::new(
+                ErrorKind::Incompatible,
+                "governed provider dispatch requires atomic provider admission",
+            ));
+        }
         control.check()?;
         let service = self
             .service

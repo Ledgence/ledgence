@@ -322,7 +322,7 @@ A missing, mismatched or retired identity returns 404. Invalid parameters return
 400. An adapter without the optional read capability returns 503. Requesting the
 detail reads one retained record and has no execution side effects.
 
-## Admission projections (development C8)
+## Admission projections (development C9)
 
 `admission_wait` records a native wait episode, and `admission_operation` records
 an accepted result with its original source activation/attempt. Existing
@@ -331,3 +331,26 @@ the accepted result does not create another physical-operation node.
 `POST /v1/console/admissions/inspect` accepts workflow_id, origin_activation_id
 and key; the server binds scope and records sensitive-read audit before exposing
 the frozen arguments or retained result. See [admission contract](resource-admission.md).
+
+
+### Protected provider admission (development C9)
+
+C9 adds a required `subject` to admission wait metadata: `operation` for an
+ordinary registered call, or `provider` with the immutable original provider
+ticket. The wait preserves the approval's original activation even when capacity
+is granted to a later activation. Historical persisted C8 waits are projected as
+ordinary operations; use matching C9 server and browser assets.
+
+Open an admission wait and choose **Inspect admission record** to load its
+approved arguments and linked dispatch/report evidence through the audited
+inspector. This read is on demand and requires the corresponding sensitive-read
+permission. The capacity state and explicit call completion are shown separately:
+a completed call can leave the provider's business operation pending, and an
+unknown call can retain capacity even when a provider result was reported.
+Inspect the protected operation ledger for business status. A ticket or an offer
+does not authorize another dispatch.
+
+Provider admission does not add a successful local-operation node. The ordinary
+accepted-operation node remains reserved for a committed generic callback
+result; recording a provider Start alone does not prove that its callback ran.
+Published Ledgence 0.8.0 continues to use C7; C9 is development source.

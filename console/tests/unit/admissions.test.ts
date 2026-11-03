@@ -11,7 +11,7 @@ import {
 } from "../../src/features/explorer-model";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v9.json",
     import.meta.url,
   ),
   "utf8",
@@ -70,7 +70,7 @@ it("binds inspected accepted results to original source, program and callback me
       v.finish!.accepted_at++;
     },
   ]) {
-    const changed = admissionSnapshot(fixture.snapshot);
+    const changed = decode(fixture.snapshot);
     modify(changed);
     expect(() => decode(changed)).toThrow();
   }
@@ -90,4 +90,61 @@ it("requires native admission metadata and rejects foreign scopes and extra payl
   const altered = admissionSnapshot(fixture.snapshot);
   altered.finish!.source.owner.scope.namespace = "elsewhere";
   expect(() => admissionSnapshot(altered)).toThrow();
+});
+
+it("keeps provider admission capacity evidence separate from business completion", () => {
+  const provider = fixture.provider as Record<string, unknown>;
+  const graph = workflowExplorer(provider.graph);
+  expect(
+    graph.page.items.some((node) => node.kind === "admission_operation"),
+  ).toBe(false);
+  const wait = graph.page.items.find((node) => node.kind === "admission_wait")!;
+  if (wait.kind !== "admission_wait") throw new Error("fixture kind");
+  expect(wait.subject.kind).toBe("provider");
+  expect(wait.selection_kind).toBe("provider");
+  const complete = admissionSnapshot(provider.completed_pending);
+  expect(complete.state).toBe("finished");
+  expect(complete.finish).toBeNull();
+  expect(complete.provider?.report?.call_completion).toBe("completed");
+  const unknown = admissionSnapshot(provider.unknown_pending);
+  expect(unknown.state).toBe("unknown_occupied");
+  expect(unknown.provider?.report?.call_completion).toBe("unknown");
+  const malformed = parseUserJson(
+    stringifyUserJson(provider.unknown_pending),
+    256 * 1024,
+  ) as Record<string, unknown>;
+  malformed.state = "finished";
+  expect(() => admissionSnapshot(malformed)).toThrow();
+});
+it("rejects ambiguous provider subjects and unlinked composed sources", () => {
+  const provider = fixture.provider as Record<string, unknown>;
+  for (const alter of [
+    (v: Record<string, unknown>) => {
+      (v.binding as Record<string, unknown>).operation = {};
+    },
+    (v: Record<string, unknown>) => {
+      v.provider = null;
+    },
+    (v: Record<string, unknown>) => {
+      const subject = (v.binding as Record<string, unknown>).provider as Record<
+        string,
+        unknown
+      >;
+      (subject.action as Record<string, unknown>).arguments = {
+        text: "x".repeat(32 * 1024),
+      };
+    },
+    (v: Record<string, unknown>) => {
+      const record = v.provider as Record<string, unknown>;
+      const source = record.source as Record<string, unknown>;
+      (source.provider as Record<string, unknown>).claim_id = "foreign";
+    },
+  ]) {
+    const value = parseUserJson(
+      stringifyUserJson(provider.completed_pending),
+      256 * 1024,
+    ) as Record<string, unknown>;
+    alter(value);
+    expect(() => admissionSnapshot(value)).toThrow();
+  }
 });

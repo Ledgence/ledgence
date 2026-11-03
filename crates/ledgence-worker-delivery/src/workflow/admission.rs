@@ -13,7 +13,9 @@ fn mismatch() -> Error {
     Error::new(ErrorKind::Protocol, "admission receipt binding mismatch")
 }
 impl WorkflowOperations {
-    fn admission_access(&self) -> ledgence_worker_api::Result<(&EffectAccess, &AdmissionWake)> {
+    pub(super) fn admission_access(
+        &self,
+    ) -> ledgence_worker_api::Result<(&EffectAccess, &AdmissionWake)> {
         let access = self
             .runtime_binding
             .as_deref()
@@ -36,6 +38,9 @@ impl WorkflowOperations {
         control: RunControl,
     ) -> ledgence_worker_api::Result<RuntimeReply> {
         let (access, wake) = self.admission_access()?;
+        if wake.binding.provider().is_some() {
+            return Err(mismatch());
+        }
         let AdmissionSelection::Offered { offer } = &wake.selection else {
             return Err(mismatch());
         };
@@ -94,6 +99,9 @@ impl WorkflowOperations {
         control: RunControl,
     ) -> ledgence_worker_api::Result<RuntimeReply> {
         let (access, wake) = self.admission_access()?;
+        if wake.binding.provider().is_some() {
+            return Err(mismatch());
+        }
         let command: AdmissionFinishCommand =
             serde_json::from_value(request.payload).map_err(|_| mismatch())?;
         command.validate().map_err(runtime_error)?;

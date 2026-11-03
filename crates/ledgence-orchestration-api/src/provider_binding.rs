@@ -127,6 +127,16 @@ impl ProviderReconciliationPolicy {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ProviderAdmissionRequirement {
+    pub resource: String,
+}
+impl ProviderAdmissionRequirement {
+    pub fn validate(&self) -> Result<()> {
+        crate::admission::name(&self.resource)
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderBindingRequest {
     pub v: u8,
     pub business: ProviderBusinessIdentity,
@@ -136,11 +146,20 @@ pub struct ProviderBindingRequest {
     pub deduplication: Option<ProviderDeduplication>,
     pub credential_reference: String,
     pub reconciliation: ProviderReconciliationPolicy,
+    /// Absent for the byte-compatible v1 contract; required by v2.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub admission: Option<ProviderAdmissionRequirement>,
 }
 impl ProviderBindingRequest {
     pub fn validate(&self) -> Result<()> {
-        if self.v != 1 {
-            return Err(provider_invalid());
+        match (self.v, &self.admission) {
+            (1, None) => {}
+            (2, Some(requirement)) => requirement.validate()?,
+            _ => return Err(provider_invalid()),
         }
         validate_text(&self.business.namespace, 128)?;
         validate_text(&self.business.key, 256)?;
@@ -191,6 +210,7 @@ impl ProviderBindingRequest {
             deduplication: self.deduplication.clone(),
             credential_reference: self.credential_reference.clone(),
             reconciliation: self.reconciliation.clone(),
+            admission: self.admission.clone(),
             program,
         };
         result.validate()?;
@@ -208,6 +228,13 @@ pub struct ProviderBinding {
     pub deduplication: Option<ProviderDeduplication>,
     pub credential_reference: String,
     pub reconciliation: ProviderReconciliationPolicy,
+    /// Absent for the byte-compatible v1 contract; required by v2.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub admission: Option<ProviderAdmissionRequirement>,
     pub program: ProgramDescriptor,
 }
 impl ProviderBinding {
@@ -220,6 +247,7 @@ impl ProviderBinding {
             deduplication: self.deduplication.clone(),
             credential_reference: self.credential_reference.clone(),
             reconciliation: self.reconciliation.clone(),
+            admission: self.admission.clone(),
         }
     }
     pub fn validate(&self) -> Result<()> {

@@ -189,12 +189,13 @@ while True:
     );
     let mut session = ready(runtime.start(artifact, control()).await);
     let pid = session.pid();
-    for (enabled, native, generic) in [
-        (true, false, false),
-        (true, true, true),
-        (false, false, true),
-        (false, false, false),
-        (true, false, false),
+    for (enabled, native, generic, protected) in [
+        (true, false, false, false),
+        (true, true, true, false),
+        (true, true, false, true),
+        (false, false, true, false),
+        (false, false, false, false),
+        (true, false, false, false),
     ] {
         let mut handler = Handler::new(ReplyMode::Echo);
         Arc::get_mut(&mut handler).unwrap().evidence_v2 = enabled;
@@ -204,6 +205,17 @@ while True:
                 .features
                 .supported
                 .push(ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE.into());
+        }
+        if protected {
+            Arc::get_mut(&mut handler)
+                .unwrap()
+                .features
+                .supported
+                .extend([
+                    ledgence_worker_api::PROVIDER_OPERATION_FEATURE.into(),
+                    ledgence_worker_api::RESOURCE_ADMISSION_FEATURE.into(),
+                    ledgence_worker_api::PROVIDER_ADMISSION_FEATURE.into(),
+                ]);
         }
         if generic {
             Arc::get_mut(&mut handler)
@@ -248,7 +260,7 @@ while True:
 
 #[tokio::test]
 async fn invalid_or_inconsistent_features_fail_before_invocation_dispatch() {
-    for bad_version in [false, true] {
+    for mode in 0..3 {
         let (_dir, artifact, runtime) = scripted(
             r#"
 while True:
@@ -262,10 +274,13 @@ while True:
         let mut session = ready(runtime.start(artifact, control()).await);
         let mut handler = Handler::new(ReplyMode::Echo);
         let values = Arc::get_mut(&mut handler).unwrap();
-        values.evidence_v2 = bad_version;
-        values.features.v = if bad_version { 2 } else { 1 };
-        values.features.supported =
-            vec![ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE.into()];
+        values.evidence_v2 = mode != 0;
+        values.features.v = if mode == 1 { 2 } else { 1 };
+        values.features.supported = if mode == 2 {
+            vec![ledgence_worker_api::PROVIDER_ADMISSION_FEATURE.into()]
+        } else {
+            vec![ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE.into()]
+        };
         assert!(
             session
                 .execute_with_requests(invocation("bad-feature"), control(), handler.clone())

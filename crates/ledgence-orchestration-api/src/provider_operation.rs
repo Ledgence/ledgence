@@ -114,7 +114,7 @@ impl ProviderClaimCommand {
         provider_bound(self, PROVIDER_COMMAND_MAX_BYTES)
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDispatchSource {
     pub source_id: String,
@@ -564,7 +564,7 @@ impl ProviderReportedCommand for ProviderObservationCommand {
         true
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderReportReceipt {
     pub ticket: ProviderOperationTicket,

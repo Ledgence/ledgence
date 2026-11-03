@@ -8,7 +8,7 @@ import uuid
 from instance_access.harness import AccessDeployment
 from http_acceptance.harness import Process, FaultProxy, eventually
 from provider_operations.sqs import delivery_config, loopback_endpoint
-from workflow_acceptance.owned_scenarios import quote
+from .common import ResourceControls
 
 START = "/v1/admissions/start"
 FINISH = "/v1/admissions/finish"
@@ -21,7 +21,7 @@ def classifier(root):
     return module.Classifier()
 
 
-class AdmissionDeployment(AccessDeployment):
+class AdmissionDeployment(ResourceControls, AccessDeployment):
     def provision(self):
         super().provision()
         self.runner = self.directory / "runtime/ledgence/worker/bootstrap.py"
@@ -81,18 +81,7 @@ class AdmissionDeployment(AccessDeployment):
         self.processes.append(process)
         return process
 
-    def policy(self, *, enabled=True, capacity=1, rate=None, offer_ms=1000):
-        query = {"scope": self.scope, "name": "support-model"}
-        status, _, old = self.request("POST", "/v1/resources/query", query, credentials=self.operator)
-        assert status in (200, 404)
-        command = {**query, "expected_revision": old["resource"]["revision"] if status == 200 else None,
-                   "request_id": "policy-" + uuid.uuid4().hex, "reason": "local acceptance scenario",
-                   "policy": {"enabled": enabled, "max_occupancy": capacity, "rate": rate,
-                              "offer_timeout_ms": offer_ms, "start_timeout_ms": 1000}}
-        return self.checked("POST", "/v1/resources/put", command)
 
-    def resource(self):
-        return self.checked("POST", "/v1/resources/query", {"scope": self.scope, "name": "support-model"})
 
     def publish_example(self):
         self.publish("resource-admission", "1.0.0", program_source=(self.root / "examples/resource-admission/program.py").read_text(), runtime_protocol=3)
@@ -106,9 +95,6 @@ class AdmissionDeployment(AccessDeployment):
     def status(self, workflow):
         return self.checked("GET", self.query("/v1/workflows/status", workflow_id=workflow))
 
-    def admission(self, workflow):
-        value = self.sql("SELECT convert_from(snapshot_bytes,'UTF8') FROM admission_requests WHERE workflow_id=" + quote(workflow))
-        return json.loads(value) if value else None
 
     def settled(self, workflow):
         def terminal():
@@ -123,15 +109,6 @@ class AdmissionDeployment(AccessDeployment):
         assert self.admission(workflow)["finish"]["output"] == expected
         return status
 
-    def release(self, workflow):
-        value = self.admission(workflow)
-        command = {"occurrence": value["occurrence"], "source_id": value["source"]["source_id"],
-                   "expected_revision": value["revision"], "request_id": "release-" + uuid.uuid4().hex,
-                   "reason": "synthetic provider verified; explicitly release uncertain capacity"}
-        first = self.checked("POST", "/v1/admissions/release", command)
-        replay = self.checked("POST", "/v1/admissions/release", command)
-        assert replay["already_accepted"] and replay["revision"] == first["revision"]
-        return command
 
     def delivery_census(self):
         rows = json.loads(self.sql("SELECT coalesce(json_agg(json_build_object('task_id',t.task_id,'destination',t.dispatch_destination,'attempts',t.attempt_count,'claims',(SELECT count(*) FROM dispatch_claim_receipts c WHERE c.task_id=t.task_id))),'[]'::json) FROM tasks t"))

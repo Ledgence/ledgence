@@ -330,5 +330,10 @@ The development server exposes bounded, authenticated `/v1/resources/*` and
 `/v1/admissions/*` routes through an optional portable admission port. Worker
 feature negotiation advertises `resource_admission.v1` independently of effect
 evidence. Start is one-shot; Finish records the result and capacity release
-atomically. Development Console assets and server both require C8; published
-0.8.0 remains C7. [Routes, permissions and recovery contract](resource-admission.md).
+atomically. The distinct composed port advertises `provider_admission.v1` only
+when protected dispatch and admission are jointly available. Its worker-only
+`/v1/provider-admissions/start` and `/v1/provider-admissions/report` routes commit
+provider permission with capacity, and provider evidence with justified release,
+respectively. Governing a provider binding requires version 2; older version-1
+bindings are unchanged. Development Console assets and server both require C9;
+published 0.8.0 remains C7. [Routes, permissions and recovery contract](resource-admission.md).

@@ -1,5 +1,5 @@
 use super::*;
-pub(super) struct Resource {
+pub(in crate::workflow) struct Resource {
     pub record: ResourceRecord,
     pub credit: Option<u64>,
     pub high_water: u64,
@@ -56,7 +56,7 @@ impl Resource {
         )
     }
 }
-pub(super) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
+pub(in crate::workflow) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
     let record: ResourceRecord = codec::decode(&row.try_get::<Vec<u8>, _>("record_bytes")?)?;
     record.validate()?;
     if row.try_get::<String, _>("tenant_id")? != record.scope.tenant_id
@@ -86,7 +86,7 @@ pub(super) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
     r.snapshot(false).validate()?;
     Ok(r)
 }
-pub(super) async fn resource(
+pub(in crate::workflow) async fn resource(
     tx: &mut PgConnection,
     scope: &Scope,
     name: &str,
@@ -106,13 +106,16 @@ pub(super) async fn resource(
         .ok_or(ContractError::NotFound)?;
     resource_row(&row)
 }
-pub(super) async fn save_resource(tx: &mut PgConnection, r: &Resource) -> StoreResult<()> {
+pub(in crate::workflow) async fn save_resource(
+    tx: &mut PgConnection,
+    r: &Resource,
+) -> StoreResult<()> {
     r.snapshot(false).validate()?;
     let valid:Option<bool>=sqlx::query_scalar("UPDATE admission_resources SET revision=$4,record_bytes=$5,credit=$6,high_water_at_ms=$7,offered=$8,started=$9,unknown=$10,next_due_ms=$11,quarantined_due_ms=$12 WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 RETURNING revision=$4 AND record_bytes=$5 AND credit IS NOT DISTINCT FROM $6 AND high_water_at_ms=$7 AND offered=$8 AND started=$9 AND unknown=$10 AND next_due_ms IS NOT DISTINCT FROM $11 AND quarantined_due_ms IS NOT DISTINCT FROM $12")
         .bind(&r.record.scope.tenant_id).bind(&r.record.scope.namespace).bind(&r.record.name).bind(r.record.revision as i64).bind(codec::encode(&r.record)?).bind(r.credit.map(|v|v as i64)).bind(codec::ms(r.high_water)?).bind(r.offered as i64).bind(r.started as i64).bind(r.unknown as i64).bind(r.due.map(codec::ms).transpose()?).bind(r.quarantined_due.map(codec::ms).transpose()?).fetch_optional(&mut *tx).await?;
     proof(valid, "resource mutation suppressed or changed")
 }
-pub(super) struct Request {
+pub(in crate::workflow) struct Request {
     pub snapshot: AdmissionSnapshot,
     pub parking: Option<String>,
     pub generation: u64,
@@ -131,7 +134,7 @@ impl Request {
         self.snapshot.validate()
     }
 }
-pub(super) fn request_row(row: &PgRow) -> StoreResult<Request> {
+pub(in crate::workflow) fn request_row(row: &PgRow) -> StoreResult<Request> {
     let s: AdmissionSnapshot = codec::decode(&row.try_get::<Vec<u8>, _>("snapshot_bytes")?)?;
     s.validate()?;
     let o = &s.occurrence;
@@ -140,7 +143,7 @@ pub(super) fn request_row(row: &PgRow) -> StoreResult<Request> {
         || row.try_get::<String, _>("workflow_id")? != o.workflow_id
         || row.try_get::<String, _>("origin_activation_id")? != o.origin_activation_id
         || row.try_get::<String, _>("logical_key")? != o.key
-        || row.try_get::<String, _>("resource_name")? != s.binding.resource
+        || row.try_get::<String, _>("resource_name")? != s.binding.resource()
         || row.try_get::<String, _>("state")? != codec::label(&s.state)?
         || row.try_get::<i64, _>("revision")? != s.revision as i64
         || row.try_get::<i64, _>("created_at_ms")? != codec::ms(s.created_at)?
@@ -164,20 +167,23 @@ pub(super) fn request_row(row: &PgRow) -> StoreResult<Request> {
         finish_bytes: row.try_get("finish_command_bytes")?,
     })
 }
-pub(super) async fn request(
+pub(in crate::workflow) async fn request(
     tx: &mut PgConnection,
     o: &AdmissionOccurrence,
 ) -> StoreResult<Request> {
     let row=sqlx::query("SELECT * FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND origin_activation_id=$4 AND logical_key=$5 FOR UPDATE").bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.origin_activation_id).bind(&o.key).fetch_optional(&mut *tx).await?.ok_or(ContractError::NotFound)?;
     request_row(&row)
 }
-pub(super) async fn request_resource(
+pub(in crate::workflow) async fn request_resource(
     tx: &mut PgConnection,
     o: &AdmissionOccurrence,
 ) -> StoreResult<String> {
     Ok(sqlx::query_scalar("SELECT resource_name FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND origin_activation_id=$4 AND logical_key=$5").bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.origin_activation_id).bind(&o.key).fetch_optional(&mut *tx).await?.ok_or(ContractError::NotFound)?)
 }
-pub(super) async fn save_request(tx: &mut PgConnection, r: &Request) -> StoreResult<()> {
+pub(in crate::workflow) async fn save_request(
+    tx: &mut PgConnection,
+    r: &Request,
+) -> StoreResult<()> {
     let s = &r.snapshot;
     s.validate()?;
     let o = &s.occurrence;
@@ -186,7 +192,11 @@ pub(super) async fn save_request(tx: &mut PgConnection, r: &Request) -> StoreRes
     proof(valid, "admission mutation suppressed or changed")
 }
 /// Epoch invalidation cancels old shadow reservations without touching started debt.
-pub(super) fn invalidate_offer(r: &mut Request, p: &mut Resource, now: u64) -> Result<bool> {
+pub(in crate::workflow) fn invalidate_offer(
+    r: &mut Request,
+    p: &mut Resource,
+    now: u64,
+) -> Result<bool> {
     if let Some(offer) = &r.snapshot.offer
         && (offer.policy_revision != p.record.revision
             || offer.expires_at <= now
@@ -210,7 +220,7 @@ pub(super) fn invalidate_offer(r: &mut Request, p: &mut Resource, now: u64) -> R
 
 /// If execution history still exists, serialize notification with cancellation
 /// and work application. Missing history does not erase retained source authority.
-pub(super) async fn lock_retained_workflow(
+pub(in crate::workflow) async fn lock_retained_workflow(
     tx: &mut PgConnection,
     o: &AdmissionOccurrence,
 ) -> StoreResult<()> {

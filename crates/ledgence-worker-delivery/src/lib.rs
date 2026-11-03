@@ -276,6 +276,16 @@ impl DeliveryDriver {
                 })?
                 .admission_client()?;
         }
+        if features.provider_admission() {
+            self.workflows
+                .as_ref()
+                .ok_or_else(|| {
+                    ContractError::Unavailable(
+                        "provider admission requires workflow delivery".into(),
+                    )
+                })?
+                .provider_admission_client()?;
+        }
         self.runtime_features = features;
         Ok(self)
     }
