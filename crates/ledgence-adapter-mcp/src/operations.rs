@@ -146,6 +146,42 @@ impl ToolDispatcher {
                     .map_err(|_| invalid_reply(false))?;
                 encode(page, false)?
             }
+            "ledgence_effect_inbox" => {
+                let args: EffectInbox = parse(arguments)?;
+                let query = EffectInboxQuery {
+                    scope: self.scope.clone(),
+                    filter: args.filter,
+                    workflow_id: args.workflow_id,
+                    cursor: args.cursor,
+                    limit: args.limit,
+                };
+                query.validate().map_err(ToolError::arguments)?;
+                let reader = remote(self.workflows.effect_evidence_reader(), false)?;
+                let page = remote(reader.effect_inbox(&query).await, false)?;
+                page.validate_for(&query)
+                    .map_err(|_| invalid_reply(false))?;
+                encode(page, false)?
+            }
+            "ledgence_effect_inspect" => {
+                let args: EffectInspect = parse(arguments)?;
+                let query = EffectInspectQuery {
+                    occurrence: EffectOccurrence {
+                        scope: self.scope.clone(),
+                        workflow_id: args.workflow_id,
+                        activation_id: args.activation_id,
+                        approval_key: args.approval_key,
+                    },
+                    cursor: args.cursor,
+                    limit: args.limit,
+                };
+                query.validate().map_err(ToolError::arguments)?;
+                let reader = remote(self.workflows.effect_evidence_reader(), false)?;
+                let detail = remote(reader.inspect_effect(&query).await, false)?;
+                detail
+                    .validate_for(&query)
+                    .map_err(|_| invalid_reply(false))?;
+                encode(detail, false)?
+            }
             "ledgence_program_list" => {
                 let args: ProgramList = parse(arguments)?;
                 let query = ProgramCatalogQuery::Catalog {
@@ -469,6 +505,33 @@ fn required_value<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<Value, D::Error> {
     Value::deserialize(deserializer)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EffectInbox {
+    #[serde(default = "all_effects")]
+    filter: EffectInboxFilter,
+    workflow_id: Option<String>,
+    cursor: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: u32,
+}
+fn all_effects() -> EffectInboxFilter {
+    EffectInboxFilter::All
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EffectInspect {
+    workflow_id: String,
+    activation_id: String,
+    approval_key: String,
+    cursor: Option<String>,
+    #[serde(default = "default_effect_limit")]
+    limit: u32,
+}
+fn default_effect_limit() -> u32 {
+    4
 }
 
 #[derive(Deserialize)]

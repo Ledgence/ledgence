@@ -47,6 +47,7 @@ use tokio::{
 
 #[derive(Default)]
 struct Mock {
+    evidence_capabilities: AtomicUsize,
     operator_access: std::sync::OnceLock<Arc<dyn OperatorAccess>>,
     protected_writes_disabled: AtomicBool,
     calls: Mutex<Vec<(&'static str, Value)>>,

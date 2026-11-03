@@ -35,20 +35,22 @@ pub(crate) fn confirmed_lookup<'a>(
     Ok(lookup)
 }
 
-struct Evidence {
-    approval: ApprovalSnapshot,
-    step_key: String,
-    claimed: bool,
-    state: Option<String>,
-    lookup: Option<String>,
-    confirmed_attempt: Option<String>,
-    prior: Option<(Vec<u8>, String)>,
+pub(super) struct Evidence {
+    pub(super) approval: ApprovalSnapshot,
+    pub(super) approval_bytes: Vec<u8>,
+    dispatch_attempt: Option<String>,
+    pub(super) step_key: String,
+    pub(super) claimed: bool,
+    pub(super) state: Option<String>,
+    pub(super) lookup: Option<String>,
+    pub(super) confirmed_attempt: Option<String>,
+    pub(super) prior: Option<(Vec<u8>, String)>,
 }
 
 impl Evidence {
     /// Called under the workflow and task locks. Loading the journal here also
     /// prevents a fresh grant if an ordinary approved_local used the occurrence.
-    async fn load(
+    pub(super) async fn load(
         tx: &mut PgConnection,
         workflow: &WorkflowSnapshot,
         owner: &LeaseOwner,
@@ -61,7 +63,7 @@ impl Evidence {
         }
         let row = sqlx::query(
             "SELECT a.snapshot_bytes,a.effect_dispatch_claimed,a.effect_evidence_state,
-                    a.effect_lookup,a.effect_confirmed_attempt_id,k.step_key,j.record_bytes,j.attempt_id
+                    a.effect_lookup,a.effect_confirmed_attempt_id,a.effect_dispatch_attempt_id,k.step_key,j.record_bytes,j.attempt_id
              FROM workflow_approvals a
              CROSS JOIN LATERAL (SELECT '_approval:' || encode(sha256(convert_to(a.wait_key,'UTF8')),'hex') AS step_key) k
              LEFT JOIN workflow_local_results j ON j.activation_id=$3 AND j.step_key=k.step_key
@@ -88,6 +90,8 @@ impl Evidence {
         let bytes: Option<Vec<u8>> = row.try_get("record_bytes")?;
         let attempt: Option<String> = row.try_get("attempt_id")?;
         Ok(Self {
+            approval_bytes: row.try_get("snapshot_bytes")?,
+            dispatch_attempt: row.try_get("effect_dispatch_attempt_id")?,
             approval,
             step_key: row.try_get("step_key")?,
             claimed: row.try_get("effect_dispatch_claimed")?,
@@ -98,7 +102,7 @@ impl Evidence {
         })
     }
 
-    fn confirmed(&self) -> bool {
+    pub(super) fn confirmed(&self) -> bool {
         matches!(
             self.state.as_deref(),
             Some("confirmed" | "legacy_confirmed")
@@ -133,21 +137,17 @@ impl PostgresStore {
             return Err(ContractError::Conflict.into());
         }
 
-        // An older approved occurrence may already be lookup-only, even when
-        // there is no identifiable dispatch attempt. Preserve that provenance.
-        if evidence.lookup.is_none() {
-            let updated = sqlx::query(
-                "UPDATE workflow_approvals
-                 SET effect_dispatch_attempt_id=CASE WHEN NOT effect_dispatch_claimed THEN $3 ELSE effect_dispatch_attempt_id END,
-                     effect_dispatch_claimed=true,effect_evidence_state='open',effect_step_key=$4,effect_lookup=$5
-                 WHERE workflow_id=$1 AND wait_key=$2 AND effect_dispatch_claimed=$6 AND effect_lookup IS NULL",
-            )
-            .bind(&command.workflow_id).bind(&command.approval_key).bind(&owner.attempt_id)
-            .bind(&evidence.step_key).bind(&command.lookup).bind(evidence.claimed).execute(&mut *tx).await?;
-            if updated.rows_affected() != 1 {
-                return Err(corrupt("approved effect evidence update").into());
-            }
-        }
+        grant(&mut tx, command, &evidence).await?;
+        let now = db::now(&mut tx).await?;
+        let mut retained = super::effect_retained::ensure(
+            &mut tx,
+            &command.workflow_id,
+            &command.approval_key,
+            now,
+            None,
+        )
+        .await?;
+        super::effect_retained::legacy_confirmation(&mut tx, &mut retained, now).await?;
         execution::check_live(&workflow, &authority, owner, db::now(&mut tx).await?, true)?;
         tx.commit().await?;
         Ok(ApprovedEffectClaimReceipt {
@@ -222,11 +222,25 @@ impl PostgresStore {
                 owner,
                 &command.record,
                 now,
-                Some((&command.workflow_id, &command.approval_key)),
+                Some((
+                    &command.workflow_id,
+                    &command.approval_key,
+                    &evidence.approval_bytes,
+                )),
             )
             .await?;
             execution::check_live(&workflow, &authority, owner, db::now(&mut tx).await?, true)?;
         }
+        let now = db::now(&mut tx).await?;
+        let mut retained = super::effect_retained::ensure(
+            &mut tx,
+            &command.workflow_id,
+            &command.approval_key,
+            now,
+            None,
+        )
+        .await?;
+        super::effect_retained::legacy_confirmation(&mut tx, &mut retained, now).await?;
         tx.commit().await?;
         Ok(ApprovedEffectConfirmReceipt {
             scope: owner.scope.clone(),
@@ -238,4 +252,34 @@ impl PostgresStore {
             already_accepted,
         })
     }
+}
+
+pub(super) async fn grant(
+    connection: &mut PgConnection,
+    command: &ApprovedEffectClaimCommand,
+    evidence: &Evidence,
+) -> StoreResult<()> {
+    if evidence.lookup.is_none() {
+        let expected_attempt = if evidence.claimed {
+            evidence.dispatch_attempt.as_deref()
+        } else {
+            Some(command.owner.attempt_id.as_str())
+        };
+        let updated:Option<bool> = sqlx::query_scalar(
+                "UPDATE workflow_approvals
+                 SET effect_dispatch_attempt_id=CASE WHEN NOT effect_dispatch_claimed THEN $3 ELSE effect_dispatch_attempt_id END,
+                     effect_dispatch_claimed=true,effect_evidence_state='open',effect_step_key=$4,effect_lookup=$5
+                 WHERE workflow_id=$1 AND wait_key=$2 AND effect_dispatch_claimed=$6 AND effect_lookup IS NULL
+                 RETURNING workflow_id=$1 AND wait_key=$2 AND effect_dispatch_claimed AND effect_evidence_state='open'
+                    AND effect_step_key=$4 AND effect_lookup=$5 AND effect_dispatch_attempt_id IS NOT DISTINCT FROM $7 AND snapshot_bytes=$8",
+            )
+            .bind(&command.workflow_id).bind(&command.approval_key).bind(&command.owner.attempt_id)
+            .bind(&evidence.step_key).bind(&command.lookup).bind(evidence.claimed).bind(expected_attempt).bind(&evidence.approval_bytes)
+            .fetch_optional(&mut *connection).await?;
+        if updated != Some(true) {
+            return Err(corrupt("approved effect evidence update").into());
+        }
+    }
+
+    Ok(())
 }

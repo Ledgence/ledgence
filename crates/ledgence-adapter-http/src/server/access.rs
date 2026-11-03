@@ -157,7 +157,7 @@ pub(super) fn validate_origin(
     Ok((origin.clone(), secure))
 }
 
-fn control(server: &Server) -> Option<&AccessControl> {
+pub(super) fn control(server: &Server) -> Option<&AccessControl> {
     server
         .console
         .as_ref()
@@ -325,15 +325,23 @@ pub(super) async fn dispatch(
         return Err(invalid("access endpoints do not accept query parameters").into());
     }
     if policy == Policy::Access {
+        let generic = request.uri().path() == "/v1/access";
         to_bytes(request.into_body(), 0)
             .await
             .map_err(|_| invalid("access lookup does not accept a body"))?;
-        return Ok((
-            server
-                .encode(snapshot(principal.as_ref(), audit::enabled(server)))
-                .await?,
-            None,
-        ));
+        let mut value = snapshot(principal.as_ref(), audit::enabled(server));
+        if generic
+            && principal.as_ref().is_some_and(|actor| {
+                actor.class() == PrincipalClass::Worker
+                    && actor.require(AccessCapability::WorkerExecute).is_ok()
+            })
+            && evidence::available(server)
+        {
+            let actor = principal.as_ref().expect("verified worker checked");
+            value["authority_id"] = serde_json::json!(actor.audience().authority_id);
+            value["runtime_capabilities"] = serde_json::json!({"approved_effect_evidence_v2":true});
+        }
+        return Ok((server.encode(value).await?, None));
     }
     let control = control(server).ok_or(ContractError::NotFound)?;
     console::check_content_type(request.headers())?;

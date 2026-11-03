@@ -316,3 +316,6 @@ async fn cancellation_and_lease_expiry_fence_even_the_first_claim() {
 
 #[path = "approved_effect_confirm_tests.rs"]
 mod confirmations;
+
+#[path = "effect_evidence_tests.rs"]
+mod evidence_v2;

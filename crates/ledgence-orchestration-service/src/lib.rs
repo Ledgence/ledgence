@@ -8,6 +8,7 @@ mod acquisition;
 pub mod catalog;
 mod completion;
 pub mod console;
+mod effect_evidence;
 pub mod worker_observations;
 mod workflow;
 pub use acquisition::AcquisitionStatistics;

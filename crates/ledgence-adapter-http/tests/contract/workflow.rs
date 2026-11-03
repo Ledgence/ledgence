@@ -16,6 +16,24 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        if self.evidence_capabilities.load(Ordering::SeqCst) & 1 == 1 {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable(
+                "effect evidence unavailable".into(),
+            ))
+        }
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        if self.evidence_capabilities.load(Ordering::SeqCst) & 2 == 2 {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable(
+                "effect reader unavailable".into(),
+            ))
+        }
+    }
     fn operator_access(&self) -> Result<&dyn OperatorAccess> {
         self.operator_access
             .get()

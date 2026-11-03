@@ -97,6 +97,13 @@ impl From<CloudEvent> for RuntimeInvocation {
     }
 }
 
+/// Capabilities negotiated by the host for this invocation, outside persisted
+/// workflow context. The default preserves older runtime and service protocols.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeCapabilities {
+    pub approved_effect_evidence_v2: bool,
+}
+
 /// Versioned, runtime-neutral context for an opt-in interactive invocation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -5,6 +5,7 @@ use ledgence_worker_api::{
     RuntimeRequestHandler,
 };
 use serde_json::json;
+mod evidence;
 
 pub(super) struct WorkflowRuntime {
     pub extension: RuntimeExtension,
@@ -49,6 +50,7 @@ impl Context {
             .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
         let handler = Arc::new(WorkflowOperations {
             service,
+            effect_access: self.effect_access.clone(),
             owner,
             workflow_id: expected_workflow.to_owned(),
             processing_trace,
@@ -107,6 +109,7 @@ async fn fetch_context(
 
 struct WorkflowOperations {
     service: Arc<dyn WorkflowService>,
+    effect_access: Option<Arc<EffectAccess>>,
     owner: LeaseOwner,
     workflow_id: String,
     processing_trace: Option<TraceContext>,
@@ -114,6 +117,11 @@ struct WorkflowOperations {
     retry_delay: Duration,
 }
 impl RuntimeRequestHandler for WorkflowOperations {
+    fn capabilities(&self) -> ledgence_worker_api::RuntimeCapabilities {
+        ledgence_worker_api::RuntimeCapabilities {
+            approved_effect_evidence_v2: self.effect_access.is_some(),
+        }
+    }
     fn handle<'a>(
         &'a self,
         request: RuntimeRequest,
@@ -122,6 +130,12 @@ impl RuntimeRequestHandler for WorkflowOperations {
         Box::pin(async move {
             request.validate()?;
             match request.operation.as_str() {
+                "approved_effect.claim.v2" => {
+                    return self.claim_effect_v2(request, control).await;
+                }
+                "approved_effect.confirm.v2" => {
+                    return self.confirm_effect_v2(request, control).await;
+                }
                 "approved_effect.claim" => {
                     return self.claim_approved_effect(request, control).await;
                 }

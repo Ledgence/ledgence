@@ -175,7 +175,7 @@ def _text(value, field):
 
 
 def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
-            extension=None, rpc=None, observe=False):
+            extension=None, rpc=None, observe=False, effect_evidence_v2=False):
     from ledgence.worker import InvocationContext, _invocation
     from ledgence.worker.otel import _activate
 
@@ -211,7 +211,7 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
         with _activate(processing_context):
             if version >= 3:
                 import asyncio
-                response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc))
+                response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2))
             else:
                 response = _invoke_output(handler, event, envelope, limit)
         if observation is not None:
@@ -247,7 +247,7 @@ def _invoke_output(handler, event, envelope, limit):
         return _failure(envelope, "business_error", exc, limit)
 
 
-async def _invoke_async(handler, event, envelope, limit, extension, rpc):
+async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2=False):
     import asyncio
     from ledgence.worker.workflow import SCHEMA, WorkflowContext, _workflow
 
@@ -259,7 +259,7 @@ async def _invoke_async(handler, event, envelope, limit, extension, rpc):
             if (not isinstance(extension, dict) or set(extension) != {"schema", "payload"}
                     or extension["schema"] != SCHEMA):
                 raise ProtocolError("unsupported runtime extension")
-            context = WorkflowContext(extension["payload"], rpc)
+            context = WorkflowContext(extension["payload"], rpc, effect_evidence_v2=effect_evidence_v2)
             if (context.activation_id != event.get("ldgtaskid")
                     or context.activation_id != event.get("ldgactivationid")
                     or context.workflow_id != event.get("ldgworkflowid")
@@ -470,13 +470,18 @@ def main():
             if "processing_context" not in message:
                 raise ProtocolError("v2+ invocation requires processing_context (null when disabled)")
             processing = _processing_context(message["processing_context"])
+        capabilities = message.get("runtime_capabilities", {})
+        if (type(capabilities) is not dict or set(capabilities) - {"approved_effect_evidence_v2"}
+                or type(capabilities.get("approved_effect_evidence_v2", False)) is not bool):
+            raise ProtocolError("invalid runtime capabilities")
+        effect_evidence_v2 = capabilities.get("approved_effect_evidence_v2", False)
         extension = message.get("extension") if args.protocol_version >= 3 else None
         rpc = _RuntimeRpc(write, sys.stdin.buffer, args.max_input_bytes, event_id, attempt_id) if args.protocol_version >= 3 else None
         # A fresh Context prevents contextvars set by an earlier invocation
         # leaking into the next one in this persistent process.
         response = contextvars.Context().run(
             _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
-            args.protocol_version, processing, extension, rpc, message.get("observe") is True
+            args.protocol_version, processing, extension, rpc, message.get("observe") is True, effect_evidence_v2
         )
         write(response)
 

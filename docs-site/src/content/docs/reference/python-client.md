@@ -186,3 +186,44 @@ A decision cannot create a pending request. The reviewer string is claimed attri
 
 Matching client builds add `client.audit.list()` and `client.audit.approval_acceptance(approval)`. The exact helper returns a typed event or `None` after a successful empty lookup. Errors remain errors.
 [Setup, queries and operating limits](/how-to/audit-operators).
+
+## Retained effect evidence in development
+
+Matching development client and server builds add `client.effects`; published
+0.7.0 does not include it. Start with an open `AsyncClient` using the instance's
+scope and credentials:
+
+```python
+from ledgence.client import EffectFilter
+
+page = await client.effects.inbox(filter=EffectFilter.UNCONFIRMED, limit=20)
+if page.items:
+    occurrence = page.items[0].occurrence
+    evidence = await client.effects.inspect(
+        workflow_id=occurrence.workflow_id,
+        activation_id=occurrence.activation_id,
+        approval_key=occurrence.approval_key,
+    )
+    print(evidence.summary.journal_state, evidence.summary.has_discrepancy)
+```
+
+`inbox` accepts `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`), optional
+`workflow_id` and `cursor`, and `limit` from 1–100 (default 50). Metadata reads
+require `metadata_read` in credential mode and also work in trusted mode.
+`inspect` uses the original effect activation from that occurrence, accepts
+`cursor` and `limit` from 1–4 (default 4), and returns the immutable binding and
+whole claim/observation entries. It requires credential mode, `sensitive_read`
+and a durable audit observation. Permission or audit errors never become empty
+evidence.
+
+Both responses are bounded to 1 MiB. Follow `next_cursor` with the same filters
+or occurrence until it is `None`, even when a page contains fewer than `limit`
+entries. Returned models are frozen; `EffectObservationEntry.output` returns
+an independent JSON value and preserves exact large integers. No implicit
+retries or background polling occur.
+
+Evidence is retained independently of execution collection. Verified worker
+sources identify who reported an outcome, not whether the provider performed
+it. Legacy sources remain unattributed. Inspection does not approve, resolve or
+retry an effect. See the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#retained-effect-evidence-development)
+and [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).

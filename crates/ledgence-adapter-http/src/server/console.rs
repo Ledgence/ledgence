@@ -135,6 +135,14 @@ pub(super) const ROUTES: &[Route] = &[
     Route::post("/v1/console/access/login", Policy::Login),
     Route::post("/v1/console/access/logout", Policy::Logout),
     Route::post("/v1/console/audit/events", Policy::Metadata),
+    Route::post(
+        "/v1/console/workflows/approved-effects/inbox",
+        Policy::Metadata,
+    ),
+    Route::sensitive_post(
+        "/v1/console/workflows/approved-effects/inspect",
+        AuditReadKind::EffectInspect,
+    ),
     Route::sensitive_post(
         "/v1/console/approvals/inspect",
         AuditReadKind::ApprovalInspect,
@@ -490,7 +498,9 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path == "/v1/console/audit/events" {
+    let maximum = if path.starts_with("/v1/console/workflows/approved-effects/") {
+        EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
+    } else if path == "/v1/console/audit/events" {
         16 * 1024
     } else if path.starts_with("/v1/console/approvals/") {
         APPROVAL_SNAPSHOT_MAX_BYTES
@@ -511,6 +521,9 @@ pub(super) async fn dispatch(
     }
     if path == "/v1/console/audit/events" {
         return audit::query(server, bytes, Some(scope), context).await;
+    }
+    if path.starts_with("/v1/console/workflows/approved-effects/") {
+        return super::evidence::post(server, path, bytes, Some(scope), context).await;
     }
     match path {
         "/v1/console/tasks" | "/v1/console/workflows" => {

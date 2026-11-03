@@ -12,7 +12,7 @@ mod response;
 #[cfg(feature = "client")]
 pub use client::{
     ExchangeMetadata, HttpCredentials, HttpProgramCatalogService, HttpProgramPublisher,
-    HttpTaskService,
+    HttpTaskService, WorkerEffectAccess,
 };
 #[cfg(feature = "server")]
 pub mod server;

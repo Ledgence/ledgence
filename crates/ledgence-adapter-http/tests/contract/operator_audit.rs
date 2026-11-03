@@ -4,6 +4,8 @@ use ledgence_orchestration_api::console::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CANARY: &str = "private-payload-must-not-leak";
+#[path = "effect_evidence.rs"]
+mod effect_evidence;
 struct Verifier {
     audience: AccessAudience,
 }
@@ -19,6 +21,7 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::ApprovalDecide,
             ],
             "reader" => vec![AccessCapability::MetadataRead],
+            "worker" => vec![AccessCapability::WorkerExecute],
             "expiring" => vec![
                 AccessCapability::SensitiveRead,
                 AccessCapability::ApprovalDecide,
@@ -32,7 +35,11 @@ impl CredentialVerifier for Verifier {
             },
             self.audience.clone(),
             "credential".into(),
-            PrincipalClass::Operator,
+            if credential == "worker" {
+                PrincipalClass::Worker
+            } else {
+                PrincipalClass::Operator
+            },
             if credential == "expiring" {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)

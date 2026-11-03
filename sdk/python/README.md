@@ -209,6 +209,20 @@ to `approved_local` for the same external write. See
 for migration, replay, and failure handling. This requires matching development
 components and is absent from the 0.7.0 packages.
 
+Matching authenticated development workers negotiate the v2 evidence capability
+before accepting work. The existing `approved_effect` call then records a unique
+owned claim and reports the callback mode with its confirmation. Repeated awaits
+share that invocation. A remotely accepted result can replay its original journal
+binding without another callback or report. The helper receives only the runtime
+capability flag, while Rust validates the authenticated receipt identities.
+Historical and credentialless v1 operation keeps its existing wire contract.
+
+The same managed-process lifecycle applies. Checkpointing drains owned calls and
+cancellation may terminate them before a provider reply can be recorded. A separate
+authenticated evidence operation is available to surviving Rust/HTTP callers with
+a retained claim. See [effect evidence](../../docs/effect-evidence.md) for its
+provenance, migration, inspection and retention contract.
+
 ## Runtime helper
 
 MIT-licensed, standard-library-only program support. The Rust worker starts the

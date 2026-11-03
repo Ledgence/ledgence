@@ -394,3 +394,12 @@ on requests and loads policy at startup. [Access contract](instance-access.md).
 The development HTTP server also uses the reviewed `getrandom 0.4.3` dependency
 for independent response-observation identities. Its server-only feature keeps
 that implementation behind the transport adapter. [Operator audit](operator-audit.md).
+
+## Retained effect evidence
+
+The development evidence contract reuses locked `sha2 0.10.9` to validate the
+complete approval-derived journal key in `ledgence-orchestration-api`.
+`ledgence-worker-delivery` also uses the existing `serde` package directly for
+strict runtime command decoding. Both retain their MIT OR Apache-2.0 licensing.
+These dependency edges add no package version, provider SDK or hosted-service
+requirement. The existing Cargo license and notice gates apply.

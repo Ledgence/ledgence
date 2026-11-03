@@ -241,3 +241,6 @@ impl ServerHandler for Handler {
 
 #[cfg(test)]
 mod protocol_tests;
+
+#[cfg(test)]
+mod effect_tests;

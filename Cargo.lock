@@ -1686,6 +1686,7 @@ dependencies = [
  "ledgence-worker-api",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1786,6 +1787,7 @@ dependencies = [
  "ledgence-orchestration-core",
  "ledgence-worker-api",
  "ledgence-worker-core",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

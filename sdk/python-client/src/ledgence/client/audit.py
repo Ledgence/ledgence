@@ -35,6 +35,7 @@ class AuditReadKind(StrEnum):
     APPROVAL_INSPECT = "approval_inspect"
     APPROVAL_LIST = "approval_list"
     APPROVAL_DECISION = "approval_decision"
+    EFFECT_INSPECT = "effect_inspect"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +87,15 @@ class AuditApprovalPage:
     kind: Literal["approval_page"] = field(default="approval_page", init=False)
 
 
-AuditResource = AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage
+@dataclass(frozen=True, slots=True)
+class AuditEffect:
+    workflow_id: str
+    activation_id: str
+    approval_key: str
+    kind: Literal["effect"] = field(default="effect", init=False)
+
+
+AuditResource = AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage | AuditEffect
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +180,7 @@ def _resource(raw):
         "local_step": (AuditLocalStep, ("workflow_id", "activation_id", "step_key")),
         "approval": (AuditApproval, ("workflow_id", "key")),
         "approval_page": (AuditApprovalPage, ("workflow_id", "keys")),
+        "effect": (AuditEffect, ("workflow_id", "activation_id", "approval_key")),
     }
     if kind not in shapes:
         raise InputError("invalid audit resource")
@@ -224,6 +234,7 @@ def _event(raw, scope):
             AuditReadKind.WORKFLOW_RESULT: AuditWorkflow, AuditReadKind.WORKFLOW_INPUT: AuditWorkflow,
             AuditReadKind.LOCAL_STEP_INSPECT: AuditLocalStep, AuditReadKind.APPROVAL_INSPECT: AuditApproval,
             AuditReadKind.APPROVAL_LIST: AuditApprovalPage, AuditReadKind.APPROVAL_DECISION: AuditApproval,
+            AuditReadKind.EFFECT_INSPECT: AuditEffect,
         }[operation.read]
         if type(operation.resource) is not expected:
             raise InputError("audit read and resource disagree")

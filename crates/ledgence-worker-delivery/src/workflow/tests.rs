@@ -24,6 +24,14 @@ type EffectConfirm = (
     ApprovedEffectConfirmCommand,
     oneshot::Sender<Result<ApprovedEffectConfirmReceipt>>,
 );
+type EffectClaimV2 = (
+    EffectClaimV2Command,
+    oneshot::Sender<Result<EffectClaimV2Receipt>>,
+);
+type EffectConfirmV2 = (
+    EffectConfirmV2Command,
+    oneshot::Sender<Result<EffectConfirmV2Receipt>>,
+);
 
 struct Mock {
     contexts: mpsc::UnboundedSender<ContextRequest>,
@@ -31,6 +39,44 @@ struct Mock {
     forks: Option<mpsc::UnboundedSender<ForkRequest>>,
     effect_claims: Option<mpsc::UnboundedSender<EffectClaim>>,
     effect_confirms: Option<mpsc::UnboundedSender<EffectConfirm>>,
+    claims_v2: Option<mpsc::UnboundedSender<EffectClaimV2>>,
+    confirms_v2: Option<mpsc::UnboundedSender<EffectConfirmV2>>,
+}
+impl EffectEvidenceClient for Mock {
+    fn claim_v2<'a>(
+        &'a self,
+        command: &'a EffectClaimV2Command,
+    ) -> ContractFuture<'a, EffectClaimV2Receipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.claims_v2
+                .as_ref()
+                .expect("unexpected v2 claim")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
+    fn confirm_v2<'a>(
+        &'a self,
+        command: &'a EffectConfirmV2Command,
+    ) -> ContractFuture<'a, EffectConfirmV2Receipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.confirms_v2
+                .as_ref()
+                .expect("unexpected v2 confirm")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
+    fn observe<'a>(
+        &'a self,
+        _: &'a EffectObservationCommand,
+    ) -> ContractFuture<'a, EffectObservationReceipt> {
+        unreachable!("managed runtime cannot send independent late observations")
+    }
 }
 impl ApprovedEffects for Mock {
     fn confirm_approved_effect<'a>(
@@ -64,6 +110,9 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn effect_evidence_client(&self) -> Result<&dyn EffectEvidenceClient> {
+        Ok(self)
+    }
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         if self.effect_claims.is_none() && self.effect_confirms.is_none() {
             return Err(ContractError::InvalidInput(
@@ -152,6 +201,8 @@ fn fixture() -> (
             forks: None,
             effect_claims: None,
             effect_confirms: None,
+            claims_v2: None,
+            confirms_v2: None,
         }),
         context_requests,
         commit_requests,
@@ -203,6 +254,7 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
     let config = config();
     WorkflowOperations {
         service,
+        effect_access: None,
         owner: owner(),
         workflow_id: context().workflow_id,
         processing_trace: None,
@@ -213,6 +265,8 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
 
 #[path = "approved_effect_tests.rs"]
 mod approved_effect;
+#[path = "evidence_tests.rs"]
+mod evidence;
 
 #[path = "fork_tests.rs"]
 mod forks;

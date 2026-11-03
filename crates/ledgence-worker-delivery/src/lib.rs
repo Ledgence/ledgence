@@ -144,6 +144,7 @@ pub struct DeliveryDriver {
     worker: Worker,
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
+    effect_access: Option<Arc<EffectAccess>>,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
     observations: Option<observations::ObservationReporting>,
@@ -165,6 +166,7 @@ impl DeliveryDriver {
             }),
             service,
             workflows: None,
+            effect_access: None,
             config,
             observations: None,
         })
@@ -189,6 +191,28 @@ impl DeliveryDriver {
     pub fn with_workflows(mut self, service: Arc<dyn WorkflowService>) -> Self {
         self.workflows = Some(service);
         self
+    }
+
+    /// Enable v2 only after authenticating remote capability discovery. The
+    /// cached audience and stable worker identity fence every returned receipt.
+    pub fn with_effect_evidence(
+        mut self,
+        audience: AccessAudience,
+        identity: PrincipalIdentity,
+    ) -> Result<Self> {
+        audience.validate()?;
+        identity.validate()?;
+        if audience.scope != self.config.scope {
+            return Err(ContractError::Forbidden);
+        }
+        self.workflows
+            .as_ref()
+            .ok_or_else(|| {
+                ContractError::Unavailable("effect evidence requires workflow delivery".into())
+            })?
+            .effect_evidence_client()?;
+        self.effect_access = Some(Arc::new(EffectAccess { audience, identity }));
+        Ok(self)
     }
 
     /// Use a pluggable source with the same N consumers and attempt lifecycle.
@@ -265,6 +289,7 @@ impl DeliveryDriver {
                 worker: self.worker.clone(),
                 service: self.service,
                 workflows: self.workflows,
+                effect_access: self.effect_access,
                 source: source.clone(),
                 config: self.config,
                 shared: shared.clone(),
@@ -458,10 +483,22 @@ impl Drop for DeliveryHandle {
     }
 }
 
+struct EffectAccess {
+    audience: AccessAudience,
+    identity: PrincipalIdentity,
+}
+impl EffectAccess {
+    fn matches(&self, worker: &EffectWorkerIdentity) -> bool {
+        worker.audience == self.audience
+            && worker.issuer == self.identity.issuer
+            && worker.subject == self.identity.subject
+    }
+}
 struct Context {
     worker: Worker,
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
+    effect_access: Option<Arc<EffectAccess>>,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
     shared: Arc<Shared>,

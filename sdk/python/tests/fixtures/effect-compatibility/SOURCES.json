@@ -1,0 +1,24 @@
+[
+  {
+    "name": "stable-0.7.0",
+    "source_ref": "v0.7.0",
+    "source_commit": "215d88ff3193c7bb120cb1d37c673ced9f94edb8",
+    "paths": [
+      "LICENSE",
+      "sdk/python/ledgence/worker"
+    ],
+    "tar_sha256": "4172603474ea2efd99301096c04bc873a6b89046261647fb218249673eea9c57",
+    "gzip_sha256": "61ba2e34981b259e2d5ecc78a5dadb4ca07d4738d5e0ac3bb914dea5563b466c"
+  },
+  {
+    "name": "effect-v1",
+    "source_ref": "59a216e37517726f63013f695384eb1e95bbc705",
+    "source_commit": "59a216e37517726f63013f695384eb1e95bbc705",
+    "paths": [
+      "LICENSE",
+      "sdk/python/ledgence/worker"
+    ],
+    "tar_sha256": "20b65a8271c1b416a14c935ca086e297bbb96950c32f9d47c7025bbf7444a534",
+    "gzip_sha256": "3df3b2388a8fa84d9f01cf278f7fc619d6483ccdc53298b1a3d0d73b27171e58"
+  }
+]

@@ -160,7 +160,10 @@ class ArtifactServer:
 class FaultProxy:
     """Consume a committed upstream reply, then deterministically lose it."""
 
-    def __init__(self, upstream):
+    def __init__(self, upstream, *, forward_authorization=False):
+        if type(forward_authorization) is not bool:
+            raise ValueError("authorization forwarding must be explicitly boolean")
+        self.forward_authorization = forward_authorization
         self.upstream = upstream
         self.lock = threading.Lock()
         self.blocked = False
@@ -191,6 +194,10 @@ class FaultProxy:
                     for key in ("traceparent", "tracestate"):
                         if self.headers.get(key):
                             headers[key] = self.headers[key]
+                    # Only credential-aware gates opt in. Never retain this
+                    # header in request records or diagnostics.
+                    if owner.forward_authorization and self.headers.get("Authorization"):
+                        headers["Authorization"] = self.headers["Authorization"]
                     connection.request(self.command, self.path, body=body, headers=headers)
                     response = connection.getresponse()
                     payload = response.read(16 * 1024 * 1024 + 1)

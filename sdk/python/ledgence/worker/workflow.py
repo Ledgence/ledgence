@@ -19,6 +19,7 @@ import json
 import math
 import re
 import unicodedata
+import uuid
 from typing import Any
 
 SCHEMA = "ledgence.workflow.activation.v1"
@@ -654,10 +655,22 @@ class _LocalResult:
         return self._result().__await__()
 
 
+@dataclass(slots=True)
+class _ApprovedEffectInvocation:
+    """Private state belonging to one owned local operation, never user JSON."""
+    approval_key: str
+    claim_id: str | None = None
+    reported_callback: str | None = None
+    replay_record: dict | None = None
+
+
 class WorkflowContext:
     """One explicit activation. Constructed by the worker, not application code."""
 
-    def __init__(self, payload, rpc):
+    def __init__(self, payload, rpc, *, effect_evidence_v2=False):
+        if type(effect_evidence_v2) is not bool:
+            raise WorkflowError("effect evidence capability must be a boolean")
+        self._effect_evidence_v2 = effect_evidence_v2
         payload = _freeze(payload, MAX_CONTEXT_BYTES, 96, authoritative=True)
         _fields(payload, {"v", "workflow_id", "activation_id", "revision", "continuation",
                           "state", "inputs", "local_steps"},
@@ -974,8 +987,16 @@ class WorkflowContext:
             raise WorkflowError("approval is already bound to a different lookup")
         self._approval_lookup = lookup
 
+        effect = _ApprovedEffectInvocation(approval["key"])
+
         async def invoke(**saved):
-            mode = await self._claim_approved_effect(approval["key"], action, lookup_name)
+            if self._effect_evidence_v2:
+                mode = await self._claim_approved_effect_v2(effect, action, lookup_name, key)
+                if effect.replay_record is not None:
+                    return None
+                effect.reported_callback = "dispatch" if mode == "dispatch" else "lookup"
+            else:
+                mode = await self._claim_approved_effect(approval["key"], action, lookup_name)
             result = (fn if mode == "dispatch" else lookup)(**saved)
             return await result if inspect.isawaitable(result) else result
 
@@ -996,7 +1017,7 @@ class WorkflowContext:
                 action_json = saved_json
         binding = {"v": 1, "action_json": action_json, "lookup": lookup_name}
         return self._bound_local(key, invoke, action["name"], binding, action["arguments"],
-                                 approval_key=approval["key"])
+                                 effect=effect)
 
     async def _claim_approved_effect(self, approval_key, action, lookup):
         request = {"approval_key": approval_key, "action": action, "lookup": lookup}
@@ -1016,6 +1037,77 @@ class WorkflowContext:
                 self._fatal = exc
                 raise
         return reply["disposition"]
+
+    async def _claim_approved_effect_v2(self, effect, action, lookup, key):
+        # Generate inside the owned operation so duplicate awaits share one ID.
+        effect.claim_id = "claim_" + uuid.uuid4().hex
+        request = {"approval_key": effect.approval_key, "action": action,
+                   "lookup": lookup, "claim_id": effect.claim_id}
+        async with self._commit_lock:
+            if self._fatal is not None:
+                raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
+            try:
+                reply = await self._rpc("approved_effect.claim.v2", request)
+                if type(reply) is not dict:
+                    raise WorkflowError("invalid approved effect claim acknowledgement")
+                kind = reply.get("kind")
+                if kind == "replay":
+                    _fields(reply, {"kind", "workflow_id", "activation_id", "approval_key", "record"})
+                    self._validate_effect_identity(reply, effect.approval_key)
+                    record = _freeze(reply["record"], MAX_RECORD_BYTES, 96, authoritative=True)
+                    self._validate_record(record, authoritative=True)
+                    _fields(record["input"], {"v", "action_json", "lookup"})
+                    action_json = _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=True).decode("utf-8")
+                    if (record["key"] != key or record["callable"] != action["name"]
+                            or type(record["input"]["v"]) is not int or record["input"]["v"] != 1
+                            or record["input"]["lookup"] != lookup
+                            or type(record["input"]["action_json"]) is not str
+                            or _replayed_action_json(record["input"]["action_json"]) != action_json):
+                        raise WorkflowError("approved effect replay differs from its stored binding")
+                    effect.replay_record = record
+                    return kind
+                _fields(reply, {"kind", "claim"})
+                claim = reply["claim"]
+                _fields(claim, {"workflow_id", "activation_id", "approval_key", "claim_id", "action", "lookup",
+                                "claimed_at", "initial_permission", "recorded_revision", "already_accepted"})
+                self._validate_effect_identity(claim, effect.approval_key)
+                _integer(claim["claimed_at"], "claim timestamp", maximum=MAX_TIMESTAMP)
+                _integer(claim["recorded_revision"], "claim revision", minimum=1)
+                if (kind not in ("dispatch", "lookup_only") or claim["claim_id"] != effect.claim_id
+                        or claim["lookup"] != lookup or type(claim["already_accepted"]) is not bool
+                        or claim["initial_permission"] not in ("dispatch", "lookup_only")
+                        or (kind == "dispatch" and (claim["already_accepted"]
+                                                   or claim["initial_permission"] != "dispatch"))
+                        or (kind == "lookup_only" and claim["initial_permission"] == "dispatch"
+                            and not claim["already_accepted"])
+                        or _encode(claim["action"], MAX_APPROVAL_BYTES, 96, authoritative=True)
+                        != _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=True)):
+                    raise WorkflowError("invalid approved effect claim acknowledgement")
+                return kind
+            except BaseException as exc:
+                self._fatal = exc
+                raise
+
+    def _validate_effect_identity(self, reply, approval_key):
+        if (reply["workflow_id"] != self.workflow_id or reply["activation_id"] != self.activation_id
+                or reply["approval_key"] != approval_key):
+            raise WorkflowError("approved effect acknowledgement identity mismatch")
+
+    async def _confirm_approved_effect_v2(self, effect, binding, record):
+        observation_id = "observation_" + uuid.uuid4().hex
+        request = {"approval_key": effect.approval_key, "lookup": binding["input"]["lookup"],
+                   "record": record, "claim_id": effect.claim_id, "observation_id": observation_id,
+                   "reported_callback": effect.reported_callback}
+        reply = await self._rpc("approved_effect.confirm.v2", request)
+        _fields(reply, {"committed", "workflow_id", "activation_id", "approval_key", "key", "claim_id",
+                        "observation_id", "recorded_at", "recorded_revision", "already_accepted"})
+        self._validate_effect_identity(reply, effect.approval_key)
+        _integer(reply["recorded_at"], "confirmation timestamp", maximum=MAX_TIMESTAMP)
+        _integer(reply["recorded_revision"], "confirmation revision", minimum=1)
+        if (reply["committed"] is not True or reply["key"] != binding["key"]
+                or reply["claim_id"] != effect.claim_id or reply["observation_id"] != observation_id
+                or type(reply["already_accepted"]) is not bool):
+            raise WorkflowError("invalid approved effect confirmation acknowledgement")
 
     def _approved_action(self, fn, version):
         self._active()
@@ -1057,7 +1149,7 @@ class WorkflowContext:
         return self._bound_local(key, fn, _text(module + ":" + name, "local callable", 512),
                                  arguments, arguments)
 
-    def _bound_local(self, key, fn, name, persisted_input, arguments, *, approval_key=None):
+    def _bound_local(self, key, fn, name, persisted_input, arguments, *, effect=None):
         previous = self._records.get(key)
         # Exact replay may copy an accepted Rust-size-boundary binding whose
         # Python float text is longer. A new binding never receives this slack.
@@ -1074,11 +1166,11 @@ class WorkflowContext:
             return _LocalResult(task, self._observed_failures)
         if len(set(self._records) | set(self._pending)) >= MAX_STEPS and previous is None:
             raise WorkflowError("too many local steps in one activation")
-        task = asyncio.create_task(self._run_local(binding, fn, arguments, previous, approval_key))
+        task = asyncio.create_task(self._run_local(binding, fn, arguments, previous, effect))
         self._pending[key] = (binding_bytes, task)
         return _LocalResult(task, self._observed_failures)
 
-    async def _run_local(self, binding, fn, arguments, previous, approval_key):
+    async def _run_local(self, binding, fn, arguments, previous, effect):
         from ledgence.worker._observations import begin_local, finish_local
         observation = begin_local(binding, replayed=previous is not None)
         if previous is not None:
@@ -1091,27 +1183,43 @@ class WorkflowContext:
             output = fn(**_freeze(arguments, MAX_RECORD_BYTES))
             if inspect.isawaitable(output):
                 output = await output
-            record = dict(binding, output=_freeze(output, MAX_RECORD_BYTES))
-            self._validate_record(record)
+            replayed = effect is not None and effect.replay_record is not None
+            if replayed:
+                record = effect.replay_record
+            else:
+                record = dict(binding, output=_freeze(output, MAX_RECORD_BYTES))
+                self._validate_record(record)
         except BaseException as exc:
             finish_local(observation, "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed")
             raise
         else:
             # A callable returning is distinct from its result being accepted.
-            finish_local(observation, "returned")
+            finish_local(observation, "replayed" if replayed else "returned")
         finally:
             _local_owner.reset(token)
         async with self._commit_lock:
-            _encode([*self._records.values(), record], MAX_RECORDS_BYTES, 96)
+            _encode([*self._records.values(), record], MAX_RECORDS_BYTES, 96, authoritative=replayed)
             try:
-                if approval_key is None:
-                    result = await self._rpc("local_step.commit", record)
+                if replayed:
+                    # The server already accepted this exact record. Retain its
+                    # original binding without inventing a new callback report.
+                    accepted_binding = {field: record[field] for field in ("key", "callable", "input")}
+                    _, task = self._pending[binding["key"]]
+                    self._pending[binding["key"]] = (
+                        _encode(accepted_binding, MAX_RECORD_BYTES, 96, authoritative=True), task)
+                    self._records[binding["key"]] = record
+                    return record["output"]
+                if effect is not None and self._effect_evidence_v2:
+                    await self._confirm_approved_effect_v2(effect, binding, record)
                 else:
-                    result = await self._rpc("approved_effect.confirm", {
-                        "approval_key": approval_key, "lookup": binding["input"]["lookup"], "record": record,
-                    })
-                if type(result) is not dict or result != {"committed": True} or type(result["committed"]) is not bool:
-                    raise WorkflowError("invalid local step commit acknowledgement")
+                    if effect is None:
+                        result = await self._rpc("local_step.commit", record)
+                    else:
+                        result = await self._rpc("approved_effect.confirm", {
+                            "approval_key": effect.approval_key, "lookup": binding["input"]["lookup"], "record": record,
+                        })
+                    if type(result) is not dict or result != {"committed": True} or type(result["committed"]) is not bool:
+                        raise WorkflowError("invalid local step commit acknowledgement")
             except BaseException as exc:
                 self._fatal = exc
                 raise

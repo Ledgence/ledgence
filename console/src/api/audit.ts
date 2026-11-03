@@ -23,6 +23,12 @@ const actor = s.object({
   credential_id: id,
 });
 const resource = s.variant({
+  effect: s.object({
+    kind: s.enumeration("effect"),
+    workflow_id: id,
+    activation_id: id,
+    approval_key: id,
+  }),
   task: s.object({ kind: s.enumeration("task"), task_id: id }),
   workflow: s.object({ kind: s.enumeration("workflow"), workflow_id: id }),
   local_step: s.object({
@@ -65,6 +71,7 @@ const responseRead = s.refine(
       "workflow_input",
       "local_step_inspect",
       "approval_inspect",
+      "effect_inspect",
       "approval_list",
       "approval_decision",
     ),
@@ -78,6 +85,7 @@ const responseRead = s.refine(
       workflow_input: "workflow",
       local_step_inspect: "local_step",
       approval_inspect: "approval",
+      effect_inspect: "effect",
       approval_list: "approval_page",
       approval_decision: "approval",
     })[value.read] === value.resource.kind,

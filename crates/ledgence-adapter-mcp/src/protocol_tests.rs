@@ -125,6 +125,15 @@ async fn invalid_tools_parameters_and_hidden_mutations_do_not_dispatch() {
         (3, json!({"name":"ledgence_task_status","arguments":{}})),
         (4, json!({"name":"ledgence_task_submit","arguments":{}})),
         (5, json!({"name":"ledgence_approval_decide","arguments":{}})),
+        (9, json!({"name":"ledgence_effect_resolve","arguments":{}})),
+        (
+            10,
+            json!({"name":"ledgence_effect_inbox","arguments":{"scope":{"tenant_id":"other","namespace":"other"}}}),
+        ),
+        (
+            11,
+            json!({"name":"ledgence_effect_inspect","arguments":{"workflow_id":"wf","activation_id":"a","approval_key":"k","limit":5}}),
+        ),
         (
             6,
             json!({"name":"ledgence_task_status","arguments":{"task_id":"task_1","tenant":"other"}}),

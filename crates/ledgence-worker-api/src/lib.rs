@@ -25,7 +25,7 @@ pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;
 pub use execution::{
     ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult, Phase,
-    RuntimeExtension, RuntimeInvocation, RuntimeReply, RuntimeRequest,
+    RuntimeCapabilities, RuntimeExtension, RuntimeInvocation, RuntimeReply, RuntimeRequest,
 };
 mod invocation;
 mod observation;
@@ -785,6 +785,11 @@ pub trait ExecutionRuntime: Send + Sync {
 /// stale attempts and make repeated operations idempotent. A successful reply
 /// must acknowledge the requested operation before execution may continue.
 pub trait RuntimeRequestHandler: Send + Sync {
+    /// Advertise only capabilities established by this handler's connection.
+    fn capabilities(&self) -> RuntimeCapabilities {
+        RuntimeCapabilities::default()
+    }
+
     fn handle<'a>(
         &'a self,
         request: RuntimeRequest,

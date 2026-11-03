@@ -87,6 +87,15 @@ and worker execution. Console binds cached data and pending commands to the
 current actor. Published 0.7.0 uses the operator-trusted deployment model.
 [Configure instance access](/how-to/configure-instance-access).
 
+## External-effect evidence in development
+
+Matching development components retain approved effect occurrences, authenticated
+worker claims and reported results independently of execution history. Inspect
+unconfirmed or discrepant cases through the API, CLI, Python and MCP. Sensitive
+inspection requires credentials and durable audit. Historical imports retain
+the provenance actually available at upgrade.
+[Inspect external effects](/how-to/inspect-effects).
+
 ## Installation channels
 
 | Method | Availability |

@@ -1,5 +1,8 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
+mod access;
 mod audit;
+mod evidence;
+pub use access::WorkerEffectAccess;
 mod credentials;
 pub use credentials::HttpCredentials;
 mod catalog;

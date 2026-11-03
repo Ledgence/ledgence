@@ -5,13 +5,18 @@ use ledgence_orchestration_api::console::{
 };
 use ledgence_orchestration_api::{
     ApprovalInboxQuery, ApprovalStatus, AuditFilter, AuditQuery, AuditResourceKind, ContractError,
-    Result, Scope, TaskFilters, TaskListQuery, validate_text,
+    EffectInboxFilter, EffectInboxQuery, EffectInspectQuery, EffectOccurrence, Result, Scope,
+    TaskFilters, TaskListQuery, validate_text,
 };
 use ledgence_worker_api::ProgramRef;
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug)]
 pub enum Command {
+    Effect {
+        server: String,
+        operation: EffectOperation,
+    },
     Audit {
         server: String,
         query: AuditQuery,
@@ -77,6 +82,9 @@ impl Command {
                 return Err(invalid("unexpected arguments after help"));
             }
             return Ok(Self::Help);
+        }
+        if command == "effect" {
+            return parse_effect(args);
         }
         if command == "audit" {
             return parse_audit(args);
@@ -708,6 +716,205 @@ mod audit_tests {
         for extra in [["--limit", "50"], ["--cursor", "invented"]] {
             let options: Vec<_> = base.into_iter().chain(extra).collect();
             assert!(parse("approval", &options).is_err());
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum EffectOperation {
+    Inbox(EffectInboxQuery),
+    Inspect(EffectInspectQuery),
+}
+
+fn parse_effect(mut args: impl Iterator<Item = String>) -> Result<Command> {
+    let operation = args
+        .next()
+        .ok_or_else(|| invalid("missing effect operation"))?;
+    let mut options = HashMap::new();
+    while let Some(key) = args.next() {
+        if !key.starts_with("--") {
+            return Err(invalid("expected a --name value option"));
+        }
+        let value = args
+            .next()
+            .ok_or_else(|| invalid(format!("missing value for {key}")))?;
+        if options.insert(key.clone(), value).is_some() {
+            return Err(invalid(format!("duplicate option {key}")));
+        }
+    }
+    let server = required(&mut options, "--server")?;
+    let scope = Scope {
+        tenant_id: required(&mut options, "--tenant")?,
+        namespace: required(&mut options, "--namespace")?,
+    };
+    let cursor = options.remove("--cursor");
+    let limit = number(&mut options, "--limit")?
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| invalid("invalid effect page limit"))?;
+    let operation = match operation.as_str() {
+        "inbox" => {
+            let filter = options
+                .remove("--filter")
+                .map(|value| {
+                    serde_json::from_value(serde_json::Value::String(value)).map_err(|_| {
+                        invalid("effect filter must be all, unconfirmed, confirmed, or discrepant")
+                    })
+                })
+                .transpose()?
+                .unwrap_or(EffectInboxFilter::All);
+            let query = EffectInboxQuery {
+                scope,
+                filter,
+                workflow_id: options.remove("--workflow"),
+                cursor,
+                limit: limit.unwrap_or(50),
+            };
+            query.validate()?;
+            EffectOperation::Inbox(query)
+        }
+        "inspect" => {
+            let query = EffectInspectQuery {
+                occurrence: EffectOccurrence {
+                    scope,
+                    workflow_id: required(&mut options, "--workflow")?,
+                    activation_id: required(&mut options, "--activation")?,
+                    approval_key: required(&mut options, "--key")?,
+                },
+                cursor,
+                limit: limit.unwrap_or(4),
+            };
+            query.validate()?;
+            EffectOperation::Inspect(query)
+        }
+        _ => return Err(invalid("expected effect inbox or inspect; use --help")),
+    };
+    if !options.is_empty() {
+        return Err(invalid("unknown effect option"));
+    }
+    Ok(Command::Effect { server, operation })
+}
+
+#[cfg(test)]
+mod effect_tests {
+    use super::*;
+
+    fn parse(operation: &str, options: &[&str]) -> Result<Command> {
+        Command::parse(
+            [
+                "effect",
+                operation,
+                "--server",
+                "http://127.0.0.1:8080",
+                "--tenant",
+                "acme",
+                "--namespace",
+                "billing",
+            ]
+            .into_iter()
+            .chain(options.iter().copied())
+            .map(str::to_owned),
+        )
+    }
+
+    #[test]
+    fn effect_queries_bind_scope_occurrence_and_bounded_pages() {
+        let Command::Effect {
+            operation: EffectOperation::Inbox(query),
+            ..
+        } = parse("inbox", &[]).unwrap()
+        else {
+            panic!("effect inbox expected")
+        };
+        assert_eq!(query.filter, EffectInboxFilter::All);
+        assert_eq!(query.limit, 50);
+        assert_eq!(query.scope.tenant_id, "acme");
+        let Command::Effect {
+            operation: EffectOperation::Inbox(query),
+            ..
+        } = parse(
+            "inbox",
+            &[
+                "--filter",
+                "discrepant",
+                "--workflow",
+                "workflow",
+                "--limit",
+                "1",
+            ],
+        )
+        .unwrap()
+        else {
+            panic!("effect inbox expected")
+        };
+        assert_eq!(query.filter, EffectInboxFilter::Discrepant);
+        assert_eq!(query.workflow_id.as_deref(), Some("workflow"));
+        assert_eq!(query.cursor, None);
+        let Command::Effect {
+            operation: EffectOperation::Inspect(query),
+            ..
+        } = parse(
+            "inspect",
+            &[
+                "--workflow",
+                "workflow",
+                "--activation",
+                "original",
+                "--key",
+                "refund",
+            ],
+        )
+        .unwrap()
+        else {
+            panic!("effect inspect expected")
+        };
+        assert_eq!(query.occurrence.activation_id, "original");
+        assert_eq!(query.occurrence.approval_key, "refund");
+        assert_eq!(query.limit, 4);
+    }
+
+    #[test]
+    fn effect_queries_reject_invalid_limits_and_incomplete_identity_before_http() {
+        for (operation, options) in [
+            ("inbox", vec!["--limit", "0"]),
+            ("inbox", vec!["--limit", "101"]),
+            ("inbox", vec!["--filter", "pending"]),
+            ("inbox", vec!["--cursor", "zz"]),
+            ("inbox", vec!["--workflow", ""]),
+            ("inbox", vec!["--limit", "1", "--limit", "2"]),
+            ("inspect", vec!["--workflow", "w", "--key", "k"]),
+            (
+                "inspect",
+                vec![
+                    "--workflow",
+                    "w",
+                    "--activation",
+                    "a",
+                    "--key",
+                    "k",
+                    "--limit",
+                    "5",
+                ],
+            ),
+            (
+                "inspect",
+                vec![
+                    "--workflow",
+                    "w",
+                    "--activation",
+                    "a",
+                    "--key",
+                    "k",
+                    "--filter",
+                    "all",
+                ],
+            ),
+            ("resolve", vec![]),
+        ] {
+            assert!(
+                parse(operation, &options).is_err(),
+                "{operation} {options:?}"
+            );
         }
     }
 }

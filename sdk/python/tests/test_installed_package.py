@@ -117,6 +117,44 @@ class InstalledPackageTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.workflow.WorkflowError):
             context.complete("incorrect-success")
 
+    async def test_negotiated_effect_claim_confirm_and_preloaded_replay(self):
+        calls, records, operations = [], [], []
+        async def dispatch(amount):
+            calls.append(amount)
+            return {"receipt": "installed"}
+        async def lookup(amount):
+            self.fail("fresh grant unexpectedly called lookup")
+        action = self.workflow.ApprovalAction.for_callable(
+            dispatch, version="1", arguments={"amount": 50}).to_dict()
+        approval = {"scope": {"tenant_id": "tenant", "namespace": "tests"},
+            "workflow_id": "workflow-1", "key": "refund", "activation_id": "requested",
+            "revision": 0, "action": action, "proposed_arguments": {"amount": 50},
+            "created_at": 10, "deadline": 20, "status": "approved", "protection": "external_effect",
+            "decision": {"decision_id": "decision-1", "decision": "approve", "reviewer": "operator",
+                         "reason": None, "decided_at": 11}, "resumed_activation_id": "activation-1"}
+        identity = {"workflow_id": "workflow-1", "activation_id": "activation-1", "approval_key": "refund"}
+        async def rpc(operation, command):
+            operations.append(operation)
+            if operation == "approved_effect.claim.v2":
+                return {"kind": "dispatch", "claim": dict(command, **identity, claimed_at=12,
+                        initial_permission="dispatch", recorded_revision=2, already_accepted=False)}
+            self.assertEqual(operation, "approved_effect.confirm.v2")
+            self.assertEqual(command["reported_callback"], "dispatch")
+            records.append(json.loads(json.dumps(command["record"])))
+            return dict(identity, committed=True, claim_id=command["claim_id"],
+                        observation_id=command["observation_id"], key=command["record"]["key"],
+                        recorded_at=13, recorded_revision=3, already_accepted=False)
+        state = activation(revision=1, wake={"kind": "approval", "approval": approval})
+        context = self.workflow.WorkflowContext(state, rpc, effect_evidence_v2=True)
+        self.addAsyncCleanup(context._finish, cancel=True)
+        result = await context.approved_effect(dispatch, lookup=lookup, version="1")
+        state["local_steps"] = records
+        resumed = self.workflow.WorkflowContext(state, rpc, effect_evidence_v2=True)
+        self.addAsyncCleanup(resumed._finish, cancel=True)
+        self.assertEqual(await resumed.approved_effect(dispatch, lookup=lookup, version="1"), result)
+        self.assertEqual(calls, [50])
+        self.assertEqual(operations, ["approved_effect.claim.v2", "approved_effect.confirm.v2"])
+
     def test_structured_log_snapshots_invocation_identity(self):
         logging = importlib.import_module("ledgence.worker._logging")
 
