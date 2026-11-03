@@ -101,7 +101,7 @@ receipt = await run.decide_approval(command)
 
 Save the command in application-owned storage before sending it. `await run.approvals(limit=10)` lists requests; a request does not exist until its workflow checkpoint commits. Use `decision="reject"` to decline it.
 
-**Reviewer is claimed attribution, not an authenticated identity.** The deployment's authenticated application boundary or access-controlled proxy must determine who can inspect and decide requests. Console's instance binding and allowed-Origin checks do not authenticate a reviewer.
+`reviewer` is a caller-supplied label. With [instance credentials](/how-to/configure-instance-access) enabled, Ledgence verifies the actor separately and checks inspection and decision capabilities. [Operator audit](/how-to/audit-operators) records verified approval acceptance. Operator-trusted deployments retain their existing access boundary; Console's instance binding and allowed-Origin checks do not authenticate a reviewer.
 
 ## Reconcile uncertainty and observe execution
 
