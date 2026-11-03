@@ -50,6 +50,7 @@ impl Context {
         let handler = Arc::new(WorkflowOperations {
             service,
             owner,
+            workflow_id: expected_workflow.to_owned(),
             processing_trace,
             request_timeout: self.config.request_timeout,
             retry_delay: self.config.retry_delay,
@@ -107,6 +108,7 @@ async fn fetch_context(
 struct WorkflowOperations {
     service: Arc<dyn WorkflowService>,
     owner: LeaseOwner,
+    workflow_id: String,
     processing_trace: Option<TraceContext>,
     request_timeout: Duration,
     retry_delay: Duration,
@@ -119,14 +121,18 @@ impl RuntimeRequestHandler for WorkflowOperations {
     ) -> PortFuture<'a, RuntimeReply> {
         Box::pin(async move {
             request.validate()?;
-            if request.operation == "workflow.fork" {
-                return self.fork(request, control).await;
-            }
-            if request.operation != "local_step.commit" {
-                return Err(Error::new(
-                    ErrorKind::Protocol,
-                    "unsupported workflow runtime operation",
-                ));
+            match request.operation.as_str() {
+                "approved_effect.claim" => {
+                    return self.claim_approved_effect(request, control).await;
+                }
+                "workflow.fork" => return self.fork(request, control).await,
+                "local_step.commit" => {}
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::Protocol,
+                        "unsupported workflow runtime operation",
+                    ));
+                }
             }
             let record: LocalStepRecord = serde_json::from_value(request.payload)
                 .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
@@ -167,6 +173,51 @@ impl RuntimeRequestHandler for WorkflowOperations {
 }
 
 impl WorkflowOperations {
+    async fn claim_approved_effect(
+        &self,
+        request: RuntimeRequest,
+        control: RunControl,
+    ) -> ledgence_worker_api::Result<RuntimeReply> {
+        let claim: ApprovedEffectClaimRequest = serde_json::from_value(request.payload)
+            .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
+        let command = ApprovedEffectClaimCommand {
+            owner: self.owner.clone(),
+            workflow_id: self.workflow_id.clone(),
+            approval_key: claim.approval_key,
+            action: claim.action,
+        };
+        command.validate().map_err(runtime_error)?;
+        control.check()?;
+        // A lost grant may already have consumed the only dispatch. Only a
+        // fresh, verified reply may reach the subprocess.
+        let result = controlled(&control, self.request_timeout, || {
+            self.service.claim_approved_effect(&command)
+        })
+        .await;
+        control.check()?;
+        let receipt = result.map_err(|error| match error {
+            // A different approval wake cannot become eligible by retrying this activation.
+            ContractError::ObsoleteOperation => Error::new(ErrorKind::Protocol, error.to_string()),
+            other => runtime_error(other),
+        })?;
+        if !matches!(receipt.matches(&command), Ok(true)) {
+            return Err(Error::new(
+                ErrorKind::Protocol,
+                "approved effect receipt identity mismatch",
+            ));
+        }
+        Ok(RuntimeReply {
+            id: request.id,
+            result: json!({
+                "workflow_id": receipt.workflow_id,
+                "activation_id": receipt.activation_id,
+                "approval_key": receipt.approval_key,
+                "action": receipt.action,
+                "disposition": receipt.disposition,
+            }),
+        })
+    }
+
     async fn fork(
         &self,
         request: RuntimeRequest,

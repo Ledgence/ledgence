@@ -73,6 +73,58 @@ it does not prove what a downstream service executed. An external effect can
 succeed before its result is committed. Use an external idempotency key or
 reconcile that uncertainty; this API does not guarantee exactly-once effects.
 
+## Protect an approved external write
+
+**Development source only.** The published 0.7.0 helper provides
+`approved_local`. To use `approved_effect`, stop the old workers and server,
+apply the orchestrator migration, and run matching development builds of the
+server, worker and Python helper. An approval that was already granted before
+the migration is lookup-only: the old runtime may already have sent the write.
+
+Use this method when repeating a write, such as issuing a refund, would be
+worse than leaving its outcome unknown. Request approval with
+`ApprovalAction.for_callable(issue_refund, ...)` and include a stable
+destination account and a unique reference for this particular refund in the
+effective arguments. Keep that reference across retries; use a new one for a
+separately authorized refund, even if its amount and currency are identical.
+In the approved continuation:
+
+```python
+from ledgence.worker.workflow import EffectOutcomeUnknown
+
+try:
+    receipt = await ctx.approved_effect(issue_refund, version="1", lookup=find_refund)
+except EffectOutcomeUnknown:
+    # Stop here for investigation; never run the success continuation on a guess.
+    return ctx.fail("refund_unconfirmed", "Check the refund with the payment provider")
+return ctx.complete(receipt)
+```
+
+Give the write and lookup distinct, named functions. Both receive the saved
+effective keyword arguments. `issue_refund`
+must make **one** mutation request; disable automatic write retries in your
+HTTP client or provider SDK. `find_refund` must only read. Make both return
+a validated JSON receipt for the exact approved action. If there is no reliable
+receipt (including a timeout, unsupported lookup or inconclusive not-found),
+raise `EffectOutcomeUnknown`. A workflow can instead checkpoint and park for
+investigation. A failed workflow does not prove that the refund failed at the
+provider. See the [refund recovery fixture](../tools/workflow_acceptance/refund_program.py).
+A generic event does not prove that a provider executed an action. Keep every
+attempt on the protected helper: falling back to `approved_local` or calling
+the writer directly bypasses the grant, even when both use the same approval.
+
+Before the first send, PostgreSQL consumes the dispatch permission for this
+workflow and approval key under the live activation lease. A later claim,
+including one from the same attempt, is lookup-only. A lost grant response
+can therefore result in **zero** sends. The local journal binds the full
+canonical action JSON and lookup identity; the approval snapshot retains the
+structured arguments. A saved, confirmed result replays
+without contacting the destination. This does not provide cross-workflow
+deduplication, retract an already granted send on cancellation, or enforce the
+behavior of application-owned callbacks. Keep the provider's own idempotency
+protection where available. Operator resolution and retention of unresolved
+evidence beyond normal retention are not provided by this method.
+
 ## Review with the client or Console
 
 Once the request has committed, `await run.approval("refund")` returns its

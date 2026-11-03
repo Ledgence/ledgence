@@ -141,6 +141,27 @@ pub(super) async fn post(
                 })
                 .await
         }
+        "/v1/workflows/approved-effects/claim" => {
+            let command = server
+                .blocking(move || {
+                    let command: ApprovedEffectClaimCommand =
+                        decode_unique_json(&bytes, maximum)
+                            .map_err(|_| invalid("malformed approved effect claim"))?;
+                    command.validate()?;
+                    Ok(command)
+                })
+                .await?;
+            server.require_scope(&command.owner.scope)?;
+            log_owner(&command.owner)?;
+            tracing::Span::current().record("ledgence.workflow.id", &command.workflow_id);
+            let reply = service.claim_approved_effect(&command).await?;
+            server
+                .blocking(move || {
+                    check_approved_effect_receipt(&reply, &command)?;
+                    encode_bounded(&reply, APPROVAL_SNAPSHOT_MAX_BYTES)
+                })
+                .await
+        }
         "/v1/workflows/forks" => {
             let command = server
                 .blocking(move || {

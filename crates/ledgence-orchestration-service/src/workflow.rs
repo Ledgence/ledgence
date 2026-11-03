@@ -425,6 +425,21 @@ impl WorkflowService for ApplicationService {
             validate_activation_context_reply(owner, context)
         })
     }
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let receipt = self.workflows()?.claim_approved_effect(command).await?;
+            if !receipt.matches(command).unwrap_or(false) {
+                return Err(ContractError::Unavailable(
+                    "invalid approved effect claim reply".into(),
+                ));
+            }
+            Ok(receipt)
+        })
+    }
     fn record_local_result<'a>(
         &'a self,
         command: &'a LocalResultCommand,

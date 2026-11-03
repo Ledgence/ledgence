@@ -8,6 +8,7 @@ fn fixture() -> (WorkflowOperations, mpsc::UnboundedReceiver<ForkRequest>) {
         contexts,
         commits,
         forks: Some(forks),
+        effect_claims: None,
     }));
     (handler, requests)
 }

@@ -193,6 +193,12 @@ the core API contains no SQS or PostgreSQL types.
 | `POST /v1/workflows/local-results` | Commit `{owner, record}` for a local step |
 | `POST /v1/workflows/forks` | Commit `{owner, fork, processing_trace?}` without suspending the parent |
 
+Development workers also use `POST /v1/workflows/approved-effects/claim` to
+claim a dispatch permission with their live lease and exact approved action.
+Lost responses are not replayed as new permission. See
+[approved external writes](workflow-approvals.md#protect-an-approved-external-write).
+Older services do not support this operation.
+
 GET requests require `tenant_id`, `namespace`, and `workflow_id` query parameters.
 Status/result reads do not acquire execution authority. Waiting in the Python
 client is an observation timeout; it neither resubmits nor cancels the workflow.

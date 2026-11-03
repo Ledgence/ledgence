@@ -163,20 +163,20 @@ python3.13 tools/check-workflows.py --scenario agent-crash-model \
 The offline check simulates journal transport. The process gate runs the Rust
 orchestrator and worker with PostgreSQL, uses controlled process termination and
 lost acknowledgments, and records per-attempt evidence. Add
-`--endpoint http://127.0.0.1:9324` to use a disposable local ElasticMQ queue.
-Its provider fixtures are synthetic: the gate proves recovery behavior, not a
+`--endpoint http://127.0.0.1:9324` to use a disposable local ElasticMQ queue; put the AWS CLI on your PATH
+so the harness can provision that local queue. Its provider fixtures are synthetic: the gate proves recovery behavior, not a
 live model integration or throughput target.
 
 ### Verify an uncertain refund
 
-In the same shell, with `LEDGENCE_POSTGRES_URL` set as above, run both scenarios
+In the same shell, with `LEDGENCE_POSTGRES_URL` set as above, run these three scenarios
 from a checkout that includes the refund fixture. The harness builds the CLI
 by default. Use a new directory for each run to retain the provider records
 and results for inspection:
 
 ```sh
 python3.13 tools/check-workflows.py --scenario agent-effect-gap --scenario agent-refund-recovery \
-  --evidence ./refund-evidence
+  --scenario agent-refund-lost-grant --evidence ./refund-evidence
 ```
 
 The first scenario shows an ordinary tool callable executing twice after a
@@ -185,15 +185,17 @@ destinations. Each destination records a refund and withholds its reply. The
 harness kills the original Rust worker, replaces it, and compares the destination
 ledger with the workflow journal. The approved amount, original and recovery
 worker sessions, mutation and lookup counts, and completed continuations are in
-the scenario evidence.
+the scenario evidence. The third scenario discards a committed grant reply
+before the worker can send. A normal activation retry performs one read, sends
+no mutation and parks; the destination records one lookup and zero refunds.
 
-The [reference workflow](../tools/workflow_acceptance/refund_program.py) records
-which attempt may send the refund before it calls the tool. Its replacement
-attempt only looks up a receipt. A matching receipt completes one workflow.
-When lookup is unavailable, the other workflow stays parked with an unknown
-outcome. An ordinary workflow event claiming success cannot resolve it. The
-rule to look up or park belongs to this fixture. Released workflow helpers
-still rely on application code for reconciliation.
+The [reference workflow](../tools/workflow_acceptance/refund_program.py) uses
+the development SDK’s [approved external write](workflow-approvals.md#protect-an-approved-external-write).
+The orchestrator decides whether the SDK may call the write or only its lookup.
+The application validates the destination receipt and decides how to handle
+an unknown outcome. The cooperative workflow completes once; the other parks.
+Its handler does not accept an ordinary workflow event as proof of success.
+The published 0.7.0 helper does not include this API.
 
 ## Inspect an accepted operation
 

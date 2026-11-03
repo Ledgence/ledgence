@@ -1,4 +1,6 @@
-use ledgence_orchestration_api::{AcquireCommand, ContractError, Scope};
+use ledgence_orchestration_api::{
+    AcquireCommand, ApprovedEffectClaimCommand, ApprovedEffectClaimReceipt, ContractError, Scope,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -125,6 +127,19 @@ pub(crate) fn is_json(content_type: &str) -> bool {
         }
         _ => false,
     }
+}
+
+pub(crate) fn check_approved_effect_receipt(
+    reply: &ApprovedEffectClaimReceipt,
+    command: &ApprovedEffectClaimCommand,
+) -> Result<(), ContractError> {
+    if !reply
+        .matches(command)
+        .map_err(|_| unavailable("invalid approved effect receipt"))?
+    {
+        return Err(unavailable("approved effect receipt identity mismatch"));
+    }
+    Ok(())
 }
 
 pub(crate) fn unavailable(message: impl Into<String>) -> ContractError {

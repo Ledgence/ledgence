@@ -142,6 +142,26 @@ pub struct LeaseOwner {
     pub worker_session_id: String,
     pub consumer_id: u32,
 }
+impl LeaseOwner {
+    pub(crate) fn validate(&self) -> Result<()> {
+        self.scope.validate()?;
+        if self.generation == 0 {
+            return Err(ContractError::InvalidInput(
+                "lease generation must be positive".into(),
+            ));
+        }
+        for id in [
+            &self.task_id,
+            &self.attempt_id,
+            &self.lease_id,
+            &self.worker_session_id,
+        ] {
+            validate_text(id, 128)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lease {
     pub owner: LeaseOwner,

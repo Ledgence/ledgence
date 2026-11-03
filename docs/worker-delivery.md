@@ -109,6 +109,14 @@ user data cannot choose that authority. Lost acknowledgments retry the identical
 record while authority remains live. A returned controller decision uses the
 existing settlement and cleanup path.
 
+Development workers also handle `approved_effect.claim` for an approved
+workflow continuation. Unlike a local-result commit, the worker sends a claim
+once; replaying a previously committed grant would permit a second write. It
+checks the receipt against the live owner, approval and action before passing
+the disposition to Python. A retry with no accepted result must claim again
+and can only look up the outcome if permission was already consumed. See
+[approved external writes](workflow-approvals.md#protect-an-approved-external-write).
+
 Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use

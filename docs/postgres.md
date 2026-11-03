@@ -9,6 +9,33 @@ success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
+## Upgrade from 0.7.0 to development source
+
+Stop all writers, back up the database and program store, run
+`ledgence orchestrator migrate`, and start matching development server and
+worker builds. Migration `20261102020000_approved_effect_claim.sql` marks
+previously approved actions as **lookup-only**: an older worker may have
+issued the write without recording a grant. An approval still pending at
+migration can authorize its first dispatch after approval. Allow maintenance
+time for the update of retained approved rows. Do not mix old writers into
+the upgraded installation.
+
+From the candidate’s development checkout, set `LEDGENCE_POSTGRES_URL` to a
+disposable PostgreSQL 18 server where the test can create and drop a database.
+Build the candidate CLI and Console assets first. Use a new evidence directory:
+
+```sh
+python3.13 tools/check-approval-upgrade.py \
+  --previous-bundle /path/to/extracted-0.7.0 \
+  --binaries target/debug --console-dist console/dist \
+  --evidence ./approval-effect-upgrade-evidence
+```
+
+The default candidate runner is the helper in this checkout. To test a bundled
+candidate instead, pass its `--candidate-runner`, CLI and Console paths.
+Supply `--psql /path/to/psql` if it is not on your PATH. The rehearsal resumes
+two pre-upgrade workflows and checks which callback actually ran.
+
 ## Upgrade from 0.6.1 to 0.7.0
 
 When upgrading from 0.6.1, stop the orchestrator, workers and any other writers. Back up the database and program store, then run `ledgence orchestrator migrate` against the installation database before starting the updated service. Migration `20261102000000_workflow_resolution_progress.sql` preserves partial child-program resolution progress across retries. Migration `20261102010000_approval_inbox.sql` backfills indexed metadata for existing approval requests. Allow maintenance time and storage for the backfill and indexes in proportion to retained approvals. Listing a page reads metadata ordered by deadline. The original request and decision remain the records used to inspect or settle an approval. [Inbox contract](workflow-approvals.md#approval-inbox).

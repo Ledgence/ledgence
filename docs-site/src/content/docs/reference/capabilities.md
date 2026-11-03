@@ -69,6 +69,13 @@ Find pending actions across workflow runs within the instance or configured
 scope. Console, CLI, Python and MCP share the same deadline-ordered listing.
 [Find pending requests across workflows](/how-to/require-approval#find-pending-requests-across-workflows).
 
+## In development: approved external writes
+
+A workflow using the development helper can ask Ledgence to authorize one
+dispatch of an approved action and restrict later attempts to receipt lookup.
+[Protect an approved write](/how-to/require-approval#protect-an-approved-write-in-development).
+The published 0.7.0 packages do not include this helper.
+
 ## Installation channels
 
 | Method | Availability |
