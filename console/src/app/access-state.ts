@@ -21,6 +21,7 @@ export type Access =
       scope: { tenant_id: string; namespace: string };
       capabilities: AccessCapability[];
       expires_at_ms: number;
+      operator_audit?: boolean;
     };
 export type AccessState = {
   enabled: boolean;
@@ -105,6 +106,7 @@ export class AccessController {
             access.scope.tenant_id,
             access.scope.namespace,
             [...access.capabilities].sort(),
+            access.operator_audit === true,
           ],
     );
     const changed = identity !== this.viewIdentity;

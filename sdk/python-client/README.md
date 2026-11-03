@@ -550,14 +550,70 @@ if approval.status is ApprovalStatus.PENDING:
 Choose `approve` or `reject` only after reviewing the exact stored action. The
 command binds its scope, workflow, request activation/revision, full action,
 and any requested external-effect protection.
-`reviewer` is claimed attribution; credential authentication is separate from verified durable decision attribution. Deployment authentication and authorization
-must establish the actual approver. No pending request is created by deciding.
+`reviewer` is a caller-supplied label. It does not establish the actor who accepted
+the decision. Credential-enabled development servers record verified acceptance
+separately, as described below. No pending request is created by deciding.
 
 `ApprovalDecisionUncertain` retains the command when the response cannot prove
 acceptance. No automatic resend occurs. Explicitly resend that command, or use
 `workflow.restore_approval_decision(saved_dict)` after a client restart. An
 identical decision returns its original receipt; changed decisions or bindings
 conflict. Restoring a command performs validation only; it never grants approval.
+
+## Operator audit (development)
+
+Matching development clients and credential-enabled native servers expose a
+scoped metadata audit feed. These APIs are not included in published 0.7.0.
+The credential needs `metadata_read`. Operator-trusted deployments and adapters
+without the audit capability report audit as unavailable.
+
+```python
+from ledgence.client import ApprovalStatus, AuditFilter
+
+# Inspect the original acceptance without changing the approval or decision.
+approval = await client.workflows.handle(workflow_id).approval("refund")
+if approval.status in (ApprovalStatus.APPROVED, ApprovalStatus.REJECTED):
+    accepted_by = await client.audit.approval_acceptance(approval)
+    if accepted_by is None:
+        print("No verified actor recorded")
+    else:
+        print(accepted_by.actor.subject, accepted_by.actor.issuer)
+else:
+    print("Approval status", approval.status.value)
+
+# Read one bounded page of metadata directly associated with a workflow.
+page = await client.audit.list(
+    filter=AuditFilter.resource("workflow", workflow_id), limit=50,
+)
+for event in page.items:
+    print(event.recorded_at, event.actor.subject, event.operation.kind)
+```
+
+`approval_acceptance` requires an approved or rejected observation from this
+client's endpoint and scope. It validates the full request occurrence, decision
+ID, decision and acceptance time. The actor is the original verified operator or
+service, even when the current reader or credential has changed. Its
+`credential_id` identifies the original credential; it is not a bearer token.
+Only a successful empty exact query returns `None`. Authentication, permission,
+unavailable and invalid-response errors propagate; they must not be presented as
+historical absence.
+
+`client.audit.list()` reads the current scope. A resource filter includes directly
+owned observations, not a traversal into child tasks or subworkflows. Continue
+with `page.next_cursor`, the same filter and limit. Cursors are opaque; do not
+construct them or infer a total execution order from event timestamps. The feed
+contains typed resource IDs, verified actor metadata and observation times,
+without action arguments, reviewer labels, reasons or payloads. A sensitive
+response event records authorization to return that response. Delivery may
+still fail. Audit queries themselves create no audit events.
+
+Returned audit events describe recorded facts. The server supplies authorization
+through the verified principal and its durable acceptance linkage.
+Decisions and restored commands retain their existing wire format. For an audited
+decision, a deliberate identical retry by the same verified actor can recover the
+original receipt after credential rotation; a changed actor cannot take ownership
+of that receipt. Historical decisions accepted without audit remain unattributed
+after an otherwise valid identical replay.
 
 ## Local verification
 

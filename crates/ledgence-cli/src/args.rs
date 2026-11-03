@@ -4,14 +4,18 @@ use ledgence_orchestration_api::console::{
     ConsoleProgramKind, ProgramDisplayMetadata, RegisterProgram,
 };
 use ledgence_orchestration_api::{
-    ApprovalInboxQuery, ApprovalStatus, ContractError, Result, Scope, TaskFilters, TaskListQuery,
-    validate_text,
+    ApprovalInboxQuery, ApprovalStatus, AuditFilter, AuditQuery, AuditResourceKind, ContractError,
+    Result, Scope, TaskFilters, TaskListQuery, validate_text,
 };
 use ledgence_worker_api::ProgramRef;
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug)]
 pub enum Command {
+    Audit {
+        server: String,
+        query: AuditQuery,
+    },
     Approval {
         server: String,
         operation: ApprovalOperation,
@@ -73,6 +77,9 @@ impl Command {
                 return Err(invalid("unexpected arguments after help"));
             }
             return Ok(Self::Help);
+        }
+        if command == "audit" {
+            return parse_audit(args);
         }
         if command == "approval" {
             return parse_approval(args);
@@ -528,4 +535,179 @@ fn parse_approval(mut args: impl Iterator<Item = String>) -> Result<Command> {
         return Err(invalid("unknown approval option"));
     }
     Ok(Command::Approval { server, operation })
+}
+
+fn parse_audit(mut args: impl Iterator<Item = String>) -> Result<Command> {
+    let operation = args
+        .next()
+        .ok_or_else(|| invalid("missing audit operation"))?;
+    let mut options = HashMap::new();
+    while let Some(key) = args.next() {
+        if !key.starts_with("--") {
+            return Err(invalid("expected a --name value option"));
+        }
+        let value = args
+            .next()
+            .ok_or_else(|| invalid(format!("missing value for {key}")))?;
+        if options.insert(key.clone(), value).is_some() {
+            return Err(invalid(format!("duplicate option {key}")));
+        }
+    }
+    let server = required(&mut options, "--server")?;
+    let scope = Scope {
+        tenant_id: required(&mut options, "--tenant")?,
+        namespace: required(&mut options, "--namespace")?,
+    };
+    let filter = match operation.as_str() {
+        "list" => match (options.remove("--task"), options.remove("--workflow")) {
+            (None, None) => AuditFilter::All,
+            (Some(resource_id), None) => AuditFilter::Resource {
+                resource_kind: AuditResourceKind::Task,
+                resource_id,
+            },
+            (None, Some(resource_id)) => AuditFilter::Resource {
+                resource_kind: AuditResourceKind::Workflow,
+                resource_id,
+            },
+            (Some(_), Some(_)) => return Err(invalid("choose one task or workflow resource")),
+        },
+        "approval" => AuditFilter::ApprovalAcceptance {
+            workflow_id: required(&mut options, "--workflow")?,
+            key: required(&mut options, "--key")?,
+            activation_id: required(&mut options, "--activation")?,
+            revision: number(&mut options, "--revision")?
+                .ok_or_else(|| invalid("missing --revision"))?,
+            decision_id: required(&mut options, "--decision")?,
+        },
+        _ => return Err(invalid("unknown audit operation; use --help")),
+    };
+    let query = AuditQuery {
+        scope,
+        filter,
+        cursor: options.remove("--cursor"),
+        limit: number(&mut options, "--limit")?
+            .map(u32::try_from)
+            .transpose()
+            .map_err(|_| invalid("invalid audit limit"))?
+            .unwrap_or(if operation == "approval" { 2 } else { 50 }),
+    };
+    query.validate()?;
+    if !options.is_empty() {
+        return Err(invalid("unknown audit option"));
+    }
+    Ok(Command::Audit { server, query })
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    fn parse(operation: &str, options: &[&str]) -> Result<Command> {
+        Command::parse(
+            [
+                "audit",
+                operation,
+                "--server",
+                "http://localhost",
+                "--tenant",
+                "acme",
+                "--namespace",
+                "demo",
+            ]
+            .into_iter()
+            .chain(options.iter().copied())
+            .map(str::to_owned),
+        )
+    }
+
+    #[test]
+    fn audit_queries_preserve_scope_resources_and_large_revisions() {
+        let Command::Audit { query, .. } = parse("list", &[]).unwrap() else {
+            panic!("audit expected")
+        };
+        assert_eq!(query.scope.tenant_id, "acme");
+        assert_eq!(query.scope.namespace, "demo");
+        assert_eq!(query.filter, AuditFilter::All);
+        assert_eq!(query.limit, 50);
+        for (flag, kind) in [
+            ("--task", AuditResourceKind::Task),
+            ("--workflow", AuditResourceKind::Workflow),
+        ] {
+            let Command::Audit { query, .. } =
+                parse("list", &[flag, "execution", "--limit", "1"]).unwrap()
+            else {
+                panic!("audit expected")
+            };
+            assert_eq!(
+                query.filter,
+                AuditFilter::Resource {
+                    resource_kind: kind,
+                    resource_id: "execution".into()
+                }
+            );
+            assert_eq!(query.limit, 1);
+        }
+        let Command::Audit { query, .. } = parse(
+            "approval",
+            &[
+                "--workflow",
+                "wf",
+                "--key",
+                "refund",
+                "--activation",
+                "task",
+                "--revision",
+                "18446744073709551615",
+                "--decision",
+                "decision",
+            ],
+        )
+        .unwrap() else {
+            panic!("audit expected")
+        };
+        assert_eq!(query.limit, 2);
+        assert_eq!(query.cursor, None);
+        assert!(matches!(
+            query.filter,
+            AuditFilter::ApprovalAcceptance {
+                revision: u64::MAX,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn invalid_audit_queries_fail_before_transport() {
+        for options in [
+            vec!["--limit", "0"],
+            vec!["--limit", "101"],
+            vec!["--limit", "-1"],
+            vec!["--limit", "1", "--limit", "2"],
+            vec!["--task", "a", "--workflow", "b"],
+            vec!["--cursor", "invented"],
+            vec!["--task", ""],
+            vec!["--actor", "pretend"],
+            vec!["--tenant", "other"],
+            vec!["--limit"],
+        ] {
+            assert!(parse("list", &options).is_err(), "{options:?}");
+        }
+        assert!(parse("approval", &[]).is_err());
+        let base = [
+            "--workflow",
+            "wf",
+            "--key",
+            "refund",
+            "--activation",
+            "task",
+            "--revision",
+            "0",
+            "--decision",
+            "decision",
+        ];
+        for extra in [["--limit", "50"], ["--cursor", "invented"]] {
+            let options: Vec<_> = base.into_iter().chain(extra).collect();
+            assert!(parse("approval", &options).is_err());
+        }
+    }
 }

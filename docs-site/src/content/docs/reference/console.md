@@ -98,7 +98,8 @@ permission to proceed; inspect the resumed workflow and its result to establish
 what happened afterward. The reviewer field is claimed attribution. Published
 0.7.0 deployments provide their own authentication and authorization boundary.
 Development builds support [instance credentials](/how-to/configure-instance-access).
-Durable verified decision attribution remains planned.
+Native credential mode records verified acceptance separately from the reviewer
+label. [Inspect operator audit](/how-to/audit-operators).
 
 An application's generic `wait_event` review flow is an external wait rather than
 a durable action approval. The support-agent and Codex change-review examples use
@@ -213,3 +214,9 @@ payloads only when the inspector is opened.
 Use scoped credentials with matching development components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
+
+
+## Verified attribution in development
+
+Approval review and decision dialogs load recorded acceptance independently from the caller-supplied reviewer label. Loading, verified acceptance, historical absence and unavailable attribution have distinct displays. Identity changes clear protected cached attribution.
+[Setup, queries and operating limits](/how-to/audit-operators).

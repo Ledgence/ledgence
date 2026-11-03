@@ -29,3 +29,10 @@ API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
 Verified ingress identity and durable approval attribution have separate scope.
+
+
+Development native credential mode requires the complete operator-audit port.
+Drain old API processes before applying the additive migration and starting all
+replicas with their bound authority. The audit feed remains scoped to that
+instance, and acceptance evidence survives execution cleanup.
+[Operator audit](operator-audit.md).

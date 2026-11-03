@@ -5,6 +5,7 @@ pub(super) async fn get(
     path: &str,
     scope: Scope,
     id: String,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     server.require_scope(&scope)?;
     validate_text(&id, 128)?;
@@ -20,7 +21,8 @@ pub(super) async fn get(
         "/v1/workflows/result" => {
             let reply = service.workflow_result(&scope, &id).await?;
             check_identity(&reply.workflow, &scope, &id)?;
-            server
+            let pending = reply.outcome.is_none();
+            let bytes = server
                 .blocking(move || {
                     reply
                         .validate()
@@ -28,7 +30,13 @@ pub(super) async fn get(
                     record_workflow(&reply.workflow);
                     encode_bounded(&reply, RESPONSE_MAX_BYTES)
                 })
-                .await
+                .await?;
+            if pending {
+                context.pending_result()?;
+            } else {
+                context.sensitive(AuditResource::Workflow { workflow_id: id })?;
+            }
+            Ok(bytes)
         }
         _ => Err(invalid("unsupported workflow lookup").into()),
     }
@@ -39,9 +47,10 @@ pub(super) async fn post(
     path: &str,
     bytes: Vec<u8>,
     maximum: usize,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     if path.starts_with("/v1/workflows/approvals/") {
-        return super::approvals::post(server, path, bytes, None).await;
+        return super::approvals::post(server, path, bytes, None, context).await;
     }
     let service = service(server)?;
     match path {

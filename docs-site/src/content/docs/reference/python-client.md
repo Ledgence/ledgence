@@ -180,3 +180,9 @@ Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="app
 A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
 
 **Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.7.0/sdk/python-client/src/ledgence/client)
+
+
+## Operator audit in development
+
+Matching client builds add `client.audit.list()` and `client.audit.approval_acceptance(approval)`. The exact helper returns a typed event or `None` after a successful empty lookup. Errors remain errors.
+[Setup, queries and operating limits](/how-to/audit-operators).

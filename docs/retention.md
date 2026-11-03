@@ -79,8 +79,9 @@ now returns `NotFound`. A child's own pending/recent callback protects that chil
 Approval proposals and decisions follow their owning workflow's retention
 lifetime. Compact Console graph records are collected with that workflow;
 accepted attempt measurements are collected with their settlement. The latest
-worker observation is collected with its expired session. Retention therefore
-does not preserve an independent audit archive after those records expire.
+worker observation is collected with its expired session. In 0.7.0, retention
+does not preserve an independent audit archive after those records expire. The
+development operator-audit capability below adds independent acceptance evidence.
 
 ## API and idempotency boundary
 
@@ -164,3 +165,14 @@ Query-plan regressions measure actual rows/probes for sparse and drained 200,000
 activation ledgers and task discovery with a 20,000-row retirement backlog. An
 opt-in completed-task fixture reports cleanup throughput and empty-lane overhead;
 its timing is diagnostic, not a production capacity guarantee.
+
+
+## Operator audit in development
+
+Matching development schemas add a fourth bounded maintenance lane for expired
+sensitive-response observations. The selected retention interval has the same
+90-day minimum. Preview reports `audit_observation_candidates`; applying removes
+at most the configured batch size in each observation transaction. Acceptance
+events survive task/workflow removal and currently have no automatic expiry.
+Execution retention and acceptance evidence therefore have separate lifetimes.
+[Operator audit](operator-audit.md#retention-and-operating-limits).

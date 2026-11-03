@@ -9,6 +9,7 @@ fn store() -> PostgresStore {
             .connect_lazy("postgres://postgres@127.0.0.1:1/deadline_test")
             .unwrap(),
         instance_scope: Arc::new(std::sync::OnceLock::new()),
+        instance_access: Arc::new(std::sync::OnceLock::new()),
         operation_timeout: Duration::from_secs(1),
         trace_bridge: Arc::new(NoopTraceBridge),
         acquisition_wake: Arc::new(notifications::WakeDispatch::default()),

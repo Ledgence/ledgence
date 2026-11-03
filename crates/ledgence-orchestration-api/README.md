@@ -69,3 +69,12 @@ Ledgence-owned code is MIT licensed; the included LICENSE contains the notice.
 This source crate does not bundle third-party dependency sources. Cargo obtains
 those dependencies separately, with their own licenses and redistribution
 notices. This license does not require users to disclose their applications.
+
+
+Development builds add the grouped `OperatorAccess` capability for verified
+approval decisions, durable sensitive-response observations and scoped audit
+queries. All three operations are required by native credential mode.
+`VerifiedPrincipal` and `OperatorRequest` enter through trusted adapters.
+Existing approval commands and worker continuation schemas remain unchanged.
+`AuditReader` is the separate read-only client port for authenticated remote
+queries. [Operator audit contract](https://github.com/Ledgence/ledgence/blob/develop/docs/operator-audit.md).

@@ -57,3 +57,15 @@ __all__ += [
     "CompletionSubscription", "CompletionSubscriptionHandle", "CompletionSubscriptionUncertain",
     "CompletionRetryUncertain",
 ]
+
+from .audit import (
+    AuditAcceptance, AuditActor, AuditActorClass, AuditApproval, AuditApprovalPage,
+    AuditAudience, AuditEvent, AuditFilter, AuditLocalStep, AuditPage, AuditReadKind,
+    AuditResourceKind, AuditSensitiveResponse, AuditTask, AuditWorkflow,
+)
+
+__all__ += [
+    "AuditAcceptance", "AuditActor", "AuditActorClass", "AuditApproval", "AuditApprovalPage",
+    "AuditAudience", "AuditEvent", "AuditFilter", "AuditLocalStep", "AuditPage", "AuditReadKind",
+    "AuditResourceKind", "AuditSensitiveResponse", "AuditTask", "AuditWorkflow",
+]

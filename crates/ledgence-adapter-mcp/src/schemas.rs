@@ -15,6 +15,16 @@ pub struct ToolDefinition {
 pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     let mut tools = vec![
         tool(
+            "ledgence_audit_query",
+            "Read payload-free operator audit events in the configured scope. Requires metadata_read and audited credential mode. Filter by one resource or exact approval occurrence. For approval_acceptance use limit 2 and no cursor. A successful empty exact result means no verified actor was recorded; an error does not establish absence. Actor attribution identifies the credential holder, including shared services. Pagination is not a cross-request snapshot.",
+            object(
+                json!({"filter": audit_filter(), "cursor": cursor(), "limit": limit()}),
+                &[],
+            ),
+            true,
+            false,
+        ),
+        tool(
             "ledgence_program_list",
             "List registered programs in the configured installation. Kind is display metadata, not an execution permission. Follow next_cursor with the same filters.",
             object(
@@ -162,6 +172,19 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     tools
 }
 
+fn audit_filter() -> Value {
+    json!({"oneOf": [
+        object(json!({"kind":{"const":"all"}}), &["kind"]),
+        object(json!({"kind":{"const":"resource"},
+            "resource_kind":{"enum":["task","workflow"]}, "resource_id":identifier()}),
+            &["kind","resource_kind","resource_id"]),
+        object(json!({"kind":{"const":"approval_acceptance"},
+            "workflow_id":identifier(), "key":identifier(), "activation_id":identifier(),
+            "revision":{"type":"integer","minimum":0,"maximum":u64::MAX}, "decision_id":identifier()}),
+            &["kind","workflow_id","key","activation_id","revision","decision_id"])
+    ]})
+}
+
 fn tool(
     name: &'static str,
     description: &'static str,
@@ -235,7 +258,7 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 17);
         assert!(
             all.iter()
                 .all(|tool| tool.input_schema["additionalProperties"] == false)

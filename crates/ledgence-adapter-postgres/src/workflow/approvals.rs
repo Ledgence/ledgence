@@ -53,34 +53,112 @@ impl PostgresStore {
         &self,
         command: &ApprovalDecisionCommand,
     ) -> StoreResult<ApprovalDecisionReceipt> {
+        if self.instance_access.get().is_some() {
+            return Err(ContractError::Forbidden.into());
+        }
+        Ok(self
+            .decide_approval_transaction(command, None)
+            .await?
+            .receipt)
+    }
+    pub(crate) async fn decide_approval_audited_once(
+        &self,
+        principal: &VerifiedPrincipal,
+        command: &ApprovalDecisionCommand,
+        request: &OperatorRequest,
+    ) -> StoreResult<AuditedDecision> {
+        self.decide_approval_transaction(command, Some((principal, request)))
+            .await
+    }
+    async fn decide_approval_transaction(
+        &self,
+        command: &ApprovalDecisionCommand,
+        operator: Option<(&VerifiedPrincipal, &OperatorRequest)>,
+    ) -> StoreResult<AuditedDecision> {
         command.validate()?;
         self.require_scope(&command.scope)?;
+        if let Some((principal, _)) = operator {
+            principal.require(AccessCapability::ApprovalDecide)?;
+            principal.require(AccessCapability::SensitiveRead)?;
+            if command.scope != principal.audience().scope {
+                return Err(ContractError::Forbidden.into());
+            }
+        }
         let bytes = codec::encode(command)?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
-        let run = sqlx::query("SELECT state,external_wait_key,wait_activation_id,retiring_at_ms FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
+        let run=sqlx::query("SELECT state,external_wait_key,wait_activation_id,retiring_at_ms FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
             .bind(&command.scope.tenant_id).bind(&command.scope.namespace).bind(&command.workflow_id)
             .fetch_optional(&mut *tx).await?.ok_or(ContractError::NotFound)?;
         codec::visible(&run)?;
-        let row = sqlx::query("SELECT snapshot_bytes,decision_bytes FROM workflow_approvals WHERE workflow_id=$1 AND wait_key=$2")
-            .bind(&command.workflow_id).bind(&command.key).fetch_optional(&mut *tx).await?.ok_or(ContractError::NotFound)?;
+        // Authority and expiry are evaluated after acquiring workflow ownership,
+        // not before a potentially long wait for the row lock.
+        let now = db::now(&mut tx).await?;
+        if let Some((principal, _)) = operator {
+            self.require_operator(principal, AccessCapability::ApprovalDecide, now)?;
+        }
+        let select = if operator.is_some() {
+            "SELECT snapshot_bytes,decision_bytes,decision_audit_event_id FROM workflow_approvals WHERE workflow_id=$1 AND wait_key=$2"
+        } else {
+            "SELECT snapshot_bytes,decision_bytes FROM workflow_approvals WHERE workflow_id=$1 AND wait_key=$2"
+        };
+        let row = sqlx::query(select)
+            .bind(&command.workflow_id)
+            .bind(&command.key)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ContractError::NotFound)?;
+        let audit_id = if operator.is_some() {
+            row.try_get::<Option<String>, _>("decision_audit_event_id")?
+        } else {
+            None
+        };
         let mut approval = decode(&row)?;
-        // Replay precedes deadline/closure tests, including replay after the
-        // original accepting request's response was lost and the run completed.
+        if approval.scope != command.scope
+            || approval.workflow_id != command.workflow_id
+            || approval.key != command.key
+        {
+            return Err(corrupt("approval identity").into());
+        }
+        // Replay uses the immutable original command bytes before testing the
+        // current deadline/status, including completed and cancelled workflows.
         if let Some(previous) = row.try_get::<Option<Vec<u8>>, _>("decision_bytes")? {
             if previous != bytes {
                 return Err(ContractError::Conflict.into());
             }
-            tx.commit().await?;
-            return Ok(ApprovalDecisionReceipt {
+            let receipt = ApprovalDecisionReceipt {
                 approval,
                 already_accepted: true,
-            });
+            };
+            let attribution = if let Some(id) = &audit_id {
+                let (principal, _) = operator.ok_or(ContractError::Forbidden)?;
+                let event = crate::operator_audit::load_acceptance(&mut tx, id, &bytes).await?;
+                if !event.actor.same_actor(principal) {
+                    return Err(ContractError::Conflict.into());
+                }
+                event.require_acceptance(principal, command, &receipt)?;
+                DecisionAttribution::Verified {
+                    event: Box::new(event),
+                }
+            } else {
+                DecisionAttribution::LegacyUnverified
+            };
+            let result = AuditedDecision {
+                receipt,
+                attribution,
+            };
+            if let Some((principal, _)) = operator {
+                result.validate_for(principal, command)?;
+            }
+            tx.commit().await?;
+            return Ok(result);
+        }
+        if audit_id.is_some() {
+            return Err(corrupt("approval audit without decision").into());
         }
         if !approval.matches(command)? {
             return Err(ContractError::Conflict.into());
         }
-        let now = db::now(&mut tx).await?;
         if approval.status != ApprovalStatus::Pending
             || now >= approval.deadline
             || run.try_get::<String, _>("state")? != "waiting"
@@ -107,17 +185,49 @@ impl PostgresStore {
             decided_at: now,
         });
         approval.validate()?;
-        sqlx::query("UPDATE workflow_approvals SET snapshot_bytes=$3,decision_bytes=$4 WHERE workflow_id=$1 AND wait_key=$2")
-            .bind(&command.workflow_id).bind(&command.key).bind(codec::encode(&approval)?).bind(bytes)
-            .execute(&mut *tx).await?;
-        external::enqueue_wait(
-            &mut tx,
-            &command.workflow_id,
-            &command.activation_id,
-            now,
-            now,
-        )
-        .await?;
+        let attribution = if let Some((principal, request)) = operator {
+            let event = AuditEvent {
+                event_id: db::id(&mut tx, "aud").await?,
+                recorded_at: now,
+                audience: principal.audience().clone(),
+                actor: AuditActor::from_principal(principal),
+                operation: AuditOperation::accepted(command),
+            };
+            crate::operator_audit::insert_event(
+                &mut tx,
+                &event,
+                Some(&bytes),
+                request.request_id(),
+                false,
+            )
+            .await?;
+            DecisionAttribution::Verified {
+                event: Box::new(event),
+            }
+        } else {
+            DecisionAttribution::LegacyUnverified
+        };
+        let audit_id = match &attribution {
+            DecisionAttribution::Verified { event } => Some(event.event_id.as_str()),
+            DecisionAttribution::LegacyUnverified => None,
+        };
+        let affected = if operator.is_some() {
+            sqlx::query("UPDATE workflow_approvals SET snapshot_bytes=$3,decision_bytes=$4,decision_audit_event_id=$5 WHERE workflow_id=$1 AND wait_key=$2")
+                .bind(&command.workflow_id).bind(&command.key).bind(codec::encode(&approval)?).bind(&bytes).bind(audit_id).execute(&mut *tx).await?.rows_affected()
+        } else {
+            sqlx::query("UPDATE workflow_approvals SET snapshot_bytes=$3,decision_bytes=$4 WHERE workflow_id=$1 AND wait_key=$2")
+                .bind(&command.workflow_id).bind(&command.key).bind(codec::encode(&approval)?).bind(&bytes).execute(&mut *tx).await?.rows_affected()
+        };
+        if affected != 1 {
+            return Err(corrupt("approval decision was not persisted").into());
+        }
+        // A pending approval always owns a delayed wake. Require exactly one
+        // durable wake; triggers or broken storage must never acknowledge loss.
+        let affected=sqlx::query("UPDATE workflow_work SET available_at_ms=LEAST(available_at_ms,$2) WHERE id='wait:'||$1 AND processed_at_ms IS NULL")
+            .bind(&command.activation_id).bind(codec::ms(now)?).execute(&mut *tx).await?.rows_affected();
+        if affected != 1 {
+            return Err(corrupt("approval wake was not persisted").into());
+        }
         record_history(
             &mut tx,
             &command.workflow_id,
@@ -129,11 +239,18 @@ impl PostgresStore {
             },
         )
         .await?;
+        let result = AuditedDecision {
+            receipt: ApprovalDecisionReceipt {
+                approval,
+                already_accepted: false,
+            },
+            attribution,
+        };
+        if let Some((principal, _)) = operator {
+            result.validate_for(principal, command)?;
+        }
         tx.commit().await?;
-        Ok(ApprovalDecisionReceipt {
-            approval,
-            already_accepted: false,
-        })
+        Ok(result)
     }
 }
 

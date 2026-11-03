@@ -373,6 +373,14 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-instance-access-evidence"
+      - name: Check verified approval attribution and durable operator audit
+        if: matrix.suite == 'api'
+        run: |
+          python tools/check-operator-audit.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-operator-audit-evidence"
       - name: Check installed Python client with PostgreSQL, HTTP and the packaged worker
         if: matrix.suite == 'api'
         run: |

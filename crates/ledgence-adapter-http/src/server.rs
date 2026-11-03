@@ -3,6 +3,7 @@
 
 mod access;
 mod approvals;
+mod audit;
 mod routes;
 use routes::{Policy, Route};
 pub mod assets;
@@ -144,6 +145,9 @@ pub fn router_with_console(
 ) -> Result<Router> {
     let instance = console.instance.context();
     instance.validate()?;
+    if console.operator_audit {
+        workflows.operator_access()?;
+    }
     Ok(build_router(
         service,
         Some(workflows),
@@ -198,16 +202,20 @@ fn build_router(
 
 const ROUTES: &[Route] = &[
     Route::get("/v1/access", Policy::Access),
+    Route::post("/v1/audit/events", Policy::Metadata),
     Route::post("/v1/completion-subscriptions", Policy::Control),
     Route::get("/v1/completion-subscriptions/status", Policy::Metadata),
     Route::post("/v1/completion-subscriptions/retry", Policy::Control),
     Route::post("/v1/workflows", Policy::Submit),
     Route::get("/v1/workflows/status", Policy::Metadata),
-    Route::get("/v1/workflows/result", Policy::Sensitive),
+    Route::sensitive_get("/v1/workflows/result", AuditReadKind::WorkflowResult),
     Route::post("/v1/workflows/cancel", Policy::Control),
     Route::post("/v1/workflows/events", Policy::Control),
-    Route::post("/v1/workflows/approvals/inspect", Policy::Sensitive),
-    Route::post("/v1/workflows/approvals/list", Policy::Sensitive),
+    Route::sensitive_post(
+        "/v1/workflows/approvals/inspect",
+        AuditReadKind::ApprovalInspect,
+    ),
+    Route::sensitive_post("/v1/workflows/approvals/list", AuditReadKind::ApprovalList),
     Route::post("/v1/workflows/approvals/inbox", Policy::Metadata),
     Route::post("/v1/workflows/approvals/decide", Policy::Approval),
     Route::post("/v1/workflows/activations/context", Policy::Worker),
@@ -216,9 +224,9 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/workflows/local-results", Policy::Worker),
     Route::post("/v1/workflows/forks", Policy::Worker),
     Route::read_write("/v1/tasks", Policy::Metadata, Policy::Submit),
-    Route::get("/v1/tasks/inspect", Policy::Sensitive),
+    Route::sensitive_get("/v1/tasks/inspect", AuditReadKind::TaskInspect),
     Route::get("/v1/tasks/status", Policy::Metadata),
-    Route::get("/v1/tasks/result", Policy::Sensitive),
+    Route::sensitive_get("/v1/tasks/result", AuditReadKind::TaskResult),
     Route::get("/v1/attempts/inspect", Policy::Worker),
     Route::get("/v1/tasks/history", Policy::Metadata),
     Route::post("/v1/tasks/cancel", Policy::Control),
@@ -345,18 +353,30 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
             Some(_) if publication::is_route(route_label) => {
                 publication::dispatch(&server, request).await
             }
-            Some(_) => {
+            Some(route) => {
                 let result = if server.stopping.load(Ordering::Acquire) {
                     Err(unavailable("orchestrator is shutting down").into())
                 } else {
-                    tokio::time::timeout_at(deadline, dispatch(&server, request, deadline))
-                        .await
-                        .unwrap_or_else(|_| {
-                            Err(unavailable(
-                                "server request deadline exceeded; operation outcome is uncertain",
-                            )
-                            .into())
-                        })
+                    tokio::time::timeout_at(deadline, async {
+                        let context = audit::RequestContext::new(
+                            &server,
+                            admission.ok().flatten(),
+                            route,
+                            &method,
+                            &request_id,
+                        )?;
+                        let bytes = dispatch(&server, request, deadline, &context)
+                            .await
+                            .map_err(|error| context.failure(error))?;
+                        audit::release(&server, context.prepare(bytes)).await
+                    })
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(unavailable(
+                            "server request deadline exceeded; operation outcome is uncertain",
+                        )
+                        .into())
+                    })
                 };
                 // A synchronous poll can finish after timeout_at's deadline.
                 // Never acknowledge a late success as fresh authority.
@@ -622,6 +642,7 @@ async fn dispatch(
     server: &Server,
     request: Request,
     deadline: Instant,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     if Instant::now() >= deadline {
         return Err(unavailable("server request deadline exceeded before dispatch").into());
@@ -634,7 +655,7 @@ async fn dispatch(
     if request.uri().path().starts_with("/v1/console/")
         || request.uri().path() == "/v1/worker-observations"
     {
-        return console::dispatch(server, request).await;
+        return console::dispatch(server, request, context).await;
     }
     let (parts, body) = request.into_parts();
     let path = parts.uri.path();
@@ -666,7 +687,8 @@ async fn dispatch(
             return completion::get(server, scope, fields["subscription_id"].clone()).await;
         }
         if path.starts_with("/v1/workflows/") {
-            return workflow::get(server, path, scope, fields["workflow_id"].clone()).await;
+            return workflow::get(server, path, scope, fields["workflow_id"].clone(), context)
+                .await;
         }
         let task = &fields["task_id"];
         validate_text(task, 128)?;
@@ -681,8 +703,17 @@ async fn dispatch(
         return match path {
             "/v1/tasks/inspect" => {
                 let reply = server.service.inspect(&scope, task).await?;
+                console::check_snapshot(&reply, &scope, task)?;
+                reply
+                    .input
+                    .validate()
+                    .map_err(|_| unavailable("invalid service task snapshot"))?;
                 log_task(&reply);
-                server.encode(reply).await
+                let bytes = server.encode(reply).await?;
+                context.sensitive(AuditResource::Task {
+                    task_id: task.clone(),
+                })?;
+                Ok(bytes)
             }
             "/v1/tasks/status" => {
                 let reply = server.service.status(&scope, task).await?;
@@ -699,14 +730,23 @@ async fn dispatch(
             "/v1/tasks/result" => {
                 let reply = server.service.result(&scope, task).await?;
                 check_task_identity(&reply.task, &scope, task)?;
-                server
+                let pending = reply.outcome.is_none();
+                let bytes = server
                     .blocking(move || {
                         reply
                             .validate()
                             .map_err(|_| unavailable("invalid service task result"))?;
                         encode_bounded(&reply, RESPONSE_MAX_BYTES)
                     })
-                    .await
+                    .await?;
+                if pending {
+                    context.pending_result()?;
+                } else {
+                    context.sensitive(AuditResource::Task {
+                        task_id: task.clone(),
+                    })?;
+                }
+                Ok(bytes)
             }
             "/v1/attempts/inspect" => {
                 let attempt = &fields["attempt_id"];
@@ -767,6 +807,7 @@ async fn dispatch(
         });
     }
     let maximum = match path {
+        "/v1/audit/events" => 16 * 1024,
         "/v1/workflows/approved-effects/claim" => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/workflows/approved-effects/confirm" => APPROVED_EFFECT_CONFIRM_MAX_BYTES,
         path if path.starts_with("/v1/workflows/approvals/") => APPROVAL_SNAPSHOT_MAX_BYTES,
@@ -799,8 +840,11 @@ async fn dispatch(
     if path.starts_with("/v1/completion-subscriptions") {
         return completion::post(server, path, bytes).await;
     }
+    if path == "/v1/audit/events" {
+        return audit::query(server, bytes, None, context).await;
+    }
     if path.starts_with("/v1/workflows") {
-        return workflow::post(server, path, bytes, maximum).await;
+        return workflow::post(server, path, bytes, maximum, context).await;
     }
     match path {
         "/v1/tasks" => {

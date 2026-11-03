@@ -88,8 +88,8 @@ where
 {
     let connection = Connection::new(shutdown.child_token());
     let transport = BoundedTransport::new(input, output, connection.clone());
-    let tools = schemas::tool_definitions(dispatcher.read_only())
-        .into_iter()
+    let tools = dispatcher
+        .definitions()
         .map(|definition| {
             Tool::new(
                 definition.name,

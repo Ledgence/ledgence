@@ -484,6 +484,8 @@ async fn unconfigured_mode_is_explicit_and_does_not_invent_a_principal() {
 
 // Explicit network inventory: API additions must classify their denial boundary.
 const ALL_ROUTES: &[(&str, &str)] = &[
+    ("POST", "/v1/audit/events"),
+    ("POST", "/v1/console/audit/events"),
     ("GET", "/v1/access"),
     ("POST", "/v1/completion-subscriptions"),
     ("GET", "/v1/completion-subscriptions/status"),

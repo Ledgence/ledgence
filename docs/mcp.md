@@ -196,3 +196,15 @@ API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
 Verified ingress identity and durable approval attribution have separate scope.
+
+
+## Operator audit in development
+
+Matching development components expose `ledgence_audit_query` in read-only and
+ordinary MCP mode. It accepts an optional typed `filter` (`all`, `resource` or
+`approval_acceptance`), `cursor` and `limit`, with scope fixed by the server.
+Exact acceptance requires the complete occurrence, `limit=2` and no cursor.
+Native credential mode and `metadata_read` authorize the metadata feed.
+A shared MCP credential records the service identity. The tool's errors remain
+distinct from a successful empty page. The portable adapter's audit tool is
+available when its `AuditReader` port is configured. [Audit contract](operator-audit.md).

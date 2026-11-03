@@ -1,4 +1,5 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
+mod audit;
 mod credentials;
 pub use credentials::HttpCredentials;
 mod catalog;

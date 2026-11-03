@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Qualify an offline upgrade from a verified 0.6.1 or 0.7.0 native bundle on an owned PostgreSQL server."""
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import sys
 import uuid
 
 from console_acceptance.harness import ConsoleDeployment
+from instance_access.harness import AccessDeployment
 from http_acceptance.harness import eventually
 from workflow_acceptance.owned_scenarios import quote
 from postgres_fixture import create_owned_database, owned_database_url
@@ -95,7 +97,7 @@ def exercise_effects(d, old_bundle, binaries, new_console, new_runner):
     source = d.root / "tools/workflow_acceptance/upgrade_effect_program.py"
     d.publish(program, "1.0.0", program_source=source.read_text(), runtime_protocol=3)
     requests = {}
-    for key in ("old-approval", "pending-approval"):
+    for key in ("old-approval", "pending-approval", "cancelled-approval"):
         command = d.console_submission(key, program=program)
         marker = d.directory / (key + ".jsonl")
         command["input"]["data"] = {"marker": str(marker)}
@@ -110,14 +112,30 @@ def exercise_effects(d, old_bundle, binaries, new_console, new_runner):
 
     old_worker.stop()
     assert not d.api("POST", "approvals/decide", requests["old-approval"][2])["already_accepted"]
+    old_workflow = requests["old-approval"][0]
+    original_bytes = d.sql("SELECT encode(decision_bytes,'hex') FROM workflow_approvals WHERE workflow_id=" + quote(old_workflow))
     d.server.stop()
     d.binaries, d.console_dist = binaries, new_console
     migrate(d)
-    assert d.sql("SELECT count(*) FROM _sqlx_migrations WHERE version IN (20261102020000,20261103000000) AND success") == "2"
-    d.server, _ = d.start_server()
-    d.start_worker(runner=new_runner)
-    assert not d.api("POST", "approvals/decide", requests["pending-approval"][2])["already_accepted"]
-    evidence = {}
+    assert d.sql("SELECT count(*) FROM _sqlx_migrations WHERE version IN (20261102020000,20261103000000,20261103020000) AND success") == "3"
+    bundle = provision_upgrade_access(d)
+    d.server, _ = d.start_server(access_config=bundle / "access.json")
+    d.credentials_file = bundle / "operator.json"
+    assert d.api("POST", "approvals/decide", requests["old-approval"][2])["already_accepted"]
+    assert d.sql("SELECT encode(decision_bytes,'hex') FROM workflow_approvals WHERE workflow_id=" + quote(old_workflow)) == original_bytes
+    assert acceptance(d, requests["old-approval"][2]) is None
+    pending = requests["pending-approval"][2]
+    assert not d.api("POST", "approvals/decide", pending)["already_accepted"]
+    assert d.api("POST", "approvals/decide", pending)["already_accepted"]
+    verified = acceptance(d, pending)
+    assert verified["actor"]["subject"] == "upgrade-operator"
+    cancelled = requests["cancelled-approval"][0]
+    d.api("POST", "workflows/cancel", {"workflow_id": cancelled})
+    d.api("POST", "approvals/decide", requests["cancelled-approval"][2], expected=409)
+    assert acceptance(d, requests["cancelled-approval"][2]) is None
+    d.start_worker(runner=new_runner, credentials_file=bundle / "worker.json")
+    evidence = {"verified_acceptance": verified, "historical_decision_bytes_unchanged": True,
+                "cancelled_workflow_id": cancelled}
     for key, expected in (("old-approval", "lookup"), ("pending-approval", "dispatch")):
         workflow, marker, _ = requests[key]
         assert d.workflow_result(workflow)["outcome"]["output"] == expected
@@ -129,8 +147,49 @@ def exercise_effects(d, old_bundle, binaries, new_console, new_runner):
             "effect_dispatch_attempt_id IS NOT NULL,'confirmed',effect_confirmed_attempt_id IS NOT NULL) "
             "FROM workflow_approvals WHERE workflow_id=" + quote(workflow)))
         assert binding == {"state": "confirmed", "dispatched": expected == "dispatch", "confirmed": True}, binding
+        approval = d.api("POST", "approvals/inspect", {"workflow_id": workflow, "key": "write"})
+        assert d.sql("SELECT count(*) FROM workflow_activations WHERE workflow_id=" + quote(workflow)
+                     + " AND activation_id=" + quote(approval["resumed_activation_id"])) == "1"
+        assert d.sql("SELECT count(*) FROM workflow_activations WHERE workflow_id=" + quote(workflow)) == "2"
         evidence[key] = {"workflow_id": workflow, "callback": expected, "evidence": binding}
+    assert not requests["cancelled-approval"][1].exists()
+    # The unchanged 0.7 application package also runs as a new workflow after upgrade.
+    marker = d.directory / "new-old-package.jsonl"
+    workflow = submit(d, program, {"marker": str(marker)})
+    eventually(lambda: d.workflow_status(workflow)["state"] == "waiting", description="old package request after upgrade")
+    approval = d.api("POST", "approvals/inspect", {"workflow_id": workflow, "key": "write"})
+    decision = {field: approval[field] for field in ("workflow_id", "key", "activation_id", "revision", "action")}
+    decision.update(decision_id="new-old-package", decision="approve", reviewer="claimed-label", reason=None)
+    d.api("POST", "approvals/decide", decision)
+    assert acceptance(d, decision)["actor"]["subject"] == "upgrade-operator"
+    assert d.workflow_result(workflow)["outcome"]["output"] == "dispatch"
+    assert marker.read_text().splitlines() == ["dispatch"]
+    evidence["new_old_package_workflow_id"] = workflow
     return evidence
+
+
+def provision_upgrade_access(d):
+    d.instance["allowed_origins"] = [d.server_url]
+    d.instance_file.write_text(json.dumps(d.instance))
+    bundle = d.directory / "upgrade-credentials"
+    # Register the directory before provisioning so partial failures are scrubbed too.
+    d.bundle_directories = [bundle]
+    d.secret_files, d.secrets = [], []
+    expires = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)).isoformat()
+    AccessDeployment.command(d, "ledgence", ["access", "init", "--server", d.server_url,
+        "--instance-config", str(d.instance_file), "--directory", str(bundle),
+        "--subject", "upgrade-operator", "--expires-at", expires])
+    AccessDeployment.track_bundle(d, bundle)
+    return bundle
+
+
+def acceptance(d, decision):
+    query = {"filter": dict(kind="approval_acceptance", **{
+        field: decision[field] for field in ("workflow_id", "key", "activation_id", "revision", "decision_id")}),
+        "cursor": None, "limit": 2}
+    page = d.api("POST", "audit/events", query)
+    assert page["next_cursor"] is None and len(page["items"]) <= 1
+    return page["items"][0] if page["items"] else None
 
 
 def main():
@@ -178,7 +237,11 @@ def main():
         try:
             result = checks[previous_version](d, previous, binaries, dist, candidate_runner)
         finally:
-            d.close()
+            try:
+                d.close()
+            finally:
+                if hasattr(d, "bundle_directories"):
+                    assert AccessDeployment.remove_credentials_and_scan(d), "fixture credential scan failed"
     finally:
         admin(f'DROP DATABASE "{database}" WITH (FORCE)')
     result["previous_version"] = previous_version

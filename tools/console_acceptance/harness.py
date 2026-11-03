@@ -3,6 +3,7 @@
 import http.client
 import http.server
 import json
+from pathlib import Path
 import threading
 import time
 import urllib.parse
@@ -27,19 +28,23 @@ class ConsoleDeployment(Deployment):
     def __init__(self, *args, console_dist):
         super().__init__(*args)
         self.console_dist = console_dist
+        self.credentials_file = None
         self.instance = {"instance_id": "console-acceptance", "name": "Console acceptance",
                          "scope": self.scope, "suggested_queues": [self.queue]}
         self.instance_file = self.directory / "instance.json"
         self.instance_file.write_text(json.dumps(self.instance))
 
-    def start_server(self, port=None):
+    def start_server(self, port=None, *, access_config=None):
         port = port or self.server_port
         self.counter += 1
-        process = Process([
+        args = [
             str(self.binaries / "ledgence"), "orchestrator", "serve", "--bind", f"127.0.0.1:{port}",
             "--store", self.artifacts.url, "--instance-config", str(self.instance_file),
             "--console-dir", str(self.console_dist),
-        ], self.directory, f"server-{self.counter}", self.environment)
+        ]
+        if access_config is not None:
+            args += ["--access-config", str(access_config), "--allow-insecure-console-access"]
+        process = Process(args, self.directory, f"server-{self.counter}", self.environment)
         self.processes.append(process)
         base = f"http://127.0.0.1:{port}"
 
@@ -56,7 +61,16 @@ class ConsoleDeployment(Deployment):
     def api(self, method, path, body=None, expected=200, base=None, **query):
         if query:
             path += "?" + urllib.parse.urlencode(query)
-        status, headers, result = exchange(base or self.server_url, method, "/v1/console/" + path, body)
+        if self.credentials_file is None:
+            status, headers, result = exchange(base or self.server_url, method, "/v1/console/" + path, body)
+        else:
+            token = json.loads(Path(self.credentials_file).read_text())["token"]
+            headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
+            if body is not None:
+                body = body if isinstance(body, bytes) else json.dumps(body).encode()
+                headers["Content-Type"] = "application/json"
+            status, headers, raw = raw_exchange(base or self.server_url, method, "/v1/console/" + path, body, headers)
+            result = json.loads(raw)
         assert status == expected, (method, path, status, result)
         lower = {key.lower(): value for key, value in headers.items()}
         assert lower.get("request-id"), headers

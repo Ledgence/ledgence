@@ -13,6 +13,7 @@ const SCOPED_TABLES: &[&str] = &[
     "retention_turn",
     "console_programs",
     "console_program_versions",
+    "operator_audit_events",
 ];
 
 /// Each non-null byte-collated scope lies between these indexed extremes.
@@ -96,6 +97,12 @@ impl PostgresStore {
             }
             tx.commit().await?;
             self.remember_scope(&config.scope)?;
+            if let Some(access) = access
+                && self.instance_access.set(access.clone()).is_err()
+                && self.instance_access.get() != Some(access)
+            {
+                return Err(ContractError::Conflict.into());
+            }
             Ok(Some(config.context()))
         }).await
     }
@@ -110,15 +117,18 @@ impl PostgresStore {
                     .await?;
             if exists {
                 let row = sqlx::query(
-                    "SELECT tenant_id,namespace FROM self_hosted_instance WHERE singleton",
+                    "SELECT instance_id,tenant_id,namespace,to_jsonb(self_hosted_instance)->>'access_authority_id' AS access_authority_id FROM self_hosted_instance WHERE singleton",
                 )
                 .fetch_optional(&self.pool)
                 .await?;
                 if let Some(row) = row {
-                    self.remember_scope(&Scope {
-                        tenant_id: row.try_get("tenant_id")?,
-                        namespace: row.try_get("namespace")?,
-                    })?;
+                    let scope=Scope {tenant_id:row.try_get("tenant_id")?,namespace:row.try_get("namespace")?};
+                    self.remember_scope(&scope)?;
+                    if let Some(authority_id)=row.try_get::<Option<String>,_>("access_authority_id")? {
+                        let access=AccessAudience{authority_id,instance_id:row.try_get("instance_id")?,scope};
+                        access.validate()?;
+                        if self.instance_access.set(access.clone()).is_err() && self.instance_access.get()!=Some(&access) {return Err(ContractError::Conflict.into());}
+                    }
                 }
             }
             Ok(())

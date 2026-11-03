@@ -65,5 +65,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/configure-instance-access"
+  },
+  "operatorAudit": {
+    "title": "Verified approval attribution and durable response audit",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/audit-operators"
   }
 }

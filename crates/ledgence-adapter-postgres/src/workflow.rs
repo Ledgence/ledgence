@@ -37,6 +37,10 @@ impl ApprovedEffects for PostgresStore {
 }
 
 impl WorkflowStore for PostgresStore {
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        self.audit_audience()?;
+        Ok(self)
+    }
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         Ok(self)
     }

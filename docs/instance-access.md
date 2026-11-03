@@ -161,7 +161,7 @@ dedicated hostname for production and treat local HTTP as trusted development.
 
 | Capability | Permitted operations |
 | --- | --- |
-| `metadata_read` | Status, history summaries, approval inbox, catalog and Console metadata |
+| `metadata_read` | Status, history summaries, approval inbox, catalog, Console metadata and the scoped payload-free operator audit feed |
 | `sensitive_read` | Inputs, outputs, approval arguments and accepted local-step details |
 | `execution_submit` | Task and workflow submissions |
 | `execution_control` | Cancellation, external events and completion subscription commands |
@@ -212,6 +212,7 @@ Access configuration is opt-in for the native service. The packaged local kits
 continue their operator-trusted deployment contract and checksum validation.
 Use explicit native service configuration for this development capability.
 
-This increment enforces authentication and capabilities at HTTP ingress.
-Approval `reviewer` remains caller-supplied attribution. Durable verified
-approval attribution and sensitive-read audit are subsequent development work.
+Native credential mode requires durable approval attribution and sensitive-response
+audit. Approval `reviewer` remains caller supplied. Recorded acceptance identifies
+the verified actor separately. Read the operating and retention contract before
+enabling access on an existing deployment. [Operator audit](operator-audit.md).

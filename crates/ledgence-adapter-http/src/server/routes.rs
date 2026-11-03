@@ -1,7 +1,7 @@
 //! Routing and access policy use the same exhaustive registration entries.
 //! Authentication is applied at the shared ingress before any route dispatch.
 use ledgence_orchestration_api::{
-    AccessCapability, ContractError, PrincipalClass, Result, VerifiedPrincipal,
+    AccessCapability, AuditReadKind, ContractError, PrincipalClass, Result, VerifiedPrincipal,
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Policy {
@@ -51,6 +51,7 @@ pub(super) struct Route {
     pub methods: &'static str,
     primary: Policy,
     post: Option<Policy>,
+    read: Option<AuditReadKind>,
 }
 impl Route {
     pub const fn get(path: &'static str, policy: Policy) -> Self {
@@ -59,6 +60,7 @@ impl Route {
             methods: "GET",
             primary: policy,
             post: None,
+            read: None,
         }
     }
     pub const fn post(path: &'static str, policy: Policy) -> Self {
@@ -67,6 +69,7 @@ impl Route {
             methods: "POST",
             primary: policy,
             post: None,
+            read: None,
         }
     }
     pub const fn put(path: &'static str, policy: Policy) -> Self {
@@ -75,6 +78,7 @@ impl Route {
             methods: "PUT",
             primary: policy,
             post: None,
+            read: None,
         }
     }
     pub const fn read_write(path: &'static str, read: Policy, write: Policy) -> Self {
@@ -83,6 +87,32 @@ impl Route {
             methods: "GET, POST",
             primary: read,
             post: Some(write),
+            read: None,
+        }
+    }
+    pub const fn sensitive_get(path: &'static str, read: AuditReadKind) -> Self {
+        Self {
+            path,
+            methods: "GET",
+            primary: Policy::Sensitive,
+            post: None,
+            read: Some(read),
+        }
+    }
+    pub const fn sensitive_post(path: &'static str, read: AuditReadKind) -> Self {
+        Self {
+            path,
+            methods: "POST",
+            primary: Policy::Sensitive,
+            post: None,
+            read: Some(read),
+        }
+    }
+    pub fn audit_read(&self, method: &str) -> Option<AuditReadKind> {
+        match self.policy(method) {
+            Some(Policy::Approval) => Some(AuditReadKind::ApprovalDecision),
+            Some(Policy::Sensitive) => self.read,
+            _ => None,
         }
     }
     pub fn policy(&self, method: &str) -> Option<Policy> {
@@ -107,22 +137,35 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 75);
+        assert_eq!(routes.len(), 77);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
-            75
+            77
         );
         let mut methods = 0;
+        let mut audited = 0;
         for route in routes {
             for method in route.methods.split(", ") {
                 assert!(route.policy(method).is_some());
+                let sensitive = matches!(
+                    route.policy(method),
+                    Some(Policy::Sensitive | Policy::Approval)
+                );
+                assert_eq!(
+                    route.audit_read(method).is_some(),
+                    sensitive,
+                    "{} {method}",
+                    route.path
+                );
+                audited += usize::from(sensitive);
                 methods += 1;
             }
             for method in ["HEAD", "OPTIONS", "DELETE", "PATCH", "TRACE", "get"] {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 78);
+        assert_eq!(methods, 80);
+        assert_eq!(audited, 14);
     }
     #[test]
     fn payload_worker_and_mixed_method_policies_are_explicit() {

@@ -339,6 +339,7 @@ function ApprovalReview({
             </Link>
           </p>
           <ApprovalCard
+            showAttribution
             approval={query.data}
             unavailable={
               query.error instanceof ApiError && query.error.status === 404

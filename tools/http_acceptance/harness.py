@@ -365,7 +365,7 @@ class Deployment:
         self.proxies.append(proxy)
         return proxy
 
-    def start_worker(self, server=None, concurrency=1, cache="cache", *, runner=None):
+    def start_worker(self, server=None, concurrency=1, cache="cache", *, runner=None, credentials_file=None):
         self.counter += 1
         args = [str(self.binaries / "ledgence"), "worker", "connect", "--server",
                 server or self.server_url, "--tenant", self.scope["tenant_id"], "--namespace",
@@ -373,6 +373,8 @@ class Deployment:
                 "--cache", str(self.directory / cache), "--python", self.python,
                 "--runner", str(runner or self.root / "sdk/python/ledgence/worker/bootstrap.py"),
                 "--concurrency", str(concurrency)]
+        if credentials_file is not None:
+            args += ["--credentials-file", str(credentials_file)]
         process = Process(args, self.directory, f"worker-{self.counter}", self.environment)
         self.processes.append(process)
         return process
