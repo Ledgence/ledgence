@@ -121,6 +121,20 @@ implementation details by themselves.
 
 ## Candidate acceptance
 
+Before publishing any version, review the full change from the previous stable
+tag to the exact candidate commit. For each promised capability, trace its
+public entry point through the implementation and exercise its failure paths.
+Check the upgrade from the previous release, documentation, supported targets
+and distribution artifacts. A test fixture that implements the policy itself
+establishes fixture behavior only.
+
+Record the stable tag, candidate SHA, findings and supporting test and GitHub
+job results. Hold publication for incomplete scope, unresolved blocking defects
+or missing, pending, cancelled or failed required checks. Explain any jobs that
+are inapplicable. If the candidate changes, review the updated diff and qualify
+the new commit. Once the authorized candidate passes, proceed with promotion
+and verify each published artifact using the procedures below.
+
 Run and preserve the repository quality gates for the exact candidate source:
 formatting, crate boundaries, warnings, Rust unit/doc tests, feature isolation,
 Python helper, installed-client and installed-worker-package gates, current dependency policy, real
