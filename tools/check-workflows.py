@@ -667,6 +667,15 @@ def self_test(root):
     return 0
 
 
+def remove_temporary_evidence(directory):
+    # Workers have stopped. Unseal directories in this owned fixture without
+    # following symlinks or changing the permissions of any linked file.
+    for _, _, _, directory_fd in os.fwalk(directory, follow_symlinks=False):
+        if not os.fstat(directory_fd).st_mode & 0o200:
+            os.fchmod(directory_fd, 0o700)
+    shutil.rmtree(directory)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--self-test',action='store_true',help='validate fixtures and async I/O without PostgreSQL')
@@ -721,13 +730,12 @@ def main():
     for binary in ('ledgence',):
         if not (binaries/binary).is_file():
             parser.error(f'missing executable {binaries/binary}')
-    temporary = not args.evidence
     directory = args.evidence.resolve() if args.evidence else Path(tempfile.mkdtemp(prefix='ledgence-workflows-'))
     if args.evidence:
         directory.mkdir(parents=True,exist_ok=False)
     deployment = delay = queue_admin = queue_url = capture = None
     queue_name = 'ledgence-test-workflow-'+uuid.uuid4().hex
-    created = queue_started = succeeded = False
+    created = queue_started = False
     results = []
     def admin(statement):
         result = subprocess.run([args.psql,'--dbname',parent_url,'-X','--set','ON_ERROR_STOP=1','--command',statement],capture_output=True,timeout=40)
@@ -799,9 +807,6 @@ def main():
             with timed(directory, 'scenario', 'fork-traces'):
                 record('fork-traces',fork_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
         deployment.server.stop()
-        succeeded = True
-        print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}',flush=True)
-        return 0
     except Exception as error:
         print(f'Workflow acceptance failed: {error}\nEvidence: {directory}',file=sys.stderr)
         (directory/'failure.txt').write_text(traceback.format_exc())
@@ -823,8 +828,14 @@ def main():
                     if queue_url is None:
                         queue_url = queue_admin.queue_url(queue_admin.call('GetQueueUrl',{'QueueName':queue_name}))
                     queue_admin.call('DeleteQueue',{'QueueUrl':queue_url})
-                if temporary and succeeded:
-                    shutil.rmtree(directory)
+
+    # Reaching this point means both scenarios and resource teardown succeeded.
+    if args.evidence is None:
+        remove_temporary_evidence(directory)
+        print(f'Workflow acceptance passed: {len(results)} scenarios', flush=True)
+    else:
+        print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}', flush=True)
+    return 0
 
 
 if __name__=='__main__':

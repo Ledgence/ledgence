@@ -144,11 +144,20 @@ does not install or implement a PydanticAI, ADK, or other framework integration.
 ```sh
 python3.13 examples/agent-recovery/check.py
 python3.13 -m unittest discover -s sdk/python/tests -p 'test_workflow_operations.py'
-# With an owned disposable PostgreSQL 18 instance and the installed client:
+```
+
+For the process scenarios, activate a Python 3.13 environment with the local
+client's dependencies installed and put `psql` on your path. Set
+`LEDGENCE_POSTGRES_URL` to the maintenance database on a disposable PostgreSQL
+18 server you control. Its role needs permission to create and drop databases.
+Replace the connection details below with those for your test server. The
+harness creates a unique database per run and removes it afterward.
+
+```sh
+export LEDGENCE_POSTGRES_URL='postgresql://postgres@127.0.0.1:55432/postgres'
 python3.13 tools/check-workflows.py --scenario agent-crash-model \
   --scenario agent-crash-tool --scenario agent-lost-ack \
-  --scenario agent-effect-gap --scenario agent-binding --scenario agent-example \
-  --psql /path/to/psql --binaries target/debug --evidence /path/to/new-evidence
+  --scenario agent-effect-gap --scenario agent-binding --scenario agent-example
 ```
 
 The offline check simulates journal transport. The process gate runs the Rust
@@ -160,14 +169,14 @@ live model integration or throughput target.
 
 ### Verify an uncertain refund
 
-From a checkout that includes the refund fixture, run the two scenarios together
-using the disposable PostgreSQL instance, client dependencies and binaries
-described above:
+In the same shell, with `LEDGENCE_POSTGRES_URL` set as above, run both scenarios
+from a checkout that includes the refund fixture. The harness builds the CLI
+by default. Use a new directory for each run to retain the provider records
+and results for inspection:
 
 ```sh
-python3.13 tools/check-workflows.py --scenario agent-effect-gap \
-  --scenario agent-refund-recovery --psql /path/to/psql \
-  --binaries target/debug --evidence /path/to/new-refund-evidence
+python3.13 tools/check-workflows.py --scenario agent-effect-gap --scenario agent-refund-recovery \
+  --evidence ./refund-evidence
 ```
 
 The first scenario shows an ordinary tool callable executing twice after a

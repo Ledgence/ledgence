@@ -28,6 +28,32 @@ def rows(directory):
     return [json.loads(line) for line in (directory / 'timings.jsonl').read_text().splitlines()]
 
 
+class WorkflowCleanupTests(unittest.TestCase):
+    def test_dispose_sealed_artifact_cache_preserves_external_links(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            evidence = parent / 'evidence'
+            content = evidence / 'replacement-cache' / 'digest' / 'content'
+            program = content / 'program'
+            program.mkdir(parents=True)
+            (program / 'main.py').write_text('pass')
+            external = parent / 'external'
+            external.mkdir()
+            marker = external / 'keep'
+            marker.write_text('untouched')
+            (program / 'external').symlink_to(external, target_is_directory=True)
+            (program / 'external-file').symlink_to(marker)
+            for path in (program, content, external):
+                path.chmod(0o555)
+            try:
+                WORKFLOWS.remove_temporary_evidence(evidence)
+                self.assertFalse(evidence.exists())
+                self.assertEqual(marker.read_text(), 'untouched')
+                self.assertEqual(external.stat().st_mode & 0o777, 0o555)
+            finally:
+                external.chmod(0o700)
+
+
 class TimingTests(unittest.TestCase):
     def test_success_and_failure_append_elapsed_without_exception_contents(self):
         with tempfile.TemporaryDirectory() as temporary:
