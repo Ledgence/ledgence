@@ -299,3 +299,10 @@ and `ResourceRate`, and `client.admissions.inspect/release`. Resource metadata
 requires metadata access; arguments/results require audited sensitive access;
 mutations require operator `resource_control`. Preserve command identity after
 a lost response. [Guide](/how-to/control-resource-capacity).
+
+An inspected admission can carry a typed `ProviderAdmissionRecord` instead of a
+generic operation result. `snapshot.provider.call_completion` distinguishes a
+completed original call from uncertain completion; it does not describe business
+success. Inspect the linked effect ticket for provider knowledge and recovery.
+Version-2 provider approvals also expose the reviewed resource requirement.
+All of these extensions require the matching development client and server.

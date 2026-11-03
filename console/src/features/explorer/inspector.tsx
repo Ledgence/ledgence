@@ -233,6 +233,19 @@ export function NodeInspector({
               <When value={node.deadline} />
             </Field>
           </Fields>
+          <details
+            onToggle={(event) => setInspectOperation(event.currentTarget.open)}
+          >
+            <summary>Inspect admission record</summary>
+            {inspectOperation && <AdmissionRecord node={node} />}
+          </details>
+          {node.subject.kind === "provider" && (
+            <p>
+              This wait governs one approved provider call. A provider ticket is
+              not permission to dispatch and does not assert business
+              completion.
+            </p>
+          )}
           <p>
             {node.selection_kind
               ? `Selected ${node.selection_kind.replaceAll("_", " ")}. A continuation was scheduled; an offer is not permission to execute the callback.`

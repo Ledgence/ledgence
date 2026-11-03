@@ -1,6 +1,6 @@
 //! Real provider transactions; every test owns a disposable database.
 use super::*;
-fn audience() -> AccessAudience {
+pub(super) fn audience() -> AccessAudience {
     AccessAudience {
         authority_id: "provider-authority".into(),
         instance_id: "provider-instance".into(),
@@ -30,16 +30,16 @@ fn principal(subject: &str, credential: &str, class: PrincipalClass) -> Verified
     )
     .unwrap()
 }
-fn worker() -> VerifiedPrincipal {
+pub(super) fn worker() -> VerifiedPrincipal {
     principal("worker", "worker-key", PrincipalClass::Worker)
 }
-fn operator() -> VerifiedPrincipal {
+pub(super) fn operator() -> VerifiedPrincipal {
     principal("operator", "operator-key", PrincipalClass::Operator)
 }
-fn binding() -> ProviderBindingRequest {
+pub(super) fn binding() -> ProviderBindingRequest {
     serde_json::from_value(json!({"v":1,"business":{"namespace":"exports","key":"business:1"},"contract":{"adapter_id":"example.export","version":"1","digest":format!("sha256:{}","b".repeat(64)),"completion_criterion":"Artifact committed","dispatch_callable":"app:send","reconcile_callable":"app:lookup","lookup":"by_binding"},"target":{"provider":"example","environment":"local","account":"demo","api_variant":"v1","operation":"export","endpoint_identity":"local-provider","dimensions":{}},"deduplication":{"domain":{"provider":"example","namespace":"account","dimensions":{"account":"demo"}},"key":"effect:1","horizon":{"kind":"unknown"}},"credential_reference":"local-provider","reconciliation":{"queue":"recovery","initial_delay_ms":1000,"interval_ms":1000,"maximum_interval_ms":2000,"max_checks":2,"max_elapsed_ms":60000,"check_timeout_ms":1000}})).unwrap()
 }
-async fn bind(store: &PostgresStore, dispatch: ProviderDispatchPolicy) {
+pub(super) async fn bind(store: &PostgresStore, dispatch: ProviderDispatchPolicy) {
     let config = SelfHostedInstanceConfig {
         instance_id: audience().instance_id,
         name: "Provider tests".into(),
@@ -59,7 +59,7 @@ async fn bind(store: &PostgresStore, dispatch: ProviderDispatchPolicy) {
         })
         .unwrap();
 }
-async fn approved(
+pub(super) async fn approved(
     store: &PostgresStore,
     id: &str,
     request: ProviderBindingRequest,
@@ -146,7 +146,7 @@ async fn fixture() -> (TestDb, Assignment, ProviderClaimCommand) {
     let (a, c) = approved(&db.store, "python", binding()).await;
     (db, a, c)
 }
-fn reported(
+pub(super) fn reported(
     c: &ProviderClaimCommand,
     source: &ProviderDispatchSource,
     knowledge: ProviderKnowledge,
@@ -174,7 +174,7 @@ async fn inspect(store: &PostgresStore, c: &ProviderClaimCommand) -> EffectEvide
         .await
         .unwrap()
 }
-async fn due(store: &PostgresStore, c: &ProviderClaimCommand) {
+pub(super) async fn due(store: &PostgresStore, c: &ProviderClaimCommand) {
     let o = c.occurrence();
     let mut tx = store.pool.begin().await.unwrap();
     let mut r = super::super::effect_retained::load(&mut tx, &o)
@@ -949,7 +949,7 @@ async fn provider_live_report_expiring_during_insert_rolls_back_but_late_observe
     db.finish().await;
 }
 
-async fn collect_execution(db: &TestDb) {
+pub(super) async fn collect_execution(db: &TestDb) {
     sqlx::query("UPDATE workflow_runs SET submitted_at_ms=1,terminal_at_ms=2 WHERE terminal_at_ms IS NOT NULL").execute(&db.store.pool).await.unwrap();
     sqlx::query("UPDATE tasks SET submitted_at_ms=1,available_at_ms=1,terminal_at_ms=2 WHERE terminal_at_ms IS NOT NULL").execute(&db.store.pool).await.unwrap();
     sqlx::query("UPDATE worker_sessions SET expires_at_ms=1")
@@ -976,7 +976,7 @@ async fn collect_execution(db: &TestDb) {
     assert_eq!(remaining, 0);
 }
 
-async fn admitted_probe(
+pub(super) async fn admitted_probe(
     db: &TestDb,
     c: &ProviderClaimCommand,
 ) -> (Assignment, ProviderProbeContext) {

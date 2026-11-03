@@ -111,3 +111,19 @@ to bind the context and all scoped wake variants to the current lease, then
 check the expected workflow and parent/root lineage from their assignment.
 The application service applies complete-capability checks to direct evidence
 and resolution calls as well as discovery and native-wait admission.
+
+### Resource and protected provider admission in development
+
+The development checkout adds portable resource policies, durable admission waits
+and one-shot Start/Finish contracts. `ProviderAdmissionStore` is a separate
+complete capability: its implementation must commit provider dispatch permission,
+capacity accounting and recovery obligation atomically. Implementing the separate
+provider and resource ports does not imply this guarantee. Default capability
+hooks remain unavailable until the composed store is supplied.
+
+Version-2 provider bindings freeze the reviewed resource requirement; ungoverned
+version-1 bindings preserve their encoding. A linked provider report distinguishes
+call completion from business knowledge, so a pending asynchronous operation can
+outlive its original call's occupancy. Read-only probes are outside that resource
+policy. These contracts are not in the published 0.8.0 crate.
+[Admission contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).

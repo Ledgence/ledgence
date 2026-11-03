@@ -8,6 +8,7 @@ mod audit;
 mod effect_resolution;
 mod evidence;
 mod provider;
+mod provider_admission;
 mod provider_console;
 mod routes;
 use routes::{Policy, Route};
@@ -210,6 +211,8 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/resources/put", Policy::ResourceControl),
     Route::post("/v1/resources/query", Policy::Metadata),
     Route::post("/v1/resources/list", Policy::Metadata),
+    Route::post("/v1/provider-admissions/start", Policy::Worker),
+    Route::post("/v1/provider-admissions/report", Policy::Worker),
     Route::post("/v1/admissions/start", Policy::Worker),
     Route::post("/v1/admissions/finish", Policy::Worker),
     Route::sensitive_post("/v1/admissions/inspect", AuditReadKind::AdmissionInspect),
@@ -840,7 +843,8 @@ async fn dispatch(
             ADMISSION_COMMAND_MAX_BYTES
         }
         path if path.starts_with("/v1/workflows/provider-operations/")
-            || path.starts_with("/v1/provider-probes/") =>
+            || path.starts_with("/v1/provider-probes/")
+            || path.starts_with("/v1/provider-admissions/") =>
         {
             PROVIDER_COMMAND_MAX_BYTES
         }
@@ -881,6 +885,12 @@ async fn dispatch(
             }
         })?
         .to_vec();
+    if matches!(
+        path,
+        "/v1/provider-admissions/start" | "/v1/provider-admissions/report"
+    ) {
+        return provider_admission::post(server, path, bytes, context).await;
+    }
     if path.starts_with("/v1/resources/") || path.starts_with("/v1/admissions/") {
         return admission::post(server, path, bytes, context).await;
     }

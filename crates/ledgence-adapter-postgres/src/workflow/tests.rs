@@ -1196,3 +1196,6 @@ mod providers;
 
 #[path = "admission_tests.rs"]
 mod admissions;
+
+#[path = "provider_admission_tests.rs"]
+mod provider_admissions;

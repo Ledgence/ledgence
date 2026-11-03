@@ -22,6 +22,7 @@ impl PostgresStore {
             let _resource = resource(&mut tx, &c.occurrence.scope, &name, true).await?;
             self.admission_worker(p, &c.occurrence.scope, db::now(&mut tx).await?)?;
             let a = request(&mut tx, &c.occurrence).await?;
+            require_operation(&a)?;
             check_replay(&a, c)?;
             tx.commit().await?;
             return Ok(AdmissionStartReceipt::Existing {
@@ -37,6 +38,7 @@ impl PostgresStore {
         let now = db::now(&mut tx).await?;
         let worker = self.admission_worker(p, &c.occurrence.scope, now)?;
         let mut a = request(&mut tx, &c.occurrence).await?;
+        require_operation(&a)?;
         if a.start_bytes.is_some() {
             check_replay(&a, c)?;
             tx.commit().await?;
@@ -137,6 +139,7 @@ impl PostgresStore {
         let now = db::now(&mut tx).await?;
         self.admission_worker(p, &c.source.occurrence.scope, now)?;
         let mut a = request(&mut tx, &c.source.occurrence).await?;
+        require_operation(&a)?;
         if a.snapshot.source.as_ref() != Some(&c.source) {
             return Err(ContractError::Conflict.into());
         }
@@ -204,7 +207,7 @@ fn check_replay(a: &Request, c: &AdmissionStartCommand) -> Result<()> {
     Ok(())
 }
 /// This observation never releases occupancy. A missing/settled owner becomes unknown.
-pub(super) async fn source_check_at(
+pub(in crate::workflow) async fn source_check_at(
     tx: &mut PgConnection,
     s: &AdmissionSource,
     now: u64,
@@ -235,4 +238,13 @@ pub(super) async fn source_check_at(
         return Ok(None);
     }
     Ok(Some(due))
+}
+
+fn require_operation(a: &Request) -> Result<()> {
+    if a.snapshot.binding.operation().is_none() {
+        return Err(invalid(
+            "protected provider admission requires the composed operation",
+        ));
+    }
+    Ok(())
 }

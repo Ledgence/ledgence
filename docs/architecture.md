@@ -179,3 +179,14 @@ coordinator does not keep a worker process parked or scan every active task.
 Provider waits have their own namespace and select one immutable wake. Provider
 knowledge, operator assessments, task completion and journal confirmation remain
 distinct. Earlier A/B observations are not reinterpreted as typed provider facts.
+
+### Protected provider admission in development
+
+`ProviderAdmissionStore` is a complete composed capability, not a derived claim
+from separate admission and provider ports. PostgreSQL commits the one-shot
+provider grant, capacity/rate charge and recovery obligation atomically. The
+original approved effect remains the business identity across the new admission
+activation. Its linked source accepts one frozen completion envelope independently
+of the current worker lease. Provider knowledge and call occupancy remain separate;
+read-only probes cannot free original dispatch capacity. The public API contains
+no provider SDK types. [Contract and limits](resource-admission.md#compose-admission-with-protected-provider-dispatch).

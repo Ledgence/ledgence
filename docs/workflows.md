@@ -304,3 +304,11 @@ A registered model/tool callback can request capacity through a native
 entrypoint while the original operation identity survives rewaits and retries.
 Finish uses its own occurrence journal, not a second `ctx.local()` commit.
 See [durable resource admission](resource-admission.md) and its runnable example.
+
+An approved provider binding can also request this wait through
+`ctx.request_provider_admission(...)`. The composed Start atomically grants
+capacity and the original protected dispatch. `ctx.admitted_provider_operation()`
+returns a typed provider ticket for the existing business-result wait; completion
+of the original call is accounted separately. The approval occurrence survives
+the additional activation. See the
+[protected composition](resource-admission.md#compose-admission-with-protected-provider-dispatch).

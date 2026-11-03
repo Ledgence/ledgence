@@ -450,6 +450,8 @@ fn admission_wait(
         key: String,
         occurrence: AdmissionOccurrence,
         resource: String,
+        #[serde(default)]
+        subject: ConsoleAdmissionSubject,
         deadline_at: u64,
     }
     let episode: Episode =
@@ -462,6 +464,7 @@ fn admission_wait(
         key: episode.key,
         occurrence: episode.occurrence,
         resource: episode.resource,
+        subject: episode.subject,
     };
     wait.validate(workflow_id)?;
     if &wait.occurrence.scope != scope {

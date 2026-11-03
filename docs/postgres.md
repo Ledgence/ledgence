@@ -302,5 +302,12 @@ The new admission migration adds scoped policies, durable operation occurrences
 and wait episodes. Apply it explicitly with `ledgence orchestrator migrate` before
 starting matching source-built services. Resource policy, offers, Start, retained
 Finish and release accounting commit transactionally; no lock spans a callback.
-A restored deployment must start with external admission quarantine before
-reconciliation. See [resource admission](resource-admission.md#restore-and-operate).
+The additive `provider_admission_links` migration binds each governed reservation
+to its original approved provider occurrence. Apply the complete migration set;
+do not install only the first admission migration. Combined provider Start/Report
+transactions preserve the one-shot grant, capacity accounting and recovery evidence.
+
+A restored deployment must start with external admission quarantine and provider
+`declared_restore_quarantine` before reconciliation. Either fence blocks fresh
+composed grants; late original evidence remains admissible. See
+[resource admission](resource-admission.md#restore-and-operate).

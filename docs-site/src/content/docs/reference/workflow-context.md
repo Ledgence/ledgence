@@ -326,3 +326,19 @@ ownership. Probe callbacks receive no workflow context.
 result. `ctx.wait_admission(...)` reuses the original occurrence. These helpers
 require matching development server, worker and helper, with explicit admission
 configuration. [Complete flow and failure semantics](/how-to/control-resource-capacity).
+
+For a provider binding with a reviewed resource, use the distinct
+`provider_admission.v1` composition:
+
+| Method or type | Behavior |
+| --- | --- |
+| `request_provider_admission(key, *, resume, state, timeout_ms)` | Park from the original approved continuation using the server-retained intent. |
+| `admitted_provider_operation()` | Return an owned awaitable for a typed ticket, wait, review or closed outcome. No replacement arguments are accepted. |
+| `ProviderAdmissionRequirement` | Include the named resource in the provider binding before approval. Import from `ledgence.worker.providers`. |
+| `ProviderDispatchOutcome` | Explicitly report completed or unknown call completion separately from provider business knowledge. Import from `ledgence.worker.providers`. |
+
+Import `ProviderAdmissionOutcomeKind` from `ledgence.worker.provider_admission`.
+A `TICKET` continues through the existing provider wait; it is not another dispatch
+permission. `WAIT_REQUIRED` and `NEEDS_REVIEW` can rewait the same admission;
+`CLOSED` does not imply success. Probes remain outside the dispatch resource limit.
+[Approved export example](https://github.com/Ledgence/ledgence/tree/develop/examples/provider-admission).

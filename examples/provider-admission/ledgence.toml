@@ -1,0 +1,22 @@
+schema_version = 1
+
+[program]
+id = "provider-admission"
+version = "1.0.0"
+handler = "program:handle"
+kind = "workflow"
+display_name = "Approved export with shared capacity"
+description = "Approve one export, wait durably for dispatch capacity, and recover its result."
+
+[source]
+root = "."
+include = ["program.py"]
+
+[dependencies]
+requirements = "requirements.txt"
+
+[target]
+platform = "linux/arm64"
+python = "3.14"
+protocol = 3
+image = "REPLACE_WITH_WORKER_IMAGE_DIGEST"

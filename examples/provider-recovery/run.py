@@ -23,7 +23,7 @@ async def main(args):
             )
         run_key = "example-export:" + uuid.uuid4().hex
         workflow = await client.workflows.submit(
-            program="provider-recovery",
+            program=args.program,
             version="1.0.0",
             queue=args.queue,
             data={
@@ -69,6 +69,7 @@ async def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--program", default="provider-recovery", help="Published workflow program ID")
     parser.add_argument("--server", default="http://127.0.0.1:8080")
     parser.add_argument("--credentials", type=Path, required=True)
     parser.add_argument("--tenant", default="acme")

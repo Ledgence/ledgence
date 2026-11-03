@@ -292,5 +292,9 @@ workflows park without a worker slot, then invoke one registered operation under
 a shared capacity/rate policy. Lost permissions remain uncertain; accepted results
 and justified capacity release commit together. [Try the local classifier example](examples/resource-admission/README.md).
 This capability requires matching source-built components and migrations; it is
-not part of the published 0.8.0 packages. Fairness, inherited budgets and protected
-provider composition are separate work.
+not part of the published 0.8.0 packages. Protected provider dispatch can also
+share a resource: approval, capacity and the one-shot grant preserve one original
+operation identity. A completed call releases capacity independently of its
+business result. [Try the approved export example](examples/provider-admission/README.md).
+Read-only recovery probes remain outside that resource limit. Standalone task
+admission, fairness and inherited budgets remain separate work.

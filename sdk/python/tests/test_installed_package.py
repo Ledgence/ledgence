@@ -42,7 +42,7 @@ class InstalledPackageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(distribution.metadata["License-Expression"], "MIT")
         self.assertEqual(distribution.metadata["Requires-Python"], ">=3.11")
         self.assertTrue((self.helper / "py.typed").is_file())
-        for name in ("_logging", "_observations", "_protocol", "bootstrap", "otel", "workflow", "providers", "admission"):
+        for name in ("_logging", "_observations", "_protocol", "bootstrap", "otel", "workflow", "providers", "admission", "provider_admission"):
             module = importlib.import_module("ledgence.worker." + name)
             self.assertEqual(Path(module.__file__).resolve().parent, self.helper)
         self.assertIsNone(importlib.util.find_spec("ledgence.client"))

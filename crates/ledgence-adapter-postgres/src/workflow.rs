@@ -44,6 +44,12 @@ impl ApprovedEffects for PostgresStore {
 }
 
 impl WorkflowStore for PostgresStore {
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionStore> {
+        self.admission_configured()?;
+        self.provider_configured()?;
+        Ok(self)
+    }
+
     fn admissions(&self) -> Result<&dyn AdmissionStore> {
         self.admission_configured()?;
         Ok(self)

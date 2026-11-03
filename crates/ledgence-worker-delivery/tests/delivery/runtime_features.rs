@@ -78,6 +78,7 @@ impl WorkflowService for WorkflowPorts {
         Box::pin(async move {
             Ok(WorkflowActivationContext {
                 admission_result: None,
+                provider_admission: None,
                 v: 1,
                 workflow_id: "workflow".into(),
                 activation_id: owner.task_id.clone(),

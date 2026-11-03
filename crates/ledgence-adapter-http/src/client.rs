@@ -4,6 +4,7 @@ mod admission;
 mod audit;
 mod evidence;
 mod provider;
+mod provider_admission;
 pub use access::{
     WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess, WorkerRuntimeBinding,
 };

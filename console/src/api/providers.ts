@@ -97,26 +97,58 @@ export const providerPolicy = s.refine(
     v.initial_delay_ms < v.max_elapsed_ms,
   "Invalid provider recovery policy.",
 );
-export const providerBinding = s.refine(
-  s.object({
-    v: s.integer(1, 1),
-    business: s.object({ namespace: id, key: text(256) }),
-    contract,
-    target: providerTarget,
-    deduplication: s.nullable(deduplication),
-    credential_reference: text(256),
-    reconciliation: providerPolicy,
+export const providerAdmissionRequirement = s.object({
+  resource: s.refine(
+    id,
+    (v) => /^[A-Za-z0-9_.:-]+$/.test(v),
+    "Invalid resource name.",
+  ),
+});
+const bindingFields = {
+  v: s.integer(1, 2),
+  business: s.object({ namespace: id, key: text(256) }),
+  contract,
+  target: providerTarget,
+  deduplication: s.nullable(deduplication),
+  credential_reference: text(256),
+  reconciliation: providerPolicy,
+};
+const legacyBindingRequest = s.object(bindingFields);
+type BindingRequest = s.Decoded<typeof legacyBindingRequest> & {
+  admission?: s.Decoded<typeof providerAdmissionRequirement>;
+};
+export function providerBindingRequest(raw: unknown): BindingRequest {
+  const value: BindingRequest =
+    s.isJsonObject(raw) && Object.hasOwn(raw, "admission")
+      ? s.object({ ...bindingFields, admission: providerAdmissionRequirement })(
+          raw,
+        )
+      : legacyBindingRequest(raw);
+  if (
+    (value.v === 2) !== (value.admission !== undefined) ||
+    (value.deduplication &&
+      value.deduplication.domain.provider !== value.target.provider) ||
+    bytes(value) > 12 * 1024
+  )
+    throw new ContractError("Invalid versioned provider binding.");
+  return value;
+}
+export function providerBinding(raw: unknown) {
+  if (!s.isJsonObject(raw))
+    throw new ContractError("Invalid provider binding.");
+  const { program, ...request } = raw;
+  const value = {
+    ...providerBindingRequest(request),
     program: s.refine(
       descriptor,
       (v) => /^sha256:[0-9a-f]{64}$/.test(v.digest) && BigInt(v.size) > 0n,
       "Invalid provider program descriptor.",
-    ),
-  }),
-  (v) =>
-    bytes(v) <= 16 * 1024 &&
-    (!v.deduplication || v.deduplication.domain.provider === v.target.provider),
-  "Provider binding exceeds its bounds or changes its target.",
-);
+    )(program),
+  };
+  if (bytes(value) > 16 * 1024)
+    throw new ContractError("Provider binding exceeds its limit.");
+  return value;
+}
 export type ProviderBinding = s.Decoded<typeof providerBinding>;
 export const providerKnowledgeKinds = [
   "unknown",

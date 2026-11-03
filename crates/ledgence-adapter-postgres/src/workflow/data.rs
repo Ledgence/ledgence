@@ -308,6 +308,7 @@ pub(super) async fn schedule_activation_with_id(
         wake,
         local_steps: Vec::new(),
         admission_result: None,
+        provider_admission: None,
     };
     context.validate()?;
     let mut command = run.submission.clone();

@@ -34,6 +34,8 @@ type EffectConfirmV2 = (
 );
 
 struct Mock {
+    provider_admission_starts: Option<mpsc::UnboundedSender<provider_admission_tests::Start>>,
+    provider_admission_reports: Option<mpsc::UnboundedSender<provider_admission_tests::Report>>,
     admission_starts: Option<
         mpsc::UnboundedSender<(
             AdmissionStartCommand,
@@ -134,6 +136,9 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn provider_admission_client(&self) -> Result<&dyn ProviderAdmissionClient> {
+        Ok(self)
+    }
     fn admission_client(&self) -> Result<&dyn AdmissionClient> {
         Ok(self)
     }
@@ -226,6 +231,8 @@ fn fixture() -> (
     let (commits, commit_requests) = mpsc::unbounded_channel();
     (
         Arc::new(Mock {
+            provider_admission_starts: None,
+            provider_admission_reports: None,
             admission_starts: None,
             admission_finishes: None,
             provider_claims: None,
@@ -265,6 +272,7 @@ fn config() -> DeliveryConfig {
 fn context() -> WorkflowActivationContext {
     WorkflowActivationContext {
         admission_result: None,
+        provider_admission: None,
         parent_workflow_id: None,
         root_workflow_id: None,
         v: 1,
@@ -309,6 +317,8 @@ mod approved_effect;
 mod evidence;
 #[path = "provider_tests.rs"]
 mod provider;
+#[path = "provider_admission_tests.rs"]
+mod provider_admission_tests;
 
 #[path = "fork_tests.rs"]
 mod forks;

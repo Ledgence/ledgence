@@ -786,11 +786,12 @@ async fn admission_upgrade_preserves_existing_waits_and_defaults_disabled() {
 #[ignore = "requires PostgreSQL 18"]
 async fn admission_ordinary_execution_has_no_admission_table_access() {
     let db = TestDb::new().await;
-    sqlx::raw_sql("DROP TABLE workflow_admission_waits; DROP TABLE admission_requests; DROP TABLE admission_operator_receipts; DROP TABLE admission_resources").execute(&db.store.pool).await.unwrap();
+    sqlx::raw_sql("DROP TABLE workflow_admission_waits; DROP TABLE provider_admission_links; DROP TABLE admission_requests; DROP TABLE admission_operator_receipts; DROP TABLE admission_resources").execute(&db.store.pool).await.unwrap();
     let w = start(&db.store).await;
     let a = acquire(&db.store, "python").await;
     let context = db.store.activation_context(&a.lease.owner).await.unwrap();
     assert!(context.admission_result.is_none());
+    assert!(context.provider_admission.is_none());
     dispatched(&db.store, &a).await;
     db.store
         .record_local_result(&local(&a, "ordinary"))

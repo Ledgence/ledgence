@@ -324,6 +324,18 @@ impl PostgresStore {
                         ) {
                             self.provider_configured()?;
                         }
+                        if let WorkflowAction::Wait { wait, .. } = &decision.action
+                            && (matches!(
+                                wait,
+                                WorkflowWait::ResourceAdmission {
+                                    request: AdmissionWaitRequest::Provider { .. },
+                                    ..
+                                }
+                            ) || matches!(wait, WorkflowWait::Approval { provider_binding: Some(binding), .. } if binding.admission.is_some()))
+                        {
+                            self.admission_configured()?;
+                            self.provider_configured()?;
+                        }
                         if matches!(
                             decision.action,
                             WorkflowAction::Wait {
@@ -1020,8 +1032,13 @@ async fn drain(
         db::apply(connection, &transition).await?;
     }
     owned::enqueue_cancellations(connection, &run.snapshot.workflow_id, remaining, now).await?;
-    let provider_pending = provider::drain(connection, run, now).await?;
+    // Cross-workflow deduplication takes resource -> retained provider effect.
+    // Cancellation must use the same order, with probe task locks taken first.
+    if run.has_admissions {
+        provider::lock_drain_tasks(connection, run).await?;
+    }
     let admission_pending = admission::drain(connection, run, now).await?;
+    let provider_pending = provider::drain(connection, run, now).await?;
     let unfinished = owned::unfinished(connection, &run.snapshot.workflow_id).await?
         || provider_pending
         || admission_pending;

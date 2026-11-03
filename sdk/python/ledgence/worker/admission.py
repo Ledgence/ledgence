@@ -182,9 +182,14 @@ def validate_occurrence(value):
 
 
 def validate_binding(value):
-    _fields(value, {"resource", "program", "operation"})
+    provider = type(value) is dict and "provider" in value
+    _fields(value, {"resource", "program", "provider" if provider else "operation"})
     _resource_name(value["resource"])
-    validate_operation(value["operation"], authoritative=True)
+    if provider:
+        from .provider_admission import validate_subject
+        validate_subject(value)
+    else:
+        validate_operation(value["operation"], authoritative=True)
     program = value["program"]
     _fields(program, {"program", "digest", "size"})
     _fields(program["program"], {"id", "version"})
@@ -311,6 +316,12 @@ def validate_wake(value):
     _integer(value["selected_at"], "selection timestamp", maximum=MAX_TIMESTAMP)
     if value["waiting_activation_id"] == value["resumed_activation_id"]:
         raise WorkflowError("admission wake reuses its parking activation")
+    if "provider" in value["binding"]:
+        original = value["binding"]["provider"]["ticket"]["occurrence"]
+        if (original["scope"] != value["occurrence"]["scope"]
+                or original["workflow_id"] != value["occurrence"]["workflow_id"]
+                or original["activation_id"] != value["occurrence"]["origin_activation_id"]):
+            raise WorkflowError("provider admission wake differs from its approved origin")
     selection = value["selection"]
     kind = selection.get("kind") if type(selection) is dict else None
     if kind == "offered":
@@ -323,7 +334,15 @@ def validate_wake(value):
             or offer["expires_at"] <= value["selected_at"]
         ):
             raise WorkflowError("admission offer does not match selected wake")
+    elif kind == "provider":
+        from .provider_admission import matches_record
+        _fields(selection, {"kind", "record"})
+        if "provider" not in value["binding"]:
+            raise WorkflowError("provider selection requires a governed provider binding")
+        matches_record(value, selection["record"])
     elif kind == "finished":
+        if "provider" in value["binding"]:
+            raise WorkflowError("provider admission cannot become a generic successful operation")
         _fields(selection, {"kind", "receipt"})
         validate_finish(selection["receipt"])
         if selection["receipt"]["source"]["occurrence"] != value["occurrence"]:
@@ -356,6 +375,9 @@ def validate_wait(value):
         _fields(request, {"kind", "resource", "operation"})
         _resource_name(request["resource"])
         validate_operation(request["operation"])
+    elif kind == "provider":
+        _fields(request, {"kind", "approval_key"})
+        _text(request["approval_key"], "provider approval key")
     elif kind == "existing":
         _fields(request, {"kind", "occurrence"})
         validate_occurrence(request["occurrence"])
@@ -484,6 +506,8 @@ def admitted_operation(ctx, operation):
     if not ctx._resource_admission or ctx._admission_wake is None:
         raise WorkflowError("this activation has no admitted operation")
     wake = ctx._admission_wake
+    if "provider" in wake["binding"]:
+        raise WorkflowError("governed provider dispatch requires admitted_provider_operation")
     fn = bound_operation(ctx, operation, wake["binding"]["operation"])
     if ctx._admission_pending is None:
         ctx._admission_pending = asyncio.create_task(_run(ctx, fn, wake))
@@ -641,6 +665,7 @@ def validate_snapshot(value):
             "source",
             "finish",
         },
+        {"provider"},
     )
     validate_occurrence(value["occurrence"])
     validate_binding(value["binding"])
@@ -681,6 +706,22 @@ def validate_snapshot(value):
             or value["finish"]["accepted_at"] > value["updated_at"]
         ):
             raise WorkflowError("foreign admission result")
+    governed = "provider" in value["binding"]
+    record = value.get("provider")
+    if "provider" in value and (record is None or not governed):
+        raise WorkflowError("unexpected provider admission evidence")
+    if governed:
+        from .provider_admission import validate_record_for
+        if value["finish"] is not None:
+            raise WorkflowError("provider evidence cannot be a generic Finish")
+        if record is not None:
+            validate_record_for(value["binding"], value["occurrence"], record)
+            if value["source"] != (None if record["source"] is None else record["source"]["admission"]):
+                raise WorkflowError("provider record has a different admission source")
+            if record["report"] is not None and record["report"]["receipt"]["accepted_at"] > value["updated_at"]:
+                raise WorkflowError("provider report postdates snapshot")
+        elif value["source"] is not None:
+            raise WorkflowError("provider admission is missing its linked source")
     shape = tuple(value[key] is not None for key in ("offer", "source", "finish"))
     expected = {
         "waiting": (False, False, False),
@@ -689,11 +730,25 @@ def validate_snapshot(value):
         "offered": (True, False, False),
         "possibly_dispatched": (False, True, False),
         "unknown_occupied": (False, True, False),
-        "finished": (False, True, True),
+        "finished": (False, True, not governed),
     }
     if value["state"] == "administratively_released":
         if shape[:2] != (False, True):
             raise WorkflowError("inconsistent released admission")
     elif shape != expected[value["state"]]:
         raise WorkflowError("inconsistent admission result state")
+    if record is not None:
+        state = value["state"]
+        report = record["report"]
+        valid = {
+            "closed_before_start": record["source"] is None,
+            "possibly_dispatched": record["source"] is not None and report is None,
+            "unknown_occupied": record["source"] is not None and (report is None or report["call_completion"] == "unknown"),
+            "finished": report is not None and report["call_completion"] == "completed",
+            "administratively_released": record["source"] is not None,
+        }.get(state, False)
+        if not valid:
+            raise WorkflowError("inconsistent governed provider admission state")
+    elif governed and value["state"] == "finished":
+        raise WorkflowError("completed provider admission is missing its report")
     _encode(value, CONTEXT_BYTES, 96, authoritative=True)

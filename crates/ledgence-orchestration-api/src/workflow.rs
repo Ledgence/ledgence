@@ -84,6 +84,13 @@ pub struct WorkflowActivationContext {
         deserialize_with = "crate::effect_resolution::present"
     )]
     pub admission_result: Option<AdmissionFinishReceipt>,
+    /// Linked provider dispatch evidence for a matching native admission wake.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_admission: Option<ProviderAdmissionRecord>,
     /// Present together only for a nested owned workflow; roots omit both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_workflow_id: Option<String>,
@@ -147,6 +154,12 @@ impl WorkflowActivationContext {
         for (key, child) in &self.inputs {
             validate_text(key, 128)?;
             child.validate()?;
+        }
+        if let Some(record) = &self.provider_admission {
+            let Some(WorkflowWake::ResourceAdmission(wake)) = &self.wake else {
+                return Err(invalid("provider evidence requires native admission wake"));
+            };
+            wake.validate_provider_record(record)?;
         }
         if let Some(result) = &self.admission_result {
             let Some(WorkflowWake::ResourceAdmission(wake)) = &self.wake else {
@@ -550,6 +563,11 @@ pub trait WorkflowStore: Send + Sync {
         ))
     }
 
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionStore> {
+        Err(ContractError::Unavailable(
+            "provider admission is not supported".into(),
+        ))
+    }
     fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
         Err(ContractError::Unavailable(
             "provider operations are unavailable".into(),
@@ -734,6 +752,16 @@ pub trait WorkflowService: Send + Sync {
         ))
     }
 
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionOperations> {
+        Err(ContractError::Unavailable(
+            "provider admission is not supported".into(),
+        ))
+    }
+    fn provider_admission_client(&self) -> Result<&dyn ProviderAdmissionClient> {
+        Err(ContractError::Unavailable(
+            "provider admission is not supported".into(),
+        ))
+    }
     fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
         Err(ContractError::Unavailable(
             "provider operations are unavailable".into(),
@@ -990,6 +1018,7 @@ mod tests {
         });
         let mut context = WorkflowActivationContext {
             admission_result: None,
+            provider_admission: None,
             parent_workflow_id: None,
             root_workflow_id: None,
             v: 1,

@@ -832,7 +832,98 @@ retries explicitly or use an adapter with matching accounting. Async callbacks
 should await their work; wrap blocking I/O appropriately. Callback code cannot
 stage nested workflow operations through the Ledgence context.
 
-This increment supports one unit of one named resource per admission. It does
-not compose with protected provider dispatch, guarantee fairness, implement
-budgets, or govern ordinary tasks/callbacks automatically. Existing ungoverned
-execution paths do not add admission RPCs.
+Admission supports one unit of one named resource per request. Protected provider
+dispatch uses the separate atomic composition below. Fairness, inherited budgets
+and standalone task admission remain deferred. Ordinary callbacks are governed
+only when explicitly registered and admitted; existing ungoverned execution paths
+do not add admission RPCs.
+
+### Approved provider operations with shared admission (development checkout)
+
+The current development checkout adds atomic provider admission. It requires the
+explicit `provider_admission.v1` capability; separate provider-operation and
+resource-admission capabilities do not imply support. This capability is not part
+of the published 0.8.0 helper.
+
+Freeze a resource requirement into the provider intent before requesting human
+approval:
+
+```python
+from ledgence.worker.providers import (
+    ProviderAdmissionRequirement,
+    ProviderDispatchOutcome,
+    ProviderReport,
+)
+
+binding = exports.binding(
+    business={"namespace": "exports", "key": export_key},
+    target=target,
+    credential_reference="exports-account",
+    queue="provider-checks",
+    admission=ProviderAdmissionRequirement(resource="export-dispatch"),
+)
+```
+
+The resource is reviewed together with the pinned adapter, target and arguments.
+After approval, return `ctx.request_provider_admission("export-capacity",
+resume=Entry.DISPATCH, state=None, timeout_ms=60_000)`. This durable wait releases
+the worker slot. It retains the original approved occurrence across subsequent
+activations; neither the resumed helper nor an old dispatch helper can replace
+its resource, adapter or arguments.
+
+```python
+from ledgence.worker.provider_admission import ProviderAdmissionOutcomeKind
+
+@workflow.entrypoint(Entry.DISPATCH)
+async def dispatch(event, ctx):
+    admitted = await ctx.admitted_provider_operation()
+    if admitted.kind in (
+        ProviderAdmissionOutcomeKind.WAIT_REQUIRED,
+        ProviderAdmissionOutcomeKind.NEEDS_REVIEW,
+    ):
+        return ctx.wait_admission(resume=Entry.DISPATCH, state=None, timeout_ms=60_000)
+    if admitted.kind is ProviderAdmissionOutcomeKind.CLOSED:
+        return ctx.fail("admission_closed", "Dispatch closed before a provider ticket was available")
+    ticket = admitted.ticket
+    if ticket.occurrence.workflow_id != ctx.workflow_id:
+        return ctx.complete({"existing_operation": ticket.occurrence.to_dict()})
+    return ctx.wait_provider_operation("export-result", ticket=ticket,
+                                       resume=Entry.RESULT, state=None)
+```
+
+The ticket is a recovery handle, never permission to dispatch again. A retained
+ticket replays without a Start exchange or callback. A deduplicated operation can
+belong to another workflow; that ticket cannot be adopted as this workflow's
+native provider wait. `ctx.wait_admission()` reuses the original admission
+occurrence, so a new waiting episode cannot extend its pre-Start deadline.
+
+Governed dispatch callbacks return `ProviderDispatchOutcome.completed(report)`
+or `ProviderDispatchOutcome.unknown(report)`. These describe the original call's
+completion separately from the provider's business state:
+
+- A complete HTTP 202 response can justify `completed(ProviderReport.pending(...))`:
+  call occupancy is released while normal provider recovery continues.
+- `unknown(ProviderReport.succeeded(...))` retains uncertain call occupancy even
+  though the adapter reports a successful business outcome.
+- Exceptions, cancellation and plain `ProviderReport` values from a governed
+  dispatch do not invent completion or release capacity. Ordinary ungoverned
+  callbacks and read-only probes continue returning plain `ProviderReport`.
+
+The combined Start is sent once. Lost acknowledgement can consume the grant
+without a physical provider call; it never grants another mutation on retry.
+The combined Report freezes its linked sources and outcome and retries identical
+bytes while execution control remains live. Large provider reports use the
+provider ledger's existing limits, including results up to 128 KiB; they are not
+converted into a generic admission's 64 KiB output.
+
+Read-only reconciliation probes and evidence-only business observations do not
+release the original call's occupancy. Unknown completion requires audited
+administrative release or acceptance of the original frozen completed report;
+an operator release does not stop remote work or replenish dispatch/recovery
+budgets. An accepted `unknown` report cannot later be changed to `completed`
+under the same report identity. This resource controls registered initial dispatch authorizations, not
+all physical requests or hidden retries inside an adapter.
+
+See the runnable [provider admission example](../../examples/provider-admission/README.md)
+for an approval, resource wait, dispatch and business-result workflow using a
+local synthetic provider.

@@ -69,3 +69,14 @@ Ledgence-owned code is MIT licensed; the included LICENSE contains the notice.
 This source crate does not bundle third-party dependency sources. Cargo obtains
 those dependencies separately, with their own licenses and redistribution
 notices. This license does not require users to disclose their applications.
+
+### Admission feature negotiation in development
+
+Matching development runtimes can negotiate `resource_admission.v1` for registered
+callbacks and the distinct `provider_admission.v1` for atomic protected provider
+dispatch. The latter requires both resource admission and provider recovery;
+those capabilities alone do not imply composed support. Advertise it only when
+the runtime and complete orchestration port implement the contract. Existing
+operator-trusted programs and provider integrations remain application-owned.
+[Admission behavior and limits](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
+These additions are not included in the published 0.8.0 crate.

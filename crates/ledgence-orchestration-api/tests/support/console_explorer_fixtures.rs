@@ -865,6 +865,7 @@ pub fn admission_cases() -> Value {
         key: "summary:0".into(),
     };
     let wait = |selection, closed| ConsoleExplorerData::AdmissionWait {
+        subject: ConsoleAdmissionSubject::Operation,
         key: "admit:0".into(),
         occurrence: occurrence.clone(),
         resource: "models.shared".into(),
@@ -884,6 +885,7 @@ pub fn admission_cases() -> Value {
         ],
     );
     pending.workflow.admission_wait = Some(ConsoleAdmissionWait {
+        subject: ConsoleAdmissionSubject::Operation,
         parking_activation_id: activation(id, 0),
         key: "admit:0".into(),
         occurrence: occurrence.clone(),
@@ -907,7 +909,7 @@ pub fn admission_cases() -> Value {
             entrypoint(id, 1, "call_model", ConsoleDecisionKind::Complete, None),
         ],
     );
-    let binding = AdmissionBinding {
+    let binding = AdmissionBinding::Operation(OperationAdmissionBinding {
         resource: "models.shared".into(),
         program: ledgence_worker_api::ProgramDescriptor {
             program: program(true),
@@ -920,7 +922,7 @@ pub fn admission_cases() -> Value {
             version: "1".into(),
             arguments: json!({"item":u64::MAX,"temperature":1.0}),
         },
-    };
+    });
     let source = AdmissionSource {
         occurrence: occurrence.clone(),
         source_id: "src_model_1".into(),
@@ -967,6 +969,7 @@ pub fn admission_cases() -> Value {
         offer: None,
         source: Some(source.clone()),
         finish: Some(finish.clone()),
+        provider: None,
     };
     snapshot.validate().unwrap();
     let mut operation = node(
@@ -975,8 +978,8 @@ pub fn admission_cases() -> Value {
         "call_model",
         ConsoleExplorerData::AdmissionOperation {
             occurrence: occurrence.clone(),
-            resource: snapshot.binding.resource.clone(),
-            callable: snapshot.binding.operation.callable.clone(),
+            resource: snapshot.binding.resource().to_string(),
+            callable: snapshot.binding.operation().unwrap().callable.clone(),
             operation_kind: AdmissionOperationKind::Model,
             operation_version: "1".into(),
             binding_digest: source.binding_digest.clone(),
@@ -998,7 +1001,10 @@ pub fn admission_cases() -> Value {
             node(id, 0, "start", wait(None, Some(AT + 500))),
         ],
     );
-    json!({"pending":pending,"accepted":accepted,"closed":closed,"snapshot":snapshot})
+    let mut base =
+        json!({"pending":pending,"accepted":accepted,"closed":closed,"snapshot":snapshot});
+    base["provider"] = provider_admission_cases(&base);
+    base
 }
 
 pub fn fixtures() -> Value {
@@ -1179,4 +1185,128 @@ pub fn fixtures() -> Value {
         .unwrap();
     json!({"explorer": main, "explorer_cases": cases, "explorer_pages": partial_pages(&main),
         "execution_history": executions, "ancestry": ancestry, "entrypoint_attempts": attempts})
+}
+fn provider_admission_cases(base: &Value) -> Value {
+    let mut snapshot: AdmissionSnapshot = serde_json::from_value(base["snapshot"].clone()).unwrap();
+    let mut binding: ProviderBindingRequest = serde_json::from_value(json!({
+        "v":2,"business":{"namespace":"exports","key":"export:1042"},
+        "contract":{"adapter_id":"example.export","version":"1","digest":format!("sha256:{}","c".repeat(64)),"completion_criterion":"Export is available","dispatch_callable":"app:export","reconcile_callable":"app:inspect","lookup":"by_binding"},
+        "target":{"provider":"example","environment":"local","account":"demo","api_variant":"v1","operation":"export","endpoint_identity":"loopback-export","dimensions":{}},
+        "deduplication":null,"credential_reference":"local-export",
+        "reconciliation":{"queue":"recovery","initial_delay_ms":30000,"interval_ms":5000,"maximum_interval_ms":300000,"max_checks":12,"max_elapsed_ms":3600000,"check_timeout_ms":10000},
+        "admission":{"resource":"models.shared"}
+    })).unwrap();
+    binding.admission.as_mut().unwrap().resource = snapshot.binding.resource().into();
+    let action = ApprovalAction {
+        name: "app:export".into(),
+        version: "1".into(),
+        arguments: json!({"dataset":"sales"}),
+    };
+    let ticket = ProviderOperationTicket {
+        occurrence: EffectOccurrence {
+            scope: snapshot.occurrence.scope.clone(),
+            workflow_id: snapshot.occurrence.workflow_id.clone(),
+            activation_id: snapshot.occurrence.origin_activation_id.clone(),
+            approval_key: "export:0".into(),
+        },
+        binding_digest: binding
+            .resolve(snapshot.binding.program().clone())
+            .unwrap()
+            .digest(&action)
+            .unwrap(),
+    };
+    let target = binding.target.clone();
+    snapshot.binding = AdmissionBinding::Provider(Box::new(ProviderAdmissionBinding {
+        resource: snapshot.binding.resource().into(),
+        program: snapshot.binding.program().clone(),
+        provider: ProviderAdmissionSubject {
+            ticket: ticket.clone(),
+            binding,
+            action,
+        },
+    }));
+    let mut admission = snapshot.source.clone().unwrap();
+    admission.binding_digest = snapshot.binding.digest().unwrap();
+    let worker = EffectWorkerIdentity {
+        audience: admission.worker.audience.clone(),
+        issuer: admission.worker.issuer.clone(),
+        subject: admission.worker.subject.clone(),
+        credential_id: admission.worker.credential_id.clone(),
+    };
+    let source = ProviderAdmissionSource {
+        provider: ProviderDispatchSource {
+            source_id: "provider_source_1".into(),
+            claim_id: admission.start_id.clone(),
+            report_id: admission.finish_id.clone(),
+            ticket: ticket.clone(),
+            worker: worker.clone(),
+            accepted_at: admission.accepted_at,
+            first_possible_dispatch_at: admission.accepted_at,
+            reconciliation_deadline: admission.accepted_at + 3_600_000,
+        },
+        admission: admission.clone(),
+    };
+    let report = ProviderReport {
+        reported_target: target,
+        provider_reference: Some("export-1042".into()),
+        provider_request_id: None,
+        knowledge: ProviderKnowledge::Pending,
+    };
+    let receipt = ProviderAdmissionReportReceipt {
+        source: source.clone(),
+        call_completion: ProviderCallCompletion::Completed,
+        receipt: ProviderReportReceipt {
+            ticket: ticket.clone(),
+            source_id: source.provider.source_id.clone(),
+            source: ProviderSourceReference::Dispatch {
+                claim_id: source.provider.claim_id.clone(),
+            },
+            report_id: source.provider.report_id.clone(),
+            report_digest: report.digest().unwrap(),
+            worker,
+            accepted_at: snapshot.updated_at,
+            recorded_revision: 4,
+            accepted_via: ProviderReportIngress::EvidenceOnly,
+            already_accepted: false,
+        },
+    };
+    snapshot.source = Some(admission);
+    snapshot.finish = None;
+    snapshot.provider = Some(ProviderAdmissionRecord {
+        ticket: ticket.clone(),
+        source: Some(source),
+        report: Some(receipt),
+    });
+    snapshot.validate().unwrap();
+    let subject = ConsoleAdmissionSubject::from_binding(&snapshot.binding);
+    let mut graph: ConsoleWorkflowExplorer =
+        serde_json::from_value(base["accepted"].clone()).unwrap();
+    graph
+        .page
+        .items
+        .retain(|n| !matches!(n.data, ConsoleExplorerData::AdmissionOperation { .. }));
+    for node in &mut graph.page.items {
+        if let ConsoleExplorerData::AdmissionWait {
+            subject: actual,
+            selection_kind,
+            ..
+        } = &mut node.data
+        {
+            *actual = subject.clone();
+            *selection_kind = Some(ConsoleAdmissionSelectionKind::Provider);
+        }
+        node.validate().unwrap();
+    }
+    let mut unknown = snapshot.clone();
+    unknown.state = AdmissionState::UnknownOccupied;
+    unknown
+        .provider
+        .as_mut()
+        .unwrap()
+        .report
+        .as_mut()
+        .unwrap()
+        .call_completion = ProviderCallCompletion::Unknown;
+    unknown.validate().unwrap();
+    json!({"graph":graph,"completed_pending":snapshot,"unknown_pending":unknown,"report":report})
 }

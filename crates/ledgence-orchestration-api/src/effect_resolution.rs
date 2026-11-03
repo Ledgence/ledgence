@@ -460,6 +460,7 @@ mod tests {
         assert_eq!(wire["parking_activation_id"], "park");
         let mut context = WorkflowActivationContext {
             admission_result: None,
+            provider_admission: None,
             parent_workflow_id: None,
             root_workflow_id: None,
             v: 1,

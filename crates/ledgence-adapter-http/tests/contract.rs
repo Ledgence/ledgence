@@ -49,6 +49,7 @@ use tokio::{
 struct Mock {
     evidence_capabilities: AtomicUsize,
     admission_enabled: AtomicBool,
+    provider_admission_enabled: AtomicBool,
     resolution_mode: AtomicUsize,
     operator_access: std::sync::OnceLock<Arc<dyn OperatorAccess>>,
     protected_writes_disabled: AtomicBool,

@@ -115,6 +115,8 @@ pub enum ConsoleExplorerData {
         resumed_activation_id: Option<String>,
     },
     AdmissionWait {
+        #[serde(default)]
+        subject: ConsoleAdmissionSubject,
         key: String,
         occurrence: AdmissionOccurrence,
         resource: String,
@@ -151,6 +153,7 @@ pub enum ConsoleExplorerData {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsoleAdmissionSelectionKind {
+    Provider,
     Offered,
     Finished,
     Closed,
@@ -159,6 +162,7 @@ pub enum ConsoleAdmissionSelectionKind {
 impl From<&AdmissionSelection> for ConsoleAdmissionSelectionKind {
     fn from(value: &AdmissionSelection) -> Self {
         match value {
+            AdmissionSelection::Provider { .. } => Self::Provider,
             AdmissionSelection::Offered { .. } => Self::Offered,
             AdmissionSelection::Finished { .. } => Self::Finished,
             AdmissionSelection::Closed { .. } => Self::Closed,
@@ -432,6 +436,7 @@ impl ConsoleExplorerData {
                 }
             }
             Self::AdmissionWait {
+                subject,
                 key,
                 occurrence,
                 resource,
@@ -443,6 +448,7 @@ impl ConsoleExplorerData {
             } => {
                 validate_text(key, 128)?;
                 occurrence.validate()?;
+                subject.validate_for(occurrence)?;
                 crate::admission::name(resource)?;
                 timestamp(*deadline)?;
                 timestamp(*registered_at)?;

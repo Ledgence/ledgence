@@ -8,6 +8,7 @@ use serde_json::json;
 mod admission;
 mod evidence;
 mod provider;
+mod provider_admission;
 
 pub(super) struct WorkflowRuntime {
     pub extension: RuntimeExtension,
@@ -77,10 +78,17 @@ impl Context {
                         "resource admission was not negotiated",
                     ));
                 }
-                if wake.binding.program != request.descriptor {
+                if wake.binding.program() != &request.descriptor {
                     return Err(Error::new(
                         ErrorKind::Protocol,
                         "admission program differs from assigned artifact",
+                    ));
+                }
+                if wake.binding.provider().is_some() && !self.runtime_features.provider_admission()
+                {
+                    return Err(Error::new(
+                        ErrorKind::Incompatible,
+                        "atomic provider admission was not negotiated",
                     ));
                 }
                 Some(wake.as_ref().clone())
@@ -183,6 +191,12 @@ impl RuntimeRequestHandler for WorkflowOperations {
         Box::pin(async move {
             request.validate()?;
             match request.operation.as_str() {
+                "provider_admission.start.v1" => {
+                    return self.start_provider_admission(request, control).await;
+                }
+                "provider_admission.report.v1" => {
+                    return self.report_provider_admission(request, control).await;
+                }
                 "resource_admission.start.v1" => {
                     return self.start_admission(request, control).await;
                 }

@@ -4,7 +4,7 @@ description: Park workflows while a resource is full, then run a registered oper
 ---
 
 **In development.** Use matching components built from this checkout, including
-migrations and Console C8. Published 0.8.0 packages do not contain this capability.
+migrations and Console C9. Published 0.8.0 packages do not contain this capability.
 
 Suppose many workflows call the same model endpoint, but you want at most four
 calls authorized at once. A resource policy coordinates those workflows across
@@ -131,8 +131,52 @@ grant another call or release capacity merely by timing out.
 This limits registered callback authorizations. If your SDK automatically retries,
 follows redirects or starts background requests, those physical requests need
 separate accounting. Disable hidden retries or use an adapter that counts each
-attempt. This first implementation does not compose admission with protected
-provider operations or enforce inherited monetary/token budgets.
+attempt. Protected provider dispatch uses the separate path below. Inherited
+monetary/token budgets and standalone task admission remain deferred.
+
+## Share capacity for an approved provider operation
+
+For a protected mutation such as creating an export, bind the resource before
+requesting approval. Create the requirement in your program:
+
+```python
+from ledgence.worker.providers import ProviderAdmissionRequirement
+
+admission = ProviderAdmissionRequirement(resource="export-dispatch")
+```
+
+Pass `admission=admission` alongside the existing business, target and recovery
+fields in your adapter's `binding(...)` call. This creates a version-2 provider binding. Enable both provider recovery and admission
+on every API replica; all components must come from this development checkout.
+The accepted approval freezes the resource, arguments, adapter and program together.
+
+The [approved export example](https://github.com/Ledgence/ledgence/tree/develop/examples/provider-admission)
+is a complete four-entrypoint workflow:
+
+1. Request approval of the export and its resource.
+2. After approval, return `ctx.request_provider_admission(...)` to park for capacity.
+3. Call `await ctx.admitted_provider_operation()` in the admission continuation.
+   A typed ticket goes to `ctx.wait_provider_operation(...)`; a wait/review outcome
+   can rewait without requesting another dispatch.
+4. Complete from `ctx.provider_operation_result` after the business outcome arrives.
+
+Its dispatch function returns `ProviderDispatchOutcome.completed(report)` when
+that call is known to have completed, or `.unknown(report)` when it may still be
+in flight. A fully received HTTP 202 can release capacity while the export remains
+pending. A successful read-only probe can complete the business workflow while
+uncertain original call occupancy remains reserved. These are different facts.
+
+The combined Start persists both permissions atomically. A lost response never
+permits another mutation. The combined Report persists provider evidence and
+justified capacity release together. Equal duplicate business keys return the
+existing ticket without another dispatch or rate charge; a foreign workflow's
+ticket stays an explicit reference.
+
+Recovery probes remain outside this resource limit. Operator release frees
+capacity explicitly but cannot grant another mutation or claim business success.
+Keep both restore fences enabled after restoring a backup until external state
+has been reconciled. The example uses a real local provider and needs no cloud
+account, API key or model subscription.
 
 ## Inspect and recover
 

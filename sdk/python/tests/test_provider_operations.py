@@ -170,6 +170,38 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context._validate_decision(decision), decision)
         self.assertEqual(len(self.requests), 2)
 
+    async def test_checked_callback_survives_scheduling_and_claim_await_mutations(self):
+        replacements = []
+
+        async def replacement(request):
+            replacements.append(request.arguments)
+            return ProviderReport.pending(target=request.target)
+
+        for timing in ("scheduled", "claim_reply"):
+            with self.subTest(timing=timing):
+                self.provider._dispatch = dispatch
+                self.requests.clear()
+                CALLS.clear()
+                self.mutate_reply = None
+                context = self.context()
+                pending = context.approved_provider_operation()
+                if timing == "scheduled":
+                    self.provider._dispatch = replacement
+                else:
+                    def mutate(op, _reply):
+                        if op == "provider_operation.claim.v1":
+                            self.provider._dispatch = replacement
+                    self.mutate_reply = mutate
+                result = await pending
+                self.assertEqual(result.to_dict(), ticket())
+                self.assertEqual([call[0] for call in CALLS], ["dispatch"])
+                self.assertEqual(CALLS[0][1], {"amount": 50})
+                self.assertEqual(replacements, [])
+                self.assertEqual([op for op, _ in self.requests], [
+                    "provider_operation.claim.v1", "provider_operation.report.v1",
+                ])
+        self.provider._dispatch = dispatch
+
     async def test_existing_receipt_never_dispatches_or_reports(self):
         self.mode = "existing"
         result = await self.context().approved_provider_operation()

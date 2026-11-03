@@ -455,3 +455,13 @@ Review the provider target, business identity, request and recovery limits in
 Console before deciding. The Effects history records subsequent dispatch,
 probe and response evidence independently from that approval decision.
 [Provider operations](provider-operations.md) documents the complete contract.
+
+### Development: approve a resource requirement
+
+A version-2 provider binding includes an admission resource in the reviewed
+intent. Changing that resource requires a new approval; adding it after approval
+is invalid. After approval, the workflow requests capacity through
+`ctx.request_provider_admission(...)` and uses the composed dispatch helper.
+Ordinary provider Claim cannot bypass that requirement. The original approved
+occurrence remains unchanged across the capacity wait. See
+[protected provider admission](resource-admission.md#compose-admission-with-protected-provider-dispatch).

@@ -18,15 +18,39 @@ impl PostgresStore {
         {
             db::load_task(&mut tx, &o.scope, &owner.task_id, true).await?;
         }
-        let mut r = retained::load(&mut tx, o)
+        let reply = self
+            .provider_report_tx(&mut tx, p, c, owner, run.as_ref(), false)
+            .await?;
+        tx.commit().await?;
+        Ok(reply)
+    }
+    /// Append business evidence inside the caller's transaction. Resource admission
+    /// callers lock their resource first, including when execution history retired.
+    pub(in crate::workflow) async fn provider_report_tx<C: ProviderReportedCommand>(
+        &self,
+        tx: &mut PgConnection,
+        p: &VerifiedPrincipal,
+        c: &C,
+        owner: Option<&LeaseOwner>,
+        run: Option<&RunRecord>,
+        composed: bool,
+    ) -> StoreResult<ProviderReportReply> {
+        let o = &c.ticket().occurrence;
+        let mut r = retained::load(tx, o)
             .await?
             .ok_or(ContractError::NotFound)?;
-        let mut state = load(&mut tx, &r).await?;
-        let now = db::now(&mut tx).await?;
+        let mut state = load(tx, &r).await?;
+        let now = db::now(tx).await?;
         let worker = self.require_effect_worker(p, &o.scope, now)?;
-        let source = source(&mut tx, o, c.source_id())
+        let source = source(tx, o, c.source_id())
             .await?
             .ok_or(ContractError::NotFound)?;
+        if !composed
+            && matches!(source.source, ProviderSourceReference::Dispatch { .. })
+            && binding(&r)?.admission.is_some()
+        {
+            return Err(invalid("governed dispatch reports require the composed source").into());
+        }
         if !source.worker.same_worker(&worker) {
             return Err(ContractError::Forbidden.into());
         }
@@ -60,7 +84,6 @@ impl PostgresStore {
                 }
             };
             reply.validate_for(p, c)?;
-            tx.commit().await?;
             return Ok(reply);
         }
         if let Some(owner) = owner {
@@ -71,7 +94,7 @@ impl PostgresStore {
             ) {
                 return Err(ContractError::ObsoleteOperation.into());
             }
-            check_owner(&mut tx, o, owner, now, true).await?;
+            check_owner(tx, o, owner, now, true).await?;
             if let ProviderSourceReference::Probe {
                 probe_id,
                 generation,
@@ -111,9 +134,9 @@ impl PostgresStore {
             accepted_via: c.ingress(),
             already_accepted: false,
         };
-        aggregate(&mut tx, &mut r, &mut state, &entry, now).await?;
+        aggregate(tx, &mut r, &mut state, &entry, now).await?;
         retained::append(
-            &mut tx,
+            tx,
             &r,
             &entry,
             "provider",
@@ -125,24 +148,23 @@ impl PostgresStore {
         let valid:Option<bool>=sqlx::query_scalar("INSERT INTO provider_reports(tenant_id,namespace,workflow_id,activation_id,approval_key,source_id,report_id,report_bytes,receipt_bytes,entry_sequence) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::text::numeric) RETURNING tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 AND source_id=$6 AND report_id=$7 AND report_bytes=$8 AND receipt_bytes=$9 AND entry_sequence=$10::text::numeric")
           .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).bind(c.source_id()).bind(c.report_id()).bind(canonical(c.report())?).bind(codec::encode(&receipt)?).bind(sequence.to_string()).fetch_optional(&mut *tx).await?;
         proof(valid, "provider report changed or suppressed")?;
-        save(&mut tx, &r, &state).await?;
+        save(tx, &r, &state).await?;
         if run.is_some()
             && c.ingress() != ProviderReportIngress::LiveProbe
             && summary(&r)?.reconciliation.stopped_reason.is_some()
         {
-            scheduler::cancel_active(&mut tx, &r, now).await?;
+            scheduler::cancel_active(tx, &r, now).await?;
         }
-        if let Some(run) = &run {
-            wait::notify(&mut tx, run, &r, &state, now).await?;
+        if let Some(run) = run {
+            wait::notify(tx, run, &r, &state, now).await?;
         }
-        let now = db::now(&mut tx).await?;
+        let now = db::now(tx).await?;
         self.require_effect_worker(p, &o.scope, now)?;
         if let Some(owner) = owner {
-            check_owner(&mut tx, o, owner, now, true).await?;
+            check_owner(tx, o, owner, now, true).await?;
         }
         let reply = ProviderReportReply::Accepted { receipt };
         reply.validate_for(p, c)?;
-        tx.commit().await?;
         Ok(reply)
     }
     pub(super) async fn provider_context_once(

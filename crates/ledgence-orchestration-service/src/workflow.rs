@@ -255,6 +255,19 @@ impl ApplicationService {
                 ContractError::InvalidInput("provider operations are unavailable".into())
             })?;
         }
+        if let WorkflowAction::Wait { wait, .. } = &decision.action
+            && (matches!(
+                wait,
+                WorkflowWait::ResourceAdmission {
+                    request: AdmissionWaitRequest::Provider { .. },
+                    ..
+                }
+            ) || matches!(wait, WorkflowWait::Approval { provider_binding: Some(binding), .. } if binding.admission.is_some()))
+        {
+            self.provider_admissions().map_err(|_| {
+                ContractError::InvalidInput("protected provider admission is unavailable".into())
+            })?;
+        }
         let native = matches!(
             decision.action,
             WorkflowAction::Wait {
@@ -410,6 +423,13 @@ impl ApprovedEffects for ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionOperations> {
+        self.admissions()?;
+        self.provider_operations()?;
+        self.workflows()?.provider_admissions()?;
+        Ok(self)
+    }
+
     fn admissions(&self) -> Result<&dyn AdmissionOperations> {
         self.workflows()?.admissions()?;
         self.workflows()?.operator_access()?;

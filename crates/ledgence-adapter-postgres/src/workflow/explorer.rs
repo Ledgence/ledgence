@@ -414,7 +414,7 @@ pub(super) async fn admission_wait(
     parking: &str,
     key: &str,
     occurrence: &AdmissionOccurrence,
-    resource: &str,
+    binding: &AdmissionBinding,
     deadline: Timestamp,
     now: Timestamp,
 ) -> StoreResult<()> {
@@ -424,7 +424,8 @@ pub(super) async fn admission_wait(
         &ConsoleExplorerData::AdmissionWait {
             key: key.into(),
             occurrence: occurrence.clone(),
-            resource: resource.into(),
+            resource: binding.resource().into(),
+            subject: ConsoleAdmissionSubject::from_binding(binding),
             deadline,
             registered_at: now,
             closed_at: None,
@@ -461,7 +462,7 @@ pub(super) async fn admission_closed(
         if wake.waiting_activation_id != parking
             || wake.key != *key
             || wake.occurrence != *occurrence
-            || wake.binding.resource != *resource
+            || wake.binding.resource() != resource
         {
             return Err(corrupt("admission explorer wake identity").into());
         }
@@ -493,12 +494,16 @@ pub(super) async fn admission_finished(
     {
         return Err(corrupt("admission explorer result provenance").into());
     }
+    let operation = snapshot
+        .binding
+        .operation()
+        .ok_or_else(|| corrupt("generic admission result binding"))?;
     let data = ConsoleExplorerData::AdmissionOperation {
         occurrence: snapshot.occurrence.clone(),
-        resource: snapshot.binding.resource.clone(),
-        callable: snapshot.binding.operation.callable.clone(),
-        operation_kind: snapshot.binding.operation.kind,
-        operation_version: snapshot.binding.operation.version.clone(),
+        resource: snapshot.binding.resource().into(),
+        callable: operation.callable.clone(),
+        operation_kind: operation.kind,
+        operation_version: operation.version.clone(),
         binding_digest: receipt.source.binding_digest.clone(),
         source_id: receipt.source.source_id.clone(),
         accepting_attempt_id: receipt.source.owner.attempt_id.clone(),

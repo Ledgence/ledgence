@@ -128,6 +128,14 @@ class ProviderReconciliationPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderAdmissionRequirement:
+    resource: str
+
+    def to_dict(self):
+        return {"resource": self.resource}
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderBinding:
     business: ProviderBusiness
     contract: ProviderContract
@@ -137,10 +145,12 @@ class ProviderBinding:
     reconciliation: ProviderReconciliationPolicy
     program: EffectProgramDescriptor
     v: int = 1
+    admission: ProviderAdmissionRequirement | None = None
 
     def to_dict(self):
         return {
             "v": self.v,
+            **({"admission": self.admission.to_dict()} if self.admission is not None else {}),
             "business": self.business.to_dict(),
             "contract": self.contract.to_dict(),
             "target": self.target.to_dict(),
@@ -205,8 +215,15 @@ def _binding(raw):
     # while the established descriptor model belongs to effect evidence.
     from .effect_models import EffectProgramDescriptor, _program
 
-    codec.fields(raw, set(ProviderBinding.__dataclass_fields__))
-    codec.integer(raw["v"], "provider binding version", 1, 1)
+    codec.fields(raw, set(ProviderBinding.__dataclass_fields__) - {"admission"}, {"admission"})
+    version = codec.integer(raw["v"], "provider binding version", 1, 2)
+    admission = None
+    if "admission" in raw:
+        from .admission_models import name
+        codec.fields(raw["admission"], {"resource"})
+        admission = ProviderAdmissionRequirement(name(raw["admission"]["resource"]))
+    if (version == 2) != (admission is not None):
+        raise InputError("invalid provider admission version")
     codec.validate_authoritative(raw, 16 * 1024, max_depth=96)
     codec.validate_authoritative(
         {key: value for key, value in raw.items() if key != "program"},
@@ -317,4 +334,6 @@ def _binding(raw):
         codec.text(raw["credential_reference"], "credential_reference", 256),
         policy,
         descriptor,
+        version,
+        admission,
     )

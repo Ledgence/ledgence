@@ -11,6 +11,7 @@ mod completion;
 pub mod console;
 mod effect_evidence;
 mod effect_resolution;
+mod provider_admission;
 mod provider_operation;
 pub mod worker_observations;
 mod workflow;

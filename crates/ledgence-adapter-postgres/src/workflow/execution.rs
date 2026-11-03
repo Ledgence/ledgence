@@ -37,6 +37,10 @@ impl PostgresStore {
             let snapshot: AdmissionSnapshot =
                 codec::decode(&bytes.ok_or_else(|| corrupt("admission context occurrence"))?)?;
             snapshot.validate()?;
+            if let Some(record) = snapshot.provider {
+                wake.validate_provider_record(&record)?;
+                context.provider_admission = Some(record);
+            }
             if let Some(receipt) = snapshot.finish {
                 wake.validate_result(&receipt)?;
                 context.admission_result = Some(receipt);

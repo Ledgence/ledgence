@@ -58,7 +58,17 @@ impl Evidence {
         key: &str,
         lookup: &str,
     ) -> StoreResult<Self> {
-        Self::load_bound(tx, workflow, owner, workflow_id, key, Some(lookup), false).await
+        Self::load_bound(
+            tx,
+            workflow,
+            &owner.scope,
+            &owner.task_id,
+            workflow_id,
+            key,
+            Some(lookup),
+            false,
+        )
+        .await
     }
     pub(super) async fn load_provider(
         tx: &mut PgConnection,
@@ -67,12 +77,43 @@ impl Evidence {
         workflow_id: &str,
         key: &str,
     ) -> StoreResult<Self> {
-        Self::load_bound(tx, workflow, owner, workflow_id, key, None, true).await
+        Self::load_bound(
+            tx,
+            workflow,
+            &owner.scope,
+            &owner.task_id,
+            workflow_id,
+            key,
+            None,
+            true,
+        )
+        .await
     }
+    /// Only composed admission calls this after validating its retained subject.
+    /// The approval's original resumed activation stays immutable across reentry.
+    pub(super) async fn load_provider_occurrence(
+        tx: &mut PgConnection,
+        workflow: &WorkflowSnapshot,
+        occurrence: &EffectOccurrence,
+    ) -> StoreResult<Self> {
+        Self::load_bound(
+            tx,
+            workflow,
+            &occurrence.scope,
+            &occurrence.activation_id,
+            &occurrence.workflow_id,
+            &occurrence.approval_key,
+            None,
+            true,
+        )
+        .await
+    }
+    #[allow(clippy::too_many_arguments)]
     async fn load_bound(
         tx: &mut PgConnection,
         workflow: &WorkflowSnapshot,
-        owner: &LeaseOwner,
+        scope: &Scope,
+        activation_id: &str,
         workflow_id: &str,
         key: &str,
         lookup: Option<&str>,
@@ -89,17 +130,14 @@ impl Evidence {
              LEFT JOIN workflow_local_results j ON j.activation_id=$3 AND j.step_key=k.step_key
              WHERE a.workflow_id=$1 AND a.wait_key=$2",
         )
-        .bind(workflow_id).bind(key).bind(&owner.task_id).fetch_optional(tx).await?
+        .bind(workflow_id).bind(key).bind(activation_id).fetch_optional(tx).await?
         .ok_or(ContractError::NotFound)?;
         let approval = approvals::decode(&row)?;
-        if approval.workflow_id != workflow_id
-            || approval.key != key
-            || approval.scope != owner.scope
-        {
+        if approval.workflow_id != workflow_id || approval.key != key || &approval.scope != scope {
             return Err(corrupt("approved effect identity").into());
         }
         if approval.status != ApprovalStatus::Approved
-            || approval.resumed_activation_id.as_deref() != Some(&owner.task_id)
+            || approval.resumed_activation_id.as_deref() != Some(activation_id)
         {
             return Err(ContractError::ObsoleteOperation.into());
         }

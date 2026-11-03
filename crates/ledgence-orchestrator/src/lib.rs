@@ -513,6 +513,10 @@ async fn prepare_and_serve(
         ledgence_orchestration_api::WorkflowService::admissions(service.as_ref())
             .map_err(|error| error.to_string())?;
     }
+    if provider_config.is_some() && admission_config.is_some() {
+        ledgence_orchestration_api::WorkflowService::provider_admissions(service.as_ref())
+            .map_err(|error| error.to_string())?;
+    }
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(|error| format!("could not bind HTTP listener: {error}"))?;

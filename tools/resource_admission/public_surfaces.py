@@ -310,7 +310,7 @@ def _console(d, expected):
     status, headers, graph = d.request("GET", "/v1/console/workflows/explorer?" + query,
                                        credentials=d.operator)
     assert status == 200
-    assert {name.lower(): value for name, value in headers.items()}["ledgence-console-contract"] == "8"
+    assert {name.lower(): value for name, value in headers.items()}["ledgence-console-contract"] == "9"
     assert graph["page"]["next_cursor"] is None
     nodes = graph["page"]["items"]
     waits = [node for node in nodes if node["kind"] == "admission_wait"]
@@ -350,7 +350,7 @@ def public_surfaces(d, workflow_id):
     return {
         "workflow_id": workflow_id,
         "resource": name,
-        "console_c8_occurrence_and_relations": True,
+        "console_c9_occurrence_and_relations": True,
         "cli_saved_replay": True,
         "cli_destination_and_scope_rejected": True,
         "mcp_default_writes_hidden": True,

@@ -1,10 +1,10 @@
 //! Durable resource authority: workflow -> task -> resource -> occurrence locks.
 //! A committed Start is one-shot authority; its lost reply is never another grant.
-mod execution;
+pub(super) mod execution;
 mod policy;
 mod scheduler;
-mod state;
-mod wait;
+pub(super) mod state;
+pub(super) mod wait;
 use super::*;
 pub(super) use scheduler::drain;
 use state::*;
@@ -86,7 +86,7 @@ impl PostgresStore {
         c.validate_for(self.audit_audience()?)?;
         Ok(c)
     }
-    fn admission_worker(
+    pub(in crate::workflow) fn admission_worker(
         &self,
         p: &VerifiedPrincipal,
         scope: &Scope,
