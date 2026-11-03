@@ -272,6 +272,7 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
     WorkflowOperations {
         service,
         effect_access: None,
+        runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
         owner: owner(),
         workflow_id: context().workflow_id,
         processing_trace: None,

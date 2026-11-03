@@ -114,8 +114,8 @@ pub async fn run(
 ) -> Result<()> {
     let client = Arc::new(config.client.clone().with_trace_bridge(trace.clone()));
     // Authenticate and negotiate before any broker, session or runtime exists.
-    let effect_access = {
-        let discovered = client.discover_worker(&config.scope);
+    let runtime_access = {
+        let discovered = client.discover_worker_runtime(&config.scope);
         tokio::pin!(discovered);
         tokio::select! {
             result = &mut discovered => result.map_err(contract_error)?,
@@ -173,12 +173,14 @@ pub async fn run(
         .with_workflows(client.clone())
         .with_observation_publisher(observation_client, display_name)
         .map_err(contract_error)?;
-    if let Some(access) = effect_access {
+    if let Some(binding) = runtime_access.effect_evidence {
         driver = driver
-            .with_effect_evidence(access.audience, access.identity)
-            .and_then(|driver| driver.with_runtime_features(access.runtime_features))
+            .with_effect_evidence(binding.audience, binding.identity)
             .map_err(contract_error)?;
     }
+    driver = driver
+        .with_runtime_features(runtime_access.runtime_features)
+        .map_err(contract_error)?;
     if let Some(source) = broker_source {
         driver = driver.with_acquisition_source(source);
     }

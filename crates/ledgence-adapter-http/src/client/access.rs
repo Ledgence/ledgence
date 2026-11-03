@@ -12,6 +12,22 @@ pub struct WorkerEffectAccess {
     pub runtime_features: ledgence_worker_api::RuntimeFeatures,
 }
 
+/// Authenticated audience and worker identity used to verify effect receipts.
+/// A feature name alone does not establish this binding or authorize effects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerEffectBinding {
+    pub audience: AccessAudience,
+    pub identity: PrincipalIdentity,
+}
+
+/// Validated startup discovery metadata. Runtime feature negotiation is
+/// independent of the optional authenticated effect-receipt binding.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkerRuntimeAccess {
+    pub runtime_features: ledgence_worker_api::RuntimeFeatures,
+    pub effect_evidence: Option<WorkerEffectBinding>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 enum AccessReply {
@@ -66,14 +82,14 @@ impl ResponseValue for AccessReply {
     const MAX_BYTES: usize = 16 * 1024;
 }
 impl AccessReply {
-    fn worker(&self, expected: &Scope, credentials: bool) -> Result<Option<WorkerEffectAccess>> {
+    fn worker(&self, expected: &Scope, credentials: bool) -> Result<WorkerRuntimeAccess> {
         let Self::Credentials(reply) = self else {
             return if credentials {
                 Err(unavailable(
                     "credentialed worker requires authenticated access discovery",
                 ))
             } else {
-                Ok(None)
+                Ok(WorkerRuntimeAccess::default())
             };
         };
         let CredentialReply {
@@ -129,8 +145,12 @@ impl AccessReply {
                 ));
             }
         }
+        let runtime_features = worker_features.clone().unwrap_or_default();
         if !enabled {
-            return Ok(None);
+            return Ok(WorkerRuntimeAccess {
+                runtime_features,
+                effect_evidence: None,
+            });
         }
         if *operator_audit != Some(true) {
             return Err(unavailable(
@@ -145,18 +165,32 @@ impl AccessReply {
             scope: scope.clone(),
         };
         audience.validate()?;
-        Ok(Some(WorkerEffectAccess {
-            audience,
-            identity,
-            runtime_features: worker_features.clone().unwrap_or_default(),
-        }))
+        Ok(WorkerRuntimeAccess {
+            runtime_features,
+            effect_evidence: Some(WorkerEffectBinding { audience, identity }),
+        })
     }
 }
 
 impl HttpTaskService {
-    /// Negotiate once before starting a worker. A credentialed connection never
-    /// falls back on missing, malformed, anonymous or rejected discovery.
+    /// Negotiate the legacy effect-specific view in one startup exchange.
+    /// Connections without effect evidence return `None`; use
+    /// [`Self::discover_worker_runtime`] to retain independent runtime features.
     pub async fn discover_worker(&self, scope: &Scope) -> Result<Option<WorkerEffectAccess>> {
+        let access = self.discover_worker_runtime(scope).await?;
+        Ok(access.effect_evidence.map(|binding| WorkerEffectAccess {
+            audience: binding.audience,
+            identity: binding.identity,
+            runtime_features: access.runtime_features,
+        }))
+    }
+
+    /// Negotiate once before starting a worker, preserving valid generic
+    /// runtime features independently of the optional effect-receipt binding.
+    /// A credentialed connection never falls back on missing, malformed,
+    /// anonymous or rejected discovery. Anonymous legacy servers yield empty
+    /// features and no effect binding.
+    pub async fn discover_worker_runtime(&self, scope: &Scope) -> Result<WorkerRuntimeAccess> {
         scope.validate()?;
         let expected = scope.clone();
         let credentials = self.authorization.is_some();
@@ -170,7 +204,7 @@ impl HttpTaskService {
             .await;
         match reply {
             Ok(reply) => reply.worker(scope, credentials),
-            Err(ContractError::NotFound) if !credentials => Ok(None),
+            Err(ContractError::NotFound) if !credentials => Ok(WorkerRuntimeAccess::default()),
             Err(error) => Err(error),
         }
     }
@@ -195,11 +229,11 @@ mod tests {
             "runtime_capabilities":{"approved_effect_evidence_v2":true}
         })
     }
-    async fn discover(
+    async fn discovery_server(
         body: Value,
         status: u16,
         credentialed: bool,
-    ) -> Result<Option<WorkerEffectAccess>> {
+    ) -> (HttpTaskService, tokio::task::JoinHandle<()>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move {
@@ -235,12 +269,144 @@ mod tests {
         if credentialed {
             client = client.with_bearer_token("test-token").unwrap();
         }
-        let result = client.discover_worker(&scope()).await;
+        (client, server)
+    }
+    async fn finish_discovery(server: tokio::task::JoinHandle<()>) {
         tokio::time::timeout(Duration::from_secs(5), server)
             .await
             .unwrap()
             .unwrap();
+    }
+    async fn discover(
+        body: Value,
+        status: u16,
+        credentialed: bool,
+    ) -> Result<Option<WorkerEffectAccess>> {
+        let (client, server) = discovery_server(body, status, credentialed).await;
+        let result = client.discover_worker(&scope()).await;
+        finish_discovery(server).await;
         result
+    }
+    async fn discover_runtime(
+        body: Value,
+        status: u16,
+        credentialed: bool,
+    ) -> Result<WorkerRuntimeAccess> {
+        let (client, server) = discovery_server(body, status, credentialed).await;
+        let result = client.discover_worker_runtime(&scope()).await;
+        finish_discovery(server).await;
+        result
+    }
+    fn features_only_snapshot() -> Value {
+        let mut body = snapshot();
+        for key in ["runtime_capabilities", "authority_id", "operator_audit"] {
+            body.as_object_mut().unwrap().remove(key);
+        }
+        body["worker_features"] = json!({"v":1,"supported":["future.v9"]});
+        body
+    }
+    #[tokio::test]
+    async fn generic_runtime_features_survive_without_effect_evidence() {
+        for capabilities in [
+            None,
+            Some(json!({})),
+            Some(json!({"approved_effect_evidence_v2":false})),
+        ] {
+            let mut body = features_only_snapshot();
+            if let Some(capabilities) = capabilities {
+                body["runtime_capabilities"] = capabilities;
+                body["operator_audit"] = json!(false);
+            }
+            let access = discover_runtime(body.clone(), 200, true).await.unwrap();
+            assert_eq!(access.runtime_features.supported, ["future.v9"]);
+            assert!(access.effect_evidence.is_none());
+            // The compatibility API intentionally exposes only effect access.
+            assert!(discover(body, 200, true).await.unwrap().is_none());
+        }
+    }
+    #[tokio::test]
+    async fn runtime_discovery_preserves_effect_binding_and_legacy_fallbacks() {
+        let mut body = snapshot();
+        body["worker_features"] = json!({"v":1,"supported":[
+            "native_effect_resolution.v1", "provider_operation.v1", "future.v9"
+        ]});
+        let access = discover_runtime(body.clone(), 200, true).await.unwrap();
+        let legacy = discover(body, 200, true).await.unwrap().unwrap();
+        let binding = access.effect_evidence.unwrap();
+        assert_eq!(binding.audience, legacy.audience);
+        assert_eq!(binding.identity, legacy.identity);
+        assert_eq!(access.runtime_features, legacy.runtime_features);
+        assert!(access.runtime_features.native_effect_resolution());
+        assert!(access.runtime_features.provider_operation());
+        for (body, status) in [
+            (json!({"mode":"operator_trusted"}), 200),
+            (serde_json::to_value(ContractError::NotFound).unwrap(), 404),
+        ] {
+            assert_eq!(
+                discover_runtime(body.clone(), status, false).await.unwrap(),
+                WorkerRuntimeAccess::default()
+            );
+            assert!(discover_runtime(body, status, true).await.is_err());
+        }
+        assert!(
+            discover_runtime(features_only_snapshot(), 200, false)
+                .await
+                .is_err()
+        );
+    }
+    #[tokio::test]
+    async fn features_only_discovery_still_validates_identity_and_manifest() {
+        for (key, value) in [
+            ("actor_key", json!("")),
+            ("issuer", json!("")),
+            ("subject", json!("")),
+            ("class", json!("operator")),
+            ("instance_id", json!("")),
+            ("scope", json!({"tenant_id":"other","namespace":"billing"})),
+            ("capabilities", json!(["metadata_read"])),
+            ("capabilities", json!(["worker_execute", "worker_execute"])),
+            ("expires_at_ms", json!(1)),
+            ("expires_at_ms", json!(u64::MAX)),
+            ("operator_audit", Value::Null),
+            ("authority_id", Value::Null),
+            ("authority_id", json!("")),
+            ("runtime_capabilities", Value::Null),
+            ("worker_features", Value::Null),
+            ("worker_features", json!({"v":2,"supported":[]})),
+            (
+                "worker_features",
+                json!({"v":1,"supported":["same","same"]}),
+            ),
+            ("worker_features", json!({"v":1,"supported":["BAD"]})),
+            ("worker_features", json!({"v":1,"supported":[true]})),
+            ("worker_features", json!({"v":1,"supported":[],"unknown":1})),
+        ] {
+            let mut body = features_only_snapshot();
+            body[key] = value;
+            assert!(discover_runtime(body, 200, true).await.is_err(), "{key}");
+        }
+    }
+    #[tokio::test]
+    async fn generic_discovery_cannot_enable_protected_features_without_evidence() {
+        for supported in [
+            json!(["native_effect_resolution.v1"]),
+            json!(["provider_operation.v1"]),
+            json!([
+                "native_effect_resolution.v1",
+                "provider_operation.v1",
+                "future.v9"
+            ]),
+        ] {
+            let mut body = snapshot();
+            body["worker_features"] = json!({"v":1,"supported":supported});
+            for key in ["runtime_capabilities", "authority_id", "operator_audit"] {
+                let mut broken = body.clone();
+                broken.as_object_mut().unwrap().remove(key);
+                assert!(discover_runtime(broken, 200, true).await.is_err(), "{key}");
+            }
+            body["runtime_capabilities"] = json!({"approved_effect_evidence_v2":false});
+            assert!(discover_runtime(body, 200, true).await.is_err());
+        }
     }
     #[tokio::test]
     async fn discovery_preserves_explicit_legacy_and_binds_new_worker_identity() {

@@ -74,14 +74,14 @@ fn fixture() -> (
             issuer: worker.issuer,
             subject: worker.subject,
         },
-        features: ledgence_worker_api::RuntimeFeatures {
-            v: 1,
-            supported: vec![
-                "native_effect_resolution.v1".into(),
-                "provider_operation.v1".into(),
-            ],
-        },
     }));
+    handler.runtime_features = ledgence_worker_api::RuntimeFeatures {
+        v: 1,
+        supported: vec![
+            "native_effect_resolution.v1".into(),
+            "provider_operation.v1".into(),
+        ],
+    };
     (handler, rx, rrx)
 }
 fn worker() -> EffectWorkerIdentity {
@@ -135,6 +135,20 @@ async fn provider_unnegotiated_or_forged_authority_never_dispatches() {
             ErrorKind::Protocol
         );
     }
+    let negotiated = handler.runtime_features.clone();
+    handler.runtime_features = ledgence_worker_api::RuntimeFeatures {
+        v: 1,
+        supported: vec!["custom_runtime.v1".into()],
+    };
+    assert_eq!(
+        handler
+            .handle(claim(), RunControl::new(Duration::from_secs(1)))
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::Incompatible
+    );
+    handler.runtime_features = negotiated;
     handler.effect_access = None;
     assert_eq!(
         handler

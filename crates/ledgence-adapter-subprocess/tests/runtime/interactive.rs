@@ -189,7 +189,13 @@ while True:
     );
     let mut session = ready(runtime.start(artifact, control()).await);
     let pid = session.pid();
-    for (enabled, native) in [(true, false), (true, true), (false, false), (true, false)] {
+    for (enabled, native, generic) in [
+        (true, false, false),
+        (true, true, true),
+        (false, false, true),
+        (false, false, false),
+        (true, false, false),
+    ] {
         let mut handler = Handler::new(ReplyMode::Echo);
         Arc::get_mut(&mut handler).unwrap().evidence_v2 = enabled;
         if native {
@@ -198,6 +204,13 @@ while True:
                 .features
                 .supported
                 .push(ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE.into());
+        }
+        if generic {
+            Arc::get_mut(&mut handler)
+                .unwrap()
+                .features
+                .supported
+                .push("custom_operation.v1".into());
         }
         let invocation = invocation("capability");
         let reply = output(
@@ -219,10 +232,10 @@ while True:
         } else {
             assert!(reply.get("runtime_capabilities").is_none());
         }
-        if native {
+        if native || generic {
             assert_eq!(
                 reply["runtime_features"],
-                json!({"v":1,"supported":["native_effect_resolution.v1"]})
+                serde_json::to_value(&handler.features).unwrap()
             );
         } else {
             assert!(reply.get("runtime_features").is_none());
