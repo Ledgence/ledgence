@@ -63,6 +63,9 @@ second time. Ledgence retains the workflow evidence while that refund remains
 unconfirmed. This requires matching development components and a database
 migration; it is not included in the 0.7.0 packages.
 
+On `develop`, [instance access](docs/instance-access.md) adds scoped operator,
+service and worker credentials across the API, CLI, Python, MCP and Console.
+
 ### Install and start Ledgence
 
 Install the latest stable release on a supported native platform:

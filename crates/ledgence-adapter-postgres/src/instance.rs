@@ -39,8 +39,31 @@ impl PostgresStore {
         &self,
         config: Option<&SelfHostedInstanceConfig>,
     ) -> Result<Option<SelfHostedInstanceContext>> {
+        self.initialize_instance_with_access(config, None).await
+    }
+
+    /// Bind access authority before any API listener or coordinator starts. Once
+    /// enabled it cannot be omitted or replaced on a subsequent startup. Policy
+    /// and credential rotation retain the same installation authority.
+    pub async fn initialize_instance_with_access(
+        &self,
+        config: Option<&SelfHostedInstanceConfig>,
+        access: Option<&AccessAudience>,
+    ) -> Result<Option<SelfHostedInstanceContext>> {
         if let Some(config) = config {
             config.validate()?;
+        }
+        if let Some(access) = access {
+            let config = config.ok_or_else(|| {
+                ContractError::InvalidInput(
+                    "access configuration requires a bound instance configuration".into(),
+                )
+            })?;
+            access.require_instance(&config.context()).map_err(|_| {
+                ContractError::InvalidInput(
+                    "access configuration does not match the instance audience".into(),
+                )
+            })?;
         }
         self.run(|| async {
             let mut connection = self.transaction_connection().await?;
@@ -48,20 +71,29 @@ impl PostgresStore {
             // Locking the table also serializes initialization while it is empty.
             // This transaction is startup-only; execution never holds this lock.
             sqlx::query("LOCK TABLE self_hosted_instance IN EXCLUSIVE MODE").execute(&mut *tx).await?;
-            let existing: Option<(String,String,String)> = sqlx::query_as("SELECT instance_id,tenant_id,namespace FROM self_hosted_instance WHERE singleton")
+            let existing: Option<(String,String,String,Option<String>)> = sqlx::query_as("SELECT instance_id,tenant_id,namespace,access_authority_id FROM self_hosted_instance WHERE singleton")
                 .fetch_optional(&mut *tx).await?;
             let Some(config) = config else {
                 if existing.is_some() { return Err(ContractError::InvalidInput("this database is bound to an instance; --instance-config is required, including headless operation".into()).into()); }
                 tx.commit().await?;
                 return Ok(None);
             };
-            if let Some((id,tenant,namespace)) = existing
-                && (id != config.instance_id || tenant != config.scope.tenant_id || namespace != config.scope.namespace) {
-                return Err(ContractError::InvalidInput("instance configuration does not match the database binding".into()).into());
+            if let Some((id,tenant,namespace,authority)) = &existing {
+                if id != &config.instance_id || tenant != &config.scope.tenant_id || namespace != &config.scope.namespace {
+                    return Err(ContractError::InvalidInput("instance configuration does not match the database binding".into()).into());
+                }
+                if let Some(authority) = authority
+                    && access.map(|value| &value.authority_id) != Some(authority) {
+                    return Err(ContractError::InvalidInput("this database requires its configured access authority; omission or replacement is not supported".into()).into());
+                }
             }
             self.audit_instance_scopes(&mut tx, &config.scope).await?;
-            sqlx::query("INSERT INTO self_hosted_instance(singleton,instance_id,tenant_id,namespace) VALUES(true,$1,$2,$3) ON CONFLICT(singleton) DO NOTHING")
-                .bind(&config.instance_id).bind(&config.scope.tenant_id).bind(&config.scope.namespace).execute(&mut *tx).await?;
+            let affected = sqlx::query("INSERT INTO self_hosted_instance(singleton,instance_id,tenant_id,namespace,access_authority_id) VALUES(true,$1,$2,$3,$4) ON CONFLICT(singleton) DO UPDATE SET access_authority_id=COALESCE(self_hosted_instance.access_authority_id,EXCLUDED.access_authority_id)")
+                .bind(&config.instance_id).bind(&config.scope.tenant_id).bind(&config.scope.namespace)
+                .bind(access.map(|value| &value.authority_id)).execute(&mut *tx).await?.rows_affected();
+            if affected != 1 {
+                return Err(ContractError::Unavailable("instance authority binding was not persisted".into()).into());
+            }
             tx.commit().await?;
             self.remember_scope(&config.scope)?;
             Ok(Some(config.context()))

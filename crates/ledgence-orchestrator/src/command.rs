@@ -2,7 +2,7 @@ use ledgence_adapter_postgres::MigrationOptions;
 use ledgence_orchestration_api::{RetentionPolicy, Scope};
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, time::Duration};
 
-pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR] [--allow-program-publication]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
+pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--access-config FILE] [--allow-insecure-console-access] [--console-dir DIR] [--allow-program-publication]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nCredential mode requires --instance-config and one configured HTTPS Console origin; --allow-insecure-console-access permits local loopback HTTP only.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -22,6 +22,8 @@ pub enum Command {
         delivery_config: Option<PathBuf>,
         completion_config: Option<PathBuf>,
         instance_config: Option<PathBuf>,
+        access_config: Option<PathBuf>,
+        allow_insecure_console_access: bool,
         console_dir: Option<PathBuf>,
         allow_program_publication: bool,
     },
@@ -44,7 +46,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     let mut options = HashMap::new();
     let mut apply = false;
     let mut allow_program_publication = false;
+    let mut allow_insecure_console_access = false;
     while let Some(key) = args.next() {
+        if key == "--allow-insecure-console-access" {
+            if command != "serve" || allow_insecure_console_access {
+                return Err(
+                    "--allow-insecure-console-access is only accepted once by serve".into(),
+                );
+            }
+            allow_insecure_console_access = true;
+            continue;
+        }
         if key == "--allow-program-publication" {
             if command != "serve" || allow_program_publication {
                 return Err("--allow-program-publication is only accepted once by serve".into());
@@ -113,7 +125,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
     } else {
         let store = options.remove("--store").ok_or("missing --store")?;
-        let bind = options
+        let bind: SocketAddr = options
             .remove("--bind")
             .unwrap_or_else(|| "127.0.0.1:8080".into())
             .parse()
@@ -121,6 +133,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         let delivery_config = options.remove("--delivery-config").map(PathBuf::from);
         let completion_config = options.remove("--completion-config").map(PathBuf::from);
         let instance_config = options.remove("--instance-config").map(PathBuf::from);
+        let access_config = options.remove("--access-config").map(PathBuf::from);
+        if access_config.is_some() && instance_config.is_none() {
+            return Err("--access-config requires --instance-config".into());
+        }
+        if allow_insecure_console_access && (access_config.is_none() || !bind.ip().is_loopback()) {
+            return Err(
+                "--allow-insecure-console-access requires --access-config and a loopback listener"
+                    .into(),
+            );
+        }
         let console_dir = options.remove("--console-dir").map(PathBuf::from);
         if console_dir.is_some() && instance_config.is_none() {
             return Err("--console-dir requires --instance-config".into());
@@ -145,6 +167,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             delivery_config,
             completion_config,
             instance_config,
+            access_config,
+            allow_insecure_console_access,
             console_dir,
             allow_program_publication,
         }
@@ -233,6 +257,55 @@ mod tests {
         let mut duplicate = args.to_vec();
         duplicate.push("--allow-program-publication");
         assert!(arguments(&duplicate).is_err());
+    }
+
+    #[test]
+    fn credential_mode_requires_instance_and_local_http_requires_loopback_opt_in() {
+        let base = [
+            "serve",
+            "--store",
+            "programs",
+            "--instance-config",
+            "instance.json",
+            "--access-config",
+            "access.json",
+        ];
+        assert!(matches!(
+            arguments(&base),
+            Ok(Command::Serve {
+                access_config: Some(_),
+                allow_insecure_console_access: false,
+                ..
+            })
+        ));
+        assert!(
+            arguments(&[
+                "serve",
+                "--store",
+                "programs",
+                "--access-config",
+                "access.json"
+            ])
+            .is_err()
+        );
+        assert!(
+            arguments(&[
+                "serve",
+                "--store",
+                "programs",
+                "--allow-insecure-console-access"
+            ])
+            .is_err()
+        );
+        let mut local = base.to_vec();
+        local.push("--allow-insecure-console-access");
+        assert!(arguments(&local).is_ok());
+        local.extend(["--bind", "0.0.0.0:8080"]);
+        assert!(arguments(&local).is_err());
+        local.truncate(base.len() + 1);
+        local.push("--allow-insecure-console-access");
+        assert!(arguments(&local).is_err());
+        assert!(arguments(&["migrate", "--allow-insecure-console-access"]).is_err());
     }
 
     #[test]
@@ -343,6 +416,8 @@ mod tests {
                 delivery_config: None,
                 completion_config: None,
                 instance_config: None,
+                access_config: None,
+                allow_insecure_console_access: false,
                 console_dir: None,
                 allow_program_publication: false,
             }

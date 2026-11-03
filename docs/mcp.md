@@ -45,8 +45,9 @@ Host configuration formats vary; the executable and arguments above are the
 integration contract. Add `--read-only` to omit mutation tools and reject direct
 attempts to call them. Scope and API URL are fixed at startup; tool arguments
 cannot select another tenant, namespace or server. Scope is a constraint, not an
-authentication mechanism. The existing operator-trusted deployment boundary
-still applies.
+authentication mechanism. Published 0.7.0 uses the operator-trusted deployment
+boundary. Development clients can use [instance credentials](instance-access.md)
+with a service-specific `--credentials-file`.
 
 Use the binding from the orchestrator's instance file. The local Compose stack
 uses `acme/demo`; a new instance that omits `scope` uses `default/default`. Replace
@@ -187,3 +188,11 @@ server; [Prefect](https://github.com/PrefectHQ/prefect-mcp-server) provides a
 separate MCP integration. Ledgence reuses its existing service semantics rather
 than creating a second orchestration authority. See [dependency review](dependencies.md#optional-mcp-server)
 for the selected SDK and license material.
+
+## Credential access in development
+
+Matching development components support optional installation credentials across
+API operations, workers and Console. Configure the authority, client credential
+files and capabilities using the [instance access guide](instance-access.md).
+The existing operator-trusted mode requires its deployment access boundary.
+Verified ingress identity and durable approval attribution have separate scope.

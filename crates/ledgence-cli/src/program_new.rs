@@ -208,7 +208,7 @@ fn create(options: Options) -> Result<Created> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn publish_new(source: &Path, target: &Path) -> Result<()> {
+pub(crate) fn publish_new(source: &Path, target: &Path) -> Result<()> {
     rustix::fs::renameat_with(
         rustix::fs::CWD,
         source,
@@ -219,7 +219,7 @@ fn publish_new(source: &Path, target: &Path) -> Result<()> {
     .map_err(|_| operational("cannot create program directory without replacing existing data"))
 }
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn publish_new(_source: &Path, _target: &Path) -> Result<()> {
+pub(crate) fn publish_new(_source: &Path, _target: &Path) -> Result<()> {
     Err(invalid("program new is supported on Linux and macOS"))
 }
 fn operational(message: impl Into<String>) -> ContractError {

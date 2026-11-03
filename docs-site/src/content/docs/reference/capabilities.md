@@ -78,6 +78,15 @@ rejects execution through the ordinary approval helper.
 [Protect an approved write](/how-to/require-approval#protect-an-approved-write-in-development).
 The published 0.7.0 packages do not include this helper.
 
+## Instance access in development
+
+The optional self-hosted credential adapter authenticates operators, service
+clients and workers across HTTP, CLI, Python, MCP and Console. Capabilities
+separate metadata, sensitive payloads, submission, control, publication, approval
+and worker execution. Console binds cached data and pending commands to the
+current actor. Published 0.7.0 uses the operator-trusted deployment model.
+[Configure instance access](/how-to/configure-instance-access).
+
 ## Installation channels
 
 | Method | Availability |

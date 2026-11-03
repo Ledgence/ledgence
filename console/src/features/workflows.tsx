@@ -1,3 +1,4 @@
+import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { useEffect, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
@@ -87,7 +88,9 @@ export function WorkflowDetailPage() {
         actions={
           detail &&
           !dto.terminal(detail.summary.workflow.state) && (
-            <CancelWorkflow key={workflowId} workflowId={workflowId} />
+            <Permission capability="execution_control">
+              <CancelWorkflow key={workflowId} workflowId={workflowId} />
+            </Permission>
           )
         }
       />
@@ -903,7 +906,18 @@ function CancelWorkflow({ workflowId }: { workflowId: string }) {
     </>
   );
 }
-function SendEvent({
+function SendEvent(props: {
+  workflowId: string;
+  waitKey: string;
+  enabled: boolean;
+}) {
+  return (
+    <Permission capability="execution_control">
+      <SendEventForm {...props} />
+    </Permission>
+  );
+}
+function SendEventForm({
   workflowId,
   waitKey,
   enabled,

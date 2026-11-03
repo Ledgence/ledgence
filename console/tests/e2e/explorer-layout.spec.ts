@@ -95,6 +95,19 @@ async function mount(
   let settled = !delayedObservation;
   let visibleNodes = initialVisible;
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "5",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const url = new URL(route.request().url());
     const path = url.pathname.replace("/v1/console/", "");
     const id =

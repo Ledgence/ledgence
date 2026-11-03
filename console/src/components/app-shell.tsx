@@ -8,6 +8,7 @@ import {
   Inbox,
   FileText,
   Layers2,
+  LogOut,
   ChevronDown,
   Monitor,
   Moon,
@@ -16,6 +17,7 @@ import {
   PanelLeftClose,
   Server,
 } from "lucide-react";
+import { useAccess, signOut } from "../app/access-session";
 import { applyTheme, readTheme, type Theme } from "../app/theme";
 import "../styles/shell.css";
 
@@ -35,6 +37,34 @@ function readSidebarCollapsed(): boolean {
   }
 }
 
+function AccountControls({
+  subject,
+  issuer,
+}: {
+  subject: string;
+  issuer: string;
+}) {
+  return (
+    <div className="shell-account">
+      <p className="shell-actor sidebar-label wrap" title={issuer}>
+        Signed in as <strong>{subject}</strong>
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          void signOut();
+        }}
+        aria-label="Sign out of this browser"
+        title="Sign out of this browser"
+        className="shell-signout"
+      >
+        <LogOut aria-hidden="true" />
+        <span className="sidebar-label">Sign out</span>
+      </button>
+    </div>
+  );
+}
+
 export function AppShell({
   instanceName,
   serverVersion,
@@ -45,6 +75,11 @@ export function AppShell({
   children: ReactNode;
 }) {
   const { pathname } = useLocation();
+  const access = useAccess();
+  const identity =
+    access.phase === "ready" && access.access?.mode === "credentials"
+      ? access.access
+      : null;
   const section = pathname.split("/")[1];
   const activeSection =
     section === "workflows"
@@ -132,6 +167,8 @@ export function AppShell({
             ))}
           </nav>
           <div className="sidebar-footer shell-sidebar-footer">
+            {identity && <AccountControls {...identity} />}
+
             <span className="shell-caption sidebar-label" aria-hidden="true">
               Resources
             </span>

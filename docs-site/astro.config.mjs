@@ -61,6 +61,7 @@ export default defineConfig({
       { label: 'Operate your installation', collapsed: true, items: [
         { label: 'Manage the local stack', slug: 'how-to/run-local-distribution' },
         { label: 'Configure observability', slug: 'how-to/configure-observability' },
+        { label: 'Configure instance access', slug: 'how-to/configure-instance-access' },
         { label: 'Upgrade to 0.7.0', slug: 'how-to/upgrade-to-0-7' },
         { label: 'Advanced setup', collapsed: true, items: [
           { label: 'Manual archives and native services', slug: 'how-to/manual-native-installation' },

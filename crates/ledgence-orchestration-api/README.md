@@ -41,6 +41,12 @@ transaction. An exact retry of a confirmation can acknowledge the existing
 result. An unresolved grant keeps the associated workflow evidence available
 during retention. [Protected external writes](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
 
+Development builds expose `CredentialVerifier`, `AccessAudience` and
+`VerifiedPrincipal` for installation-scoped authentication. The HTTP adapter
+checks each route's required `AccessCapability` before dispatching to services.
+The local opaque-credential implementation lives in a separate adapter.
+[Instance access contract](https://github.com/Ledgence/ledgence/blob/develop/docs/instance-access.md)
+
 A workflow adapter can implement `WorkflowStore::approval_inbox` to list scoped
 approval summaries across workflows. Console adapters can implement
 `ConsoleQueryStore::explore_approval` to start a graph page at its recorded

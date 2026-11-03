@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { accessController } from "../app/access-state";
+import { usePermission } from "../app/access-session";
+import { parseUserJson } from "../api/json";
 import { useInstance } from "../app/instance";
 import { useApprovalRead } from "../api/use-approval-read";
 import { ContractError } from "../api/codecs";
@@ -11,6 +14,7 @@ import { useTerminalRefresh } from "../api/terminal-refresh";
 import {
   approvalPageForWorkflow,
   decisionReceipt,
+  decodeApprovalDecision,
   type Approval,
   type ApprovalDecision,
 } from "../api/approvals";
@@ -152,12 +156,30 @@ export function ApprovalCard({
   unavailable?: boolean;
 }) {
   const client = useQueryClient();
+  const config = useInstance();
+  const recoveryKey = JSON.stringify([
+    "approval",
+    config.instance_id,
+    approval.workflow_id,
+    approval.key,
+    approval.activation_id,
+    approval.revision,
+  ]);
+  const saved = accessController.recover(recoveryKey);
+  const restoredDecision = saved
+    ? decodeApprovalDecision(parseUserJson(saved.body, 1024 * 1024))
+    : null;
+  const [restored] = useState(!!saved);
+  const restoredDenied = saved?.outcome === "denied";
   const [open, setOpen] = useState(false);
-  const [choice, setChoice] = useState<"approve" | "reject">("approve");
-  const [reviewer, setReviewer] = useState("");
-  const [reason, setReason] = useState("");
+  const [choice, setChoice] = useState<"approve" | "reject">(
+    restoredDecision?.decision ?? "approve",
+  );
+  const [reviewer, setReviewer] = useState(restoredDecision?.reviewer ?? "");
+  const [reason, setReason] = useState(restoredDecision?.reason ?? "");
   const [validation, setValidation] = useState("");
-  const expected = useRef<ApprovalDecision | null>(null);
+  const canDecide = usePermission("approval_decide");
+  const expected = useRef<ApprovalDecision | null>(restoredDecision);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const submittedTrigger = useRef<HTMLButtonElement | null>(null);
   const command = useCommand(
@@ -168,6 +190,7 @@ export function ApprovalCard({
       return decisionReceipt(expected.current)(value);
     },
     () => void client.invalidateQueries(),
+    recoveryKey,
   );
   const conflict =
     command.mutation.error instanceof ApiError &&
@@ -186,7 +209,8 @@ export function ApprovalCard({
       ? receipt
       : approval;
   const locked = command.command !== null;
-  const editable = current.status === "pending" && !locked && !unavailable;
+  const editable =
+    current.status === "pending" && !locked && !unavailable && canDecide;
   function submit() {
     if (!editable || expected.current) return;
     const attribution = reviewer.trim();
@@ -270,6 +294,12 @@ export function ApprovalCard({
             {current.decision.reason ?? "Not supplied"}
           </Field>
         </Fields>
+      )}
+      {!canDecide && (
+        <p className="notice">
+          Your credential allows inspection, but does not permit approval
+          decisions.
+        </p>
       )}
       <div className="actions">
         {editable && (
@@ -386,16 +416,23 @@ export function ApprovalCard({
                 />
               </label>
               {validation && <p role="alert">{validation}</p>}
-              {command.mutation.error && command.command ? (
+              {(command.mutation.error || restored) && command.command ? (
                 <>
                   <QueryError
-                    error={command.mutation.error}
+                    error={
+                      command.mutation.error ??
+                      new ApiError(
+                        restoredDenied
+                          ? "Access was denied before this decision was accepted. You can retry it explicitly with your current access."
+                          : "A previously submitted decision is awaiting confirmation. Its outcome may be unknown.",
+                      )
+                    }
                     retry={command.retry}
                   />
                   <p className="notice">
-                    The result may be uncertain. Retry sends the same request,
-                    action, reviewer, decision and decision ID. It cannot create
-                    a different decision.
+                    {!restoredDenied && "The result may be uncertain. "}
+                    Retry sends the same request, action, reviewer, decision and
+                    decision ID. It cannot create a different decision.
                   </p>
                   <p>
                     Decision ID <CopyText value={command.command.identity} />

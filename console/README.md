@@ -22,11 +22,61 @@ pnpm --dir console dev
 On Linux browser runners, provision the operating-system browser prerequisites
 with the pinned Playwright installer (`playwright install --with-deps chromium webkit`).
 Vite binds to loopback and proxies `/v1` to `http://127.0.0.1:8080`. Start a configured
-orchestrator separately. Include `http://127.0.0.1:5173` in that development
-instance's `allowed_origins`: the proxy preserves the browser Origin. Retain
-`http://127.0.0.1:8080` too if using the directly served Console. An unlisted Origin
-causes write requests to be rejected. The development server contains no demo API
+orchestrator separately. In operator-trusted mode, include
+`http://127.0.0.1:5173` in that development instance's `allowed_origins`: the proxy
+preserves the browser Origin. You may retain `http://127.0.0.1:8080` too when using
+the directly served Console in that mode. Credential mode requires exactly one
+selected origin. Prefer the built Console served by the orchestrator at the API's
+own origin; choose the Vite origin alone when testing through its development
+proxy. An unlisted Origin causes requests to be rejected. The development server contains no demo API
 or mock data.
+
+## Instance access (development)
+
+Credential-enabled instances present an instance-credential sign-in form. Use an
+individual operator credential issued by your administrator. Console stores it
+in a host-only HttpOnly cookie; application JavaScript does not retain it in
+localStorage, sessionStorage or IndexedDB. The sidebar identifies the verified
+operator. Worker credentials cannot sign in to Console.
+
+The server checks expiry, installation, scope and capabilities on each request.
+The UI hides unavailable actions and presents permission errors for restricted
+payloads. The server remains authoritative. Production access requires HTTPS
+on a dedicated hostname; local HTTP is for trusted loopback development only.
+Cookies are shared across ports on the same hostname, so different ports are not
+an isolation boundary. Configure the exact Console origin, including its port.
+
+Each Console request carries the actor of the displayed view. A changed cookie
+from another tab cannot submit that view's command as the replacement actor.
+Tabs broadcast only an access-invalidation signal and verify access again when
+becoming visible. Content and dialogs are hidden during that check. Unsent form
+drafts remain in memory when the verified actor, instance and permissions are
+unchanged; a changed actor, instance or permission set discards the old view.
+Read requests are cancelled or wait for verification, then refresh. Old responses
+cannot repopulate the new actor's cache. No write is automatically resubmitted
+after authentication changes.
+
+**Sign out of this browser** clears its cookie and pending decisions; it does
+not revoke other copies of the credential. Administrators revoke credentials by
+updating the verifier configuration and restarting all server replicas; the
+configuration is loaded at startup. Cookie retention
+does not replace server-enforced credential expiry.
+
+A denied first attempt is reported as rejected. A later denied replay does not
+resolve an earlier uncertain outcome. An uncertain approval request remains
+frozen in memory, bound to its instance, during the current page
+lifetime. After reauthentication as the same actor with the same instance and
+permissions,
+**Try again** deliberately resends the same bytes and decision ID. Explicit
+sign-out or switching actors discards that pending request. A full browser
+reload can inspect a persisted server decision, but cannot restore an unsaved
+local command. The existing reviewer field remains claimed attribution; this
+access increment does not yet add transactional verified-decision audit records.
+
+Instances without credential configuration retain their explicit
+operator-trusted deployment mode and do not invent an authenticated actor.
+These access capabilities describe the development branch, not published 0.7.0
+packages.
 
 ## Brand assets
 
@@ -142,7 +192,7 @@ decision. The backend owns pending, approved, rejected, expired and cancelled
 states; the browser never infers expiry from its clock. A decision echoes the
 exact request binding and action. An uncertain response can only retry the same
 decision bytes and ID. Reviewer is caller-supplied audit attribution, not an
-authenticated identity; access remains controlled by the installation's proxy.
+authenticated identity. Credential-enabled instances separately authenticate the caller; operator-trusted instances retain their deployment access boundary.
 Approval permits a continuation; it does not prove that the action executed.
 
 Executions combines root workflows and standalone tasks in one server-paginated

@@ -1,7 +1,10 @@
 //! Axum composition boundary. Application and persistence remain behind
 //! [`TaskService`]; readiness and database lifecycle belong to the executable.
 
+mod access;
 mod approvals;
+mod routes;
+use routes::{Policy, Route};
 pub mod assets;
 mod completion;
 pub mod console;
@@ -183,48 +186,49 @@ fn build_router(
         invalid_trace_headers: Arc::new(AtomicU64::new(0)),
     };
     let mut router = Router::new();
-    for (path, _) in ROUTES
+    for route in ROUTES
         .iter()
         .chain(console::ROUTES)
         .chain(publication::ROUTES)
     {
-        router = router.route(path, any(handle));
+        router = router.route(route.path, any(handle));
     }
     router.fallback(handle).with_state(state)
 }
 
-const ROUTES: &[(&str, &str)] = &[
-    ("/v1/completion-subscriptions", "POST"),
-    ("/v1/completion-subscriptions/status", "GET"),
-    ("/v1/completion-subscriptions/retry", "POST"),
-    ("/v1/workflows", "POST"),
-    ("/v1/workflows/status", "GET"),
-    ("/v1/workflows/result", "GET"),
-    ("/v1/workflows/cancel", "POST"),
-    ("/v1/workflows/events", "POST"),
-    ("/v1/workflows/approvals/inspect", "POST"),
-    ("/v1/workflows/approvals/list", "POST"),
-    ("/v1/workflows/approvals/inbox", "POST"),
-    ("/v1/workflows/approvals/decide", "POST"),
-    ("/v1/workflows/activations/context", "POST"),
-    ("/v1/workflows/approved-effects/claim", "POST"),
-    ("/v1/workflows/approved-effects/confirm", "POST"),
-    ("/v1/workflows/local-results", "POST"),
-    ("/v1/workflows/forks", "POST"),
-    ("/v1/tasks", "GET, POST"),
-    ("/v1/tasks/inspect", "GET"),
-    ("/v1/tasks/status", "GET"),
-    ("/v1/tasks/result", "GET"),
-    ("/v1/attempts/inspect", "GET"),
-    ("/v1/tasks/history", "GET"),
-    ("/v1/tasks/cancel", "POST"),
-    ("/v1/worker-sessions", "POST"),
-    ("/v1/worker-sessions/extend", "POST"),
-    ("/v1/acquisitions", "POST"),
-    ("/v1/dispatch/claim", "POST"),
-    ("/v1/renewals", "POST"),
-    ("/v1/settlements", "POST"),
-    ("/v1/quiescence-confirmations", "POST"),
+const ROUTES: &[Route] = &[
+    Route::get("/v1/access", Policy::Access),
+    Route::post("/v1/completion-subscriptions", Policy::Control),
+    Route::get("/v1/completion-subscriptions/status", Policy::Metadata),
+    Route::post("/v1/completion-subscriptions/retry", Policy::Control),
+    Route::post("/v1/workflows", Policy::Submit),
+    Route::get("/v1/workflows/status", Policy::Metadata),
+    Route::get("/v1/workflows/result", Policy::Sensitive),
+    Route::post("/v1/workflows/cancel", Policy::Control),
+    Route::post("/v1/workflows/events", Policy::Control),
+    Route::post("/v1/workflows/approvals/inspect", Policy::Sensitive),
+    Route::post("/v1/workflows/approvals/list", Policy::Sensitive),
+    Route::post("/v1/workflows/approvals/inbox", Policy::Metadata),
+    Route::post("/v1/workflows/approvals/decide", Policy::Approval),
+    Route::post("/v1/workflows/activations/context", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/claim", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/confirm", Policy::Worker),
+    Route::post("/v1/workflows/local-results", Policy::Worker),
+    Route::post("/v1/workflows/forks", Policy::Worker),
+    Route::read_write("/v1/tasks", Policy::Metadata, Policy::Submit),
+    Route::get("/v1/tasks/inspect", Policy::Sensitive),
+    Route::get("/v1/tasks/status", Policy::Metadata),
+    Route::get("/v1/tasks/result", Policy::Sensitive),
+    Route::get("/v1/attempts/inspect", Policy::Worker),
+    Route::get("/v1/tasks/history", Policy::Metadata),
+    Route::post("/v1/tasks/cancel", Policy::Control),
+    Route::post("/v1/worker-sessions", Policy::Worker),
+    Route::post("/v1/worker-sessions/extend", Policy::Worker),
+    Route::post("/v1/acquisitions", Policy::Worker),
+    Route::post("/v1/dispatch/claim", Policy::Worker),
+    Route::post("/v1/renewals", Policy::Worker),
+    Route::post("/v1/settlements", Policy::Worker),
+    Route::post("/v1/quiescence-confirmations", Policy::Worker),
 ];
 
 struct Failure {
@@ -264,9 +268,9 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         .iter()
         .chain(console::ROUTES)
         .chain(publication::ROUTES)
-        .find(|(path, _)| *path == request.uri().path())
+        .find(|route| route.path == request.uri().path())
         .or_else(|| publication::match_route(request.uri().path()));
-    let route_label = route.map_or("unmatched", |(path, _)| *path);
+    let route_label = route.map_or("unmatched", |route| route.path);
     let span = tracing::info_span!(
         parent: None,
         "ledgence.http.server",
@@ -303,17 +307,41 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         .trace_bridge
         .set_parent(&span, transport_context.as_ref());
     async {
+        let admission = match route.and_then(|route| route.policy(&method)) {
+            Some(policy) => access::authorize(&server, &request, policy),
+            None => Ok(None),
+        };
+        let mut set_cookie = None;
         let (status, body, code) = match route {
             None => (
                 404,
                 br#"{"code":"route_not_found"}"#.to_vec(),
                 Some("route_not_found"),
             ),
-            Some((_, expected)) if !expected.split(", ").any(|allowed| method == allowed) => (
+            Some(route) if route.policy(&method).is_none() => (
                 405,
                 br#"{"code":"method_not_allowed"}"#.to_vec(),
                 Some("method_not_allowed"),
             ),
+            Some(_) if admission.is_err() => {
+                failure_reply(admission.expect_err("checked denial").into())
+            }
+            Some(route) if route.policy(&method).is_some_and(Policy::is_access) => {
+                let policy = route.policy(&method).expect("method checked");
+                match tokio::time::timeout_at(
+                    deadline,
+                    access::dispatch(&server, request, policy, admission.ok().flatten()),
+                )
+                .await
+                {
+                    Ok(Ok((body, cookie))) => {
+                        set_cookie = cookie;
+                        (200, body, None)
+                    }
+                    Ok(Err(error)) => failure_reply(error),
+                    Err(_) => failure_reply(unavailable("access request deadline exceeded").into()),
+                }
+            }
             Some(_) if publication::is_route(route_label) => {
                 publication::dispatch(&server, request).await
             }
@@ -342,19 +370,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 };
                 match result {
                     Ok(bytes) => (200, bytes, None),
-                    Err(Failure { status, mut error }) => {
-                        let code = error_code(&error);
-                        if let ContractError::InvalidInput(message)
-                        | ContractError::Unavailable(message) = &mut error
-                        {
-                            *message = message.chars().take(4096).collect();
-                        }
-                        (
-                            status,
-                            serde_json::to_vec(&error).expect("error has JSON representation"),
-                            Some(code),
-                        )
-                    }
+                    Err(error) => failure_reply(error),
                 }
             }
         };
@@ -415,13 +431,33 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         if status == 405 {
             response.headers_mut().insert(
                 header::ALLOW,
-                HeaderValue::from_static(route.expect("known route").1),
+                HeaderValue::from_static(route.expect("known route").methods),
             );
+        }
+        if let Some(cookie) = set_cookie {
+            response.headers_mut().insert(header::SET_COOKIE, cookie);
+        }
+        if status == 401 {
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
         }
         response
     }
     .instrument(span)
     .await
+}
+
+fn failure_reply(Failure { status, mut error }: Failure) -> (u16, Vec<u8>, Option<&'static str>) {
+    let code = error_code(&error);
+    if let ContractError::InvalidInput(message) | ContractError::Unavailable(message) = &mut error {
+        *message = message.chars().take(4096).collect();
+    }
+    (
+        status,
+        serde_json::to_vec(&error).expect("error has JSON representation"),
+        Some(code),
+    )
 }
 
 /// One fixed W3C carrier. The HTTP context never changes the JSON command.

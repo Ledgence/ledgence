@@ -95,8 +95,10 @@ determines whether the request is still pending and eligible.
 
 After an uncertain reply, retry the retained decision unchanged. Approval records
 permission to proceed; inspect the resumed workflow and its result to establish
-what happened afterward. The reviewer field is claimed attribution, so remote
-deployments must provide their own authentication and authorization.
+what happened afterward. The reviewer field is claimed attribution. Published
+0.7.0 deployments provide their own authentication and authorization boundary.
+Development builds support [instance credentials](/how-to/configure-instance-access).
+Durable verified decision attribution remains planned.
 
 An application's generic `wait_event` review flow is an external wait rather than
 a durable action approval. The support-agent and Codex change-review examples use
@@ -165,9 +167,9 @@ Keep `--instance-config` on every subsequent startup, including headless operati
 
 ## Remote access
 
-Protect both `/console/` and `/v1/` with the same access-controlled TLS reverse proxy. The instance binding is not operator authentication. Preserve those paths and serve the UI and API from the same public origin.
+Published 0.7.0 deployments protect both `/console/` and `/v1/` with the same access-controlled TLS reverse proxy. Development builds can use [instance credentials](/how-to/configure-instance-access) with TLS and an explicit origin. Preserve those paths and serve the UI and API from the same public origin.
 
-Configure that exact public origin in the server's `allowed_origins`, for example `["https://ledgence.example.com"]`. The server does not infer it from proxy headers. Requests from the CLI and workers without an Origin remain supported. Loopback listeners infer their local HTTP origins when this list is empty.
+Configure that exact public origin in the server's `allowed_origins`, for example `["https://ledgence.example.com"]`. The server does not infer it from proxy headers. Requests from the CLI and workers without an Origin remain supported. Operator-trusted loopback listeners infer their local HTTP origins when this list is empty. Credential access requires exactly one explicit Console origin.
 
 Do not rewrite API failures or missing assets into HTML. The orchestrator handles supported Console navigation routes. Its content security policy permits local scripts and reviewed inline styles, without inline JavaScript or evaluation.
 
@@ -205,3 +207,9 @@ The recorded attempt and timestamp tell you when the result became durable.
 To investigate reuse, check the observations for a later attempt. An absent
 observation leaves that attempt's replay behavior unknown. Console retrieves
 payloads only when the inspector is opened.
+
+## Instance access in development
+
+Use scoped credentials with matching development components. The
+[instance access guide](/how-to/configure-instance-access) covers provisioning,
+Console identity, client files, capabilities, rotation and operating limits.

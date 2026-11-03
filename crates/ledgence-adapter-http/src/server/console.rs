@@ -4,6 +4,15 @@ use ledgence_orchestration_api::console::*;
 use ledgence_worker_api::ProgramRef;
 use serde::Deserialize;
 
+/// Validate the credential-mode browser boundary before persisting installation
+/// configuration or opening a listener. No credentials or services are accessed.
+pub fn validate_access_origin(
+    instance: &SelfHostedInstanceConfig,
+    allow_insecure: bool,
+) -> Result<()> {
+    access::validate_origin(instance, allow_insecure).map(|_| ())
+}
+
 #[derive(Clone)]
 pub struct ConsoleServices {
     pub(crate) instance: SelfHostedInstanceConfig,
@@ -12,6 +21,7 @@ pub struct ConsoleServices {
     pub(super) catalog: Option<Arc<dyn ProgramCatalogService>>,
     pub(super) publication: Option<super::publication::PublicationService>,
     observations: Option<Arc<dyn WorkerObservationService>>,
+    pub(super) access: Option<access::AccessControl>,
 }
 impl ConsoleServices {
     pub fn new(
@@ -61,8 +71,24 @@ impl ConsoleServices {
             queries,
             catalog,
             publication: None,
+            access: None,
             observations,
         })
+    }
+    /// Enable credential verification for every API route in this fixed instance.
+    /// Exactly one Console origin is required. The executable must also restrict
+    /// its listener to loopback when permitting insecure local Console access.
+    pub fn with_access(
+        mut self,
+        verifier: Arc<dyn CredentialVerifier>,
+        allow_insecure_console: bool,
+    ) -> Result<Self> {
+        self.access = Some(access::AccessControl::new(
+            verifier,
+            &self.instance,
+            allow_insecure_console,
+        )?);
+        Ok(self)
     }
     /// Enable immutable artifact uploads for this bound installation.
     pub fn with_publication(mut self, publication: super::publication::PublicationService) -> Self {
@@ -93,45 +119,51 @@ impl ConsoleServices {
         Ok(())
     }
 }
-pub(super) const ROUTES: &[(&str, &str)] = &[
-    ("/v1/console/approvals/inspect", "POST"),
-    ("/v1/console/approvals/list", "POST"),
-    ("/v1/console/approvals/inbox", "POST"),
-    ("/v1/console/approvals/decide", "POST"),
-    ("/v1/console/executions", "GET"),
-    ("/v1/console/executions/ancestry", "GET"),
-    ("/v1/console/workflows/explorer", "GET"),
-    ("/v1/console/workflows/input", "GET"),
-    ("/v1/console/attempts/observations", "GET"),
-    ("/v1/console/programs/catalog", "GET"),
-    ("/v1/console/config", "GET"),
-    ("/v1/console/tasks", "GET, POST"),
-    ("/v1/console/tasks/inspect", "GET"),
-    ("/v1/console/tasks/status", "GET"),
-    ("/v1/console/tasks/result", "GET"),
-    ("/v1/console/tasks/history", "GET"),
-    ("/v1/console/tasks/cancel", "POST"),
-    ("/v1/console/tasks/attempts", "GET"),
-    ("/v1/console/attempts/inspect", "GET"),
-    ("/v1/console/workflows", "GET, POST"),
-    ("/v1/console/workflows/inspect", "GET"),
-    ("/v1/console/workflows/status", "GET"),
-    ("/v1/console/workflows/result", "GET"),
-    ("/v1/console/workflows/cancel", "POST"),
-    ("/v1/console/workflows/events", "POST"),
-    ("/v1/console/workflows/activations", "GET"),
-    ("/v1/console/workflows/children", "GET"),
-    ("/v1/console/workflows/waits", "GET"),
-    ("/v1/console/workflows/history", "GET"),
-    ("/v1/console/workflows/local-steps", "GET"),
-    ("/v1/console/workflows/local-steps/inspect", "GET"),
-    ("/v1/console/programs", "GET"),
-    ("/v1/console/programs/versions", "GET"),
-    ("/v1/console/programs/inspect", "GET"),
-    ("/v1/console/programs/register", "POST"),
-    ("/v1/console/workers", "GET"),
-    ("/v1/console/workers/inspect", "GET"),
-    ("/v1/worker-observations", "POST"),
+pub(super) const ROUTES: &[Route] = &[
+    Route::get("/v1/console/access", Policy::Access),
+    Route::post("/v1/console/access/login", Policy::Login),
+    Route::post("/v1/console/access/logout", Policy::Logout),
+    Route::post("/v1/console/approvals/inspect", Policy::Sensitive),
+    Route::post("/v1/console/approvals/list", Policy::Sensitive),
+    Route::post("/v1/console/approvals/inbox", Policy::Metadata),
+    Route::post("/v1/console/approvals/decide", Policy::Approval),
+    Route::get("/v1/console/executions", Policy::Metadata),
+    Route::get("/v1/console/executions/ancestry", Policy::Metadata),
+    Route::get("/v1/console/workflows/explorer", Policy::Metadata),
+    Route::get("/v1/console/workflows/input", Policy::Sensitive),
+    Route::get("/v1/console/attempts/observations", Policy::Metadata),
+    Route::get("/v1/console/programs/catalog", Policy::Metadata),
+    Route::get("/v1/console/config", Policy::Metadata),
+    Route::read_write("/v1/console/tasks", Policy::Metadata, Policy::Submit),
+    Route::get("/v1/console/tasks/inspect", Policy::Sensitive),
+    Route::get("/v1/console/tasks/status", Policy::Metadata),
+    Route::get("/v1/console/tasks/result", Policy::Sensitive),
+    Route::get("/v1/console/tasks/history", Policy::Metadata),
+    Route::post("/v1/console/tasks/cancel", Policy::Control),
+    Route::get("/v1/console/tasks/attempts", Policy::Metadata),
+    Route::get("/v1/console/attempts/inspect", Policy::Metadata),
+    Route::read_write("/v1/console/workflows", Policy::Metadata, Policy::Submit),
+    Route::get("/v1/console/workflows/inspect", Policy::Metadata),
+    Route::get("/v1/console/workflows/status", Policy::Metadata),
+    Route::get("/v1/console/workflows/result", Policy::Sensitive),
+    Route::post("/v1/console/workflows/cancel", Policy::Control),
+    Route::post("/v1/console/workflows/events", Policy::Control),
+    Route::get("/v1/console/workflows/activations", Policy::Metadata),
+    Route::get("/v1/console/workflows/children", Policy::Metadata),
+    Route::get("/v1/console/workflows/waits", Policy::Metadata),
+    Route::get("/v1/console/workflows/history", Policy::Metadata),
+    Route::get("/v1/console/workflows/local-steps", Policy::Metadata),
+    Route::get(
+        "/v1/console/workflows/local-steps/inspect",
+        Policy::Sensitive,
+    ),
+    Route::get("/v1/console/programs", Policy::Metadata),
+    Route::get("/v1/console/programs/versions", Policy::Metadata),
+    Route::get("/v1/console/programs/inspect", Policy::Metadata),
+    Route::post("/v1/console/programs/register", Policy::Publish),
+    Route::get("/v1/console/workers", Policy::Metadata),
+    Route::get("/v1/console/workers/inspect", Policy::Metadata),
+    Route::post("/v1/worker-observations", Policy::Worker),
 ];
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -539,6 +571,7 @@ pub(super) async fn dispatch(
         "/v1/worker-observations" => {
             let command: WorkerObservationCommand = server.decode(bytes, maximum).await?;
             command.validate()?;
+            server.require_scope(&command.scope)?;
             let reply = console
                 .observations
                 .as_ref()
@@ -821,7 +854,9 @@ fn check_workflow(reply: &WorkflowSnapshot, scope: &Scope, id: &str) -> Result<(
     }
     reply.validate()
 }
-fn check_content_type(headers: &axum::http::HeaderMap) -> std::result::Result<(), Failure> {
+pub(super) fn check_content_type(
+    headers: &axum::http::HeaderMap,
+) -> std::result::Result<(), Failure> {
     if headers.get_all(header::CONTENT_TYPE).iter().count() != 1
         || !headers
             .get(header::CONTENT_TYPE)

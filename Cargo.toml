@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/ledgence-adapter-access",
   "crates/ledgence-worker-api",
   "crates/ledgence-worker-core",
   "crates/ledgence-adapter-artifact",
@@ -27,6 +28,9 @@ license = "MIT"
 repository = "https://github.com/Ledgence/ledgence"
 
 [workspace.dependencies]
+ledgence-adapter-access = { version = "0.7.0", path = "crates/ledgence-adapter-access" }
+getrandom = "=0.4.3"
+subtle = "=2.6.1"
 ledgence-adapter-mcp = { version = "0.7.0", path = "crates/ledgence-adapter-mcp" }
 rmcp = { version = "=3.5.0", default-features = false, features = ["server"] }
 tokio-util = { version = "=0.7.18", default-features = false, features = ["rt"] }

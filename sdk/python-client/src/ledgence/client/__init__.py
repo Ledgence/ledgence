@@ -2,7 +2,7 @@
 from ._version import __version__
 from .client import AsyncClient
 from .errors import (
-    CancellationUncertain, ClientClosed, Conflict, InputError, LedgenceError, NotFound,
+    CancellationUncertain, ClientClosed, Conflict, Forbidden, InputError, LedgenceError, NotFound, Unauthenticated,
     ProtocolError, RequestTimeout, ServiceError, SubmissionUncertain, TaskCancelled,
     TaskFailed, TransportError, Unavailable, WaitTimeout,
 )
@@ -17,7 +17,7 @@ __all__ = [
     "__version__", "AsyncClient", "TaskHandle", "Submission", "Scope", "RetryPolicy", "TraceContext",
     "TaskState", "TaskStatus", "TaskPage", "TaskResult", "Quiescence", "Succeeded", "Failed", "Cancelled",
     "ApplicationFailure", "ExecutionFailure", "AttemptLost", "ErrorDetail", "LedgenceError",
-    "InputError", "NotFound", "Conflict", "ServiceError", "TransportError", "ProtocolError",
+    "InputError", "Unauthenticated", "Forbidden", "NotFound", "Conflict", "ServiceError", "TransportError", "ProtocolError",
     "Unavailable", "RequestTimeout", "SubmissionUncertain", "CancellationUncertain",
     "WaitTimeout", "TaskFailed", "TaskCancelled", "ClientClosed",
 ]

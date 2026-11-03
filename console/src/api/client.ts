@@ -1,3 +1,9 @@
+import { requiredCapabilities } from "./access-policy";
+import {
+  accessController,
+  AccessChanged,
+  type AccessLease,
+} from "../app/access-state";
 import { consoleContractVersion, type ConsoleConfig } from "./contracts";
 import { ContractError, decodeConfig } from "./codecs";
 import { parseUserJson } from "./json";
@@ -49,6 +55,8 @@ export async function request<T>(
   expectedInstance?: string,
   command?: { body: string; maximumBytes: number },
   maximumBytes = metadataMaximumBytes,
+  access: AccessLease | null | undefined = undefined,
+  actorAssertion?: string,
 ): Promise<{ value: T; headers: Headers }> {
   if (!/^\/v1\/console\/[a-z/-]+(?:\?[^#]*)?$/.test(path))
     throw new ContractError("Invalid Console API route.");
@@ -57,6 +65,21 @@ export async function request<T>(
     new TextEncoder().encode(command.body).length > command.maximumBytes
   )
     throw new ContractError("Command exceeds the configured request limit.");
+  const lease =
+    access === null
+      ? undefined
+      : (access ?? (await accessController.ready(signal)));
+  if (lease && !lease.owner.current(lease)) throw new AccessChanged();
+  if (
+    lease &&
+    requiredCapabilities(path, !!command).some(
+      (capability) => !lease.owner.permits(capability),
+    )
+  )
+    throw new ApiError(
+      "Your credential does not permit this operation. Contact your instance administrator.",
+      403,
+    );
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new Error("Request deadline exceeded.")),
@@ -70,17 +93,33 @@ export async function request<T>(
     const response = await fetch(path, {
       signal: controller.signal,
       method: command ? "POST" : "GET",
-      headers: command
-        ? { Accept: "application/json", "Content-Type": "application/json" }
-        : { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "X-Ledgence-Console-Origin": globalThis.location.origin,
+        ...((lease?.actor ?? actorAssertion)
+          ? { "X-Ledgence-Actor": (lease?.actor ?? actorAssertion)! }
+          : {}),
+        ...(command ? { "Content-Type": "application/json" } : {}),
+      },
       ...(command ? { body: command.body } : {}),
       cache: "no-store",
       redirect: "error",
       credentials: "same-origin",
     });
     requestId = response.headers.get("Request-Id");
+    if (lease && !lease.owner.current(lease)) {
+      await response.body?.cancel();
+      throw new AccessChanged();
+    }
     if (!response.ok) {
       await response.body?.cancel();
+      if (lease && [401, 403].includes(response.status))
+        lease.owner.lock(
+          response.status === 401
+            ? "Sign in to continue."
+            : "Your access changed or this operation is not permitted.",
+          lease.epoch,
+        );
       const raw = response.headers.get("Retry-After");
       let retry = raw && /^\d+$/.test(raw) ? Number(raw) * 1000 : null;
       if (raw && retry === null) {
@@ -133,7 +172,9 @@ export async function request<T>(
         "The server returned invalid or duplicate-field JSON.",
       );
     }
-    return { value: decode(value), headers: response.headers };
+    const decoded = decode(value);
+    if (lease && !lease.owner.current(lease)) throw new AccessChanged();
+    return { value: decoded, headers: response.headers };
   } catch (error) {
     if (signal.aborted) throw error;
     if (error instanceof ContractError) {

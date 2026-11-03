@@ -380,3 +380,13 @@ Ledgence does not vendor that documentation. The release notice collector includ
 this reviewed copy and each other selected dependency's published legal files.
 No license allowlist expansion is needed. `cargo deny --locked check` and
 `tools/check-mcp-features.py` enforce policy and feature isolation.
+
+## Local credential adapter
+
+The development access adapter uses existing locked dependencies `getrandom 0.4.3` (MIT OR Apache-2.0), `sha2 0.10.9` (MIT OR Apache-2.0), and `subtle 2.6.1`
+(BSD-3-Clause) for operating-system randomness, verifiers and constant-time
+comparison. Access and HTTP credential-file readers use the existing `rustix 1.1.4`
+(Apache-2.0 OR MIT) filesystem flags on Unix. Distribution notices continue to
+include these dependencies. Core orchestration contracts expose a verifier port
+and validated principal. The implementation performs bounded in-memory checks
+on requests and loads policy at startup. [Access contract](instance-access.md).

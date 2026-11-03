@@ -1,5 +1,8 @@
 #![cfg(all(feature = "client", feature = "server"))]
 
+#[path = "contract/access.rs"]
+mod access;
+
 #[path = "contract/publication.rs"]
 mod publication;
 

@@ -1,3 +1,4 @@
+import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -157,10 +158,12 @@ export function ExecutionsPage() {
                   Refresh executions
                 </Button>
               )}
-              <Link className="button button-primary" to="/executions/new">
-                <Plus aria-hidden="true" />
-                New execution
-              </Link>
+              <Permission capability="execution_submit">
+                <Link className="button button-primary" to="/executions/new">
+                  <Plus aria-hidden="true" />
+                  New execution
+                </Link>
+              </Permission>
             </>
           )
         }
