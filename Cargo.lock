@@ -1511,7 +1511,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "ledgence-adapter-access"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "getrandom 0.4.3",
  "ledgence-orchestration-api",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-adapter-artifact"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "flate2",
  "ledgence-worker-api",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-adapter-http"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "axum",
  "getrandom 0.4.3",
@@ -1562,7 +1562,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-adapter-mcp"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-adapter-http",
  "ledgence-orchestration-api",
@@ -1577,7 +1577,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-adapter-otel"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "ledgence-worker-api",
@@ -1597,7 +1597,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-adapter-postgres"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "axum",
  "ledgence-adapter-artifact",
@@ -1620,7 +1620,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-adapter-sqs"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "aws-config",
  "aws-sdk-sqs",
@@ -1637,7 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-adapter-subprocess"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-orchestration-api",
  "ledgence-orchestration-core",
@@ -1654,7 +1654,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-cli"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-adapter-access",
  "ledgence-adapter-artifact",
@@ -1681,7 +1681,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-orchestration-api"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-worker-api",
  "serde",
@@ -1691,7 +1691,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-orchestration-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-orchestration-api",
  "ledgence-worker-api",
@@ -1701,7 +1701,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-orchestration-service"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-orchestration-api",
  "ledgence-orchestration-core",
@@ -1713,7 +1713,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-orchestrator"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "axum",
  "ledgence-adapter-access",
@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-worker"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-adapter-artifact",
  "ledgence-adapter-http",
@@ -1757,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-worker-api"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "iri-string",
  "serde",
@@ -1768,7 +1768,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-worker-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-worker-api",
  "serde",
@@ -1780,7 +1780,7 @@ dependencies = [
 
 [[package]]
 name = "ledgence-worker-delivery"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ledgence-adapter-sqs",
  "ledgence-orchestration-api",

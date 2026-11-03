@@ -65,6 +65,7 @@ export default defineConfig({
         { label: 'Configure instance access', slug: 'how-to/configure-instance-access' },
         { label: 'Inspect external effects', slug: 'how-to/inspect-effects' },
         { label: 'Inspect operator audit', slug: 'how-to/audit-operators' },
+        { label: 'Prepare the 0.8.0 upgrade', slug: 'how-to/upgrade-to-0-8' },
         { label: 'Upgrade to 0.7.0', slug: 'how-to/upgrade-to-0-7' },
         { label: 'Advanced setup', collapsed: true, items: [
           { label: 'Manual archives and native services', slug: 'how-to/manual-native-installation' },
