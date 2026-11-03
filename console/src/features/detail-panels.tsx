@@ -73,7 +73,14 @@ export function DetailPanels({
         /* Storage can be disabled. */
       }
     }
-    setParams(detailDestination(params, nextTab, nextSection), {
+    // Navigate to the complete destination so a later normalization effect
+    // cannot replace a newer tab selection with this one.
+    const destination = resolveDetailNavigation(
+      kind,
+      detailDestination(params, nextTab, nextSection),
+      preferredView,
+    ).canonical;
+    setParams(destination, {
       preventScrollReset: true,
       state: { ...location.state, restoreNavigationKey: location.key },
     });

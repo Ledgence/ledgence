@@ -1,7 +1,9 @@
 """Public workflow client behavior across the real HTTP transport."""
 import asyncio
 import json
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from aiohttp import web
 from ledgence.client import (
@@ -142,8 +144,23 @@ class WorkflowClientTests(unittest.IsolatedAsyncioTestCase):
         async def waiting(request, body): return response(snapshot("waiting"))
         self.callback = waiting
         workflow = self.client.workflows.handle("workflow")
-        with self.assertRaises(WorkflowWaitTimeout) as raised:
-            await workflow.result(timeout=.05)
+        now = asyncio.get_running_loop().time()
+        deadline = now + 10
+        clock = SimpleNamespace(time=lambda: now)
+
+        async def expire_after_observation(delay):
+            nonlocal now
+            # HTTP and decoding have completed; expire the observation budget
+            # only after wait() has retained that actual waiting status.
+            self.assertEqual(delay, 1.0)
+            self.assertEqual([r[1] for r in self.requests], ["/v1/workflows/status"])
+            now = deadline
+
+        observation_time = SimpleNamespace(
+            get_running_loop=lambda: clock, sleep=expire_after_observation)
+        with patch("ledgence.client.workflows.asyncio", observation_time):
+            with self.assertRaises(WorkflowWaitTimeout) as raised:
+                await asyncio.wait_for(workflow.result(timeout=10), 5)
         self.assertIsInstance(raised.exception, WaitTimeout)
         self.assertIs(raised.exception.workflow, workflow)
         self.assertEqual(raised.exception.last_status.state, "waiting")
@@ -175,7 +192,7 @@ class WorkflowClientTests(unittest.IsolatedAsyncioTestCase):
             return response(value)
         self.callback = handle
         with self.assertRaises(ProtocolError):
-            await self.client.workflows.handle("workflow").result(timeout=.2)
+            await asyncio.wait_for(self.client.workflows.handle("workflow").result(), 5)
         self.assertEqual(len(self.requests), 2)
 
     async def test_terminal_failure_and_cancellation_are_distinct_from_observation(self):

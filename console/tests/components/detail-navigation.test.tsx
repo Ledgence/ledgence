@@ -114,3 +114,33 @@ it("supports keyboard disclosure without mounting hidden data", async () => {
   await userEvent.keyboard(" ");
   await expect.element(input).toHaveAttribute("aria-expanded", "true");
 });
+
+it.each([
+  ["task", "?tab=General&section=input", "Trace", "attempts"],
+  ["workflow", "?tab=Trace", "General", "identity"],
+] as const)(
+  "navigates %s details from %s directly to %s",
+  async (kind, search, nextTab, section) => {
+    const { router, view } = await setup(kind, search);
+    const destinations: string[] = [];
+    let locationKey = router.state.location.key;
+    const unsubscribe = router.subscribe(({ location }) => {
+      if (location.key !== locationKey) {
+        destinations.push(location.search);
+        locationKey = location.key;
+      }
+    });
+    try {
+      await view.getByRole("button", { name: nextTab, exact: true }).click();
+      await expect.element(view.getByTestId("tab")).toHaveTextContent(nextTab);
+      expect(destinations).toHaveLength(1);
+      expect(new URLSearchParams(destinations[0]).get("tab")).toBe(nextTab);
+      expect(new URLSearchParams(destinations[0]).get("section")).toBe(section);
+      expect(router.state.location.state.returnTo).toBe(
+        "/executions?state=failed",
+      );
+    } finally {
+      unsubscribe();
+    }
+  },
+);
