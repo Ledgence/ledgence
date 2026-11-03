@@ -26,6 +26,13 @@ def parked_state(d, workflow_id, previous_key=None):
     return None
 
 
+def dispatch_grant(d, workflow_id):
+    return json.loads(d.sql(
+        "SELECT json_build_object('claimed', effect_dispatch_claimed, "
+        "'attempt_id', effect_dispatch_attempt_id) FROM workflow_approvals "
+        "WHERE wait_key='refund' AND workflow_id=" + quote(workflow_id)))
+
+
 def runtime_alive(pid, session):
     # A worker starts its own OS session. A reused PID cannot designate an
     # unrelated process for termination because this check only observes it.
@@ -71,15 +78,13 @@ async def run(d, record, records, snapshot):
 
             for key, provider in providers.items():
                 assert await asyncio.to_thread(provider.accepted.wait, 130), key
-                first, = records(d, key, "intent")
+                first, = records(d, key, "apply")
                 first_attempts[key] = first
-                assert first["owner"] == first["attempt_id"], first
                 proposal = await handles[key].approval("refund")
                 assert proposal.status == ApprovalStatus.APPROVED
                 assert proposal.resumed_activation_id == first["activation"]
-                intent, = journal(d, first["activation"])
-                assert intent["key"] == "refund-intent" and intent["output"] == first["attempt_id"], intent
-                assert intent["input"]["action"] == proposal.action.to_dict(), intent
+                assert dispatch_grant(d, handles[key].id) == {"claimed": True, "attempt_id": first["attempt_id"]}
+                assert journal(d, first["activation"]) == []
                 assert provider.census()["refunds"][0]["arguments"] == ARGUMENTS
             # Only kill our unreaped Popen child. Release the held provider replies
             # so the orphaned Python runtimes observe their closed worker transport.
@@ -110,10 +115,12 @@ async def run(d, record, records, snapshot):
 
             evidence = {}
             for key, provider in providers.items():
-                first, second = records(d, key, "intent")
+                first, second = records(d, key, "apply")
                 assert first == first_attempts[key] and first["activation"] == second["activation"]
                 assert [first["attempt"], second["attempt"]] == [1, 2]
-                assert first["attempt_id"] != second["attempt_id"] and second["owner"] == first["attempt_id"]
+                assert first["attempt_id"] != second["attempt_id"]
+                grant = dispatch_grant(d, handles[key].id)
+                assert grant == {"claimed": True, "attempt_id": first["attempt_id"]}, grant
                 initial = d.attempt(first["activation"], first["attempt_id"])
                 recovered = d.attempt(second["activation"], second["attempt_id"])
                 sessions = [attempt["lease"]["owner"]["worker_session_id"] for attempt in (initial, recovered)]
@@ -124,7 +131,7 @@ async def run(d, record, records, snapshot):
                 assert receipt["effect_key"] == key and receipt["arguments"] == ARGUMENTS, census
                 expected = {"state": "confirmed", "receipt": receipt} if key == "refund-lookup" else unknown
                 committed = journal(d, first["activation"])
-                assert len(committed) == 2 and any(row["output"] == expected for row in committed), committed
+                assert [row["output"] for row in committed] == ([expected] if key == "refund-lookup" else []), committed
                 finishes = int(d.sql(
                     "SELECT count(*) FROM workflow_activations WHERE applied_at_ms IS NOT NULL "
                     "AND convert_from(context_bytes,'UTF8')::json->>'continuation'='finish' "
@@ -133,6 +140,7 @@ async def run(d, record, records, snapshot):
                 if key == "refund-lookup":
                     assert result == expected, result
                 evidence[key] = {"workflow_id": handles[key].id, "worker_sessions": sessions,
+                                 "dispatch_grant": grant, "committed_result_count": len(committed),
                                  "send_attempt_id": first["attempt_id"], "recovery_attempt_id": second["attempt_id"],
                                  "approved_arguments": ARGUMENTS, "destination": census,
                                  "completed_continuations": finishes, "observed_outcome": expected}

@@ -484,6 +484,18 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    /// Only the call that commits the first grant may dispatch. Every later call
+    /// with live authority is lookup-only, even if the original reply was lost.
+    fn claim_approved_effect<'a>(
+        &'a self,
+        _command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "approved effect dispatch is unsupported by this adapter".into(),
+            ))
+        })
+    }
     /// Read an existing immutable proposal. Absence never grants approval.
     fn approval<'a>(
         &'a self,
@@ -624,6 +636,18 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    /// Only the call that commits the first grant may dispatch. Every later call
+    /// with live authority is lookup-only, even if the original reply was lost.
+    fn claim_approved_effect<'a>(
+        &'a self,
+        _command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "approved effect dispatch is unsupported by this adapter".into(),
+            ))
+        })
+    }
     /// Read an existing immutable proposal. Absence never grants approval.
     fn approval<'a>(
         &'a self,

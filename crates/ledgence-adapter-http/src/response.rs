@@ -166,6 +166,13 @@ impl ResponseValue for LocalResultReceipt {
     }
 }
 
+impl ResponseValue for ApprovedEffectClaimReceipt {
+    const MAX_BYTES: usize = APPROVAL_SNAPSHOT_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+
 impl ResponseValue for WorkflowForkReceipt {
     const MAX_BYTES: usize = crate::WORKFLOW_FORK_RECEIPT_MAX_BYTES;
     fn validate_values(&self) -> Result<()> {

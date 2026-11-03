@@ -15,12 +15,32 @@ type ForkRequest = (
     oneshot::Sender<Result<WorkflowForkReceipt>>,
 );
 
+type EffectClaim = (
+    ApprovedEffectClaimCommand,
+    oneshot::Sender<Result<ApprovedEffectClaimReceipt>>,
+);
+
 struct Mock {
     contexts: mpsc::UnboundedSender<ContextRequest>,
     commits: mpsc::UnboundedSender<CommitRequest>,
     forks: Option<mpsc::UnboundedSender<ForkRequest>>,
+    effect_claims: Option<mpsc::UnboundedSender<EffectClaim>>,
 }
 impl WorkflowService for Mock {
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.effect_claims
+                .as_ref()
+                .expect("unexpected approved effect claim")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
     fn fork_workflow<'a>(
         &'a self,
         command: &'a WorkflowForkCommand,
@@ -98,6 +118,7 @@ fn fixture() -> (
             contexts,
             commits,
             forks: None,
+            effect_claims: None,
         }),
         context_requests,
         commit_requests,
@@ -150,11 +171,15 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
     WorkflowOperations {
         service,
         owner: owner(),
+        workflow_id: context().workflow_id,
         processing_trace: None,
         request_timeout: config.request_timeout,
         retry_delay: config.retry_delay,
     }
 }
+
+#[path = "approved_effect_tests.rs"]
+mod approved_effect;
 
 #[path = "fork_tests.rs"]
 mod forks;

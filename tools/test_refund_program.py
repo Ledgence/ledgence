@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sdk/python"))
-from workflow_acceptance.refund_program import Refund
+from ledgence.worker.workflow import EffectOutcomeUnknown
+from workflow_acceptance.refund_program import issue_refund, lookup_refund
 
 
 class RefundResponseTests(unittest.TestCase):
@@ -46,8 +47,9 @@ class RefundResponseTests(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
 
     def execute(self, lookup):
-        return Refund(lookup).execute(provider=f"http://127.0.0.1:{self.server.server_port}",
-                                      effect_key=self.key, amount=50)
+        operation = lookup_refund if lookup else issue_refund
+        return operation(provider=f"http://127.0.0.1:{self.server.server_port}",
+                         effect_key=self.key, amount=50)
 
     def test_only_final_status_with_receipt_confirms(self):
         for lookup, status in ((False, 200), (False, 201), (True, 200)):
@@ -58,7 +60,8 @@ class RefundResponseTests(unittest.TestCase):
             with self.subTest(lookup=lookup, status=status):
                 self.status = status
                 before = len(self.requests)
-                self.assertEqual(self.execute(lookup), {"state": "unknown", "effect_key": self.key})
+                with self.assertRaises(EffectOutcomeUnknown):
+                    self.execute(lookup)
                 self.assertEqual(len(self.requests), before + 1)
                 self.assertNotEqual(self.requests[-1][1], "/elsewhere")
 
@@ -68,13 +71,29 @@ class RefundResponseTests(unittest.TestCase):
                       json.dumps({**self.receipt, "refund_id": ""}).encode()):
             with self.subTest(value=value):
                 self.body = value
-                self.assertEqual(self.execute(True), {"state": "unknown", "effect_key": self.key})
+                with self.assertRaises(EffectOutcomeUnknown):
+                    self.execute(True)
+
+    def test_duplicate_and_non_json_fields_cannot_confirm_a_refund(self):
+        valid = json.dumps(self.receipt)
+        for body in (
+            valid.replace('"effect_key":', '"effect_key": "other", "effect_key":'),
+            valid.replace('"arguments":', '"arguments": {}, "arguments":'),
+            valid.replace('"amount":', '"amount": 1, "amount":'),
+            valid.replace('"refund_id":', '"unexpected": NaN, "refund_id":'),
+        ):
+            with self.subTest(body=body):
+                self.body = body.encode()
+                with self.assertRaises(EffectOutcomeUnknown):
+                    self.execute(True)
 
     def test_incomplete_or_missing_replies_stay_unknown(self):
         self.truncate = True
-        self.assertEqual(self.execute(False), {"state": "unknown", "effect_key": self.key})
+        with self.assertRaises(EffectOutcomeUnknown):
+            self.execute(False)
         self.status = None
-        self.assertEqual(self.execute(False), {"state": "unknown", "effect_key": self.key})
+        with self.assertRaises(EffectOutcomeUnknown):
+            self.execute(False)
 
 
 if __name__ == "__main__":

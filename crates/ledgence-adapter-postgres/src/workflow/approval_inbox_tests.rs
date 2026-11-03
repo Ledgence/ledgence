@@ -255,10 +255,10 @@ async fn inbox_backfills_existing_requests_fences_decisions_and_hides_retired_ow
 async fn inbox_seek_uses_ordered_indexes_for_every_filter_combination() {
     let db = TestDb::new().await;
     let mut c = db.store.pool.acquire().await.unwrap();
-    // LIKE reuses the actual migrated column types, collation and indexes.
+    // LIKE reuses the actual migrated column types, defaults, collation and indexes.
     // Temporary metadata fixtures keep the check independent of payload cost.
     for statement in [
-        "CREATE TEMP TABLE workflow_approvals (LIKE public.workflow_approvals INCLUDING INDEXES)",
+        "CREATE TEMP TABLE workflow_approvals (LIKE public.workflow_approvals INCLUDING DEFAULTS INCLUDING INDEXES)",
         "CREATE TEMP TABLE workflow_runs(workflow_id text COLLATE \"C\" PRIMARY KEY,retiring_at_ms bigint)",
         "INSERT INTO workflow_runs SELECT 'wf_'||n,NULL FROM generate_series(1,40000) n",
         "INSERT INTO workflow_approvals(workflow_id,wait_key,snapshot_bytes,tenant_id,namespace,program_id,program_version,activation_id,action_name,action_version,created_at_ms,deadline_ms,status) SELECT 'wf_'||n,'review',convert_to('{}','UTF8'),'acme','billing','p'||(n%11),'1','a','publish','1',0,n/5,CASE WHEN n%3=0 THEN 'approved' ELSE 'pending' END FROM generate_series(1,40000) n",

@@ -53,5 +53,11 @@
     "sourceRef": "v0.7.0",
     "guide": "/reference/console#inspect-an-accepted-operation",
     "verifiedOn": "2026-11-02"
+  },
+  "approvedExternalWrites": {
+    "title": "One dispatch grant per approved external write",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/require-approval#protect-an-approved-write-in-development"
   }
 }

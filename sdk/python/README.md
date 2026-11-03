@@ -187,6 +187,21 @@ for its behavior and external authorization. Approval does not make an external
 effect exactly once: an effect can succeed before its durable local result is
 acknowledged, so use external idempotency keys or reconciliation as needed.
 
+**Development source: approved external writes.** For an approved action whose
+mutation must not be repeated by the helper, use
+`await ctx.approved_effect(dispatch, version="1", lookup=read_receipt)`.
+Only the first committed orchestrator grant permits the dispatch callback. If
+an attempt dies before the grant commits, a retry can still receive that first
+grant. After it commits, a retry without a saved result can only query the
+destination. Both callbacks
+receive the frozen approved arguments. Return a validated JSON receipt, or
+raise `EffectOutcomeUnknown` (from `ledgence.worker.workflow`) if the outcome
+is inconclusive. Disable write retries inside your own adapter and never fall back
+to `approved_local` for the same external write. See
+[the refund contract and example](../../docs/workflow-approvals.md#protect-an-approved-external-write)
+for migration, replay, and failure handling. This requires matching development
+components and is absent from the 0.7.0 packages.
+
 ## Runtime helper
 
 MIT-licensed, standard-library-only program support. The Rust worker starts the

@@ -258,6 +258,22 @@ impl WorkflowService for HttpTaskService {
             .await
         })
     }
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let expected = command.clone();
+            self.post_validated(
+                "v1/workflows/approved-effects/claim",
+                command,
+                APPROVAL_SNAPSHOT_MAX_BYTES,
+                move |reply| check_approved_effect_receipt(reply, &expected),
+            )
+            .await
+        })
+    }
     fn fork_workflow<'a>(
         &'a self,
         command: &'a WorkflowForkCommand,

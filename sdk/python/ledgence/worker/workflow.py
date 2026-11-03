@@ -41,6 +41,10 @@ class WorkflowError(Exception):
     """A workflow binding, decision, or runtime acknowledgement is invalid."""
 
 
+class EffectOutcomeUnknown(Exception):
+    """The provider cannot verify a final outcome for the approved action."""
+
+
 class OperationKind(StrEnum):
     """Semantic kind of an application-owned durable operation."""
     MODEL = "model"
@@ -61,6 +65,12 @@ def _callable_name(fn, *, label="approval"):
     if not callable(fn) or not module or not name:
         raise WorkflowError(f"{label} callable requires a stable module and qualified name")
     return _text(module + ":" + name, f"{label} callable", 512)
+
+
+def _same_callable(first, second):
+    # Repeated access to the same Python bound method creates a new wrapper.
+    return first is second or (inspect.ismethod(first) and inspect.ismethod(second)
+                               and first.__func__ is second.__func__ and first.__self__ is second.__self__)
 
 
 def _effective_arguments(fn, arguments, *, label="approval"):
@@ -646,6 +656,7 @@ class WorkflowContext:
             self._validate_wake(self._wake)
         self._approval = None
         self._approval_callable = None
+        self._approval_lookup = None
         if self._wake is not None and self._wake["kind"] == "approval":
             approval = self._wake["approval"]
             if (approval["workflow_id"] != self.workflow_id
@@ -861,7 +872,7 @@ class WorkflowContext:
         Concurrent calls sharing a key and binding share one owned execution.
         """
         if type(key) is str and key.startswith(_APPROVAL_LOCAL_PREFIX):
-            raise WorkflowError("approval local keys are reserved; use approved_local")
+            raise WorkflowError("approval local keys are reserved for approved actions")
         return self._local(key, fn, kwargs)
 
     def operation(self, key, fn, *, kind: OperationKind, version: str, arguments: dict):
@@ -877,7 +888,7 @@ class WorkflowContext:
         self._active()
         _text(key, "operation key")
         if key.startswith(_APPROVAL_LOCAL_PREFIX):
-            raise WorkflowError("approval local keys are reserved; use approved_local")
+            raise WorkflowError("approval local keys are reserved for approved actions")
         if type(kind) is not OperationKind:
             raise WorkflowError("operation kind must be an OperationKind member")
         _text(version, "operation version")
@@ -906,6 +917,61 @@ class WorkflowContext:
         a crash can occur after an effect and before its result is committed.
         Operator-trusted callable code remains responsible for its own effects.
         """
+        key, approval = self._approved_action(fn, version)
+        return self._local(key, fn, approval["action"]["arguments"])
+
+    def approved_effect(self, fn, *, lookup, version):
+        """Dispatch once on the original grant, or look up the approved action.
+
+        Use distinct, named callbacks accepting the approved keyword arguments. Only the lookup
+        callback runs on a replacement grant and it must be read-only. Return
+        provider-confirmed JSON, or raise EffectOutcomeUnknown if the outcome
+        cannot be verified. Accepted results replay without contacting the
+        orchestrator or the provider.
+        """
+        key, approval = self._approved_action(fn, version)
+        action = approval["action"]
+        lookup_name = _callable_name(lookup, label="effect lookup")
+        if lookup_name == action["name"] or _same_callable(fn, lookup):
+            raise WorkflowError("effect lookup must be separate from dispatch")
+        self._check_approved_arguments(lookup, action["arguments"])
+        if self._approval_lookup is not None and not _same_callable(self._approval_lookup, lookup):
+            raise WorkflowError("approval is already bound to a different lookup")
+        self._approval_lookup = lookup
+
+        async def invoke(**saved):
+            mode = await self._claim_approved_effect(approval["key"], action)
+            result = (fn if mode == "dispatch" else lookup)(**saved)
+            return await result if inspect.isawaitable(result) else result
+
+        # Use the same reserved occurrence key as approved_local. A changed
+        # helper, action version or lookup cannot silently reuse its result.
+        # Store the full canonical action as JSON text. Wrapping its arguments
+        # in another JSON object would exceed the journal's 64-level input
+        # limit for a valid 64-level approval, after the mutation had run.
+        action_json = _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=True).decode("utf-8")
+        binding = {"v": 1, "action_json": action_json, "lookup": lookup_name}
+        return self._bound_local(key, invoke, action["name"], binding, action["arguments"])
+
+    async def _claim_approved_effect(self, approval_key, action):
+        request = {"approval_key": approval_key, "action": action}
+        async with self._commit_lock:
+            if self._fatal is not None:
+                raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
+            try:
+                reply = await self._rpc("approved_effect.claim", request)
+                _fields(reply, {"workflow_id", "activation_id", "approval_key", "action", "disposition"})
+                if (reply["workflow_id"] != self.workflow_id or reply["activation_id"] != self.activation_id
+                        or reply["approval_key"] != approval_key or reply["disposition"] not in ("dispatch", "lookup_only")
+                        or _encode(reply["action"], MAX_APPROVAL_BYTES, 96, authoritative=True)
+                        != _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=True)):
+                    raise WorkflowError("invalid approved effect claim acknowledgement")
+            except BaseException as exc:
+                self._fatal = exc
+                raise
+        return reply["disposition"]
+
+    def _approved_action(self, fn, version):
         self._active()
         if self._approval is None:
             raise WorkflowError("this activation has no approval")
@@ -918,15 +984,19 @@ class WorkflowContext:
         # Direct action construction can omit defaults, and code can add a
         # new optional argument across deployments. Neither may introduce an
         # argument that was absent from the reviewed effective action.
-        effective = _effective_arguments(fn, action["arguments"])
-        if (_encode(effective, MAX_APPROVAL_BYTES, authoritative=True)
-                != _encode(action["arguments"], MAX_APPROVAL_BYTES, authoritative=True)):
-            raise WorkflowError("callable defaults differ from the approved effective arguments")
-        if self._approval_callable is not None and self._approval_callable is not fn:
+        self._check_approved_arguments(fn, action["arguments"])
+        if self._approval_callable is not None and not _same_callable(self._approval_callable, fn):
             raise WorkflowError("approval is already bound to a different callable")
         self._approval_callable = fn
         key = _APPROVAL_LOCAL_PREFIX + hashlib.sha256(approval["key"].encode("utf-8")).hexdigest()
-        return self._local(key, fn, action["arguments"])
+        return key, approval
+
+    @staticmethod
+    def _check_approved_arguments(fn, arguments):
+        effective = _effective_arguments(fn, arguments)
+        if (_encode(effective, MAX_APPROVAL_BYTES, authoritative=True)
+                != _encode(arguments, MAX_APPROVAL_BYTES, authoritative=True)):
+            raise WorkflowError("callable defaults differ from the approved effective arguments")
 
     def _local(self, key, fn, arguments):
         self._active()

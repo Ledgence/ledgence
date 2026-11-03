@@ -119,3 +119,26 @@ Approval, rejection, and expiry resume one logical activation. Cancellation clos
 `approved_local` accepts no replacement arguments. It checks the saved callable identity and version, uses a private copy of the approved arguments, and reuses an acknowledged local result on activation retry. The callable remains operator-trusted Python code. An external effect can succeed **before** its local result commits; use the external service's idempotency mechanism or reconcile that gap. Durable approval does not guarantee exactly-once external effects.
 
 For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflow-approvals.md).
+
+## Protect an approved write in development
+
+Suppose a payment provider accepts a refund just before the worker dies. A
+retry of `approved_local` could send it again. In development builds,
+`await ctx.approved_effect(issue_refund, version="1", lookup=find_refund)`
+asks the orchestrator for permission before making a write. Only one claim
+can permit the send. If no grant committed before the original attempt died,
+a retry can still get that first grant. After the grant commits, recovery uses
+`find_refund` with the exact approved arguments; a saved receipt replays
+without either function running.
+
+Keep `find_refund` read-only. Both callbacks should validate that the receipt
+matches the approved action. If the outcome is uncertain, raise
+`EffectOutcomeUnknown` and have the workflow stop or wait for investigation.
+A lost grant may mean no refund was sent; a missing receipt is not permission
+to try again. Disable automatic write retries inside the provider client and
+keep the same protected helper on every attempt. A fallback to `approved_local`
+or a direct call to the writer bypasses this protection.
+
+This method requires an offline migration and matching development components.
+The [source contract and example](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
+explain the upgrade and the limits. It is not in 0.7.0.

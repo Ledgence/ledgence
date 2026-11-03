@@ -33,10 +33,10 @@ from postgres_fixture import create_owned_database, owned_database_url
 from program_fixture import prepare_package
 from http_acceptance.harness import Deployment, Process, eventually, exchange, timed
 from http_acceptance.sqs import SqsDeployment, acquisition_wait
-from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, owned_scenarios, refund_scenarios
+from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, lost_grant_scenario, owned_scenarios, refund_scenarios
 
 
-SCENARIOS = ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS,refund_scenarios.SCENARIO]
+SCENARIOS = ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS,refund_scenarios.SCENARIO,lost_grant_scenario.SCENARIO]
 
 
 FIXTURE = r'''
@@ -523,6 +523,8 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
     await agent_scenarios.run(d,names,record,records)
     if refund_scenarios.SCENARIO in names:
         await refund_scenarios.run(d, record, records, snapshot)
+    if lost_grant_scenario.SCENARIO in names:
+        await lost_grant_scenario.run(d, record, snapshot)
 
 
 async def timed_scenarios(d, delay, names, record, placement_iterations=3, capture=None):
@@ -780,7 +782,7 @@ def main():
             'agent-recovery':publish(deployment,'agent-recovery',(root/'examples/agent-recovery/program.py').read_text()),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
-        if not args.scenario or refund_scenarios.SCENARIO in args.scenario:
+        if not args.scenario or {refund_scenarios.SCENARIO, lost_grant_scenario.SCENARIO}.intersection(args.scenario):
             source = (root/'tools/workflow_acceptance/refund_program.py').read_text()
             packages['refund-controller'] = publish(deployment, 'refund-controller', source)
         migration = subprocess.run([str(binaries/'ledgence'),'orchestrator','migrate'],env=deployment.environment,capture_output=True,timeout=40)

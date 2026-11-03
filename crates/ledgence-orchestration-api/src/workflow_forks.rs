@@ -97,20 +97,7 @@ pub struct WorkflowForkCommand {
 }
 impl WorkflowForkCommand {
     pub fn validate(&self) -> Result<()> {
-        self.owner.scope.validate()?;
-        if self.owner.generation == 0 {
-            return Err(ContractError::InvalidInput(
-                "lease generation must be positive".into(),
-            ));
-        }
-        for id in [
-            &self.owner.task_id,
-            &self.owner.attempt_id,
-            &self.owner.lease_id,
-            &self.owner.worker_session_id,
-        ] {
-            validate_text(id, 128)?;
-        }
+        self.owner.validate()?;
         self.fork.validate()?;
         if let Some(trace) = &self.processing_trace {
             trace.validate()?;

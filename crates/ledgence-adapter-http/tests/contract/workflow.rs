@@ -1,5 +1,12 @@
 use super::*;
 impl WorkflowService for Mock {
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move { self.reply("effect_claim", command) })
+    }
+
     fn approval<'a>(
         &'a self,
         scope: &'a Scope,
@@ -363,6 +370,9 @@ mod children;
 
 #[path = "workflow_forks.rs"]
 mod forks;
+
+#[path = "workflow_approved_effect.rs"]
+mod approved_effect;
 
 #[path = "workflow_approvals.rs"]
 mod approvals;

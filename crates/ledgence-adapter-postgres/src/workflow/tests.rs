@@ -1161,6 +1161,8 @@ async fn child_completion_and_local_receipt_do_not_hydrate_unneeded_payloads() {
 
 #[path = "approval_tests.rs"]
 mod approvals;
+#[path = "approved_effect_tests.rs"]
+mod approved_effects;
 #[path = "event_tests.rs"]
 mod events;
 
