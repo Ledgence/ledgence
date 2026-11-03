@@ -28,6 +28,18 @@ may differ from the dispatch attempt. A grant without a matching result
 opens a retention hold. Ordinary historical approvals keep their existing
 retention policy.
 
+Migration `20261103030000_retained_effect_evidence.sql` adds independent
+occurrence and evidence tables. Its offline backfill commits batches of at most
+16 approvals, preserving the original program binding and exact accepted journal
+bytes. Startup and retention maintenance refuse incomplete backfill. Confirmed rows without matching
+historical proof fail migration. Rerunning the migration resumes completed
+batches without inventing a verified worker identity for older records.
+
+Retained claims and reported results survive execution-history collection.
+This initial ledger has no automatic expiry. Include it in database capacity
+planning and backups. Unconfirmed effects keep their existing execution-retention
+hold. [Retained evidence](effect-evidence.md).
+
 If migration times out, run `ledgence orchestrator migrate` again before
 starting workers. The server checks for unfinished evidence recovery at
 startup. If an earlier cleanup already started deleting an unresolved

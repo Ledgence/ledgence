@@ -49,6 +49,7 @@ enum ReplyMode {
 }
 struct Handler {
     mode: ReplyMode,
+    evidence_v2: bool,
     calls: AtomicUsize,
     dropped: Arc<AtomicUsize>,
 }
@@ -56,6 +57,7 @@ impl Handler {
     fn new(mode: ReplyMode) -> Arc<Self> {
         Arc::new(Self {
             mode,
+            evidence_v2: false,
             calls: AtomicUsize::new(0),
             dropped: Arc::new(AtomicUsize::new(0)),
         })
@@ -68,6 +70,11 @@ impl Drop for DropNotice {
     }
 }
 impl RuntimeRequestHandler for Handler {
+    fn capabilities(&self) -> ledgence_worker_api::RuntimeCapabilities {
+        ledgence_worker_api::RuntimeCapabilities {
+            approved_effect_evidence_v2: self.evidence_v2,
+        }
+    }
     fn handle<'a>(
         &'a self,
         request: RuntimeRequest,
@@ -134,6 +141,49 @@ while True:
         assert_eq!(session.pid(), pid);
     }
     assert_eq!(handler.calls.load(Ordering::SeqCst), 4);
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn negotiated_capability_is_outer_only_and_does_not_survive_session_reuse() {
+    let (_dir, artifact, runtime) = scripted(
+        r#"
+while True:
+    i=receive()
+    if i['type']=='shutdown':
+        send(dict(v=3,type='bye'))
+        break
+    send(bound(i,'result',status='success',output=i))
+"#,
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    for enabled in [true, false, true] {
+        let mut handler = Handler::new(ReplyMode::Echo);
+        Arc::get_mut(&mut handler).unwrap().evidence_v2 = enabled;
+        let invocation = invocation("capability");
+        let reply = output(
+            session
+                .execute_with_requests(invocation.clone(), control(), handler.clone())
+                .await
+                .unwrap(),
+        );
+        assert_eq!(reply["event"], *invocation.event.value());
+        assert_eq!(
+            reply["extension"],
+            serde_json::to_value(invocation.extension).unwrap()
+        );
+        if enabled {
+            assert_eq!(
+                reply["runtime_capabilities"],
+                json!({"approved_effect_evidence_v2":true})
+            );
+        } else {
+            assert!(reply.get("runtime_capabilities").is_none());
+        }
+        assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(session.pid(), pid);
+    }
     session.close().await.unwrap();
 }
 

@@ -100,6 +100,7 @@ class AuditTests(unittest.IsolatedAsyncioTestCase):
             ("approval_inspect", {"kind": "approval", "workflow_id": "workflow", "key": "refund"}),
             ("approval_list", {"kind": "approval_page", "workflow_id": "workflow", "keys": ["refund"]}),
             ("approval_decision", {"kind": "approval", "workflow_id": "workflow", "key": "refund"}),
+            ("effect_inspect", {"kind": "effect", "workflow_id": "workflow", "activation_id": "active", "approval_key": "refund"}),
         ]
         for read, resource in variants:
             item = event(operation={"kind": "sensitive_response", "read": read, "resource": resource})

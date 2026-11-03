@@ -49,7 +49,7 @@ where
     Option::<T>::deserialize(deserializer)
 }
 #[derive(Serialize)]
-struct ConsoleApproval {
+pub(super) struct ConsoleApproval {
     workflow_id: String,
     key: String,
     activation_id: String,

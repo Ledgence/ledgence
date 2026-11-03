@@ -25,6 +25,28 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             false,
         ),
         tool(
+            "ledgence_effect_inbox",
+            "Read retained approved-effect metadata in the configured scope, most recently updated first. Requires metadata_read. Keep filters unchanged when following next_cursor; a short page can have a cursor due to the byte limit. Reports and discrepancies do not establish provider truth or authorize another dispatch.",
+            object(
+                json!({"filter":{"type":"string","enum":["all","unconfirmed","confirmed","discrepant"],"default":"all"},
+                    "workflow_id":identifier(),"cursor":effect_cursor(),"limit":limit()}),
+                &[],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_effect_inspect",
+            "Read the frozen approval binding and whole retained claim/observation entries for an exact effect occurrence. Requires credential mode and sensitive_read; the server durably audits the read before returning evidence. Follow next_cursor with the same identity even on a short page. Worker reports are attributed evidence, not independent verification of an external effect. This tool cannot resolve or redispatch effects.",
+            object(
+                json!({"workflow_id":identifier(),"activation_id":identifier(),"approval_key":identifier(),
+                    "cursor":effect_cursor(),"limit":{"type":"integer","minimum":1,"maximum":4,"default":4}}),
+                &["workflow_id", "activation_id", "approval_key"],
+            ),
+            true,
+            false,
+        ),
+        tool(
             "ledgence_program_list",
             "List registered programs in the configured installation. Kind is display metadata, not an execution permission. Follow next_cursor with the same filters.",
             object(
@@ -210,6 +232,10 @@ fn limit() -> Value {
 fn cursor() -> Value {
     json!({"type":"string","minLength":1,"description":"Opaque next_cursor from the previous response; do not construct or modify."})
 }
+fn effect_cursor() -> Value {
+    json!({"type":"string","minLength":2,"maxLength":8192,"pattern":"^(?:[0-9a-f]{2})+$",
+        "description":"Opaque next_cursor from the previous effect response; preserve it unchanged."})
+}
 fn object(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
@@ -258,7 +284,7 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 17);
+        assert_eq!(all.len(), 19);
         assert!(
             all.iter()
                 .all(|tool| tool.input_schema["additionalProperties"] == false)

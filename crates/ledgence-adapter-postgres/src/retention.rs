@@ -52,6 +52,11 @@ impl PostgresStore {
     ) -> StoreResult<RetentionProgress> {
         self.require_scope(scope)?;
         policy.validate()?;
+        // An incomplete offline schema upgrade is database-wide. The partial
+        // pending index makes this bounded; ordinary execution never checks it.
+        // In particular, an already-retiring legacy run must not lose its last
+        // journal proof before the independent retained copy commits.
+        crate::migration_effect_retained::verify_backfill(&self.pool).await?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         sqlx::query("INSERT INTO retention_turn(tenant_id,namespace,lane) VALUES($1,$2,0) ON CONFLICT DO NOTHING").bind(&scope.tenant_id).bind(&scope.namespace).execute(&mut *tx).await?;

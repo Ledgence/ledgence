@@ -156,8 +156,13 @@ the destination's idempotency protection for separate workflows acting on the
 same business request. Cancellation cannot retract an issued grant. The
 callback is responsible for validating the provider's receipt. The stored
 attempt IDs identify who obtained dispatch permission and who confirmed the
-result. The IDs alone cannot establish which callback produced a receipt. Operator
-resolution of an outcome that stays unknown is still in development.
+result. The IDs alone cannot establish which callback produced a receipt.
+Matching authenticated development workers additionally retain a verified worker
+claim and the callback mode reported by the helper. The evidence timeline
+survives collection of confirmed execution history. See the
+[retained evidence contract](effect-evidence.md) for negotiation, inspection and
+legacy provenance. Operator resolution of an outcome that stays unknown is
+still in development.
 [Retention and upgrade behavior](retention.md#unresolved-approved-writes)
 
 ## Review with the client or Console

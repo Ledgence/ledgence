@@ -15,7 +15,7 @@ impl ApplicationService {
         self
     }
 
-    fn workflows(&self) -> Result<&dyn WorkflowStore> {
+    pub(super) fn workflows(&self) -> Result<&dyn WorkflowStore> {
         self.workflows
             .as_deref()
             .ok_or_else(|| ContractError::InvalidInput("workflow support is not configured".into()))
@@ -309,6 +309,17 @@ impl ApprovedEffects for ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        self.workflows()?.approved_effect_evidence()?;
+        self.workflows()?.effect_evidence_reader()?;
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        self.workflows()?.effect_evidence_reader()?;
+        Ok(self)
+    }
+
     fn operator_access(&self) -> Result<&dyn OperatorAccess> {
         self.workflows()?.operator_access()?;
         Ok(self)

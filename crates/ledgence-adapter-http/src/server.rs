@@ -4,6 +4,7 @@
 mod access;
 mod approvals;
 mod audit;
+mod evidence;
 mod routes;
 use routes::{Policy, Route};
 pub mod assets;
@@ -221,6 +222,14 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/workflows/activations/context", Policy::Worker),
     Route::post("/v1/workflows/approved-effects/claim", Policy::Worker),
     Route::post("/v1/workflows/approved-effects/confirm", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/v2/claim", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/v2/confirm", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/v2/observe", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/inbox", Policy::Metadata),
+    Route::sensitive_post(
+        "/v1/workflows/approved-effects/inspect",
+        AuditReadKind::EffectInspect,
+    ),
     Route::post("/v1/workflows/local-results", Policy::Worker),
     Route::post("/v1/workflows/forks", Policy::Worker),
     Route::read_write("/v1/tasks", Policy::Metadata, Policy::Submit),
@@ -810,6 +819,12 @@ async fn dispatch(
         "/v1/audit/events" => 16 * 1024,
         "/v1/workflows/approved-effects/claim" => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/workflows/approved-effects/confirm" => APPROVED_EFFECT_CONFIRM_MAX_BYTES,
+        path if path.starts_with("/v1/workflows/approved-effects/v2/") => {
+            EFFECT_EVIDENCE_COMMAND_MAX_BYTES
+        }
+        "/v1/workflows/approved-effects/inbox" | "/v1/workflows/approved-effects/inspect" => {
+            EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
+        }
         path if path.starts_with("/v1/workflows/approvals/") => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,

@@ -126,6 +126,22 @@ confirmation after losing a reply. A valid reply identifies the scope,
 workflow, activation, attempt, approval and journal key. See
 [approved external writes](workflow-approvals.md#protect-an-approved-external-write).
 
+Before starting a connected worker, matching development binaries request
+`GET /v1/access`. A credentialed connection validates the worker class,
+permissions, scope and expiry. When complete v2 support is advertised, the
+connection retains the returned authority, instance and stable worker identity
+for receipt validation. The host advertises this capability per invocation,
+outside the persisted activation context.
+
+The helper then uses `approved_effect.claim.v2` and
+`approved_effect.confirm.v2`. The claim is sent once. Confirmation retries the
+same frozen command while the runtime control remains live. A replay receipt
+restores the accepted journal without calling the provider or appending an
+observation. Original v1 and 0.7.0 helpers retain their existing protocols.
+A valid legacy discovery response selects the original protocol. Invalid
+credentialed discovery prevents worker startup. V2 errors never downgrade an
+invocation. [Negotiated evidence protocol](effect-evidence.md).
+
 Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use

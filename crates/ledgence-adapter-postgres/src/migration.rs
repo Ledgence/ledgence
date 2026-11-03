@@ -93,6 +93,16 @@ impl PostgresStore {
                 }
                 other => other,
             };
+            let result = match result {
+                Ok(())
+                    if migrator
+                        .iter()
+                        .any(|m| m.version == crate::migration_effect_retained::VERSION) =>
+                {
+                    crate::migration_effect_retained::backfill(&mut connection).await
+                }
+                other => other,
+            };
             let closed = connection.close().await.map_err(database_error);
             result.and(closed)
         };

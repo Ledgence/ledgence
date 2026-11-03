@@ -71,5 +71,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/audit-operators"
+  },
+  "effectEvidence": {
+    "title": "Retained approved-effect claims and reported outcomes",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/inspect-effects"
   }
 }

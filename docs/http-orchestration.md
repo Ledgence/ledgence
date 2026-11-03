@@ -276,3 +276,12 @@ files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
 Native credential mode requires transactional verified approval attribution and
 audit before sensitive payload responses. [Operator audit](operator-audit.md).
+
+Matching development servers also expose retained approved-effect evidence.
+`POST /v1/workflows/approved-effects/v2/claim`, `/confirm` and `/observe` require
+verified worker authority. The inbox and inspect routes use their respective
+metadata and sensitive-read permissions. Inspect additionally requires durable
+operator audit, including on the Console aliases. `GET /v1/access` advertises
+v2 to credentialed workers only when the complete grouped capability exists.
+Generic integer fields remain JSON integers. Console evidence revisions and
+sequences use decimal strings. [Evidence routes and bounds](effect-evidence.md).

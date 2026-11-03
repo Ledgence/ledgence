@@ -208,3 +208,27 @@ Native credential mode and `metadata_read` authorize the metadata feed.
 A shared MCP credential records the service identity. The tool's errors remain
 distinct from a successful empty page. The portable adapter's audit tool is
 available when its `AuditReader` port is configured. [Audit contract](operator-audit.md).
+
+## Retained effect tools in development
+
+Matching development components add two read-only tools, bringing the native
+catalog with audit configured to 19 tools. These additions are not in published
+0.7.0. Both are available with `--read-only`; the startup scope and credential
+remain fixed. Tool arguments cannot override scope, identity or credentials.
+
+| Tool | Arguments and access |
+| --- | --- |
+| `ledgence_effect_inbox` | Optional `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`; default `all`), `workflow_id`, `cursor`, and `limit` (1–100; default 50). Metadata only; requires `metadata_read` in credential mode and is also available in trusted mode. |
+| `ledgence_effect_inspect` | Required `workflow_id`, `activation_id`, `approval_key`; optional `cursor` and `limit` (1–4; default 4). Uses the original effect activation from the inbox. Requires credential mode, `sensitive_read` and a successful durable audit observation before returning sensitive evidence. |
+
+The underlying HTTP response is limited to 1 MiB and contains whole entries.
+Follow `next_cursor` with the same identity or filters even if a page is short;
+a short page may have reached the byte budget. No polling or retry happens
+inside either tool. Denied or unavailable reads remain errors, not historical
+absence. Effect records remain readable after execution collection.
+
+The detail separates immutable approval binding, journal state, claim provenance
+and reported observations. Authenticated worker attribution does not verify the
+external provider's outcome. Legacy sources remain unattributed. These tools
+cannot approve, resolve or dispatch an action. See the [effect evidence
+contract](effect-evidence.md) for retention and evidence interpretation.

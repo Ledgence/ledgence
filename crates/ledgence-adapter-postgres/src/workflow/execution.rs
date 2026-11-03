@@ -133,7 +133,7 @@ pub(super) async fn append_local(
     owner: &LeaseOwner,
     record: &LocalStepRecord,
     now: u64,
-    effect: Option<(&str, &str)>,
+    effect: Option<(&str, &str, &[u8])>,
 ) -> StoreResult<()> {
     let bytes = codec::encode(record)?;
     let (count, total): (i64, i64) = sqlx::query_as("SELECT count(*)::bigint,coalesce(sum(octet_length(record_bytes)),0)::bigint FROM workflow_local_results WHERE activation_id=$1")
@@ -145,29 +145,33 @@ pub(super) async fn append_local(
     {
         return Err(invalid("local step ledger exceeds supported limit").into());
     }
-    let sql = if effect.is_some() {
-        "WITH accepted AS (
-            INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable)
-            VALUES($1,$2,$3,$4,$5,$6) RETURNING attempt_id)
-         UPDATE workflow_approvals SET effect_evidence_state='confirmed',
-                effect_confirmed_attempt_id=accepted.attempt_id FROM accepted
-         WHERE workflow_id=$7 AND wait_key=$8 AND effect_evidence_state='open'"
+    if let Some((workflow, approval, approval_bytes)) = effect {
+        let lookup = record
+            .input
+            .get("lookup")
+            .and_then(Value::as_str)
+            .ok_or(ContractError::Conflict)?;
+        let accepted:Option<bool> = sqlx::query_scalar(
+            "WITH accepted AS (
+                INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable)
+                VALUES($1,$2,$3,$4,$5,$6)
+                RETURNING activation_id=$1 AND step_key=$2 AND record_bytes=$3 AND attempt_id=$4 AND accepted_at_ms=$5 AND callable=$6 AS exact)
+             UPDATE workflow_approvals SET effect_evidence_state='confirmed',effect_confirmed_attempt_id=$4 FROM accepted
+             WHERE workflow_id=$7 AND wait_key=$8 AND effect_evidence_state='open' AND accepted.exact
+             RETURNING workflow_id=$7 AND wait_key=$8 AND effect_evidence_state='confirmed' AND effect_confirmed_attempt_id=$4 AND effect_dispatch_claimed AND effect_step_key=$2 AND effect_lookup=$9 AND snapshot_bytes=$10")
+            .bind(&owner.task_id).bind(&record.key).bind(bytes).bind(&owner.attempt_id).bind(codec::ms(now)?).bind(&record.callable)
+            .bind(workflow).bind(approval).bind(lookup).bind(approval_bytes).fetch_optional(&mut *connection).await?;
+        if accepted != Some(true) {
+            return Err(ContractError::Conflict.into());
+        }
     } else {
-        "INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable)
-         VALUES($1,$2,$3,$4,$5,$6)"
-    };
-    let mut query = sqlx::query(sql)
-        .bind(&owner.task_id)
-        .bind(&record.key)
-        .bind(bytes)
-        .bind(&owner.attempt_id)
-        .bind(codec::ms(now)?)
-        .bind(&record.callable);
-    if let Some((workflow, approval)) = effect {
-        query = query.bind(workflow).bind(approval);
-    }
-    if query.execute(&mut *connection).await?.rows_affected() != 1 {
-        return Err(ContractError::Conflict.into());
+        // Preserve the original ordinary-journal query and its cost.
+        let accepted=sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable) VALUES($1,$2,$3,$4,$5,$6)")
+            .bind(&owner.task_id).bind(&record.key).bind(bytes).bind(&owner.attempt_id).bind(codec::ms(now)?).bind(&record.callable)
+            .execute(&mut *connection).await?;
+        if accepted.rows_affected() != 1 {
+            return Err(ContractError::Conflict.into());
+        }
     }
     explorer::local(connection, owner, record, now).await?;
     Ok(())

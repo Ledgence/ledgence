@@ -491,6 +491,16 @@ pub trait WorkflowStore: Send + Sync {
         ))
     }
     /// Expose the complete protected-write protocol, or reject it before dispatch.
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence is unavailable".into(),
+        ))
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence reads are unavailable".into(),
+        ))
+    }
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         Err(ContractError::InvalidInput(
             "protected external writes are unsupported by this adapter".into(),
@@ -643,6 +653,21 @@ pub trait WorkflowService: Send + Sync {
         ))
     }
     /// Expose the complete protected-write protocol, or reject it before dispatch.
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence is unavailable".into(),
+        ))
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence reads are unavailable".into(),
+        ))
+    }
+    fn effect_evidence_client(&self) -> Result<&dyn EffectEvidenceClient> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence transport is unavailable".into(),
+        ))
+    }
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         Err(ContractError::InvalidInput(
             "protected external writes are unsupported by this adapter".into(),

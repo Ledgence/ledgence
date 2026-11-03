@@ -124,3 +124,12 @@ Approval acceptance events survive execution cleanup and have no automatic
 expiry in this increment. Plan storage for accumulated acceptance evidence and
 repeated payload reads. Database administrators remain trusted. These records
 provide durable application evidence without cryptographic nonrepudiation.
+
+## Retained effect inspection
+
+The development evidence inspector uses `effect_inspect` and an `effect` resource
+containing the workflow ID, original activation ID and approval key. Sensitive
+inspection requires configured credentials, `sensitive_read` and durable audit
+before either generic or Console response bytes are released. Worker claims and
+reported callback results have their own evidence provenance.
+[Retained effect evidence](effect-evidence.md).

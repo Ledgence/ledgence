@@ -62,6 +62,7 @@ export default defineConfig({
         { label: 'Manage the local stack', slug: 'how-to/run-local-distribution' },
         { label: 'Configure observability', slug: 'how-to/configure-observability' },
         { label: 'Configure instance access', slug: 'how-to/configure-instance-access' },
+        { label: 'Inspect external effects', slug: 'how-to/inspect-effects' },
         { label: 'Inspect operator audit', slug: 'how-to/audit-operators' },
         { label: 'Upgrade to 0.7.0', slug: 'how-to/upgrade-to-0-7' },
         { label: 'Advanced setup', collapsed: true, items: [

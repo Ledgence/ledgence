@@ -4,6 +4,9 @@ mod approval_inbox;
 mod approvals;
 pub(crate) mod approved_effects;
 mod data;
+mod effect_evidence;
+mod effect_reads;
+pub(crate) mod effect_retained;
 mod execution;
 pub(crate) mod explorer;
 mod external;
@@ -37,6 +40,14 @@ impl ApprovedEffects for PostgresStore {
 }
 
 impl WorkflowStore for PostgresStore {
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        self.audit_audience()?;
+        Ok(self)
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        Ok(self)
+    }
+
     fn operator_access(&self) -> Result<&dyn OperatorAccess> {
         self.audit_audience()?;
         Ok(self)

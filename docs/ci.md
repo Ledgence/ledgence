@@ -22,7 +22,7 @@ is split into independent jobs:
 | SQS adapter conformance | The existing ignored adapter acceptance test against ElasticMQ |
 | `http` | Separate-process delivery using the default-feature CLI, including worker crashes and connectivity failures |
 | `sqs` | PostgreSQL, HTTP and Python delivery through ElasticMQ with the default acquisition wait and production lease durations |
-| `api` | OTel, MCP, installed Python client, durable completion callbacks, and the fulfillment workflow example |
+| `api` | OTel, MCP, installed Python client, instance credentials, operator audit, retained-effect recovery, durable completion callbacks, and the fulfillment workflow example |
 | `workflows-integrated` | Complete workflow checkpoint, ownership, fork/join, approval and agent recovery suite with integrated delivery |
 | `workflows-sqs` | The same complete workflow suite with ElasticMQ delivery |
 | `workflows-tracing` | Events, owned workflow trees and mixed forks, with assertions on their exported trace relationships |

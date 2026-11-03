@@ -78,3 +78,13 @@ queries. All three operations are required by native credential mode.
 Existing approval commands and worker continuation schemas remain unchanged.
 `AuditReader` is the separate read-only client port for authenticated remote
 queries. [Operator audit contract](https://github.com/Ledgence/ledgence/blob/develop/docs/operator-audit.md).
+
+Development builds add the optional grouped `ApprovedEffectEvidence` port for
+verified claims, confirmation and separate observations. Implement all three
+methods together. `EffectEvidenceClient` carries the portable commands across
+a remote boundary. `EffectEvidenceReader` provides bounded inbox and inspection
+queries over retained occurrences and immutable entries. Existing workflow-store
+adapters remain source-compatible through default unavailable capability hooks.
+The retained ledger preserves claims and reported results after execution
+history is collected. Its identity, replay and legacy-proof rules are described
+in the [evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).

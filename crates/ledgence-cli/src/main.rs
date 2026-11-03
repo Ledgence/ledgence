@@ -17,7 +17,9 @@ mod telemetry;
 
 use args::{Command, Operation};
 use ledgence_adapter_http::HttpTaskService;
-use ledgence_orchestration_api::{AuditReader, ContractError, Result, TaskService};
+use ledgence_orchestration_api::{
+    AuditReader, ContractError, EffectEvidenceReader, Result, TaskService,
+};
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -75,6 +77,7 @@ fn run_admin(mut arguments: Vec<String>) -> ExitCode {
         Err(error) => return diagnose(error, None),
     };
     let (server, operation) = match command {
+        Command::Effect { server, operation } => (server, RunOperation::Effect(operation)),
         Command::Audit { server, query } => (server, RunOperation::Audit(query)),
         Command::Approval { server, operation } => (server, RunOperation::Approval(operation)),
         Command::Task { server, operation } => (server, RunOperation::Task(operation)),
@@ -129,6 +132,7 @@ fn run_admin(mut arguments: Vec<String>) -> ExitCode {
 }
 
 enum RunOperation {
+    Effect(args::EffectOperation),
     Audit(ledgence_orchestration_api::AuditQuery),
     Approval(args::ApprovalOperation),
     Task(Operation),
@@ -165,6 +169,12 @@ fn run_task(
     };
     let result = runtime.block_on(async {
         match operation {
+            RunOperation::Effect(args::EffectOperation::Inbox(query)) => {
+                encode(client.effect_inbox(&query).await?)
+            }
+            RunOperation::Effect(args::EffectOperation::Inspect(query)) => {
+                encode(client.inspect_effect(&query).await?)
+            }
             RunOperation::Audit(query) => encode(client.query_audit(&query).await?),
             RunOperation::Approval(operation) => approvals::execute(&client, operation).await,
             RunOperation::Task(operation) => execute(&client, operation).await,

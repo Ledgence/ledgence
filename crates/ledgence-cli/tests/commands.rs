@@ -830,3 +830,123 @@ async fn audit_query_validates_scope_and_exact_acceptance_without_retry() {
         exchange.await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn effect_inbox_uses_existing_credentials_and_preserves_exact_metadata_in_stdout() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let directory = tempfile::tempdir().unwrap();
+    let credential = directory.path().join("operator.json");
+    std::fs::write(
+        &credential,
+        serde_json::to_vec(&json!({"server":server,"token":"effect-operator-token"})).unwrap(),
+    )
+    .unwrap();
+    let response = json!({"items":[{"occurrence":{"scope":{"tenant_id":"tenant","namespace":"billing"},
+        "workflow_id":"workflow","activation_id":"original","approval_key":"refund"},
+        "program":{"id":"refund","version":"1"},"callable":"program:refund","action_version":"1",
+        "dispatch_provenance":{"kind":"legacy_fence"},"journal_state":"unconfirmed","has_discrepancy":true,
+        "entry_count":18446744073709551614_u64,"effect_revision":18446744073709551615_u64,"created_at":0,"updated_at":15}],"next_cursor":null});
+    let expected = response.clone();
+    let exchange = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let (headers, body) = request(&mut socket).await;
+        assert!(headers.starts_with("POST /v1/workflows/approved-effects/inbox HTTP/1.1\r\n"));
+        assert!(
+            headers
+                .to_ascii_lowercase()
+                .contains("authorization: bearer effect-operator-token\r\n")
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"scope":{"tenant_id":"tenant","namespace":"billing"},
+            "filter":"discrepant","workflow_id":"workflow","cursor":null,"limit":100})
+        );
+        respond(&mut socket, "200 OK", &response.to_string()).await;
+    });
+    let output = invoke(&[
+        "effect",
+        "inbox",
+        "--server",
+        &server,
+        "--tenant",
+        "tenant",
+        "--namespace",
+        "billing",
+        "--filter",
+        "discrepant",
+        "--workflow",
+        "workflow",
+        "--limit",
+        "100",
+        "--credentials-file",
+        credential.to_str().unwrap(),
+    ])
+    .await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        expected
+    );
+    assert_eq!(diagnostic(&output), json!({"request_id":"req-cli-test"}));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("effect-operator-token"));
+    exchange.await.unwrap();
+}
+
+#[tokio::test]
+async fn effect_inspect_is_read_only_and_denied_reads_are_operational_failures() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let query = ledgence_orchestration_api::EffectInspectQuery {
+        occurrence: ledgence_orchestration_api::EffectOccurrence {
+            scope: ledgence_orchestration_api::Scope {
+                tenant_id: "tenant".into(),
+                namespace: "billing".into(),
+            },
+            workflow_id: "workflow".into(),
+            activation_id: "original".into(),
+            approval_key: "refund".into(),
+        },
+        cursor: None,
+        limit: 4,
+    };
+    let cursor = query.next_cursor(u64::MAX - 1).unwrap();
+    let expected_cursor = cursor.clone();
+    let exchange = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let (headers, body) = request(&mut socket).await;
+        assert!(headers.starts_with("POST /v1/workflows/approved-effects/inspect HTTP/1.1\r\n"));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"occurrence":query.occurrence,"cursor":expected_cursor,"limit":4})
+        );
+        respond(&mut socket, "403 Forbidden", "{\"code\":\"forbidden\"}").await;
+    });
+    let output = invoke(&[
+        "effect",
+        "inspect",
+        "--server",
+        &server,
+        "--tenant",
+        "tenant",
+        "--namespace",
+        "billing",
+        "--workflow",
+        "workflow",
+        "--activation",
+        "original",
+        "--key",
+        "refund",
+        "--cursor",
+        &cursor,
+    ])
+    .await;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(diagnostic(&output)["error"]["code"], "forbidden");
+    exchange.await.unwrap();
+}

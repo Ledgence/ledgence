@@ -615,6 +615,70 @@ original receipt after credential rotation; a changed actor cannot take ownershi
 of that receipt. Historical decisions accepted without audit remain unattributed
 after an otherwise valid identical replay.
 
+## Retained effect evidence (development)
+
+Matching development clients and servers expose `client.effects`. These APIs
+are not included in published 0.7.0. They inspect retained evidence from approved
+external-effect execution, including records whose original execution has been
+collected. They cannot dispatch, approve, resolve, or retry an effect.
+
+With an open, scoped `AsyncClient`, find an occurrence and inspect its original
+effect activation:
+
+```python
+from ledgence.client import EffectFilter, EffectObservationEntry
+
+# Metadata only: unconfirmed, confirmed, discrepant, or all (the default).
+page = await client.effects.inbox(filter=EffectFilter.UNCONFIRMED, limit=20)
+for item in page.items:
+    print(item.occurrence.workflow_id, item.journal_state, item.has_discrepancy)
+
+if page.items:
+    occurrence = page.items[0].occurrence
+    evidence = await client.effects.inspect(
+        workflow_id=occurrence.workflow_id,
+        activation_id=occurrence.activation_id,
+        approval_key=occurrence.approval_key,
+    )
+    print(evidence.binding.approval.action.name)
+    for entry in evidence.entries:
+        if isinstance(entry, EffectObservationEntry):
+            print(entry.sequence, entry.source.kind, entry.output)
+```
+
+`inbox(filter=EffectFilter.ALL, workflow_id=None, cursor=None, limit=50)` returns
+an `EffectInboxPage`. `limit` ranges from 1 through 100. It uses the client's
+scope, optionally restricts one workflow and orders by most recent update, then
+byte-ordered occurrence identity. `discrepant` selects differing reports; it is
+independent of the journal being confirmed. Metadata reads need `metadata_read`
+in credential mode; the trusted deployment mode can also read this metadata.
+
+`inspect(workflow_id=..., activation_id=..., approval_key=..., cursor=None,
+limit=4)` returns an `EffectEvidenceDetail` with the frozen binding, current
+summary and up to four whole entries, ordered by sequence. Supply the occurrence
+from the inbox, including its original effect activation. Sensitive inspection
+requires credential mode, `sensitive_read`, and a working durable audit sink.
+The server records `AuditReadKind.EFFECT_INSPECT` with an `AuditEffect` resource
+before returning evidence. Trusted mode without audit cannot expose the detail.
+Authentication, permission, missing-record and unavailable errors propagate;
+none is an empty result.
+
+Both response types have a 1 MiB bound. A byte-limited page can contain fewer
+than `limit` items and still have `next_cursor`. Pass that opaque cursor with the
+same filters or occurrence until it is `None`. Do not use page length to decide
+whether reading is complete. Inbox pagination is a current view, not a frozen
+snapshot across requests; concurrent updates may move occurrences.
+
+Returned models are frozen. `.output` supplies an independent copy of each
+reported application JSON value, preserving integers through `u64::MAX` without
+converting them to floats. Claims and `verified_worker_claim` sources identify
+the authenticated worker credential, callback and ingress (`live_confirm` or
+`late_observe`); this is worker attribution, not provider verification. Historical
+`legacy_attempt`, `legacy_fence` and `legacy_journal` sources remain explicitly
+unattributed. A confirmed journal is Ledgence's recorded execution result, not
+proof of exactly-once provider effects. Private lease owners and frozen worker
+commands are never returned. See the [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
 ## Local verification
 
 The repository's [package verification gate](https://github.com/Ledgence/ledgence/blob/main/tools/check-python-client.py)

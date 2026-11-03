@@ -122,6 +122,7 @@ pub enum AuditReadKind {
     ApprovalInspect,
     ApprovalList,
     ApprovalDecision,
+    EffectInspect,
 }
 impl AuditReadKind {
     fn matches(self, resource: &AuditResource) -> bool {
@@ -139,6 +140,7 @@ impl AuditReadKind {
                     AuditResource::Approval { .. }
                 )
                 | (Self::ApprovalList, AuditResource::ApprovalPage { .. })
+                | (Self::EffectInspect, AuditResource::Effect { .. })
         )
     }
 }
@@ -151,6 +153,11 @@ pub enum AuditResourceKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditResource {
+    Effect {
+        workflow_id: String,
+        activation_id: String,
+        approval_key: String,
+    },
     Task {
         task_id: String,
     },
@@ -178,12 +185,21 @@ impl AuditResource {
             Self::Workflow { workflow_id }
             | Self::LocalStep { workflow_id, .. }
             | Self::Approval { workflow_id, .. }
-            | Self::ApprovalPage { workflow_id, .. } => (AuditResourceKind::Workflow, workflow_id),
+            | Self::ApprovalPage { workflow_id, .. }
+            | Self::Effect { workflow_id, .. } => (AuditResourceKind::Workflow, workflow_id),
         }
     }
     pub fn validate(&self) -> Result<()> {
         validate_text(self.target().1, 128)?;
         match self {
+            Self::Effect {
+                activation_id,
+                approval_key,
+                ..
+            } => {
+                validate_text(activation_id, 128)?;
+                validate_text(approval_key, 128)?;
+            }
             Self::LocalStep {
                 activation_id,
                 step_key,

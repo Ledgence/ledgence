@@ -67,6 +67,9 @@ On `develop`, [instance access](docs/instance-access.md) adds scoped operator,
 service and worker credentials across the API, CLI, Python, MCP and Console.
 Native credential mode adds [verified decision attribution and operator audit](docs/operator-audit.md),
 with a payload-free feed available through the API, CLI, Python, MCP and Console.
+[Retained effect evidence](docs/effect-evidence.md) records worker claims and reported
+results independently of execution-history retention, with bounded inspection
+through the API, CLI, Python and MCP.
 
 ### Install and start Ledgence
 

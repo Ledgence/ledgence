@@ -51,6 +51,7 @@ class AsyncClient:
         from .workflows import Workflows
         from .completions import Completions
         from .audit import Audit
+        from .effects import Effects
         self._base_url = _endpoint(base_url)
         if token is not None and credentials_file is not None:
             raise InputError("use token or credentials_file, never both")
@@ -65,6 +66,7 @@ class AsyncClient:
         self.workflows = Workflows(self)
         self.completions = Completions(self)
         self.audit = Audit(self)
+        self.effects = Effects(self)
         self._transport: _Transport | None = None
         self._closed = False
 

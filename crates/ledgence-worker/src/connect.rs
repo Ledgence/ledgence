@@ -113,6 +113,19 @@ pub async fn run(
     trace: Arc<dyn TraceBridge>,
 ) -> Result<()> {
     let client = Arc::new(config.client.clone().with_trace_bridge(trace.clone()));
+    // Authenticate and negotiate before any broker, session or runtime exists.
+    let effect_access = {
+        let discovered = client.discover_worker(&config.scope);
+        tokio::pin!(discovered);
+        tokio::select! {
+            result = &mut discovered => result.map_err(contract_error)?,
+            signal = signals.recv() => {
+                signal?;
+                *interrupted = true;
+                return Err(Error::new(ErrorKind::Cancelled, "worker discovery interrupted"));
+            }
+        }
+    };
     let broker_source = prepare_broker(&config, client.clone(), signals, interrupted).await?;
     // Reporting has its own bounded JSON executor and connection pool, so a slow
     // observation exchange cannot consume execution-control admission.
@@ -157,9 +170,14 @@ pub async fn run(
     }
     let mut driver = DeliveryDriver::new(worker, client.clone(), delivery_config)
         .map_err(contract_error)?
-        .with_workflows(client)
+        .with_workflows(client.clone())
         .with_observation_publisher(observation_client, display_name)
         .map_err(contract_error)?;
+    if let Some(access) = effect_access {
+        driver = driver
+            .with_effect_evidence(access.audience, access.identity)
+            .map_err(contract_error)?;
+    }
     if let Some(source) = broker_source {
         driver = driver.with_acquisition_source(source);
     }

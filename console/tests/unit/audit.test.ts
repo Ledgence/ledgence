@@ -160,3 +160,35 @@ it("audit discovery defaults absent to false semantics and changes invalidate pr
   );
   expect(controller.getSnapshot().view).not.toBe(original);
 });
+
+it("binds effect inspection to one exact workflow occurrence", () => {
+  const event = {
+    ...acceptanceEvent(),
+    operation: {
+      kind: "sensitive_response",
+      read: "effect_inspect",
+      resource: {
+        kind: "effect",
+        workflow_id: "workflow",
+        activation_id: "activation",
+        approval_key: "refund",
+      },
+    },
+  };
+  expect(auditEvent(event).operation).toEqual(event.operation);
+  expect(() =>
+    auditEvent({
+      ...event,
+      operation: { ...event.operation, read: "approval_inspect" },
+    }),
+  ).toThrow();
+  expect(() =>
+    auditEvent({
+      ...event,
+      operation: {
+        ...event.operation,
+        resource: { ...event.operation.resource, owner: {} },
+      },
+    }),
+  ).toThrow();
+});

@@ -137,10 +137,10 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 77);
+        assert_eq!(routes.len(), 84);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
-            77
+            84
         );
         let mut methods = 0;
         let mut audited = 0;
@@ -164,8 +164,8 @@ mod tests {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 80);
-        assert_eq!(audited, 14);
+        assert_eq!(methods, 87);
+        assert_eq!(audited, 16);
     }
     #[test]
     fn payload_worker_and_mixed_method_policies_are_explicit() {
