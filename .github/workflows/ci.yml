@@ -26,6 +26,12 @@ jobs:
     name: Rust and Python (${{ matrix.os }}, ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      # Fresh hosted jobs validate several feature graphs in one target directory.
+      # Keep filename/line backtraces while bounding intermediate build storage.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +64,8 @@ jobs:
         run: python tools/check-boundaries.py
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
+      - name: Report available build disk
+        run: df -h .
       - name: Check Rust warnings
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Check isolated HTTP adapter features
@@ -71,7 +79,10 @@ jobs:
       - name: Test Rust and real subprocess execution
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
-        run: cargo test --workspace --all-targets --all-features --locked
+        run: |
+          df -h .
+          du -sh target
+          cargo test --workspace --all-targets --all-features --locked
       - name: Check Codex descendant cleanup without model requests
         if: matrix.python == '3.13'
         run: |
@@ -105,6 +116,12 @@ jobs:
             --target "$RUNNER_TEMP/ledgence-python-otel" -r sdk/python/tests/otel-requirements.txt
           LEDGENCE_PYTHON_OTEL_TEST_PACKAGES="$RUNNER_TEMP/ledgence-python-otel" \
             python -m unittest discover -s sdk/python/tests -v
+
+      - name: Report final build disk usage
+        if: always()
+        run: |
+          df -h .
+          if [ -d target ]; then du -sh target; fi
 
   python-client:
     name: Installed Python packages (${{ matrix.os }}, ${{ matrix.python }})

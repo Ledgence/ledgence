@@ -47,6 +47,15 @@ workspace outputs or generated SQLx metadata. A cache hit never replaces a build
 or test. PostgreSQL qualification still cleans the adapter before generating fresh
 query metadata against the database.
 
+The Rust/Python matrix builds several isolated feature selections in each hosted
+job. Its development and test builds disable incremental compilation and use
+`line-tables-only` debug information to reduce temporary disk use. Backtraces
+retain source filenames and line numbers. The normal debug assertions, integer
+overflow checks and complete test/feature matrix still run. Job logs report free
+disk before compilation and testing, plus the final target-directory size when
+the runner reaches cleanup. These settings are scoped to this CI matrix job.
+[Cargo profile settings](https://doc.rust-lang.org/cargo/reference/profiles.html).
+
 ## Timing evidence
 
 HTTP and workflow acceptance retain `timings.jsonl` beside `results.json` and
