@@ -168,7 +168,38 @@ def cached_index_entry(content, package):
     return None
 
 
-def fixture_registry(output, target, packages):
+def cached_archive(cargo_homes, dependency):
+    filename = f"{dependency['name']}-{dependency['version']}.crate"
+    return next((path for home in cargo_homes
+                 for path in sorted((home / 'registry/cache').glob('*/' + filename))
+                 if digest(path.read_bytes()) == dependency['checksum']), None)
+
+
+def prefetch_archive(output, toolchain, dependency, log):
+    directory = output / 'archive-prefetch'
+    directory.mkdir(exist_ok=True)
+    working = directory / 'empty'
+    working.mkdir(exist_ok=True)
+    require(not any((parent / 'Cargo.toml').exists() for parent in (working, *working.parents)),
+            'archive prefetch must run outside every Cargo workspace')
+    require(not any(working.iterdir()), 'archive prefetch working directory must be empty')
+    cargo_home = directory / 'cargo-home'
+    environment = dict(os.environ, CARGO_HOME=str(cargo_home))
+    command = ['cargo', '+' + toolchain, 'info', f"{dependency['name']}@{dependency['version']}",
+               '--registry', 'crates-io', '--color', 'never']
+    # Cargo info downloads this exact package, not its dependency closure.
+    # It rejects --locked outside a workspace. This deliberately manifest-free
+    # prefetch cannot rewrite a lock; the packaged checksum remains authoritative.
+    with log.open('a') as stream:
+        stream.write(json.dumps(command) + '\n')
+        stream.flush()
+        subprocess.run(command, cwd=working, env=environment, stdout=stream,
+                       stderr=subprocess.STDOUT, timeout=120, check=True)
+    require(not any(working.iterdir()), 'archive prefetch created unexpected project files')
+    return cargo_home, command
+
+
+def fixture_registry(output, target, packages, toolchain):
     registry = output / 'fixture-registry'
     shutil.copytree(target / 'package' / 'tmp-registry', registry)
     cargo_home = Path(os.environ.get('CARGO_HOME', Path.home() / '.cargo')).resolve()
@@ -180,16 +211,25 @@ def fixture_registry(output, target, packages):
                 require(identity not in dependencies or dependencies[identity] == dependency,
                         'packaged dependency locks disagree')
                 dependencies[identity] = dependency
+    prefetch_home = output / 'archive-prefetch/cargo-home'
+    cargo_homes = (cargo_home, prefetch_home)
+    fetch_log = output / 'cargo-archive-prefetch.log'
+    fetch_log.write_text('Only missing exact packaged dependencies are prefetched through Cargo.\n')
+    fetched = []
     entries = {}
     for (name, version), dependency in sorted(dependencies.items()):
         filename = f'{name}-{version}.crate'
-        cached = [p for p in sorted((cargo_home / 'registry/cache').glob('*/' + filename))
-                  if digest(p.read_bytes()) == dependency['checksum']]
-        require(cached, f'exact locked archive missing from Cargo cache: {filename}')
-        shutil.copyfile(cached[0], registry / filename)
+        cached = cached_archive(cargo_homes, dependency)
+        if cached is None:
+            _, command = prefetch_archive(output, toolchain, dependency, fetch_log)
+            fetched.append({'name': name, 'version': version, 'checksum': dependency['checksum'],
+                            'command': command})
+            cached = cached_archive(cargo_homes, dependency)
+        require(cached is not None, f'exact locked archive missing from Cargo cache after prefetch: {filename}')
+        shutil.copyfile(cached, registry / filename)
         relative = index_path(name)
-        candidates = sorted((cargo_home / 'registry/index').glob('*/.cache/' + relative))
-        candidates += sorted((cargo_home / 'registry/index').glob('*/' + relative))
+        candidates = [path for home in cargo_homes for pattern in ('*/.cache/', '*/')
+                      for path in sorted((home / 'registry/index').glob(pattern + relative))]
         entry = next((found for p in candidates if (found := cached_index_entry(p.read_bytes(), dependency))), None)
         require(entry is not None, f'exact locked index entry missing from Cargo cache: {filename}')
         entries.setdefault(relative, []).append(entry)
@@ -204,11 +244,14 @@ def fixture_registry(output, target, packages):
     for name in APIS:
         require(inventory[f"{name}-{packages[name]['version']}.crate"] == packages[name]['sha256'],
                 'fixture API archive differs from qualified bytes')
-    return registry, config, inventory
+    return registry, config, inventory, {
+        'packages': fetched, 'log_sha256': digest(fetch_log.read_bytes()),
+        'strategy': 'Missing exact registry archives only, using pinned Cargo info in an isolated manifest-free directory; every archive and index entry must match the packaged lock checksum.',
+    }
 
 
 def standalone_checks(output, target, packages, version, toolchain):
-    registry, config, registry_archives = fixture_registry(output, target, packages)
+    registry, config, registry_archives, prefetch = fixture_registry(output, target, packages, toolchain)
     standalone = output / 'standalone'
     standalone.mkdir()
     result = {}
@@ -264,8 +307,8 @@ def standalone_checks(output, target, packages, version, toolchain):
                         'resolved_manifests': {p['name'] + '@' + p['version']: p['manifest_path'] for p in metadata['packages']},
                         'commands': commands, 'source_bytes_unchanged': True, 'documentation_features': 'default',
                         'declared_features': packages[name]['manifest'].get('features', {})}
-    return {'packages': result, 'registry_archives': registry_archives,
-            'scope': 'Prepublication fixture registry seeded from Cargo temporary-registry archives plus exact locked cached dependencies; not a claim of registry publication. No path patches or manifest edits.'}
+    return {'packages': result, 'registry_archives': registry_archives, 'archive_prefetch': prefetch,
+            'scope': 'Prepublication fixture registry seeded from Cargo temporary-registry archives plus exact locked dependencies, prefetched through Cargo when absent; not a claim of registry publication. No path patches or manifest edits.'}
 
 
 def qualify(args):
