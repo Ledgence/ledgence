@@ -221,10 +221,15 @@ async def handle(event):
         return ctx.complete('unavailable')
 """
         messages = []
-        for i, manifest in enumerate((FEATURES, {"v": 1, "supported": ["future.feature"]}, None)):
+        for i, (manifest, evidence) in enumerate((
+            (FEATURES, True),
+            ({"v": 1, "supported": ["future.feature"]}, False),
+            (None, True),
+        )):
             message = self.invocation(str(i))
             message["event"]["data"] = {"occurrence": occurrence()}
-            message["runtime_capabilities"] = {"approved_effect_evidence_v2": True}
+            if evidence:
+                message["runtime_capabilities"] = {"approved_effect_evidence_v2": True}
             if manifest is not None:
                 message["runtime_features"] = manifest
             messages.append(message)

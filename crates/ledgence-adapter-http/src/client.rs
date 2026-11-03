@@ -3,7 +3,7 @@ mod access;
 mod audit;
 mod evidence;
 mod provider;
-pub use access::WorkerEffectAccess;
+pub use access::{WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess};
 mod credentials;
 pub use credentials::HttpCredentials;
 mod catalog;

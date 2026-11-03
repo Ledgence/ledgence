@@ -93,13 +93,6 @@ fn fixture() -> (ProviderProbeReportCommand, EffectAccess, DeliveryConfig) {
             issuer: "worker-issuer".into(),
             subject: "worker".into(),
         },
-        features: RuntimeFeatures {
-            v: 1,
-            supported: vec![
-                "native_effect_resolution.v1".into(),
-                "provider_operation.v1".into(),
-            ],
-        },
     };
     let mut config = DeliveryConfig::new(scope, "probes");
     config.retry_delay = Duration::from_millis(1);

@@ -146,6 +146,7 @@ pub struct DeliveryDriver {
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     effect_access: Option<Arc<EffectAccess>>,
+    runtime_features: ledgence_worker_api::RuntimeFeatures,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
     observations: Option<observations::ObservationReporting>,
@@ -168,6 +169,7 @@ impl DeliveryDriver {
             service,
             workflows: None,
             effect_access: None,
+            runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
             config,
             observations: None,
         })
@@ -212,16 +214,14 @@ impl DeliveryDriver {
                 ContractError::Unavailable("effect evidence requires workflow delivery".into())
             })?
             .effect_evidence_client()?;
-        self.effect_access = Some(Arc::new(EffectAccess {
-            audience,
-            identity,
-            features: ledgence_worker_api::RuntimeFeatures::default(),
-        }));
+        self.effect_access = Some(Arc::new(EffectAccess { audience, identity }));
         Ok(self)
     }
 
     /// Use only the features authenticated by this worker connection's startup
     /// discovery. Merely implementing a client trait does not establish support.
+    /// Generic features do not confer effect authority; known effect features
+    /// require an effect binding attached before this call.
     pub fn with_runtime_features(
         mut self,
         features: ledgence_worker_api::RuntimeFeatures,
@@ -229,12 +229,22 @@ impl DeliveryDriver {
         features
             .validate()
             .map_err(|_| ContractError::InvalidInput("invalid runtime features".into()))?;
-        let access = self.effect_access.as_mut().ok_or_else(|| {
-            ContractError::Unavailable(
-                "runtime features require authenticated effect evidence".into(),
-            )
-        })?;
-        Arc::make_mut(access).features = features;
+        if features.native_effect_resolution() && self.effect_access.is_none() {
+            return Err(ContractError::Unavailable(
+                "native effect features require authenticated effect evidence".into(),
+            ));
+        }
+        if features.provider_operation() {
+            self.workflows
+                .as_ref()
+                .ok_or_else(|| {
+                    ContractError::Unavailable(
+                        "provider operations require workflow delivery".into(),
+                    )
+                })?
+                .provider_operation_client()?;
+        }
+        self.runtime_features = features;
         Ok(self)
     }
 
@@ -313,6 +323,7 @@ impl DeliveryDriver {
                 service: self.service,
                 workflows: self.workflows,
                 effect_access: self.effect_access,
+                runtime_features: self.runtime_features,
                 source: source.clone(),
                 config: self.config,
                 shared: shared.clone(),
@@ -510,7 +521,6 @@ impl Drop for DeliveryHandle {
 struct EffectAccess {
     audience: AccessAudience,
     identity: PrincipalIdentity,
-    features: ledgence_worker_api::RuntimeFeatures,
 }
 impl EffectAccess {
     fn matches(&self, worker: &EffectWorkerIdentity) -> bool {
@@ -524,6 +534,7 @@ struct Context {
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     effect_access: Option<Arc<EffectAccess>>,
+    runtime_features: ledgence_worker_api::RuntimeFeatures,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
     shared: Arc<Shared>,

@@ -23,7 +23,7 @@ impl WorkflowOperations {
     fn provider_access(&self) -> ledgence_worker_api::Result<&EffectAccess> {
         self.effect_access
             .as_deref()
-            .filter(|access| access.features.provider_operation())
+            .filter(|_| self.runtime_features.provider_operation())
             .ok_or_else(|| {
                 Error::new(
                     ErrorKind::Incompatible,

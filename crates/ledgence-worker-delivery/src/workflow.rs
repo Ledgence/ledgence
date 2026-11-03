@@ -44,10 +44,7 @@ impl Context {
         )
         .await?;
         if matches!(context.wake, Some(WorkflowWake::EffectResolution(_)))
-            && !self
-                .effect_access
-                .as_ref()
-                .is_some_and(|access| access.features.native_effect_resolution())
+            && !(self.effect_access.is_some() && self.runtime_features.native_effect_resolution())
         {
             return Err(Error::new(
                 ErrorKind::Incompatible,
@@ -55,10 +52,7 @@ impl Context {
             ));
         }
         if matches!(context.wake, Some(WorkflowWake::ProviderOperation(_)))
-            && !self
-                .effect_access
-                .as_ref()
-                .is_some_and(|access| access.features.provider_operation())
+            && !(self.effect_access.is_some() && self.runtime_features.provider_operation())
         {
             return Err(Error::new(
                 ErrorKind::Incompatible,
@@ -74,6 +68,7 @@ impl Context {
         let handler = Arc::new(WorkflowOperations {
             service,
             effect_access: self.effect_access.clone(),
+            runtime_features: self.runtime_features.clone(),
             owner,
             workflow_id: expected_workflow.to_owned(),
             processing_trace,
@@ -132,6 +127,7 @@ async fn fetch_context(
 struct WorkflowOperations {
     service: Arc<dyn WorkflowService>,
     effect_access: Option<Arc<EffectAccess>>,
+    runtime_features: ledgence_worker_api::RuntimeFeatures,
     owner: LeaseOwner,
     workflow_id: String,
     processing_trace: Option<TraceContext>,
@@ -140,10 +136,7 @@ struct WorkflowOperations {
 }
 impl RuntimeRequestHandler for WorkflowOperations {
     fn features(&self) -> ledgence_worker_api::RuntimeFeatures {
-        self.effect_access
-            .as_ref()
-            .map(|access| access.features.clone())
-            .unwrap_or_default()
+        self.runtime_features.clone()
     }
     fn capabilities(&self) -> ledgence_worker_api::RuntimeCapabilities {
         ledgence_worker_api::RuntimeCapabilities {

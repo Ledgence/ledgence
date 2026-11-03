@@ -152,6 +152,26 @@ accepted wait releases the same invocation reservation and resumes only through
 the durable coordinator's selected assessment. See
 [native operator rendezvous](effect-evidence.md#park-without-occupying-a-worker).
 
+#### Runtime feature discovery for Rust compositions (development)
+
+On `develop`, `HttpTaskService::discover_worker_runtime()` returns the validated
+feature manifest separately from the optional authenticated effect-evidence
+binding. A valid manifest can retain unknown feature names without enabling
+effect evidence. `DeliveryDriver::with_runtime_features()` carries these names
+into interactive workflow invocations; adding an effect binding later does not
+replace the manifest. The older `discover_worker()` method remains compatible:
+it returns `None` when effect evidence is unavailable.
+
+A feature name is not execution authority. Native effect resolution and provider
+operations still require their existing evidence prerequisites, and an unknown
+name enables neither operation. Credentialed discovery still rejects invalid
+worker identity, scope, expiry or malformed features before starting the worker.
+The exchange uses the existing request, header and response format; no additional
+startup or per-task request is introduced. The production server continues to
+advertise only its implemented capabilities. This change prepares Rust adapter
+composition; it does not implement shared resource limits or run budgets, and is
+not part of the published 0.8.0 release.
+
 Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use

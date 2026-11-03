@@ -64,6 +64,9 @@ struct Counts {
     injected_observations: Mutex<Option<InvocationObservations>>,
     observed_events: Mutex<Vec<Value>>,
     observed_processing: Mutex<Vec<Option<TraceContext>>>,
+    observed_runtime: Mutex<Vec<(RuntimeFeatures, RuntimeCapabilities)>>,
+    try_probe_orchestration: AtomicBool,
+    rejected_probe_requests: AtomicUsize,
 }
 
 struct Store(Arc<Counts>);
@@ -85,7 +88,7 @@ impl ProgramStore for Store {
 }
 
 #[derive(Default)]
-struct Cache(Mutex<HashMap<Digest, PreparedArtifact>>);
+struct Cache(Mutex<HashMap<Digest, PreparedArtifact>>, bool);
 impl ArtifactCache for Cache {
     fn lookup<'a>(&'a self, d: &'a ProgramDescriptor) -> PortFuture<'a, Option<PreparedArtifact>> {
         Box::pin(async { Ok(self.0.lock().unwrap().get(&d.digest).cloned()) })
@@ -105,7 +108,7 @@ impl ArtifactCache for Cache {
                     runtime: PythonRuntime {
                         kind: "python".into(),
                         python: "3.12".into(),
-                        protocol: 1,
+                        protocol: if self.1 { 3 } else { 1 },
                     },
                     handler: "app:handle".into(),
                     platform: Platform {
@@ -228,6 +231,39 @@ impl ExecutionSession for Session {
         })
     }
 
+    fn execute_with_requests<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        self.counts
+            .observed_runtime
+            .lock()
+            .unwrap()
+            .push((handler.features(), handler.capabilities()));
+        Box::pin(async move {
+            if self.counts.try_probe_orchestration.load(Ordering::SeqCst) {
+                let error = handler
+                    .handle(
+                        RuntimeRequest {
+                            id: 1,
+                            operation: "local_step.commit".into(),
+                            payload: json!({}),
+                        },
+                        control.clone(),
+                    )
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.kind, ErrorKind::Protocol);
+                self.counts
+                    .rejected_probe_requests
+                    .fetch_add(1, Ordering::SeqCst);
+            }
+            self.execute(invocation, control).await
+        })
+    }
+
     fn close(&mut self) -> PortFuture<'_, ()> {
         Box::pin(async {
             self.counts.closes.fetch_add(1, Ordering::SeqCst);
@@ -275,6 +311,8 @@ struct Service {
     malformed_claim: AtomicBool,
     state: Mutex<ServiceState>,
     task_count: usize,
+    workflow_mode: AtomicBool,
+    probe_mode: AtomicBool,
     acquire_unavailable: AtomicBool,
     settle_unavailable: AtomicBool,
     renew_unavailable: AtomicBool,
@@ -305,6 +343,8 @@ impl Service {
             malformed_claim: AtomicBool::new(false),
             state: Mutex::new(ServiceState::default()),
             task_count,
+            workflow_mode: AtomicBool::new(false),
+            probe_mode: AtomicBool::new(false),
             acquire_unavailable: AtomicBool::new(false),
             settle_unavailable: AtomicBool::new(false),
             renew_unavailable: AtomicBool::new(false),
@@ -454,7 +494,7 @@ impl TaskService for Service {
                         state
                             .active
                             .insert(command.consumer_id, owner.attempt_id.clone());
-                        let event = CloudEvent::new(json!({
+                        let mut event = CloudEvent::new(json!({
                             "specversion":"1.0", "id":format!("evt_{number}"),
                             "source":"urn:ledgence:orchestrator",
                             "type":"com.ledgence.task.invocation.requested.v1",
@@ -467,11 +507,37 @@ impl TaskService for Service {
                             "data":{"invoice":"INV-1042","nested":[1,{"opaque":true}]}
                         }))
                         .unwrap();
+                        let workflow_activation_id = if self.workflow_mode.load(Ordering::SeqCst) {
+                            let mut value = event.into_value();
+                            value["ldgworkflowid"] = json!("workflow");
+                            value["ldgactivationid"] = json!(owner.task_id);
+                            event = CloudEvent::new(value).unwrap();
+                            Some(owner.task_id.clone())
+                        } else {
+                            None
+                        };
+                        let provider_probe = if self.probe_mode.load(Ordering::SeqCst) {
+                            let mut value = event.into_value();
+                            value["ldgworkflowid"] = json!("workflow");
+                            event = CloudEvent::new(value).unwrap();
+                            Some(ProviderProbeAssignment {
+                                occurrence: EffectOccurrence {
+                                    scope: owner.scope.clone(),
+                                    workflow_id: "workflow".into(),
+                                    activation_id: "origin".into(),
+                                    approval_key: "approval".into(),
+                                },
+                                probe_id: "probe".into(),
+                                generation: 1,
+                            })
+                        } else {
+                            None
+                        };
                         AcquireReply::Assigned {
                             sequence: command.sequence,
                             assignment: Box::new(Assignment {
-                                provider_probe: None,
-                                workflow_activation_id: None,
+                                provider_probe,
+                                workflow_activation_id,
                                 descriptor: descriptor(),
                                 event,
                                 lease: Lease {
@@ -1862,3 +1928,6 @@ mod observations;
 
 #[path = "delivery/sqs.rs"]
 mod sqs;
+
+#[path = "delivery/runtime_features.rs"]
+mod runtime_features;
