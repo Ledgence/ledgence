@@ -172,6 +172,12 @@ justified capacity release together. Equal duplicate business keys return the
 existing ticket without another dispatch or rate charge; a foreign workflow's
 ticket stays an explicit reference.
 
+An offer can expire while a worker prepares its runtime or waits for a database
+lock. If that happens before the grant commits, no dispatch or rate charge is
+retained: handle `WAIT_REQUIRED` by returning `ctx.wait_admission(...)`. The
+original deadline still applies. Losing the task lease or worker authorization
+is a different failure and does not permit dispatch.
+
 Recovery probes remain outside this resource limit. Operator release frees
 capacity explicitly but cannot grant another mutation or claim business success.
 Keep both restore fences enabled after restoring a backup until external state

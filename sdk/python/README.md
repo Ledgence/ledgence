@@ -896,6 +896,10 @@ ticket replays without a Start exchange or callback. A deduplicated operation ca
 belong to another workflow; that ticket cannot be adopted as this workflow's
 native provider wait. `ctx.wait_admission()` reuses the original admission
 occurrence, so a new waiting episode cannot extend its pre-Start deadline.
+An offer that expires before the atomic Start commits returns `WAIT_REQUIRED`
+when the task still has authority, including expiry during database contention.
+Tentative grants and rate charges are rolled back before that response. The SDK
+does not retry Start to recover executable permission.
 
 Governed dispatch callbacks return `ProviderDispatchOutcome.completed(report)`
 or `ProviderDispatchOutcome.unknown(report)`. These describe the original call's

@@ -159,6 +159,12 @@ existing ticket and releases the unused offer without charging a new rate token.
 If that ticket belongs to another workflow, return or inspect the reference;
 it cannot be adopted as this workflow's native provider wait.
 
+If an offer expires before the combined grant commits, including while waiting
+for database locks, Ledgence rolls back tentative grants and rate charges and
+returns `WAIT_REQUIRED` while the activation remains authorized. Rewait the same
+occurrence; its original deadline remains fixed. Offer expiry is separate from
+loss of the task lease or worker authorization, which still rejects the request.
+
 A governed dispatch callback must explicitly separate **call completion** from
 **business knowledge**:
 
