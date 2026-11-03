@@ -91,10 +91,22 @@ current actor. Published 0.7.0 uses the operator-trusted deployment model.
 
 Matching development components retain approved effect occurrences, authenticated
 worker claims and reported results independently of execution history. Inspect
-unconfirmed or discrepant cases through the API, CLI, Python and MCP. Sensitive
+unconfirmed or discrepant cases through the API, CLI, Python, MCP and Console. Sensitive
 inspection requires credentials and durable audit. Historical imports retain
 the provenance actually available at upgrade.
 [Inspect external effects](/how-to/inspect-effects).
+
+## Native effect resolution in development
+
+An operator can record success, failure or an unknown outcome against an exact
+evidence revision and approved action. Saved commands preserve their content for
+explicit retry. Workflows can wait durably for the assessment, release their
+worker slot and resume at a registered entrypoint with a typed outcome. Console
+shows retained evidence and links native waits to the original effect occurrence.
+Later conflicting worker reports remain visible, including after execution
+records are collected. Matching development components, credentials, operator
+audit and database migrations are required.
+[Inspect and resolve effects](/how-to/inspect-effects).
 
 ## Installation channels
 

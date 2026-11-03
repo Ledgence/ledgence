@@ -71,6 +71,7 @@ async fn inbox_backfills_existing_requests_fences_decisions_and_hides_retired_ow
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
+    db.begin_legacy_workflow_seed().await;
     let (later, _) = request(&db.store, scope(), "agent-b", "later", 180_000).await;
     let (earlier, approve) = request(&db.store, scope(), "agent-a", "earlier", 120_000).await;
     let mut foreign = scope();
@@ -82,6 +83,7 @@ async fn inbox_backfills_existing_requests_fences_decisions_and_hides_retired_ow
             .fetch_one(&db.store.pool)
             .await
             .unwrap();
+    db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
     let after: Vec<u8> =
         sqlx::query_scalar("SELECT snapshot_bytes FROM workflow_approvals WHERE workflow_id=$1")

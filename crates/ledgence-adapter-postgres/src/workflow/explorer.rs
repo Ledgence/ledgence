@@ -178,7 +178,9 @@ pub(super) async fn resumed(
                 resumed_activation_id,
                 ..
             } => {
-                let Some(wake) = wake.filter(|wake| wake.key() == key) else {
+                let Some(wake) = wake.filter(|wake| {
+                    !matches!(wake, WorkflowWake::EffectResolution(_)) && wake.key() == key
+                }) else {
                     continue;
                 };
                 *closed_at = Some(now);
@@ -193,6 +195,9 @@ pub(super) async fn resumed(
                         ApprovalStatus::Expired => ConsoleWakeReason::Expired,
                         _ => return Err(corrupt("approval wake status").into()),
                     },
+                    WorkflowWake::EffectResolution(_) => {
+                        unreachable!("native wakes have a distinct namespace")
+                    }
                 });
             }
             _ => continue,
@@ -200,6 +205,89 @@ pub(super) async fn resumed(
         data.validate()?;
         sqlx::query("UPDATE workflow_explorer_records SET metadata_bytes=$3 WHERE activation_id=$1 AND kind=$2 AND record_key=$4")
             .bind(activation).bind(row.try_get::<String, _>("kind")?).bind(codec::encode(&data)?).bind(row.try_get::<String, _>("record_key")?).execute(&mut *connection).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn native_wait(
+    connection: &mut PgConnection,
+    activation: &str,
+    wait: &WorkflowWait,
+    now: u64,
+) -> StoreResult<()> {
+    let WorkflowWait::EffectResolution {
+        key,
+        occurrence,
+        after_resolution_id,
+    } = wait
+    else {
+        return Err(corrupt("native explorer wait kind").into());
+    };
+    insert(
+        connection,
+        activation,
+        &ConsoleExplorerData::NativeEffectWait {
+            key: key.clone(),
+            occurrence: occurrence.clone(),
+            after_resolution_id: after_resolution_id.clone(),
+            registered_at: now,
+            closed_at: None,
+            resolution_id: None,
+            outcome_kind: None,
+            resumed_activation_id: None,
+        },
+    )
+    .await
+}
+
+pub(super) async fn native_closed(
+    connection: &mut PgConnection,
+    activation: &str,
+    wake: Option<&EffectResolutionWake>,
+    now: u64,
+) -> StoreResult<()> {
+    let bytes: Vec<u8> = sqlx::query_scalar("SELECT metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind='native_effect_wait'")
+        .bind(activation).fetch_one(&mut *connection).await?;
+    let mut data: ConsoleExplorerData = codec::decode(&bytes)?;
+    let ConsoleExplorerData::NativeEffectWait {
+        key,
+        occurrence,
+        closed_at,
+        resolution_id,
+        outcome_kind,
+        resumed_activation_id,
+        ..
+    } = &mut data
+    else {
+        return Err(corrupt("native explorer wait kind").into());
+    };
+    if let Some(wake) = wake {
+        wake.validate()?;
+        if wake.parking_activation_id != activation
+            || wake.key != *key
+            || wake.occurrence != *occurrence
+        {
+            return Err(corrupt("native explorer wake identity").into());
+        }
+        *resolution_id = Some(wake.resolution_id.clone());
+        *resumed_activation_id = Some(wake.resumed_activation_id.clone());
+        *outcome_kind = Some(match &wake.outcome {
+            EffectResolutionOutcome::RecordedSuccess { .. } => {
+                ConsoleEffectOutcomeKind::RecordedSuccess
+            }
+            EffectResolutionOutcome::RecordedFailure { .. } => {
+                ConsoleEffectOutcomeKind::RecordedFailure
+            }
+            EffectResolutionOutcome::ClosedUnknown => ConsoleEffectOutcomeKind::ClosedUnknown,
+            EffectResolutionOutcome::Disputed { .. } => ConsoleEffectOutcomeKind::Disputed,
+        });
+    }
+    *closed_at = Some(now);
+    data.validate()?;
+    let valid: Option<bool> = sqlx::query_scalar("UPDATE workflow_explorer_records SET metadata_bytes=$2 WHERE activation_id=$1 AND kind='native_effect_wait' RETURNING activation_id=$1 AND kind='native_effect_wait' AND metadata_bytes=$2")
+        .bind(activation).bind(codec::encode(&data)?).fetch_optional(connection).await?;
+    if valid != Some(true) {
+        return Err(corrupt("native explorer wait closure suppressed or changed").into());
     }
     Ok(())
 }

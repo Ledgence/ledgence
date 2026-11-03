@@ -35,6 +35,8 @@ MAX_WAIT_MS = 31_536_000_000
 MAX_EVENT_BYTES = 64 * 1024
 MAX_TIMESTAMP = 253402300799999
 MAX_APPROVAL_BYTES = 32 * 1024
+MAX_EFFECT_RESOLUTION_WAKE_BYTES = 144 * 1024
+_UNSET = object()
 _APPROVAL_LOCAL_PREFIX = "_approval:"
 
 
@@ -44,6 +46,156 @@ class WorkflowError(Exception):
 
 class EffectOutcomeUnknown(Exception):
     """The provider cannot verify a final outcome for the approved action."""
+
+
+class EffectResolutionOutcomeKind(StrEnum):
+    """The immutable operator assessment selected for one continuation."""
+    RECORDED_SUCCESS = "recorded_success"
+    RECORDED_FAILURE = "recorded_failure"
+    CLOSED_UNKNOWN = "closed_unknown"
+    DISPUTED = "disputed"
+
+
+@dataclass(frozen=True)
+class EffectOccurrence:
+    """Immutable address of a retained effect, validated again by the server."""
+    _encoded: bytes
+
+    @classmethod
+    def from_dict(cls, value):
+        _fields(value, {"scope", "workflow_id", "activation_id", "approval_key"})
+        _fields(value["scope"], {"tenant_id", "namespace"})
+        for key in ("tenant_id", "namespace"):
+            _text(value["scope"][key], key)
+        for key in ("workflow_id", "activation_id", "approval_key"):
+            _text(value[key], key)
+        return cls(_encode(value, 4096))
+
+    def to_dict(self):
+        return json.loads(self._encoded)
+
+    @property
+    def scope(self):
+        return self.to_dict()["scope"]
+
+    @property
+    def workflow_id(self):
+        return self.to_dict()["workflow_id"]
+
+    @property
+    def activation_id(self):
+        return self.to_dict()["activation_id"]
+
+    @property
+    def approval_key(self):
+        return self.to_dict()["approval_key"]
+
+
+@dataclass(frozen=True)
+class EffectResolutionOutcome:
+    """Selected outcome with independent copies of application-owned JSON."""
+    _encoded: bytes
+
+    @classmethod
+    def from_dict(cls, value):
+        if type(value) is not dict:
+            raise WorkflowError("invalid effect resolution outcome")
+        kind = value.get("kind")
+        if kind == EffectResolutionOutcomeKind.RECORDED_SUCCESS:
+            _fields(value, {"kind", "result"})
+            _encode(value["result"], MAX_RECORD_BYTES, authoritative=True)
+        elif kind == EffectResolutionOutcomeKind.RECORDED_FAILURE:
+            _fields(value, {"kind", "failure"})
+            WorkflowContext._validate_error(value["failure"], application=True)
+        elif kind == EffectResolutionOutcomeKind.CLOSED_UNKNOWN:
+            _fields(value, {"kind"})
+        elif kind == EffectResolutionOutcomeKind.DISPUTED:
+            _fields(value, {"kind", "first_conflicting_entry_sequence"})
+            _integer(value["first_conflicting_entry_sequence"], "conflicting sequence", minimum=1)
+        else:
+            raise WorkflowError("invalid effect resolution outcome kind")
+        return cls(_encode(value, MAX_EFFECT_RESOLUTION_WAKE_BYTES, 96, authoritative=True))
+
+    def to_dict(self):
+        return json.loads(self._encoded)
+
+    @property
+    def kind(self):
+        return EffectResolutionOutcomeKind(self.to_dict()["kind"])
+
+    def _variant_value(self, kind, field):
+        if self.kind != kind:
+            raise WorkflowError("effect resolution outcome does not contain " + field)
+        return self.to_dict()[field]
+
+    @property
+    def result(self):
+        return self._variant_value(EffectResolutionOutcomeKind.RECORDED_SUCCESS, "result")
+
+    @property
+    def failure(self):
+        return self._variant_value(EffectResolutionOutcomeKind.RECORDED_FAILURE, "failure")
+
+    @property
+    def first_conflicting_entry_sequence(self):
+        return self._variant_value(EffectResolutionOutcomeKind.DISPUTED, "first_conflicting_entry_sequence")
+
+
+@dataclass(frozen=True)
+class EffectResolutionWake:
+    """An assessment selected once for the bound resumed activation."""
+    _encoded: bytes
+
+    @classmethod
+    def from_dict(cls, value):
+        _fields(value, {"kind", "key", "occurrence", "parking_activation_id", "parking_revision",
+                        "resumed_activation_id", "resumed_revision", "resolution_id", "accepted_at",
+                        "accepted_revision", "basis_revision", "selected_at", "selected_effect_revision",
+                        "outcome"})
+        if value["kind"] != "effect_resolution":
+            raise WorkflowError("invalid effect resolution wake kind")
+        EffectOccurrence.from_dict(value["occurrence"])
+        for key in ("key", "parking_activation_id", "resumed_activation_id", "resolution_id"):
+            _text(value[key], key)
+        for key in ("accepted_at", "selected_at"):
+            _integer(value[key], key, maximum=MAX_TIMESTAMP)
+        _integer(value["parking_revision"], "parking revision", maximum=(1 << 64) - 2)
+        for key in ("resumed_revision", "accepted_revision", "basis_revision", "selected_effect_revision"):
+            _integer(value[key], key, minimum=1)
+        if (value["resumed_revision"] != value["parking_revision"] + 1
+                or value["accepted_revision"] != value["basis_revision"] + 1
+                or value["accepted_revision"] > value["selected_effect_revision"]
+                or value["parking_activation_id"] == value["resumed_activation_id"]
+                or value["selected_at"] < value["accepted_at"]):
+            raise WorkflowError("inconsistent effect resolution wake binding")
+        outcome = EffectResolutionOutcome.from_dict(value["outcome"])
+        if (outcome.kind == EffectResolutionOutcomeKind.DISPUTED
+                and outcome.first_conflicting_entry_sequence >= value["selected_effect_revision"]):
+            raise WorkflowError("effect resolution conflict is newer than its selected evidence")
+        return cls(_encode(value, MAX_EFFECT_RESOLUTION_WAKE_BYTES, 96, authoritative=True))
+
+    def to_dict(self):
+        return json.loads(self._encoded)
+
+    @property
+    def occurrence(self):
+        return EffectOccurrence.from_dict(self.to_dict()["occurrence"])
+
+    @property
+    def outcome(self):
+        return EffectResolutionOutcome.from_dict(self.to_dict()["outcome"])
+
+    @property
+    def key(self):
+        return self.to_dict()["key"]
+
+    @property
+    def resolution_id(self):
+        return self.to_dict()["resolution_id"]
+
+    @property
+    def accepted_revision(self):
+        return self.to_dict()["accepted_revision"]
 
 
 class OperationKind(StrEnum):
@@ -667,9 +819,12 @@ class _ApprovedEffectInvocation:
 class WorkflowContext:
     """One explicit activation. Constructed by the worker, not application code."""
 
-    def __init__(self, payload, rpc, *, effect_evidence_v2=False):
+    def __init__(self, payload, rpc, *, effect_evidence_v2=False, native_effect_resolution=False):
         if type(effect_evidence_v2) is not bool:
             raise WorkflowError("effect evidence capability must be a boolean")
+        if type(native_effect_resolution) is not bool:
+            raise WorkflowError("native effect resolution capability must be a boolean")
+        self._native_effect_resolution = native_effect_resolution
         self._effect_evidence_v2 = effect_evidence_v2
         payload = _freeze(payload, MAX_CONTEXT_BYTES, 96, authoritative=True)
         _fields(payload, {"v", "workflow_id", "activation_id", "revision", "continuation",
@@ -709,6 +864,16 @@ class WorkflowContext:
                     or approval["revision"] + 1 != self.revision):
                 raise WorkflowError("approval wake belongs to another workflow activation")
             self._approval = _encode(approval, MAX_DECISION_BYTES, 96, authoritative=True)
+        self._effect_resolution = None
+        if self._wake is not None and self._wake["kind"] == "effect_resolution":
+            if not self._native_effect_resolution:
+                raise WorkflowError("native effect resolution is unavailable")
+            resolution = EffectResolutionWake.from_dict(self._wake)
+            if (resolution.occurrence.workflow_id != self.workflow_id
+                    or self._wake["resumed_activation_id"] != self.activation_id
+                    or self._wake["resumed_revision"] != self.revision):
+                raise WorkflowError("effect resolution wake belongs to another workflow activation")
+            self._effect_resolution = resolution
         # Preserve old payloads; wake and child inputs share one bounded batch.
         combined = self._inputs if self._wake is None else {"inputs": self._inputs, "wake": self._wake}
         _encode(combined, MAX_DECISION_BYTES, 96, authoritative=True)
@@ -768,6 +933,25 @@ class WorkflowContext:
     def approval(self):
         """Typed immutable approval wake, or None for a different wake kind."""
         return None if self._approval is None else Approval(self._approval)
+
+    @property
+    def effect_resolution(self):
+        """Typed selected assessment, or None for another kind of wake."""
+        return self._effect_resolution
+
+    @property
+    def effect_occurrence(self):
+        """Original effect address, preserved across resolution continuations."""
+        if self._effect_resolution is not None:
+            return self._effect_resolution.occurrence
+        approval = self.approval
+        if (approval is None or approval.status != ApprovalStatus.APPROVED
+                or approval.protection != ApprovalProtection.EXTERNAL_EFFECT):
+            return None
+        return EffectOccurrence.from_dict({
+            "scope": approval.scope, "workflow_id": self.workflow_id,
+            "activation_id": self.activation_id, "approval_key": approval.key,
+        })
 
     @staticmethod
     def _validate_child(item):
@@ -848,6 +1032,9 @@ class WorkflowContext:
         if type(wake) is not dict:
             raise WorkflowError("invalid workflow wake")
         kind = wake.get("kind")
+        if kind == "effect_resolution":
+            EffectResolutionWake.from_dict(wake)
+            return
         if kind == "approval":
             _fields(wake, {"kind", "approval"})
             _validate_approval(wake["approval"])
@@ -870,7 +1057,12 @@ class WorkflowContext:
         if type(wait) is not dict:
             raise WorkflowError("invalid workflow wait")
         kind = wait.get("kind")
-        if kind == "approval":
+        if kind == "effect_resolution":
+            _fields(wait, {"kind", "key", "occurrence", "after_resolution_id"})
+            EffectOccurrence.from_dict(wait["occurrence"])
+            if wait["after_resolution_id"] is not None:
+                _text(wait["after_resolution_id"], "after_resolution_id")
+        elif kind == "approval":
             _fields(wait, {"kind", "key", "action", "timeout_ms"}, {"proposed_arguments", "protection"})
             _validate_approval_protection(wait)
             _validate_action(wait["action"])
@@ -1452,6 +1644,34 @@ class WorkflowContext:
                               state=_freeze(state, MAX_STATE_BYTES),
                               commands=self._commands, wait=wait)
 
+    def wait_effect_resolution(self, key, *, resume, state, occurrence=None,
+                               after_resolution_id=_UNSET):
+        """Checkpoint a native operator wait and release the worker after draining.
+
+        Use a new stable key for each intentional wait. A resumed resolution
+        defaults to its original occurrence and waits for a newer assessment.
+        Pass an explicit occurrence when carrying it through another entrypoint.
+        """
+        self._active()
+        if not self._native_effect_resolution:
+            raise WorkflowError("native effect resolution is unavailable")
+        occurrence = self.effect_occurrence if occurrence is None else occurrence
+        if type(occurrence) is not EffectOccurrence:
+            raise WorkflowError("effect resolution requires an EffectOccurrence")
+        value = EffectOccurrence.from_dict(occurrence.to_dict()).to_dict()
+        if value["workflow_id"] != self.workflow_id:
+            raise WorkflowError("effect occurrence belongs to another workflow")
+        if after_resolution_id is _UNSET:
+            previous = self.effect_resolution
+            same_occurrence = previous is not None and previous.occurrence.to_dict() == value
+            after_resolution_id = previous.resolution_id if same_occurrence else None
+        wait = {"kind": "effect_resolution", "key": key, "occurrence": value,
+                "after_resolution_id": after_resolution_id}
+        self._validate_wait(wait)
+        return self._decision("wait", continuation=self._target(resume),
+                              state=_freeze(state, MAX_STATE_BYTES),
+                              commands=self._commands, wait=wait)
+
     def request_approval(self, key, *, action, state, timeout_ms,
                          continuation=None, resume=None, proposed_arguments=None):
         """Checkpoint an immutable effective action and release the worker slot.
@@ -1563,6 +1783,11 @@ class WorkflowContext:
                 _encode(command["data"], MAX_DECISION_BYTES)
         if kind == "wait":
             self._validate_wait(decision["wait"])
+            if decision["wait"]["kind"] == "effect_resolution":
+                if not self._native_effect_resolution:
+                    raise WorkflowError("native effect resolution is unavailable")
+                if decision["wait"]["occurrence"]["workflow_id"] != self.workflow_id:
+                    raise WorkflowError("effect occurrence belongs to another workflow")
         return _freeze(decision, MAX_DECISION_BYTES, 96)
 
     async def _drain(self):

@@ -116,6 +116,12 @@ impl WorkflowEventReceipt {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWait {
+    EffectResolution {
+        key: String,
+        occurrence: EffectOccurrence,
+        #[serde(deserialize_with = "crate::observation::required_option")]
+        after_resolution_id: Option<String>,
+    },
     Approval {
         key: String,
         action: ApprovalAction,
@@ -138,7 +144,10 @@ pub enum WorkflowWait {
 impl WorkflowWait {
     pub fn key(&self) -> &str {
         match self {
-            Self::Event { key, .. } | Self::Timer { key, .. } | Self::Approval { key, .. } => key,
+            Self::Event { key, .. }
+            | Self::Timer { key, .. }
+            | Self::Approval { key, .. }
+            | Self::EffectResolution { key, .. } => key,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -154,7 +163,19 @@ impl WorkflowWait {
                 validate_approval_proposed_arguments(arguments)?;
             }
         }
+        if let Self::EffectResolution {
+            occurrence,
+            after_resolution_id,
+            ..
+        } = self
+        {
+            occurrence.validate()?;
+            if let Some(id) = after_resolution_id {
+                validate_text(id, 128)?;
+            }
+        }
         let duration = match self {
+            Self::EffectResolution { .. } => None,
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
             Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
@@ -170,6 +191,7 @@ impl WorkflowWait {
         self.validate()?;
         timestamp(accepted_at)?;
         let duration = match self {
+            Self::EffectResolution { .. } => None,
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
             Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
@@ -191,6 +213,7 @@ impl WorkflowWait {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWake {
+    EffectResolution(Box<EffectResolutionWake>),
     Approval {
         approval: Box<ApprovalSnapshot>,
     },
@@ -213,11 +236,13 @@ impl WorkflowWake {
         match self {
             Self::Event { key, .. } | Self::Timeout { key, .. } | Self::Timer { key, .. } => key,
             Self::Approval { approval } => &approval.key,
+            Self::EffectResolution(wake) => &wake.key,
         }
     }
     pub fn validate(&self) -> Result<()> {
         validate_text(self.key(), 128)?;
         match self {
+            Self::EffectResolution(wake) => wake.validate(),
             Self::Approval { approval } => {
                 approval.validate()?;
                 if approval.status == ApprovalStatus::Pending {

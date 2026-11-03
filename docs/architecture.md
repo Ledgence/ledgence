@@ -137,3 +137,16 @@ and serializes payloads before recording their response observation. The
 read-only client `AuditReader` port delegates to authenticated HTTP ingress.
 Worker paths and pending result polls avoid audit database work.
 [Contract and retention](operator-audit.md).
+
+### Native effect resolution in development
+
+`EffectResolution` accepts verified, revision-bound operator assessments.
+`EffectResolutionStore` also supplies the durable coordinator operation required
+to resume an eligible native wait. `EffectResolutionClient` exposes only the
+remote command, and retained evidence reads use their separate reader port.
+The native composition advertises support only when the complete capability is
+available. PostgreSQL commits an assessment, its audit linkage and eligible work
+obligation atomically, then selects an immutable wake under workflow ordering.
+Wait records have their own namespace and release the existing worker reservation.
+The selected assessment remains separate from journal confirmation and retained
+worker observations. [Contract and operating guide](effect-evidence.md).

@@ -16,6 +16,11 @@ command, then open [Console](http://127.0.0.1:8080/console/). Ledgence 0.7.0 inc
 The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
 
+Matching development builds use Console contract **6** and add **Effects** for
+retained external-effect evidence and operator assessments. Published 0.7.0
+bundles use contract **5**; upgrade the server, workers and assets together to use
+the development capability.
+
 - **Executions**: one history for tasks and workflows, filtered by type, status,
   program/version, queue, correlation, exact execution ID and submission time.
   Inspect input, output, attempts, resources and history; submit a program, run it
@@ -73,6 +78,14 @@ opaque subworkflow nodes, local operations, forks, joins and external waits. Eac
 entrypoint invocation is a node, not a group or band. Re-entry to the same handler
 has its own activation ID; retries of one activation retain that identity. Opening
 a subworkflow displays its own graph rather than recursively expanding the parent.
+
+In C6, native effect-resolution waits appear as **Recovery** nodes in both views.
+The registering entrypoint and any resumed entrypoint have separate recorded
+edges. The inspector links to the original effect and its entrypoint; that origin
+link does not invent a dependency on another branch. A closed wait without a
+resumed activation remains distinct from a selected assessment. **Inspect effect**
+opens the retained evidence, and Back restores the workflow's selection and
+graph position.
 
 Pan or zoom to inspect a larger graph. **Fit** shows the loaded graph; **Reorganize**
 restores automatic card positions. Dragging a card changes only its presentation.
@@ -224,8 +237,8 @@ No migration deletes or reassigns them. Rollback to an older binary that ignores
 the persisted binding requires an offline plan; never run it concurrently against
 the bound database. Catalog retention is independent of execution-history cleanup.
 
-The execution explorer requires Console contract version 5 and matching server
-and assets. Nodes include typed invocation, registration, fork-membership,
+Published 0.7.0 uses Console contract version 5. The development explorer requires
+contract version 6 and matching server and assets. Nodes include typed invocation, registration, fork-membership,
 terminal-wait and resumption relations from the backend. The browser resolves
 their references to loaded nodes; timestamps do not establish dependencies.
 Local steps connect to their invoking entrypoint without becoming fork or join
@@ -237,7 +250,10 @@ a new database migration. C5 adds durable approval records and requires the
 approval migration before serving matching assets. Stop writers before applying
 migrations; `serve` verifies the schema but does not migrate it. Restart old
 Explorer traversal from the first page. Existing execution identities remain
-unchanged.
+unchanged. C6 adds native effect-wait metadata to workflow details, wait pages and
+the explorer. Apply the native resolution and Console native-wait migrations
+before starting matching components. Native waits have a separate durable
+namespace from ordinary events, even when their keys have the same text.
 Useful `/agents` and workflow deep links remain available.
 
 When upgrading from C2, a transactional migration converts retained Console records without
@@ -296,4 +312,49 @@ Approval review and decision dialogs load an exact acceptance event separately
 from the caller-supplied reviewer label. Loading, verified actor, successful
 historical absence and unavailable attribution are distinct states. Changed
 identity or capabilities clear cached attribution. The separate audit routes
-preserve Console C5 and existing approval payloads. [Operator audit](operator-audit.md).
+did not change existing approval payloads or require the C6 upgrade by themselves.
+[Operator audit](operator-audit.md).
+
+## Review external effects in development
+
+**Effects** lists retained approved occurrences by their original workflow,
+activation and approval key. Its filters distinguish journal confirmation,
+reported-value discrepancies and a disputed operator assessment. These are
+different facts: a recorded assessment does not confirm the local result journal
+or independently verify the provider's outcome.
+
+Open an occurrence to inspect its approved action, program binding and bounded
+timeline of claims, reported results and assessments. Follow additional evidence
+pages when available; a short page can still have a next page. The metadata
+inbox needs `metadata_read` in credential mode. Sensitive inspection requires
+`sensitive_read` and durable operator audit before the server returns its payload.
+The inbox also works in operator-trusted mode, but sensitive inspection does not.
+
+With complete native resolution support and `effect_resolve`, the review page
+can record success, failure or closure with an unknown outcome. Enter a reason
+and evidence references, then choose **Review assessment**. The confirmation
+dialog freezes the occurrence, effective action, evidence revision, predecessor
+assessment and result. **Record assessment** sends that command. An uncertain
+reply offers **Retry same assessment**, preserving the exact command; refreshing
+the evidence does not replace it. A new assessment requires a separate review.
+Use **Download saved command** in the review dialog before sending, or after an
+uncertain reply, to preserve it beyond the current browser session. The saved
+file contains the reviewed action and result, scope, server destination and
+resolution identity; it contains no credential. Store it with the same care as
+the application data it contains. Console does not automatically write command
+bodies to durable browser storage.
+
+Recover the downloaded envelope with `ledgence effect resolve --file FILE` or
+Python's `client.effects.restore_resolution(...)`, using the same canonical
+server URL and scope. An uncertain command must be retried by the same stable
+operator identity; a replacement credential for that identity is supported.
+The destination is the browser's origin, so a different hostname, port or scheme
+is not silently substituted. See the [saved-assessment CLI
+instructions](cli.md#submit-a-saved-operator-assessment).
+
+The receipt means the assessment was recorded. A matching native workflow wait
+may resume later; recording it does not revive a cancelled workflow or dispatch
+the provider action again. Its verified audit event is loaded separately from
+the assessment's reason and references. Retained evidence survives execution
+history collection and has no automatic expiry in this capability.
+See [retained effect evidence and native waits](effect-evidence.md).

@@ -16,6 +16,15 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn effect_resolution(&self) -> Result<&dyn EffectResolution> {
+        if self.evidence_capabilities.load(Ordering::SeqCst) & 4 == 4 {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable(
+                "native resolution unavailable".into(),
+            ))
+        }
+    }
     fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
         if self.evidence_capabilities.load(Ordering::SeqCst) & 1 == 1 {
             Ok(self)

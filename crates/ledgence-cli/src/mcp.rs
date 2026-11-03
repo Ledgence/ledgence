@@ -18,7 +18,7 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
     use ledgence_adapter_http::HttpProgramCatalogService;
     use ledgence_adapter_mcp::ToolDispatcher;
     use std::{sync::Arc, time::Duration};
-    let (url, scope, read_only) = match parse(arguments) {
+    let (url, scope, read_only, allow_effect_resolution) = match parse(arguments) {
         Ok(options) => options,
         Err(error) => return super::diagnose(error, None),
     };
@@ -35,6 +35,14 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
             Ok(dispatcher) => dispatcher.with_audit_reader(client),
             Err(error) => return super::diagnose(error, None),
         };
+    let dispatcher = if allow_effect_resolution {
+        match dispatcher.with_effect_resolution() {
+            Ok(dispatcher) => dispatcher,
+            Err(error) => return super::diagnose(error, None),
+        }
+    } else {
+        dispatcher
+    };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -100,14 +108,19 @@ async fn wait_for_shutdown() {
 #[cfg(feature = "mcp")]
 fn parse(
     arguments: Vec<String>,
-) -> ledgence_orchestration_api::Result<(String, ledgence_orchestration_api::Scope, bool)> {
+) -> ledgence_orchestration_api::Result<(String, ledgence_orchestration_api::Scope, bool, bool)> {
     use crate::args::invalid;
     let mut values = std::collections::HashMap::new();
     let mut arguments = arguments.into_iter();
     let mut read_only = false;
+    let mut allow_effect_resolution = false;
     while let Some(key) = arguments.next() {
         if key == "--read-only" && !read_only {
             read_only = true;
+            continue;
+        }
+        if key == "--allow-effect-resolution" && !allow_effect_resolution {
+            allow_effect_resolution = true;
             continue;
         }
         if !matches!(key.as_str(), "--server" | "--tenant" | "--namespace") {
@@ -134,5 +147,42 @@ fn parse(
             .ok_or_else(|| invalid("missing --namespace"))?,
     };
     scope.validate()?;
-    Ok((server, scope, read_only))
+    if read_only && allow_effect_resolution {
+        return Err(invalid(
+            "--read-only conflicts with --allow-effect-resolution",
+        ));
+    }
+    Ok((server, scope, read_only, allow_effect_resolution))
+}
+
+#[cfg(all(test, feature = "mcp"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn mutation_opt_in_is_explicit_and_rejects_read_only_conflicts() {
+        let base = [
+            "--server",
+            "http://localhost:8080",
+            "--tenant",
+            "acme",
+            "--namespace",
+            "demo",
+        ];
+        let options = |extra: &[&str]| {
+            parse(
+                base.into_iter()
+                    .chain(extra.iter().copied())
+                    .map(str::to_owned)
+                    .collect(),
+            )
+        };
+        assert!(!options(&[]).unwrap().3);
+        assert!(options(&["--allow-effect-resolution"]).unwrap().3);
+        for flags in [
+            &["--allow-effect-resolution", "--read-only"][..],
+            &["--allow-effect-resolution", "--allow-effect-resolution"][..],
+        ] {
+            assert!(options(flags).is_err());
+        }
+    }
 }

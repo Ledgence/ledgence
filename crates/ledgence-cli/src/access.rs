@@ -75,6 +75,7 @@ fn create(arguments: Vec<String>) -> Result<serde_json::Value> {
                     AccessCapability::ExecutionControl,
                     AccessCapability::ProgramPublish,
                     AccessCapability::ApprovalDecide,
+                    AccessCapability::EffectResolve,
                 ],
             };
             let worker = config.issue(

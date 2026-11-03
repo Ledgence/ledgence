@@ -390,7 +390,7 @@ Use the workflow, original effect activation and approval key returned by the
 inbox. `operator.json` is the destination-bound credential file from instance
 access provisioning; it is not an evidence output file.
 
-`inbox` accepts `--filter all|unconfirmed|confirmed|discrepant` (default `all`),
+`inbox` accepts `--filter all|unconfirmed|confirmed|discrepant|disputed` (default `all`),
 optional `--workflow`, `--limit 1..100` (default 50), and `--cursor`. It returns
 metadata only and requires `metadata_read` in credential mode. Trusted mode can
 also read the metadata. `inspect` requires the three occurrence identifiers,
@@ -402,5 +402,33 @@ Responses are at most 1 MiB. Continue with `next_cursor` and the same query even
 when the page is shorter than `--limit`; entries are never truncated. One JSON
 response goes to stdout, diagnostics to stderr; there are no implicit retries.
 The evidence distinguishes authenticated worker reports from unattributed legacy
-records. Neither proves provider truth or permits redispatch. Native effect
-resolution is not part of these commands. [Effect evidence](effect-evidence.md).
+records. Neither proves provider truth or permits redispatch. Read commands do not resolve effects. [Effect evidence](effect-evidence.md).
+
+
+### Submit a saved operator assessment
+
+Matching development builds add `ledgence effect resolve`. Export the reviewed
+command from Console or the Python client's `command.to_json()` and save the
+complete versioned envelope as `effect-assessment.json`:
+
+```sh
+ledgence effect resolve --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file resolver.json \
+  --file effect-assessment.json
+```
+
+The credential needs `effect_resolve`; this is independent of `approval_decide`
+and `sensitive_read`. Newly created `access init` operator credentials include it;
+existing credentials remain unchanged. The CLI validates the saved canonical
+endpoint and scope before sending its original request bytes. It rejects bare
+wire-command JSON, symlinks, nonregular files, duplicate JSON fields and envelopes
+over 1 MiB (the command body is at most 256 KiB). There is no CLI preparation command.
+
+One metadata receipt goes to stdout. If a reply is lost, retain the file and
+reconcile with the same endpoint, scope and stable actor; a rotated credential
+for that actor is accepted. Never change the resolution ID, reviewed revision or
+body to retry uncertain delivery. A changed command or actor conflicts. Acceptance
+is durably audited, does not prove resumption and never redispatches an effect.
+Cancelled or collected executions remain closed. `--filter disputed` finds a
+current assessment disputed by later evidence; `discrepant` remains historical.
+See the [Python saved-command example](../sdk/python-client/README.md#operator-effect-assessments-development).

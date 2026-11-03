@@ -1,0 +1,5 @@
+{
+  "format": "ledgence.effect-resolution.v1",
+  "base_url": "http://127.0.0.1:8080",
+  "body": "{\"occurrence\":{\"scope\":{\"tenant_id\":\"acme\",\"namespace\":\"demo\"},\"workflow_id\":\"wf-effect\",\"activation_id\":\"task-effect\",\"approval_key\":\"refund\"},\"resolution_id\":\"resolution-1\",\"expected_effect_revision\":18446744073709551614,\"supersedes_resolution_id\":null,\"action\":{\"name\":\"program:refund\",\"version\":\"1\",\"arguments\":{\"amount\":100}},\"assessment\":{\"kind\":\"record_success\",\"result\":{\"integer\":18446744073709551615,\"float\":1.0}},\"reason\":\"Matched receipt\",\"evidence_references\":[\"receipt:1042\"]}"
+}

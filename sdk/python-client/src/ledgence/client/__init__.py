@@ -59,13 +59,13 @@ __all__ += [
 ]
 
 from .audit import (
-    AuditAcceptance, AuditActor, AuditActorClass, AuditApproval, AuditApprovalPage,
+    AuditAcceptance, AuditEffectResolved, AuditActor, AuditActorClass, AuditApproval, AuditApprovalPage,
     AuditAudience, AuditEffect, AuditEvent, AuditFilter, AuditLocalStep, AuditPage, AuditReadKind,
     AuditResourceKind, AuditSensitiveResponse, AuditTask, AuditWorkflow,
 )
 
 __all__ += [
-    "AuditAcceptance", "AuditActor", "AuditActorClass", "AuditApproval", "AuditApprovalPage",
+    "AuditAcceptance", "AuditEffectResolved", "AuditActor", "AuditActorClass", "AuditApproval", "AuditApprovalPage",
     "AuditAudience", "AuditEffect", "AuditEvent", "AuditFilter", "AuditLocalStep", "AuditPage", "AuditReadKind",
     "AuditResourceKind", "AuditSensitiveResponse", "AuditTask", "AuditWorkflow",
 ]
@@ -84,4 +84,15 @@ __all__ += [
     "EffectInboxPage", "EffectJournalState", "EffectLegacyAttempt", "EffectLegacyFence", "EffectLegacyJournal",
     "EffectObservationEntry", "EffectObservationIngress", "EffectObservationSource", "EffectOccurrence",
     "EffectPermission", "EffectProgram", "EffectProgramDescriptor", "EffectVerifiedWorkerClaim", "EffectWorkerIdentity",
+]
+
+from .effect_resolution_models import (
+    EffectAssessmentEntry, EffectAssessmentKind, EffectResolutionAssessment, EffectResolutionCommand,
+    EffectResolutionReceipt, EffectResolutionReference, EffectResolutionSummary,
+)
+from .errors import EffectResolutionUncertain
+
+__all__ += [
+    "EffectAssessmentEntry", "EffectAssessmentKind", "EffectResolutionAssessment", "EffectResolutionCommand",
+    "EffectResolutionReceipt", "EffectResolutionReference", "EffectResolutionSummary", "EffectResolutionUncertain",
 ]

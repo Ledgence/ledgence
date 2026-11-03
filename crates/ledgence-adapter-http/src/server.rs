@@ -4,6 +4,7 @@
 mod access;
 mod approvals;
 mod audit;
+mod effect_resolution;
 mod evidence;
 mod routes;
 use routes::{Policy, Route};
@@ -226,6 +227,10 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/workflows/approved-effects/v2/confirm", Policy::Worker),
     Route::post("/v1/workflows/approved-effects/v2/observe", Policy::Worker),
     Route::post("/v1/workflows/approved-effects/inbox", Policy::Metadata),
+    Route::post(
+        "/v1/workflows/approved-effects/resolve",
+        Policy::EffectResolution,
+    ),
     Route::sensitive_post(
         "/v1/workflows/approved-effects/inspect",
         AuditReadKind::EffectInspect,
@@ -819,6 +824,7 @@ async fn dispatch(
         "/v1/audit/events" => 16 * 1024,
         "/v1/workflows/approved-effects/claim" => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/workflows/approved-effects/confirm" => APPROVED_EFFECT_CONFIRM_MAX_BYTES,
+        "/v1/workflows/approved-effects/resolve" => EFFECT_RESOLUTION_COMMAND_MAX_BYTES,
         path if path.starts_with("/v1/workflows/approved-effects/v2/") => {
             EFFECT_EVIDENCE_COMMAND_MAX_BYTES
         }

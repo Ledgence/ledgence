@@ -29,6 +29,8 @@ import {
   ApprovalReviewPage,
 } from "../features/approval-inbox";
 
+import { EffectsPage, EffectReviewPage } from "../features/effects";
+
 function Console() {
   const config = useQuery({
     queryKey: [location.origin, consoleContractVersion, "config"],
@@ -73,6 +75,8 @@ function Console() {
               path="workflows/:workflowId"
               element={<WorkflowDetailPage />}
             />
+            <Route path="effects" element={<EffectsPage />} />
+            <Route path="effects/review" element={<EffectReviewPage />} />
             <Route path="approvals" element={<ApprovalInboxPage />} />
             <Route path="approvals/review" element={<ApprovalReviewPage />} />
             <Route path="programs" element={<AgentsPage />} />

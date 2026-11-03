@@ -67,6 +67,38 @@ impl TestDb {
         }
     }
 
+    /// Seed legacy payloads using current test helpers without claiming that the
+    /// current binary supports serving an old schema. The sole temporary column
+    /// is always NULL, and must be removed before migration/schema assertions.
+    /// If seeding panics, TestDb::drop removes this unique DB on its own bounded
+    /// runtime; no modified legacy fixture is left behind.
+    pub(crate) async fn begin_legacy_workflow_seed(&self) {
+        sqlx::query(
+            "ALTER TABLE workflow_runs ADD COLUMN native_wait_activation_id text COLLATE \"C\"",
+        )
+        .execute(&self.store.pool)
+        .await
+        .unwrap();
+    }
+    pub(crate) async fn finish_legacy_workflow_seed(&self) {
+        let mut tx = self.store.pool.begin().await.unwrap();
+        let used:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_runs WHERE native_wait_activation_id IS NOT NULL)").fetch_one(&mut *tx).await.unwrap();
+        assert!(
+            !used,
+            "legacy seeding must not exercise native wait authority"
+        );
+        sqlx::query("ALTER TABLE workflow_runs DROP COLUMN native_wait_activation_id")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let remains:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='workflow_runs'::regclass AND attname='native_wait_activation_id' AND NOT attisdropped)").fetch_one(&mut *tx).await.unwrap();
+        assert!(
+            !remains,
+            "tested migration must see the actual legacy schema"
+        );
+        tx.commit().await.unwrap();
+    }
+
     pub(crate) async fn finish(mut self) {
         self.store.close().await;
         let admin = PgPoolOptions::new()

@@ -143,6 +143,9 @@ impl PostgresStore {
         work: &WorkflowWork,
         resolved: &[ResolvedWorkflowChild],
     ) -> StoreResult<WorkflowProgress> {
+        if matches!(work.source, WorkflowWorkSource::EffectResolutionWait) {
+            self.audit_audience()?;
+        }
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let snapshot = load_work_snapshot(&mut tx, &work.workflow_id).await?;
@@ -195,6 +198,20 @@ impl PostgresStore {
             .await?;
             enqueue_drain(&mut tx, &run, now).await?;
             finish_work(&mut tx, &work.id, now).await?;
+        } else if row.kind == "effect_wait" {
+            let mut run = load_run(
+                &mut tx,
+                &snapshot.scope,
+                Some(&snapshot.workflow_id),
+                None,
+                false,
+            )
+            .await?;
+            if let Some(task) = effect_wait::apply(&mut tx, &mut run, &row.task_id, now).await? {
+                wakes.push(task);
+                progress.activations_scheduled += 1;
+            }
+            finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "wait" {
             let applied =
                 external::apply_external_wait(&mut tx, &snapshot, &row.task_id, now).await?;
@@ -237,6 +254,15 @@ impl PostgresStore {
                 match outcome {
                     TaskOutcome::Succeeded { output, .. } => {
                         let decision = WorkflowDecision::decode(&output)?;
+                        if matches!(
+                            decision.action,
+                            WorkflowAction::Wait {
+                                wait: WorkflowWait::EffectResolution { .. },
+                                ..
+                            }
+                        ) {
+                            self.audit_audience()?;
+                        }
                         let revision: String = sqlx::query_scalar("SELECT trunc(revision)::text FROM workflow_activations WHERE activation_id=$1")
                             .bind(&row.task_id).fetch_one(&mut *tx).await?;
                         if decision.activation_id != row.task_id
@@ -293,7 +319,7 @@ impl PostgresStore {
                 }
             } else if snapshot.state == WorkflowState::Waiting {
                 let bytes: Option<Vec<u8>> = sqlx::query_scalar(
-                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL",
+                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL AND native_wait_activation_id IS NULL",
                 )
                 .bind(&snapshot.workflow_id)
                 .fetch_optional(&mut *tx)
@@ -531,8 +557,11 @@ async fn lock_work(
     }))
 }
 async fn finish_work(connection: &mut PgConnection, id: &str, now: u64) -> StoreResult<()> {
-    sqlx::query("UPDATE workflow_work SET processed_at_ms=$2,lease_token=NULL,lease_until_ms=NULL WHERE id=$1")
-        .bind(id).bind(codec::ms(now)?).execute(connection).await?;
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_work SET processed_at_ms=$2,lease_token=NULL,lease_until_ms=NULL WHERE id=$1 RETURNING id=$1 AND processed_at_ms=$2 AND lease_token IS NULL AND lease_until_ms IS NULL")
+        .bind(id).bind(codec::ms(now)?).fetch_optional(connection).await?;
+    if valid != Some(true) {
+        return Err(corrupt("workflow work acknowledgement suppressed or changed").into());
+    }
     Ok(())
 }
 pub(super) struct AppliedDecision {
@@ -766,6 +795,7 @@ pub(super) async fn apply_decision(
             run.wait_activation = None;
             run.wait_keys.clear();
             run.external_wait_key = None;
+            run.native_wait_activation = None;
             save_run(connection, run).await?;
         }
         core::WorkflowDisposition::Fail { error } => fail_run(connection, run, &error, now).await?,
@@ -923,6 +953,7 @@ async fn drain(
         run.wait_activation = None;
         run.wait_keys.clear();
         run.external_wait_key = None;
+        run.native_wait_activation = None;
         save_run(connection, run).await?;
         record_history(
             connection,
@@ -963,6 +994,7 @@ async fn work_source(
         "drain" => WorkflowWorkSource::Drain,
         "cancel_owned" => WorkflowWorkSource::CancelOwned,
         "wait" => WorkflowWorkSource::Wait,
+        "effect_wait" => WorkflowWorkSource::EffectResolutionWait,
         _ => return Err(corrupt("workflow work source").into()),
     })
 }

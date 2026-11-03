@@ -43,6 +43,13 @@ fn detail() -> Value {
 async fn dispatcher(
     replies: Vec<(u16, Value)>,
 ) -> (ToolDispatcher, JoinHandle<Vec<(String, Value)>>) {
+    dispatcher_with_mode(replies, true).await
+}
+
+async fn dispatcher_with_mode(
+    replies: Vec<(u16, Value)>,
+    read_only: bool,
+) -> (ToolDispatcher, JoinHandle<Vec<(String, Value)>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let http = HttpTaskService::new(&format!("http://{}", listener.local_addr().unwrap()))
         .unwrap()
@@ -54,7 +61,7 @@ async fn dispatcher(
         Arc::new(http),
         Arc::new(catalog),
         scope(),
-        true,
+        read_only,
     )
     .unwrap();
     let server = tokio::spawn(async move {
@@ -120,11 +127,18 @@ async fn effect_tools_preserve_scoped_identity_authenticated_destination_and_exa
         .call("ledgence_effect_inbox", &json!({}))
         .await
         .unwrap();
-    assert_eq!(page["items"][0]["effect_revision"].as_u64(), Some(u64::MAX));
+    assert_eq!(page["items"][0]["effect_revision"], u64::MAX.to_string());
+    assert_eq!(page["items"][0]["entry_count"], (u64::MAX - 1).to_string());
     let result = dispatcher
         .call("ledgence_effect_inspect", &identity())
         .await
         .unwrap();
+    inspected["summary"]["effect_revision"] = json!("3");
+    inspected["summary"]["entry_count"] = json!("2");
+    inspected["binding"]["approval"]["revision"] = json!("1");
+    inspected["binding"]["program"]["size"] = json!("1");
+    inspected["entries"][0]["sequence"] = json!("1");
+    inspected["entries"][0]["recorded_revision"] = json!("2");
     assert_eq!(result, inspected);
     assert_eq!(
         result["entries"][0]["output"]["integer"].as_u64(),
@@ -254,4 +268,163 @@ async fn malformed_effect_pages_fail_closed_at_the_http_tool_boundary() {
         assert!(!error.outcome_unknown);
     }
     server.await.unwrap();
+}
+
+fn resolution_args() -> Value {
+    let mut args = identity();
+    args.as_object_mut().unwrap().extend(json!({"resolution_id":"resolution-1","expected_effect_revision":(u64::MAX-1).to_string(),
+        "supersedes_resolution_id":null,"action":{"name":"refund","version":"1","arguments":{"revision":1.0}},
+        "assessment":{"kind":"record_success","result":{"sequence":u64::MAX,"revision":1.0}},
+        "reason":"  Reviewed receipt\n","evidence_references":["receipt:1"]}).as_object().unwrap().clone());
+    args
+}
+fn resolution_receipt() -> Value {
+    json!({"occurrence":occurrence(),"resolution_id":"resolution-1","accepted_at":0,"accepted_revision":u64::MAX,
+        "basis_revision":u64::MAX-1,"supersedes_resolution_id":null,"assessment_kind":"record_success",
+        "acceptance_event_id":"audit-1","already_accepted":false})
+}
+#[tokio::test]
+async fn resolution_is_opt_in_scope_bound_lossless_and_never_retried() {
+    let (dispatcher, server) = dispatcher_with_mode(
+        vec![
+            (200, resolution_receipt()),
+            (503, json!({"code":"unavailable","message":"lost reply"})),
+        ],
+        false,
+    )
+    .await;
+    assert!(
+        !dispatcher
+            .definitions()
+            .any(|tool| tool.name == "ledgence_effect_resolve")
+    );
+    assert_eq!(
+        dispatcher
+            .call("ledgence_effect_resolve", &resolution_args())
+            .await
+            .unwrap_err()
+            .code,
+        "unknown_tool"
+    );
+    let dispatcher = dispatcher.with_effect_resolution().unwrap();
+    assert!(
+        dispatcher
+            .definitions()
+            .any(|tool| tool.name == "ledgence_effect_resolve")
+    );
+    let receipt = dispatcher
+        .call("ledgence_effect_resolve", &resolution_args())
+        .await
+        .unwrap();
+    assert_eq!(receipt["accepted_revision"], u64::MAX.to_string());
+    assert_eq!(receipt["basis_revision"], (u64::MAX - 1).to_string());
+    assert_eq!(receipt["accepted_at"], 0);
+    let error = dispatcher
+        .call("ledgence_effect_resolve", &resolution_args())
+        .await
+        .unwrap_err();
+    assert!(error.outcome_unknown);
+    let requests = server.await.unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].1, requests[1].1);
+    assert!(
+        requests[0]
+            .0
+            .starts_with("POST /v1/workflows/approved-effects/resolve ")
+    );
+    assert!(
+        requests[0]
+            .0
+            .to_ascii_lowercase()
+            .contains("authorization: bearer operator-token")
+    );
+    assert_eq!(requests[0].1["expected_effect_revision"], u64::MAX - 1);
+    assert_eq!(requests[0].1["occurrence"], occurrence());
+    assert_eq!(requests[0].1["assessment"]["result"]["sequence"], u64::MAX);
+    assert!(requests[0].1["assessment"]["result"]["revision"].is_f64());
+}
+#[tokio::test]
+async fn resolution_rejects_invalid_revision_identity_and_scope_before_dispatch() {
+    assert!(test_dispatcher(true).with_effect_resolution().is_err());
+    let dispatcher = test_dispatcher(false).with_effect_resolution().unwrap();
+    for value in [
+        json!(1),
+        json!(true),
+        json!(null),
+        json!("01"),
+        json!("+1"),
+        json!("0"),
+        json!(u64::MAX.to_string()),
+        json!("18446744073709551616"),
+    ] {
+        let mut args = resolution_args();
+        args["expected_effect_revision"] = value;
+        let error = dispatcher
+            .call("ledgence_effect_resolve", &args)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "invalid_arguments");
+        assert!(!error.outcome_unknown);
+    }
+    for (name, value) in [
+        ("scope", json!(scope())),
+        ("actor", json!({})),
+        ("token", json!("forbidden")),
+        ("reason", json!("  ")),
+        ("evidence_references", json!([])),
+    ] {
+        let mut args = resolution_args();
+        args[name] = value;
+        assert_eq!(
+            dispatcher
+                .call("ledgence_effect_resolve", &args)
+                .await
+                .unwrap_err()
+                .code,
+            "invalid_arguments"
+        );
+    }
+    let mut args = resolution_args();
+    args.as_object_mut()
+        .unwrap()
+        .remove("supersedes_resolution_id");
+    assert_eq!(
+        dispatcher
+            .call("ledgence_effect_resolve", &args)
+            .await
+            .unwrap_err()
+            .code,
+        "invalid_arguments"
+    );
+}
+#[tokio::test]
+async fn resolution_denial_is_definite_but_bad_accepted_receipt_is_uncertain() {
+    let mut malformed = resolution_receipt();
+    malformed["resolution_id"] = json!("wrong");
+    let (dispatcher, server) = dispatcher_with_mode(
+        vec![
+            (403, json!({"code":"forbidden"})),
+            (409, json!({"code":"conflict"})),
+            (200, malformed),
+        ],
+        false,
+    )
+    .await;
+    let dispatcher = dispatcher.with_effect_resolution().unwrap();
+    for code in ["forbidden", "conflict"] {
+        let error = dispatcher
+            .call("ledgence_effect_resolve", &resolution_args())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, code);
+        assert!(!error.outcome_unknown);
+    }
+    assert!(
+        dispatcher
+            .call("ledgence_effect_resolve", &resolution_args())
+            .await
+            .unwrap_err()
+            .outcome_unknown
+    );
+    assert_eq!(server.await.unwrap().len(), 3);
 }

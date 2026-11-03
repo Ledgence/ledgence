@@ -191,7 +191,7 @@ class FaultProxy:
                 connection = http.client.HTTPConnection(url.hostname, url.port, timeout=35)
                 try:
                     headers = {"Accept": "application/json", "Content-Type": "application/json"}
-                    for key in ("traceparent", "tracestate"):
+                    for key in ("traceparent", "tracestate", "Ledgence-Worker-Features"):
                         if self.headers.get(key):
                             headers[key] = self.headers[key]
                     # Only credential-aware gates opt in. Never retain this

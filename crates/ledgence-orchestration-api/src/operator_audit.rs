@@ -229,6 +229,15 @@ impl AuditResource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditOperation {
+    EffectResolved {
+        occurrence: EffectOccurrence,
+        resolution_id: String,
+        accepted_revision: u64,
+        basis_revision: u64,
+        #[serde(deserialize_with = "crate::observation::required_option")]
+        supersedes_resolution_id: Option<String>,
+        assessment_kind: EffectAssessmentKind,
+    },
     ApprovalAccepted {
         workflow_id: String,
         key: String,
@@ -245,6 +254,9 @@ pub enum AuditOperation {
 impl AuditOperation {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
+            Self::EffectResolved { occurrence, .. } => {
+                (AuditResourceKind::Workflow, &occurrence.workflow_id)
+            }
             Self::ApprovalAccepted { workflow_id, .. } => {
                 (AuditResourceKind::Workflow, workflow_id)
             }
@@ -253,6 +265,27 @@ impl AuditOperation {
     }
     pub fn validate(&self) -> Result<()> {
         match self {
+            Self::EffectResolved {
+                occurrence,
+                resolution_id,
+                accepted_revision,
+                basis_revision,
+                supersedes_resolution_id,
+                ..
+            } => {
+                occurrence.validate()?;
+                validate_text(resolution_id, 128)?;
+                if *basis_revision == 0 || basis_revision.checked_add(1) != Some(*accepted_revision)
+                {
+                    return Err(invalid("invalid assessment revision"));
+                }
+                if let Some(previous) = supersedes_resolution_id {
+                    validate_text(previous, 128)?;
+                    if previous == resolution_id {
+                        return Err(invalid("self superseding assessment"));
+                    }
+                }
+            }
             Self::ApprovalAccepted {
                 workflow_id,
                 key,
@@ -300,6 +333,11 @@ impl AuditEvent {
         self.audience.validate()?;
         self.actor.validate()?;
         self.operation.validate()?;
+        if let AuditOperation::EffectResolved { occurrence, .. } = &self.operation
+            && occurrence.scope != self.audience.scope
+        {
+            return Err(invalid("assessment audit scope"));
+        }
         bounded(self, AUDIT_EVENT_MAX_BYTES, "audit event")
     }
     pub fn require_acceptance(
@@ -382,6 +420,9 @@ impl AuditReceipt {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditFilter {
     All,
+    Event {
+        event_id: String,
+    },
     Resource {
         resource_kind: AuditResourceKind,
         resource_id: String,
@@ -398,6 +439,7 @@ impl AuditFilter {
     pub fn matches(&self, event: &AuditEvent) -> bool {
         match self {
             Self::All => true,
+            Self::Event { event_id } => &event.event_id == event_id,
             Self::Resource {
                 resource_kind,
                 resource_id,
@@ -444,6 +486,12 @@ impl AuditQuery {
         }
         match &self.filter {
             AuditFilter::All => {}
+            AuditFilter::Event { event_id } => {
+                validate_text(event_id, 128)?;
+                if self.limit != 2 || self.cursor.is_some() {
+                    return Err(invalid("exact event lookup requires limit 2 and no cursor"));
+                }
+            }
             AuditFilter::Resource { resource_id, .. } => validate_text(resource_id, 128)?,
             AuditFilter::ApprovalAcceptance {
                 workflow_id,
@@ -520,8 +568,10 @@ impl AuditPage {
         let prior = query.validate()?;
         if query.scope != audience.scope
             || self.items.len() > query.limit as usize
-            || (matches!(query.filter, AuditFilter::ApprovalAcceptance { .. })
-                && (self.items.len() > 1 || self.next_cursor.is_some()))
+            || (matches!(
+                query.filter,
+                AuditFilter::ApprovalAcceptance { .. } | AuditFilter::Event { .. }
+            ) && (self.items.len() > 1 || self.next_cursor.is_some()))
         {
             return Err(inconsistent());
         }

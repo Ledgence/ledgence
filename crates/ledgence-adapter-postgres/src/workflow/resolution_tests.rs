@@ -122,6 +122,7 @@ async fn partial_resolution_is_fenced_and_survives_reclaim_without_scheduling_ch
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
+    db.begin_legacy_workflow_seed().await;
     let workflow = start(&db.store).await;
     let controller = acquire(&db.store, "python").await;
     let children = vec![child("first"), child("second")];
@@ -142,6 +143,7 @@ async fn partial_resolution_is_fenced_and_survives_reclaim_without_scheduling_ch
     )
     .await;
     // Upgrade a pending controller decision from the previous schema.
+    db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
     let old = one_work(&db.store).await;
     let mut wrong_kind = resolved("first");

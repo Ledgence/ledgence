@@ -117,15 +117,27 @@ Development builds retain a workflow with an unresolved `approved_effect`
 after it becomes eligible by age. For example, cancelling a refund workflow
 after dispatch leaves its approval, attempts and journal available for
 investigation. The hold starts in the transaction that grants dispatch. A
-successful lookup and confirmation can close it on a later attempt. A generic
-workflow event cannot close it. The same policy covers an approved action
-first adopted for protected lookup after an offline upgrade.
+successful lookup and confirmation can close it on a later attempt. A verified
+[operator assessment](effect-evidence.md#record-an-operator-assessment) also
+releases this handling hold for `record_success`, `record_failure` and
+`close_unknown`. An assessment does not confirm the execution journal
+or prove what happened at the provider. A later disagreement does not restore
+the hold. Generic workflow events cannot close it. The same policy covers an
+approved action first adopted for protected lookup after an offline upgrade.
 
 The normal terminal retention clock still runs while the hold is open. Once
-the result is durably confirmed, an already-old workflow can be collected on
-a subsequent maintenance run, subject to its other references. An unresolved
-hold can persist indefinitely. A historical approval by itself does not put
-every previously approved workflow on hold. [Upgrade procedure](postgres.md#upgrade-from-070-to-development-source)
+the result is durably confirmed or an assessment is accepted, an already-old
+workflow can be collected on a subsequent maintenance run, subject to terminal
+state, owned work, live sessions and its other protective references. An
+unresolved hold without either event can persist indefinitely. A historical
+approval by itself does not put every previously approved workflow on hold.
+[Upgrade procedure](postgres.md#upgrade-from-070-to-development-source).
+
+Execution cleanup collects native effect waits and their graph records with
+the owning workflow. The independent retained occurrence, reported results,
+operator assessments and acceptance receipts survive. Their initial development
+ledger has no automatic expiry, including after `close_unknown` or later
+`disputed` evidence. Closing handling neither removes evidence nor revives work.
 
 ## Storage and operations
 
@@ -172,7 +184,8 @@ its timing is diagnostic, not a production capacity guarantee.
 Matching development schemas add a fourth bounded maintenance lane for expired
 sensitive-response observations. The selected retention interval has the same
 90-day minimum. Preview reports `audit_observation_candidates`; applying removes
-at most the configured batch size in each observation transaction. Acceptance
-events survive task/workflow removal and currently have no automatic expiry.
+at most the configured batch size in each observation transaction. Approval
+acceptance and effect-resolution acceptance events survive task/workflow removal
+and currently have no automatic expiry.
 Execution retention and acceptance evidence therefore have separate lifetimes.
 [Operator audit](operator-audit.md#retention-and-operating-limits).

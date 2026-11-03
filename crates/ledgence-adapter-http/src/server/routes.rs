@@ -11,6 +11,7 @@ pub(super) enum Policy {
     Control,
     Publish,
     Approval,
+    EffectResolution,
     Worker,
     Access,
     Login,
@@ -38,6 +39,7 @@ impl Policy {
                 actor.require(SensitiveRead)?;
                 ApprovalDecide
             }
+            Self::EffectResolution => EffectResolve,
             Self::Worker => WorkerExecute,
             Self::Access | Self::Login | Self::Logout => unreachable!(),
         };
@@ -137,10 +139,10 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 84);
+        assert_eq!(routes.len(), 86);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
-            84
+            86
         );
         let mut methods = 0;
         let mut audited = 0;
@@ -164,7 +166,7 @@ mod tests {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 87);
+        assert_eq!(methods, 89);
         assert_eq!(audited, 16);
     }
     #[test]

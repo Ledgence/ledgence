@@ -285,7 +285,7 @@ async fn retire_workflow(
     let Some(removed) = expire_subscriptions(connection, "workflow", id, cutoff).await? else {
         return Ok(());
     };
-    sqlx::query("UPDATE workflow_runs SET retiring_at_ms=$2,current_activation_id=NULL,wait_activation_id=NULL,wait_keys_bytes=NULL,external_wait_key=NULL WHERE workflow_id=$1")
+    sqlx::query("UPDATE workflow_runs SET retiring_at_ms=$2,current_activation_id=NULL,wait_activation_id=NULL,wait_keys_bytes=NULL,external_wait_key=NULL,native_wait_activation_id=NULL WHERE workflow_id=$1")
         .bind(id).bind(codec::ms(now)?).execute(connection).await?;
     progress.retired = 1;
     progress.deleted_rows = removed;
@@ -359,6 +359,7 @@ async fn collect_workflow(
         "DELETE FROM workflow_forks WHERE ctid IN (SELECT ctid FROM workflow_forks WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_events WHERE ctid IN (SELECT ctid FROM workflow_events WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_approvals WHERE ctid IN (SELECT ctid FROM workflow_approvals WHERE workflow_id=$1 LIMIT $2)",
+        "DELETE FROM workflow_effect_waits WHERE ctid IN (SELECT ctid FROM workflow_effect_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_waits WHERE ctid IN (SELECT ctid FROM workflow_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE child_workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",

@@ -61,7 +61,7 @@ impl PrincipalClass {
     }
     pub fn validate_capabilities(self, capabilities: &[AccessCapability]) -> Result<()> {
         let mut seen = HashSet::new();
-        if capabilities.is_empty() || capabilities.len() > 7 {
+        if capabilities.is_empty() || capabilities.len() > 8 {
             return Err(invalid());
         }
         for capability in capabilities {
@@ -84,6 +84,7 @@ pub enum AccessCapability {
     ExecutionControl,
     ProgramPublish,
     ApprovalDecide,
+    EffectResolve,
     WorkerExecute,
 }
 impl AccessCapability {
@@ -95,6 +96,7 @@ impl AccessCapability {
             Self::ExecutionControl => "execution_control",
             Self::ProgramPublish => "program_publish",
             Self::ApprovalDecide => "approval_decide",
+            Self::EffectResolve => "effect_resolve",
             Self::WorkerExecute => "worker_execute",
         }
     }

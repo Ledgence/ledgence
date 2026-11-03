@@ -192,13 +192,38 @@ export const childWait = s.object({
   activation_id: s.id,
   command_keys: s.array(s.id, 1000),
 });
-export const workflowDetail = s.object({
-  summary: workflowSummary,
-  continuation: s.string,
-  child_wait: s.nullable(childWait),
-  external_wait_key: s.nullable(s.string),
-  observed_at: s.timestamp,
+export const effectOccurrence = s.object({
+  scope: s.object({ tenant_id: s.id, namespace: s.id }),
+  workflow_id: s.id,
+  activation_id: s.id,
+  approval_key: s.id,
 });
+export const nativeEffectWait = s.object({
+  parking_activation_id: s.id,
+  key: s.id,
+  occurrence: effectOccurrence,
+  after_resolution_id: s.nullable(s.id),
+});
+export const workflowDetail = s.refine(
+  s.object({
+    summary: workflowSummary,
+    continuation: s.string,
+    child_wait: s.nullable(childWait),
+    external_wait_key: s.nullable(s.string),
+    native_effect_wait: s.nullable(nativeEffectWait),
+    observed_at: s.timestamp,
+  }),
+  (value) =>
+    [
+      value.child_wait,
+      value.external_wait_key,
+      value.native_effect_wait,
+    ].filter((v) => v !== null).length <= 1 &&
+    (!value.native_effect_wait ||
+      value.native_effect_wait.occurrence.workflow_id ===
+        value.summary.workflow.workflow_id),
+  "Inconsistent current workflow wait.",
+);
 export const workflowOutcome = s.variant({
   succeeded: s.object({ kind: s.enumeration("succeeded"), output: s.payload }),
   failed: s.object({ kind: s.enumeration("failed"), error: applicationError }),
@@ -242,15 +267,28 @@ export const child = s.object({
   consumed: s.boolean,
 });
 export const childPage = s.page(child);
-export const wait = s.object({
-  workflow_id: s.id,
-  wait_key: s.id,
-  activation_id: s.id,
-  kind: s.enumeration("event", "timer", "approval"),
-  deadline: s.nullable(s.timestamp),
-  registered_at: s.timestamp,
-  closed_at: s.nullable(s.timestamp),
-});
+export const wait = s.refine(
+  s.object({
+    workflow_id: s.id,
+    wait_key: s.id,
+    activation_id: s.id,
+    kind: s.enumeration("event", "timer", "approval", "effect_resolution"),
+    deadline: s.nullable(s.timestamp),
+    registered_at: s.timestamp,
+    closed_at: s.nullable(s.timestamp),
+    native_effect_wait: s.nullable(nativeEffectWait),
+  }),
+  (value) =>
+    (value.kind === "effect_resolution") ===
+      (value.native_effect_wait !== null) &&
+    (!value.native_effect_wait ||
+      (value.deadline === null &&
+        value.native_effect_wait.occurrence.workflow_id === value.workflow_id &&
+        value.native_effect_wait.parking_activation_id ===
+          value.activation_id &&
+        value.native_effect_wait.key === value.wait_key)),
+  "Inconsistent native wait identity.",
+);
 export const workflowWaits = s.object({
   page: s.page(wait),
   child_wait: s.nullable(childWait),

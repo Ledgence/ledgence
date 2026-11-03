@@ -223,6 +223,84 @@ authenticated evidence operation is available to surviving Rust/HTTP callers wit
 a retained claim. See [effect evidence](../../docs/effect-evidence.md) for its
 provenance, migration, inspection and retention contract.
 
+## Native operator rendezvous (development)
+
+Matching authenticated development components add a native wait for an operator
+assessment of an approved effect. This is absent from published 0.7.0. Use your
+named write and lookup callbacks in place of `issue_refund` and `find_refund`, and
+add `Entry.REVIEW` to the existing workflow enum. Catch `EffectOutcomeUnknown`
+and return the wait decision from the workflow entrypoint:
+
+```python
+from ledgence.worker.workflow import ApprovalStatus, EffectOutcomeUnknown, EffectResolutionOutcomeKind
+
+@workflow.entrypoint(Entry.APPLY)
+async def apply(event, ctx):
+    if ctx.approval.status is not ApprovalStatus.APPROVED:
+        return ctx.fail("refund_not_approved", "A refund requires approval")
+    try:
+        receipt = await ctx.approved_effect(issue_refund, lookup=find_refund, version="1")
+    except EffectOutcomeUnknown:
+        return ctx.wait_effect_resolution("refund-review:0", resume=Entry.REVIEW, state={})
+    return ctx.complete(receipt)
+
+@workflow.entrypoint(Entry.REVIEW)
+def review(event, ctx):
+    outcome = ctx.effect_resolution.outcome
+    if outcome.kind is EffectResolutionOutcomeKind.RECORDED_SUCCESS:
+        return ctx.complete(outcome.result)
+    if outcome.kind is EffectResolutionOutcomeKind.RECORDED_FAILURE:
+        failure = outcome.failure
+        return ctx.fail(failure["kind"], failure["message"])
+    return ctx.fail("refund_unresolved", "The operator result remains unknown or disputed")
+```
+
+Register `Entry.REVIEW` in the workflow's entrypoint enum. The outcome describes
+an operator assessment, not independent provider verification. Application code
+chooses how that assessment affects its business workflow.
+
+`wait_effect_resolution(key, *, resume, state, occurrence=None,
+after_resolution_id=...)` checkpoints explicit JSON state and releases the
+worker slot after owned work drains. It waits without a dedicated process or
+open request. It has no timeout argument. Use the existing cancellation API when
+an application needs to stop a pending review.
+
+`ctx.effect_occurrence` returns the typed `EffectOccurrence` of the approved protected-effect
+or resolution activation, or `None` when neither exists. An explicitly supplied
+occurrence lets a later entrypoint refer to the original approved effect; the
+server checks workflow and scope ownership. Reuse the same key across retries
+of the same logical wait; an intentional later wait requires a new key.
+
+When omitted, `after_resolution_id` selects the current resolution ID if this
+activation resumed an assessment for the same occurrence, otherwise `None`.
+A later wait therefore asks for a newer assessment. Explicit `None` permits
+selection of the current assessment again. This is deliberate replay selection,
+not a new dispatch. Keys for native effect waits and generic event waits occupy
+separate namespaces; a generic event never satisfies a native wait.
+
+On resume, `ctx.effect_resolution` is a typed `EffectResolutionWake` (otherwise
+`None`). `.occurrence`, `.resolution_id`, `.accepted_revision`, `.key` and
+`.outcome` are available directly; `.to_dict()` returns an independent copy of
+the complete selected identity/revision/timestamp record. `EffectResolutionOutcomeKind`
+has `RECORDED_SUCCESS`, `RECORDED_FAILURE`, `CLOSED_UNKNOWN` and `DISPUTED`.
+The corresponding `.result`, `.failure` or `.first_conflicting_entry_sequence`
+accessors reject the wrong variant. Results and failure values are detached JSON.
+
+Selection happens durably in the coordinator, whether an operator resolves
+before or after park. Attempts of the resumed activation share that frozen wake.
+Later reports and assessments cannot rewrite it; request another assessment with
+a new wait key when needed. A success selection can be disputed by a later unequal
+report present at selection. Opaque report contents do not reinterpret failure
+or unknown assessments. Cancellation and terminal execution prevent resumption.
+
+The worker negotiates `native_effect_resolution.v1` before accepting work and
+supplies the additive outer runtime feature manifest to this helper. Unsupported
+servers/runtimes reject native waiting explicitly; there is no generic-event
+fallback. Older helpers retain their existing behavior. An accepted assessment
+releases the unresolved execution retention hold without confirming the journal;
+all evidence and assessment receipts remain retained after ordinary collection.
+See [operator resolution and public clients](../../docs/effect-evidence.md#record-an-operator-assessment).
+
 ## Runtime helper
 
 MIT-licensed, standard-library-only program support. The Rust worker starts the

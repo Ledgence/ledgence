@@ -13,6 +13,7 @@ pub enum ConsoleExplorerReference {
     Local { activation_id: String, key: String },
     ChildWait { activation_id: String },
     ExternalWait { key: String },
+    NativeEffectWait { parking_activation_id: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +141,24 @@ impl ConsoleExplorerNode {
                 if wake_reason.is_some()
                     && let Some(activation_id) = resumed_activation_id
                 {
+                    add(
+                        Kind::Resumes,
+                        wait,
+                        Reference::Entrypoint {
+                            activation_id: activation_id.clone(),
+                        },
+                    )?;
+                }
+            }
+            ConsoleExplorerData::NativeEffectWait {
+                resumed_activation_id,
+                ..
+            } => {
+                let wait = Reference::NativeEffectWait {
+                    parking_activation_id: self.activation_id.clone(),
+                };
+                add(Kind::Registers, owner, wait.clone())?;
+                if let Some(activation_id) = resumed_activation_id {
                     add(
                         Kind::Resumes,
                         wait,

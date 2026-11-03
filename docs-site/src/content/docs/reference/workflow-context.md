@@ -235,9 +235,53 @@ Application JSON supports at most 64 nested containers, finite numbers, and stri
 parameters as `request_approval` and records a protected execution contract.
 Its saved `ApprovalProtection.EXTERNAL_EFFECT` rejects `approved_local` before
 execution or cached replay. The backend enforces it for generic journal writes.
-Use [`ctx.approved_effect(dispatch, version=..., lookup=...)`](/how-to/require-approval#protect-an-approved-write-in-development)
+[`ctx.approved_effect(dispatch, version=..., lookup=...)`](/how-to/require-approval#protect-an-approved-write-in-development)
 binds an external write to the approved action. Once the orchestrator commits
 the dispatch grant, later attempts can only look up a receipt or replay a saved
-result. Ledgence retains unresolved evidence until a callback confirms a
-receipt. If no grant committed, a retry can still receive the first grant. Published 0.7.0
+result. Ledgence retains unresolved evidence independently. The execution
+retention hold ends when a callback confirms a receipt or an operator assessment
+closes handling; assessment does not confirm the journal. If no grant committed, a retry can still receive the first grant. Published 0.7.0
 provides `approved_local` and does not implement this dispatch protection.
+
+
+## Native effect resolution in development
+
+Matching authenticated development workers add
+`wait_effect_resolution(key, *, resume, state, occurrence=None, after_resolution_id=...)`.
+Return this decision after `EffectOutcomeUnknown` to checkpoint explicit state,
+drain owned calls and release the worker slot while an operator investigates.
+There is no timeout argument or process waiting for the external review. Existing
+cancellation stops a pending workflow without reviving it on later acceptance.
+
+`ctx.effect_occurrence` is the original typed occurrence from the approved protected-effect or
+resolution activation. Supply it explicitly when carrying it through a later
+entrypoint. The backend checks workflow/scope ownership. A logical native wait
+key is one-shot; retries recover the same wait, while intentional subsequent
+waits use a new key. Generic events have their own namespace and cannot resolve
+native waits, even when their text keys match.
+
+On resume, `ctx.effect_resolution` contains a frozen `EffectResolutionWake`.
+Its `.outcome.kind` is a member of `EffectResolutionOutcomeKind`:
+
+| Kind | Available value |
+| --- | --- |
+| `RECORDED_SUCCESS` | `.result`, including JSON null |
+| `RECORDED_FAILURE` | `.failure` with `kind` and `message` |
+| `CLOSED_UNKNOWN` | No selected success or failure |
+| `DISPUTED` | `.first_conflicting_entry_sequence` |
+
+Wrong-variant access raises `WorkflowError`. `.to_dict()` gives an independent
+copy of the complete wake. It carries the original occurrence, parking/resumed
+activation identities, selected assessment and effect revisions, and timestamps.
+Later evidence never rewrites that selected wake. If `after_resolution_id` is
+omitted on a resumed assessment for the same occurrence, it defaults to that
+assessment ID; a new wait requests a newer result. Explicit `None` permits
+selection of the current assessment.
+
+These are operator judgments, not provider truth or permission to dispatch again.
+An assessment does not confirm the execution journal. Applications decide how to
+continue from each typed outcome. The authenticated worker must negotiate
+`native_effect_resolution.v1`; unsupported deployments fail explicitly. Published
+0.7.0 does not include this capability.
+[Copyable worker example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/README.md#native-operator-rendezvous-development)
+· [Investigate and resolve an effect](/how-to/inspect-effects).

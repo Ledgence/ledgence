@@ -193,6 +193,76 @@ def check_coexistence(build_python, worker_wheel, wheelhouse, temporary, env, in
     return client_wheel
 
 
+def check_native_resolution(python, temporary, env):
+    """Run the installed helper's bytes through the real isolated protocol 3 loop."""
+    code = r'''import json, pathlib, shutil, subprocess, sys, tempfile
+import ledgence.worker
+from ledgence.worker.workflow import SCHEMA
+installed = pathlib.Path(ledgence.worker.__file__).resolve().parent
+assert installed.is_relative_to(pathlib.Path(sys.prefix).resolve())
+with tempfile.TemporaryDirectory(prefix="installed-native-effect-") as directory:
+    root = pathlib.Path(directory)
+    helper = root / "helper/ledgence/worker"
+    shutil.copytree(installed, helper, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    program = root / "program"
+    program.mkdir()
+    (program / "program.py").write_text("""from enum import StrEnum
+from ledgence.worker.workflow import Workflow, EffectOccurrence, EffectResolutionOutcomeKind, WorkflowError
+class Entry(StrEnum):
+    START = 'start'
+    AFTER = 'after'
+workflow = Workflow(Entry)
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    occurrence = EffectOccurrence.from_dict(event['data']['occurrence'])
+    try:
+        return ctx.wait_effect_resolution('review:0', resume=Entry.AFTER, state={'saved':1}, occurrence=occurrence)
+    except WorkflowError:
+        return ctx.complete('unavailable')
+@workflow.entrypoint(Entry.AFTER)
+def after(event, ctx):
+    selected = ctx.effect_resolution
+    assert selected.outcome.kind is EffectResolutionOutcomeKind.RECORDED_SUCCESS
+    mutable = selected.outcome.result
+    mutable['receipt'].append('changed')
+    again = ctx.wait_effect_resolution('review:1', resume=Entry.AFTER, state=None)
+    assert again['wait']['after_resolution_id'] == selected.resolution_id
+    assert again['wait']['occurrence'] == selected.occurrence.to_dict()
+    return ctx.complete({'result':selected.outcome.result,'origin':ctx.effect_occurrence.activation_id})
+handle = workflow.build()
+""")
+    occurrence = {'scope':{'tenant_id':'tenant','namespace':'tests'},'workflow_id':'workflow-1','activation_id':'activation-1','approval_key':'refund'}
+    first = {'v':1,'workflow_id':'workflow-1','activation_id':'activation-1','revision':0,'continuation':'start','state':None,'inputs':{},'local_steps':[]}
+    result = {'receipt':['r1'],'large':2**64-1}
+    wake = {'kind':'effect_resolution','key':'review:0','occurrence':occurrence,'parking_activation_id':'activation-1','parking_revision':0,
+        'resumed_activation_id':'activation-2','resumed_revision':1,'resolution_id':'resolve-1','accepted_at':20,'basis_revision':2,
+        'accepted_revision':3,'selected_at':21,'selected_effect_revision':3,'outcome':{'kind':'recorded_success','result':result}}
+    resumed = dict(first,activation_id='activation-2',revision=1,continuation='after',wake=wake)
+    messages = []
+    for number, payload in enumerate((first,resumed,first),1):
+        event = {'specversion':'1.0','id':f'event-{number}','source':'urn:installed-native-effect','type':'test.invoke',
+            'ldgattemptid':f'attempt-{number}','ldgworkflowid':'workflow-1','ldgactivationid':payload['activation_id'],
+            'ldgtaskid':payload['activation_id'],'data':{'occurrence':occurrence}}
+        message = {'v':3,'type':'invoke','event_id':event['id'],'attempt_id':event['ldgattemptid'],'event':event,
+            'processing_context':None,'extension':{'schema':SCHEMA,'payload':payload},
+            'runtime_capabilities':{'approved_effect_evidence_v2':True}}
+        if number < 3: message['runtime_features']={'v':1,'supported':['native_effect_resolution.v1']}
+        messages.append(message)
+    messages.append({'v':3,'type':'shutdown'})
+    process = subprocess.run([sys.executable,'-I','-S','-B',str(helper/'bootstrap.py'),'--package-root',str(program),
+        '--handler','program:handle','--python-version',f'{sys.version_info.major}.{sys.version_info.minor}','--protocol-version','3'],
+        cwd=root,input=b''.join(json.dumps(message).encode()+b'\n' for message in messages),capture_output=True,timeout=20)
+    assert process.returncode == 0, process.stderr.decode(errors='replace')
+    frames = [json.loads(line) for line in process.stdout.splitlines()]
+    assert [frame['type'] for frame in frames] == ['ready','result','result','result','closing'], frames
+    assert frames[1]['output']['wait'] == {'kind':'effect_resolution','key':'review:0','occurrence':occurrence,'after_resolution_id':None}
+    assert frames[2]['output']['output'] == {'result':result,'origin':'activation-1'}
+    assert frames[3]['output']['output'] == 'unavailable', 'runtime features leaked into another invocation'
+print('Verified installed native park, typed resume, immutable result and invocation feature isolation')
+'''
+    run([python, "-I", "-B", "-c", code], temporary, env)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheelhouse", type=Path, help="reuse reviewed downloaded artifacts")
@@ -230,6 +300,7 @@ def main():
         tests = temporary / "installed-tests"
         shutil.copytree(rebuilt / "tests", tests)
         run([runtime_python, "-I", "-B", "-m", "unittest", "discover", "-s", tests, "-v"], temporary, env)
+        check_native_resolution(runtime_python, temporary, env)
         client_wheel = check_coexistence(build_python, worker_wheel, wheelhouse, temporary, env, inventory, target)
         evidence = {"target": target, "python": sys.version, "platform": sys.platform,
                     "sdist": {"filename": sdist.name, "sha256": deps.digest(sdist.read_bytes())},
@@ -242,6 +313,7 @@ def main():
                                "clean installed graph and origin assertions outside checkout without PYTHONPATH",
                                "installed invocation, checkpoint, local replay, logging and optional tracing tests",
                                "dedicated helper relocated from installed bytes under isolated protocols 1/2/3",
+                               "installed native effect park, typed immutable resume and invocation feature isolation",
                                "actual client/worker wheels in both install, import and uninstall orders"],
                     "hosted_ci": "not claimed by this local run", "publication": "not performed"}
         if args.dist_dir:

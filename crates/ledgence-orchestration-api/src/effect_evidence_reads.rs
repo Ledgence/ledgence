@@ -40,6 +40,20 @@ pub enum EffectObservationSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EffectEvidenceEntry {
+    Assessment {
+        sequence: u64,
+        recorded_at: Timestamp,
+        recorded_revision: u64,
+        resolution_id: String,
+        basis_revision: u64,
+        #[serde(deserialize_with = "crate::observation::required_option")]
+        supersedes_resolution_id: Option<String>,
+        assessment: EffectResolutionAssessment,
+        reason: String,
+        evidence_references: Vec<String>,
+        actor: AuditActor,
+        acceptance_event_id: String,
+    },
     Claim {
         sequence: u64,
         recorded_at: Timestamp,
@@ -62,12 +76,17 @@ pub enum EffectEvidenceEntry {
 impl EffectEvidenceEntry {
     pub fn sequence(&self) -> u64 {
         match self {
-            Self::Claim { sequence, .. } | Self::Observation { sequence, .. } => *sequence,
+            Self::Claim { sequence, .. }
+            | Self::Observation { sequence, .. }
+            | Self::Assessment { sequence, .. } => *sequence,
         }
     }
     pub fn recorded_revision(&self) -> u64 {
         match self {
-            Self::Claim {
+            Self::Assessment {
+                recorded_revision, ..
+            }
+            | Self::Claim {
                 recorded_revision, ..
             }
             | Self::Observation {
@@ -77,24 +96,33 @@ impl EffectEvidenceEntry {
     }
     pub fn recorded_at(&self) -> u64 {
         match self {
-            Self::Claim { recorded_at, .. } | Self::Observation { recorded_at, .. } => *recorded_at,
+            Self::Claim { recorded_at, .. }
+            | Self::Observation { recorded_at, .. }
+            | Self::Assessment { recorded_at, .. } => *recorded_at,
         }
     }
     pub fn command_id(&self) -> &str {
         match self {
             Self::Claim { claim_id, .. } => claim_id,
+            Self::Assessment { resolution_id, .. } => resolution_id,
             Self::Observation { observation_id, .. } => observation_id,
         }
     }
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Claim { .. } => "claim",
+            Self::Assessment { .. } => "assessment",
             Self::Observation { .. } => "observation",
         }
     }
     pub fn validate(&self, scope: &Scope) -> Result<()> {
         positive(self.sequence())?;
         positive(self.recorded_revision())?;
+        // The retained occurrence starts at revision one, before its first entry.
+        // Metadata-only changes can advance the revision without adding an entry.
+        if self.sequence() >= self.recorded_revision() {
+            return Err(invalid());
+        }
         time(self.recorded_at())?;
         validate_text(self.command_id(), 128)?;
         let validate_worker = |worker: &EffectWorkerIdentity| -> Result<()> {
@@ -105,6 +133,23 @@ impl EffectEvidenceEntry {
             Ok(())
         };
         match self {
+            Self::Assessment {
+                assessment,
+                reason,
+                evidence_references,
+                actor,
+                ..
+            } => {
+                crate::effect_resolution::assessment_fields(
+                    assessment,
+                    reason,
+                    evidence_references,
+                )?;
+                actor.validate()?;
+                self.resolution_reference()
+                    .ok_or_else(invalid)?
+                    .validate()?;
+            }
             Self::Claim {
                 attempt_id, worker, ..
             } => {
@@ -131,7 +176,41 @@ impl EffectEvidenceEntry {
                 }
             }
         }
-        bounded(self, EFFECT_EVIDENCE_COMMAND_MAX_BYTES)
+        bounded(
+            self,
+            if matches!(self, Self::Assessment { .. }) {
+                EFFECT_RESOLUTION_ENTRY_MAX_BYTES
+            } else {
+                EFFECT_EVIDENCE_COMMAND_MAX_BYTES
+            },
+        )
+    }
+    pub fn resolution_reference(&self) -> Option<EffectResolutionReference> {
+        if let Self::Assessment {
+            sequence,
+            recorded_at,
+            recorded_revision,
+            resolution_id,
+            basis_revision,
+            supersedes_resolution_id,
+            assessment,
+            acceptance_event_id,
+            ..
+        } = self
+        {
+            Some(EffectResolutionReference {
+                resolution_id: resolution_id.clone(),
+                sequence: *sequence,
+                accepted_at: *recorded_at,
+                accepted_revision: *recorded_revision,
+                basis_revision: *basis_revision,
+                supersedes_resolution_id: supersedes_resolution_id.clone(),
+                assessment_kind: assessment.kind(),
+                acceptance_event_id: acceptance_event_id.clone(),
+            })
+        } else {
+            None
+        }
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +255,12 @@ impl EffectEvidenceBinding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectEvidenceSummary {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub operator_resolution: Option<EffectResolutionSummary>,
     pub occurrence: EffectOccurrence,
     pub program: ProgramRef,
     pub callable: String,
@@ -199,6 +284,9 @@ impl EffectEvidenceSummary {
         positive(self.effect_revision)?;
         if self.created_at > self.updated_at || self.entry_count >= self.effect_revision {
             return Err(invalid());
+        }
+        if let Some(resolution) = &self.operator_resolution {
+            resolution.validate(self.entry_count, self.effect_revision)?;
         }
         match &self.dispatch_provenance {
             EffectDispatchProvenance::VerifiedClaim { claim_id } => validate_text(claim_id, 128)?,
@@ -225,6 +313,7 @@ pub enum EffectInboxFilter {
     Unconfirmed,
     Confirmed,
     Discrepant,
+    Disputed,
 }
 impl EffectInboxFilter {
     pub fn matches(self, item: &EffectEvidenceSummary) -> bool {
@@ -233,6 +322,10 @@ impl EffectInboxFilter {
             Self::Unconfirmed => item.journal_state == EffectJournalState::Unconfirmed,
             Self::Confirmed => item.journal_state == EffectJournalState::Confirmed,
             Self::Discrepant => item.has_discrepancy,
+            Self::Disputed => item
+                .operator_resolution
+                .as_ref()
+                .is_some_and(|r| r.first_conflicting_entry_sequence.is_some()),
         }
     }
 }
@@ -394,6 +487,12 @@ impl EffectInspectQuery {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectEvidenceDetail {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub current_assessment: Option<EffectEvidenceEntry>,
     pub binding: EffectEvidenceBinding,
     pub summary: EffectEvidenceSummary,
     pub entries: Vec<EffectEvidenceEntry>,
@@ -414,6 +513,16 @@ impl EffectEvidenceDetail {
         {
             return Err(invalid());
         }
+        match (&self.current_assessment, &self.summary.operator_resolution) {
+            (None, None) => {}
+            (Some(entry), Some(resolution)) => {
+                entry.validate(&query.occurrence.scope)?;
+                if entry.resolution_reference().as_ref() != Some(&resolution.reference) {
+                    return Err(invalid());
+                }
+            }
+            _ => return Err(invalid()),
+        }
         if after > self.summary.entry_count {
             return Err(invalid());
         }
@@ -422,6 +531,21 @@ impl EffectEvidenceDetail {
         let mut ids = std::collections::HashSet::new();
         for e in &self.entries {
             e.validate(&query.occurrence.scope)?;
+            if matches!(e, EffectEvidenceEntry::Assessment { .. })
+                && self
+                    .current_assessment
+                    .as_ref()
+                    .is_none_or(|current| e.sequence() > current.sequence())
+            {
+                return Err(invalid());
+            }
+            if let Some(current) = &self.current_assessment
+                && e.sequence() == current.sequence()
+                && canonical_json_bytes(&serde_json::to_value(e).map_err(|_| invalid())?)?
+                    != canonical_json_bytes(&serde_json::to_value(current).map_err(|_| invalid())?)?
+            {
+                return Err(invalid());
+            }
             if sequence.checked_add(1) != Some(e.sequence())
                 || e.sequence() > self.summary.entry_count
                 || e.recorded_revision() <= revision

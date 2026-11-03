@@ -11,7 +11,7 @@ import {
 } from "../interaction-checks";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,7 +24,7 @@ function fixture(name: string): unknown {
 }
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "5",
+  "Ledgence-Console-Contract": "6",
   "Ledgence-Instance-Id": "instance_demo",
   "Request-Id": "request-contract-test",
 };
@@ -57,7 +57,7 @@ async function mount(page: Page, result = "pending_result") {
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "5",
+          "Ledgence-Console-Contract": "6",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
@@ -70,7 +70,10 @@ async function mount(page: Page, result = "pending_result") {
       "",
     );
     requests.push(name);
-    if (name === "approvals/inbox") {
+    if (
+      name === "approvals/inbox" ||
+      name === "workflows/approved-effects/inbox"
+    ) {
       await route.fulfill({
         status: 200,
         headers,

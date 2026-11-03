@@ -523,6 +523,103 @@ async fn console_external_wait_is_observed_without_waking_or_claiming_work() {
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
+async fn console_native_and_external_wait_pages_keep_equal_keys_and_bounded_index_seeks() {
+    let db = TestDb::new().await;
+    let mut connection = db.store.pool.acquire().await.unwrap();
+    for sql in [
+        "CREATE TEMP TABLE workflow_waits(workflow_id text COLLATE \"C\",wait_key text COLLATE \"C\",activation_id text COLLATE \"C\",kind text COLLATE \"C\",deadline_ms bigint,registered_at_ms bigint,closed_at_ms bigint)",
+        "CREATE TEMP TABLE workflow_effect_waits(workflow_id text COLLATE \"C\",logical_key text COLLATE \"C\",parking_activation_id text COLLATE \"C\",registered_at_ms bigint,closed_at_ms bigint,wait_bytes bytea)",
+        "CREATE INDEX fixture_external_seek ON workflow_waits(workflow_id,registered_at_ms,kind,wait_key,activation_id)",
+        "CREATE INDEX fixture_native_seek ON workflow_effect_waits(workflow_id,registered_at_ms,logical_key,parking_activation_id)",
+        "CREATE UNIQUE INDEX fixture_native_parking ON workflow_effect_waits(parking_activation_id)",
+        "INSERT INTO workflow_waits SELECT 'parent','key_'||n,'act_'||n,'event',NULL,n,NULL FROM generate_series(1,20000)n",
+        "INSERT INTO workflow_effect_waits SELECT 'parent','key_'||n,'native_'||n,n,NULL,convert_to('{}','UTF8') FROM generate_series(1,20000)n",
+        "ANALYZE workflow_waits",
+        "ANALYZE workflow_effect_waits",
+    ] {
+        sqlx::query(sql).execute(&mut *connection).await.unwrap();
+    }
+    let position = vec![
+        ConsoleKey::Number(ConsoleU64(19999)),
+        ConsoleKey::Text("event".into()),
+        ConsoleKey::Text("key_19999".into()),
+        ConsoleKey::Text("act_19999".into()),
+    ];
+    let mut first = workflows::waits_query("parent", 1, Some(&position)).unwrap();
+    let rows = first.build().fetch_all(&mut *connection).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].try_get::<String, _>("kind").unwrap(),
+        "effect_resolution"
+    );
+    assert_eq!(rows[1].try_get::<String, _>("kind").unwrap(), "event");
+    assert_eq!(
+        rows[0].try_get::<String, _>("wait_key").unwrap(),
+        rows[1].try_get::<String, _>("wait_key").unwrap()
+    );
+    let next = vec![
+        ConsoleKey::Number(ConsoleU64(20000)),
+        ConsoleKey::Text("effect_resolution".into()),
+        ConsoleKey::Text("key_20000".into()),
+        ConsoleKey::Text("native_20000".into()),
+    ];
+    let mut second = workflows::waits_query("parent", 1, Some(&next)).unwrap();
+    let remaining = second.build().fetch_all(&mut *connection).await.unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].try_get::<String, _>("kind").unwrap(), "event");
+    let mut builder = workflows::waits_query("parent", 50, Some(&position)).unwrap();
+    let mut query = builder.build();
+    let args = query.take_arguments().unwrap().unwrap();
+    let sql = format!("EXPLAIN (ANALYZE,BUFFERS) {}", query.sql().as_str());
+    let plan = sqlx::query_scalar_with::<_, String, _>(AssertSqlSafe(sql), args)
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap()
+        .join("\n");
+    println!("Console native wait seek: {plan}");
+    assert!(plan.contains("fixture_external_seek") && plan.contains("fixture_native_seek"));
+    assert!(!plan.contains("Seq Scan"));
+    let retirement = sqlx::query_scalar::<_,String>("EXPLAIN (ANALYZE,BUFFERS) SELECT 1 FROM workflow_effect_waits WHERE parking_activation_id='native_19000'")
+        .fetch_all(&mut *connection).await.unwrap().join("\n");
+    assert!(retirement.contains("fixture_native_parking") && !retirement.contains("Seq Scan"));
+    assert!(retirement.contains("rows=1.00 loops=1") || retirement.contains("rows=1 loops=1"));
+    for sql in [
+        "UPDATE workflow_waits SET registered_at_ms=10",
+        "UPDATE workflow_effect_waits SET registered_at_ms=10",
+        "ANALYZE workflow_waits",
+        "ANALYZE workflow_effect_waits",
+    ] {
+        sqlx::query(sql).execute(&mut *connection).await.unwrap();
+    }
+    let tie = vec![
+        ConsoleKey::Number(ConsoleU64(10)),
+        ConsoleKey::Text("event".into()),
+        ConsoleKey::Text("key_19999".into()),
+        ConsoleKey::Text("act_19999".into()),
+    ];
+    let mut builder = workflows::waits_query("parent", 1, Some(&tie)).unwrap();
+    let mut query = builder.build();
+    let args = query.take_arguments().unwrap().unwrap();
+    let plan = sqlx::query_scalar_with::<_, String, _>(
+        AssertSqlSafe(format!(
+            "EXPLAIN (ANALYZE,BUFFERS) {}",
+            query.sql().as_str()
+        )),
+        args,
+    )
+    .fetch_all(&mut *connection)
+    .await
+    .unwrap()
+    .join("\n");
+    println!("Console equal-time wait seek: {plan}");
+    assert!(plan.contains("fixture_external_seek") && plan.contains("fixture_native_seek"));
+    assert!(!plan.contains("Seq Scan") && !plan.contains("Rows Removed by Filter"));
+    drop(connection);
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
 async fn console_children_deep_seek_uses_ordered_indexes_and_bounded_hydration() {
     let db = TestDb::new().await;
     let mut connection = db.store.pool.acquire().await.unwrap();

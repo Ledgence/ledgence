@@ -134,6 +134,7 @@ impl PostgresStore {
             .unwrap_or(i64::MAX);
         let limit = i64::from(query.limit) + 1;
         let rows=match &query.filter {
+            AuditFilter::Event{event_id}=>sqlx::query("SELECT * FROM operator_audit_events WHERE tenant_id=$1 AND namespace=$2 AND event_id=$3").bind(&query.scope.tenant_id).bind(&query.scope.namespace).bind(event_id).fetch_all(&mut *tx).await?,
             AuditFilter::All=>sqlx::query("SELECT * FROM operator_audit_events WHERE tenant_id=$1 AND namespace=$2 AND event_seq<=$3 ORDER BY event_seq DESC LIMIT $4")
                 .bind(&query.scope.tenant_id).bind(&query.scope.namespace).bind(sequence).bind(limit).fetch_all(&mut *tx).await?,
             AuditFilter::Resource{resource_kind,resource_id}=>sqlx::query("SELECT * FROM operator_audit_events WHERE tenant_id=$1 AND namespace=$2 AND resource_kind=$3 AND resource_id=$4 AND event_seq<=$5 ORDER BY event_seq DESC LIMIT $6")
@@ -184,18 +185,21 @@ pub(crate) async fn insert_event(
     let (event_kind, key) = match &event.operation {
         AuditOperation::ApprovalAccepted { key, .. } => ("approval_accepted", Some(key.as_str())),
         AuditOperation::SensitiveResponse { .. } => ("sensitive_response", None),
+        AuditOperation::EffectResolved { resolution_id, .. } => {
+            ("effect_resolved", Some(resolution_id.as_str()))
+        }
     };
-    if command.is_some() != (event_kind == "approval_accepted") {
+    if command.is_some() != (event_kind != "sensitive_response") {
         return Err(corrupt("audit command binding").into());
     }
     let (resource_kind, resource_id) = event.operation.target();
-    let inserted:Option<String>=sqlx::query_scalar("INSERT INTO operator_audit_events(event_id,event_kind,tenant_id,namespace,authority_id,instance_id,resource_kind,resource_id,operation_key,recorded_at_ms,event_bytes,command_digest,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,sha256($12::bytea),$13) ON CONFLICT(event_id) DO NOTHING RETURNING event_id")
+    let inserted:Option<bool>=sqlx::query_scalar("INSERT INTO operator_audit_events(event_id,event_kind,tenant_id,namespace,authority_id,instance_id,resource_kind,resource_id,operation_key,recorded_at_ms,event_bytes,command_digest,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,sha256($12::bytea),$13) ON CONFLICT(event_id) DO NOTHING RETURNING event_id=$1 AND event_kind=$2 AND tenant_id=$3 AND namespace=$4 AND authority_id=$5 AND instance_id=$6 AND resource_kind=$7 AND resource_id=$8 AND operation_key IS NOT DISTINCT FROM $9 AND recorded_at_ms=$10 AND event_bytes=$11 AND command_digest IS NOT DISTINCT FROM sha256($12::bytea) AND request_id IS NOT DISTINCT FROM $13")
         .bind(&event.event_id).bind(event_kind).bind(&event.audience.scope.tenant_id).bind(&event.audience.scope.namespace)
         .bind(&event.audience.authority_id).bind(&event.audience.instance_id).bind(kind(resource_kind)).bind(resource_id).bind(key)
         .bind(codec::ms(event.recorded_at)?).bind(codec::encode(event)?).bind(command).bind(request_id)
         .fetch_optional(connection).await?;
-    match inserted.as_deref() {
-        Some(id) if id == event.event_id => Ok(true),
+    match inserted {
+        Some(true) => Ok(true),
         None if replay => Ok(false),
         _ => Err(corrupt("audit event identity was not persisted").into()),
     }
@@ -212,7 +216,10 @@ pub(crate) async fn load_acceptance(
         return Err(corrupt("approval audit command mismatch").into());
     }
     let event = decode_event(&row)?;
-    if !matches!(event.operation, AuditOperation::ApprovalAccepted { .. }) {
+    if !matches!(
+        event.operation,
+        AuditOperation::ApprovalAccepted { .. } | AuditOperation::EffectResolved { .. }
+    ) {
         return Err(corrupt("approval audit event kind").into());
     }
     Ok(event)
@@ -231,6 +238,9 @@ fn decode_event(row: &PgRow) -> StoreResult<AuditEvent> {
     let (event_kind, key) = match &event.operation {
         AuditOperation::ApprovalAccepted { key, .. } => ("approval_accepted", Some(key.as_str())),
         AuditOperation::SensitiveResponse { .. } => ("sensitive_response", None),
+        AuditOperation::EffectResolved { resolution_id, .. } => {
+            ("effect_resolved", Some(resolution_id.as_str()))
+        }
     };
     let (resource_kind, resource_id) = event.operation.target();
     if row.try_get::<String, _>("event_id")? != event.event_id

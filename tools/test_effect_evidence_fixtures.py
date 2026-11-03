@@ -19,7 +19,7 @@ class CredentialProxyTests(unittest.TestCase):
         seen = []
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                seen.append((self.headers.get("Authorization"), self.headers.get("Cookie")))
+                seen.append((self.headers.get("Authorization"), self.headers.get("Cookie"), self.headers.get("Ledgence-Worker-Features")))
                 body = b'{"ready":true}'
                 self.send_response(200)
                 self.send_header("Content-Length",str(len(body)))
@@ -34,13 +34,13 @@ class CredentialProxyTests(unittest.TestCase):
                 endpoint = urlsplit(proxy.url)
                 connection = http.client.HTTPConnection(endpoint.hostname, endpoint.port, timeout=5)
                 try:
-                    connection.request("GET","/v1/access",headers={"Authorization":"Bearer fixture-secret", "Cookie":"never-forward"})
+                    connection.request("GET","/v1/access",headers={"Authorization":"Bearer fixture-secret", "Cookie":"never-forward", "Ledgence-Worker-Features":"1"})
                     response = connection.getresponse(); self.assertEqual(response.status,200); response.read()
                     self.assertNotIn("fixture-secret",repr(proxy.records))
                     self.assertNotIn("never-forward",repr(proxy.records))
                 finally:
                     connection.close(); proxy.close()
-            self.assertEqual(seen,[(None,None),("Bearer fixture-secret",None)])
+            self.assertEqual(seen,[(None,None,"1"),("Bearer fixture-secret",None,"1")])
         finally:
             server.shutdown();server.server_close();thread.join(timeout=5)
         for invalid in (1,None,"yes"):

@@ -40,6 +40,9 @@ impl ApprovedEffects for HttpTaskService {
 }
 
 impl WorkflowService for HttpTaskService {
+    fn effect_resolution_client(&self) -> Result<&dyn EffectResolutionClient> {
+        Ok(self)
+    }
     fn effect_evidence_client(&self) -> Result<&dyn EffectEvidenceClient> {
         Ok(self)
     }

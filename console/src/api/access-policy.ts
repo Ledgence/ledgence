@@ -5,7 +5,10 @@ export function requiredCapabilities(
   write: boolean,
 ): AccessCapability[] {
   const route = path.split("?")[0]!.replace("/v1/console/", "");
-  if (route === "audit/events") return ["metadata_read"];
+  if (route === "audit/events" || route === "workflows/approved-effects/inbox")
+    return ["metadata_read"];
+  if (route === "workflows/approved-effects/inspect") return ["sensitive_read"];
+  if (route === "workflows/approved-effects/resolve") return ["effect_resolve"];
   if (route === "approvals/decide")
     return ["sensitive_read", "approval_decide"];
   if (

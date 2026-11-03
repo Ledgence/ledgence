@@ -6,6 +6,8 @@ pub(crate) struct Retained {
     pub summary: EffectEvidenceSummary,
     pub reference: Option<Vec<u8>>,
     pub journal: Option<Vec<u8>>,
+    pub current_assessment: Option<EffectEvidenceEntry>,
+    pub assessment_result: Option<Vec<u8>>,
 }
 impl Retained {
     pub fn next(&mut self, now: u64) -> Result<(u64, u64)> {
@@ -24,6 +26,20 @@ impl Retained {
     }
     pub fn report(&mut self, output: &Value) -> Result<()> {
         let bytes = canonical_json_bytes(output)?;
+        if let Some(resolution) = &mut self.summary.operator_resolution
+            && resolution.first_conflicting_entry_sequence.is_none()
+            && self
+                .assessment_result
+                .as_ref()
+                .is_some_and(|result| result != &bytes)
+        {
+            resolution.first_conflicting_entry_sequence = Some(
+                self.summary
+                    .entry_count
+                    .checked_add(1)
+                    .ok_or_else(|| corrupt("effect sequence overflow"))?,
+            );
+        }
         if let Some(reference) = &self.reference {
             if reference != &bytes {
                 self.summary.has_discrepancy = true;
@@ -84,7 +100,40 @@ fn from_row(row: &PgRow, occurrence: &EffectOccurrence) -> Result<Retained> {
     {
         return Err(corrupt("retained effect projection"));
     }
+    let current_assessment: Option<EffectEvidenceEntry> = row
+        .try_get::<Option<Vec<u8>>, _>("current_assessment_bytes")
+        .map_err(database_error)?
+        .map(|b| codec::decode(&b))
+        .transpose()?;
+    let resolution_id: Option<String> = row.try_get("resolution_id").map_err(database_error)?;
+    let disputed: bool = row.try_get("disputed").map_err(database_error)?;
+    match (&summary.operator_resolution, &current_assessment) {
+        (None, None) if resolution_id.is_none() && !disputed => {}
+        (Some(r), Some(e))
+            if e.resolution_reference().as_ref() == Some(&r.reference)
+                && resolution_id.as_deref() == Some(&r.reference.resolution_id)
+                && disputed == r.first_conflicting_entry_sequence.is_some() =>
+        {
+            e.validate(&occurrence.scope)?;
+        }
+        _ => return Err(corrupt("effect assessment projection")),
+    }
+    let assessment_result: Option<Vec<u8>> = row
+        .try_get("assessment_result_bytes")
+        .map_err(database_error)?;
+    let expected = match &current_assessment {
+        Some(EffectEvidenceEntry::Assessment {
+            assessment: EffectResolutionAssessment::RecordSuccess { result },
+            ..
+        }) => Some(canonical_json_bytes(result)?),
+        _ => None,
+    };
+    if assessment_result != expected {
+        return Err(corrupt("assessment result projection"));
+    }
     Ok(Retained {
+        current_assessment,
+        assessment_result,
         binding,
         summary,
         reference: row.try_get("reference_bytes").map_err(database_error)?,
@@ -95,7 +144,7 @@ pub(super) async fn load(
     tx: &mut PgConnection,
     o: &EffectOccurrence,
 ) -> StoreResult<Option<Retained>> {
-    let row=sqlx::query("SELECT binding_bytes,summary_bytes,reference_bytes,journal_bytes,journal_state,has_discrepancy,trunc(effect_revision)::text AS effect_revision_text,trunc(entry_count)::text AS entry_count_text,created_at_ms,updated_at_ms FROM approved_effect_occurrences WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 FOR UPDATE")
+    let row=sqlx::query("SELECT current_assessment_bytes,assessment_result_bytes,resolution_id,disputed,binding_bytes,summary_bytes,reference_bytes,journal_bytes,journal_state,has_discrepancy,trunc(effect_revision)::text AS effect_revision_text,trunc(entry_count)::text AS entry_count_text,created_at_ms,updated_at_ms FROM approved_effect_occurrences WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 FOR UPDATE")
         .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).fetch_optional(tx).await?;
     row.as_ref()
         .map(|r| from_row(r, o))
@@ -170,6 +219,7 @@ pub(crate) async fn ensure(
     };
     binding.validate()?;
     let summary = EffectEvidenceSummary {
+        operator_resolution: None,
         occurrence: occurrence.clone(),
         program: program.program,
         callable: binding.approval.action.name.clone(),
@@ -195,6 +245,8 @@ pub(crate) async fn ensure(
         summary,
         reference: None,
         journal: None,
+        current_assessment: None,
+        assessment_result: None,
     })
 }
 pub(super) async fn save(tx: &mut PgConnection, r: &Retained) -> StoreResult<()> {
@@ -205,8 +257,8 @@ pub(super) async fn save(tx: &mut PgConnection, r: &Retained) -> StoreResult<()>
         EffectJournalState::Unconfirmed => "unconfirmed",
         EffectJournalState::Confirmed => "confirmed",
     };
-    let valid:Option<bool>=sqlx::query_scalar("UPDATE approved_effect_occurrences SET binding_bytes=$6,summary_bytes=$7,journal_state=$8,has_discrepancy=$9,effect_revision=$10::text::numeric,entry_count=$11::text::numeric,updated_at_ms=$12,reference_bytes=$13,journal_bytes=$14 WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 RETURNING tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 AND binding_bytes=$6 AND summary_bytes=$7 AND journal_state=$8 AND has_discrepancy=$9 AND effect_revision=$10::text::numeric AND entry_count=$11::text::numeric AND updated_at_ms=$12 AND reference_bytes IS NOT DISTINCT FROM $13 AND journal_bytes IS NOT DISTINCT FROM $14 AND created_at_ms=$15")
-        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).bind(codec::encode(&r.binding)?).bind(codec::encode(&r.summary)?).bind(state).bind(r.summary.has_discrepancy).bind(r.summary.effect_revision.to_string()).bind(r.summary.entry_count.to_string()).bind(codec::ms(r.summary.updated_at)?).bind(&r.reference).bind(&r.journal).bind(codec::ms(r.summary.created_at)?).fetch_optional(tx).await?;
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE approved_effect_occurrences SET binding_bytes=$6,summary_bytes=$7,journal_state=$8,has_discrepancy=$9,effect_revision=$10::text::numeric,entry_count=$11::text::numeric,updated_at_ms=$12,reference_bytes=$13,journal_bytes=$14,current_assessment_bytes=$16,assessment_result_bytes=$17,resolution_id=$18,disputed=$19 WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 RETURNING tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 AND binding_bytes=$6 AND summary_bytes=$7 AND journal_state=$8 AND has_discrepancy=$9 AND effect_revision=$10::text::numeric AND entry_count=$11::text::numeric AND updated_at_ms=$12 AND reference_bytes IS NOT DISTINCT FROM $13 AND journal_bytes IS NOT DISTINCT FROM $14 AND created_at_ms=$15 AND current_assessment_bytes IS NOT DISTINCT FROM $16 AND assessment_result_bytes IS NOT DISTINCT FROM $17 AND resolution_id IS NOT DISTINCT FROM $18 AND disputed=$19")
+        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).bind(codec::encode(&r.binding)?).bind(codec::encode(&r.summary)?).bind(state).bind(r.summary.has_discrepancy).bind(r.summary.effect_revision.to_string()).bind(r.summary.entry_count.to_string()).bind(codec::ms(r.summary.updated_at)?).bind(&r.reference).bind(&r.journal).bind(codec::ms(r.summary.created_at)?).bind(r.current_assessment.as_ref().map(codec::encode).transpose()?).bind(&r.assessment_result).bind(r.summary.operator_resolution.as_ref().map(|v|&v.reference.resolution_id)).bind(r.summary.operator_resolution.as_ref().is_some_and(|v|v.first_conflicting_entry_sequence.is_some())).fetch_optional(tx).await?;
     if valid != Some(true) {
         return Err(corrupt("retained effect update suppressed or changed").into());
     }
@@ -255,8 +307,8 @@ pub(super) async fn append(
     if e.sequence() != r.summary.entry_count || e.recorded_revision() != r.summary.effect_revision {
         return Err(corrupt("effect append revision").into());
     }
-    let valid:Option<bool>=sqlx::query_scalar("INSERT INTO approved_effect_evidence_entries(tenant_id,namespace,workflow_id,activation_id,approval_key,sequence,entry_kind,command_id,operation,claim_sequence,claim_kind,entry_bytes,command_bytes,receipt_bytes) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,$9,$10::text::numeric,CASE WHEN $10::text IS NULL THEN NULL ELSE 'claim' END,$11,$12,$13) RETURNING tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 AND sequence=$6::text::numeric AND entry_kind=$7 AND command_id=$8 AND operation=$9 AND claim_sequence IS NOT DISTINCT FROM $10::text::numeric AND entry_bytes=$11 AND command_bytes IS NOT DISTINCT FROM $12 AND receipt_bytes IS NOT DISTINCT FROM $13")
-        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).bind(e.sequence().to_string()).bind(e.kind()).bind(e.command_id()).bind(operation).bind(claim_sequence.map(|v|v.to_string())).bind(codec::encode(e)?).bind(command).bind(receipt).fetch_optional(&mut *tx).await?;
+    let valid:Option<bool>=sqlx::query_scalar("INSERT INTO approved_effect_evidence_entries(tenant_id,namespace,workflow_id,activation_id,approval_key,sequence,entry_kind,command_id,operation,claim_sequence,claim_kind,entry_bytes,command_bytes,receipt_bytes,acceptance_event_id) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,$9,$10::text::numeric,CASE WHEN $10::text IS NULL THEN NULL WHEN $9='resolve' THEN 'assessment' ELSE 'claim' END,$11,$12,$13,$14) RETURNING tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 AND sequence=$6::text::numeric AND entry_kind=$7 AND command_id=$8 AND operation=$9 AND claim_sequence IS NOT DISTINCT FROM $10::text::numeric AND entry_bytes=$11 AND command_bytes IS NOT DISTINCT FROM $12 AND receipt_bytes IS NOT DISTINCT FROM $13 AND acceptance_event_id IS NOT DISTINCT FROM $14")
+        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).bind(e.sequence().to_string()).bind(e.kind()).bind(e.command_id()).bind(operation).bind(claim_sequence.map(|v|v.to_string())).bind(codec::encode(e)?).bind(command).bind(receipt).bind(e.resolution_reference().map(|r|r.acceptance_event_id)).fetch_optional(&mut *tx).await?;
     if valid != Some(true) {
         return Err(corrupt("effect entry insert suppressed or changed").into());
     }

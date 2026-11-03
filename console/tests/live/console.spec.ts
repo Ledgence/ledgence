@@ -255,7 +255,7 @@ test("real durable approval audit renders its effective action and resumed activ
     data: { workflow_id: workflow.id, key: "refund" },
   });
   expect(response.ok()).toBe(true);
-  expect(response.headers()["ledgence-console-contract"]).toBe("5");
+  expect(response.headers()["ledgence-console-contract"]).toBe("6");
   const approval = decodeApproval(
     parseUserJson(await response.text(), 96 * 1024),
   );

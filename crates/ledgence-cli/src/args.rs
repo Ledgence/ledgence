@@ -724,6 +724,10 @@ mod audit_tests {
 pub enum EffectOperation {
     Inbox(EffectInboxQuery),
     Inspect(EffectInspectQuery),
+    Resolve {
+        scope: Scope,
+        file: std::path::PathBuf,
+    },
 }
 
 fn parse_effect(mut args: impl Iterator<Item = String>) -> Result<Command> {
@@ -758,7 +762,7 @@ fn parse_effect(mut args: impl Iterator<Item = String>) -> Result<Command> {
                 .remove("--filter")
                 .map(|value| {
                     serde_json::from_value(serde_json::Value::String(value)).map_err(|_| {
-                        invalid("effect filter must be all, unconfirmed, confirmed, or discrepant")
+                        invalid("effect filter must be all, unconfirmed, confirmed, discrepant, or disputed")
                     })
                 })
                 .transpose()?
@@ -787,7 +791,21 @@ fn parse_effect(mut args: impl Iterator<Item = String>) -> Result<Command> {
             query.validate()?;
             EffectOperation::Inspect(query)
         }
-        _ => return Err(invalid("expected effect inbox or inspect; use --help")),
+        "resolve" => {
+            scope.validate()?;
+            if cursor.is_some() || limit.is_some() {
+                return Err(invalid("resolve does not accept pagination options"));
+            }
+            EffectOperation::Resolve {
+                scope,
+                file: required(&mut options, "--file")?.into(),
+            }
+        }
+        _ => {
+            return Err(invalid(
+                "expected effect inbox, inspect or resolve; use --help",
+            ));
+        }
     };
     if !options.is_empty() {
         return Err(invalid("unknown effect option"));

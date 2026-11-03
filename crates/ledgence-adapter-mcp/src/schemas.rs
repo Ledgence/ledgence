@@ -16,7 +16,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     let mut tools = vec![
         tool(
             "ledgence_audit_query",
-            "Read payload-free operator audit events in the configured scope. Requires metadata_read and audited credential mode. Filter by one resource or exact approval occurrence. For approval_acceptance use limit 2 and no cursor. A successful empty exact result means no verified actor was recorded; an error does not establish absence. Actor attribution identifies the credential holder, including shared services. Pagination is not a cross-request snapshot.",
+            "Read payload-free operator audit events in the configured scope. Requires metadata_read and audited credential mode. Filter by one resource or exact approval occurrence. For event or approval_acceptance use limit 2 and no cursor. A successful empty exact result means no verified actor was recorded; an error does not establish absence. Actor attribution identifies the credential holder, including shared services. Pagination is not a cross-request snapshot.",
             object(
                 json!({"filter": audit_filter(), "cursor": cursor(), "limit": limit()}),
                 &[],
@@ -28,7 +28,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             "ledgence_effect_inbox",
             "Read retained approved-effect metadata in the configured scope, most recently updated first. Requires metadata_read. Keep filters unchanged when following next_cursor; a short page can have a cursor due to the byte limit. Reports and discrepancies do not establish provider truth or authorize another dispatch.",
             object(
-                json!({"filter":{"type":"string","enum":["all","unconfirmed","confirmed","discrepant"],"default":"all"},
+                json!({"filter":{"type":"string","enum":["all","unconfirmed","confirmed","discrepant","disputed"],"default":"all"},
                     "workflow_id":identifier(),"cursor":effect_cursor(),"limit":limit()}),
                 &[],
             ),
@@ -45,6 +45,38 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             ),
             true,
             false,
+        ),
+        tool(
+            "ledgence_effect_resolve",
+            "Append an authenticated operator assessment of one exact approved effect. Requires process opt-in and effect_resolve. Supply the frozen reviewed action, revision, previous assessment, reason and ordered evidence references. Replay an uncertain request only with exactly the same command and stable actor. Acceptance does not assert provider truth, confirm the journal, redispatch work or prove workflow resumption. Revision strings preserve all u64 digits.",
+            object(
+                json!({"workflow_id":identifier(),"activation_id":identifier(),"approval_key":identifier(),
+                    "resolution_id":identifier(),"expected_effect_revision":{"type":"string","pattern":"^[1-9][0-9]{0,19}$","description":"Canonical decimal u64 less than 18446744073709551615; use the inspected effect_revision unchanged."},
+                    "supersedes_resolution_id":{"anyOf":[identifier(),{"type":"null"}]},
+                    "action":object(json!({"name":{"type":"string","minLength":1,"maxLength":512},"version":identifier(),"arguments":{}}), &["name","version","arguments"]),
+                    "assessment":{"oneOf":[
+                        object(json!({"kind":{"const":"record_success"},"result":{}}), &["kind","result"]),
+                        object(json!({"kind":{"const":"record_failure"},"failure":object(json!({"kind":identifier(),"message":{"type":"string","maxLength":4096}}), &["kind","message"])}), &["kind","failure"]),
+                        object(json!({"kind":{"const":"close_unknown"}}), &["kind"])
+                    ]},
+                    "reason":{"type":"string","minLength":1,"maxLength":4096,"description":"Nonblank, at most 4096 UTF-8 bytes; retained exactly."},
+                    "evidence_references":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":1024},"description":"Ordered references, at most 1024 UTF-8 bytes each. Success/failure requires at least one; close_unknown may use none."}
+                }),
+                &[
+                    "workflow_id",
+                    "activation_id",
+                    "approval_key",
+                    "resolution_id",
+                    "expected_effect_revision",
+                    "supersedes_resolution_id",
+                    "action",
+                    "assessment",
+                    "reason",
+                    "evidence_references",
+                ],
+            ),
+            false,
+            true,
         ),
         tool(
             "ledgence_program_list",
@@ -196,6 +228,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
 
 fn audit_filter() -> Value {
     json!({"oneOf": [
+        object(json!({"kind":{"const":"event"},"event_id":identifier()}), &["kind","event_id"]),
         object(json!({"kind":{"const":"all"}}), &["kind"]),
         object(json!({"kind":{"const":"resource"},
             "resource_kind":{"enum":["task","workflow"]}, "resource_id":identifier()}),
@@ -284,7 +317,7 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 19);
+        assert_eq!(all.len(), 20);
         assert!(
             all.iter()
                 .all(|tool| tool.input_schema["additionalProperties"] == false)

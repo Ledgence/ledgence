@@ -3,6 +3,7 @@ import * as s from "./schema";
 import { stringifyUserJson } from "./json";
 import { ContractError } from "./codecs";
 import type { Approval } from "./approvals";
+import { effectOccurrence } from "./effects";
 
 const id = s.refine(
   s.id,
@@ -98,6 +99,27 @@ export const auditEvent = s.refine(
     audience,
     actor,
     operation: s.variant({
+      effect_resolved: s.refine(
+        s.object({
+          kind: s.enumeration("effect_resolved"),
+          occurrence: effectOccurrence,
+          resolution_id: id,
+          accepted_revision: s.decimal,
+          basis_revision: s.decimal,
+          supersedes_resolution_id: s.nullable(id),
+          assessment_kind: s.enumeration(
+            "record_success",
+            "record_failure",
+            "close_unknown",
+          ),
+        }),
+        (value) =>
+          BigInt(value.basis_revision) > 0n &&
+          BigInt(value.basis_revision) + 1n ===
+            BigInt(value.accepted_revision) &&
+          value.supersedes_resolution_id !== value.resolution_id,
+        "Invalid effect acceptance audit binding.",
+      ),
       approval_accepted: acceptance,
       sensitive_response: responseRead,
     }),
@@ -165,6 +187,50 @@ export function acceptanceFor(
     )
       throw new ContractError(
         "The audit event does not match this accepted decision.",
+      );
+    return event;
+  };
+}
+
+export function effectAcceptanceQuery(eventId: string) {
+  return {
+    filter: { kind: "event" as const, event_id: id(eventId) },
+    cursor: null,
+    limit: 2,
+  };
+}
+export function effectAcceptanceFor(
+  receipt: import("./effects").EffectResolutionReceipt,
+  instanceId: string,
+) {
+  return (raw: unknown): AuditEvent | null => {
+    const result = page(raw);
+    if (result.items.length > 1 || result.next_cursor !== null)
+      throw new ContractError("Ambiguous effect assessment attribution.");
+    const event = result.items[0];
+    if (!event) return null;
+    const operation = event.operation;
+    const occurrence = receipt.occurrence;
+    if (
+      event.event_id !== receipt.acceptance_event_id ||
+      event.audience.instance_id !== instanceId ||
+      event.audience.scope.tenant_id !== occurrence.scope.tenant_id ||
+      event.audience.scope.namespace !== occurrence.scope.namespace ||
+      event.recorded_at !== receipt.accepted_at ||
+      operation.kind !== "effect_resolved" ||
+      operation.occurrence.scope.tenant_id !== occurrence.scope.tenant_id ||
+      operation.occurrence.scope.namespace !== occurrence.scope.namespace ||
+      operation.occurrence.workflow_id !== occurrence.workflow_id ||
+      operation.occurrence.activation_id !== occurrence.activation_id ||
+      operation.occurrence.approval_key !== occurrence.approval_key ||
+      operation.resolution_id !== receipt.resolution_id ||
+      operation.accepted_revision !== receipt.accepted_revision ||
+      operation.basis_revision !== receipt.basis_revision ||
+      operation.supersedes_resolution_id !== receipt.supersedes_resolution_id ||
+      operation.assessment_kind !== receipt.assessment_kind
+    )
+      throw new ContractError(
+        "The audit event does not match this effect assessment.",
       );
     return event;
   };

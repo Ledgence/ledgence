@@ -166,7 +166,7 @@ fn identity() -> EffectWorkerIdentity {
         credential_id: "credential".into(),
     }
 }
-fn occurrence() -> EffectOccurrence {
+pub(super) fn occurrence() -> EffectOccurrence {
     EffectOccurrence {
         scope: scope(),
         workflow_id: "workflow".into(),
@@ -190,7 +190,9 @@ fn detail() -> EffectEvidenceDetail {
     });
     let program = task(Value::Null).descriptor;
     EffectEvidenceDetail {
+        current_assessment: None,
         summary: EffectEvidenceSummary {
+            operator_resolution: None,
             occurrence: occurrence(),
             program: program.program.clone(),
             callable: approved.action.name.clone(),

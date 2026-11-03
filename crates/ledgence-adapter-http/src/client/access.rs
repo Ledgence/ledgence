@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer};
 pub struct WorkerEffectAccess {
     pub audience: AccessAudience,
     pub identity: PrincipalIdentity,
+    pub runtime_features: ledgence_worker_api::RuntimeFeatures,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +35,8 @@ struct CredentialReply {
     authority_id: Option<String>,
     #[serde(default, deserialize_with = "capabilities")]
     runtime_capabilities: Option<RuntimeCapabilities>,
+    #[serde(default, deserialize_with = "present")]
+    worker_features: Option<ledgence_worker_api::RuntimeFeatures>,
 }
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -85,6 +88,7 @@ impl AccessReply {
             operator_audit,
             authority_id,
             runtime_capabilities,
+            worker_features,
         } = reply.as_ref();
         if !credentials || *class != PrincipalClass::Worker || scope != expected {
             return Err(unavailable(
@@ -115,6 +119,16 @@ impl AccessReply {
         let enabled = runtime_capabilities
             .as_ref()
             .is_some_and(|capabilities| capabilities.approved_effect_evidence_v2);
+        if let Some(features) = worker_features {
+            features
+                .validate()
+                .map_err(|_| unavailable("invalid worker features"))?;
+            if features.native_effect_resolution() && !enabled {
+                return Err(unavailable(
+                    "native effect resolution requires effect evidence v2",
+                ));
+            }
+        }
         if !enabled {
             return Ok(None);
         }
@@ -131,7 +145,11 @@ impl AccessReply {
             scope: scope.clone(),
         };
         audience.validate()?;
-        Ok(Some(WorkerEffectAccess { audience, identity }))
+        Ok(Some(WorkerEffectAccess {
+            audience,
+            identity,
+            runtime_features: worker_features.clone().unwrap_or_default(),
+        }))
     }
 }
 
@@ -192,6 +210,11 @@ mod tests {
             }
             let request = String::from_utf8(request).unwrap();
             assert!(request.starts_with("GET /v1/access HTTP/1.1\r\n"));
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("ledgence-worker-features: 1\r\n")
+            );
             assert_eq!(
                 request
                     .to_ascii_lowercase()
@@ -231,6 +254,7 @@ mod tests {
             }
         );
         assert_eq!(access.identity.subject, "worker-one");
+        assert!(!access.runtime_features.native_effect_resolution());
         let mut old = snapshot();
         for key in ["runtime_capabilities", "authority_id", "operator_audit"] {
             old.as_object_mut().unwrap().remove(key);
@@ -267,6 +291,31 @@ mod tests {
             .is_err()
         );
         assert!(discover(snapshot(), 200, false).await.is_err());
+    }
+    #[tokio::test]
+    async fn native_features_require_valid_manifest_and_complete_authenticated_evidence() {
+        let mut value = snapshot();
+        value["worker_features"] =
+            json!({"v":1,"supported":["native_effect_resolution.v1","future.v9"]});
+        let access = discover(value.clone(), 200, true).await.unwrap().unwrap();
+        assert!(access.runtime_features.native_effect_resolution());
+        for malformed in [
+            Value::Null,
+            json!({"v":2,"supported":[]}),
+            json!({"v":1,"supported":[true]}),
+            json!({"v":1,"supported":["same","same"]}),
+            json!({"v":1,"supported":["BAD"]}),
+            json!({"v":1,"supported":[],"unknown":1}),
+        ] {
+            value["worker_features"] = malformed;
+            assert!(discover(value.clone(), 200, true).await.is_err());
+        }
+        value["worker_features"] = json!({"v":1,"supported":["native_effect_resolution.v1"]});
+        for key in ["runtime_capabilities", "authority_id", "operator_audit"] {
+            let mut broken = value.clone();
+            broken.as_object_mut().unwrap().remove(key);
+            assert!(discover(broken, 200, true).await.is_err(), "{key}");
+        }
     }
     #[tokio::test]
     async fn discovery_rejects_malformed_or_conflicting_capabilities_and_authentication() {

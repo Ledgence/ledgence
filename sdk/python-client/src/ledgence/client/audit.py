@@ -4,7 +4,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from .effect_models import EffectOccurrence
+    from .effect_resolution_models import EffectAssessmentKind
 
 from . import codec
 from .approval_models import ApprovalStatus, WorkflowApproval, parse_approval
@@ -110,6 +114,17 @@ class AuditAcceptance:
 
 
 @dataclass(frozen=True, slots=True)
+class AuditEffectResolved:
+    occurrence: EffectOccurrence
+    resolution_id: str
+    accepted_revision: int
+    basis_revision: int
+    supersedes_resolution_id: str | None
+    assessment_kind: EffectAssessmentKind
+    kind: Literal["effect_resolved"] = field(default="effect_resolved", init=False)
+
+
+@dataclass(frozen=True, slots=True)
 class AuditSensitiveResponse:
     read: AuditReadKind
     resource: AuditResource
@@ -122,7 +137,7 @@ class AuditEvent:
     recorded_at: int
     audience: AuditAudience
     actor: AuditActor
-    operation: AuditAcceptance | AuditSensitiveResponse
+    operation: AuditAcceptance | AuditSensitiveResponse | AuditEffectResolved
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +148,7 @@ class AuditPage:
 
 @dataclass(frozen=True, slots=True, init=False)
 class AuditFilter:
-    """A bounded filter created with all(), resource(), or approval_acceptance()."""
+    """A bounded filter created with all(), resource(), event(), or approval_acceptance()."""
     _encoded: bytes = field(repr=False)
 
     def __init__(self):
@@ -157,6 +172,11 @@ class AuditFilter:
             raise InputError("invalid audit resource kind") from exc
         codec.text(resource_id, "resource_id")
         return cls._create({"kind": "resource", "resource_kind": kind.value, "resource_id": resource_id})
+
+    @classmethod
+    def event(cls, event_id: str):
+        codec.text(event_id, "event_id")
+        return cls._create({"kind": "event", "event_id": event_id})
 
     @classmethod
     def approval_acceptance(cls, *, workflow_id: str, key: str, activation_id: str,
@@ -226,6 +246,20 @@ def _event(raw, scope):
         operation = AuditAcceptance(*(codec.text(operation[name], name) for name in ("workflow_id", "key", "activation_id")),
                                     codec.integer(operation["revision"], "revision"),
                                     codec.text(operation["decision_id"], "decision_id"), operation["decision"])
+    elif kind == "effect_resolved":
+        from .effect_models import _occurrence
+        from .effect_resolution_models import EffectAssessmentKind, _revisions, _predecessor
+        codec.fields(operation, {"kind", "occurrence", "resolution_id", "accepted_revision",
+                                 "basis_revision", "supersedes_resolution_id", "assessment_kind"})
+        occurrence = _occurrence(operation["occurrence"], scope)
+        if occurrence.scope != scope:
+            raise InputError("effect assessment audit belongs to another scope")
+        resolution_id = codec.text(operation["resolution_id"], "resolution_id")
+        basis, accepted = operation["basis_revision"], operation["accepted_revision"]
+        _revisions(basis, accepted)
+        predecessor = _predecessor(operation["supersedes_resolution_id"], resolution_id)
+        operation = AuditEffectResolved(occurrence, resolution_id, accepted, basis, predecessor,
+                                        EffectAssessmentKind(operation["assessment_kind"]))
     elif kind == "sensitive_response":
         codec.fields(operation, {"kind", "read", "resource"})
         operation = AuditSensitiveResponse(AuditReadKind(operation["read"]), _resource(operation["resource"]))
@@ -246,10 +280,13 @@ def _event(raw, scope):
 def _matches(event, selected):
     operation = event.operation
     if selected["kind"] == "all": return True
+    if selected["kind"] == "event": return event.event_id == selected["event_id"]
     if selected["kind"] == "approval_acceptance":
         return isinstance(operation, AuditAcceptance) and all(
             getattr(operation, name) == selected[name]
             for name in ("workflow_id", "key", "activation_id", "revision", "decision_id"))
+    if isinstance(operation, AuditEffectResolved):
+        return selected["resource_kind"] == "workflow" and selected["resource_id"] == operation.occurrence.workflow_id
     resource = operation if isinstance(operation, AuditAcceptance) else operation.resource
     actual_kind = "task" if isinstance(resource, AuditTask) else "workflow"
     actual_id = resource.task_id if isinstance(resource, AuditTask) else resource.workflow_id
@@ -271,8 +308,8 @@ def _page(raw, scope, selected, cursor, limit):
             codec.text(after, "next_cursor", AUDIT_CURSOR_LIMIT)
             if after == cursor or len(items) != limit:
                 raise InputError("audit cursor does not advance a full page")
-        if selected["kind"] == "approval_acceptance" and (len(items) > 1 or after is not None):
-            raise InputError("ambiguous approval acceptance")
+        if selected["kind"] in ("approval_acceptance", "event") and (len(items) > 1 or after is not None):
+            raise InputError("ambiguous exact audit lookup")
         return AuditPage(items, after)
     except (ValueError, TypeError, KeyError, UnicodeError) as exc:
         raise ProtocolError("invalid operator audit response") from exc
@@ -288,8 +325,8 @@ class Audit:
         selected = selected.to_dict()
         codec.integer(limit, "limit", 1, 100)
         if cursor is not None: codec.text(cursor, "cursor", AUDIT_CURSOR_LIMIT)
-        if selected["kind"] == "approval_acceptance" and (limit != 2 or cursor is not None):
-            raise InputError("exact approval audit lookup requires limit=2 and no cursor")
+        if selected["kind"] in ("approval_acceptance", "event") and (limit != 2 or cursor is not None):
+            raise InputError("exact audit lookup requires limit=2 and no cursor")
         scope = self._client.scope
         body = codec.encode({"scope": {"tenant_id": scope.tenant_id, "namespace": scope.namespace},
                              "filter": selected, "cursor": cursor, "limit": limit})
@@ -297,6 +334,11 @@ class Audit:
             "POST", "/v1/audit/events", body=body,
             deadline=asyncio.get_running_loop().time() + self._client.request_timeout,
             parser=lambda raw: _page(raw, scope, selected, cursor, limit), limit=AUDIT_PAGE_LIMIT)
+
+    async def event(self, event_id: str) -> AuditEvent | None:
+        """Read one exact scoped event. Errors never mean an absent event."""
+        page = await self.list(filter=AuditFilter.event(event_id), limit=2)
+        return page.items[0] if page.items else None
 
     async def approval_acceptance(self, approval: WorkflowApproval) -> AuditEvent | None:
         """Read the original verified acceptance, or None after a successful empty lookup.

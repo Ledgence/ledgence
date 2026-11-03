@@ -273,6 +273,18 @@ to an existing immutable action and its effective arguments. Generic events
 remain application input; they cannot approve an action. The unified CLI
 provides `ledgence approval list`, `inspect`, and `decide`.
 
+## Native effect resolution in development
+
+A workflow that needs an operator assessment of a retained external effect can
+return `ctx.wait_effect_resolution(...)`. The wait releases its invocation
+and later receives a typed `ctx.effect_resolution` on the selected entrypoint.
+The owning activation and stable wait key identify the park, while the original
+effect occurrence identifies the approved action being assessed. This preserves
+replay when an effect is handled from a later entrypoint. Generic events and
+native effect waits have independent namespaces. See
+[effect evidence and resolution](effect-evidence.md) for capability negotiation,
+exact assessment binding, cancellation and retention behavior.
+
 ## Model and tool call recovery
 
 Use [durable model and tool calls](agent-recovery.md) for typed, versioned

@@ -42,6 +42,17 @@ impl Context {
             control,
         )
         .await?;
+        if matches!(context.wake, Some(WorkflowWake::EffectResolution(_)))
+            && !self
+                .effect_access
+                .as_ref()
+                .is_some_and(|access| access.features.native_effect_resolution())
+        {
+            return Err(Error::new(
+                ErrorKind::Incompatible,
+                "native effect resolution was not negotiated for this worker",
+            ));
+        }
         let wake_trace = context.wake.as_ref().and_then(|wake| match wake {
             WorkflowWake::Event { event, .. } => event.trace_context(),
             _ => None,
@@ -117,6 +128,12 @@ struct WorkflowOperations {
     retry_delay: Duration,
 }
 impl RuntimeRequestHandler for WorkflowOperations {
+    fn features(&self) -> ledgence_worker_api::RuntimeFeatures {
+        self.effect_access
+            .as_ref()
+            .map(|access| access.features.clone())
+            .unwrap_or_default()
+    }
     fn capabilities(&self) -> ledgence_worker_api::RuntimeCapabilities {
         ledgence_worker_api::RuntimeCapabilities {
             approved_effect_evidence_v2: self.effect_access.is_some(),

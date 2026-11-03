@@ -17,7 +17,7 @@ import {
 } from "../../src/features/explorer-model";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json",
     import.meta.url,
   ),
   "utf8",
@@ -30,7 +30,7 @@ function field(name: string): unknown {
 }
 describe("Rust-produced Console contract", () => {
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(5);
+    expect(decodeConfig(field("config")).contract_version).toBe(6);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );
@@ -112,13 +112,78 @@ const cases = record(field("explorer_cases"), [
   "unavailable_child",
   "mixed_local",
   "observed_local_failure",
+  "native_wait_pending",
+  "native_wait_cancelled",
+  "native_wait_success",
+  "native_wait_failure",
+  "native_wait_unknown",
+  "native_wait_disputed",
 ]);
 for (const [name, value] of Object.entries(cases))
   it(`decodes Rust Explorer case ${name}`, () => {
     expect(() => explorer.workflowExplorer(value)).not.toThrow();
   });
 
-describe("Rust-produced Explorer C5", () => {
+describe("Rust-produced Explorer C6", () => {
+  it("rejects preserved C5 configuration and read models explicitly", () => {
+    const historical = parseUserJson(
+      readFileSync(
+        new URL(
+          "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+      2 * 1024 * 1024,
+    ) as Record<string, unknown>;
+    expect(() => decodeConfig(historical.config)).toThrow();
+    expect(() => explorer.workflowExplorer(historical.explorer)).toThrow();
+  });
+  it("keeps native recovery identity and relations separate from event waits", () => {
+    const pending = explorer.workflowExplorer(cases.native_wait_pending);
+    const resumed = explorer.workflowExplorer(cases.native_wait_success);
+    const closed = explorer.workflowExplorer(cases.native_wait_cancelled);
+    const wait = pending.page.items.find(
+      (node) => node.kind === "native_effect_wait",
+    )!;
+    expect(nodeStatus(wait)).toBe("awaiting operator resolution");
+    expect(wait.relations.map((relation) => relation.kind)).toEqual([
+      "registers",
+    ]);
+    const recovered = resumed.page.items.find(
+      (node) => node.kind === "native_effect_wait",
+    )!;
+    expect(recovered.relations.map((relation) => relation.kind)).toEqual([
+      "registers",
+      "resumes",
+    ]);
+    expect(nodeStatus(recovered)).toBe("recorded success · resume scheduled");
+    expect(
+      nodeStatus(
+        closed.page.items.find((node) => node.kind === "native_effect_wait")!,
+      ),
+    ).toBe("closed without resume");
+    expect(() =>
+      explorer.explorerNode({ ...recovered, resolution_id: null }),
+    ).toThrow();
+    expect(() =>
+      explorer.explorerNode({ ...recovered, closed_at: null }),
+    ).toThrow();
+    expect(pending.workflow.child_wait).toBeNull();
+    expect(pending.workflow.external_wait_key).toBeNull();
+    expect(pending.workflow.native_effect_wait?.key).toBe("recovery:0");
+    expect(
+      evidenceEdges(resumed.page.items)
+        .filter((edge) => edge.to === recovered.id)
+        .map((edge) => edge.from),
+    ).toEqual([
+      resumed.page.items.find(
+        (node) =>
+          node.kind === "entrypoint" &&
+          node.activation_id === recovered.activation_id,
+      )!.id,
+    ]);
+  });
   it.each(["approved", "rejected", "expired"] as const)(
     "decodes an approval %s wake without inventing relations",
     (wake) => {

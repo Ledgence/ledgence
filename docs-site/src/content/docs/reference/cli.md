@@ -372,7 +372,7 @@ Use the workflow, original effect activation and approval key returned by the
 inbox. `operator.json` is the destination-bound credential file from instance
 access provisioning; it is not an evidence output file.
 
-`inbox` accepts `--filter all|unconfirmed|confirmed|discrepant` (default `all`),
+`inbox` accepts `--filter all|unconfirmed|confirmed|discrepant|disputed` (default `all`),
 optional `--workflow`, `--limit 1..100` (default 50), and `--cursor`. It returns
 metadata only and requires `metadata_read` in credential mode. Trusted mode can
 also read the metadata. `inspect` requires the three occurrence identifiers,
@@ -386,3 +386,27 @@ response goes to stdout, diagnostics to stderr; there are no implicit retries.
 The evidence distinguishes authenticated worker reports from unattributed legacy
 records. Neither proves provider truth or permits redispatch. Native effect
 resolution is not part of these commands. [Effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+
+## Submit an operator effect assessment in development
+
+Export a reviewed command from Console or `command.to_json()` in the Python
+client, then submit its complete saved envelope:
+
+```sh
+ledgence effect resolve --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file resolver.json \
+  --file effect-assessment.json
+```
+
+This requires matching development CLI/server builds and `effect_resolve`; it is
+absent from 0.7.0. The CLI checks the original canonical endpoint and scope, then
+sends the exact frozen body once. The envelope is at most 1 MiB, body 256 KiB.
+The file contains sensitive reviewed action/result data but no credential. There
+is no CLI preparation command. Use the same saved file and verified actor to
+reconcile uncertain delivery; rotated credentials are allowed, changed commands
+or actors conflict. A metadata receipt proves audited acceptance, not workflow
+resumption or provider truth. It never redispatches an effect.
+
+`effect inbox --filter disputed` selects current assessment conflict, separately
+from historical `discrepant` reports. See the [full saved-command contract](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#submit-a-saved-operator-assessment).

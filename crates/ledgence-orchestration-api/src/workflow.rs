@@ -127,6 +127,13 @@ impl WorkflowActivationContext {
                     "approval wake disagrees with its logical activation",
                 ));
             }
+            if let WorkflowWake::EffectResolution(wake) = wake
+                && (wake.occurrence.workflow_id != self.workflow_id
+                    || wake.resumed_activation_id != self.activation_id
+                    || wake.resumed_revision != self.revision)
+            {
+                return Err(invalid("effect resolution wake disagrees with activation"));
+            }
             #[derive(Serialize)]
             struct FrozenInputs<'a> {
                 inputs: &'a BTreeMap<String, WorkflowChildResult>,
@@ -484,6 +491,11 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    fn effect_resolution(&self) -> Result<&dyn EffectResolutionStore> {
+        Err(ContractError::Unavailable(
+            "native effect resolution is unavailable".into(),
+        ))
+    }
     /// Complete verified decision and response-audit capability; no partial fallback.
     fn operator_access(&self) -> Result<&dyn OperatorAccess> {
         Err(ContractError::Unavailable(
@@ -646,6 +658,16 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    fn effect_resolution(&self) -> Result<&dyn EffectResolution> {
+        Err(ContractError::Unavailable(
+            "native effect resolution is unavailable".into(),
+        ))
+    }
+    fn effect_resolution_client(&self) -> Result<&dyn EffectResolutionClient> {
+        Err(ContractError::Unavailable(
+            "native effect resolution client is unavailable".into(),
+        ))
+    }
     /// Complete verified decision and response-audit capability; no partial fallback.
     fn operator_access(&self) -> Result<&dyn OperatorAccess> {
         Err(ContractError::Unavailable(

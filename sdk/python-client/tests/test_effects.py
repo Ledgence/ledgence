@@ -198,6 +198,17 @@ class EffectTests(unittest.IsolatedAsyncioTestCase):
         self.serve(detail(entries=[]))
         with self.assertRaises(ProtocolError): await self.client.effects.inspect(**IDENTITY, cursor=inspect_cursor(3))
 
+    async def test_cursor_page_rejects_entry_revision_not_after_its_sequence(self):
+        # A page must validate its first entry independently of earlier pages.
+        for factory in (claim, observation):
+            for revision in (1, 2):
+                self.serve(detail(entries=[factory(sequence=2, recorded_revision=revision)]))
+                with self.subTest(kind=factory.__name__, revision=revision), self.assertRaises(ProtocolError):
+                    await self.client.effects.inspect(**IDENTITY, cursor=inspect_cursor(1))
+            self.serve(detail(entries=[factory(sequence=2, recorded_revision=3)]))
+            page = await self.client.effects.inspect(**IDENTITY, cursor=inspect_cursor(1))
+            self.assertEqual(page.entries[0].recorded_revision, 3)
+
     async def test_large_detail_sequence_and_complete_cursor_are_preserved(self):
         maximum = 2**64 - 1
         self.serve(detail(summary=summary(entry_count=maximum - 1, effect_revision=maximum),

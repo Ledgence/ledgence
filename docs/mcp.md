@@ -218,7 +218,7 @@ remain fixed. Tool arguments cannot override scope, identity or credentials.
 
 | Tool | Arguments and access |
 | --- | --- |
-| `ledgence_effect_inbox` | Optional `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`; default `all`), `workflow_id`, `cursor`, and `limit` (1–100; default 50). Metadata only; requires `metadata_read` in credential mode and is also available in trusted mode. |
+| `ledgence_effect_inbox` | Optional `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`, `disputed`; default `all`), `workflow_id`, `cursor`, and `limit` (1–100; default 50). Metadata only; requires `metadata_read` in credential mode and is also available in trusted mode. |
 | `ledgence_effect_inspect` | Required `workflow_id`, `activation_id`, `approval_key`; optional `cursor` and `limit` (1–4; default 4). Uses the original effect activation from the inbox. Requires credential mode, `sensitive_read` and a successful durable audit observation before returning sensitive evidence. |
 
 The underlying HTTP response is limited to 1 MiB and contains whole entries.
@@ -232,3 +232,51 @@ and reported observations. Authenticated worker attribution does not verify the
 external provider's outcome. Legacy sources remain unattributed. These tools
 cannot approve, resolve or dispatch an action. See the [effect evidence
 contract](effect-evidence.md) for retention and evidence interpretation.
+
+
+## Operator effect resolution in development
+
+Enable the mutation tool explicitly when starting the native server:
+
+```sh
+ledgence mcp serve --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file resolver.json \
+  --allow-effect-resolution
+```
+
+`--read-only` and `--allow-effect-resolution` cannot be combined. Matching development
+builds expose 19 tools by default with audit configured, 14 in read-only mode, or
+20 with resolution enabled. Published 0.7.0 does not include these effect tools.
+The added `ledgence_effect_resolve` also requires the credential's dedicated
+`effect_resolve` capability. Fixed scope and credentials cannot be supplied or
+overridden through tool arguments. Worker credentials cannot resolve effects.
+
+Arguments are `workflow_id`, original `activation_id`, `approval_key`, stable
+`resolution_id`, `expected_effect_revision`, `supersedes_resolution_id` (explicit
+null for the first assessment), the reviewed `action`, `assessment`, mandatory
+`reason` and ordered `evidence_references`. Assessment variants are
+`{"kind":"record_success","result":...}`,
+`{"kind":"record_failure","failure":{"kind":"...","message":"..."}}`, or
+`{"kind":"close_unknown"}`. Success/failure require at least one reference;
+closing unknown may use an empty list. Limits: result 128 KiB, full command 256 KiB,
+reason 4096 UTF-8 bytes, and at most eight references of 1024 UTF-8 bytes each.
+
+The input revision must be a **canonical decimal string**, for example `"42"`.
+All effect-tool platform revision, sequence and count values, including program
+size, are decimal strings in outputs and declared in output schemas. Timestamps
+remain JSON numbers. Application arguments, reported outputs and assessment
+results remain unchanged JSON. Never convert platform counters through JavaScript
+floating-point numbers.
+
+The server records an append-only operator assessment and returns a metadata
+receipt with `acceptance_event_id`. It never dispatches work or proves provider
+truth or workflow resumption. `sensitive_read` is independently needed to inspect
+evidence. Keep the complete original arguments and stable actor after an
+`outcome_unknown` error; no automatic retry occurs. An identical retry returns the
+original receipt, including after supersession or collection. Changed arguments
+or actor conflict. `disputed` filters current success-assessment conflict;
+`discrepant` remains historical disagreement. Cancelled executions stay closed.
+
+Use `ledgence_audit_query` with `filter={"kind":"event","event_id":"..."}`,
+`limit=2` and no cursor to inspect a receipt's exact scoped audit event. A successful
+empty response means absence; denied or unavailable reads remain errors.

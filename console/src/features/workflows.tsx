@@ -7,6 +7,7 @@ import { useInstance } from "../app/instance";
 import { useResource, usePagination } from "../api/hooks";
 import { useTerminalRefresh } from "../api/terminal-refresh";
 import * as dto from "../api/resources";
+import { effectDetailPath } from "../api/effects";
 import { useCommand, freezeCommand } from "../api/commands";
 import { parseUserJson } from "../api/json";
 import { WorkflowApprovals } from "./approvals";
@@ -108,9 +109,11 @@ export function WorkflowDetailPage() {
             <p className="notice">
               {detail.child_wait
                 ? `Waiting for terminal outcomes: ${detail.child_wait.command_keys.join(", ")}.`
-                : detail.external_wait_key
-                  ? `Waiting for external wake: ${detail.external_wait_key}.`
-                  : "Waiting for a recorded continuation."}
+                : detail.native_effect_wait
+                  ? `Waiting for operator resolution: ${detail.native_effect_wait.key}.`
+                  : detail.external_wait_key
+                    ? `Waiting for external wake: ${detail.external_wait_key}.`
+                    : "Waiting for a recorded continuation."}
             </p>
           )}
           {["failing", "cancelling"].includes(
@@ -586,14 +589,21 @@ function Waits({
             {query.data.page.items.map((wait) => (
               <article
                 className="card"
-                key={JSON.stringify([workflowId, wait.wait_key])}
+                key={JSON.stringify([
+                  workflowId,
+                  wait.kind,
+                  wait.wait_key,
+                  wait.activation_id,
+                ])}
               >
                 <h3>
                   {wait.kind === "event"
                     ? "External event"
                     : wait.kind === "approval"
                       ? "Approval"
-                      : "Timer"}
+                      : wait.kind === "effect_resolution"
+                        ? "Effect recovery"
+                        : "Timer"}
                 </h3>
                 <CopyText value={wait.wait_key} />
                 <Status value={wait.closed_at === null ? "open" : "closed"} />
@@ -617,11 +627,29 @@ function Waits({
                     enabled={active && wait.closed_at === null}
                   />
                 )}
+                {wait.native_effect_wait && (
+                  <p>
+                    Operator resolution for approval{" "}
+                    <code>
+                      {wait.native_effect_wait.occurrence.approval_key}
+                    </code>{" "}
+                    from activation{" "}
+                    <code>
+                      {wait.native_effect_wait.occurrence.activation_id}
+                    </code>
+                    . Ordinary events cannot resolve this wait.{" "}
+                    <Link
+                      to={effectDetailPath(wait.native_effect_wait.occurrence)}
+                    >
+                      Inspect effect
+                    </Link>
+                  </p>
+                )}
               </article>
             ))}
           </div>
           {!query.data.page.items.length && !query.data.child_wait && (
-            <Empty>No external waits were recorded on this page.</Empty>
+            <Empty>No waits were recorded on this page.</Empty>
           )}
           <PageControls
             navigationOnly

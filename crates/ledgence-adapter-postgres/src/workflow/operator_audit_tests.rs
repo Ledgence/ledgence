@@ -651,6 +651,7 @@ async fn audit_migration_preserves_prior_schema_bytes_and_rejects_schema_drift()
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
+    db.begin_legacy_workflow_seed().await;
     let command = pending(&db.store).await;
     db.store.decide_approval(&command).await.unwrap();
     let before: (Vec<u8>, Vec<u8>) = sqlx::query_as(
@@ -661,6 +662,7 @@ async fn audit_migration_preserves_prior_schema_bytes_and_rejects_schema_drift()
     .await
     .unwrap();
     sqlx::query("INSERT INTO self_hosted_instance(singleton,instance_id,tenant_id,namespace,access_authority_id) VALUES(true,$1,$2,$3,$4)").bind(config().instance_id).bind(scope().tenant_id).bind(scope().namespace).bind(audience().authority_id).execute(&db.store.pool).await.unwrap();
+    db.finish_legacy_workflow_seed().await;
     assert!(db.store.verify_schema().await.is_err());
     db.store.migrate().await.unwrap();
     bind(&db.store).await;

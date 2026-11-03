@@ -35,10 +35,29 @@ bytes. Startup and retention maintenance refuse incomplete backfill. Confirmed r
 historical proof fail migration. Rerunning the migration resumes completed
 batches without inventing a verified worker identity for older records.
 
-Retained claims and reported results survive execution-history collection.
-This initial ledger has no automatic expiry. Include it in database capacity
-planning and backups. Unconfirmed effects keep their existing execution-retention
-hold. [Retained evidence](effect-evidence.md).
+Migration `20261103040000_native_effect_resolution.sql` adds immutable operator
+assessments and their linked audit events, plus `workflow_effect_waits` and the
+workflow's native parking-activation anchor. Native waits use a separate table
+from generic event/timer/approval waits, so equal textual keys cannot consume
+each other's events. Assessment acceptance, verified audit and eligible resume
+obligations commit together; selecting a wake and creating its resumed activation
+also commit together. Existing accepted journals are not replaced.
+
+Migration `20261103050000_console_native_effect_wait.sql` adds the corresponding
+Console graph kind and indexed wait-page ordering. Native parking identity is
+indexed for retention lookups. Apply both as part of the complete migration set,
+then restart every server, worker and embedded connection pool with matching
+components. Keeping old pooled statements or writers alive through these schema
+changes is outside the supported offline upgrade procedure.
+
+Retained claims, reported results, assessments and acceptance receipts survive
+execution-history collection. This initial ledger has no automatic expiry.
+Include it in database capacity planning and backups. An unconfirmed effect
+keeps its execution-retention hold until confirmation or any verified assessment,
+including `close_unknown`. Assessment closes handling independently of journal
+confirmation. Later disagreement does not reopen the hold. Ordinary retention
+conditions still apply. Native wait and graph rows follow execution retention.
+[Retained evidence](effect-evidence.md) · [Operator audit](operator-audit.md).
 
 If migration times out, run `ledgence orchestrator migrate` again before
 starting workers. The server checks for unfinished evidence recovery at
@@ -60,8 +79,12 @@ python3.13 tools/check-approval-upgrade.py \
 
 The default candidate runner is the helper in this checkout. To test a bundled
 candidate instead, pass its `--candidate-runner`, CLI and Console paths.
-Supply `--psql /path/to/psql` if it is not on your PATH. The rehearsal resumes
-two pre-upgrade workflows and checks which callback actually ran.
+Supply `--psql /path/to/psql` if it is not on your PATH. The rehearsal checks
+unchanged historical decision bytes and absent historical attribution, verified
+acceptance for a pending approval, cancellation without resumption, and which
+callback actually ran. It also starts a new workflow from the unchanged old
+program package. Old and new Console responses are each checked against their
+own bundle's contract version.
 
 ## Upgrade from 0.6.1 to 0.7.0
 
@@ -102,8 +125,8 @@ The supplied deployment command is `ledgence orchestrator migrate`, which reads 
 
 Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
 
-The development checkout adds migration `20261102000000_workflow_resolution_progress.sql`
-for partial workflow program resolution. When upgrading from 0.6.1, stop the
+The 0.7.0 migration `20261102000000_workflow_resolution_progress.sql` preserves
+partial workflow program resolution. When upgrading from 0.6.1, stop the
 previous orchestrators, apply migrations and start the matching new binaries.
 Existing work items can run immediately with an empty resolution checkpoint.
 

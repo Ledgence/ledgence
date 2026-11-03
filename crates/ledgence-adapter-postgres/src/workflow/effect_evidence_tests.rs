@@ -507,6 +507,7 @@ async fn pre_retained() -> TestDb {
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
+    db.begin_legacy_workflow_seed().await;
     db
 }
 async fn historical_confirmation(
@@ -545,6 +546,7 @@ async fn v2_backfill_commits_sixteen_at_a_time_resumes_and_retains_exact_old_byt
     }
     // Apply only the additive SQL, simulating a stopped deployment before the
     // Rust-side backfill. Startup rejects this incomplete state.
+    db.finish_legacy_workflow_seed().await;
     MIGRATOR.run(&db.store.pool).await.unwrap();
     assert!(db.store.verify_schema().await.is_err());
     originals.sort_by(|a, b| a.0.workflow_id.cmp(&b.0.workflow_id));
@@ -614,6 +616,7 @@ async fn v2_missing_legacy_confirmation_cannot_be_fabricated_by_migration() {
         .execute(&db.store.pool)
         .await
         .unwrap();
+    db.finish_legacy_workflow_seed().await;
     let failure = db.store.migrate().await.unwrap_err();
     assert!(
         matches!(failure,ContractError::Unavailable(message) if message.contains("restore pre-retirement backup"))
@@ -811,3 +814,6 @@ async fn v2_mutated_grant_or_journal_cannot_acknowledge_an_unstored_binding() {
     assert_eq!(counts(&db.store).await, (1, 2, 1));
     db.finish().await;
 }
+
+#[path = "native_resolution_tests.rs"]
+mod native_resolution;

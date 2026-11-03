@@ -77,5 +77,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/inspect-effects"
+  },
+  "nativeEffectResolution": {
+    "title": "Revision-bound operator assessments and worker-free effect waits",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/inspect-effects"
   }
 }

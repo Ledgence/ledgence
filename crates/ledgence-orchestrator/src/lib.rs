@@ -472,6 +472,8 @@ async fn prepare_and_serve(
             .map_err(|error| error.to_string())?;
         ledgence_orchestration_api::WorkflowService::effect_evidence_reader(service.as_ref())
             .map_err(|error| error.to_string())?;
+        ledgence_orchestration_api::WorkflowService::effect_resolution(service.as_ref())
+            .map_err(|error| error.to_string())?;
     }
     let listener = tokio::net::TcpListener::bind(bind)
         .await

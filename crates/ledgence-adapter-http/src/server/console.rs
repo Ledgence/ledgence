@@ -136,6 +136,10 @@ pub(super) const ROUTES: &[Route] = &[
     Route::post("/v1/console/access/logout", Policy::Logout),
     Route::post("/v1/console/audit/events", Policy::Metadata),
     Route::post(
+        "/v1/console/workflows/approved-effects/resolve",
+        Policy::EffectResolution,
+    ),
+    Route::post(
         "/v1/console/workflows/approved-effects/inbox",
         Policy::Metadata,
     ),
@@ -498,7 +502,9 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path.starts_with("/v1/console/workflows/approved-effects/") {
+    let maximum = if path == "/v1/console/workflows/approved-effects/resolve" {
+        EFFECT_RESOLUTION_COMMAND_MAX_BYTES
+    } else if path.starts_with("/v1/console/workflows/approved-effects/") {
         EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
     } else if path == "/v1/console/audit/events" {
         16 * 1024
@@ -521,6 +527,9 @@ pub(super) async fn dispatch(
     }
     if path == "/v1/console/audit/events" {
         return audit::query(server, bytes, Some(scope), context).await;
+    }
+    if path == "/v1/console/workflows/approved-effects/resolve" {
+        return super::effect_resolution::post(server, bytes, Some(scope), context).await;
     }
     if path.starts_with("/v1/console/workflows/approved-effects/") {
         return super::evidence::post(server, path, bytes, Some(scope), context).await;

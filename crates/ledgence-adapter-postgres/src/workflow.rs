@@ -6,7 +6,9 @@ pub(crate) mod approved_effects;
 mod data;
 mod effect_evidence;
 mod effect_reads;
+mod effect_resolution;
 pub(crate) mod effect_retained;
+mod effect_wait;
 mod execution;
 pub(crate) mod explorer;
 mod external;
@@ -40,6 +42,10 @@ impl ApprovedEffects for PostgresStore {
 }
 
 impl WorkflowStore for PostgresStore {
+    fn effect_resolution(&self) -> Result<&dyn EffectResolutionStore> {
+        self.audit_audience()?;
+        Ok(self)
+    }
     fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
         self.audit_audience()?;
         Ok(self)

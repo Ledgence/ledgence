@@ -22,7 +22,7 @@ is split into independent jobs:
 | SQS adapter conformance | The existing ignored adapter acceptance test against ElasticMQ |
 | `http` | Separate-process delivery using the default-feature CLI, including worker crashes and connectivity failures |
 | `sqs` | PostgreSQL, HTTP and Python delivery through ElasticMQ with the default acquisition wait and production lease durations |
-| `api` | OTel, MCP, installed Python client, instance credentials, operator audit, retained-effect recovery, durable completion callbacks, and the fulfillment workflow example |
+| `api` | OTel, MCP, installed Python client, instance credentials, operator audit, retained-effect recovery, native effect resolution and worker-free waits, durable completion callbacks, and the fulfillment workflow example |
 | `workflows-integrated` | Complete workflow checkpoint, ownership, fork/join, approval and agent recovery suite with integrated delivery |
 | `workflows-sqs` | The same complete workflow suite with ElasticMQ delivery |
 | `workflows-tracing` | Events, owned workflow trees and mixed forks, with assertions on their exported trace relationships |
@@ -107,3 +107,16 @@ and [release bundles](releasing.md) for the release procedures.
 
 Implementation references: [GitHub reusable workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)
 and [workflow artifacts versus dependency caches](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflow-artifacts).
+
+## Native effect resolution
+
+The API acceptance job exercises `tools/check-effect-resolution.py` with an
+installed Python client, the all-feature executable from the current workflow
+and an owned disposable PostgreSQL database. Four scenario families cover
+worker capacity while parked, resolve-before-park, competing late worker
+evidence, exact retry after a lost reply with same-actor credential rotation,
+cancellation, real retention collection and receipt replay after collection.
+An independent synthetic provider counts dispatches. The gate records its binary
+digest and verifies cleanup and credential removal in retained evidence.
+Console also tests frozen assessments, permission boundaries, exact audit lookup
+and graph navigation in Chromium and WebKit.

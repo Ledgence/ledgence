@@ -8,7 +8,8 @@ export type AccessCapability =
   | "execution_control"
   | "program_publish"
   | "approval_decide"
-  | "worker_execute";
+  | "worker_execute"
+  | "effect_resolve";
 export type Access =
   | { mode: "operator_trusted" }
   | {
@@ -22,6 +23,7 @@ export type Access =
       capabilities: AccessCapability[];
       expires_at_ms: number;
       operator_audit?: boolean;
+      native_effect_resolution?: boolean;
     };
 export type AccessState = {
   enabled: boolean;
@@ -107,6 +109,7 @@ export class AccessController {
             access.scope.namespace,
             [...access.capabilities].sort(),
             access.operator_audit === true,
+            access.native_effect_resolution === true,
           ],
     );
     const changed = identity !== this.viewIdentity;

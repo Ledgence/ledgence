@@ -24,8 +24,9 @@ mod trace;
 pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;
 pub use execution::{
-    ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult, Phase,
-    RuntimeCapabilities, RuntimeExtension, RuntimeInvocation, RuntimeReply, RuntimeRequest,
+    ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult,
+    NATIVE_EFFECT_RESOLUTION_FEATURE, Phase, RuntimeCapabilities, RuntimeExtension,
+    RuntimeFeatures, RuntimeInvocation, RuntimeReply, RuntimeRequest,
 };
 mod invocation;
 mod observation;
@@ -788,6 +789,11 @@ pub trait RuntimeRequestHandler: Send + Sync {
     /// Advertise only capabilities established by this handler's connection.
     fn capabilities(&self) -> RuntimeCapabilities {
         RuntimeCapabilities::default()
+    }
+
+    /// Unknown well-formed names are reserved for future negotiated features.
+    fn features(&self) -> RuntimeFeatures {
+        RuntimeFeatures::default()
     }
 
     fn handle<'a>(
