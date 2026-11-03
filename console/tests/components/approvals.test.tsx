@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { createMemoryRouter, RouterProvider, useParams } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import type { Approval, ApprovalDecision } from "../../src/api/approvals";
@@ -28,7 +28,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "5",
+      "Ledgence-Console-Contract": "6",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });

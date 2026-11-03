@@ -207,12 +207,12 @@ if page.items:
     print(evidence.summary.journal_state, evidence.summary.has_discrepancy)
 ```
 
-`inbox` accepts `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`), optional
+`inbox` accepts `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`, `disputed`), optional
 `workflow_id` and `cursor`, and `limit` from 1–100 (default 50). Metadata reads
 require `metadata_read` in credential mode and also work in trusted mode.
 `inspect` uses the original effect activation from that occurrence, accepts
 `cursor` and `limit` from 1–4 (default 4), and returns the immutable binding and
-whole claim/observation entries. It requires credential mode, `sensitive_read`
+whole claim, observation and assessment entries. It requires credential mode, `sensitive_read`
 and a durable audit observation. Permission or audit errors never become empty
 evidence.
 
@@ -227,3 +227,32 @@ sources identify who reported an outcome, not whether the provider performed
 it. Legacy sources remain unattributed. Inspection does not approve, resolve or
 retry an effect. See the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#retained-effect-evidence-development)
 and [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+
+## Operator effect assessments in development
+
+Use `client.effects.prepare_resolution(evidence, resolution_id=..., assessment=...,
+reason=..., evidence_references=[...])` to freeze a reviewed effect's original
+occurrence, action, revision and prior assessment. Factories are
+`EffectResolutionAssessment.record_success(result)`, `.record_failure(kind, message)`
+and `.close_unknown()`. Save `command.to_json()` to an application-owned file before
+`await client.effects.resolve(command)`. The saved file contains sensitive action
+and result data, but no credential.
+
+A restarted client restores that exact file with
+`client.effects.restore_resolution(saved_text)`. Endpoint and scope must match;
+no revision or action is refreshed. `.to_dict()` is an inspection view, not the
+saved format. `EffectResolutionUncertain` means acceptance may have committed;
+reconcile with the same saved command and verified actor. Credentials may rotate.
+No automatic retry occurs. Changed commands or actors conflict.
+
+Resolution requires `effect_resolve`, independently of `sensitive_read` used for
+inspection. Receipts are metadata only and carry `acceptance_event_id`; they do
+not claim the workflow resumed. Use `await client.audit.event(receipt.acceptance_event_id)`
+for the exact scoped audit event; a successful absence is `None`, while errors propagate. `current_assessment` accompanies detail even when
+its entry is outside the selected page. `EffectFilter.DISPUTED` selects current
+assessment conflict; `DISCREPANT` preserves historical disagreement. An operator
+assessment never redispatches, confirms the journal or claims provider truth.
+
+See the [complete assessment API and copyable file-based example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#operator-effect-assessments-development).
+These additions require matching development builds and are absent from 0.7.0.

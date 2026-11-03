@@ -205,8 +205,18 @@ def read_surfaces(d, occurrence, interpreter):
     assert inbox == summary
     session = McpSession(d, "effect-read-mcp", credentials_file=d.operator, read_only=True)
     d.sessions.append(session)
-    assert session.tool("ledgence_effect_inspect", identity) == expected
-    assert session.tool("ledgence_effect_inbox", {"workflow_id": identity["workflow_id"], "filter": "confirmed"}) == summary
+    mcp_detail = json.loads(json.dumps(expected))
+    mcp_detail["binding"]["approval"]["revision"] = str(mcp_detail["binding"]["approval"]["revision"])
+    mcp_detail["binding"]["program"]["size"] = str(mcp_detail["binding"]["program"]["size"])
+    for item in (mcp_detail["summary"],):
+        for field in ("entry_count", "effect_revision"): item[field] = str(item[field])
+    for entry in mcp_detail["entries"]:
+        for field in ("sequence", "recorded_revision"): entry[field] = str(entry[field])
+    mcp_summary = json.loads(json.dumps(summary))
+    for item in mcp_summary["items"]:
+        for field in ("entry_count", "effect_revision"): item[field] = str(item[field])
+    assert session.tool("ledgence_effect_inspect", identity) == mcp_detail
+    assert session.tool("ledgence_effect_inbox", {"workflow_id": identity["workflow_id"], "filter": "confirmed"}) == mcp_summary
     session.close()
     reader = McpSession(d, "effect-metadata-mcp", credentials_file=d.reader, read_only=True)
     d.sessions.append(reader)

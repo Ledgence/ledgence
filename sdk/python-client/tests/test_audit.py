@@ -8,7 +8,7 @@ import test_workflows
 from support import SCOPE, response
 from test_approvals import snapshot
 from ledgence.client import (
-    AuditAcceptance, AuditActorClass, AuditFilter, AuditReadKind, AuditSensitiveResponse,
+    AuditAcceptance, AuditActorClass, AuditEffectResolved, AuditFilter, AuditReadKind, AuditSensitiveResponse,
     Forbidden, InputError, ProtocolError, Unavailable,
 )
 from ledgence.client.approval_models import parse_approval
@@ -37,6 +37,37 @@ class AuditTests(unittest.IsolatedAsyncioTestCase):
 
     def approval(self, **changes):
         return parse_approval(accepted() | changes, self.client.scope, "workflow", "refund", self.url)
+
+    async def test_exact_event_lookup_checks_identity_scope_cardinality_and_errors(self):
+        self.callback = AsyncMock(side_effect=lambda request, body: response(page(event())))
+        self.assertEqual((await self.client.audit.event("acceptance-1")).event_id, "acceptance-1")
+        self.assertEqual(json.loads(self.requests[-1][3])["filter"], {"kind": "event", "event_id": "acceptance-1"})
+        self.callback = AsyncMock(side_effect=lambda request, body: response(page()))
+        self.assertIsNone(await self.client.audit.event("absent"))
+        for payload in [page(event(event_id="other")), page(event(), event(event_id="other")), page(event(), cursor="cursor")]:
+            self.callback = AsyncMock(side_effect=lambda request, body, payload=payload: response(payload))
+            with self.assertRaises(ProtocolError): await self.client.audit.event("acceptance-1")
+        with self.assertRaises(InputError): await self.client.audit.list(filter=AuditFilter.event("event"))
+        with self.assertRaises(InputError): await self.client.audit.list(filter=AuditFilter.event("event"), limit=2, cursor="cursor")
+        self.callback = AsyncMock(side_effect=lambda request, body: response({"code":"forbidden"}, code=403))
+        with self.assertRaises(Forbidden): await self.client.audit.event("acceptance-1")
+
+    async def test_effect_assessment_audit_is_scoped_metadata_with_exact_revisions(self):
+        operation = {"kind": "effect_resolved", "occurrence": {"scope": dict(SCOPE), "workflow_id": "workflow",
+            "activation_id": "original", "approval_key": "refund"}, "resolution_id": "resolution-1",
+            "accepted_revision": 2**64 - 1, "basis_revision": 2**64 - 2, "supersedes_resolution_id": None,
+            "assessment_kind": "record_success"}
+        self.callback = AsyncMock(side_effect=lambda request, body: response(page(event(operation=operation))))
+        observed = await self.client.audit.list(filter=AuditFilter.resource("workflow", "workflow"))
+        self.assertIsInstance(observed.items[0].operation, AuditEffectResolved)
+        self.assertEqual(observed.items[0].operation.accepted_revision, 2**64 - 1)
+        for change in ({"basis_revision": 1}, {"resolution_id": ""}, {"accepted_revision": True},
+                       {"result": "payload forbidden"}, {"supersedes_resolution_id": "resolution-1"}):
+            self.callback = AsyncMock(side_effect=lambda request, body, change=change: response(page(event(operation=operation | change))))
+            with self.subTest(change=change), self.assertRaises(ProtocolError): await self.client.audit.list()
+        operation["occurrence"]["scope"]["namespace"] = "other"
+        self.callback = AsyncMock(side_effect=lambda request, body: response(page(event(operation=operation))))
+        with self.assertRaises(ProtocolError): await self.client.audit.list()
 
     async def test_exact_acceptance_is_typed_scoped_and_does_not_modify_approval(self):
         self.callback = AsyncMock(side_effect=lambda request, body: response(page(event())))

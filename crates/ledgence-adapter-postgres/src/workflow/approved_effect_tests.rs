@@ -237,11 +237,13 @@ async fn upgrading_fences_previously_approved_effects_and_preserves_pending_elig
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
+    db.begin_legacy_workflow_seed().await;
     let decision = request(&db.store, "old-approved").await;
     let (old, old_claim) = resume(&db.store, "old-approved", &decision).await;
     let pending = request(&db.store, "old-pending").await;
     let queued = request(&db.store, "old-approved-before-resume").await;
     db.store.decide_approval(&queued).await.unwrap();
+    db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
     db.store.verify_schema().await.unwrap();
     dispatched(&db.store, &old).await;

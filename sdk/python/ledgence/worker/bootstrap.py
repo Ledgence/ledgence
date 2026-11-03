@@ -174,8 +174,23 @@ def _text(value, field):
     return value
 
 
+
+def _runtime_features(value):
+    if (type(value) is not dict or set(value) != {"v", "supported"}
+            or type(value["v"]) is not int or value["v"] != 1
+            or type(value["supported"]) is not list or len(value["supported"]) > 16):
+        raise ProtocolError("invalid runtime features")
+    names = value["supported"]
+    if any(type(name) is not str or re.fullmatch(r"[a-z0-9_.-]{1,128}", name) is None for name in names):
+        raise ProtocolError("invalid runtime feature name")
+    if len(set(names)) != len(names):
+        raise ProtocolError("duplicate runtime feature name")
+    _encode(value, 4096)
+    return "native_effect_resolution.v1" in names
+
+
 def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
-            extension=None, rpc=None, observe=False, effect_evidence_v2=False):
+            extension=None, rpc=None, observe=False, effect_evidence_v2=False, native_effect_resolution=False):
     from ledgence.worker import InvocationContext, _invocation
     from ledgence.worker.otel import _activate
 
@@ -211,7 +226,8 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
         with _activate(processing_context):
             if version >= 3:
                 import asyncio
-                response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2))
+                response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc,
+                                                    effect_evidence_v2, native_effect_resolution))
             else:
                 response = _invoke_output(handler, event, envelope, limit)
         if observation is not None:
@@ -247,7 +263,8 @@ def _invoke_output(handler, event, envelope, limit):
         return _failure(envelope, "business_error", exc, limit)
 
 
-async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2=False):
+async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2=False,
+                        native_effect_resolution=False):
     import asyncio
     from ledgence.worker.workflow import SCHEMA, WorkflowContext, _workflow
 
@@ -259,7 +276,8 @@ async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_
             if (not isinstance(extension, dict) or set(extension) != {"schema", "payload"}
                     or extension["schema"] != SCHEMA):
                 raise ProtocolError("unsupported runtime extension")
-            context = WorkflowContext(extension["payload"], rpc, effect_evidence_v2=effect_evidence_v2)
+            context = WorkflowContext(extension["payload"], rpc, effect_evidence_v2=effect_evidence_v2,
+                                      native_effect_resolution=native_effect_resolution)
             if (context.activation_id != event.get("ldgtaskid")
                     or context.activation_id != event.get("ldgactivationid")
                     or context.workflow_id != event.get("ldgworkflowid")
@@ -475,13 +493,18 @@ def main():
                 or type(capabilities.get("approved_effect_evidence_v2", False)) is not bool):
             raise ProtocolError("invalid runtime capabilities")
         effect_evidence_v2 = capabilities.get("approved_effect_evidence_v2", False)
+        native_effect_resolution = (_runtime_features(message["runtime_features"])
+                                    if "runtime_features" in message else False)
+        if native_effect_resolution and not effect_evidence_v2:
+            raise ProtocolError("native effect resolution requires effect evidence v2")
         extension = message.get("extension") if args.protocol_version >= 3 else None
         rpc = _RuntimeRpc(write, sys.stdin.buffer, args.max_input_bytes, event_id, attempt_id) if args.protocol_version >= 3 else None
         # A fresh Context prevents contextvars set by an earlier invocation
         # leaking into the next one in this persistent process.
         response = contextvars.Context().run(
             _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
-            args.protocol_version, processing, extension, rpc, message.get("observe") is True, effect_evidence_v2
+            args.protocol_version, processing, extension, rpc, message.get("observe") is True,
+            effect_evidence_v2, native_effect_resolution
         )
         write(response)
 

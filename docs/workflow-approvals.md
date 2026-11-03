@@ -7,7 +7,8 @@ durable local step. No model SDK or hosted service is required.
 
 This capability is included in Ledgence 0.3.1. Use matching worker,
 orchestrator, Python client, and Console versions and apply all migrations with
-`ledgence orchestrator migrate`. The matching Console contract is version 5.
+`ledgence orchestrator migrate`. Published 0.7.0 uses Console contract 5; the
+development effect-assessment views described below require matching contract 6.
 Follow the [0.3 upgrade guide](upgrading-to-0.3.md) before replacing a 0.2 deployment.
 
 ## Request and execute an action
@@ -149,9 +150,12 @@ the hold in one transaction. If the confirmation reply is lost, the worker
 can submit the same receipt again. Replay of an accepted result requires
 neither callback. A later attempt can confirm a receipt found by lookup.
 
-An unresolved effect keeps its workflow evidence available past the usual
-terminal retention period, including after cancellation or a failed final
-attempt. A completed confirmation allows ordinary retention to apply. Keep
+An unresolved effect without an operator assessment keeps its workflow evidence
+available past the usual terminal retention period, including after cancellation
+or a failed final attempt. A completed confirmation or accepted operator
+assessment releases that hold. Assessment does not confirm the journal; ordinary
+terminal-age and quiescence checks still apply. Later disagreement does not
+reopen the hold. Keep
 the destination's idempotency protection for separate workflows acting on the
 same business request. Cancellation cannot retract an issued grant. The
 callback is responsible for validating the provider's receipt. The stored
@@ -161,9 +165,57 @@ Matching authenticated development workers additionally retain a verified worker
 claim and the callback mode reported by the helper. The evidence timeline
 survives collection of confirmed execution history. See the
 [retained evidence contract](effect-evidence.md) for negotiation, inspection and
-legacy provenance. Operator resolution of an outcome that stays unknown is
-still in development.
+legacy provenance. Matching development components also support the native
+operator rendezvous below; published 0.7.0 does not include it.
 [Retention and upgrade behavior](retention.md#unresolved-approved-writes)
+
+## Wait for an operator assessment in development
+
+Instead of failing an inconclusive write, a workflow can park durably for an
+operator's reviewed result. Add a registered entrypoint such as `Entry.RESOLVE`
+to the workflow's enum and route to it explicitly:
+
+```python
+from ledgence.worker.workflow import ApprovalStatus, EffectOutcomeUnknown, EffectResolutionOutcomeKind
+
+@workflow.entrypoint(Entry.APPLY)
+async def apply(event, ctx):
+    if ctx.approval.status is not ApprovalStatus.APPROVED:
+        return ctx.fail("refund_not_approved", "A refund requires approval")
+    try:
+        receipt = await ctx.approved_effect(issue_refund, version="1", lookup=find_refund)
+    except EffectOutcomeUnknown:
+        return ctx.wait_effect_resolution("refund-review:0", resume=Entry.RESOLVE, state={})
+    return ctx.complete(receipt)
+
+@workflow.entrypoint(Entry.RESOLVE)
+def resolved(event, ctx):
+    outcome = ctx.effect_resolution.outcome
+    if outcome.kind is EffectResolutionOutcomeKind.RECORDED_SUCCESS:
+        return ctx.complete(outcome.result)
+    if outcome.kind is EffectResolutionOutcomeKind.RECORDED_FAILURE:
+        failure = outcome.failure
+        return ctx.fail(failure["kind"], failure["message"])
+    # ClosedUnknown and Disputed do not establish a provider failure or success.
+    return ctx.fail("refund_unresolved", "Review the retained operator assessment and evidence")
+```
+
+The parked workflow releases its worker slot after draining owned work. An
+operator uses the Effects view, Python client, CLI or explicitly enabled MCP
+tool to append an assessment with `effect_resolve`. Approval permission alone
+does not grant resolution. The assessment binds the original action, effect
+revision and prior assessment; it never grants another dispatch or confirms
+the local journal. An acceptance receipt is separate from eventual resumption.
+
+On resume, `ctx.effect_resolution` is an immutable typed wake carrying the
+original occurrence, selected resolution/revision and outcome. Generic events
+cannot supply it. To request another assessment, use a new logical wait key;
+when resuming the same occurrence, `after_resolution_id` defaults to the current
+resolution ID. Old wakes and receipts remain immutable. Cancellation or terminal
+execution cannot be revived by later reports or assessments.
+
+See [the evidence and resolution contract](effect-evidence.md#record-an-operator-assessment)
+for saved command files, exact replay, audit links, disputed reports and retention.
 
 ## Review with the client or Console
 

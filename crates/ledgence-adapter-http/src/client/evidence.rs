@@ -1,5 +1,53 @@
 use super::*;
 
+impl ResponseValue for EffectResolutionReceipt {
+    const MAX_BYTES: usize = EFFECT_RESOLUTION_RECEIPT_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+impl EffectResolutionClient for HttpTaskService {
+    fn resolve_effect<'a>(
+        &'a self,
+        command: &'a EffectResolutionCommand,
+    ) -> ContractFuture<'a, EffectResolutionReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let expected = command.clone();
+            self.post_validated(
+                "v1/workflows/approved-effects/resolve",
+                command,
+                EFFECT_RESOLUTION_COMMAND_MAX_BYTES,
+                move |reply: &EffectResolutionReceipt| matches(reply.matches(&expected)),
+            )
+            .await
+        })
+    }
+}
+impl HttpTaskService {
+    /// Send the exact frozen command bytes after local strict validation. The
+    /// caller must separately validate its saved envelope's destination/scope.
+    pub async fn resolve_effect_bytes(&self, bytes: &[u8]) -> Result<EffectResolutionReceipt> {
+        let expected: EffectResolutionCommand =
+            decode_unique_json(bytes, EFFECT_RESOLUTION_COMMAND_MAX_BYTES)?;
+        expected.validate()?;
+        let bytes = bytes.to_vec();
+        let start = Instant::now();
+        self.exchange(
+            Method::POST,
+            "v1/workflows/approved-effects/resolve",
+            &[],
+            ExchangeBudget {
+                start,
+                deadline: start + self.timeout,
+            },
+            async { Ok(Some(bytes)) },
+            move |reply: &EffectResolutionReceipt| matches(reply.matches(&expected)),
+        )
+        .await
+    }
+}
+
 impl ResponseValue for EffectClaimV2Receipt {
     const MAX_BYTES: usize = EFFECT_EVIDENCE_COMMAND_MAX_BYTES;
     fn validate_values(&self) -> Result<()> {

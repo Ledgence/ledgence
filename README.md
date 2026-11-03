@@ -59,8 +59,10 @@ On `develop`, workflows can also [protect an approved external write](docs/workf
 `request_effect_approval` declares its execution contract before approval and
 requires the protected helper for that occurrence.
 After a worker crash, a replacement can look up a refund without issuing it a
-second time. Ledgence retains the workflow evidence while that refund remains
-unconfirmed. This requires matching development components and a database
+second time. An unresolved effect holds its workflow evidence past ordinary
+retention. An accepted operator assessment releases that hold even if the
+journal remains unconfirmed, while the durable effect history is retained
+independently. This requires matching development components and a database
 migration; it is not included in the 0.7.0 packages.
 
 On `develop`, [instance access](docs/instance-access.md) adds scoped operator,
@@ -69,7 +71,11 @@ Native credential mode adds [verified decision attribution and operator audit](d
 with a payload-free feed available through the API, CLI, Python, MCP and Console.
 [Retained effect evidence](docs/effect-evidence.md) records worker claims and reported
 results independently of execution-history retention, with bounded inspection
-through the API, CLI, Python and MCP.
+through the API, CLI, Python, MCP and Console. Native operator assessments bind
+to the inspected revision and exact approved action. Workflows can park with
+`ctx.wait_effect_resolution` and resume from a typed outcome while the worker
+slot serves other work. See the [effect-resolution contract](docs/effect-evidence.md)
+for prerequisites, retries and handling of later conflicting evidence.
 
 ### Install and start Ledgence
 

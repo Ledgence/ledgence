@@ -267,6 +267,7 @@ pub fn fixtures() -> Value {
             command_keys: vec!["issue".into()],
         }),
         external_wait_key: None,
+        native_effect_wait: None,
         observed_at: at,
     };
     let activations = ConsolePage {

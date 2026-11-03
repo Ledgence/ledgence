@@ -1,6 +1,6 @@
 # Console query model
 
-Console metadata reads use a dedicated `ConsoleQueryStore` port. They never acquire tasks, renew leases, expire attempts or wake workflows. The application fixes the installation scope; the browser cannot supply it. Existing task and workflow responses are unchanged.
+Execution, program catalog and worker metadata reads use the `ConsoleQueryStore` port. They never acquire tasks, renew leases, expire attempts or wake workflows. The application fixes the installation scope; the browser cannot supply it. This projection is separate from the generic task and workflow APIs.
 
 Each response is assembled inside a short PostgreSQL repeatable-read, read-only transaction. A response is coherent at that read; subsequent pages may reflect later committed state. Pages use an opaque cursor bound to the endpoint, installation scope, parent IDs, filters and persisted position. Limits default to 50 and cannot exceed 100. Catalog pages may return fewer items to stay within the 2 MiB metadata response limit; follow `next_cursor` whenever it is present, even on a short page. No query computes a total count or uses offset pagination.
 
@@ -14,7 +14,9 @@ The new API serializes revision and sequence values as decimal strings. Program 
 
 ## Unified discovery and execution explorer
 
-Console contract version 5 reuses the existing discovery and inspection endpoints:
+Published 0.7.0 uses Console contract version 5. Matching development components
+use version 6, adding typed native effect waits while retaining these discovery
+and inspection endpoints:
 
 - `GET /v1/console/executions` merges tasks and workflows in a stable descending
   order of submission time, kind and immutable ID. Each typed index seek is
@@ -40,7 +42,7 @@ live inserts or status changes can affect later pages, which are not a frozen
 snapshot of an entire traversal.
 
 The explorer projection stores compact entrypoint invocations, children, forks, accepted local
-results, applied child waits and external waits at existing transaction boundaries.
+results, applied child waits, external waits and native effect waits at existing transaction boundaries.
 Only successfully applied decisions create decision/resumption edges. An accepted
 controller result, rejected decision, closed wait or matching correlation does not
 establish one. Child status is read from its target at query time, avoiding a
@@ -81,6 +83,7 @@ references. References are scoped to the selected workflow and use existing keys
 | `entrypoint`, `child_wait` | `activation_id` |
 | `child`, `fork`, `external_wait` | `key` |
 | `local` | `activation_id`, `key` |
+| `native_effect_wait` | `parking_activation_id` |
 
 A child's key is workflow-wide; a local key is activation-scoped. These references
 can identify an endpoint not loaded in the current page without fabricating its
@@ -102,6 +105,8 @@ nodes. Missing endpoints remain unresolved, rather than proving nonexistence.
 | `resumes`: child wait → entrypoint | Explicit `resumed_activation_id`. |
 | `registers`: entrypoint → external wait | Recorded wait associated with the activation. |
 | `resumes`: external wait → entrypoint | Recorded wake and explicit resumed activation; closure alone is insufficient. |
+| `registers`: entrypoint → native effect wait | Applied native wait owned by the parking activation. |
+| `resumes`: native effect wait → entrypoint | Immutable selected resolution wake with its explicit resumed activation; closure alone is insufficient. |
 | `resumes`: entrypoint → entrypoint | Applied `continue`, no error and explicit resumed activation. |
 
 Invocation does not imply that its source completed before the target started.
@@ -170,6 +175,84 @@ these explicit detail endpoints. Approval inspect/list operations hold a brief
 shared workflow lock while reading the proposal and sampling database time, so
 a concurrent decision cannot produce a false expired observation. See
 [workflow approvals](workflow-approvals.md) for API and effect guarantees.
+
+## Contract 5 to 6 upgrade
+
+C6 adds required nullable `native_effect_wait` fields to workflow details and wait
+rows, the `effect_resolution` wait kind, and `native_effect_wait` explorer nodes
+and references. Historical C5 fixtures remain versioned separately; C5 tabs and
+assets must not interpret C6 responses. Apply
+`20261103040000_native_effect_resolution.sql` and
+`20261103050000_console_native_effect_wait.sql` with writers stopped, after all
+earlier migrations, then start matching server, worker and Console components.
+
+A native wait records its parking activation, stable key, original effect
+occurrence and nullable `after_resolution_id`. The current native wait is mutually
+exclusive with a child or external wait. Its durable namespace is separate from
+ordinary events and approvals. Equal key text does not identify the same wait,
+and sending an ordinary event cannot select a native resolution wake.
+
+Wait pages merge independently bounded legacy and native index seeks. Their
+cursor position is `(registered_at, kind, key, activation_id)`; native rows use
+the parking activation. This preserves distinct rows with equal keys and times.
+Restart wait traversal on upgrade; its old two-field cursor is invalid. The
+explorer retains its existing node identities and `workflows/explorer/v4` cursor
+binding; its new node kind is handled by the C6 contract check.
+
+A native graph record carries the original occurrence, registration and closure
+times, and nullable selected resolution ID, outcome kind and resumed activation.
+It contains no action arguments, provider output, assessment reason or selected
+result. Its `activation_id` identifies the parking entrypoint; the occurrence's
+activation identifies where the effect began. Registration and resumption edges
+connect only the recorded entrypoints. The origin is an inspection link, not an
+inferred scheduling dependency. Cancellation can close a wait without selecting
+a wake. A selected `closed_unknown` or `disputed` outcome must not be presented
+as successful provider execution.
+
+## Effects and operator assessments in development
+
+These operations use the retained evidence and verified operator ports, rather
+than the metadata-only `ConsoleQueryStore`:
+
+Within the `/console/` application, `/effects` opens the inbox and
+`/effects/review?workflow_id=…&activation_id=…&approval_key=…` addresses one
+occurrence. Query values are URL-encoded identifiers, not action payloads.
+
+| Console route (POST) | Required access in credential mode | Response |
+| --- | --- | --- |
+| `/v1/console/workflows/approved-effects/inbox` | `metadata_read` | Bounded metadata page, 1–100 occurrences. Also available in operator-trusted mode. |
+| `/v1/console/workflows/approved-effects/inspect` | `sensitive_read` plus configured operator audit | Approved binding, current assessment and up to four timeline entries per page, subject to a 1 MiB encoded-response limit. |
+| `/v1/console/workflows/approved-effects/resolve` | `effect_resolve` plus complete native resolution support | Payload-free acceptance receipt, at most 16 KiB. |
+
+Console requests omit installation scope; the server supplies it. Generic API
+aliases omit `/console` and require their explicit scope. Platform u64 fields in
+Console, including revisions, sequences, counters and program size, are canonical
+decimal strings. Timestamps remain JSON numbers; application-owned JSON is not
+rewritten. Detail pages may be shorter than requested to respect the byte limit;
+follow every non-null `next_cursor`. Each inspection records a durable sensitive
+read before response bytes are released. Audit queries do not recursively audit
+themselves.
+
+Resolution commands are limited to 256 KiB and bind the exact original action,
+occurrence, evidence revision and predecessor assessment. Admission denial is
+definitive; a failure after a possible commit remains uncertain. Retrying the
+same command reconciles acceptance without changing the reviewed action or
+revision. The metadata receipt proves recording, not workflow resumption,
+provider confirmation or a new dispatch grant. A separate exact audit-event
+query supplies verified acceptance attribution. See [the effect evidence
+contract](effect-evidence.md) for immutable selection, conflict and retention
+semantics.
+
+Console can explicitly export a frozen assessment using the shared saved-command
+envelope `{format: "ledgence.effect-resolution.v1", base_url, body}`. The
+destination is the canonical browser origin. `body` is the generic API command
+as UTF-8 JSON text: it includes the bound scope and an exact numeric u64 revision,
+while the Console request uses a decimal-string revision and server-injected
+scope. Both retain the same immutable assessment binding. The envelope is at
+most 1 MiB and contains no authentication material. CLI/Python restore validates
+destination and scope before sending the saved body, without re-reading or
+refreshing its action or revision. Export is available before dispatch and for
+an uncertain command; it is an explicit download, not automatic local storage.
 
 ## Approval inbox
 

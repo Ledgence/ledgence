@@ -6,6 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const CANARY: &str = "private-payload-must-not-leak";
 #[path = "effect_evidence.rs"]
 mod effect_evidence;
+#[path = "effect_resolution.rs"]
+mod effect_resolution;
 struct Verifier {
     audience: AccessAudience,
 }
@@ -21,6 +23,7 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::ApprovalDecide,
             ],
             "reader" => vec![AccessCapability::MetadataRead],
+            "resolver" => vec![AccessCapability::EffectResolve],
             "worker" => vec![AccessCapability::WorkerExecute],
             "expiring" => vec![
                 AccessCapability::SensitiveRead,

@@ -407,6 +407,14 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-effect-evidence"
+      - name: Check native effect resolution, worker-free waits and exact retries
+        if: matrix.suite == 'api'
+        run: |
+          python tools/check-effect-resolution.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-effect-resolution-evidence"
       - name: Check installed Python client with PostgreSQL, HTTP and the packaged worker
         if: matrix.suite == 'api'
         run: |

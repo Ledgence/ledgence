@@ -204,6 +204,8 @@ struct ConsoleSummary {
     effect_revision: ConsoleU64,
     created_at: Timestamp,
     updated_at: Timestamp,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operator_resolution: Option<ConsoleResolutionSummary>,
 }
 impl From<EffectEvidenceSummary> for ConsoleSummary {
     fn from(value: EffectEvidenceSummary) -> Self {
@@ -219,6 +221,45 @@ impl From<EffectEvidenceSummary> for ConsoleSummary {
             effect_revision: ConsoleU64(value.effect_revision),
             created_at: value.created_at,
             updated_at: value.updated_at,
+            operator_resolution: value.operator_resolution.map(Into::into),
+        }
+    }
+}
+#[derive(Serialize)]
+struct ConsoleResolutionReference {
+    resolution_id: String,
+    sequence: ConsoleU64,
+    accepted_at: Timestamp,
+    accepted_revision: ConsoleU64,
+    basis_revision: ConsoleU64,
+    supersedes_resolution_id: Option<String>,
+    assessment_kind: EffectAssessmentKind,
+    acceptance_event_id: String,
+}
+impl From<EffectResolutionReference> for ConsoleResolutionReference {
+    fn from(v: EffectResolutionReference) -> Self {
+        Self {
+            resolution_id: v.resolution_id,
+            sequence: ConsoleU64(v.sequence),
+            accepted_at: v.accepted_at,
+            accepted_revision: ConsoleU64(v.accepted_revision),
+            basis_revision: ConsoleU64(v.basis_revision),
+            supersedes_resolution_id: v.supersedes_resolution_id,
+            assessment_kind: v.assessment_kind,
+            acceptance_event_id: v.acceptance_event_id,
+        }
+    }
+}
+#[derive(Serialize)]
+struct ConsoleResolutionSummary {
+    reference: ConsoleResolutionReference,
+    first_conflicting_entry_sequence: Option<ConsoleU64>,
+}
+impl From<EffectResolutionSummary> for ConsoleResolutionSummary {
+    fn from(v: EffectResolutionSummary) -> Self {
+        Self {
+            reference: v.reference.into(),
+            first_conflicting_entry_sequence: v.first_conflicting_entry_sequence.map(ConsoleU64),
         }
     }
 }
@@ -226,7 +267,7 @@ impl From<EffectEvidenceSummary> for ConsoleSummary {
 struct ConsoleBinding {
     occurrence: EffectOccurrence,
     approval: super::approvals::ConsoleApproval,
-    program: ledgence_worker_api::ProgramDescriptor,
+    program: ledgence_orchestration_api::console::ConsoleProgramDescriptor,
     key: String,
     lookup: Option<String>,
     approval_acceptance_event_id: Option<String>,
@@ -236,7 +277,7 @@ impl From<EffectEvidenceBinding> for ConsoleBinding {
         Self {
             occurrence: value.occurrence,
             approval: value.approval.into(),
-            program: value.program,
+            program: value.program.into(),
             key: value.key,
             lookup: value.lookup,
             approval_acceptance_event_id: value.approval_acceptance_event_id,
@@ -246,6 +287,19 @@ impl From<EffectEvidenceBinding> for ConsoleBinding {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ConsoleEntry {
+    Assessment {
+        sequence: ConsoleU64,
+        recorded_at: Timestamp,
+        recorded_revision: ConsoleU64,
+        resolution_id: String,
+        basis_revision: ConsoleU64,
+        supersedes_resolution_id: Option<String>,
+        assessment: EffectResolutionAssessment,
+        reason: String,
+        evidence_references: Vec<String>,
+        actor: AuditActor,
+        acceptance_event_id: String,
+    },
     Claim {
         sequence: ConsoleU64,
         recorded_at: Timestamp,
@@ -267,6 +321,31 @@ enum ConsoleEntry {
 impl From<EffectEvidenceEntry> for ConsoleEntry {
     fn from(value: EffectEvidenceEntry) -> Self {
         match value {
+            EffectEvidenceEntry::Assessment {
+                sequence,
+                recorded_at,
+                recorded_revision,
+                resolution_id,
+                basis_revision,
+                supersedes_resolution_id,
+                assessment,
+                reason,
+                evidence_references,
+                actor,
+                acceptance_event_id,
+            } => Self::Assessment {
+                sequence: ConsoleU64(sequence),
+                recorded_at,
+                recorded_revision: ConsoleU64(recorded_revision),
+                resolution_id,
+                basis_revision: ConsoleU64(basis_revision),
+                supersedes_resolution_id,
+                assessment,
+                reason,
+                evidence_references,
+                actor,
+                acceptance_event_id,
+            },
             EffectEvidenceEntry::Claim {
                 sequence,
                 recorded_at,
@@ -308,6 +387,8 @@ struct ConsoleDetail {
     summary: ConsoleSummary,
     entries: Vec<ConsoleEntry>,
     next_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_assessment: Option<ConsoleEntry>,
 }
 fn encode_console_detail(
     value: EffectEvidenceDetail,
@@ -318,6 +399,7 @@ fn encode_console_detail(
         summary: value.summary.into(),
         entries: value.entries.into_iter().map(Into::into).collect(),
         next_cursor: value.next_cursor,
+        current_assessment: value.current_assessment.map(Into::into),
     };
     loop {
         let bytes = serde_json::to_vec(&detail).map_err(|_| invalid_reply())?;
@@ -327,9 +409,9 @@ fn encode_console_detail(
         detail.entries.pop();
         let last = detail.entries.last().ok_or_else(invalid_reply)?;
         let sequence = match last {
-            ConsoleEntry::Claim { sequence, .. } | ConsoleEntry::Observation { sequence, .. } => {
-                sequence.0
-            }
+            ConsoleEntry::Claim { sequence, .. }
+            | ConsoleEntry::Observation { sequence, .. }
+            | ConsoleEntry::Assessment { sequence, .. } => sequence.0,
         };
         detail.next_cursor = Some(query.next_cursor(sequence)?);
     }

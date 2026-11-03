@@ -106,7 +106,7 @@ async fn modern_discover_and_per_request_metadata_use_current_lifecycle() {
     let response = client.read().await;
     assert_eq!(
         response["result"]["tools"].as_array().unwrap().len(),
-        schemas::tool_definitions(false).len()
+        schemas::tool_definitions(false).len() - 1
     );
     assert_eq!(response["result"]["resultType"], "complete");
     client

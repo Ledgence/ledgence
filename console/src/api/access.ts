@@ -31,8 +31,9 @@ const credentialShape = {
       "program_publish",
       "approval_decide",
       "worker_execute",
+      "effect_resolve",
     ),
-    7,
+    8,
   ),
   expires_at_ms: s.timestamp,
 };
@@ -40,6 +41,11 @@ const credentials = s.object(credentialShape);
 const auditedCredentials = s.object({
   ...credentialShape,
   operator_audit: s.boolean,
+});
+const nativeCredentials = s.object({
+  ...credentialShape,
+  operator_audit: s.boolean,
+  native_effect_resolution: s.boolean,
 });
 export function decodeAccess(value: unknown): Access {
   if (
@@ -52,9 +58,11 @@ export function decodeAccess(value: unknown): Access {
     return { mode: "operator_trusted" };
   }
   const result =
-    value && typeof value === "object" && "operator_audit" in value
-      ? auditedCredentials(value)
-      : credentials(value);
+    value && typeof value === "object" && "native_effect_resolution" in value
+      ? nativeCredentials(value)
+      : value && typeof value === "object" && "operator_audit" in value
+        ? auditedCredentials(value)
+        : credentials(value);
   if (
     new Set(result.capabilities).size !== result.capabilities.length ||
     result.capabilities.includes("worker_execute")

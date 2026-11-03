@@ -9,8 +9,11 @@ import re
 from typing import Literal
 
 from . import codec
-from .approval_models import ApprovalStatus, WorkflowApproval, parse_approval
+from .approval_models import ApprovalStatus, WorkflowApproval, parse_approval, _json_identity
 from .errors import InputError, ProtocolError
+from .effect_resolution_models import (
+    EffectAssessmentEntry, EffectResolutionSummary, parse_assessment_entry, parse_resolution_summary,
+)
 from .models import Scope, _scope
 
 EFFECT_PAGE_LIMIT = 1024 * 1024
@@ -24,6 +27,7 @@ class EffectFilter(StrEnum):
     UNCONFIRMED = "unconfirmed"
     CONFIRMED = "confirmed"
     DISCREPANT = "discrepant"
+    DISPUTED = "disputed"
 
 
 class EffectJournalState(StrEnum):
@@ -120,6 +124,7 @@ class EffectEvidenceSummary:
     effect_revision: int
     created_at: int
     updated_at: int
+    operator_resolution: EffectResolutionSummary | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +184,7 @@ class EffectObservationEntry:
         return json.loads(self._output)
 
 
-EffectEvidenceEntry = EffectClaimEntry | EffectObservationEntry
+EffectEvidenceEntry = EffectClaimEntry | EffectObservationEntry | EffectAssessmentEntry
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +199,8 @@ class EffectEvidenceDetail:
     summary: EffectEvidenceSummary
     entries: tuple[EffectEvidenceEntry, ...]
     next_cursor: str | None
+    current_assessment: EffectAssessmentEntry | None = None
+    _base_url: str = field(default="", repr=False, compare=False)
 
 
 def effect_cursor(value):
@@ -247,17 +254,20 @@ def _dispatch_provenance(raw):
 
 def _summary(raw, scope):
     codec.fields(raw, {"occurrence", "program", "callable", "action_version", "dispatch_provenance",
-                       "journal_state", "has_discrepancy", "entry_count", "effect_revision", "created_at", "updated_at"})
+                       "journal_state", "has_discrepancy", "entry_count", "effect_revision", "created_at", "updated_at"}, {"operator_resolution"})
     if type(raw["has_discrepancy"]) is not bool:
         raise InputError("invalid effect discrepancy flag")
     created = codec.integer(raw["created_at"], "created_at", 0, EFFECT_TIMESTAMP_LIMIT)
     updated = codec.integer(raw["updated_at"], "updated_at", created, EFFECT_TIMESTAMP_LIMIT)
+    revision = codec.integer(raw["effect_revision"], "effect_revision", 1)
+    count = codec.integer(raw["entry_count"], "entry_count", 0, revision - 1)
+    resolution = parse_resolution_summary(raw["operator_resolution"], count, revision) if "operator_resolution" in raw else None
     return EffectEvidenceSummary(_occurrence(raw["occurrence"], scope), _program(raw["program"]),
         codec.text(raw["callable"], "callable", 512), codec.text(raw["action_version"], "action_version"),
         _dispatch_provenance(raw["dispatch_provenance"]), EffectJournalState(raw["journal_state"]),
         raw["has_discrepancy"], codec.integer(raw["entry_count"], "entry_count", 0,
             codec.integer(raw["effect_revision"], "effect_revision", 1) - 1),
-        raw["effect_revision"], created, updated)
+        raw["effect_revision"], created, updated, resolution)
 
 
 def _binding(raw, occurrence, base_url):
@@ -303,6 +313,8 @@ def _source(raw, scope):
 
 
 def _entry(raw, summary):
+    if type(raw) is dict and raw.get("kind") == "assessment":
+        return parse_assessment_entry(raw, summary)
     fields = {"sequence", "recorded_at", "recorded_revision", "kind"}
     kind = raw.get("kind") if type(raw) is dict else None
     if kind == "claim":
@@ -314,6 +326,8 @@ def _entry(raw, summary):
     sequence = codec.integer(raw["sequence"], "sequence", 1, summary.entry_count)
     at = codec.integer(raw["recorded_at"], "recorded_at", 0, EFFECT_TIMESTAMP_LIMIT)
     revision = codec.integer(raw["recorded_revision"], "recorded_revision", 1, summary.effect_revision)
+    if sequence >= revision:
+        raise InputError("effect sequence exceeds its recorded revision")
     if kind == "claim":
         return EffectClaimEntry(sequence, at, revision, codec.text(raw["claim_id"], "claim_id"),
             codec.text(raw["attempt_id"], "attempt_id"), _worker(raw["worker"], summary.occurrence.scope),
@@ -378,7 +392,9 @@ def parse_effect_inbox(raw, scope, selected, workflow_id, cursor, limit):
             if (workflow_id is not None and identity.workflow_id != workflow_id
                     or selected == EffectFilter.UNCONFIRMED and item.journal_state != EffectJournalState.UNCONFIRMED
                     or selected == EffectFilter.CONFIRMED and item.journal_state != EffectJournalState.CONFIRMED
-                    or selected == EffectFilter.DISCREPANT and not item.has_discrepancy):
+                    or selected == EffectFilter.DISCREPANT and not item.has_discrepancy
+                    or selected == EffectFilter.DISPUTED and (item.operator_resolution is None
+                        or item.operator_resolution.first_conflicting_entry_sequence is None)):
                 raise InputError("effect inbox item does not match its filters")
             seen.add(identity)
             previous = position
@@ -393,7 +409,7 @@ def parse_effect_inbox(raw, scope, selected, workflow_id, cursor, limit):
 
 def parse_effect_detail(raw, occurrence, cursor, limit, base_url):
     try:
-        codec.fields(raw, {"binding", "summary", "entries", "next_cursor"})
+        codec.fields(raw, {"binding", "summary", "entries", "next_cursor"}, {"current_assessment"})
         summary = _summary(raw["summary"], occurrence.scope)
         if summary.occurrence != occurrence:
             raise InputError("effect summary does not match the request")
@@ -410,7 +426,8 @@ def parse_effect_detail(raw, occurrence, cursor, limit, base_url):
         command_ids = set()
         sequence, revision = after, 0
         for entry in entries:
-            command_id = (entry.kind, entry.claim_id if isinstance(entry, EffectClaimEntry) else entry.observation_id)
+            command_id = (entry.kind, entry.claim_id if isinstance(entry, EffectClaimEntry) else
+                           entry.resolution_id if isinstance(entry, EffectAssessmentEntry) else entry.observation_id)
             if (entry.sequence != sequence + 1 or entry.recorded_revision <= revision
                     or command_id in command_ids):
                 raise InputError("effect entries omit, reorder or duplicate retained evidence")
@@ -422,6 +439,18 @@ def parse_effect_detail(raw, occurrence, cursor, limit, base_url):
             raise InputError("effect detail does not expose its remaining entries")
         if next_cursor is not None and inspect_sequence(next_cursor, occurrence) != sequence:
             raise InputError("effect cursor does not advance to the final entry")
-        return EffectEvidenceDetail(binding, summary, entries, next_cursor)
+        assessment = parse_assessment_entry(raw["current_assessment"], summary) if "current_assessment" in raw else None
+        if ((assessment is None) != (summary.operator_resolution is None)
+                or assessment is not None and assessment.reference != summary.operator_resolution.reference):
+            raise InputError("current assessment and summary disagree")
+        if assessment is None and any(isinstance(entry, EffectAssessmentEntry) for entry in entries):
+            raise InputError("assessment timeline has no current assessment header")
+        if assessment is not None:
+            for original, entry in zip(raw["entries"], entries):
+                if entry.sequence == assessment.sequence and _json_identity(original) != _json_identity(raw["current_assessment"]):
+                    raise InputError("current assessment and timeline disagree")
+                if isinstance(entry, EffectAssessmentEntry) and entry.sequence > assessment.sequence:
+                    raise InputError("current assessment is not the latest assessment")
+        return EffectEvidenceDetail(binding, summary, entries, next_cursor, assessment, base_url)
     except (ValueError, TypeError, KeyError, UnicodeError) as exc:
         raise ProtocolError("invalid effect detail response") from exc

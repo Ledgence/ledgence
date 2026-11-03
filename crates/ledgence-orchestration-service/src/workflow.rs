@@ -80,8 +80,8 @@ impl ApplicationService {
                 .await?;
             return Ok(WorkflowProgress::default());
         }
-        match resolution {
-            Ok(Ok(())) => {}
+        let native = match resolution {
+            Ok(Ok(native)) => native,
             Ok(Err(error))
                 if matches!(
                     error,
@@ -115,7 +115,16 @@ impl ApplicationService {
                 return Ok(WorkflowProgress::default());
             }
         };
-        match store.apply_work(&work, &resolved).await {
+
+        let applied = if native {
+            store
+                .effect_resolution()?
+                .apply_effect_work(&work, &resolved)
+                .await
+        } else {
+            store.apply_work(&work, &resolved).await
+        };
+        match applied {
             Ok(progress) => Ok(progress),
             // Another coordinator may have recovered an expired work lease.
             Err(ContractError::OwnershipLost | ContractError::ObsoleteOperation) => {
@@ -150,22 +159,40 @@ impl ApplicationService {
         &self,
         work: &WorkflowWork,
         resolved: &mut Vec<ResolvedWorkflowChild>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let WorkflowWorkSource::TaskTerminal {
             task_id,
             activation: true,
         } = &work.source
         else {
-            return Ok(());
+            return Ok(matches!(
+                work.source,
+                WorkflowWorkSource::EffectResolutionWait
+            ));
         };
         let outcome = work
             .outcome
             .as_ref()
             .ok_or_else(|| ContractError::Unavailable("missing controller outcome".into()))?;
         let TaskOutcome::Succeeded { output, .. } = outcome else {
-            return Ok(());
+            return Ok(matches!(
+                work.source,
+                WorkflowWorkSource::EffectResolutionWait
+            ));
         };
         let decision = WorkflowDecision::decode(output)?;
+        let native = matches!(
+            decision.action,
+            WorkflowAction::Wait {
+                wait: WorkflowWait::EffectResolution { .. },
+                ..
+            }
+        );
+        if native {
+            self.workflows()?.effect_resolution().map_err(|_| {
+                ContractError::InvalidInput("native effect resolution is unavailable".into())
+            })?;
+        }
         if decision.activation_id != *task_id {
             return Err(ContractError::Conflict);
         }
@@ -242,7 +269,7 @@ impl ApplicationService {
             }
         }
         resolved.sort_by_key(|binding| positions[binding.key.as_str()]);
-        Ok(())
+        Ok(native)
     }
 
     async fn resolve_workflow_program(
@@ -309,6 +336,13 @@ impl ApprovedEffects for ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn effect_resolution(&self) -> Result<&dyn EffectResolution> {
+        self.workflows()?.effect_resolution()?;
+        self.workflows()?.approved_effect_evidence()?;
+        self.workflows()?.effect_evidence_reader()?;
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
     fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
         self.workflows()?.approved_effect_evidence()?;
         self.workflows()?.effect_evidence_reader()?;

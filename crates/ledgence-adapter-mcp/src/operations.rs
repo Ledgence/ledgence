@@ -65,6 +65,7 @@ pub struct ToolDispatcher {
     audit: Option<Arc<dyn AuditReader>>,
     scope: Scope,
     read_only: bool,
+    allow_effect_resolution: bool,
     tools: Arc<Vec<crate::schemas::ToolDefinition>>,
 }
 impl ToolDispatcher {
@@ -83,6 +84,7 @@ impl ToolDispatcher {
             audit: None,
             scope,
             read_only,
+            allow_effect_resolution: false,
             tools: Arc::new(tool_definitions(false)),
         })
     }
@@ -91,10 +93,21 @@ impl ToolDispatcher {
         self.audit = Some(audit);
         self
     }
+    /// Explicitly opt into operator assessments. Read-only servers cannot mutate.
+    pub fn with_effect_resolution(mut self) -> ledgence_orchestration_api::Result<Self> {
+        if self.read_only {
+            return Err(ContractError::InvalidInput(
+                "effect resolution conflicts with read-only MCP mode".into(),
+            ));
+        }
+        self.allow_effect_resolution = true;
+        Ok(self)
+    }
     pub(crate) fn definitions(&self) -> impl Iterator<Item = &crate::schemas::ToolDefinition> {
         self.tools.iter().filter(|tool| {
             (!self.read_only || tool.read_only)
                 && (tool.name != "ledgence_audit_query" || self.audit.is_some())
+                && (tool.name != "ledgence_effect_resolve" || self.allow_effect_resolution)
         })
     }
     pub fn read_only(&self) -> bool {
@@ -118,6 +131,13 @@ impl ToolDispatcher {
                 message: "Unknown Ledgence tool".into(),
                 outcome_unknown: false,
             })?;
+        if name == "ledgence_effect_resolve" && !self.allow_effect_resolution {
+            return Err(ToolError {
+                code: "unknown_tool",
+                message: "Effect resolution requires explicit server opt-in".into(),
+                outcome_unknown: false,
+            });
+        }
         if self.read_only && !definition.read_only {
             return Err(ToolError {
                 code: "read_only",
@@ -160,7 +180,7 @@ impl ToolDispatcher {
                 let page = remote(reader.effect_inbox(&query).await, false)?;
                 page.validate_for(&query)
                     .map_err(|_| invalid_reply(false))?;
-                encode(page, false)?
+                crate::effects::inbox(page).map_err(|_| invalid_reply(false))?
             }
             "ledgence_effect_inspect" => {
                 let args: EffectInspect = parse(arguments)?;
@@ -180,7 +200,35 @@ impl ToolDispatcher {
                 detail
                     .validate_for(&query)
                     .map_err(|_| invalid_reply(false))?;
-                encode(detail, false)?
+                crate::effects::inspect(detail).map_err(|_| invalid_reply(false))?
+            }
+            "ledgence_effect_resolve" => {
+                let args: EffectResolve = parse(arguments)?;
+                let command = EffectResolutionCommand {
+                    occurrence: EffectOccurrence {
+                        scope: self.scope.clone(),
+                        workflow_id: args.workflow_id,
+                        activation_id: args.activation_id,
+                        approval_key: args.approval_key,
+                    },
+                    resolution_id: args.resolution_id,
+                    expected_effect_revision: crate::effects::parse_revision(
+                        &args.expected_effect_revision,
+                    )
+                    .map_err(ToolError::arguments)?,
+                    supersedes_resolution_id: args.supersedes_resolution_id,
+                    action: args.action,
+                    assessment: args.assessment,
+                    reason: args.reason,
+                    evidence_references: args.evidence_references,
+                };
+                command.validate().map_err(ToolError::arguments)?;
+                let writer = remote(self.workflows.effect_resolution_client(), false)?;
+                let receipt = remote(writer.resolve_effect(&command).await, true)?;
+                if receipt.matches(&command) != Ok(true) {
+                    return Err(invalid_reply(true));
+                }
+                crate::effects::receipt(receipt).map_err(|_| invalid_reply(true))?
             }
             "ledgence_program_list" => {
                 let args: ProgramList = parse(arguments)?;
@@ -536,6 +584,27 @@ fn default_effect_limit() -> u32 {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct EffectResolve {
+    workflow_id: String,
+    activation_id: String,
+    approval_key: String,
+    resolution_id: String,
+    expected_effect_revision: String,
+    #[serde(deserialize_with = "required_option")]
+    supersedes_resolution_id: Option<String>,
+    action: ApprovalAction,
+    assessment: EffectResolutionAssessment,
+    reason: String,
+    evidence_references: Vec<String>,
+}
+fn required_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error> {
+    Option::<T>::deserialize(deserializer)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProgramList {
     kind: Option<ConsoleProgramKind>,
     #[serde(default = "default_limit")]
@@ -746,7 +815,7 @@ mod tests {
         let readonly = test_dispatcher(true);
         for definition in tool_definitions(false)
             .into_iter()
-            .filter(|tool| !tool.read_only)
+            .filter(|tool| !tool.read_only && tool.name != "ledgence_effect_resolve")
         {
             let error = readonly
                 .call(definition.name, &json!({}))

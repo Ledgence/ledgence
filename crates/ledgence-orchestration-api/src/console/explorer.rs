@@ -32,6 +32,14 @@ pub enum ConsoleWakeReason {
     Rejected,
     Expired,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsoleEffectOutcomeKind {
+    RecordedSuccess,
+    RecordedFailure,
+    ClosedUnknown,
+    Disputed,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +104,16 @@ pub enum ConsoleExplorerData {
         wake_reason: Option<ConsoleWakeReason>,
         resumed_activation_id: Option<String>,
     },
+    NativeEffectWait {
+        key: String,
+        occurrence: EffectOccurrence,
+        after_resolution_id: Option<String>,
+        registered_at: Timestamp,
+        closed_at: Option<Timestamp>,
+        resolution_id: Option<String>,
+        outcome_kind: Option<ConsoleEffectOutcomeKind>,
+        resumed_activation_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +138,7 @@ impl ConsoleExplorerData {
             Self::Local { .. } => "local",
             Self::ChildWait { .. } => "child_wait",
             Self::ExternalWait { .. } => "external_wait",
+            Self::NativeEffectWait { .. } => "native_effect_wait",
         }
     }
     pub fn key(&self) -> &str {
@@ -128,7 +147,8 @@ impl ConsoleExplorerData {
             Self::Child { key, .. }
             | Self::Fork { key, .. }
             | Self::Local { key, .. }
-            | Self::ExternalWait { key, .. } => key,
+            | Self::ExternalWait { key, .. }
+            | Self::NativeEffectWait { key, .. } => key,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -293,6 +313,7 @@ impl ConsoleExplorerData {
                                 | ConsoleWakeReason::Expired
                         )
                     ),
+                    ConsoleWaitKind::EffectResolution => false,
                 };
                 if !compatible
                     || (matches!(
@@ -302,6 +323,31 @@ impl ConsoleExplorerData {
                     || (*wake_reason == Some(ConsoleWakeReason::Timeout) && deadline.is_none())
                 {
                     return Err(invalid("inconsistent external wait wake kind"));
+                }
+            }
+            Self::NativeEffectWait {
+                key,
+                occurrence,
+                after_resolution_id,
+                registered_at,
+                closed_at,
+                resolution_id,
+                outcome_kind,
+                resumed_activation_id,
+            } => {
+                validate_text(key, 128)?;
+                occurrence.validate()?;
+                optional_id(after_resolution_id)?;
+                optional_id(resolution_id)?;
+                optional_id(resumed_activation_id)?;
+                timestamp(*registered_at)?;
+                time(*closed_at)?;
+                if resolution_id.is_some() != outcome_kind.is_some()
+                    || resolution_id.is_some() != resumed_activation_id.is_some()
+                    || (resolution_id.is_some() && closed_at.is_none())
+                    || closed_at.is_some_and(|at| at < *registered_at)
+                {
+                    return Err(invalid("native wake requires one scheduled activation"));
                 }
             }
         }
@@ -351,6 +397,11 @@ impl ConsoleRecord for ConsoleExplorerNode {
         let (kind, workflow_id, activation_id, key): (String, String, String, String) =
             serde_json::from_str(&self.id)
                 .map_err(|_| invalid("invalid explorer node identity"))?;
+        if let ConsoleExplorerData::NativeEffectWait { occurrence, .. } = &self.data
+            && occurrence.workflow_id != workflow_id
+        {
+            return Err(invalid("native explorer wait belongs to another workflow"));
+        }
         if kind != self.data.kind()
             || activation_id != self.activation_id
             || key != self.data.key()
@@ -386,7 +437,25 @@ impl ConsoleWorkflowExplorer {
         {
             return Err(invalid("inconsistent workflow explorer"));
         }
+        if usize::from(self.workflow.child_wait.is_some())
+            + usize::from(self.workflow.external_wait_key.is_some())
+            + usize::from(self.workflow.native_effect_wait.is_some())
+            > 1
+        {
+            return Err(invalid("conflicting current workflow waits"));
+        }
+        if let Some(wait) = &self.workflow.native_effect_wait {
+            wait.validate(workflow_id)?;
+            if wait.occurrence.scope != binding.scope {
+                return Err(invalid("native wait scope mismatch"));
+            }
+        }
         for node in &self.page.items {
+            if let ConsoleExplorerData::NativeEffectWait { occurrence, .. } = &node.data
+                && occurrence.scope != binding.scope
+            {
+                return Err(invalid("native explorer wait scope mismatch"));
+            }
             let id = serde_json::to_string(&(
                 node.data.kind(),
                 workflow_id,

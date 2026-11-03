@@ -53,7 +53,9 @@ The directory contains three files.
 - `access.json` holds the installation authority, credential verifiers,
   capabilities and expirations. Mount it on each orchestrator.
 - `operator.json` holds Alice's reusable credential and its intended server.
-  It grants all operator capabilities.
+  A newly initialized development bundle grants all operator capabilities,
+  including `effect_resolve`. Existing access files keep their explicit
+  capabilities; upgrading does not add this permission to old credentials.
 - `worker.json` holds a separate credential for the trusted worker plane.
 
 Keep the two client files private. The directory has Unix mode `0700` and its
@@ -105,8 +107,8 @@ Add the credential file to API-facing CLI commands.
   --credentials-file access/operator.json
 ```
 
-The same option works with approval commands, program registration, HTTP
-publication and `ledgence mcp serve`. Supply it again with a saved publication
+The same option works with approval and effect commands, program registration,
+HTTP publication and `ledgence mcp serve`. Supply it again with a saved publication
 receipt's `--resume` command. Publication receipts retain operation identity and
 artifact data. Client credentials are supplied separately for each invocation.
 
@@ -136,7 +138,9 @@ clients require HTTPS or loopback HTTP and reject redirects.
 
 For MCP, give the configured service its own narrowly scoped credential. A
 shared MCP process authenticates as that service. Its downstream human users
-remain identities managed by the MCP host.
+remain identities managed by the MCP host. Recording an effect assessment also
+requires starting MCP with `--allow-effect-resolution`; the credential must grant
+`effect_resolve`. This flag cannot be combined with `--read-only`.
 
 ## Console identity
 
@@ -152,6 +156,12 @@ be retried deliberately with identical bytes after reauthentication as the same
 actor, with the same instance and capabilities, within that page's lifetime. A full browser reload retrieves the persisted
 server state. Frozen browser commands live only in memory.
 
+For an effect assessment, choose **Download saved command** before dispatch or
+after an uncertain reply to preserve it beyond a reload. The file retains the
+original server, scope, action and resolution identity without credentials.
+Reconcile through the CLI or Python with the same stable actor.
+[Inspect and assess external effects](effect-evidence.md#record-an-operator-assessment).
+
 **Sign out of this browser** clears the browser credential. Administrative
 revocation requires removing its verifier from the server configuration and
 restarting every replica. Cookies are shared across ports on a hostname. Use a
@@ -161,19 +171,28 @@ dedicated hostname for production and treat local HTTP as trusted development.
 
 | Capability | Permitted operations |
 | --- | --- |
-| `metadata_read` | Status, history summaries, approval inbox, catalog, Console metadata and the scoped payload-free operator audit feed |
-| `sensitive_read` | Inputs, outputs, approval arguments and accepted local-step details |
+| `metadata_read` | Status, history summaries, approval and effect inboxes, catalog, Console metadata and the scoped payload-free operator audit feed |
+| `sensitive_read` | Inputs, outputs, approval arguments, accepted local-step details and retained effect contents, with durable audit |
 | `execution_submit` | Task and workflow submissions |
 | `execution_control` | Cancellation, external events and completion subscription commands |
 | `program_publish` | Publication to the configured store and catalog registration |
 | `approval_decide` | Approval decisions, together with `sensitive_read` for their returned snapshot |
+| `effect_resolve` | Record a revision-bound operator assessment and return its metadata receipt; separate from approval and execution control |
 | `worker_execute` | Acquisition, runtime context, claims, renewals, settlements, observations and raw attempt inspection |
 
 Operator and service credentials receive explicit operator capabilities. Worker
 credentials receive `worker_execute`. Workers share the installation's trusted
 worker plane. Raw attempt inspection requires worker authority because its
 response contains live lease details. Console's attempt projection provides
-operator-facing diagnostics.
+operator-facing diagnostics. Worker credentials cannot record operator assessments.
+
+`effect_resolve` does not imply `sensitive_read` or `metadata_read`. A headless
+service can submit a saved assessment with only `effect_resolve`; reviewing the
+effect and querying its acceptance event require the separate read capabilities.
+Console checks `metadata_read` for the inbox and attribution, `sensitive_read`
+for evidence review, and `effect_resolve` for recording. Native resolution also
+requires matching components, migrations and durable operator audit. Recording
+an assessment does not confirm a provider outcome or authorize another dispatch.
 
 Metadata includes names and diagnostic messages supplied by trusted programs.
 Application code controls values it places in those fields. Artifact publication
@@ -208,11 +227,17 @@ use the new credential, then remove the old verifier and restart all replicas.
 Permissions, expiry and revocation follow the loaded configuration and API host
 clock. Synchronize host clocks.
 
+To add assessment authority to an existing installation, issue a credential with
+`effect_resolve` explicitly and deploy the replacement configuration to every
+replica. Include `sensitive_read` for evidence review and `metadata_read` for
+inbox and audit discovery. When reconciling an uncertain assessment, keep the
+original command, authority and subject; rotation must not change its actor.
+
 Access configuration is opt-in for the native service. The packaged local kits
 continue their operator-trusted deployment contract and checksum validation.
 Use explicit native service configuration for this development capability.
 
-Native credential mode requires durable approval attribution and sensitive-response
-audit. Approval `reviewer` remains caller supplied. Recorded acceptance identifies
-the verified actor separately. Read the operating and retention contract before
+Native credential mode requires durable approval and effect-assessment attribution
+and sensitive-response audit. Approval `reviewer` remains caller supplied.
+Recorded acceptance identifies the verified actor separately. Read the operating and retention contract before
 enabling access on an existing deployment. [Operator audit](operator-audit.md).

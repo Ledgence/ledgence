@@ -52,6 +52,9 @@ pub(super) async fn post(
     if path.starts_with("/v1/workflows/approvals/") {
         return super::approvals::post(server, path, bytes, None, context).await;
     }
+    if path == "/v1/workflows/approved-effects/resolve" {
+        return super::effect_resolution::post(server, bytes, None, context).await;
+    }
     if path.starts_with("/v1/workflows/approved-effects/v2/")
         || path.ends_with("/approved-effects/inbox")
         || path.ends_with("/approved-effects/inspect")

@@ -81,6 +81,7 @@ def scenarios(d, record, sessions):
         assert not {"scope", "tenant_id", "namespace"} & item["inputSchema"]["properties"].keys(), item
         assert item["annotations"]["readOnlyHint"] is (item["name"] in READ_TOOLS), item
     assert "ledgence_approval_decide" not in {item["name"] for item in tools}
+    assert "ledgence_effect_resolve" not in {item["name"] for item in tools}
     programs, cursor = [], None
     for _ in range(4):
         page = main.tool("ledgence_program_list", {"limit": 1, **({"cursor": cursor} if cursor else {})})

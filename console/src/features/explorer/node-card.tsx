@@ -50,7 +50,10 @@ export function WorkCard({ node }: { node: ExplorerNode }) {
   const { Icon: StatusIcon, tone } = statusAppearance(status);
   const gate = node.kind === "fork" || node.kind === "child_wait";
   const compact =
-    gate || node.kind === "entrypoint" || node.kind === "external_wait";
+    gate ||
+    node.kind === "entrypoint" ||
+    node.kind === "external_wait" ||
+    node.kind === "native_effect_wait";
   const Icon =
     node.kind === "entrypoint"
       ? LogIn
@@ -64,11 +67,13 @@ export function WorkCard({ node }: { node: ExplorerNode }) {
               : node.wait_kind === "approval"
                 ? ShieldCheck
                 : Clock3
-            : node.kind === "local"
-              ? Code2
-              : node.execution.kind === "workflow"
-                ? Workflow
-                : Box;
+            : node.kind === "native_effect_wait"
+              ? ShieldCheck
+              : node.kind === "local"
+                ? Code2
+                : node.execution.kind === "workflow"
+                  ? Workflow
+                  : Box;
   const duration = recordedDuration(node);
   const count =
     node.kind === "fork"

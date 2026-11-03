@@ -303,6 +303,13 @@ fn snapshot(actor: Option<&VerifiedPrincipal>, operator_audit: bool) -> serde_js
         "operator_audit":operator_audit,
     })
 }
+fn console_snapshot(server: &Server, actor: Option<&VerifiedPrincipal>) -> serde_json::Value {
+    let mut value = snapshot(actor, audit::enabled(server));
+    if actor.is_some() {
+        value["native_effect_resolution"] = serde_json::json!(effect_resolution::available(server));
+    }
+    value
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Login {
@@ -326,10 +333,21 @@ pub(super) async fn dispatch(
     }
     if policy == Policy::Access {
         let generic = request.uri().path() == "/v1/access";
+        let features = request.headers().get_all("ledgence-worker-features");
+        let opted_in = features.iter().next().is_some();
+        if opted_in
+            && (features.iter().count() != 1 || features.iter().next().is_none_or(|v| v != "1"))
+        {
+            return Err(invalid("unsupported worker feature negotiation").into());
+        }
         to_bytes(request.into_body(), 0)
             .await
             .map_err(|_| invalid("access lookup does not accept a body"))?;
-        let mut value = snapshot(principal.as_ref(), audit::enabled(server));
+        let mut value = if generic {
+            snapshot(principal.as_ref(), audit::enabled(server))
+        } else {
+            console_snapshot(server, principal.as_ref())
+        };
         if generic
             && principal.as_ref().is_some_and(|actor| {
                 actor.class() == PrincipalClass::Worker
@@ -340,6 +358,9 @@ pub(super) async fn dispatch(
             let actor = principal.as_ref().expect("verified worker checked");
             value["authority_id"] = serde_json::json!(actor.audience().authority_id);
             value["runtime_capabilities"] = serde_json::json!({"approved_effect_evidence_v2":true});
+            if opted_in && effect_resolution::available(server) {
+                value["worker_features"] = serde_json::json!({"v":1,"supported":[ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE]});
+            }
         }
         return Ok((server.encode(value).await?, None));
     }
@@ -362,7 +383,7 @@ pub(super) async fn dispatch(
             let cookie = control.set_cookie(Some((&login.credential, actor.expires_at_ms())))?;
             Ok((
                 server
-                    .encode(snapshot(Some(&actor), audit::enabled(server)))
+                    .encode(console_snapshot(server, Some(&actor)))
                     .await?,
                 Some(cookie),
             ))

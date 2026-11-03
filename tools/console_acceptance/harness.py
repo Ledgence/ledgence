@@ -76,7 +76,8 @@ class ConsoleDeployment(Deployment):
         assert lower.get("request-id"), headers
         assert lower.get("cache-control") == "no-store", headers
         if status == 200:
-            assert lower.get("ledgence-console-contract") == "5", headers
+            expected_contract = json.loads((self.console_dist / "console-manifest.json").read_text())["console_contract_version"]
+            assert lower.get("ledgence-console-contract") == str(expected_contract), headers
             assert lower.get("ledgence-instance-id") == self.instance["instance_id"], headers
         return result
 

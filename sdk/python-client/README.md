@@ -620,7 +620,7 @@ after an otherwise valid identical replay.
 Matching development clients and servers expose `client.effects`. These APIs
 are not included in published 0.7.0. They inspect retained evidence from approved
 external-effect execution, including records whose original execution has been
-collected. They cannot dispatch, approve, resolve, or retry an effect.
+collected. Reads do not authorize execution. The assessment API below records an operator decision without redispatching or confirming the journal.
 
 With an open, scoped `AsyncClient`, find an occurrence and inspect its original
 effect activation:
@@ -628,7 +628,7 @@ effect activation:
 ```python
 from ledgence.client import EffectFilter, EffectObservationEntry
 
-# Metadata only: unconfirmed, confirmed, discrepant, or all (the default).
+# Metadata only: unconfirmed, confirmed, discrepant, disputed, or all (default).
 page = await client.effects.inbox(filter=EffectFilter.UNCONFIRMED, limit=20)
 for item in page.items:
     print(item.occurrence.workflow_id, item.journal_state, item.has_discrepancy)
@@ -678,6 +678,91 @@ the authenticated worker credential, callback and ingress (`live_confirm` or
 unattributed. A confirmed journal is Ledgence's recorded execution result, not
 proof of exactly-once provider effects. Private lease owners and frozen worker
 commands are never returned. See the [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+## Operator effect assessments (development)
+
+Matching development components add native operator assessment and typed workflow
+resumption. Published 0.7.0 does not include these APIs. The resolver needs the
+explicit `effect_resolve` capability; this is separate from `approval_decide`,
+execution control and sensitive reads. A credential limited to `effect_resolve`
+can submit a previously reviewed command without receiving application evidence.
+`access init` grants the new capability to newly created operator credentials;
+existing credentials do not gain it automatically.
+
+After inspecting an occurrence, freeze your assessment and save it **before**
+sending. This example assumes `evidence` came from the inspection above:
+
+```python
+from pathlib import Path
+from ledgence.client import EffectResolutionAssessment, EffectResolutionUncertain
+
+command = client.effects.prepare_resolution(
+    evidence,
+    resolution_id="support-case-1042-assessment-1",  # Stable identity for this decision.
+    assessment=EffectResolutionAssessment.record_success({"receipt": "refund-1042"}),
+    reason="Matched the original action against the provider receipt.",
+    evidence_references=["support:case:1042", "provider:refund:1042"],
+)
+# Application-owned storage: this file contains sensitive action/result data.
+saved = Path("effect-assessment.json")
+saved.write_text(command.to_json(), encoding="utf-8")
+try:
+    receipt = await client.effects.resolve(command)
+    print(receipt.resolution_id, receipt.already_accepted)
+except EffectResolutionUncertain:
+    print("Acceptance is unknown. Keep this saved command for reconciliation.")
+```
+
+For a documented failure use
+`EffectResolutionAssessment.record_failure("declined", "Provider rejected the action")`.
+Use `close_unknown()` to record that the outcome remains unknown. Success and
+failure require at least one evidence reference; closing unknown permits none.
+Reasons are nonblank and limited to 4096 UTF-8 bytes. Up to eight ordered
+references of 1024 UTF-8 bytes each are retained exactly. Success results are
+JSON, including `None`, with a 128 KiB bound. The full command is at most 256 KiB.
+
+`prepare_resolution` freezes the original occurrence, approved action, reviewed
+`effect_revision` and prior assessment ID from the detail header. The header's
+`current_assessment` is available even when that entry is outside the current
+page. Preparing a command does not claim that every evidence page was read.
+A newer revision makes a new command conflict; inspect again and make a new
+assessment with a new resolution ID. Do not silently refresh a saved command.
+
+`command.to_json()` stores a versioned envelope with the canonical endpoint and
+exact request-body text. `command.to_dict()` is a detached wire view for inspection;
+it is **not** the saved format. Restore after restarting the application:
+
+```python
+# Use the original endpoint, scope and stable actor (rotated credentials are allowed).
+command = client.effects.restore_resolution(saved.read_text(encoding="utf-8"))
+receipt = await client.effects.resolve(command)
+```
+
+Restore validates locally without contacting the server, rejects a different
+endpoint or scope, and preserves the original bytes. The saved envelope is
+bounded to 1 MiB and contains no credential. There are no automatic mutation
+retries. `EffectResolutionUncertain` retains `.command` and `.cause`; an invalid
+success response, dispatched timeout or unavailable response can mean acceptance
+already happened. A definite permission or conflict error remains that error.
+Cancellation propagates; keep the saved command because acceptance may precede
+response cancellation.
+
+An identical command by the same verified actor returns the original receipt,
+including after supersession or execution collection. A changed command or actor
+conflicts. Acceptance is append-only and durably audited as `AuditEffectResolved`;
+the metadata receipt includes `acceptance_event_id`, not proof of workflow resumption.
+`await client.audit.event(receipt.acceptance_event_id)` reads that exact scoped
+event or returns `None` after a successful empty lookup; errors stay errors.
+The equivalent `AuditFilter.event(event_id)` query requires `limit=2` and no cursor.
+
+`EffectFilter.DISPUTED` selects a current success assessment contradicted by a
+later unequal JSON report. `DISCREPANT` separately describes differing historical
+reports. The new `operator_resolution` summary and `current_assessment` detail
+are independent of journal state. Reports are opaque: a failure or unknown
+assessment cannot be contradicted merely by interpreting a report's `state` key.
+An assessment does not grant dispatch, assert provider truth, or rewrite a prior
+workflow wake. Workflows opt into native rendezvous with
+`ctx.wait_effect_resolution(...)`; cancellation and collection never revive work.
 
 ## Local verification
 

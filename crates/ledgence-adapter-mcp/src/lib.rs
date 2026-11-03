@@ -3,6 +3,8 @@
 //! The standalone CLI does not enable tracing for this command. Embedding callers
 //! must disable `rmcp` debug/trace logging if request and result data is sensitive.
 
+mod effect_schemas;
+mod effects;
 mod operations;
 mod schemas;
 mod transport;
@@ -91,7 +93,7 @@ where
     let tools = dispatcher
         .definitions()
         .map(|definition| {
-            Tool::new(
+            let mut tool = Tool::new(
                 definition.name,
                 definition.description,
                 Arc::new(
@@ -108,7 +110,10 @@ where
                     .idempotent(definition.idempotent)
                     .destructive(definition.destructive)
                     .open_world(true),
-            )
+            );
+            tool.output_schema = crate::effect_schemas::output(definition.name)
+                .map(|schema| Arc::new(schema.as_object().expect("output schema object").clone()));
+            tool
         })
         .collect();
     let handler = Handler {

@@ -113,6 +113,7 @@ pub enum WorkflowWorkSource {
     Drain,
     CancelOwned,
     Wait,
+    EffectResolutionWait,
 }
 
 /// Nested lineage is paired and immutable. Roots/legacy runs omit both fields.

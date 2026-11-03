@@ -142,6 +142,16 @@ A valid legacy discovery response selects the original protocol. Invalid
 credentialed discovery prevents worker startup. V2 errors never downgrade an
 invocation. [Negotiated evidence protocol](effect-evidence.md).
 
+Native operator resolution additionally requires the versioned worker feature
+`native_effect_resolution.v1` and v2 effect evidence. Connected workers request
+this manifest with `Ledgence-Worker-Features: 1` on the existing startup access
+exchange. The host passes supported features through the outer
+`runtime_features` field, preserving the earlier `runtime_capabilities` shape.
+A native wait without this negotiated support fails before it can park. An
+accepted wait releases the same invocation reservation and resumes only through
+the durable coordinator's selected assessment. See
+[native operator rendezvous](effect-evidence.md#park-without-occupying-a-worker).
+
 Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use

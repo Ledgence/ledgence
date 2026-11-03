@@ -30,6 +30,9 @@ impl PostgresStore {
             EffectInboxFilter::Confirmed => {
                 sql.push(" AND journal_state='confirmed'");
             }
+            EffectInboxFilter::Disputed => {
+                sql.push(" AND disputed");
+            }
             EffectInboxFilter::Discrepant => {
                 sql.push(" AND has_discrepancy");
             }
@@ -88,6 +91,7 @@ impl PostgresStore {
             .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).bind(after.to_string()).bind(i64::from(q.limit)+1).fetch_all(&mut *tx).await?;
         let mut more = rows.len() > q.limit as usize;
         let mut page = EffectEvidenceDetail {
+            current_assessment: r.current_assessment,
             binding: r.binding,
             summary: r.summary,
             entries: Vec::new(),

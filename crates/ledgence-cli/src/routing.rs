@@ -4,7 +4,7 @@
 use crate::args::invalid;
 use ledgence_orchestration_api::Result;
 
-pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  effect        Inspect retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
+pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
@@ -32,7 +32,7 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "effect",
         name: "inbox",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--filter all|unconfirmed|confirmed|discrepant] [--workflow ID] [--cursor CURSOR] [--limit 1..100]",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--filter all|unconfirmed|confirmed|discrepant|disputed] [--workflow ID] [--cursor CURSOR] [--limit 1..100]",
         description: "Read retained effect metadata. Requires metadata_read in credential mode. Preserve filters with next_cursor. Evidence summaries distinguish journal confirmation and differing reports.",
     },
     Leaf {
@@ -40,6 +40,12 @@ const COMMANDS: &[Leaf] = &[
         name: "inspect",
         options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME --workflow ID --activation ID --key KEY [--cursor CURSOR] [--limit 1..4]",
         description: "Read an effect's approved binding and reported evidence for its original effect activation. Requires credential mode, sensitive_read and a durable audit observation before returning evidence. Follow next_cursor even when a byte-limited page is short.",
+    },
+    Leaf {
+        group: "effect",
+        name: "resolve",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --file COMMAND.json",
+        description: "Submit one saved, destination-bound operator assessment. Requires effect_resolve. Export the command from Console or client.effects.prepare_resolution(...).to_json(). Keep the same file and stable actor when reconciling a lost response. Does not redispatch or prove provider truth.",
     },
     Leaf {
         group: "audit",
@@ -63,7 +69,7 @@ const COMMANDS: &[Leaf] = &[
         group: "access",
         name: "issue",
         options: "--config FILE --server URL --directory NEW_DIR --subject NAME --class operator|service|worker --capabilities COMMA_SEPARATED --expires-at RFC3339",
-        description: "Create a new private credential and a complete replacement access.json containing existing credentials plus the new one. Deploy the replacement configuration to every API replica. Reuse the subject and authority for credential rotation. Supported capabilities: metadata_read,sensitive_read,execution_submit,execution_control,program_publish,approval_decide,worker_execute. The worker class accepts only worker_execute.",
+        description: "Create a new private credential and a complete replacement access.json containing existing credentials plus the new one. Deploy the replacement configuration to every API replica. Reuse the subject and authority for credential rotation. Supported capabilities: metadata_read,sensitive_read,execution_submit,execution_control,program_publish,approval_decide,effect_resolve,worker_execute. The worker class accepts only worker_execute.",
     },
     Leaf {
         group: "local",
@@ -92,7 +98,7 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "mcp",
         name: "serve",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--read-only]",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--read-only | --allow-effect-resolution]",
         description: "Serve MCP over stdio using the configured Ledgence HTTP API. Requires the mcp build feature (enabled by default). Scope is fixed for the session. Submissions require caller-supplied idempotency keys and return immediately; inspect status/results separately. --read-only excludes mutations. Stdout is reserved for MCP; no database or worker starts in this process.",
     },
     Leaf {

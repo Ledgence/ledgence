@@ -16,6 +16,7 @@ async fn previous_database() -> TestDb {
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
+    db.begin_legacy_workflow_seed().await;
     db
 }
 
@@ -115,6 +116,7 @@ async fn exact_historic_receipts_release_retention_while_uncertain_dispatches_su
 
     // Model a deployment interrupted after SQLx committed the schema, before
     // inspecting the old bytes. The new server must refuse startup until resumed.
+    db.finish_legacy_workflow_seed().await;
     MIGRATOR.run(&db.store.pool).await.unwrap();
     assert!(matches!(
         db.store.verify_schema().await,
@@ -179,6 +181,7 @@ async fn pending_retirement_of_a_surviving_unconfirmed_grant_requires_restoratio
         .execute(&db.store.pool)
         .await
         .unwrap();
+    db.finish_legacy_workflow_seed().await;
     let error = db.store.migrate().await.unwrap_err();
     assert!(
         matches!(error,ContractError::Unavailable(message) if message.contains("pre-retirement backup"))

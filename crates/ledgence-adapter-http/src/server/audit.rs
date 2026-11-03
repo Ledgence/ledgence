@@ -255,6 +255,9 @@ struct ConsoleQuery {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum ConsoleFilter {
     All,
+    Event {
+        event_id: String,
+    },
     Resource {
         resource_kind: AuditResourceKind,
         resource_id: String,
@@ -271,6 +274,7 @@ impl From<ConsoleFilter> for AuditFilter {
     fn from(value: ConsoleFilter) -> Self {
         match value {
             ConsoleFilter::All => Self::All,
+            ConsoleFilter::Event { event_id } => Self::Event { event_id },
             ConsoleFilter::Resource {
                 resource_kind,
                 resource_id,
@@ -310,6 +314,14 @@ struct ConsoleEvent {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ConsoleOperation {
+    EffectResolved {
+        occurrence: EffectOccurrence,
+        resolution_id: String,
+        accepted_revision: ConsoleU64,
+        basis_revision: ConsoleU64,
+        supersedes_resolution_id: Option<String>,
+        assessment_kind: EffectAssessmentKind,
+    },
     ApprovalAccepted {
         workflow_id: String,
         key: String,
@@ -326,6 +338,21 @@ enum ConsoleOperation {
 impl From<AuditEvent> for ConsoleEvent {
     fn from(event: AuditEvent) -> Self {
         let operation = match event.operation {
+            AuditOperation::EffectResolved {
+                occurrence,
+                resolution_id,
+                accepted_revision,
+                basis_revision,
+                supersedes_resolution_id,
+                assessment_kind,
+            } => ConsoleOperation::EffectResolved {
+                occurrence,
+                resolution_id,
+                accepted_revision: ConsoleU64(accepted_revision),
+                basis_revision: ConsoleU64(basis_revision),
+                supersedes_resolution_id,
+                assessment_kind,
+            },
             AuditOperation::ApprovalAccepted {
                 workflow_id,
                 key,

@@ -176,6 +176,7 @@ pub async fn run(
     if let Some(access) = effect_access {
         driver = driver
             .with_effect_evidence(access.audience, access.identity)
+            .and_then(|driver| driver.with_runtime_features(access.runtime_features))
             .map_err(contract_error)?;
     }
     if let Some(source) = broker_source {

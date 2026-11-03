@@ -81,11 +81,35 @@ pub struct ConsoleChildWait {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ConsoleNativeEffectWait {
+    pub parking_activation_id: String,
+    pub key: String,
+    pub occurrence: EffectOccurrence,
+    pub after_resolution_id: Option<String>,
+}
+impl ConsoleNativeEffectWait {
+    pub fn validate(&self, workflow_id: &str) -> Result<()> {
+        validate_text(&self.parking_activation_id, 128)?;
+        validate_text(&self.key, 128)?;
+        self.occurrence.validate()?;
+        if self.occurrence.workflow_id != workflow_id {
+            return Err(invalid("native wait belongs to another workflow"));
+        }
+        if let Some(id) = &self.after_resolution_id {
+            validate_text(id, 128)?;
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConsoleWorkflowDetail {
     pub summary: ConsoleWorkflowSummary,
     pub continuation: String,
     pub child_wait: Option<ConsoleChildWait>,
     pub external_wait_key: Option<String>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub native_effect_wait: Option<ConsoleNativeEffectWait>,
     pub observed_at: Timestamp,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,6 +259,17 @@ pub enum ConsoleWaitKind {
     Event,
     Timer,
     Approval,
+    EffectResolution,
+}
+impl ConsoleWaitKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Event => "event",
+            Self::Timer => "timer",
+            Self::Approval => "approval",
+            Self::EffectResolution => "effect_resolution",
+        }
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -246,12 +281,16 @@ pub struct ConsoleWorkflowWait {
     pub deadline: Option<Timestamp>,
     pub registered_at: Timestamp,
     pub closed_at: Option<Timestamp>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub native_effect_wait: Option<ConsoleNativeEffectWait>,
 }
 impl ConsoleRecord for ConsoleWorkflowWait {
     fn position(&self) -> ConsolePosition {
         vec![
             ConsoleKey::Number(ConsoleU64(self.registered_at)),
+            ConsoleKey::Text(self.kind.as_str().into()),
             ConsoleKey::Text(self.wait_key.clone()),
+            ConsoleKey::Text(self.activation_id.clone()),
         ]
     }
     fn validate(&self) -> Result<()> {
@@ -263,6 +302,18 @@ impl ConsoleRecord for ConsoleWorkflowWait {
             .flatten()
         {
             timestamp(at)?;
+        }
+        if (self.kind == ConsoleWaitKind::EffectResolution) != self.native_effect_wait.is_some() {
+            return Err(invalid("inconsistent native wait metadata"));
+        }
+        if let Some(wait) = &self.native_effect_wait {
+            wait.validate(&self.workflow_id)?;
+            if wait.key != self.wait_key
+                || wait.parking_activation_id != self.activation_id
+                || self.deadline.is_some()
+            {
+                return Err(invalid("inconsistent native wait identity"));
+            }
         }
         Ok(())
     }

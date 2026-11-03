@@ -7,6 +7,10 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 
 **Availability:** Console is included in Ledgence **0.7.0** source and Console-enabled native bundles. Use matching contract **5** server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.7.0](/how-to/upgrade-to-0-7) covers existing deployments.
 
+**Development:** matching development components use contract **6**. They add an
+**Effects** inbox, operator assessment review and native recovery waits in Graph
+and Trace. These additions are not part of the published 0.7.0 bundles.
+
 **General → Approvals** reviews immutable actions and recorded decisions. See [Require approval before an action](/how-to/require-approval).
 
 In the development Console, the expanded sidebar shows the connected server version.
@@ -25,7 +29,7 @@ attempt. A later failed or cancelled call can appear alongside an earlier accept
 | Approvals | Requests across workflows in this instance, ordered by deadline. | Filter by status, program or deadline, review the recorded action and follow its workflow wait. |
 | Workers | Worker sessions, configured capacity, observation freshness, process slots, and validated task/attempt links. | Inspect the latest available observation and follow execution links. |
 
-**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs**, **Approvals** and **Workers** are the four navigation destinations. Worker inspection does not provide a drain, kill, or scaling command.
+**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs**, **Approvals** and **Workers** are the four published 0.7.0 navigation destinations; development adds **Effects**. Worker inspection does not provide a drain, kill, or scaling command.
 
 Workflow **Graph** and **Trace** use the same retained execution records. Graph shows one workflow and its direct children; a subworkflow is an opaque node that opens its own graph. Select work to inspect it; open a child execution to drill in. Back restores the previous navigation entry, Up follows ownership, and breadcrumbs select ancestors. Completed work remains visible. Correlation keys and timestamps do not prove dependencies. The graph does not predict future branches or edit a workflow definition.
 
@@ -37,13 +41,21 @@ Edges distinguish invocation, registration, branch membership, waiting for termi
 
 Use **Collapse sidebar** to make room for the workflow. Select the Ledgence mark to expand it again. In **0.7.0**, choose **System**, **Light** or **Dark** from **Appearance** in the top bar. **System** follows your device setting.
 
-In **development builds**, find **Appearance** in the desktop sidebar or beside the four navigation links on small screens. Lists open directly with their content. Execution details keep the title, Back button and links to parent executions together.
+In **development builds**, find **Appearance** in the desktop sidebar or beside the navigation links on small screens. Lists open directly with their content. Execution details keep the title, Back button and links to parent executions together.
 
 In Graph, pan, zoom or drag cards to inspect the recorded execution. **Fit** frames the loaded nodes; **Reorganize** restores automatic positions. Dragging does not change the workflow or its dependencies. Incoming status updates preserve the camera and existing card positions.
 
 **Full screen** expands the explorer; select **Exit full screen** or press Escape to return. Selection and canvas state are retained. Select a node to open its inspector, or switch to **Trace** to compare recorded intervals and acceptance milestones. Child-workflow navigation opens another level instead of expanding nested graphs inside the current canvas.
 
 Node shapes distinguish entrypoint invocations, work, and compact fork/join records. Child durations run from submission to terminal outcome, including queue and wait time. Local durations describe the observed callable interval; **Replay** means the recorded result was reused.
+
+Development **Recovery** nodes show native effect-resolution waits. Their edges
+identify the entrypoint that registered the wait and, when selected, the
+entrypoint it resumed. The original effect is a separate inspection link; its
+location or timestamp does not imply a dependency on another branch. Use
+**Inspect effect** to read its retained evidence. Back restores the workflow's
+selection and graph position. A closed wait without a resumed activation remains
+explicit, and closing with an unknown outcome is not displayed as success.
 
 ## Filters and pagination
 
@@ -105,6 +117,52 @@ An application's generic `wait_event` review flow is an external wait rather tha
 a durable action approval. The support-agent and Codex change-review examples use
 that pattern and their companion event commands. See
 [Require approval](/how-to/require-approval) for the dedicated API.
+
+## Review external effects in development
+
+Open **Effects** to find retained approved external writes. Filter the inbox by
+journal confirmation, reported discrepancies or disputed assessments, then open
+an occurrence. Its address consists of the workflow ID, original effect
+activation and approval key. The review page shows the approved action, program,
+worker claims, reported results and operator assessments. Follow additional
+evidence pages until no next page remains; large entries can shorten a page.
+
+The inbox requires `metadata_read` in credential mode and also works in an
+operator-trusted deployment. Opening sensitive evidence requires `sensitive_read`
+and configured operator audit. The server records that read before returning its
+payload. See [Inspect external-effect evidence](/how-to/inspect-effects) for the
+access setup and equivalent CLI and Python operations.
+
+An operator with `effect_resolve` can record success, failure or closure with an
+unknown outcome when the server supports native resolution. Enter a reason and
+references to the evidence you reviewed, then select **Review assessment**. The
+dialog freezes the approved action, occurrence, evidence revision, predecessor
+assessment and chosen result. **Record assessment** sends that exact command.
+
+After an uncertain reply, **Retry same assessment** keeps the same identity and
+body. **Refresh evidence** reads newer facts without silently rewriting the
+pending command. **Start a new review** is a separate decision. The prepared
+command is retained in bounded navigation memory. Choose **Download saved
+command** before dispatch or after an uncertain reply to keep it after a browser
+reload. The downloaded file contains the reviewed action and result, scope,
+server destination and resolution identity, without credentials. Treat it as
+application data; Console does not automatically persist it in browser storage.
+
+The CLI can submit that file with `ledgence effect resolve --file FILE`; Python
+can restore it with `client.effects.restore_resolution(...)`. Use the same
+canonical server URL and scope, and the same stable actor when reconciling an
+uncertain write. Credential rotation for that actor is supported. The exported
+destination is the browser's origin: another hostname, port or scheme is not an
+equivalent destination. [Saved-command CLI reference](/reference/cli) ·
+[Python client](/reference/python-client).
+
+A receipt means the assessment was recorded. It does not independently verify a
+provider outcome, confirm the local result journal, issue another dispatch grant
+or prove the workflow resumed. A matching native wait can resume according to
+the workflow's code; cancelled workflows are not revived. The page loads the
+verified acceptance event separately from the operator's reason and references.
+Retained effect evidence survives execution-history collection and has no
+automatic expiry in this development capability.
 
 ## Attempt resources and local observations
 
@@ -176,9 +234,24 @@ Do not rewrite API failures or missing assets into HTML. The orchestrator handle
 
 ## Upgrades
 
-The execution explorer uses Console contract version 5. Start matching server and assets; older Console bundles fail explicitly. Each node carries typed invocation, registration, branch-membership, terminal-wait and resumption relations from the backend. References remain available when an endpoint is outside the loaded page. A local connects to its invoking entrypoint; that connection does not imply completion or membership in a fork or join. Joins wait for terminal outcomes, including failure and cancellation.
+The published 0.7.0 explorer uses Console contract version 5; matching development
+components use version 6. Start matching server and assets; incompatible Console
+bundles fail explicitly. Each node carries typed invocation, registration,
+branch-membership, terminal-wait and resumption relations from the backend.
+References remain available when an endpoint is outside the loaded page. A local
+connects to its invoking entrypoint; that connection does not imply completion
+or membership in a fork or join. Joins wait for terminal outcomes, including
+failure and cancellation.
 
 C5 was introduced with the 0.3.1 database migration for durable approvals. Version 0.7.0 adds two PostgreSQL migrations for child-program resolution and the approval inbox; follow the [upgrade guide](/how-to/upgrade-to-0-7) for your starting version. The earlier C3-to-C4 change preserved node IDs without adding a database migration. Restart Explorer traversal because older Explorer cursors are rejected. When upgrading from C2, the existing migration also converts Console `phase` records into `entrypoint`, preserving workflow/task identities, payloads, revisions, errors and timestamps. Worker errors still use their separate `phase` wire field, displayed as **Failure stage**.
+
+C6 adds native effect-wait metadata and requires the native resolution and
+Console native-wait migrations. Restart wait-page traversal on upgrade. Native
+waits use a separate durable namespace, so an ordinary event with the same key
+cannot resume them. The graph preserves existing execution identities and links
+the parking and resumed activations only when those relationships were recorded.
+See the [development query contract](https://github.com/Ledgence/ledgence/blob/develop/docs/console-query-model.md#contract-5-to-6-upgrade)
+for the exact response and migration changes.
 
 The graph uses retained Ledgence records and works without an OTel backend. Local results are recorded durably on completion; abrupt process loss before result acceptance or a retained attempt report may leave no local node. Optional timing and tracing evidence must not be interpreted as a complete record of every started operation.
 

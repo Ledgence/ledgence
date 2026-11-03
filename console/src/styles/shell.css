@@ -269,6 +269,8 @@
   }
   .shell-theme {
     grid-area: theme;
+    align-self: end;
+    margin-bottom: 4px;
     justify-content: center;
     width: 44px;
     height: 44px;
@@ -290,7 +292,7 @@
   .console-sidebar .shell-navigation {
     grid-area: sections;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(80px, 100%), 1fr));
     padding: 3px;
     gap: 2px;
     background: var(--side);

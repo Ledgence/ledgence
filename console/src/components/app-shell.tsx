@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   BookOpen,
   Inbox,
+  ShieldCheck,
   FileText,
   Layers2,
   LogOut,
@@ -26,6 +27,7 @@ const sections = [
   { to: "/executions", title: "Executions", icon: Activity },
   { to: "/programs", title: "Programs", icon: Layers2 },
   { to: "/approvals", title: "Approvals", icon: Inbox },
+  { to: "/effects", title: "Effects", icon: ShieldCheck },
   { to: "/workers", title: "Workers", icon: Server },
 ];
 

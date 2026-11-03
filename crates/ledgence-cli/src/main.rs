@@ -5,6 +5,7 @@ mod approvals;
 mod args;
 mod bundle;
 mod credentials;
+mod effects;
 mod local;
 mod logging;
 mod mcp;
@@ -174,6 +175,9 @@ fn run_task(
             }
             RunOperation::Effect(args::EffectOperation::Inspect(query)) => {
                 encode(client.inspect_effect(&query).await?)
+            }
+            RunOperation::Effect(args::EffectOperation::Resolve { scope, file }) => {
+                effects::resolve(&client, scope, file).await
             }
             RunOperation::Audit(query) => encode(client.query_audit(&query).await?),
             RunOperation::Approval(operation) => approvals::execute(&client, operation).await,

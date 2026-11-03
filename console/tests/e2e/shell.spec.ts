@@ -125,7 +125,13 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
     page.getByRole("button", { name: "Expand sidebar" }),
   ).toBeHidden();
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
-  for (const name of ["Executions", "Programs", "Approvals", "Workers"]) {
+  for (const name of [
+    "Executions",
+    "Programs",
+    "Approvals",
+    "Effects",
+    "Workers",
+  ]) {
     await expect(navigation.getByText(name, { exact: true })).toBeVisible();
   }
   await appearance.click({ trial: true });
@@ -199,7 +205,7 @@ test("a long instance name remains available without reserving a page header", a
   const fixture = parseUserJson(
     readFileSync(
       new URL(
-        "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+        "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json",
         import.meta.url,
       ),
       "utf8",
@@ -217,7 +223,7 @@ test("a long instance name remains available without reserving a page header", a
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "5",
+          "Ledgence-Console-Contract": "6",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
@@ -235,7 +241,7 @@ test("a long instance name remains available without reserving a page header", a
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "5",
+        "Ledgence-Console-Contract": "6",
         "Ledgence-Instance-Id": config.instance_id,
       },
       body: stringifyUserJson(
@@ -275,7 +281,7 @@ test.beforeEach(async ({ page }) => {
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "5",
+        "Ledgence-Console-Contract": "6",
         "Ledgence-Instance-Id": "instance_demo",
       },
       body: JSON.stringify({ mode: "operator_trusted" }),

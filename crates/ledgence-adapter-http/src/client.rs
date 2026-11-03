@@ -51,6 +51,11 @@ pub struct HttpTaskService {
 }
 
 impl HttpTaskService {
+    /// Canonical configured destination, without the URL join trailing slash.
+    pub fn base_url(&self) -> &str {
+        self.base.as_str().trim_end_matches('/')
+    }
+
     pub fn new(base_url: &str) -> Result<Self> {
         Self::with_timeout(base_url, Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS))
     }
@@ -306,10 +311,14 @@ impl HttpTaskService {
                         .extend_pairs(query.iter().map(|(key, value)| (*key, value.as_str())));
                 }
                 let body = body.await?;
+                let discover_features = method == Method::GET && route == "v1/access";
                 let mut request = self
                     .client
                     .request(method, url)
                     .header(header::ACCEPT, "application/json");
+                if discover_features {
+                    request = request.header("Ledgence-Worker-Features", "1");
+                }
                 if let Some(authorization) = &self.authorization {
                     request = request.header(header::AUTHORIZATION, authorization.clone());
                 }

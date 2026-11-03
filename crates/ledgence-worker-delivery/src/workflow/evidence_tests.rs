@@ -30,6 +30,7 @@ fn fixture() -> (
             issuer: worker.issuer,
             subject: worker.subject,
         },
+        features: ledgence_worker_api::RuntimeFeatures::default(),
     }));
     (handler, requests, confirmations)
 }

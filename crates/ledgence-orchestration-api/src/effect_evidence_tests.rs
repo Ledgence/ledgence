@@ -247,6 +247,7 @@ fn immutable_detail_cannot_skip_or_hide_a_remaining_entry() {
         approval_acceptance_event_id: None,
     };
     let summary = EffectEvidenceSummary {
+        operator_resolution: None,
         occurrence: o.clone(),
         program,
         callable: c.action.name.clone(),
@@ -276,12 +277,14 @@ fn immutable_detail_cannot_skip_or_hide_a_remaining_entry() {
         limit: 4,
     };
     let mut page = EffectEvidenceDetail {
+        current_assessment: None,
         binding,
         summary,
         entries: vec![entry],
         next_cursor: Some(q.next_cursor(1).unwrap()),
     };
     page.validate_for(&q).unwrap();
+    let valid_page = page.clone();
     page.next_cursor = None;
     assert!(page.validate_for(&q).is_err());
     page.next_cursor = Some(q.next_cursor(1).unwrap());
@@ -291,4 +294,101 @@ fn immutable_detail_cannot_skip_or_hide_a_remaining_entry() {
     assert!(page.validate_for(&q).is_err());
     page.entries.clear();
     assert!(page.validate_for(&q).is_err());
+    let mut page = valid_page;
+    let assessment = EffectEvidenceEntry::Assessment {
+        sequence: 2,
+        recorded_at: 1,
+        recorded_revision: 3,
+        resolution_id: "resolution".into(),
+        basis_revision: 2,
+        supersedes_resolution_id: None,
+        assessment: EffectResolutionAssessment::RecordSuccess { result: json!(1.0) },
+        reason: "checked".into(),
+        evidence_references: vec!["receipt:r1".into()],
+        actor: AuditActor {
+            issuer: "issuer".into(),
+            subject: "reviewer".into(),
+            class: PrincipalClass::Operator,
+            credential_id: "credential".into(),
+        },
+        acceptance_event_id: "audit".into(),
+    };
+    page.current_assessment = Some(assessment.clone());
+    page.summary.operator_resolution = Some(EffectResolutionSummary {
+        reference: assessment.resolution_reference().unwrap(),
+        first_conflicting_entry_sequence: None,
+    });
+    page.entries.push(assessment);
+    page.next_cursor = None;
+    page.validate_for(&q).unwrap();
+    let valid = page.clone();
+    if let EffectEvidenceEntry::Assessment {
+        assessment: EffectResolutionAssessment::RecordSuccess { result },
+        ..
+    } = &mut page.entries[1]
+    {
+        *result = json!(1);
+    }
+    assert!(
+        page.validate_for(&q).is_err(),
+        "integer and float comparison must not erase contradictory projection"
+    );
+    let mut missing = valid.clone();
+    missing.current_assessment = None;
+    missing.summary.operator_resolution = None;
+    assert!(missing.validate_for(&q).is_err());
+    let mut stale = valid.clone();
+    let mut newer = valid.entries[1].clone();
+    if let EffectEvidenceEntry::Assessment {
+        sequence,
+        recorded_revision,
+        resolution_id,
+        basis_revision,
+        ..
+    } = &mut newer
+    {
+        *sequence = 3;
+        *recorded_revision = 4;
+        *resolution_id = "later".into();
+        *basis_revision = 3;
+    }
+    stale.entries.push(newer);
+    stale.summary.entry_count = 3;
+    stale.summary.effect_revision = 4;
+    assert!(stale.validate_for(&q).is_err());
+}
+
+#[test]
+fn every_evidence_entry_revision_follows_its_sequence() {
+    let worker = EffectWorkerIdentity::from_principal(&principal("one")).unwrap();
+    let scope = worker.audience.scope.clone();
+    let claim = EffectEvidenceEntry::Claim {
+        sequence: 2,
+        recorded_at: 10,
+        recorded_revision: 3,
+        claim_id: "claim".into(),
+        attempt_id: "attempt".into(),
+        worker,
+        initial_permission: ApprovedEffectDisposition::LookupOnly,
+    };
+    let observation = EffectEvidenceEntry::Observation {
+        sequence: 2,
+        recorded_at: 10,
+        recorded_revision: 3,
+        observation_id: "observation".into(),
+        source: EffectObservationSource::LegacyJournal {
+            attempt_id: "attempt".into(),
+            journal_accepted_at: 9,
+        },
+        output: json!(null),
+    };
+    for entry in [claim, observation] {
+        entry.validate(&scope).unwrap();
+        for revision in [1_u64, 2] {
+            let mut wire = serde_json::to_value(&entry).unwrap();
+            wire["recorded_revision"] = json!(revision);
+            let malformed: EffectEvidenceEntry = serde_json::from_value(wire).unwrap();
+            assert!(malformed.validate(&scope).is_err());
+        }
+    }
 }

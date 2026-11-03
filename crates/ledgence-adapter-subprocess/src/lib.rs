@@ -657,6 +657,22 @@ async fn invoke(
     {
         request["runtime_capabilities"] = json!({"approved_effect_evidence_v2": true});
     }
+    if let Some(handler) = dispatch.handler {
+        let features = handler.features();
+        features.validate()?;
+        if features.native_effect_resolution()
+            && !handler.capabilities().approved_effect_evidence_v2
+        {
+            return Err(Error::new(
+                ErrorKind::Incompatible,
+                "native effect resolution requires evidence v2",
+            ));
+        }
+        if !features.supported.is_empty() {
+            request["runtime_features"] = serde_json::to_value(features)
+                .map_err(|_| protocol("cannot encode runtime features"))?;
+        }
+    }
     if version >= 2 {
         if let Some(context) = &invocation.processing_context {
             context.validate()?;

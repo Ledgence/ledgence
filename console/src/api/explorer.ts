@@ -50,6 +50,7 @@ import {
   program,
   taskState,
   workflowDetail,
+  effectOccurrence,
 } from "./resources";
 const identity = s.object({ kind: executionKind, id: s.id });
 const availability = s.enumeration("available", "unavailable");
@@ -71,6 +72,10 @@ export const explorerReference = s.variant({
     activation_id: s.id,
   }),
   external_wait: s.object({ kind: s.enumeration("external_wait"), key: s.id }),
+  native_effect_wait: s.object({
+    kind: s.enumeration("native_effect_wait"),
+    parking_activation_id: s.id,
+  }),
 });
 export type ExplorerReference = s.Decoded<typeof explorerReference>;
 export const explorerRelation = s.object({
@@ -173,6 +178,25 @@ const rawExplorerNode = s.variant({
     ),
     resumed_activation_id: s.nullable(s.id),
   }),
+  native_effect_wait: s.object({
+    ...base,
+    kind: s.enumeration("native_effect_wait"),
+    key: s.id,
+    occurrence: effectOccurrence,
+    after_resolution_id: s.nullable(s.id),
+    registered_at: s.timestamp,
+    closed_at: s.nullable(s.timestamp),
+    resolution_id: s.nullable(s.id),
+    outcome_kind: s.nullable(
+      s.enumeration(
+        "recorded_success",
+        "recorded_failure",
+        "closed_unknown",
+        "disputed",
+      ),
+    ),
+    resumed_activation_id: s.nullable(s.id),
+  }),
 });
 export const explorerNode = s.refine(
   rawExplorerNode,
@@ -193,6 +217,14 @@ export const explorerNode = s.refine(
       return new Set(node.branch_keys).size === node.branch_keys.length;
     if (node.kind === "child_wait")
       return new Set(node.member_keys).size === node.member_keys.length;
+    if (node.kind === "native_effect_wait")
+      return (
+        (node.resolution_id === null) === (node.outcome_kind === null) &&
+        (node.resolution_id === null) ===
+          (node.resumed_activation_id === null) &&
+        (node.resolution_id === null || node.closed_at !== null) &&
+        (node.closed_at === null || node.closed_at >= node.registered_at)
+      );
     if (node.kind === "external_wait") {
       const compatible =
         node.wake_reason === null ||
@@ -221,9 +253,14 @@ const rawWorkflowExplorer = s.object({
 });
 export const workflowExplorer = s.refine(
   rawWorkflowExplorer,
-  ({ page }) => {
+  ({ workflow, page }) => {
     const records = new Map<string, string>();
     for (const node of page.items) {
+      if (
+        node.kind === "native_effect_wait" &&
+        node.occurrence.workflow_id !== workflow.summary.workflow.workflow_id
+      )
+        return false;
       for (const relation of node.relations) {
         const encoded = JSON.stringify(relation);
         const previous = records.get(relation.id);
