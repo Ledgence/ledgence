@@ -1,7 +1,7 @@
 name: Console
 on:
   push:
-    paths: ['console/**', 'contracts/**', 'crates/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.sqlx/**', 'sdk/python/**', 'examples/**', 'tools/**', 'deploy/**', 'LICENSE', '.dockerignore', '.github/workflows/console.yml']
+    paths: ['console/**', 'contracts/**', 'crates/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.sqlx/**', 'sdk/python/**', 'sdk/python-client/tests/fixtures/console-effect-resolution.json', 'examples/**', 'tools/**', 'deploy/**', 'LICENSE', '.dockerignore', '.github/workflows/console.yml']
   workflow_dispatch:
   workflow_call:
 permissions:

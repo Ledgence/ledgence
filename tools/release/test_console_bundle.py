@@ -35,6 +35,18 @@ class ConsoleBundleTests(unittest.TestCase):
         self.dist = self.root / 'console'
         self.manifest = distribution(self.dist)
 
+    def test_shared_command_fixture_is_copied_and_triggers_both_builds(self):
+        repository = Path(__file__).resolve().parents[2]
+        fixture = 'sdk/python-client/tests/fixtures/console-effect-resolution.json'
+        self.assertTrue((repository / fixture).is_file())
+        recipe = (repository / 'deploy/local/Dockerfile').read_text()
+        self.assertIn(f'COPY {fixture} /src/{fixture}', recipe)
+        for name in ('console.yml', 'images.yml'):
+            with self.subTest(workflow=name):
+                workflow = (repository / '.github/workflows' / name).read_text()
+                push_section = workflow.split('  workflow_dispatch:', 1)[0]
+                self.assertIn(f"'{fixture}'", push_section)
+
     def test_clean_identity_and_each_asset_required(self):
         self.assertEqual(validate(self.dist, source_commit='a' * 40, version='0.1.0'), self.manifest)
         with self.assertRaisesRegex(ValueError, 'revision'):
