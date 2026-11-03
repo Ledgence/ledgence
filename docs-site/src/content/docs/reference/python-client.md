@@ -5,7 +5,7 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers `ledgence-client` **0.7.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
+This reference covers `ledgence-client` **0.8.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
 ## Installation
 
@@ -13,13 +13,13 @@ A project created with `ledgence program new` already declares the client;
 run `uv sync` in that project. For an existing uv application, add it with:
 
 ```sh
-uv add "ledgence-client==0.7.0"
+uv add "ledgence-client==0.8.0"
 ```
 
-If you use pip instead, run `python -m pip install "ledgence-client==0.7.0"`
+If you use pip instead, run `python -m pip install "ledgence-client==0.8.0"`
 inside your application's activated virtual environment. Choose the command
 for your environment manager; do not run both. The optional `otel` extra is
-`ledgence-client[otel]==0.7.0` when your application needs tracing integration.
+`ledgence-client[otel]==0.8.0` when your application needs tracing integration.
 
 The client does not include a server, worker, or Python worker helper. Start a
 complete stack through [local installation](/getting-started/installation), then
@@ -53,13 +53,15 @@ async with AsyncClient(
 
 Open the client with `async with`, reuse it across calls, and keep it on its owning event loop. It exposes `tasks`, `workflows`, and `completions`. Handles retain their scoped client; reconnect through a new client after the original closes.
 
-## Credentials in development
+<span id="credentials-in-development"></span>
 
-The development client accepts `credentials_file="access/operator.json"` or
+## Credentials
+
+The 0.8.0 client accepts `credentials_file="access/operator.json"` or
 `token=` in `AsyncClient`. Choose one credential source. Files bind the credential
 to the configured server URL. HTTPS is required for remote access, with loopback
 HTTP supported for development. `Unauthenticated` and `Forbidden` describe
-rejected operations. These options require matching development components.
+rejected operations. These options require matching 0.8.0 components.
 [Configure instance access](/how-to/configure-instance-access).
 
 ## Submit a task or root workflow
@@ -179,18 +181,22 @@ Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="app
 
 A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.7.0/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.8.0/sdk/python-client/src/ledgence/client)
 
 
-## Operator audit in development
+<span id="operator-audit-in-development"></span>
+
+## Operator audit
 
 Matching client builds add `client.audit.list()` and `client.audit.approval_acceptance(approval)`. The exact helper returns a typed event or `None` after a successful empty lookup. Errors remain errors.
 [Setup, queries and operating limits](/how-to/audit-operators).
 
-## Retained effect evidence in development
+<span id="retained-effect-evidence-in-development"></span>
 
-Matching development client and server builds add `client.effects`; published
-0.7.0 does not include it. Start with an open `AsyncClient` using the instance's
+## Retained effect evidence
+
+Matching 0.8.0 client and server builds provide `client.effects`. Start with an
+open `AsyncClient` using the instance's
 scope and credentials:
 
 ```python
@@ -229,7 +235,9 @@ retry an effect. See the [complete client contract](https://github.com/Ledgence/
 and [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
 
 
-## Operator effect assessments in development
+<span id="operator-effect-assessments-in-development"></span>
+
+## Operator effect assessments
 
 Use `client.effects.prepare_resolution(evidence, resolution_id=..., assessment=...,
 reason=..., evidence_references=[...])` to freeze a reviewed effect's original
@@ -255,11 +263,13 @@ assessment conflict; `DISCREPANT` preserves historical disagreement. An operator
 assessment never redispatches, confirms the journal or claims provider truth.
 
 See the [complete assessment API and copyable file-based example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#operator-effect-assessments-development).
-These additions require matching development builds and are absent from 0.7.0.
+These additions require matching 0.8.0 components.
 
-## Typed provider evidence in development
+<span id="typed-provider-evidence-in-development"></span>
 
-Matching development components add `ProviderFilter` to the existing
+## Typed provider evidence
+
+Matching 0.8.0 components add `ProviderFilter` to the existing
 `client.effects.inbox(provider_filter=ProviderFilter.NEEDS_REVIEW)` call. Choices
 are `ALL`, `PENDING`, `NEEDS_REVIEW`, `SUCCEEDED`, `FAILED`, `CANCELLED` and
 `DISPUTED`; the ordinary effect `filter` must remain `ALL`. Omit the new argument
@@ -278,6 +288,6 @@ ProviderSucceeded)` before reading its copied `.result`; explicit JSON null can
 be a successful result. `TaskStatus.provider_probe` identifies managed checks,
 whose task success does not itself establish external success.
 
-Published 0.7.0 does not include this contract. See the
+See the
 [provider recovery guide](/how-to/recover-provider-operations) and the
 [complete SDK models and example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#typed-provider-operations-development).

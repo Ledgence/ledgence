@@ -8,13 +8,13 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-**Version availability:** Ledgence **0.7.0** includes explicit program builds,
+**Version availability:** Ledgence **0.8.0** includes explicit program builds,
 HTTP publication and recovery alongside the existing local lifecycle and
 installed-resource discovery. Start with the
 [one-line installation](/how-to/install-native#one-line-installation) and
 [local distribution guide](/how-to/run-local-distribution).
 
-Ledgence 0.7.0 includes `program new` for functional task and workflow projects.
+Ledgence 0.8.0 includes `program new` for functional task and workflow projects.
 See [create a Python program](#create-a-python-program).
 
 This replaces the command layout in the historical `v0.1.1` source tag and
@@ -58,7 +58,7 @@ Use `--features sqs` to include optional SQS delivery for both worker and
 orchestrator commands, or `--all-features` to include every supported integration.
 These are build features; telemetry export and SQS operation still require
 explicit runtime configuration. See [observability](https://github.com/Ledgence/ledgence/blob/develop/docs/observability.md) and
-[dispatch delivery](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/dispatch-delivery.md).
+[dispatch delivery](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/dispatch-delivery.md).
 
 ## Command groups
 
@@ -81,7 +81,7 @@ Console or MCP for workflow and event operations.
 
 ## Create a Python program
 
-**Available in Ledgence 0.7.0.** [Install the CLI](/how-to/install-native), or
+**Available in Ledgence 0.8.0.** [Install the CLI](/how-to/install-native), or
 [build the CLI from matching source](/how-to/build-cli-from-source). Once the executable is
 on your `PATH`:
 
@@ -213,7 +213,7 @@ and deployment configuration:
 | `ledgence task ...` | `ledgence task ...` |
 | `ledgence program register ...` | `ledgence program register ...` |
 
-Keep each command's existing options after its new prefix. The 0.7.0 source builds
+Keep each command's existing options after its new prefix. The 0.8.0 source builds
 and native bundles contain only the `ledgence` executable; they do not
 provide legacy executable aliases. The `ledgence-worker` and
 `ledgence-orchestrator` Rust crates remain internal composition libraries.
@@ -223,7 +223,7 @@ Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
 `program publish` writes immutable package contents to a store.
 `program register` makes a separate HTTP request to register an existing
 published reference. Publication starts no worker or
-execution. Ledgence 0.7.0 supports explicit subsequent registration
+execution. Ledgence 0.8.0 supports explicit subsequent registration
 with `publish --server URL --register`. See [program packages](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md) and
 [Console registration](/how-to/register-agent).
 
@@ -234,11 +234,11 @@ an explicit scoped operator operation through `orchestrator retain`.
 Both migration and service operation require `DATABASE_URL`. Retention previews
 eligible records by default, requires a tenant and namespace, and changes data
 only with `--apply`; its minimum retention is 90 days. See
-[retention](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/retention.md).
+[retention](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/retention.md).
 
 ## Program builds and HTTP publication
 
-Use matching 0.7.0 CLI and server components. A server must opt in with
+Use matching 0.8.0 CLI and server components. A server must opt in with
 `--allow-program-publication`, an `--instance-config` and writable filesystem
 `--store`; an existing released stack does not gain this by updating its CLI.
 
@@ -324,12 +324,12 @@ The saved decision includes `scope`, `workflow_id`, `key`, `activation_id`,
 `revision`, `action`, `decision_id`, `decision`, `reviewer`, and `reason`.
 After an uncertain response, retry the identical file to reconcile that
 decision. Generic events cannot approve actions. See
-[durable approvals](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflow-approvals.md#cli-and-http)
+[durable approvals](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/workflow-approvals.md#cli-and-http)
 for the complete contract and examples.
 
 ## MCP
 
-Ledgence 0.7.0 builds enable the optional `mcp` feature by default.
+Ledgence 0.8.0 builds enable the optional `mcp` feature by default.
 `ledgence mcp serve --server URL --tenant ID --namespace NAME` connects an MCP
 client over stdio to that API. Add `--read-only` for observation only.
 Scope is fixed for the session. Submissions require caller-supplied idempotency
@@ -340,23 +340,28 @@ See [Connect an MCP client](/how-to/connect-mcp).
 `--no-default-features --features mcp` builds MCP without OpenTelemetry or SQS.
 Earlier 0.2.0 binaries do not include this command.
 
-## Instance access in development
+<span id="instance-access-in-development"></span>
 
-Use scoped credentials with matching development components. The
+## Instance access
+
+Use scoped credentials with matching 0.8.0 components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
 
 
-## Operator audit in development
+<span id="operator-audit-in-development"></span>
+
+## Operator audit
 
 Use `ledgence audit list` for bounded scoped pages or `ledgence audit approval` for one exact approval occurrence. Both use the configured credential file.
 [Setup, queries and operating limits](/how-to/audit-operators).
 
-## Retained effect evidence in development
+<span id="retained-effect-evidence-in-development"></span>
 
-Matching development CLI and server builds add the `effect` group. These commands
-are not included in published 0.7.0. They read retained records without invoking
-a program or authorizing another external action.
+## Retained effect evidence
+
+The 0.8.0 CLI and server provide the `effect` group. These commands read retained
+records without invoking a program or authorizing another external action.
 
 ```sh
 ledgence effect inbox --server http://127.0.0.1:8080 \
@@ -388,7 +393,9 @@ records. Neither proves provider truth or permits redispatch. Native effect
 resolution is not part of these commands. [Effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
 
 
-## Submit an operator effect assessment in development
+<span id="submit-an-operator-effect-assessment-in-development"></span>
+
+## Submit an operator effect assessment
 
 Export a reviewed command from Console or `command.to_json()` in the Python
 client, then submit its complete saved envelope:
@@ -399,8 +406,8 @@ ledgence effect resolve --server http://127.0.0.1:8080 \
   --file effect-assessment.json
 ```
 
-This requires matching development CLI/server builds and `effect_resolve`; it is
-absent from 0.7.0. The CLI checks the original canonical endpoint and scope, then
+This requires matching 0.8.0 CLI/server components and `effect_resolve`. The CLI
+checks the original canonical endpoint and scope, then
 sends the exact frozen body once. The envelope is at most 1 MiB, body 256 KiB.
 The file contains sensitive reviewed action/result data but no credential. There
 is no CLI preparation command. Use the same saved file and verified actor to
@@ -411,14 +418,16 @@ resumption or provider truth. It never redispatches an effect.
 `effect inbox --filter disputed` selects current assessment conflict, separately
 from historical `discrepant` reports. See the [full saved-command contract](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#submit-a-saved-operator-assessment).
 
-## Provider recovery in development
+<span id="provider-recovery-in-development"></span>
+
+## Provider recovery
 
 Use `ledgence effect inbox --provider-filter needs_review` with the same server,
 scope and credential options as other Effects commands. Accepted provider
 filters are `all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled`
 and `disputed`; keep the ordinary `--filter all`. `effect inspect` includes
 provider binding, typed reports and finite reconciliation metadata. These
-options require matching development components, not the published 0.7.0 CLI.
+options require matching 0.8.0 components.
 
 `ledgence orchestrator serve --provider-config FILE` requires access and instance
 configurations. The versioned file binds the exact installation audience and

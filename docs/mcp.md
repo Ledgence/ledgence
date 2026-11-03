@@ -46,7 +46,7 @@ integration contract. Add `--read-only` to omit mutation tools and reject direct
 attempts to call them. Scope and API URL are fixed at startup; tool arguments
 cannot select another tenant, namespace or server. Scope is a constraint, not an
 authentication mechanism. Published 0.7.0 uses the operator-trusted deployment
-boundary. Development clients can use [instance credentials](instance-access.md)
+boundary. Ledgence 0.8.0 clients can use [instance credentials](instance-access.md)
 with a service-specific `--credentials-file`.
 
 Use the binding from the orchestrator's instance file. The local Compose stack
@@ -78,9 +78,9 @@ those hints do not replace application authorization.
 | `ledgence_approval_inbox` | Discover approval summaries within the server's configured scope. Defaults to pending. Optional `due_before` selects deadlines strictly earlier than the supplied UTC epoch millisecond. Use the returned workflow ID and key with approval inspection. |
 | `ledgence_approval_list`, `ledgence_approval_inspect` | Read persisted requests and their exact effective action. |
 
-Development builds preserve the optional `protection: "external_effect"`
+Ledgence 0.8.0 preserves the optional `protection: "external_effect"`
 field when listing or inspecting typed approval requests. It identifies the
-required execution helper. Use matching development components for these
+required execution helper. Use matching 0.8.0 components for these
 requests. The operator's application boundary still controls approval access.
 
 Program discovery reads the existing installation catalog. Configure the
@@ -189,18 +189,22 @@ separate MCP integration. Ledgence reuses its existing service semantics rather
 than creating a second orchestration authority. See [dependency review](dependencies.md#optional-mcp-server)
 for the selected SDK and license material.
 
-## Credential access in development
+<span id="credential-access-in-development"></span>
 
-Matching development components support optional installation credentials across
+## Credential access
+
+Matching 0.8.0 components support optional installation credentials across
 API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
 Verified ingress identity and durable approval attribution have separate scope.
 
 
-## Operator audit in development
+<span id="operator-audit-in-development"></span>
 
-Matching development components expose `ledgence_audit_query` in read-only and
+## Operator audit
+
+Matching 0.8.0 components expose `ledgence_audit_query` in read-only and
 ordinary MCP mode. It accepts an optional typed `filter` (`all`, `resource` or
 `approval_acceptance`), `cursor` and `limit`, with scope fixed by the server.
 Exact acceptance requires the complete occurrence, `limit=2` and no cursor.
@@ -209,11 +213,12 @@ A shared MCP credential records the service identity. The tool's errors remain
 distinct from a successful empty page. The portable adapter's audit tool is
 available when its `AuditReader` port is configured. [Audit contract](operator-audit.md).
 
-## Retained effect tools in development
+<span id="retained-effect-tools-in-development"></span>
 
-Matching development components add two read-only tools, bringing the native
-catalog with audit configured to 19 tools. These additions are not in published
-0.7.0. Both are available with `--read-only`; the startup scope and credential
+## Retained effect tools
+
+Matching 0.8.0 components add two read-only tools, bringing the native
+catalog with audit configured to 19 tools. Both are available with `--read-only`; the startup scope and credential
 remain fixed. Tool arguments cannot override scope, identity or credentials.
 
 | Tool | Arguments and access |
@@ -234,7 +239,9 @@ cannot approve, resolve or dispatch an action. See the [effect evidence
 contract](effect-evidence.md) for retention and evidence interpretation.
 
 
-## Operator effect resolution in development
+<span id="operator-effect-resolution-in-development"></span>
+
+## Operator effect resolution
 
 Enable the mutation tool explicitly when starting the native server:
 
@@ -244,9 +251,9 @@ ledgence mcp serve --server http://127.0.0.1:8080 \
   --allow-effect-resolution
 ```
 
-`--read-only` and `--allow-effect-resolution` cannot be combined. Matching development
+`--read-only` and `--allow-effect-resolution` cannot be combined. Matching 0.8.0
 builds expose 19 tools by default with audit configured, 14 in read-only mode, or
-20 with resolution enabled. Published 0.7.0 does not include these effect tools.
+20 with resolution enabled.
 The added `ledgence_effect_resolve` also requires the credential's dedicated
 `effect_resolve` capability. Fixed scope and credentials cannot be supplied or
 overridden through tool arguments. Worker credentials cannot resolve effects.
@@ -281,7 +288,9 @@ Use `ledgence_audit_query` with `filter={"kind":"event","event_id":"..."}`,
 `limit=2` and no cursor to inspect a receipt's exact scoped audit event. A successful
 empty response means absence; denied or unavailable reads remain errors.
 
-## Typed provider evidence in development
+<span id="typed-provider-evidence-in-development"></span>
+
+## Typed provider evidence
 
 The existing `ledgence_effect_inbox` accepts optional `provider_filter`:
 `all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled` or `disputed`.
@@ -306,6 +315,5 @@ Provider knowledge, reconciliation schedule, operator handling and the immutable
 selected workflow wake describe different facts. A lost reply, missing lookup
 result or expired provider key never grants another POST. Existing permissions,
 startup-bound scope, sensitive-read audit and explicit `--allow-effect-resolution`
-apply unchanged. These additions require matching development components and
-are not in published 0.7.0.
+apply unchanged. These additions require matching 0.8.0 components.
 [Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).

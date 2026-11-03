@@ -1,8 +1,7 @@
 # Recoverable provider operations
 
-This capability is available in development source after 0.7.0. It is not part
-of the published 0.7.0 packages. Build matching server, worker, helper and
-Console components when evaluating it.
+Available in Ledgence 0.8.0. Use matching server, worker, helper and Console
+components, apply the database migrations and enable the policy explicitly.
 
 A provider operation separates permission to issue a mutation, the provider's
 reported state, and the workflow's continuation. Ledgence durably grants the

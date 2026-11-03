@@ -17,10 +17,10 @@ bundle, package, checksum, installer and kit has passed its download checks.
 See [CI qualification](ci.md) for the independent source and delivery suites,
 artifact reuse, timing evidence and exact-commit requirements.
 
-The current stable release is **0.7.0**. It includes the cross-workflow
-approval inbox, durable operation inspection and workflow recovery fixes.
-See the [0.7.0 release notes](releases/0.7.0.md) for distributions and the
-upgrade from 0.6.1.
+The current stable release is **0.8.0**. It includes protected external actions,
+verified operator assessments and finite provider recovery. See the
+[0.8.0 release notes](releases/0.8.0.md) and the
+[upgrade from 0.7.0](../docs-site/src/content/docs/how-to/upgrade-to-0-8.md).
 
 For future releases, keep public metadata at the last verified version until all
 channels are complete. A source version bump or local build does not establish
@@ -63,7 +63,7 @@ Console, using the pinned frontend toolchain and a disposable PostgreSQL 18.6
 service for relocated verification. Set `include_console=false` to run only the
 headless jobs; set `candidate=rc.N` to select the candidate label.
 
-The Linux Console job upgrades both the historical 0.6.1 bundle and the last
+The Linux Console job upgrades both the historical 0.6.1 bundle and the previous
 stable 0.7.0 Linux x86_64 bundle, each pinned to its published archive checksum.
 The 0.6.1 rehearsal preserves a pending approval and accepted tool result. The
 0.7.0 rehearsal verifies legacy decision bytes, authenticated attribution,
@@ -165,7 +165,7 @@ Check that:
 Only an explicitly selected, validated candidate should later be promoted to a
 stable version. The bundle tooling does not publish or promote `main`. Registry
 packages use the separate gated [registry release workflow](registry-packages.md).
-For 0.7.0, that workflow qualifies and publishes both `ledgence-client` and
+For 0.8.0, that workflow qualifies and publishes both `ledgence-client` and
 `ledgence-worker` under the `pypi` environment, then checks their downloaded bytes
 and fresh registry installation together. Keep each Python project's own trusted
 publisher configured; the exact identity and initial setup procedure are
@@ -175,7 +175,7 @@ package does not replace that runtime layout.
 Required legal notices do not require users to open-source their applications. See [dependency policy](dependencies.md) and
 [local image distribution boundaries](local-deployment.md#qualification-and-distribution-boundary).
 
-For 0.7.0, also retain program build/publication acceptance from the actual
+For 0.8.0, also retain program build/publication acceptance from the actual
 selected container image and matching CLI. It must prepare the native-dependency
 example for each qualified image architecture, verify immutable repetition and
 receipt recovery, execute it in the worker, and check persistence and execution
@@ -215,7 +215,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.7.0 --output /tmp/ledgence-stable
+  --version 0.8.0 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -242,10 +242,10 @@ and requires the selected archive's expected SHA256. Dispatch it on the matching
 annotated release tag after that commit is included in `main`:
 
 ```sh
-gh workflow run promote-bundle.yml --ref v0.7.0 \
+gh workflow run promote-bundle.yml --ref v0.8.0 \
   -f candidate_run=RUN_ID \
   -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
-  -f version=0.7.0
+  -f version=0.8.0
 ```
 
 It checks the clean tag identity and source-equivalent candidate, promotes the

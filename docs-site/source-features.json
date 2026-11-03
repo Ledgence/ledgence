@@ -2,92 +2,98 @@
   "pythonWorkerPackage": {
     "title": "Local Python worker helper installation for program development",
     "availability": "release",
-    "sourceRef": "v0.7.0",
+    "sourceRef": "v0.8.0",
     "guide": "/how-to/develop-python-programs",
-    "verifiedOn": "2026-11-02"
+    "verifiedOn": "2026-11-03"
   },
   "console": {
     "availability": "release",
-    "sourceRef": "v0.7.0",
-    "verifiedOn": "2026-11-02",
+    "sourceRef": "v0.8.0",
+    "verifiedOn": "2026-11-03",
     "guide": "/tutorials/use-console"
   },
   "installer": {
     "title": "One-line CLI installation and shell setup",
     "availability": "release",
-    "sourceRef": "v0.7.0",
+    "sourceRef": "v0.8.0",
     "guide": "/how-to/install-native#one-line-installation",
-    "verifiedOn": "2026-11-02"
+    "verifiedOn": "2026-11-03"
   },
   "localDistribution": {
     "title": "Local stack from container images and CLI lifecycle",
     "availability": "release",
-    "sourceRef": "v0.7.0",
+    "sourceRef": "v0.8.0",
     "guide": "/how-to/run-local-distribution",
-    "verifiedOn": "2026-11-02"
+    "verifiedOn": "2026-11-03"
   },
   "programPublication": {
     "title": "Explicit program builds, immutable HTTP publication and saved retry receipts",
     "availability": "release",
-    "sourceRef": "v0.7.0",
+    "sourceRef": "v0.8.0",
     "guide": "/how-to/build-and-publish-programs",
-    "verifiedOn": "2026-11-02"
+    "verifiedOn": "2026-11-03"
   },
   "programScaffolding": {
     "title": "Offline Python task and workflow project scaffolding",
     "availability": "release",
-    "sourceRef": "v0.7.0",
+    "sourceRef": "v0.8.0",
     "guide": "/how-to/develop-python-programs#create-a-project-with-the-cli",
-    "verifiedOn": "2026-11-02"
+    "verifiedOn": "2026-11-03"
   },
   "approvalInbox": {
     "title": "Approval inbox across workflows",
     "availability": "release",
-    "sourceRef": "v0.7.0",
+    "sourceRef": "v0.8.0",
     "guide": "/how-to/require-approval#find-pending-requests-across-workflows",
-    "verifiedOn": "2026-11-02"
+    "verifiedOn": "2026-11-03"
   },
   "durableOperationInspector": {
     "title": "Inspect an accepted durable operation",
     "availability": "release",
-    "sourceRef": "v0.7.0",
+    "sourceRef": "v0.8.0",
     "guide": "/reference/console#inspect-an-accepted-operation",
-    "verifiedOn": "2026-11-02"
+    "verifiedOn": "2026-11-03"
   },
   "approvedExternalWrites": {
     "title": "One dispatch grant per approved external write",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/require-approval#protect-an-approved-write-in-development"
+    "availability": "release",
+    "sourceRef": "v0.8.0",
+    "guide": "/how-to/require-approval#protect-an-approved-write-in-development",
+    "verifiedOn": "2026-11-03"
   },
   "instanceAccess": {
     "title": "Scoped operator and worker credentials",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/configure-instance-access"
+    "availability": "release",
+    "sourceRef": "v0.8.0",
+    "guide": "/how-to/configure-instance-access",
+    "verifiedOn": "2026-11-03"
   },
   "operatorAudit": {
     "title": "Verified approval attribution and durable response audit",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/audit-operators"
+    "availability": "release",
+    "sourceRef": "v0.8.0",
+    "guide": "/how-to/audit-operators",
+    "verifiedOn": "2026-11-03"
   },
   "effectEvidence": {
     "title": "Retained approved-effect claims and reported outcomes",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/inspect-effects"
+    "availability": "release",
+    "sourceRef": "v0.8.0",
+    "guide": "/how-to/inspect-effects",
+    "verifiedOn": "2026-11-03"
   },
   "nativeEffectResolution": {
     "title": "Revision-bound operator assessments and worker-free effect waits",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/inspect-effects"
+    "availability": "release",
+    "sourceRef": "v0.8.0",
+    "guide": "/how-to/inspect-effects",
+    "verifiedOn": "2026-11-03"
   },
   "providerOperations": {
     "title": "Approval-bound provider identities and bounded worker-free recovery",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/recover-provider-operations"
+    "availability": "release",
+    "sourceRef": "v0.8.0",
+    "guide": "/how-to/recover-provider-operations",
+    "verifiedOn": "2026-11-03"
   }
 }

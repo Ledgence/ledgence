@@ -1,12 +1,11 @@
 ---
-title: Prepare an upgrade to 0.8.0
-description: Rehearse the candidate upgrade while preserving existing execution evidence and explicitly enabling new capabilities.
+title: Upgrade to 0.8.0
+description: Upgrade from 0.7.0 while preserving execution evidence and explicitly enabling new capabilities.
 ---
 
-**0.8.0 is a candidate undergoing qualification.** The verified public release
-remains 0.7.0. Use a reviewed candidate for rehearsal and wait for verified release
-artifacts before upgrading production. No 0.8 download or registry availability is
-implied by this guide.
+**Ledgence 0.8.0 is available.** Use its verified release artifacts and matching
+components. Rehearse the migration on a restored copy before upgrading production.
+[Distributions and checksums](/reference/releases).
 
 The upgrade preserves ordinary tasks, workflows and immutable program identities.
 It adds retained effect evidence, optional credentials and audit, native operator
@@ -15,7 +14,7 @@ supported upgrade mode.
 
 ## Choose an installation strategy
 
-A separate local installation is the easiest place to evaluate the candidate.
+A separate local installation is the easiest place to evaluate 0.8.0.
 Use a new directory and unused port. It has a new database and program store.
 Updating the CLI leaves an existing `ledgence local` installation on its saved
 kit and image. Reusing its directory starts that saved configuration.
@@ -35,7 +34,7 @@ Retain the old bundles and configuration.
 Restore a copy in an isolated environment. Keep its workers stopped until external
 endpoints are isolated for testing. A copied workflow can still contain production
 destinations. Preserve published program artifacts and their original digests.
-Use the selected candidate's explicit executable, Console and runtime helper paths.
+Use the selected release's explicit executable, Console and runtime helper paths.
 
 ## Stop all writers
 
@@ -50,7 +49,7 @@ back by stopping a worker or restoring the database.
 
 ## Apply the complete migration
 
-From the extracted candidate bundle, use its executable. Configure `DATABASE_URL`
+From the extracted 0.8.0 bundle, use its executable. Configure `DATABASE_URL`
 through your existing deployment secret mechanism to select the retained database.
 `LEDGENCE_POSTGRES_URL` belongs to test harnesses and is not the service setting.
 
@@ -59,7 +58,7 @@ through your existing deployment secret mechanism to select the retained databas
 ./bin/ledgence orchestrator migrate
 ```
 
-The selected candidate must report `ledgence 0.8.0`. Migration defaults to ten
+The selected executable must report `ledgence 0.8.0`. Migration defaults to ten
 minutes after connection. For a thirty-minute maintenance budget, use
 `./bin/ledgence orchestrator migrate --timeout-ms 1800000`.
 
@@ -78,11 +77,11 @@ protected execution. A still-pending approval may authorize its first protected
 dispatch after approval. Migration does not invent provider facts or verified actors.
 Missing historical proof or cleanup that already deleted unresolved evidence may
 require restoring the backup. Deleted records cannot be reconstructed.
-[Detailed migrations and rehearsal](https://github.com/Ledgence/ledgence/blob/develop/docs/postgres.md#upgrade-from-070-to-development-source).
+[Detailed migrations and rehearsal](https://github.com/Ledgence/ledgence/blob/develop/docs/postgres.md#upgrade-from-070-to-080).
 
 ## Restart and verify matching components
 
-Start candidate servers against the same database, program store, instance binding
+Start 0.8.0 servers against the same database, program store, instance binding
 and delivery configuration. Restart embedded connection pools. Then start matching
 workers and their runtime helper. Use Console contract **7** assets and refresh
 old browser tabs. Replacing the CLI alone does not replace served Console assets.
@@ -118,8 +117,8 @@ own configured publisher and matching workers. The
 [provider guide](/how-to/recover-provider-operations) explains the contract and
 links the synthetic example. Missing policy is not restore quarantine.
 
-Install matching client and authoring packages from the candidate's tested artifacts
-during rehearsal. Use registry versions only after publication is verified.
+Install matching client and authoring packages for the deployment. For 0.8.0,
+use `ledgence-client==0.8.0` and `ledgence-worker==0.8.0`.
 Recompile custom Rust adapters against the matching contracts and expose a new
 capability only when its complete store and service ports are implemented.
 

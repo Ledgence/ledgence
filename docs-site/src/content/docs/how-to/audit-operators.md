@@ -3,8 +3,8 @@ title: Inspect operator audit
 description: Inspect verified approval and effect-assessment acceptance and durable sensitive-response observations.
 ---
 
-Available in matching development components. The published 0.7.0 packages use
-their existing operator-trusted deployment contract.
+Available in Ledgence 0.8.0 with credentials enabled. Existing operator-trusted
+installations keep their deployment access boundary.
 
 Native credential mode records verified approval and effect-assessment acceptance
 and authorizes sensitive responses through a durable audit boundary. Enable the
@@ -63,7 +63,7 @@ instance scope, including other operators' identities and resource references.
 The feed is available with configured credential authority. Operator-trusted
 mode has no verified actor to authorize this feed.
 
-Read a bounded page with the development CLI.
+Read a bounded page with the 0.8.0 CLI.
 
 ```sh
 ./target/debug/ledgence audit list \
@@ -162,7 +162,7 @@ provide durable application evidence without cryptographic nonrepudiation.
 
 ## Retained effect inspection
 
-The development evidence inspector uses `effect_inspect` and an `effect` resource
+The evidence inspector uses `effect_inspect` and an `effect` resource
 containing the workflow ID, original activation ID and approval key. Sensitive
 inspection requires configured credentials, `sensitive_read` and durable audit
 before either generic or Console response bytes are released. Worker claims and

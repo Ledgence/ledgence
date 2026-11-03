@@ -11,7 +11,7 @@ This version supports bounded HTTP/JSON long polling. Workers request up to 20 s
 
 ## Run a task
 
-Use a matching 0.7.0 source checkout for this walkthrough. Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it. Migration work defaults to a ten-minute budget, configurable with `migrate --timeout-ms`; see [migration execution](postgres.md#migration-execution-budget).
+Use a matching 0.8.0 source checkout for this walkthrough. Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it. Migration work defaults to a ten-minute budget, configurable with `migrate --timeout-ms`; see [migration execution](postgres.md#migration-execution-budget).
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
@@ -117,8 +117,8 @@ also serves these documented surfaces:
 | --- | --- |
 | Workflow submission, status, results, cancellation, activation context, local results, and forks | [Workflows](workflows.md) and [typed entrypoints](workflow-entrypoints.md) |
 | External workflow events and timers | [Workflow events](workflow-events.md) |
-| Persisted approval inspection, bound decisions, and development worker routes `POST /v1/workflows/approved-effects/claim` and `POST /v1/workflows/approved-effects/confirm` | [Workflow approvals](workflow-approvals.md) |
-| Development retained-effect inspection, verified operator resolution and native waits | [Effect evidence and resolution](effect-evidence.md) |
+| Persisted approval inspection, bound decisions, and protected worker routes `POST /v1/workflows/approved-effects/claim` and `POST /v1/workflows/approved-effects/confirm` | [Workflow approvals](workflow-approvals.md) |
+| Retained-effect inspection, verified operator resolution and native waits | [Effect evidence and resolution](effect-evidence.md) |
 | Completion subscriptions, status, and explicit redelivery | [Completion notifications](completion-notifications.md) |
 | Installation catalog, execution discovery, graph metadata, and worker observations | [Console query model](console-query-model.md) and [instance binding](self-hosted-instance.md) |
 | Opt-in immutable program uploads and publication capabilities | [Program publication](program-publication.md#binary-api-and-bounds) |
@@ -269,16 +269,18 @@ stops background recovery; unprocessed obligations remain durable for restart.
 Task statuses include optional `workflow_id` and `workflow_activation_id` for
 linked tasks. Ordinary statuses omit those fields.
 
-## Credential access in development
+<span id="credential-access-in-development"></span>
 
-Matching development components support optional installation credentials across
+## Credential access
+
+Matching 0.8.0 components support optional installation credentials across
 API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
 Native credential mode requires transactional verified approval attribution and
 audit before sensitive payload responses. [Operator audit](operator-audit.md).
 
-Matching development servers also expose retained approved-effect evidence.
+Matching 0.8.0 servers also expose retained approved-effect evidence.
 `POST /v1/workflows/approved-effects/v2/claim`, `/confirm` and `/observe` require
 verified worker authority. The inbox and inspect routes use their respective
 metadata and sensitive-read permissions. Inspect additionally requires durable
@@ -287,7 +289,9 @@ v2 to credentialed workers only when the complete grouped capability exists.
 Generic integer fields remain JSON integers. Console evidence revisions and
 sequences use decimal strings. [Evidence routes and bounds](effect-evidence.md).
 
-### Provider operations in development
+<span id="provider-operations-in-development"></span>
+
+### Provider operations
 
 Provider recovery is explicitly enabled with `--provider-config FILE`, together
 with `--instance-config` and `--access-config`. The bounded JSON document contains

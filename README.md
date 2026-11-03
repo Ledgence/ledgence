@@ -36,13 +36,14 @@ and [worker helper](sdk/python/README.md) separately; those packages do not star
 a Ledgence instance. Detailed installation options are in
 [the installation guide](docs/installation.md).
 
-**Ledgence 0.7.0** adds an approval inbox across workflows and lets operators
-inspect the inputs and accepted results of local operations from Graph or Trace.
-The CLI, Console, Python packages and Rust API crates share version **0.7.0**.
+**Ledgence 0.8.0** adds recoverable external actions, scoped credentials and
+verified operator assessments. Typed provider operations reconcile uncertain
+outcomes with finite read-only checks while workflows release their worker slots.
+The CLI, Console, Python packages and Rust API crates share version **0.8.0**.
 Native bundles target Linux x86_64/glibc and macOS arm64 and include a matching
 local Compose kit. The container runtime supports Linux amd64 and arm64.
-See the [release notes](docs/releases/0.7.0.md) and the
-[PostgreSQL upgrade procedure](docs/postgres.md#upgrade-from-061-to-070).
+See the [release notes](docs/releases/0.8.0.md) and the
+[PostgreSQL upgrade procedure](docs/postgres.md#upgrade-from-070-to-080).
 Before 1.0, pin component versions and review the changes before upgrading.
 
 The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
@@ -55,17 +56,16 @@ From a recorded local step in the workflow graph or trace, open the
 [operation inspector](docs/agent-recovery.md#inspect-an-accepted-operation) to see
 the arguments, accepted result and worker attempt that recorded it.
 
-On `develop`, workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write).
+Ledgence 0.8.0 workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write).
 `request_effect_approval` declares its execution contract before approval and
 requires the protected helper for that occurrence.
 After a worker crash, a replacement can look up a refund without issuing it a
 second time. An unresolved effect holds its workflow evidence past ordinary
 retention. An accepted operator assessment releases that hold even if the
 journal remains unconfirmed, while the durable effect history is retained
-independently. This requires matching development components and a database
-migration; it is not included in the 0.7.0 packages.
+independently. Upgrade all components together and apply the database migration.
 
-On `develop`, [instance access](docs/instance-access.md) adds scoped operator,
+Optional [instance access](docs/instance-access.md) adds scoped operator,
 service and worker credentials across the API, CLI, Python, MCP and Console.
 Native credential mode adds [verified decision attribution and operator audit](docs/operator-audit.md),
 with a payload-free feed available through the API, CLI, Python, MCP and Console.
@@ -77,7 +77,7 @@ to the inspected revision and exact approved action. Workflows can park with
 slot serves other work. See the [effect-resolution contract](docs/effect-evidence.md)
 for prerequisites, retries and handling of later conflicting evidence.
 
-Matching development components add [provider operations](docs/provider-operations.md).
+Matching 0.8.0 components add [provider operations](docs/provider-operations.md).
 Registered adapters bind the reviewed business identity, target and request to a
 single dispatch grant. Workflows park while bounded read-only probes recover
 pending or uncertain outcomes. The Effects view exposes the policy, reports and
@@ -177,7 +177,7 @@ lives beside the implementation so documentation can evolve with the code.
 
 ## Create a Python program
 
-Start a minimal Python application with the installed Ledgence 0.7.0 CLI,
+Start a minimal Python application with the installed Ledgence 0.8.0 CLI,
 Python 3.11 or newer and uv. Run these commands in your application workspace:
 
 ```sh
@@ -272,7 +272,7 @@ collapsible sidebar and light, dark or system appearance keep the same operator
 views usable across screen sizes. Registered programs and worker process slots
 connect package identity and observed capacity to the work you are inspecting.
 
-Console ships in the 0.7.0 native bundles and the published container runtime.
+Console ships in the 0.8.0 native bundles and the published container runtime.
 The [source Compose deployment](docs/local-deployment.md) remains available.
 Publish and register the local examples, then open `http://127.0.0.1:8080/console/`. The
 [guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through

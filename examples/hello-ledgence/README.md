@@ -11,7 +11,7 @@ Two small, real programs for the introductory learning path:
    those executions, including the workflow's actual child task.
 
 The Python files here match the named files in those lessons. Start the local
-Ledgence **0.7.0** distribution first, with its API at `http://127.0.0.1:8080`,
+Ledgence **0.8.0** distribution first, with its API at `http://127.0.0.1:8080`,
 tenant `acme`, namespace `demo`, and queue `demo`. You need the Ledgence CLI,
 Python 3.11 or newer, uv, and a local Docker engine using Linux containers.
 No model provider, API key, or external service is needed.
@@ -22,7 +22,7 @@ These directories already contain the scaffolded configuration, so do not run
 `program new` inside them. In each `ledgence.toml`, choose the worker target
 before building. `docker info --format '{{.Architecture}}'` reports the local
 Docker engine's architecture: use `linux/arm64` for `aarch64` and `linux/amd64`
-for `x86_64`. The Python version and pinned image are for the published 0.7.0
+for `x86_64`. The Python version and pinned image are for the published 0.8.0
 local distribution. A different worker requires its own matching target.
 
 From this directory, run the task first:
@@ -58,8 +58,8 @@ it neither cancels nor resubmits the execution.
 
 ## Development and publication
 
-`uv sync` installs both `ledgence-client==0.7.0` and
-`ledgence-worker==0.7.0` into the project environment. The former submits work;
+`uv sync` installs both `ledgence-client==0.8.0` and
+`ledgence-worker==0.8.0` into the project environment. The former submits work;
 the latter supplies workflow authoring imports and local editor/test support.
 The server's Rust worker supplies the runtime helper. Only `program.py` is
 selected as application source; `submit.py` and tests remain local.
