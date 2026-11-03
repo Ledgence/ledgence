@@ -410,3 +410,19 @@ resumption or provider truth. It never redispatches an effect.
 
 `effect inbox --filter disputed` selects current assessment conflict, separately
 from historical `discrepant` reports. See the [full saved-command contract](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#submit-a-saved-operator-assessment).
+
+## Provider recovery in development
+
+Use `ledgence effect inbox --provider-filter needs_review` with the same server,
+scope and credential options as other Effects commands. Accepted provider
+filters are `all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled`
+and `disputed`; keep the ordinary `--filter all`. `effect inspect` includes
+provider binding, typed reports and finite reconciliation metadata. These
+options require matching development components, not the published 0.7.0 CLI.
+
+`ledgence orchestrator serve --provider-config FILE` requires access and instance
+configurations. The versioned file binds the exact installation audience and
+chooses `enabled` or `declared_restore_quarantine`; omitting it disables provider
+operations. It contains no provider credentials. See the
+[recovery guide](/how-to/recover-provider-operations) and
+[complete CLI policy format](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#provider-operation-recovery-in-development).

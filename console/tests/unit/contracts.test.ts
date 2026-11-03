@@ -17,7 +17,7 @@ import {
 } from "../../src/features/explorer-model";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
     import.meta.url,
   ),
   "utf8",
@@ -30,7 +30,7 @@ function field(name: string): unknown {
 }
 describe("Rust-produced Console contract", () => {
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(6);
+    expect(decodeConfig(field("config")).contract_version).toBe(7);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );
@@ -72,6 +72,9 @@ describe("Rust-produced Console contract", () => {
 
 const decoders = {
   task_status: dto.observedTask,
+  provider_probe_status: dto.observedTask,
+  provider_probe_detail: dto.taskDetail,
+  provider_probe_execution: explorer.execution,
   task_detail: dto.taskDetail,
   attempts: dto.attemptPage,
   attempt_detail: dto.attemptDetail,
@@ -118,18 +121,25 @@ const cases = record(field("explorer_cases"), [
   "native_wait_failure",
   "native_wait_unknown",
   "native_wait_disputed",
+  "provider_wait_pending",
+  "provider_wait_cancelled",
+  "provider_wait_succeeded",
+  "provider_wait_failed",
+  "provider_wait_assessed",
+  "provider_wait_disputed",
+  "provider_wait_needs_review",
 ]);
 for (const [name, value] of Object.entries(cases))
   it(`decodes Rust Explorer case ${name}`, () => {
     expect(() => explorer.workflowExplorer(value)).not.toThrow();
   });
 
-describe("Rust-produced Explorer C6", () => {
-  it("rejects preserved C5 configuration and read models explicitly", () => {
+describe("Rust-produced Explorer C7", () => {
+  it("rejects preserved C6 configuration and read models explicitly", () => {
     const historical = parseUserJson(
       readFileSync(
         new URL(
-          "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+          "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json",
           import.meta.url,
         ),
         "utf8",
@@ -555,5 +565,96 @@ describe("Rust-produced Explorer C6", () => {
         },
       }),
     ).toThrow("Conflicting");
+  });
+});
+
+describe("Provider wait identities", () => {
+  it("keeps provider waits separate from native operator and external event waits", () => {
+    const pending = explorer.workflowExplorer(cases.provider_wait_pending);
+    const node = pending.page.items.find((v) => v.kind === "provider_wait")!;
+    expect(nodeStatus(node)).toBe("awaiting provider outcome");
+    expect(pending.workflow.provider_wait?.key).toBe(
+      node.kind === "provider_wait" ? node.key : "invalid",
+    );
+    expect(node.relations.map((v) => v.kind)).toEqual(["registers"]);
+    const resumed = explorer.workflowExplorer(cases.provider_wait_succeeded);
+    const selected = resumed.page.items.find(
+      (v) => v.kind === "provider_wait",
+    )!;
+    expect(nodeStatus(selected)).toBe("provider succeeded · resume scheduled");
+    expect(selected.relations.map((v) => v.kind)).toEqual([
+      "registers",
+      "resumes",
+    ]);
+    expect(nodeTiming(selected).milestone).toBe(false);
+    for (const change of [
+      { selected_effect_revision: null },
+      { selected_effect_revision: "0" },
+      { selected_effect_revision: 1 },
+      { selection_kind: null },
+      { closed_at: null },
+      { resumed_activation_id: null },
+    ])
+      expect(() => explorer.explorerNode({ ...selected, ...change })).toThrow();
+    expect(() =>
+      explorer.workflowExplorer({
+        ...pending,
+        workflow: {
+          ...pending.workflow,
+          native_effect_wait: {
+            parking_activation_id: "other",
+            key: "collision",
+            occurrence: pending.workflow.provider_wait!.occurrence,
+            after_resolution_id: null,
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      explorer.workflowExplorer({
+        ...pending,
+        page: {
+          ...pending.page,
+          items: [
+            {
+              ...node,
+              occurrence: {
+                ...pending.workflow.provider_wait!.occurrence,
+                workflow_id: "other",
+              },
+            },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+  it("accepts a trusted provider-check marker only for its owning workflow task", () => {
+    const raw = dto.observedTask(field("task_status"));
+    const provider_probe = {
+      occurrence: {
+        scope: { tenant_id: "acme", namespace: "demo" },
+        workflow_id: "owner",
+        activation_id: "origin",
+        approval_key: "export",
+      },
+      probe_id: "probe",
+      generation: "18446744073709551615",
+    };
+    const task = {
+      ...raw.task,
+      workflow_id: "owner",
+      workflow_activation_id: null,
+      provider_probe,
+    };
+    expect(dto.taskStatus(task).provider_probe?.generation).toBe(
+      "18446744073709551615",
+    );
+    for (const change of [
+      { workflow_id: "other" },
+      { workflow_activation_id: "activation" },
+      { provider_probe: { ...provider_probe, generation: 1 } },
+      { provider_probe: { ...provider_probe, generation: "0" } },
+    ])
+      expect(() => dto.taskStatus({ ...task, ...change })).toThrow();
   });
 });

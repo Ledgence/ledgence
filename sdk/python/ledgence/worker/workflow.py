@@ -207,6 +207,7 @@ class OperationKind(StrEnum):
 class ApprovalProtection(StrEnum):
     """Execution contract declared when the workflow requests approval."""
     EXTERNAL_EFFECT = "external_effect"
+    PROVIDER_OPERATION = "provider_operation"
 
 
 class ApprovalStatus(StrEnum):
@@ -317,15 +318,26 @@ class ApprovalDecision:
     decided_at: int
 
 
-def _validate_approval_protection(value):
-    if "protection" in value and value["protection"] != ApprovalProtection.EXTERNAL_EFFECT:
+def _validate_approval_protection(value, *, resolved=True):
+    if "protection" in value and value["protection"] not in (
+            ApprovalProtection.EXTERNAL_EFFECT, ApprovalProtection.PROVIDER_OPERATION):
         raise WorkflowError("invalid approval protection")
+    if value.get("protection") == ApprovalProtection.PROVIDER_OPERATION:
+        from .providers import _validate_binding
+        _validate_binding(value.get("provider_binding"), resolved=resolved)
+        contract = value["provider_binding"]["contract"]
+        _validate_action(value["action"], authoritative=resolved)
+        if (value["action"]["name"] != contract["dispatch_callable"]
+                or value["action"]["version"] != contract["version"]):
+            raise WorkflowError("provider approval differs from its binding")
+    elif "provider_binding" in value:
+        raise WorkflowError("provider binding requires provider operation protection")
 
 
 def _validate_approval(value):
     _fields(value, {"scope", "workflow_id", "key", "activation_id", "revision", "action",
                     "proposed_arguments", "created_at", "deadline", "status", "decision",
-                    "resumed_activation_id"}, {"protection"})
+                    "resumed_activation_id"}, {"protection", "provider_binding"})
     _validate_approval_protection(value)
     _fields(value["scope"], {"tenant_id", "namespace"})
     for name in ("tenant_id", "namespace"):
@@ -701,7 +713,7 @@ class WorkflowRef(TaskRef):
 class Workflow:
     """Register explicit, enum-addressed continuations in a prepared package."""
 
-    def __init__(self, entries):
+    def __init__(self, entries, *, providers=()):
         if not isinstance(entries, type) or not issubclass(entries, StrEnum):
             raise WorkflowError("workflow entries must be a StrEnum family")
         if not entries.__members__ or len(entries.__members__) != len(list(entries)):
@@ -712,6 +724,7 @@ class Workflow:
         self._handlers = {}
         self._defaults = []
         self._built = None
+        self._provider_adapters = tuple(providers)
 
     def entrypoint(self, entry, *, default=False):
         if self._built is not None:
@@ -745,6 +758,8 @@ class Workflow:
         default = self._defaults[0]
         if "start" in self._handlers and default.value != "start":
             raise WorkflowError("the start entrypoint must be the default")
+        from .providers import _registry
+        providers = _registry(self._provider_adapters)
         handlers = MappingProxyType(dict(self._handlers))
         entries = self._entries
 
@@ -757,6 +772,7 @@ class Workflow:
             if selected not in handlers:
                 raise WorkflowError("unknown workflow entrypoint: " + selected)
             ctx._entry_registry = handlers
+            ctx._providers = providers
             ctx._entry_enum = entries
             ctx._entrypoint = entries(selected)
             result = handlers[selected](event, ctx)
@@ -764,6 +780,7 @@ class Workflow:
                 result = await result
             return result
 
+        handle._ledgence_providers = providers
         self._built = handle
         return handle
 
@@ -819,11 +836,17 @@ class _ApprovedEffectInvocation:
 class WorkflowContext:
     """One explicit activation. Constructed by the worker, not application code."""
 
-    def __init__(self, payload, rpc, *, effect_evidence_v2=False, native_effect_resolution=False):
+    def __init__(self, payload, rpc, *, effect_evidence_v2=False, native_effect_resolution=False,
+                 provider_operation=False):
         if type(effect_evidence_v2) is not bool:
             raise WorkflowError("effect evidence capability must be a boolean")
         if type(native_effect_resolution) is not bool:
             raise WorkflowError("native effect resolution capability must be a boolean")
+        if type(provider_operation) is not bool:
+            raise WorkflowError("provider operation capability must be a boolean")
+        if provider_operation and not (native_effect_resolution and effect_evidence_v2):
+            raise WorkflowError("provider operation requires native effect resolution and evidence v2")
+        self._provider_operation = provider_operation
         self._native_effect_resolution = native_effect_resolution
         self._effect_evidence_v2 = effect_evidence_v2
         payload = _freeze(payload, MAX_CONTEXT_BYTES, 96, authoritative=True)
@@ -874,6 +897,20 @@ class WorkflowContext:
                     or self._wake["resumed_revision"] != self.revision):
                 raise WorkflowError("effect resolution wake belongs to another workflow activation")
             self._effect_resolution = resolution
+        self._provider_result = None
+        if self._wake is not None and self._wake["kind"] == "provider_operation":
+            from .providers import ProviderOperationResult
+            if not self._provider_operation:
+                raise WorkflowError("provider operations are unavailable")
+            result = ProviderOperationResult.from_dict(self._wake)
+            if (result.occurrence.workflow_id != self.workflow_id
+                    or self._wake["resumed_activation_id"] != self.activation_id
+                    or self._wake["resumed_revision"] != self.revision):
+                raise WorkflowError("provider wake belongs to another workflow activation")
+            self._provider_result = result
+        if (self._approval is not None and self.approval.protection == ApprovalProtection.PROVIDER_OPERATION
+                and not self._provider_operation):
+            raise WorkflowError("provider operations are unavailable")
         # Preserve old payloads; wake and child inputs share one bounded batch.
         combined = self._inputs if self._wake is None else {"inputs": self._inputs, "wake": self._wake}
         _encode(combined, MAX_DECISION_BYTES, 96, authoritative=True)
@@ -894,6 +931,8 @@ class WorkflowContext:
         self._loop = asyncio.get_running_loop()
         self._commit_lock = asyncio.Lock()
         self._pending = {}
+        self._providers = {}
+        self._provider_pending = None
         self._forks = {}
         self._fork_branch_keys = {}
         self._entry_registry = None
@@ -940,8 +979,15 @@ class WorkflowContext:
         return self._effect_resolution
 
     @property
+    def provider_operation_result(self):
+        """Typed provider evidence selected for this activation, or None."""
+        return self._provider_result
+
+    @property
     def effect_occurrence(self):
         """Original effect address, preserved across resolution continuations."""
+        if self._provider_result is not None:
+            return self._provider_result.occurrence
         if self._effect_resolution is not None:
             return self._effect_resolution.occurrence
         approval = self.approval
@@ -1032,6 +1078,10 @@ class WorkflowContext:
         if type(wake) is not dict:
             raise WorkflowError("invalid workflow wake")
         kind = wake.get("kind")
+        if kind == "provider_operation":
+            from .providers import ProviderOperationResult
+            ProviderOperationResult.from_dict(wake)
+            return
         if kind == "effect_resolution":
             EffectResolutionWake.from_dict(wake)
             return
@@ -1057,14 +1107,20 @@ class WorkflowContext:
         if type(wait) is not dict:
             raise WorkflowError("invalid workflow wait")
         kind = wait.get("kind")
-        if kind == "effect_resolution":
+        if kind == "provider_operation":
+            _fields(wait, {"kind", "key", "occurrence", "after_effect_revision"})
+            EffectOccurrence.from_dict(wait["occurrence"])
+            if wait["after_effect_revision"] is not None:
+                _integer(wait["after_effect_revision"], "after effect revision", minimum=1)
+        elif kind == "effect_resolution":
             _fields(wait, {"kind", "key", "occurrence", "after_resolution_id"})
             EffectOccurrence.from_dict(wait["occurrence"])
             if wait["after_resolution_id"] is not None:
                 _text(wait["after_resolution_id"], "after_resolution_id")
         elif kind == "approval":
-            _fields(wait, {"kind", "key", "action", "timeout_ms"}, {"proposed_arguments", "protection"})
-            _validate_approval_protection(wait)
+            _fields(wait, {"kind", "key", "action", "timeout_ms"},
+                    {"proposed_arguments", "protection", "provider_binding"})
+            _validate_approval_protection(wait, resolved=False)
             _validate_action(wait["action"])
             _validate_proposed_arguments(wait.get("proposed_arguments"))
             _integer(wait["timeout_ms"], "timeout_ms", maximum=MAX_WAIT_MS)
@@ -1155,6 +1211,8 @@ class WorkflowContext:
         a crash can occur after an effect and before its result is committed.
         Operator-trusted callable code remains responsible for its own effects.
         """
+        if self.approval is not None and self.approval.protection == ApprovalProtection.PROVIDER_OPERATION:
+            raise WorkflowError("this approval requires approved_provider_operation")
         key, approval = self._approved_action(fn, version)
         if approval.get("protection") == ApprovalProtection.EXTERNAL_EFFECT:
             raise WorkflowError("this approval requires approved_effect with a separate lookup callback")
@@ -1169,6 +1227,8 @@ class WorkflowContext:
         cannot be verified. Accepted results replay without contacting the
         orchestrator or the provider.
         """
+        if self.approval is not None and self.approval.protection == ApprovalProtection.PROVIDER_OPERATION:
+            raise WorkflowError("this approval requires approved_provider_operation")
         key, approval = self._approved_action(fn, version)
         action = approval["action"]
         lookup_name = _callable_name(lookup, label="effect lookup")
@@ -1672,6 +1732,57 @@ class WorkflowContext:
                               state=_freeze(state, MAX_STATE_BYTES),
                               commands=self._commands, wait=wait)
 
+    def request_provider_approval(self, key, *, provider, arguments, binding, resume, state, timeout_ms):
+        """Freeze a registered provider intent for human review before dispatch."""
+        from .providers import ProviderBindingRequest
+        self._active()
+        if not self._provider_operation:
+            raise WorkflowError("provider operations are unavailable")
+        if provider not in self._providers.values() or type(binding) is not ProviderBindingRequest:
+            raise WorkflowError("provider approval requires a registered adapter and binding")
+        value = ProviderBindingRequest.from_dict(binding.to_dict()).to_dict()
+        if _encode(value["contract"], 12 * 1024) != provider._contract:
+            raise WorkflowError("provider approval binding differs from its registered contract")
+        action = ApprovalAction(value["contract"]["dispatch_callable"],
+                                version=value["contract"]["version"], arguments=arguments)
+        return self._request_approval(key, action=action, state=state, timeout_ms=timeout_ms,
+                                      continuation=None, resume=resume, proposed_arguments=None,
+                                      protection=ApprovalProtection.PROVIDER_OPERATION,
+                                      provider_binding=value)
+
+    def approved_provider_operation(self):
+        """Dispatch on the single grant and return a durable operation ticket."""
+        from .providers import approved_operation
+        return approved_operation(self)
+
+    def wait_provider_operation(self, key, *, resume, state, ticket=None, occurrence=None,
+                                after_effect_revision=_UNSET):
+        """Park for provider evidence, releasing the worker between probes."""
+        from .providers import ProviderOperationTicket
+        self._active()
+        if not self._provider_operation:
+            raise WorkflowError("provider operations are unavailable")
+        if ticket is not None:
+            if type(ticket) is not ProviderOperationTicket or occurrence is not None:
+                raise WorkflowError("supply a provider ticket or occurrence")
+            occurrence = ProviderOperationTicket.from_dict(ticket.to_dict()).occurrence
+        previous = self._provider_result
+        if occurrence is None and previous is not None:
+            occurrence = previous.occurrence
+        if type(occurrence) is not EffectOccurrence:
+            raise WorkflowError("provider wait requires a ticket or EffectOccurrence")
+        value = EffectOccurrence.from_dict(occurrence.to_dict()).to_dict()
+        if value["workflow_id"] != self.workflow_id:
+            raise WorkflowError("provider occurrence belongs to another workflow")
+        if after_effect_revision is _UNSET:
+            same = previous is not None and previous.occurrence.to_dict() == value
+            after_effect_revision = previous.selected_effect_revision if same else None
+        wait = {"kind": "provider_operation", "key": key, "occurrence": value,
+                "after_effect_revision": after_effect_revision}
+        self._validate_wait(wait)
+        return self._decision("wait", continuation=self._target(resume),
+                              state=_freeze(state, MAX_STATE_BYTES), commands=self._commands, wait=wait)
+
     def request_approval(self, key, *, action, state, timeout_ms,
                          continuation=None, resume=None, proposed_arguments=None):
         """Checkpoint an immutable effective action and release the worker slot.
@@ -1699,7 +1810,7 @@ class WorkflowContext:
                                       protection=ApprovalProtection.EXTERNAL_EFFECT)
 
     def _request_approval(self, key, *, action, state, timeout_ms, continuation,
-                          resume, proposed_arguments, protection):
+                          resume, proposed_arguments, protection, provider_binding=None):
         self._active()
         if (continuation is None) == (resume is None):
             raise WorkflowError("supply exactly one continuation or resume entrypoint")
@@ -1711,6 +1822,8 @@ class WorkflowContext:
             wait["proposed_arguments"] = proposed_arguments
         if protection is not None:
             wait["protection"] = protection.value
+        if provider_binding is not None:
+            wait["provider_binding"] = provider_binding
         self._validate_wait(wait)
         return self._decision("wait", continuation=self._target(target),
                               state=_freeze(state, MAX_STATE_BYTES),
@@ -1783,6 +1896,13 @@ class WorkflowContext:
                 _encode(command["data"], MAX_DECISION_BYTES)
         if kind == "wait":
             self._validate_wait(decision["wait"])
+            wait = decision["wait"]
+            if (wait["kind"] == "provider_operation"
+                    or wait.get("protection") == ApprovalProtection.PROVIDER_OPERATION):
+                if not self._provider_operation:
+                    raise WorkflowError("provider operations are unavailable")
+                if wait["kind"] == "provider_operation" and wait["occurrence"]["workflow_id"] != self.workflow_id:
+                    raise WorkflowError("provider occurrence belongs to another workflow")
             if decision["wait"]["kind"] == "effect_resolution":
                 if not self._native_effect_resolution:
                     raise WorkflowError("native effect resolution is unavailable")
@@ -1790,23 +1910,29 @@ class WorkflowContext:
                     raise WorkflowError("effect occurrence belongs to another workflow")
         return _freeze(decision, MAX_DECISION_BYTES, 96)
 
+    def _owned_tasks(self):
+        tasks = [task for _, task in (*self._pending.values(), *self._forks.values())]
+        if self._provider_pending is not None:
+            tasks.append(self._provider_pending)
+        return tasks
+
     async def _drain(self):
         # Retain controller-owned operations started by asynchronous controller
         # work while an earlier batch is draining. Local callables cannot stage work.
         while True:
-            tasks = [task for _, task in (*self._pending.values(), *self._forks.values())]
+            tasks = self._owned_tasks()
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for task, result in zip(tasks, results):
                 if isinstance(result, BaseException) and task not in self._observed_failures:
                     if isinstance(result, Exception):
                         raise result
                     raise WorkflowError("an owned workflow operation was cancelled") from result
-            if len(tasks) == len(self._pending) + len(self._forks):
+            if len(tasks) == len(self._owned_tasks()):
                 return
 
     async def _finish(self, cancel=False):
         self._closed = True
-        tasks = [task for _, task in (*self._pending.values(), *self._forks.values())]
+        tasks = self._owned_tasks()
         if cancel:
             for task in tasks:
                 task.cancel()

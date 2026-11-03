@@ -16,6 +16,11 @@ const SCOPED_TABLES: &[&str] = &[
     "operator_audit_events",
     "approved_effect_occurrences",
     "approved_effect_evidence_entries",
+    "provider_operations",
+    "provider_probe_tasks",
+    "provider_invocations",
+    "provider_reports",
+    "provider_terminal_facts",
 ];
 
 /// Each non-null byte-collated scope lies between these indexed extremes.

@@ -114,6 +114,39 @@ pub enum ConsoleExplorerData {
         outcome_kind: Option<ConsoleEffectOutcomeKind>,
         resumed_activation_id: Option<String>,
     },
+    ProviderWait {
+        key: String,
+        occurrence: EffectOccurrence,
+        after_effect_revision: Option<ConsoleU64>,
+        registered_at: Timestamp,
+        closed_at: Option<Timestamp>,
+        selected_effect_revision: Option<ConsoleU64>,
+        selection_kind: Option<ConsoleProviderSelectionKind>,
+        resumed_activation_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsoleProviderSelectionKind {
+    ProviderSucceeded,
+    ProviderFailed,
+    ProviderCancelled,
+    OperatorAssessment,
+    Disputed,
+    NeedsReview,
+}
+impl From<&ProviderSelection> for ConsoleProviderSelectionKind {
+    fn from(v: &ProviderSelection) -> Self {
+        match v {
+            ProviderSelection::ProviderSucceeded { .. } => Self::ProviderSucceeded,
+            ProviderSelection::ProviderFailed { .. } => Self::ProviderFailed,
+            ProviderSelection::ProviderCancelled { .. } => Self::ProviderCancelled,
+            ProviderSelection::OperatorAssessment { .. } => Self::OperatorAssessment,
+            ProviderSelection::Disputed { .. } => Self::Disputed,
+            ProviderSelection::NeedsReview { .. } => Self::NeedsReview,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +172,7 @@ impl ConsoleExplorerData {
             Self::ChildWait { .. } => "child_wait",
             Self::ExternalWait { .. } => "external_wait",
             Self::NativeEffectWait { .. } => "native_effect_wait",
+            Self::ProviderWait { .. } => "provider_wait",
         }
     }
     pub fn key(&self) -> &str {
@@ -148,7 +182,8 @@ impl ConsoleExplorerData {
             | Self::Fork { key, .. }
             | Self::Local { key, .. }
             | Self::ExternalWait { key, .. }
-            | Self::NativeEffectWait { key, .. } => key,
+            | Self::NativeEffectWait { key, .. }
+            | Self::ProviderWait { key, .. } => key,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -313,7 +348,7 @@ impl ConsoleExplorerData {
                                 | ConsoleWakeReason::Expired
                         )
                     ),
-                    ConsoleWaitKind::EffectResolution => false,
+                    ConsoleWaitKind::EffectResolution | ConsoleWaitKind::ProviderOperation => false,
                 };
                 if !compatible
                     || (matches!(
@@ -348,6 +383,36 @@ impl ConsoleExplorerData {
                     || closed_at.is_some_and(|at| at < *registered_at)
                 {
                     return Err(invalid("native wake requires one scheduled activation"));
+                }
+            }
+            Self::ProviderWait {
+                key,
+                occurrence,
+                after_effect_revision,
+                registered_at,
+                closed_at,
+                selected_effect_revision,
+                selection_kind,
+                resumed_activation_id,
+            } => {
+                ProviderWait {
+                    key: key.clone(),
+                    occurrence: occurrence.clone(),
+                    after_effect_revision: after_effect_revision.map(|v| v.0),
+                }
+                .validate()?;
+                optional_id(resumed_activation_id)?;
+                timestamp(*registered_at)?;
+                time(*closed_at)?;
+                if selected_effect_revision.is_some() != selection_kind.is_some()
+                    || selected_effect_revision.is_some() != resumed_activation_id.is_some()
+                    || selected_effect_revision.is_some() && closed_at.is_none()
+                    || selected_effect_revision.is_some_and(|v| {
+                        v.0 == 0 || after_effect_revision.is_some_and(|after| v.0 <= after.0)
+                    })
+                    || closed_at.is_some_and(|at| at < *registered_at)
+                {
+                    return Err(invalid("provider wake requires one scheduled activation"));
                 }
             }
         }
@@ -397,7 +462,8 @@ impl ConsoleRecord for ConsoleExplorerNode {
         let (kind, workflow_id, activation_id, key): (String, String, String, String) =
             serde_json::from_str(&self.id)
                 .map_err(|_| invalid("invalid explorer node identity"))?;
-        if let ConsoleExplorerData::NativeEffectWait { occurrence, .. } = &self.data
+        if let ConsoleExplorerData::NativeEffectWait { occurrence, .. }
+        | ConsoleExplorerData::ProviderWait { occurrence, .. } = &self.data
             && occurrence.workflow_id != workflow_id
         {
             return Err(invalid("native explorer wait belongs to another workflow"));
@@ -440,6 +506,7 @@ impl ConsoleWorkflowExplorer {
         if usize::from(self.workflow.child_wait.is_some())
             + usize::from(self.workflow.external_wait_key.is_some())
             + usize::from(self.workflow.native_effect_wait.is_some())
+            + usize::from(self.workflow.provider_wait.is_some())
             > 1
         {
             return Err(invalid("conflicting current workflow waits"));
@@ -451,7 +518,8 @@ impl ConsoleWorkflowExplorer {
             }
         }
         for node in &self.page.items {
-            if let ConsoleExplorerData::NativeEffectWait { occurrence, .. } = &node.data
+            if let ConsoleExplorerData::NativeEffectWait { occurrence, .. }
+            | ConsoleExplorerData::ProviderWait { occurrence, .. } = &node.data
                 && occurrence.scope != binding.scope
             {
                 return Err(invalid("native explorer wait scope mismatch"));
@@ -465,6 +533,12 @@ impl ConsoleWorkflowExplorer {
             .map_err(|_| invalid("invalid explorer identity"))?;
             if node.id != id {
                 return Err(invalid("inconsistent explorer node identity"));
+            }
+        }
+        if let Some(wait) = &self.workflow.provider_wait {
+            wait.validate(workflow_id)?;
+            if wait.occurrence.scope != binding.scope {
+                return Err(invalid("provider wait scope mismatch"));
             }
         }
         metadata_size(self)

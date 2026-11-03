@@ -381,6 +381,19 @@ async fn execution_discovery_upgrade_backfills_identity_without_rewriting_user_b
         .migrate_with_migrator(MigrationOptions::default(), &current)
         .await
         .unwrap();
+    // Prove this historical migration backfilled identity before later schema
+    // changes, then bring the database to the schema required by today's reader.
+    let identities: Vec<(String, String)> = sqlx::query_as(
+        "SELECT program_id,program_version FROM tasks WHERE task_id='upgrade_task' UNION ALL SELECT program_id,program_version FROM workflow_runs WHERE workflow_id='upgrade_workflow'",
+    )
+    .fetch_all(&db.store.pool)
+    .await
+    .unwrap();
+    assert_eq!(identities.len(), 2);
+    assert!(identities.iter().all(|(id, version)| {
+        id == &submit.input.program.id && version == &submit.input.program.version
+    }));
+    db.store.migrate().await.unwrap();
     let items = executions(&db, Default::default(), Default::default())
         .await
         .items;
@@ -453,7 +466,7 @@ async fn execution_discovery_deep_seek_limits_each_kind_before_descriptor_hydrat
     // Temporary metadata tables isolate access-path qualification from payload
     // size and workflow execution. 100,000 rows include equal timestamp ties.
     for sql in [
-        "CREATE TEMP TABLE tasks(task_id text COLLATE \"C\" PRIMARY KEY,tenant_id text COLLATE \"C\",namespace text COLLATE \"C\",queue text,state text,submitted_at_ms bigint,terminal_at_ms bigint,correlation_key text,workflow_id text,root_workflow_id text,workflow_activation_id text,retiring_at_ms bigint,descriptor_bytes bytea,program_id text,program_version text)",
+        "CREATE TEMP TABLE tasks(task_id text COLLATE \"C\" PRIMARY KEY,tenant_id text COLLATE \"C\",namespace text COLLATE \"C\",queue text,state text,submitted_at_ms bigint,terminal_at_ms bigint,correlation_key text,workflow_id text,root_workflow_id text,workflow_activation_id text,retiring_at_ms bigint,descriptor_bytes bytea,program_id text,program_version text,provider_probe_bytes bytea)",
         "CREATE TEMP TABLE workflow_runs(workflow_id text COLLATE \"C\" PRIMARY KEY,tenant_id text COLLATE \"C\",namespace text COLLATE \"C\",queue text,state text,submitted_at_ms bigint,terminal_at_ms bigint,correlation_key text,parent_workflow_id text,root_workflow_id text,retiring_at_ms bigint,controller_bytes bytea,program_id text,program_version text)",
         "CREATE INDEX fixture_execution_tasks ON tasks(tenant_id,namespace,submitted_at_ms DESC,task_id DESC) WHERE retiring_at_ms IS NULL AND workflow_activation_id IS NULL AND workflow_id IS NULL",
         "CREATE INDEX fixture_execution_workflows ON workflow_runs(tenant_id,namespace,submitted_at_ms DESC,workflow_id DESC) WHERE retiring_at_ms IS NULL AND parent_workflow_id IS NULL",

@@ -147,6 +147,7 @@ async fn codec_accepted_receipt_and_report_bindings_are_checked_before_replay() 
     let db = TestDb::new().await;
     let (task, assigned) = claimed(&db, &command()).await;
     let mut settlement = SettleCommand {
+        provider_probe_failure: None,
         owner: assigned.lease.owner.clone(),
         operation_id: "codec-settlement".into(),
         report: AttemptReport::Completed(ExecutionReport {

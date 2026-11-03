@@ -301,6 +301,85 @@ releases the unresolved execution retention hold without confirming the journal;
 all evidence and assessment receipts remain retained after ordinary collection.
 See [operator resolution and public clients](../../docs/effect-evidence.md#record-an-operator-assessment).
 
+## Provider operations (development)
+
+Matching development components add `ledgence.worker.providers`. Register
+`ProviderAdapter(adapter_id, version=..., lookup=ProviderLookup.BY_BINDING,
+completion_criterion=...)`, decorate its dispatch and read-only probe callbacks,
+and include it in `Workflow(Entry, providers=[adapter])`. `workflow.build()` freezes
+the registry. Callbacks must be named functions inside the prepared application
+artifact. The immutable owning program descriptor is part of the reviewed binding.
+
+`adapter.binding(business=..., target=..., credential_reference=..., queue=...,
+deduplication=None, reconciliation=None)` returns a `ProviderBindingRequest`.
+`business` contains `namespace` and `key`. `target` contains `provider`,
+`environment`, `account`, `api_variant`, `operation`, `endpoint_identity` and
+`dimensions`. `deduplication`, when available, contains the provider's actual
+`domain`, `key` and `horizon`. The optional `reconciliation` dictionary overrides
+finite timing and check limits. The queue is supplied separately and must differ
+from the controller queue.
+
+| Helper | Contract |
+| --- | --- |
+| `ctx.request_provider_approval(key, provider=adapter, arguments=..., binding=..., resume=Entry.DISPATCH, state=..., timeout_ms=...)` | Checkpoint the complete intent for review. Effective request JSON lives only in the action arguments. |
+| `await ctx.approved_provider_operation()` | Invoke the registered dispatch on the single original grant and return a durable `ProviderOperationTicket`. |
+| `ctx.wait_provider_operation(key, ticket=ticket, resume=Entry.COMPLETE, state=...)` | Park until provider knowledge or an operator assessment is selected, releasing the worker. |
+| `ctx.provider_operation_result` | Typed immutable selection on a provider resume, otherwise `None`. |
+
+`ProviderOperationTicket.to_dict()` and `.from_dict(...)` support explicit saved
+state. `ticket.occurrence` is an `EffectOccurrence`. An existing equal operation
+can return the original ticket, including one owned by another workflow. Only
+the owning workflow can wait for that occurrence. Changed action, program or
+binding data conflicts with the existing business identity.
+
+Every callback receives one `ProviderRequest`. Its `.arguments`, `.binding` and
+`.target` return independent JSON copies. `.provider_reference` is the retained
+provider reference available to this check. The helper passes a credential
+reference through the binding. Application code resolves its credential value.
+
+Return a `ProviderReport` using one of these constructors. Each takes the required
+`target=...` and optional `provider_reference=...` and `provider_request_id=...`.
+
+- `ProviderReport.unknown(reason, ...)`
+- `ProviderReport.pending(...)`
+- `ProviderReport.requires_action(action_kind, ...)`
+- `ProviderReport.succeeded(result, ...)`
+- `ProviderReport.failed(kind, message, ...)`
+- `ProviderReport.cancelled(reason, ...)`
+
+A success result may be `None`. Missing or malformed responses and transport
+errors do not establish terminal provider failure. The report's target must
+match the reviewed target. These reports retain adapter-classified provenance.
+Disable automatic mutation retries and redirects in the adapter's HTTP client
+when one network attempt is required. Ledgence grants dispatch once and never
+retries that callback after an uncertain grant or result.
+
+`ProviderLookup.UNAVAILABLE` permits dispatch-only registration. Recovery then
+reaches needs-review handling without allocating status probes. Reference-only
+lookup requires a retained provider reference. A probe invokes its registered
+callback directly and receives no `WorkflowContext`.
+
+`ProviderSelectionKind` distinguishes `PROVIDER_SUCCEEDED`, `PROVIDER_FAILED`,
+`PROVIDER_CANCELLED`, `OPERATOR_ASSESSMENT`, `DISPUTED` and `NEEDS_REVIEW`.
+Read `.result` only on provider success. `.selection` returns the complete selected
+JSON, `.occurrence` identifies its original operation, and
+`.selected_effect_revision` identifies the evidence boundary. A later report
+cannot rewrite this selection. A follow-up `wait_provider_operation` can omit the
+ticket after a provider wake, using its original occurrence and selected revision
+as the default `after_effect_revision`. Supply a fresh stable key for each
+intentional wait.
+
+Callback results use the provider ledger. They never write an ordinary local-step
+result. `approved_local` and `approved_effect` reject provider-protected approvals.
+The runtime negotiates `provider_operation.v1`, with native effect resolution and
+evidence v2 prerequisites. Ordinary tasks and historical A/B helpers preserve
+their existing protocol.
+
+See [provider operations](../../docs/provider-operations.md) for policy,
+configuration, limits, restore quarantine and evidence retention. The
+[asynchronous export example](../../examples/provider-recovery/README.md) includes
+a real local provider and an independent mutation/effect census.
+
 ## Runtime helper
 
 MIT-licensed, standard-library-only program support. The Rust worker starts the

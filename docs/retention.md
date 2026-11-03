@@ -139,6 +139,17 @@ operator assessments and acceptance receipts survive. Their initial development
 ledger has no automatic expiry, including after `close_unknown` or later
 `disputed` evidence. Closing handling neither removes evidence nor revives work.
 
+Provider operations in development builds also release their unresolved hold
+when typed provider knowledge becomes terminal. They deliberately have no local
+journal result. An operator assessment releases the hold even when provider
+knowledge remains unknown or disputed. Cancelling a workflow alone does not
+close an unresolved provider hold. Probe tasks must finish their ordinary
+cleanup and lose live scheduling references before collection can proceed.
+Provider waits and their graph records follow execution retention; immutable
+bindings, reports, source receipts and business/provider-key reservations remain
+in the independent ledger with no automatic expiry.
+[Provider operations](provider-operations.md).
+
 ## Storage and operations
 
 Cleanup uses identity-prefixed indexes, keyset scans, a small per-scope coordination

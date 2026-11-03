@@ -155,6 +155,7 @@ fn claim(artifact: &PreparedArtifact, data: Value, identity_offset: usize) -> Cl
 
 fn settle_outcome(claimed: &Claimed, outcome: ProgramOutcome, pid: u32) -> usize {
     let command = SettleCommand {
+        provider_probe_failure: None,
         owner: claimed.attempt.lease.owner.clone(),
         operation_id: maximum_text(9),
         report: AttemptReport::Completed(ExecutionReport {

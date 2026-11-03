@@ -77,6 +77,12 @@ to the inspected revision and exact approved action. Workflows can park with
 slot serves other work. See the [effect-resolution contract](docs/effect-evidence.md)
 for prerequisites, retries and handling of later conflicting evidence.
 
+Matching development components add [provider operations](docs/provider-operations.md).
+Registered adapters bind the reviewed business identity, target and request to a
+single dispatch grant. Workflows park while bounded read-only probes recover
+pending or uncertain outcomes. The Effects view exposes the policy, reports and
+operator handling. Try the [local asynchronous export example](examples/provider-recovery/README.md).
+
 ### Install and start Ledgence
 
 Install the latest stable release on a supported native platform:

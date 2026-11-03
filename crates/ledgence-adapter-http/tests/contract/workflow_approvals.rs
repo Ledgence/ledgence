@@ -1,6 +1,7 @@
 use super::*;
 fn proposal() -> ApprovalSnapshot {
     ApprovalSnapshot {
+        provider_binding: None,
         scope: scope(),
         workflow_id: snapshot().workflow_id,
         key: "refund:1 / é".into(),
@@ -23,6 +24,7 @@ fn proposal() -> ApprovalSnapshot {
 fn command() -> ApprovalDecisionCommand {
     let p = proposal();
     ApprovalDecisionCommand {
+        provider_binding: None,
         scope: p.scope,
         workflow_id: p.workflow_id,
         key: p.key,

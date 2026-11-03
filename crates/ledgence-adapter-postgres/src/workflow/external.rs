@@ -110,6 +110,9 @@ pub(super) async fn install_external_wait(
     if matches!(wait, WorkflowWait::EffectResolution { .. }) {
         return effect_wait::install(connection, run, activation, wait, now).await;
     }
+    if matches!(wait, WorkflowWait::ProviderOperation { .. }) {
+        return provider::install_wait(connection, run, activation, wait, now).await;
+    }
     let deadline = wait.deadline(now)?;
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM workflow_waits WHERE workflow_id=$1 AND wait_key=$2)",
@@ -122,7 +125,7 @@ pub(super) async fn install_external_wait(
         return Err(ContractError::Conflict.into());
     }
     let kind = match wait {
-        WorkflowWait::EffectResolution { .. } => {
+        WorkflowWait::EffectResolution { .. } | WorkflowWait::ProviderOperation { .. } => {
             return Err(corrupt("native wait reached legacy installer").into());
         }
         WorkflowWait::Event { .. } => "event",
@@ -149,7 +152,7 @@ pub(super) async fn install_external_wait(
         &ledgence_orchestration_api::console::ConsoleExplorerData::ExternalWait {
             key: wait.key().to_owned(),
             wait_kind: match wait {
-                WorkflowWait::EffectResolution { .. } => {
+                WorkflowWait::EffectResolution { .. } | WorkflowWait::ProviderOperation { .. } => {
                     return Err(corrupt("native wait reached legacy projection").into());
                 }
                 WorkflowWait::Event { .. } => {
@@ -342,6 +345,7 @@ pub(super) async fn close_external_wait(
     now: u64,
 ) -> StoreResult<()> {
     effect_wait::close(connection, run, now).await?;
+    provider::close_wait(connection, run, now).await?;
     if let Some(key) = run.external_wait_key.take() {
         approvals::close(connection, &run.snapshot.workflow_id, &key, now).await?;
         sqlx::query("UPDATE workflow_waits SET closed_at_ms=$3 WHERE workflow_id=$1 AND wait_key=$2 AND closed_at_ms IS NULL")

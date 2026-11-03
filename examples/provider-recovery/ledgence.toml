@@ -1,0 +1,24 @@
+schema_version = 1
+
+[program]
+id = "provider-recovery"
+version = "1.0.0"
+handler = "program:handle"
+kind = "workflow"
+display_name = "Durable export recovery"
+description = "One approved export, finite read-only provider checks, and a durable result."
+
+[source]
+root = "."
+include = ["program.py"]
+
+[dependencies]
+requirements = "requirements.txt"
+
+[target]
+# Choose the actual worker target. The example also supports the local native
+# acceptance gate, which prepares an artifact for its explicitly selected host.
+platform = "linux/arm64"
+python = "3.14"
+protocol = 3
+image = "REPLACE_WITH_WORKER_IMAGE_DIGEST"

@@ -139,10 +139,10 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 86);
+        assert_eq!(routes.len(), 91);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
-            86
+            91
         );
         let mut methods = 0;
         let mut audited = 0;
@@ -166,7 +166,7 @@ mod tests {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 89);
+        assert_eq!(methods, 94);
         assert_eq!(audited, 16);
     }
     #[test]

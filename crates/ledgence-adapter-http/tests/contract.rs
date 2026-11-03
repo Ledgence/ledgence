@@ -235,6 +235,7 @@ fn submit(data: Value) -> SubmitCommand {
 fn task(data: Value) -> TaskSnapshot {
     let submit = submit(data);
     TaskSnapshot {
+        provider_probe: None,
         workflow_id: None,
         workflow_activation_id: None,
         parent_workflow_id: None,
@@ -273,6 +274,7 @@ fn event(data: Value) -> CloudEvent {
 }
 fn settlement(output: Value) -> SettleCommand {
     SettleCommand {
+        provider_probe_failure: None,
         owner: owner(),
         operation_id: "settle".into(),
         quiescence: Quiescence::Confirmed,
@@ -375,6 +377,7 @@ async fn all_methods_roundtrip_scoped_opaque_ids_and_lossless_application_values
     }];
     mock.set("history", Ok(history.clone()));
     let assignment = Assignment {
+        provider_probe: None,
         workflow_activation_id: None,
         descriptor: descriptor(),
         event: event(data.clone()),
@@ -1670,6 +1673,7 @@ async fn disconnected_waiting_http_request_drops_its_service_future() {
 fn compact_status(state: TaskState) -> TaskStatus {
     let allocated = state != TaskState::Queued;
     TaskStatus {
+        provider_probe: None,
         scope: scope(),
         task_id: "..".into(),
         run_id: "run".into(),
@@ -2203,6 +2207,7 @@ async fn targeted_claim_roundtrips_every_handoff_disposition_and_lossless_payloa
     let assigned = AcquireReply::Assigned {
         sequence: command.acquisition.sequence,
         assignment: Box::new(Assignment {
+            provider_probe: None,
             workflow_activation_id: None,
             descriptor: descriptor(),
             event: event(data),

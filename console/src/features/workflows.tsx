@@ -109,11 +109,13 @@ export function WorkflowDetailPage() {
             <p className="notice">
               {detail.child_wait
                 ? `Waiting for terminal outcomes: ${detail.child_wait.command_keys.join(", ")}.`
-                : detail.native_effect_wait
-                  ? `Waiting for operator resolution: ${detail.native_effect_wait.key}.`
-                  : detail.external_wait_key
-                    ? `Waiting for external wake: ${detail.external_wait_key}.`
-                    : "Waiting for a recorded continuation."}
+                : detail.provider_wait
+                  ? `Waiting for provider outcome: ${detail.provider_wait.key}.`
+                  : detail.native_effect_wait
+                    ? `Waiting for operator resolution: ${detail.native_effect_wait.key}.`
+                    : detail.external_wait_key
+                      ? `Waiting for external wake: ${detail.external_wait_key}.`
+                      : "Waiting for a recorded continuation."}
             </p>
           )}
           {["failing", "cancelling"].includes(
@@ -601,9 +603,11 @@ function Waits({
                     ? "External event"
                     : wait.kind === "approval"
                       ? "Approval"
-                      : wait.kind === "effect_resolution"
-                        ? "Effect recovery"
-                        : "Timer"}
+                      : wait.kind === "provider_operation"
+                        ? "Provider operation"
+                        : wait.kind === "effect_resolution"
+                          ? "Effect recovery"
+                          : "Timer"}
                 </h3>
                 <CopyText value={wait.wait_key} />
                 <Status value={wait.closed_at === null ? "open" : "closed"} />
@@ -626,6 +630,16 @@ function Waits({
                     waitKey={wait.wait_key}
                     enabled={active && wait.closed_at === null}
                   />
+                )}
+                {wait.provider_wait && (
+                  <p>
+                    Durable provider outcome for approval{" "}
+                    <code>{wait.provider_wait.occurrence.approval_key}</code>.
+                    The worker is free while this wait is parked.{" "}
+                    <Link to={effectDetailPath(wait.provider_wait.occurrence)}>
+                      Inspect provider evidence
+                    </Link>
+                  </p>
                 )}
                 {wait.native_effect_wait && (
                   <p>

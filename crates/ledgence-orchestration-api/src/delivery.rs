@@ -63,6 +63,12 @@ pub enum AttemptState {
 /// Transaction-loaded scheduling record. Inputs and the descriptor are immutable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSnapshot {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_probe: Option<ProviderProbeAssignment>,
     /// Present together only for a nested owned workflow; roots omit both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_workflow_id: Option<String>,
@@ -182,6 +188,12 @@ pub struct Authority {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_probe: Option<ProviderProbeAssignment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow_activation_id: Option<String>,
     pub descriptor: ProgramDescriptor,
@@ -193,6 +205,22 @@ pub struct Assignment {
 impl Assignment {
     /// The opt-in runtime marker must agree with the immutable invocation event.
     pub fn validate_workflow_identity(&self) -> Result<()> {
+        if let Some(probe) = &self.provider_probe {
+            probe.validate()?;
+            if self.workflow_activation_id.is_some()
+                || self.lease.owner.scope != probe.occurrence.scope
+                || self
+                    .event
+                    .value()
+                    .get("ldgworkflowid")
+                    .and_then(serde_json::Value::as_str)
+                    != Some(probe.occurrence.workflow_id.as_str())
+            {
+                return Err(ContractError::InvalidInput(
+                    "provider assignment identity mismatch".into(),
+                ));
+            }
+        }
         let activation = self
             .event
             .value()
@@ -255,6 +283,12 @@ pub enum AttemptReport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SettleCommand {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_probe_failure: Option<ProviderProbeFailureKind>,
     pub owner: LeaseOwner,
     pub operation_id: String,
     pub report: AttemptReport,
@@ -267,6 +301,9 @@ impl SettleCommand {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let command: Self = decode_unique_json(bytes, SETTLEMENT_MAX_BYTES)?;
         validate_text(&command.operation_id, 128)?;
+        if let Some(failure) = command.provider_probe_failure {
+            failure.validate_settlement(&command.report)?;
+        }
         if let AttemptReport::Completed(report) = &command.report
             && let ledgence_worker_api::ProgramOutcome::Success { output } = &report.outcome
         {

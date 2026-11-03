@@ -259,7 +259,10 @@ impl EffectResolutionSummary {
         if let Some(sequence) = self.first_conflicting_entry_sequence
             && (sequence <= self.reference.sequence
                 || sequence > entries
-                || self.reference.assessment_kind != EffectAssessmentKind::RecordSuccess)
+                || !matches!(
+                    self.reference.assessment_kind,
+                    EffectAssessmentKind::RecordSuccess | EffectAssessmentKind::RecordFailure
+                ))
         {
             return Err(invalid());
         }

@@ -116,7 +116,35 @@ impl ApplicationService {
             }
         };
 
-        let applied = if native {
+        let provider = matches!(
+            work.source,
+            WorkflowWorkSource::ProviderWait | WorkflowWorkSource::ProviderProbeTerminal { .. }
+        ) || work.outcome.as_ref().is_some_and(|outcome| match outcome {
+            TaskOutcome::Succeeded { output, .. } => {
+                WorkflowDecision::decode(output).is_ok_and(|d| {
+                    matches!(
+                        d.action,
+                        WorkflowAction::Wait {
+                            wait: WorkflowWait::ProviderOperation { .. }
+                                | WorkflowWait::Approval {
+                                    protection: ApprovalProtection::ProviderOperation,
+                                    ..
+                                },
+                            ..
+                        }
+                    )
+                })
+            }
+            _ => false,
+        });
+        let applied = if provider {
+            self.provider_operations()?;
+            store
+                .provider_operations()?
+                .apply_provider_work(&work, &resolved)
+                .await
+        } else if native {
+            self.effect_resolution()?;
             store
                 .effect_resolution()?
                 .apply_effect_work(&work, &resolved)
@@ -181,6 +209,21 @@ impl ApplicationService {
             ));
         };
         let decision = WorkflowDecision::decode(output)?;
+        if matches!(
+            &decision.action,
+            WorkflowAction::Wait {
+                wait: WorkflowWait::ProviderOperation { .. }
+                    | WorkflowWait::Approval {
+                        protection: ApprovalProtection::ProviderOperation,
+                        ..
+                    },
+                ..
+            }
+        ) {
+            self.provider_operations().map_err(|_| {
+                ContractError::InvalidInput("provider operations are unavailable".into())
+            })?;
+        }
         let native = matches!(
             decision.action,
             WorkflowAction::Wait {
@@ -189,7 +232,7 @@ impl ApplicationService {
             }
         );
         if native {
-            self.workflows()?.effect_resolution().map_err(|_| {
+            self.effect_resolution().map_err(|_| {
                 ContractError::InvalidInput("native effect resolution is unavailable".into())
             })?;
         }
@@ -336,6 +379,11 @@ impl ApprovedEffects for ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
+        self.effect_resolution()?;
+        self.workflows()?.provider_operations()?;
+        Ok(self)
+    }
     fn effect_resolution(&self) -> Result<&dyn EffectResolution> {
         self.workflows()?.effect_resolution()?;
         self.workflows()?.approved_effect_evidence()?;
@@ -593,12 +641,7 @@ pub(super) fn validate_activation_context_reply(
     owner: &LeaseOwner,
     context: WorkflowActivationContext,
 ) -> Result<WorkflowActivationContext> {
-    context.validate()?;
-    if context.activation_id != owner.task_id
-        || matches!(&context.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != owner.scope)
-    {
-        return Err(ContractError::Conflict);
-    }
+    context.validate_for_owner(owner)?;
     Ok(context)
 }
 

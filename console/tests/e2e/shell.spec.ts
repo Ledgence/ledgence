@@ -205,7 +205,7 @@ test("a long instance name remains available without reserving a page header", a
   const fixture = parseUserJson(
     readFileSync(
       new URL(
-        "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json",
+        "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
         import.meta.url,
       ),
       "utf8",
@@ -223,7 +223,7 @@ test("a long instance name remains available without reserving a page header", a
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "6",
+          "Ledgence-Console-Contract": "7",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
@@ -241,7 +241,7 @@ test("a long instance name remains available without reserving a page header", a
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "6",
+        "Ledgence-Console-Contract": "7",
         "Ledgence-Instance-Id": config.instance_id,
       },
       body: stringifyUserJson(
@@ -281,7 +281,7 @@ test.beforeEach(async ({ page }) => {
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "6",
+        "Ledgence-Console-Contract": "7",
         "Ledgence-Instance-Id": "instance_demo",
       },
       body: JSON.stringify({ mode: "operator_trusted" }),

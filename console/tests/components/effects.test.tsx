@@ -3,7 +3,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json?raw";
+import { providerFixture } from "../provider-fixture";
+import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import {
@@ -39,7 +40,7 @@ function reply(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "6",
+      "Ledgence-Console-Contract": "7",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -91,10 +92,11 @@ async function mount(
     list?: boolean;
     resolve?: (body: string, index: number) => Response | Promise<Response>;
     auditFailure?: boolean;
+    detail?: ReturnType<typeof effectFixture>;
   } = {},
 ) {
   access(options.capabilities, options.native);
-  let detail = effectFixture();
+  let detail = options.detail ?? effectFixture();
   const writes: string[] = [],
     reads: string[] = [],
     audits: unknown[] = [];
@@ -441,4 +443,52 @@ it("downloads the same destination-bound command before dispatch and after an un
   expect(JSON.parse(saved.body).resolution_id).toBe(
     JSON.parse(writes[0]!).resolution_id,
   );
+});
+
+it("shows the approved provider target, allocated recovery budget and retained report", async () => {
+  const { view, writes } = await mount({ detail: providerFixture() });
+  await expect
+    .element(
+      view.getByRole("heading", { name: "Provider operation", exact: true }),
+    )
+    .toBeVisible();
+  await expect
+    .element(
+      view.getByRole("heading", {
+        name: "Current provider report",
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+  await expect
+    .element(view.getByText("No local journal result", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(view.getByText("Export ready to download", { exact: true }))
+    .toBeVisible();
+  await expect.element(view.getByText("0 / 12", { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(0);
+});
+
+it("adds provider state filters without fetching sensitive detail from the inbox", async () => {
+  const { view, reads, router } = await mount({
+    list: true,
+    detail: providerFixture(),
+  });
+  await view
+    .getByRole("combobox", { name: "Provider operation", exact: true })
+    .selectOptions("pending");
+  await view
+    .getByRole("button", { name: "Apply filters", exact: true })
+    .click();
+  await expect
+    .poll(() => router.state.location.search)
+    .toContain("provider_filter=pending");
+  expect(router.state.location.search).not.toContain("filter=unconfirmed");
+  expect(reads.some((path) => path.endsWith("/approved-effects/inspect"))).toBe(
+    false,
+  );
+  await expect
+    .element(view.getByText("No local journal result", { exact: true }))
+    .toBeVisible();
 });

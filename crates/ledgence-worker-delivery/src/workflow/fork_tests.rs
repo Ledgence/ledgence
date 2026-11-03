@@ -5,6 +5,8 @@ fn fixture() -> (WorkflowOperations, mpsc::UnboundedReceiver<ForkRequest>) {
     let (commits, _) = mpsc::unbounded_channel();
     let (forks, requests) = mpsc::unbounded_channel();
     let handler = journal(Arc::new(Mock {
+        provider_claims: None,
+        provider_reports: None,
         contexts,
         commits,
         forks: Some(forks),

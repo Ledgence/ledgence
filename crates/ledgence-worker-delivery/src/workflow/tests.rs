@@ -34,6 +34,18 @@ type EffectConfirmV2 = (
 );
 
 struct Mock {
+    provider_claims: Option<
+        mpsc::UnboundedSender<(
+            ProviderClaimCommand,
+            oneshot::Sender<Result<ProviderClaimReceipt>>,
+        )>,
+    >,
+    provider_reports: Option<
+        mpsc::UnboundedSender<(
+            ProviderDispatchReportCommand,
+            oneshot::Sender<Result<ProviderReportReply>>,
+        )>,
+    >,
     contexts: mpsc::UnboundedSender<ContextRequest>,
     commits: mpsc::UnboundedSender<CommitRequest>,
     forks: Option<mpsc::UnboundedSender<ForkRequest>>,
@@ -110,6 +122,9 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn provider_operation_client(&self) -> Result<&dyn ProviderOperationClient> {
+        Ok(self)
+    }
     fn effect_evidence_client(&self) -> Result<&dyn EffectEvidenceClient> {
         Ok(self)
     }
@@ -196,6 +211,8 @@ fn fixture() -> (
     let (commits, commit_requests) = mpsc::unbounded_channel();
     (
         Arc::new(Mock {
+            provider_claims: None,
+            provider_reports: None,
             contexts,
             commits,
             forks: None,
@@ -267,6 +284,8 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
 mod approved_effect;
 #[path = "evidence_tests.rs"]
 mod evidence;
+#[path = "provider_tests.rs"]
+mod provider;
 
 #[path = "fork_tests.rs"]
 mod forks;
@@ -310,6 +329,97 @@ async fn wrong_workflow_activation_or_context_version_is_rejected_before_runtime
             ErrorKind::Protocol
         );
         assert!(commits.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
+async fn typed_wake_scope_must_match_the_acquired_owner_before_runtime_use() {
+    for provider in [false, true] {
+        for changed in ["none", "tenant", "namespace"] {
+            let mut wake_scope = owner().scope;
+            match changed {
+                "tenant" => wake_scope.tenant_id = "foreign".into(),
+                "namespace" => wake_scope.namespace = "foreign".into(),
+                _ => {}
+            }
+            let mut value = context();
+            let mut wake = json!({
+                "kind": if provider { "provider_operation" } else { "effect_resolution" },
+                "key": "wait",
+                "occurrence": {
+                    "scope": wake_scope,
+                    "workflow_id": value.workflow_id,
+                    "activation_id": "effect_origin",
+                    "approval_key": "approval"
+                },
+                "parking_activation_id": "parked",
+                "parking_revision": 2,
+                "resumed_activation_id": value.activation_id,
+                "resumed_revision": 3,
+                "selected_at": 20,
+                "selected_effect_revision": 2
+            });
+            if provider {
+                wake["selection"] = json!({
+                    "kind": "provider_succeeded",
+                    "report_ref": {
+                        "report_id": "report",
+                        "source_id": "source",
+                        "sequence": 1,
+                        "recorded_revision": 2,
+                        "recorded_at": 10,
+                        "knowledge": "succeeded"
+                    },
+                    "result": {"private_result": "foreign_scope_payload"}
+                });
+            } else {
+                wake["resolution_id"] = json!("resolution");
+                wake["accepted_at"] = json!(10);
+                wake["accepted_revision"] = json!(2);
+                wake["basis_revision"] = json!(1);
+                wake["outcome"] = json!({
+                    "kind": "recorded_success",
+                    "result": {"private_result": "foreign_scope_payload"}
+                });
+            }
+            value.wake = Some(serde_json::from_value(wake).unwrap());
+            value.validate().unwrap();
+            let expected = value.clone();
+            let (service, mut contexts, mut commits) = fixture();
+            let pending = tokio::spawn(async move {
+                fetch_context(
+                    service.as_ref(),
+                    &owner(),
+                    "workflow",
+                    None,
+                    None,
+                    &config(),
+                    &RunControl::new(Duration::from_secs(1)),
+                )
+                .await
+            });
+            let (received, reply) = bounded(contexts.recv()).await.unwrap();
+            assert_eq!(received, owner());
+            reply.send(Ok(value)).unwrap();
+            let actual = bounded(pending).await.unwrap();
+            if changed == "none" {
+                assert_eq!(
+                    serde_json::to_value(actual.unwrap()).unwrap(),
+                    serde_json::to_value(expected).unwrap()
+                );
+            } else {
+                assert_eq!(
+                    actual.unwrap_err().kind,
+                    ErrorKind::Protocol,
+                    "provider={provider}, {changed}"
+                );
+            }
+            assert!(
+                contexts.try_recv().is_err(),
+                "no context retry after a bad reply"
+            );
+            assert!(commits.try_recv().is_err());
+        }
     }
 }
 

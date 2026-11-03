@@ -16,8 +16,8 @@ command, then open [Console](http://127.0.0.1:8080/console/). Ledgence 0.7.0 inc
 The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
 
-Matching development builds use Console contract **6** and add **Effects** for
-retained external-effect evidence and operator assessments. Published 0.7.0
+Matching development builds use Console contract **7** and add **Effects** for
+retained external-effect evidence, operator assessments and provider recovery. Published 0.7.0
 bundles use contract **5**; upgrade the server, workers and assets together to use
 the development capability.
 
@@ -79,13 +79,23 @@ entrypoint invocation is a node, not a group or band. Re-entry to the same handl
 has its own activation ID; retries of one activation retain that identity. Opening
 a subworkflow displays its own graph rather than recursively expanding the parent.
 
-In C6, native effect-resolution waits appear as **Recovery** nodes in both views.
+Native effect-resolution waits appear as **Recovery** nodes in both views.
 The registering entrypoint and any resumed entrypoint have separate recorded
 edges. The inspector links to the original effect and its entrypoint; that origin
 link does not invent a dependency on another branch. A closed wait without a
 resumed activation remains distinct from a selected assessment. **Inspect effect**
 opens the retained evidence, and Back restores the workflow's selection and
 graph position.
+
+C7 adds provider-operation waits as separate records in Graph and Trace. Their
+selection distinguishes a reported provider outcome, an operator assessment,
+disputed evidence and a need for review. Only a recorded selection creates a
+resumption edge. The inspector links to the original effect without inventing
+an execution dependency. Provider checks are ordinary task executions marked
+**Provider check** in history and task details; follow their evidence link to the
+original occurrence. A successful check task means its report was recorded, not
+that the external operation succeeded. Its **Run again** action is unavailable:
+the durable recovery controller owns check allocation and budgets.
 
 Pan or zoom to inspect a larger graph. **Fit** shows the loaded graph; **Reorganize**
 restores automatic card positions. Dragging a card changes only its presentation.
@@ -238,7 +248,7 @@ the persisted binding requires an offline plan; never run it concurrently agains
 the bound database. Catalog retention is independent of execution-history cleanup.
 
 Published 0.7.0 uses Console contract version 5. The development explorer requires
-contract version 6 and matching server and assets. Nodes include typed invocation, registration, fork-membership,
+contract version 7 and matching server and assets. Nodes include typed invocation, registration, fork-membership,
 terminal-wait and resumption relations from the backend. The browser resolves
 their references to loaded nodes; timestamps do not establish dependencies.
 Local steps connect to their invoking entrypoint without becoming fork or join
@@ -254,6 +264,11 @@ unchanged. C6 adds native effect-wait metadata to workflow details, wait pages a
 the explorer. Apply the native resolution and Console native-wait migrations
 before starting matching components. Native waits have a separate durable
 namespace from ordinary events, even when their keys have the same text.
+C7 adds a third namespace for provider waits and required, nullable provider-check
+provenance on task status, task detail and execution-history records. Apply the
+provider-operation migration and restart wait-page traversal with matching C7
+components; historical C6 assets are retained for compatibility checks, not served
+against a C7 backend.
 Useful `/agents` and workflow deep links remain available.
 
 When upgrading from C2, a transactional migration converts retained Console records without
@@ -322,6 +337,22 @@ activation and approval key. Its filters distinguish journal confirmation,
 reported-value discrepancies and a disputed operator assessment. These are
 different facts: a recorded assessment does not confirm the local result journal
 or independently verify the provider's outcome.
+
+Provider-operation filters select pending, succeeded, failed, cancelled, disputed
+or review-needed recovery independently of local journal confirmation. **Needs
+review** includes operations requiring external action. Before
+approving a provider operation, review its target account/environment/API,
+business identity, deduplication domain/key/horizon, completion criterion,
+immutable program and finite check policy. Credential values are not included;
+the binding carries a credential reference.
+
+The retained timeline separates the original dispatch grant, check allocation,
+worker source, typed response and check finalization. **Checks allocated** counts
+consumed budget even if a worker fails before making a request. **Next check**
+describes recovery scheduling, while the report's knowledge describes the
+external operation. Pending or unknown responses do not establish failure. A
+provider-backed operation has no local result journal; its typed reports and
+immutable selected wake are the relevant evidence.
 
 Open an occurrence to inspect its approved action, program binding and bounded
 timeline of claims, reported results and assessments. Follow additional evidence

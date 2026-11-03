@@ -307,6 +307,7 @@ fn console_snapshot(server: &Server, actor: Option<&VerifiedPrincipal>) -> serde
     let mut value = snapshot(actor, audit::enabled(server));
     if actor.is_some() {
         value["native_effect_resolution"] = serde_json::json!(effect_resolution::available(server));
+        value["provider_operation"] = serde_json::json!(provider::available(server));
     }
     value
 }
@@ -359,7 +360,11 @@ pub(super) async fn dispatch(
             value["authority_id"] = serde_json::json!(actor.audience().authority_id);
             value["runtime_capabilities"] = serde_json::json!({"approved_effect_evidence_v2":true});
             if opted_in && effect_resolution::available(server) {
-                value["worker_features"] = serde_json::json!({"v":1,"supported":[ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE]});
+                let mut supported = vec![ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE];
+                if provider::available(server) {
+                    supported.push(ledgence_worker_api::PROVIDER_OPERATION_FEATURE);
+                }
+                value["worker_features"] = serde_json::json!({"v":1,"supported":supported});
             }
         }
         return Ok((server.encode(value).await?, None));

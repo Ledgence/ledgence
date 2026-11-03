@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { workflowExplorer } from "../../src/api/explorer";
 import {
@@ -148,4 +148,52 @@ it("keeps the Explorer page, selected wait and camera restoration when opening w
   expect(readExplorerState(destination.key, destination.state)).toEqual(
     presentation,
   );
+});
+
+it("opens the original provider effect from its distinct parking activation and retains navigation", async () => {
+  const fixture = parseUserJson(raw, 2 * 1024 * 1024) as Record<
+    string,
+    unknown
+  >;
+  const cases = fixture.explorer_cases as Record<string, unknown>;
+  const explorer = workflowExplorer(cases.provider_wait_pending);
+  const node = explorer.page.items.find(
+    (item) => item.kind === "provider_wait",
+  )!;
+  if (node.kind !== "provider_wait") throw Error("Missing native fixture");
+  const path = `/workflows/${encodeURIComponent(node.occurrence.workflow_id)}`;
+  const search = `?${new URLSearchParams({ tab: "Graph", node: node.id })}`;
+  const router = createMemoryRouter(
+    [
+      {
+        path: "*",
+        element: (
+          <NodeInspector
+            node={node}
+            workflowId={node.occurrence.workflow_id}
+            relations={[]}
+            select={() => undefined}
+          />
+        ),
+      },
+    ],
+    { initialEntries: [{ pathname: path, search, key: "native-graph" }] },
+  );
+  routers.push(router);
+  const view = await render(<RouterProvider router={router} />);
+  await view.getByRole("link", { name: "Inspect provider evidence" }).click();
+  expect(router.state.location.pathname).toBe("/effects/review");
+  expect(
+    Object.fromEntries(new URLSearchParams(router.state.location.search)),
+  ).toEqual({
+    workflow_id: node.occurrence.workflow_id,
+    activation_id: node.occurrence.activation_id,
+    approval_key: node.occurrence.approval_key,
+  });
+  expect(router.state.location.state).toEqual({
+    returnTo: `${path}${search}`,
+    returnNavigationKey: "native-graph",
+    restoreNavigationKey: "native-graph",
+  });
+  expect(node.activation_id).not.toBe(node.occurrence.activation_id);
 });

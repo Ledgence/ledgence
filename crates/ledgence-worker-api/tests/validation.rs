@@ -309,6 +309,22 @@ fn timeout_overflow_fails_closed_and_clones_share_cancellation() {
 }
 
 #[test]
+fn restricted_phase_expiry_preserves_parent_but_shares_cancellation() {
+    let parent = RunControl::new(Duration::from_secs(30));
+    let phase = parent.shorter_deadline(std::time::Instant::now());
+    assert_eq!(phase.check().unwrap_err().kind, ErrorKind::TimedOut);
+    assert!(parent.check().is_ok());
+    let cannot_extend = parent.shorter_deadline(parent.deadline() + Duration::from_secs(30));
+    assert_eq!(cannot_extend.deadline(), parent.deadline());
+    parent.cancel();
+    assert_eq!(phase.check().unwrap_err().kind, ErrorKind::Cancelled);
+    assert_eq!(
+        cannot_extend.check().unwrap_err().kind,
+        ErrorKind::Cancelled
+    );
+}
+
+#[test]
 fn invocation_identity_preserves_scope_and_optional_trace_without_user_data() {
     use ledgence_worker_api::InvocationIdentity;
     let mut value = event();

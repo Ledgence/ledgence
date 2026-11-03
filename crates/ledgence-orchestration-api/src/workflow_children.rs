@@ -108,8 +108,19 @@ impl WorkflowChildResult {
 /// work carries no fabricated public task identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkflowWorkSource {
-    TaskTerminal { task_id: String, activation: bool },
-    WorkflowTerminal { workflow_id: String },
+    ProviderWait,
+    ProviderProbeTerminal {
+        probe_id: String,
+        generation: u64,
+        task_id: String,
+    },
+    TaskTerminal {
+        task_id: String,
+        activation: bool,
+    },
+    WorkflowTerminal {
+        workflow_id: String,
+    },
     Drain,
     CancelOwned,
     Wait,

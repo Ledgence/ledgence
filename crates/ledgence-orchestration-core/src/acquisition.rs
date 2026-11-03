@@ -231,6 +231,7 @@ fn assigned(
     AcquireReply::Assigned {
         sequence,
         assignment: Box::new(Assignment {
+            provider_probe: task.provider_probe.clone(),
             workflow_activation_id: task.workflow_activation_id.clone(),
             descriptor: attempt.descriptor.clone(),
             event: attempt.event.clone(),

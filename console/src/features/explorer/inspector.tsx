@@ -220,6 +220,39 @@ export function NodeInspector({
           )}
         </>
       )}
+      {node.kind === "provider_wait" && (
+        <>
+          <p>
+            {node.selection_kind
+              ? `Selected ${node.selection_kind.replaceAll("_", " ")}. A continuation was scheduled from retained evidence; this does not prove the resumed code has run.`
+              : node.closed_at !== null
+                ? "This provider wait closed without scheduling a continuation. Closure does not establish an external outcome."
+                : "Waiting durably for a provider outcome. No worker process is held by this wait; ordinary workflow events cannot resolve it."}
+          </p>
+          <Fields>
+            <Field label="Effect origin activation">
+              {node.occurrence.activation_id}
+            </Field>
+            <Field label="Approval key">{node.occurrence.approval_key}</Field>
+            <Field label="After effect revision">
+              {node.after_effect_revision ?? "First outcome"}
+            </Field>
+            <Field label="Selected effect revision">
+              {node.selected_effect_revision ?? "Not selected"}
+            </Field>
+          </Fields>
+          <Link
+            to={effectDetailPath(node.occurrence)}
+            state={{
+              returnTo: `${location.pathname}${location.search}`,
+              returnNavigationKey: location.key,
+              restoreNavigationKey: location.key,
+            }}
+          >
+            Inspect provider evidence
+          </Link>
+        </>
+      )}
       {node.kind === "native_effect_wait" && (
         <>
           <p>

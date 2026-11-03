@@ -51,6 +51,17 @@ impl ResponseValue for TaskSnapshot {
         if let Some(trace) = &self.origin_trace {
             trace.validate()?;
         }
+        if let Some(probe) = &self.provider_probe {
+            probe.validate()?;
+            if probe.occurrence.scope != self.scope()
+                || self.workflow_id.as_ref() != Some(&probe.occurrence.workflow_id)
+                || self.workflow_activation_id.is_some()
+            {
+                return Err(ContractError::Unavailable(
+                    "inconsistent provider probe identity".into(),
+                ));
+            }
+        }
         if self.descriptor.program != self.input.program
             || self
                 .workflow_activation_id

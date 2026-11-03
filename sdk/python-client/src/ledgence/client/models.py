@@ -4,7 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 import re
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .provider_models import ProviderProbeAssignment
 
 from . import codec
 from .errors import InputError, ProtocolError
@@ -134,6 +137,7 @@ class TaskStatus:
     cancel_requested_at: int | None
     workflow_id: str | None = None
     workflow_activation_id: str | None = None
+    provider_probe: ProviderProbeAssignment | None = None
 
 
 @dataclass(frozen=True)
@@ -211,7 +215,7 @@ def _optional_time(raw, name):
 
 
 def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
-    workflow_fields = {"workflow_id", "workflow_activation_id"}
+    workflow_fields = {"workflow_id", "workflow_activation_id", "provider_probe"}
     codec.fields(raw, set(TaskStatus.__dataclass_fields__) - workflow_fields, workflow_fields)
     actual_scope = _scope(raw["scope"])
     if actual_scope != scope or raw["task_id"] != task_id:
@@ -238,6 +242,12 @@ def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
     activation_id = _optional_text(raw.get("workflow_activation_id"), "workflow_activation_id")
     if activation_id is not None and (workflow_id is None or activation_id != task_id):
         raise InputError("inconsistent workflow controller identity")
+    probe = None
+    if "provider_probe" in raw:
+        from .provider_models import parse_provider_probe
+        probe = parse_provider_probe(raw["provider_probe"], actual_scope)
+        if activation_id is not None or workflow_id != probe.occurrence.workflow_id:
+            raise InputError("provider probe and task workflow identity disagree")
     return TaskStatus(
         scope=actual_scope, task_id=codec.text(raw["task_id"], "task_id"),
         run_id=codec.text(raw["run_id"], "run_id"), queue=codec.text(raw["queue"], "queue"),
@@ -247,7 +257,7 @@ def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
         submitted_at=codec.integer(raw["submitted_at"], "submitted_at", 0, codec.MAX_TIMESTAMP),
         available_at=codec.integer(raw["available_at"], "available_at", 0, codec.MAX_TIMESTAMP),
         terminal_at=terminal, cancel_requested_at=cancelled_at,
-        workflow_id=workflow_id, workflow_activation_id=activation_id,
+        workflow_id=workflow_id, workflow_activation_id=activation_id, provider_probe=probe,
     )
 
 

@@ -83,5 +83,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/inspect-effects"
+  },
+  "providerOperations": {
+    "title": "Approval-bound provider identities and bounded worker-free recovery",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/recover-provider-operations"
   }
 }

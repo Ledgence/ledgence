@@ -71,6 +71,7 @@ const records: Execution[] = [
     correlation_key: "Release readiness",
     parent_workflow_id: null,
     root_workflow_id: "wf_release",
+    provider_probe: null,
   },
   {
     kind: "task",
@@ -83,6 +84,7 @@ const records: Execution[] = [
     correlation_key: "Prepare release notes",
     parent_workflow_id: null,
     root_workflow_id: null,
+    provider_probe: null,
   },
 ];
 const clients: QueryClient[] = [];

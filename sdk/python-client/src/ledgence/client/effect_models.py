@@ -15,6 +15,10 @@ from .effect_resolution_models import (
     EffectAssessmentEntry, EffectResolutionSummary, parse_assessment_entry, parse_resolution_summary,
 )
 from .models import Scope, _scope
+from .provider_models import (
+    ProviderEffectSummary, ProviderEffectDetail, ProviderEvidenceEntry, ProviderReportEntry,
+    ProviderFilter, parse_provider_summary, parse_provider_entry, provider_filter_matches,
+)
 
 EFFECT_PAGE_LIMIT = 1024 * 1024
 EFFECT_OUTPUT_LIMIT = 128 * 1024
@@ -125,6 +129,7 @@ class EffectEvidenceSummary:
     created_at: int
     updated_at: int
     operator_resolution: EffectResolutionSummary | None = None
+    provider: ProviderEffectSummary | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +189,7 @@ class EffectObservationEntry:
         return json.loads(self._output)
 
 
-EffectEvidenceEntry = EffectClaimEntry | EffectObservationEntry | EffectAssessmentEntry
+EffectEvidenceEntry = EffectClaimEntry | EffectObservationEntry | EffectAssessmentEntry | ProviderEvidenceEntry
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +206,7 @@ class EffectEvidenceDetail:
     next_cursor: str | None
     current_assessment: EffectAssessmentEntry | None = None
     _base_url: str = field(default="", repr=False, compare=False)
+    provider: ProviderEffectDetail | None = None
 
 
 def effect_cursor(value):
@@ -254,20 +260,26 @@ def _dispatch_provenance(raw):
 
 def _summary(raw, scope):
     codec.fields(raw, {"occurrence", "program", "callable", "action_version", "dispatch_provenance",
-                       "journal_state", "has_discrepancy", "entry_count", "effect_revision", "created_at", "updated_at"}, {"operator_resolution"})
+                       "journal_state", "has_discrepancy", "entry_count", "effect_revision", "created_at", "updated_at"}, {"operator_resolution", "provider"})
     if type(raw["has_discrepancy"]) is not bool:
         raise InputError("invalid effect discrepancy flag")
     created = codec.integer(raw["created_at"], "created_at", 0, EFFECT_TIMESTAMP_LIMIT)
     updated = codec.integer(raw["updated_at"], "updated_at", created, EFFECT_TIMESTAMP_LIMIT)
     revision = codec.integer(raw["effect_revision"], "effect_revision", 1)
     count = codec.integer(raw["entry_count"], "entry_count", 0, revision - 1)
-    resolution = parse_resolution_summary(raw["operator_resolution"], count, revision) if "operator_resolution" in raw else None
+    provider = parse_provider_summary(raw["provider"], count, revision) if "provider" in raw else None
+    if provider is not None and raw["journal_state"] != "unconfirmed":
+        raise InputError("provider evidence cannot confirm the local journal")
+    resolution = parse_resolution_summary(raw["operator_resolution"], count, revision, provider=provider is not None) if "operator_resolution" in raw else None
+    if provider is not None and (provider.handling == "operator_closed") != (resolution is not None):
+        raise InputError("provider handling and retained assessment disagree")
     return EffectEvidenceSummary(_occurrence(raw["occurrence"], scope), _program(raw["program"]),
         codec.text(raw["callable"], "callable", 512), codec.text(raw["action_version"], "action_version"),
         _dispatch_provenance(raw["dispatch_provenance"]), EffectJournalState(raw["journal_state"]),
         raw["has_discrepancy"], codec.integer(raw["entry_count"], "entry_count", 0,
             codec.integer(raw["effect_revision"], "effect_revision", 1) - 1),
-        raw["effect_revision"], created, updated, resolution)
+        raw["effect_revision"], created, updated, resolution,
+        provider)
 
 
 def _binding(raw, occurrence, base_url):
@@ -313,6 +325,8 @@ def _source(raw, scope):
 
 
 def _entry(raw, summary):
+    if type(raw) is dict and str(raw.get("kind", "")).startswith("provider_"):
+        return parse_provider_entry(raw, summary)
     if type(raw) is dict and raw.get("kind") == "assessment":
         return parse_assessment_entry(raw, summary)
     fields = {"sequence", "recorded_at", "recorded_revision", "kind"}
@@ -346,13 +360,18 @@ def _cursor_value(value):
         raise InputError("invalid effect cursor") from exc
 
 
-def inbox_position(cursor, scope, selected, workflow_id):
+def inbox_position(cursor, scope, selected, workflow_id, provider_filter=None):
     """Validate cursor binding; callers still treat the token as opaque."""
     if cursor is None:
         return None
     raw = _cursor_value(cursor)
-    codec.fields(raw, {"version", "scope", "filter", "workflow_id", "position"})
-    if (type(raw["version"]) is not int or raw["version"] != 1 or _scope(raw["scope"]) != scope
+    fields = {"version", "scope", "filter", "workflow_id", "position"}
+    if provider_filter is not None:
+        fields.add("provider_filter")
+    codec.fields(raw, fields)
+    version = 1 if provider_filter is None else 2
+    if (type(raw["version"]) is not int or raw["version"] != version
+            or raw.get("provider_filter") != provider_filter or _scope(raw["scope"]) != scope
             or raw["filter"] != selected or raw["workflow_id"] != workflow_id):
         raise InputError("effect cursor does not match the query")
     pos = raw["position"]
@@ -375,14 +394,14 @@ def inspect_sequence(cursor, occurrence):
     return codec.integer(raw["after_sequence"], "after_sequence", 1)
 
 
-def parse_effect_inbox(raw, scope, selected, workflow_id, cursor, limit):
+def parse_effect_inbox(raw, scope, selected, workflow_id, cursor, limit, provider_filter=None):
     try:
         codec.fields(raw, {"items", "next_cursor"})
         if type(raw["items"]) is not list or len(raw["items"]) > limit:
             raise InputError("invalid effect inbox page size")
         items = tuple(_summary(item, scope) for item in raw["items"])
         seen = set()
-        previous = inbox_position(cursor, scope, selected, workflow_id)
+        previous = inbox_position(cursor, scope, selected, workflow_id, provider_filter)
         for item in items:
             identity = item.occurrence
             position = (item.updated_at, *(value.encode() for value in
@@ -396,11 +415,13 @@ def parse_effect_inbox(raw, scope, selected, workflow_id, cursor, limit):
                     or selected == EffectFilter.DISPUTED and (item.operator_resolution is None
                         or item.operator_resolution.first_conflicting_entry_sequence is None)):
                 raise InputError("effect inbox item does not match its filters")
+            if provider_filter is not None and not provider_filter_matches(item, provider_filter):
+                raise InputError("provider inbox item does not match its filter")
             seen.add(identity)
             previous = position
         next_cursor = raw["next_cursor"]
         if next_cursor is not None and (not items or next_cursor == cursor
-                or inbox_position(next_cursor, scope, selected, workflow_id) != previous):
+                or inbox_position(next_cursor, scope, selected, workflow_id, provider_filter) != previous):
             raise InputError("effect cursor does not advance to the final item")
         return EffectInboxPage(items, next_cursor)
     except (ValueError, TypeError, KeyError, UnicodeError) as exc:
@@ -409,7 +430,7 @@ def parse_effect_inbox(raw, scope, selected, workflow_id, cursor, limit):
 
 def parse_effect_detail(raw, occurrence, cursor, limit, base_url):
     try:
-        codec.fields(raw, {"binding", "summary", "entries", "next_cursor"}, {"current_assessment"})
+        codec.fields(raw, {"binding", "summary", "entries", "next_cursor"}, {"current_assessment", "provider"})
         summary = _summary(raw["summary"], occurrence.scope)
         if summary.occurrence != occurrence:
             raise InputError("effect summary does not match the request")
@@ -427,7 +448,12 @@ def parse_effect_detail(raw, occurrence, cursor, limit, base_url):
         sequence, revision = after, 0
         for entry in entries:
             command_id = (entry.kind, entry.claim_id if isinstance(entry, EffectClaimEntry) else
-                           entry.resolution_id if isinstance(entry, EffectAssessmentEntry) else entry.observation_id)
+                           entry.resolution_id if isinstance(entry, EffectAssessmentEntry) else
+                           entry.observation_id if isinstance(entry, EffectObservationEntry) else
+                           entry.claim_id if entry.kind == "provider_dispatch" else
+                           entry.source_id if entry.kind == "provider_probe_source" else
+                           entry.reason if entry.kind == "provider_recovery_stopped" else
+                           getattr(entry, "report_id", getattr(entry, "probe_id", entry.sequence)))
             if (entry.sequence != sequence + 1 or entry.recorded_revision <= revision
                     or command_id in command_ids):
                 raise InputError("effect entries omit, reorder or duplicate retained evidence")
@@ -451,6 +477,36 @@ def parse_effect_detail(raw, occurrence, cursor, limit, base_url):
                     raise InputError("current assessment and timeline disagree")
                 if isinstance(entry, EffectAssessmentEntry) and entry.sequence > assessment.sequence:
                     raise InputError("current assessment is not the latest assessment")
-        return EffectEvidenceDetail(binding, summary, entries, next_cursor, assessment, base_url)
+        provider = None
+        if (summary.provider is None) != ("provider" not in raw) or (summary.provider is None) != (binding.approval.provider_binding is None):
+            raise InputError("provider detail, summary and approval binding disagree")
+        if summary.provider is not None:
+            codec.fields(raw["provider"], {"current_report"})
+            resolved = binding.approval.provider_binding
+            if (resolved.program != binding.program or binding.lookup is not None
+                    or summary.journal_state != EffectJournalState.UNCONFIRMED):
+                raise InputError("provider binding differs from execution or local journal state")
+            current_raw = raw["provider"]["current_report"]
+            current = None if current_raw is None else parse_provider_entry(current_raw, summary)
+            if current is not None and not isinstance(current, ProviderReportEntry):
+                raise InputError("provider current report is not a report entry")
+            if (current is None) != (summary.provider.selected_report is None):
+                raise InputError("provider current report and selected reference disagree")
+            if current is not None and current.reference != summary.provider.selected_report:
+                raise InputError("provider current report and selected reference disagree")
+            references = (*summary.provider.conflicting_reports,
+                          *((summary.provider.selected_report,) if summary.provider.selected_report else ()))
+            for original, entry in zip(raw["entries"], entries):
+                if isinstance(entry, ProviderReportEntry) and entry.report.reported_target != resolved.target:
+                    raise InputError("provider report target differs from approved target")
+                if current is not None and entry.sequence == current.sequence and _json_identity(original) != _json_identity(current_raw):
+                    raise InputError("provider current report and timeline disagree")
+                for reference in references:
+                    if entry.sequence == reference.sequence and (not isinstance(entry, ProviderReportEntry) or entry.reference != reference):
+                        raise InputError("provider summary reference and timeline disagree")
+            if current is not None and current.report.reported_target != resolved.target:
+                raise InputError("provider current report target differs from approved target")
+            provider = ProviderEffectDetail(current)
+        return EffectEvidenceDetail(binding, summary, entries, next_cursor, assessment, base_url, provider)
     except (ValueError, TypeError, KeyError, UnicodeError) as exc:
         raise ProtocolError("invalid effect detail response") from exc

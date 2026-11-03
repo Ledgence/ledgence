@@ -210,6 +210,7 @@ fn immutable_detail_cannot_skip_or_hide_a_remaining_entry() {
     let c = command();
     let o = c.occurrence();
     let approval = ApprovalSnapshot {
+        provider_binding: None,
         scope: o.scope.clone(),
         workflow_id: o.workflow_id.clone(),
         key: o.approval_key.clone(),
@@ -247,6 +248,7 @@ fn immutable_detail_cannot_skip_or_hide_a_remaining_entry() {
         approval_acceptance_event_id: None,
     };
     let summary = EffectEvidenceSummary {
+        provider: None,
         operator_resolution: None,
         occurrence: o.clone(),
         program,
@@ -277,6 +279,7 @@ fn immutable_detail_cannot_skip_or_hide_a_remaining_entry() {
         limit: 4,
     };
     let mut page = EffectEvidenceDetail {
+        provider: None,
         current_assessment: None,
         binding,
         summary,

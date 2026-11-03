@@ -165,6 +165,7 @@ fn accepted_approval_with_invalid_or_changed_store_receipt_remains_uncertain() {
     };
     let command = ApprovalDecisionCommand {
         protection: ApprovalProtection::Unspecified,
+        provider_binding: None,
         scope: Scope {
             tenant_id: "tenant".into(),
             namespace: "billing".into(),
@@ -182,6 +183,7 @@ fn accepted_approval_with_invalid_or_changed_store_receipt_remains_uncertain() {
     let receipt = ApprovalDecisionReceipt {
         approval: ApprovalSnapshot {
             protection: command.protection,
+            provider_binding: command.provider_binding.clone(),
             scope: command.scope.clone(),
             workflow_id: command.workflow_id.clone(),
             key: command.key.clone(),

@@ -116,6 +116,12 @@ impl WorkflowEventReceipt {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWait {
+    ProviderOperation {
+        key: String,
+        occurrence: EffectOccurrence,
+        #[serde(deserialize_with = "crate::observation::required_option")]
+        after_effect_revision: Option<u64>,
+    },
     EffectResolution {
         key: String,
         occurrence: EffectOccurrence,
@@ -127,6 +133,12 @@ pub enum WorkflowWait {
         action: ApprovalAction,
         #[serde(default, skip_serializing_if = "ApprovalProtection::is_unspecified")]
         protection: ApprovalProtection,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::effect_resolution::present"
+        )]
+        provider_binding: Option<Box<ProviderBindingRequest>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         proposed_arguments: Option<Value>,
         timeout_ms: u64,
@@ -147,18 +159,35 @@ impl WorkflowWait {
             Self::Event { key, .. }
             | Self::Timer { key, .. }
             | Self::Approval { key, .. }
-            | Self::EffectResolution { key, .. } => key,
+            | Self::EffectResolution { key, .. }
+            | Self::ProviderOperation { key, .. } => key,
         }
     }
     pub fn validate(&self) -> Result<()> {
         validate_text(self.key(), 128)?;
         if let Self::Approval {
             action,
+            protection,
+            provider_binding,
             proposed_arguments,
             ..
         } = self
         {
             action.validate()?;
+            match (protection, provider_binding) {
+                (ApprovalProtection::ProviderOperation, Some(binding)) => {
+                    binding.validate()?;
+                    if binding.contract.dispatch_callable != action.name
+                        || binding.contract.version != action.version
+                    {
+                        return Err(invalid("provider action differs from binding"));
+                    }
+                }
+                (ApprovalProtection::ProviderOperation, None) | (_, Some(_)) => {
+                    return Err(invalid("provider binding does not match protection"));
+                }
+                (_, None) => {}
+            }
             if let Some(arguments) = proposed_arguments {
                 validate_approval_proposed_arguments(arguments)?;
             }
@@ -174,8 +203,21 @@ impl WorkflowWait {
                 validate_text(id, 128)?;
             }
         }
+        if let Self::ProviderOperation {
+            key,
+            occurrence,
+            after_effect_revision,
+        } = self
+        {
+            ProviderWait {
+                key: key.clone(),
+                occurrence: occurrence.clone(),
+                after_effect_revision: *after_effect_revision,
+            }
+            .validate()?;
+        }
         let duration = match self {
-            Self::EffectResolution { .. } => None,
+            Self::EffectResolution { .. } | Self::ProviderOperation { .. } => None,
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
             Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
@@ -191,7 +233,7 @@ impl WorkflowWait {
         self.validate()?;
         timestamp(accepted_at)?;
         let duration = match self {
-            Self::EffectResolution { .. } => None,
+            Self::EffectResolution { .. } | Self::ProviderOperation { .. } => None,
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
             Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
@@ -213,6 +255,7 @@ impl WorkflowWait {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWake {
+    ProviderOperation(Box<ProviderWake>),
     EffectResolution(Box<EffectResolutionWake>),
     Approval {
         approval: Box<ApprovalSnapshot>,
@@ -237,12 +280,14 @@ impl WorkflowWake {
             Self::Event { key, .. } | Self::Timeout { key, .. } | Self::Timer { key, .. } => key,
             Self::Approval { approval } => &approval.key,
             Self::EffectResolution(wake) => &wake.key,
+            Self::ProviderOperation(wake) => &wake.key,
         }
     }
     pub fn validate(&self) -> Result<()> {
         validate_text(self.key(), 128)?;
         match self {
             Self::EffectResolution(wake) => wake.validate(),
+            Self::ProviderOperation(wake) => wake.validate(),
             Self::Approval { approval } => {
                 approval.validate()?;
                 if approval.status == ApprovalStatus::Pending {

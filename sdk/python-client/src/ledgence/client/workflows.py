@@ -279,8 +279,9 @@ class WorkflowHandle:
         parse_approval(snapshot, self.scope, self.id, approval.key, self._base_url)
         binding = {name: snapshot[name] for name in (
             "scope", "workflow_id", "key", "activation_id", "revision", "action")}
-        if "protection" in snapshot:
-            binding["protection"] = snapshot["protection"]
+        for name in ("protection", "provider_binding"):
+            if name in snapshot:
+                binding[name] = snapshot[name]
         body = codec.encode(binding | {
             "decision_id": decision_id, "decision": decision, "reviewer": reviewer, "reason": reason},
             APPROVAL_LIMIT, max_depth=96)
@@ -293,17 +294,17 @@ class WorkflowHandle:
         still verifies the pending request or returns its identical decision.
         Only restore application-owned storage, never untrusted client history.
         """
-        from .approval_models import _action, _protection
+        from .approval_models import _action, _protection, _provider_binding
         from .models import _scope
         codec.fields(saved, {"scope", "workflow_id", "key", "activation_id", "revision", "action",
-                             "decision_id", "decision", "reviewer", "reason"}, {"protection"})
-        _protection(saved)
+                             "decision_id", "decision", "reviewer", "reason"}, {"protection", "provider_binding"})
+        protection = _protection(saved)
         if _scope(saved["scope"]) != self.scope or saved["workflow_id"] != self.id:
             raise InputError("saved approval command belongs to another scope or workflow")
         for name in ("workflow_id", "key", "activation_id", "decision_id", "reviewer"):
             codec.text(saved[name], name)
         codec.integer(saved["revision"], "revision")
-        _action(saved["action"])
+        _provider_binding(saved, protection, _action(saved["action"]))
         if type(saved["decision"]) is not str or saved["decision"] not in ("approve", "reject"):
             raise InputError("decision must be approve or reject")
         try:
@@ -314,8 +315,9 @@ class WorkflowHandle:
         # storage serializer reordered the object's keys.
         binding = {name: saved[name] for name in (
             "scope", "workflow_id", "key", "activation_id", "revision", "action")}
-        if "protection" in saved:
-            binding["protection"] = saved["protection"]
+        for name in ("protection", "provider_binding"):
+            if name in saved:
+                binding[name] = saved[name]
         body = codec.encode(binding | {name: saved[name] for name in (
             "decision_id", "decision", "reviewer", "reason")}, APPROVAL_LIMIT, max_depth=96)
         return ApprovalDecisionCommand._create(self._base_url, self.scope, self.id, saved["key"], body)

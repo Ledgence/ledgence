@@ -5,8 +5,8 @@ use ledgence_orchestration_api::console::{
 };
 use ledgence_orchestration_api::{
     ApprovalInboxQuery, ApprovalStatus, AuditFilter, AuditQuery, AuditResourceKind, ContractError,
-    EffectInboxFilter, EffectInboxQuery, EffectInspectQuery, EffectOccurrence, Result, Scope,
-    TaskFilters, TaskListQuery, validate_text,
+    EffectInboxFilter, EffectInboxQuery, EffectInspectQuery, EffectOccurrence, ProviderInboxFilter,
+    Result, Scope, TaskFilters, TaskListQuery, validate_text,
 };
 use ledgence_worker_api::ProgramRef;
 use std::{collections::HashMap, path::PathBuf};
@@ -767,9 +767,14 @@ fn parse_effect(mut args: impl Iterator<Item = String>) -> Result<Command> {
                 })
                 .transpose()?
                 .unwrap_or(EffectInboxFilter::All);
+            let provider_filter = options.remove("--provider-filter").map(|value| {
+                serde_json::from_value::<ProviderInboxFilter>(serde_json::Value::String(value))
+                    .map_err(|_| invalid("provider filter must be all, pending, needs_review, succeeded, failed, cancelled, or disputed"))
+            }).transpose()?;
             let query = EffectInboxQuery {
                 scope,
                 filter,
+                provider_filter,
                 workflow_id: options.remove("--workflow"),
                 cursor,
                 limit: limit.unwrap_or(50),
@@ -933,6 +938,64 @@ mod effect_tests {
                 parse(operation, &options).is_err(),
                 "{operation} {options:?}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod provider_filter_tests {
+    use super::*;
+    fn parse(extra: &[&str]) -> Result<Command> {
+        Command::parse(
+            [
+                "effect",
+                "inbox",
+                "--server",
+                "http://localhost:8080",
+                "--tenant",
+                "acme",
+                "--namespace",
+                "demo",
+            ]
+            .into_iter()
+            .chain(extra.iter().copied())
+            .map(str::to_owned),
+        )
+    }
+    #[test]
+    fn provider_filter_is_optional_and_requires_literal_all_base_filter() {
+        let Command::Effect {
+            operation: EffectOperation::Inbox(query),
+            ..
+        } = parse(&["--provider-filter", "needs_review"]).unwrap()
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(
+            query.provider_filter,
+            Some(ProviderInboxFilter::NeedsReview)
+        );
+        let Command::Effect {
+            operation: EffectOperation::Inbox(query),
+            ..
+        } = parse(&[]).unwrap()
+        else {
+            panic!("wrong command")
+        };
+        assert!(query.provider_filter.is_none());
+        assert!(
+            !serde_json::to_value(query)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .contains_key("provider_filter")
+        );
+        for extra in [
+            vec!["--provider-filter", "all", "--filter", "unconfirmed"],
+            vec!["--provider-filter", "unknown"],
+            vec!["--provider-filter", "all", "--provider-filter", "pending"],
+        ] {
+            assert!(parse(&extra).is_err());
         }
     }
 }

@@ -15,7 +15,7 @@ The new API serializes revision and sequence values as decimal strings. Program 
 ## Unified discovery and execution explorer
 
 Published 0.7.0 uses Console contract version 5. Matching development components
-use version 6, adding typed native effect waits while retaining these discovery
+use version 7, adding typed native effect/provider waits while retaining these discovery
 and inspection endpoints:
 
 - `GET /v1/console/executions` merges tasks and workflows in a stable descending
@@ -42,7 +42,7 @@ live inserts or status changes can affect later pages, which are not a frozen
 snapshot of an entire traversal.
 
 The explorer projection stores compact entrypoint invocations, children, forks, accepted local
-results, applied child waits, external waits and native effect waits at existing transaction boundaries.
+results, applied child waits, external waits, native effect waits and provider waits at existing transaction boundaries.
 Only successfully applied decisions create decision/resumption edges. An accepted
 controller result, rejected decision, closed wait or matching correlation does not
 establish one. Child status is read from its target at query time, avoiding a
@@ -83,7 +83,7 @@ references. References are scoped to the selected workflow and use existing keys
 | `entrypoint`, `child_wait` | `activation_id` |
 | `child`, `fork`, `external_wait` | `key` |
 | `local` | `activation_id`, `key` |
-| `native_effect_wait` | `parking_activation_id` |
+| `native_effect_wait`, `provider_wait` | `parking_activation_id` |
 
 A child's key is workflow-wide; a local key is activation-scoped. These references
 can identify an endpoint not loaded in the current page without fabricating its
@@ -107,6 +107,8 @@ nodes. Missing endpoints remain unresolved, rather than proving nonexistence.
 | `resumes`: external wait → entrypoint | Recorded wake and explicit resumed activation; closure alone is insufficient. |
 | `registers`: entrypoint → native effect wait | Applied native wait owned by the parking activation. |
 | `resumes`: native effect wait → entrypoint | Immutable selected resolution wake with its explicit resumed activation; closure alone is insufficient. |
+| `registers`: entrypoint → provider wait | Applied provider wait owned by its parking activation. |
+| `resumes`: provider wait → entrypoint | Immutable selected provider wake and explicit resumed activation; a response or closed wait alone is insufficient. |
 | `resumes`: entrypoint → entrypoint | Applied `continue`, no error and explicit resumed activation. |
 
 Invocation does not imply that its source completed before the target started.
@@ -209,6 +211,35 @@ inferred scheduling dependency. Cancellation can close a wait without selecting
 a wake. A selected `closed_unknown` or `disputed` outcome must not be presented
 as successful provider execution.
 
+## Contract 6 to 7 upgrade
+
+C7 adds required nullable `provider_wait` on workflow detail and wait records,
+the `provider_operation` wait kind, and `provider_wait` explorer nodes and
+references. It also adds required nullable `provider_probe` on task status,
+task detail and execution-history rows. Workflow rows in execution history carry null; probe
+task markers contain the original effect occurrence, probe ID and decimal-string
+generation. The task's provider role is projected directly from its stored
+assignment, without inspecting application `data` or joining a provider history.
+
+Apply `20261103060000_provider_operations.sql` after prior migrations with writers
+stopped. Start matching C7 assets and server, and restart wait traversal. The
+three wait namespaces each use an independently bounded ordered seek, merged by
+`(registered_at, kind, key, activation_id)`. Equal text keys and timestamps remain
+distinct. Existing execution identities and historical C6 fixtures are preserved.
+
+Provider wait metadata carries its parking activation, original effect occurrence,
+nullable `after_effect_revision`, registration/closure times, nullable selected
+effect revision, selection kind and resumed activation. Selection kinds distinguish
+provider success/failure/cancellation, operator assessment, dispute and need for
+review. The graph contains no report result or approved arguments; audited Effects
+inspection supplies those payloads. An original effect's activation can differ
+from the activation that parks, and the origin link is not a scheduling edge.
+
+The credentialed access snapshot adds `provider_operation`, independently of
+actor permissions, only when the complete configured capability is available.
+The legacy operator-trusted access response remains unchanged. C7 does not grant
+provider dispatch authority to the browser.
+
 ## Effects and operator assessments in development
 
 These operations use the retained evidence and verified operator ports, rather
@@ -232,6 +263,13 @@ rewritten. Detail pages may be shorter than requested to respect the byte limit;
 follow every non-null `next_cursor`. Each inspection records a durable sensitive
 read before response bytes are released. Audit queries do not recursively audit
 themselves.
+
+Provider recovery extends this same read family. Optional `provider_filter` is
+omitted for A/B queries and cannot be null; provider-filtered traversals use their
+own cursor binding. Provider summaries and timeline records distinguish knowledge,
+handling, check allocation, actual callback sources and finalization. Platform
+generations/revisions use decimal strings; bounded policy durations and check
+counts remain numbers. A provider report's application result remains unchanged.
 
 Resolution commands are limited to 256 KiB and bind the exact original action,
 occurrence, evidence revision and predecessor assessment. Admission denial is

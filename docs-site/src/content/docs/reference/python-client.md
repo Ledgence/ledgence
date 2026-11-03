@@ -256,3 +256,28 @@ assessment never redispatches, confirms the journal or claims provider truth.
 
 See the [complete assessment API and copyable file-based example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#operator-effect-assessments-development).
 These additions require matching development builds and are absent from 0.7.0.
+
+## Typed provider evidence in development
+
+Matching development components add `ProviderFilter` to the existing
+`client.effects.inbox(provider_filter=ProviderFilter.NEEDS_REVIEW)` call. Choices
+are `ALL`, `PENDING`, `NEEDS_REVIEW`, `SUCCEEDED`, `FAILED`, `CANCELLED` and
+`DISPUTED`; the ordinary effect `filter` must remain `ALL`. Omit the new argument
+for the mixed inbox. Preserve the filter while following `next_cursor`.
+
+An approval with `ApprovalProtection.PROVIDER_OPERATION` includes a frozen
+`provider_binding`, covering business identity, adapter contract, target,
+deduplication policy, credential reference, reconciliation policy and pinned
+program. Review it together with `action.arguments`. The existing decision
+preparation and restore methods retain that complete binding.
+
+`detail.summary.provider` separates knowledge, scheduling and operator handling.
+`detail.provider.current_report` is a typed report header independent of the
+selected timeline page. Test `isinstance(report.report.knowledge,
+ProviderSucceeded)` before reading its copied `.result`; explicit JSON null can
+be a successful result. `TaskStatus.provider_probe` identifies managed checks,
+whose task success does not itself establish external success.
+
+Published 0.7.0 does not include this contract. See the
+[provider recovery guide](/how-to/recover-provider-operations) and the
+[complete SDK models and example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#typed-provider-operations-development).

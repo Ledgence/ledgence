@@ -59,7 +59,7 @@ async fn request(
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn inbox_backfills_existing_requests_fences_decisions_and_hides_retired_owners() {
-    let db = TestDb::without_migrations().await;
+    let mut db = TestDb::without_migrations().await;
     let previous = Migrator::with_migrations(
         MIGRATOR
             .iter()
@@ -85,6 +85,11 @@ async fn inbox_backfills_existing_requests_fences_decisions_and_hides_retired_ow
             .unwrap();
     db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
+    // Upgrade deploys stop old writers and reopen pools with the new row shape.
+    db.store.close().await;
+    db.store = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
     let after: Vec<u8> =
         sqlx::query_scalar("SELECT snapshot_bytes FROM workflow_approvals WHERE workflow_id=$1")
             .bind(&earlier.workflow_id)

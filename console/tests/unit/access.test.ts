@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { AccessController, type Access } from "../../src/app/access-state";
 import { decodeAccess } from "../../src/api/access";
 import { requiredCapabilities } from "../../src/api/access-policy";
-function actor(subject = "alice"): Access {
+function actor(subject = "alice"): Extract<Access, { mode: "credentials" }> {
   return {
     mode: "credentials",
     actor_key: `actor-${subject}`,
@@ -145,4 +145,26 @@ describe("Console access identity", () => {
       "execution_submit",
     ]);
   });
+});
+
+it("invalidates pending commands and cached views when provider availability changes", () => {
+  const base = {
+    ...actor(),
+    operator_audit: true,
+    native_effect_resolution: true,
+    provider_operation: true,
+  };
+  expect(decodeAccess(base)).toEqual(base);
+  expect(() => decodeAccess({ ...base, provider_operation: null })).toThrow();
+  const controller = new AccessController();
+  controller.accept(base, controller.begin());
+  const before = controller.getSnapshot().view;
+  controller.remember("approval", {
+    body: "frozen",
+    identity: "decision",
+    actor: "actor-alice",
+  });
+  controller.accept({ ...base, provider_operation: false }, controller.begin());
+  expect(controller.getSnapshot().view).toBeGreaterThan(before);
+  expect(controller.recover("approval")).toBeUndefined();
 });

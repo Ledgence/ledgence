@@ -6,6 +6,7 @@ use ledgence_worker_api::{
 };
 use serde_json::json;
 mod evidence;
+mod provider;
 
 pub(super) struct WorkflowRuntime {
     pub extension: RuntimeExtension,
@@ -51,6 +52,17 @@ impl Context {
             return Err(Error::new(
                 ErrorKind::Incompatible,
                 "native effect resolution was not negotiated for this worker",
+            ));
+        }
+        if matches!(context.wake, Some(WorkflowWake::ProviderOperation(_)))
+            && !self
+                .effect_access
+                .as_ref()
+                .is_some_and(|access| access.features.provider_operation())
+        {
+            return Err(Error::new(
+                ErrorKind::Incompatible,
+                "provider operations were not negotiated for this worker",
             ));
         }
         let wake_trace = context.wake.as_ref().and_then(|wake| match wake {
@@ -104,9 +116,8 @@ async fn fetch_context(
         }
     };
     control.check()?;
-    context.validate().map_err(runtime_error)?;
-    if context.activation_id != owner.task_id
-        || context.workflow_id != expected_workflow
+    context.validate_for_owner(owner).map_err(runtime_error)?;
+    if context.workflow_id != expected_workflow
         || context.parent_workflow_id.as_deref() != expected_parent
         || context.root_workflow_id.as_deref() != expected_root
     {
@@ -147,6 +158,12 @@ impl RuntimeRequestHandler for WorkflowOperations {
         Box::pin(async move {
             request.validate()?;
             match request.operation.as_str() {
+                "provider_operation.claim.v1" => {
+                    return self.claim_provider(request, control).await;
+                }
+                "provider_operation.report.v1" => {
+                    return self.report_provider(request, control).await;
+                }
                 "approved_effect.claim.v2" => {
                     return self.claim_effect_v2(request, control).await;
                 }
@@ -351,7 +368,7 @@ impl WorkflowOperations {
 
 /// Cancellation can leave a write unconfirmed. The immutable command and the
 /// store's lease fence/receipt make that uncertainty recoverable on replay.
-async fn controlled<T, F: Future<Output = Result<T>>>(
+pub(super) async fn controlled<T, F: Future<Output = Result<T>>>(
     control: &RunControl,
     timeout: Duration,
     call: impl FnOnce() -> F,
@@ -392,7 +409,10 @@ async fn controlled<T, F: Future<Output = Result<T>>>(
         }
     }
 }
-async fn pause(control: &RunControl, delay: Duration) -> ledgence_worker_api::Result<()> {
+pub(super) async fn pause(
+    control: &RunControl,
+    delay: Duration,
+) -> ledgence_worker_api::Result<()> {
     let until = Instant::now() + delay;
     while Instant::now() < until {
         control.check()?;
@@ -400,7 +420,7 @@ async fn pause(control: &RunControl, delay: Duration) -> ledgence_worker_api::Re
     }
     control.check()
 }
-fn runtime_error(error: ContractError) -> Error {
+pub(super) fn runtime_error(error: ContractError) -> Error {
     let kind = match error {
         ContractError::OwnershipLost => ErrorKind::Cancelled,
         ContractError::InvalidInput(_) | ContractError::Conflict | ContractError::NotFound => {

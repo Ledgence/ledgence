@@ -58,6 +58,26 @@ impl Evidence {
         key: &str,
         lookup: &str,
     ) -> StoreResult<Self> {
+        Self::load_bound(tx, workflow, owner, workflow_id, key, Some(lookup), false).await
+    }
+    pub(super) async fn load_provider(
+        tx: &mut PgConnection,
+        workflow: &WorkflowSnapshot,
+        owner: &LeaseOwner,
+        workflow_id: &str,
+        key: &str,
+    ) -> StoreResult<Self> {
+        Self::load_bound(tx, workflow, owner, workflow_id, key, None, true).await
+    }
+    async fn load_bound(
+        tx: &mut PgConnection,
+        workflow: &WorkflowSnapshot,
+        owner: &LeaseOwner,
+        workflow_id: &str,
+        key: &str,
+        lookup: Option<&str>,
+        provider: bool,
+    ) -> StoreResult<Self> {
         if workflow.workflow_id != workflow_id {
             return Err(ContractError::Conflict.into());
         }
@@ -83,8 +103,14 @@ impl Evidence {
         {
             return Err(ContractError::ObsoleteOperation.into());
         }
+        if (approval.protection == ApprovalProtection::ProviderOperation) != provider {
+            return Err(ContractError::Conflict.into());
+        }
         let saved_lookup: Option<String> = row.try_get("effect_lookup")?;
-        if saved_lookup.as_deref().is_some_and(|saved| saved != lookup) {
+        if saved_lookup
+            .as_deref()
+            .is_some_and(|saved| Some(saved) != lookup)
+        {
             return Err(ContractError::Conflict.into());
         }
         let bytes: Option<Vec<u8>> = row.try_get("record_bytes")?;
@@ -259,11 +285,29 @@ pub(super) async fn grant(
     command: &ApprovedEffectClaimCommand,
     evidence: &Evidence,
 ) -> StoreResult<()> {
-    if evidence.lookup.is_none() {
+    grant_bound(
+        connection,
+        &command.workflow_id,
+        &command.approval_key,
+        &command.owner.attempt_id,
+        Some(&command.lookup),
+        evidence,
+    )
+    .await
+}
+pub(super) async fn grant_bound(
+    connection: &mut PgConnection,
+    workflow_id: &str,
+    approval_key: &str,
+    attempt_id: &str,
+    lookup: Option<&str>,
+    evidence: &Evidence,
+) -> StoreResult<()> {
+    if evidence.lookup.is_none() && (!evidence.claimed || lookup.is_some()) {
         let expected_attempt = if evidence.claimed {
             evidence.dispatch_attempt.as_deref()
         } else {
-            Some(command.owner.attempt_id.as_str())
+            Some(attempt_id)
         };
         let updated:Option<bool> = sqlx::query_scalar(
                 "UPDATE workflow_approvals
@@ -271,10 +315,10 @@ pub(super) async fn grant(
                      effect_dispatch_claimed=true,effect_evidence_state='open',effect_step_key=$4,effect_lookup=$5
                  WHERE workflow_id=$1 AND wait_key=$2 AND effect_dispatch_claimed=$6 AND effect_lookup IS NULL
                  RETURNING workflow_id=$1 AND wait_key=$2 AND effect_dispatch_claimed AND effect_evidence_state='open'
-                    AND effect_step_key=$4 AND effect_lookup=$5 AND effect_dispatch_attempt_id IS NOT DISTINCT FROM $7 AND snapshot_bytes=$8",
+                    AND effect_step_key=$4 AND effect_lookup IS NOT DISTINCT FROM $5 AND effect_dispatch_attempt_id IS NOT DISTINCT FROM $7 AND snapshot_bytes=$8",
             )
-            .bind(&command.workflow_id).bind(&command.approval_key).bind(&command.owner.attempt_id)
-            .bind(&evidence.step_key).bind(&command.lookup).bind(evidence.claimed).bind(expected_attempt).bind(&evidence.approval_bytes)
+            .bind(workflow_id).bind(approval_key).bind(attempt_id)
+            .bind(&evidence.step_key).bind(lookup).bind(evidence.claimed).bind(expected_attempt).bind(&evidence.approval_bytes)
             .fetch_optional(&mut *connection).await?;
         if updated != Some(true) {
             return Err(corrupt("approved effect evidence update").into());

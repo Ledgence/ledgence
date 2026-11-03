@@ -2,7 +2,7 @@
 import { expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { ReactFlow, type Node, type NodeProps } from "@xyflow/react";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { workflowExplorer, type ExplorerNode } from "../../src/api/explorer";
 import { WorkCard } from "../../src/features/explorer/node-card";
@@ -141,4 +141,20 @@ it("replaces callable duration with Replay when an accepted local result is repl
   expect(
     document.querySelector(".work-card-duration")?.getAttribute("title"),
   ).toBe("Replay observation; the callable did not run");
+});
+
+it("shows a provider wait as pending rather than a successful dispatch", async () => {
+  const node = workflowExplorer(
+    Reflect.get(cases, "provider_wait_pending"),
+  ).page.items.find((node) => node.kind === "provider_wait")!;
+  const view = await render(<Gallery records={[node]} />);
+  await expect
+    .element(view.getByText("Provider operation", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(view.getByLabelText("awaiting provider outcome", { exact: true }))
+    .toBeVisible();
+  expect(
+    document.querySelector(".work-card")?.getAttribute("data-status"),
+  ).toBe("waiting");
 });

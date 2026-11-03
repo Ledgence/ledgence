@@ -286,3 +286,36 @@ operator audit, including on the Console aliases. `GET /v1/access` advertises
 v2 to credentialed workers only when the complete grouped capability exists.
 Generic integer fields remain JSON integers. Console evidence revisions and
 sequences use decimal strings. [Evidence routes and bounds](effect-evidence.md).
+
+### Provider operations in development
+
+Provider recovery is explicitly enabled with `--provider-config FILE`, together
+with `--instance-config` and `--access-config`. The bounded JSON document contains
+`v: 1`, the exact access `audience` (`authority_id`, `instance_id`, `scope`) and
+`dispatch: "enabled"` or `"declared_restore_quarantine"`. The native process
+validates this external policy before binding its listener and checks the complete
+provider port. Only configured instances start the bounded reconciliation
+coordinator; readiness includes its progress. A declared restore quarantine
+prevents new dispatch permission. It is an explicit operator policy, not automatic
+detection of a database rollback.
+
+Authenticated worker routes are:
+
+- `POST /v1/workflows/provider-operations/claim`
+- `POST /v1/workflows/provider-operations/report`
+- `POST /v1/workflows/provider-operations/observe`
+- `POST /v1/provider-probes/context`
+- `POST /v1/provider-probes/report`
+
+Each requires worker class and `worker_execute`; operator credentials cannot
+substitute for a worker lease or retained source. Context admission also records
+the exact source of that check before a callback runs. The independent observe
+route accepts a retained source's frozen facts, not permission for another query
+or mutation. Commands are bounded to 256 KiB, context replies to 64 KiB and
+receipts to 16 KiB. Invalid receipts after a possible commit report uncertainty.
+
+Existing Effects inbox/inspect routes include typed provider evidence and an
+optional `provider_filter`. Inspection remains sensitive and audited. Matching
+Console components use C7; earlier C6 assets must be upgraded together with the
+server. Worker feature discovery remains opt-in through
+`Ledgence-Worker-Features: 1`; the header-absent response retains the earlier shape.

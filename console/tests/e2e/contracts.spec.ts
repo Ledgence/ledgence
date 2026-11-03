@@ -11,7 +11,7 @@ import {
 } from "../interaction-checks";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,7 +24,7 @@ function fixture(name: string): unknown {
 }
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "6",
+  "Ledgence-Console-Contract": "7",
   "Ledgence-Instance-Id": "instance_demo",
   "Request-Id": "request-contract-test",
 };
@@ -57,7 +57,7 @@ async function mount(page: Page, result = "pending_result") {
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "6",
+          "Ledgence-Console-Contract": "7",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
@@ -120,6 +120,7 @@ async function mount(page: Page, result = "pending_result") {
             correlation_key: task.correlation_key,
             parent_workflow_id: task.workflow_id,
             root_workflow_id: null,
+            provider_probe: task.provider_probe,
           })),
         }),
       });
@@ -662,6 +663,7 @@ test("workflow status labels remain intact at desktop width", async ({
           correlation_key: workflow.correlation_key,
           parent_workflow_id: workflow.parent_workflow_id,
           root_workflow_id: workflow.root_workflow_id,
+          provider_probe: null,
         })),
       }),
     }),

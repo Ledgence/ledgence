@@ -38,6 +38,7 @@ pub enum ApprovalProtection {
     #[serde(skip)]
     Unspecified,
     ExternalEffect,
+    ProviderOperation,
 }
 impl ApprovalProtection {
     pub fn is_unspecified(&self) -> bool {
@@ -90,6 +91,12 @@ pub struct ApprovalSnapshot {
     pub action: ApprovalAction,
     #[serde(default, skip_serializing_if = "ApprovalProtection::is_unspecified")]
     pub protection: ApprovalProtection,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_binding: Option<ProviderBinding>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub proposed_arguments: Option<Value>,
     pub created_at: Timestamp,
@@ -107,6 +114,11 @@ impl ApprovalSnapshot {
             validate_text(id, 128)?;
         }
         self.action.validate()?;
+        validate_provider_approval(
+            self.protection,
+            self.provider_binding.as_ref(),
+            &self.action,
+        )?;
         if let Some(value) = &self.proposed_arguments {
             validate_approval_proposed_arguments(value)?;
         }
@@ -155,6 +167,7 @@ impl ApprovalSnapshot {
             && self.activation_id == command.activation_id
             && self.revision == command.revision
             && self.protection == command.protection
+            && self.provider_binding == command.provider_binding
             && self.action.matches(&command.action)?)
     }
 }
@@ -170,6 +183,12 @@ pub struct ApprovalDecisionCommand {
     pub action: ApprovalAction,
     #[serde(default, skip_serializing_if = "ApprovalProtection::is_unspecified")]
     pub protection: ApprovalProtection,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_binding: Option<ProviderBinding>,
     pub decision_id: String,
     pub decision: ApprovalDecision,
     pub reviewer: String,
@@ -183,6 +202,11 @@ impl ApprovalDecisionCommand {
             validate_text(id, 128)?;
         }
         self.action.validate()?;
+        validate_provider_approval(
+            self.protection,
+            self.provider_binding.as_ref(),
+            &self.action,
+        )?;
         decision_fields(&self.decision_id, &self.reviewer, self.reason.as_deref())?;
         bounded(
             self,
@@ -307,6 +331,20 @@ fn invalid(message: &str) -> ContractError {
     ContractError::InvalidInput(message.into())
 }
 
+fn validate_provider_approval(
+    protection: ApprovalProtection,
+    binding: Option<&ProviderBinding>,
+    action: &ApprovalAction,
+) -> Result<()> {
+    match (protection, binding) {
+        (ApprovalProtection::ProviderOperation, Some(binding)) => binding.validate_action(action),
+        (ApprovalProtection::ProviderOperation, None) | (_, Some(_)) => Err(invalid(
+            "provider binding does not match approval protection",
+        )),
+        (_, None) => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +358,7 @@ mod tests {
     }
     fn snapshot() -> ApprovalSnapshot {
         ApprovalSnapshot {
+            provider_binding: None,
             scope: Scope {
                 tenant_id: "t".into(),
                 namespace: "n".into(),
@@ -375,6 +414,7 @@ mod tests {
         approval.deadline = approval.created_at + WORKFLOW_MAX_DELAY_MS + 1;
         assert!(approval.validate().is_err());
         let wait = WorkflowWait::Approval {
+            provider_binding: None,
             key: "send".into(),
             action: action(),
             protection: ApprovalProtection::Unspecified,
@@ -457,6 +497,7 @@ mod tests {
     }
     fn generic_command() -> ApprovalDecisionCommand {
         ApprovalDecisionCommand {
+            provider_binding: None,
             scope: snapshot().scope,
             workflow_id: "wf_1".into(),
             key: "send".into(),
@@ -499,6 +540,7 @@ mod tests {
         protection_wire(snapshot());
         protection_wire(generic_command());
         protection_wire(WorkflowWait::Approval {
+            provider_binding: None,
             key: "send".into(),
             action: action(),
             protection: ApprovalProtection::Unspecified,

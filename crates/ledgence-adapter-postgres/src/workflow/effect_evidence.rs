@@ -26,7 +26,7 @@ impl ApprovedEffectEvidence for PostgresStore {
     }
 }
 impl PostgresStore {
-    fn require_effect_worker(
+    pub(super) fn require_effect_worker(
         &self,
         p: &VerifiedPrincipal,
         scope: &Scope,

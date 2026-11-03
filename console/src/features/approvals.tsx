@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { ProviderBindingDetails } from "./provider-binding";
 import { ApprovalAttribution } from "./approval-attribution";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
@@ -131,6 +132,9 @@ function ActionDetails({ approval }: { approval: Approval }) {
           <Field label="Execution">Protected external write</Field>
         )}
       </Fields>
+      {approval.provider_binding && (
+        <ProviderBindingDetails binding={approval.provider_binding} />
+      )}
       <h4>Effective arguments</h4>
       <JsonView
         value={approval.action.arguments}
@@ -241,6 +245,9 @@ export function ApprovalCard({
       revision: current.revision,
       action: current.action,
       ...(current.protection ? { protection: current.protection } : {}),
+      ...(current.provider_binding
+        ? { provider_binding: current.provider_binding }
+        : {}),
       decision_id: crypto.randomUUID(),
       decision: choice,
       reviewer: attribution,

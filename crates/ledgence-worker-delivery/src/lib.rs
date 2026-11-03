@@ -7,6 +7,7 @@
 
 mod attempt;
 mod observations;
+mod provider;
 mod renewal;
 mod source;
 mod workflow;

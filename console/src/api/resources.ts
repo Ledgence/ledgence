@@ -26,22 +26,45 @@ export const attemptState = s.enumeration(
   "lost",
 );
 export const quiescence = s.enumeration("confirmed", "unconfirmed");
-export const taskStatus = s.object({
-  task_id: s.id,
-  run_id: s.id,
-  workflow_id: s.nullable(s.id),
-  workflow_activation_id: s.nullable(s.id),
-  queue: s.id,
-  correlation_key: s.nullable(s.string),
-  state: taskState,
-  attempt_count: s.integer(),
-  current_attempt_id: s.nullable(s.id),
-  latest_attempt_id: s.nullable(s.id),
-  submitted_at: s.timestamp,
-  available_at: s.timestamp,
-  terminal_at: s.nullable(s.timestamp),
-  cancel_requested_at: s.nullable(s.timestamp),
+export const effectOccurrence = s.object({
+  scope: s.object({ tenant_id: s.id, namespace: s.id }),
+  workflow_id: s.id,
+  activation_id: s.id,
+  approval_key: s.id,
 });
+export const providerProbe = s.object({
+  occurrence: effectOccurrence,
+  probe_id: s.id,
+  generation: s.refine(
+    s.decimal,
+    (v) => BigInt(v) > 0n,
+    "Invalid probe generation.",
+  ),
+});
+export const taskStatus = s.refine(
+  s.object({
+    task_id: s.id,
+    run_id: s.id,
+    workflow_id: s.nullable(s.id),
+    workflow_activation_id: s.nullable(s.id),
+    provider_probe: s.nullable(providerProbe),
+    queue: s.id,
+    correlation_key: s.nullable(s.string),
+    state: taskState,
+    attempt_count: s.integer(),
+    current_attempt_id: s.nullable(s.id),
+    latest_attempt_id: s.nullable(s.id),
+    submitted_at: s.timestamp,
+    available_at: s.timestamp,
+    terminal_at: s.nullable(s.timestamp),
+    cancel_requested_at: s.nullable(s.timestamp),
+  }),
+  (value) =>
+    !value.provider_probe ||
+    (value.workflow_activation_id === null &&
+      value.workflow_id === value.provider_probe.occurrence.workflow_id),
+  "Inconsistent provider check task identity.",
+);
 export const taskSummary = s.object({ task: taskStatus, descriptor });
 export const taskPage = s.page(taskSummary);
 export const retryPolicy = s.object({
@@ -66,26 +89,34 @@ export const trace: s.Decoder<{
     value,
   );
 };
-export const taskDetail = s.object({
-  task_id: s.id,
-  run_id: s.id,
-  workflow_id: s.nullable(s.id),
-  workflow_activation_id: s.nullable(s.id),
-  parent_workflow_id: s.nullable(s.id),
-  root_workflow_id: s.nullable(s.id),
-  input: submission,
-  descriptor,
-  idempotency_key: s.id,
-  origin_trace: s.nullable(trace),
-  state: taskState,
-  attempt_count: s.integer(),
-  current_attempt_id: s.nullable(s.id),
-  submitted_at: s.timestamp,
-  available_at: s.timestamp,
-  terminal_at: s.nullable(s.timestamp),
-  cancel_requested_at: s.nullable(s.timestamp),
-  observed_at: s.timestamp,
-});
+export const taskDetail = s.refine(
+  s.object({
+    task_id: s.id,
+    run_id: s.id,
+    workflow_id: s.nullable(s.id),
+    workflow_activation_id: s.nullable(s.id),
+    provider_probe: s.nullable(providerProbe),
+    parent_workflow_id: s.nullable(s.id),
+    root_workflow_id: s.nullable(s.id),
+    input: submission,
+    descriptor,
+    idempotency_key: s.id,
+    origin_trace: s.nullable(trace),
+    state: taskState,
+    attempt_count: s.integer(),
+    current_attempt_id: s.nullable(s.id),
+    submitted_at: s.timestamp,
+    available_at: s.timestamp,
+    terminal_at: s.nullable(s.timestamp),
+    cancel_requested_at: s.nullable(s.timestamp),
+    observed_at: s.timestamp,
+  }),
+  (value) =>
+    !value.provider_probe ||
+    (value.workflow_activation_id === null &&
+      value.workflow_id === value.provider_probe.occurrence.workflow_id),
+  "Inconsistent provider check task identity.",
+);
 export const applicationError = s.object({ kind: s.string, message: s.string });
 export const executionError = s.object({ kind: s.string, message: s.string });
 export const failure = s.variant({
@@ -192,17 +223,19 @@ export const childWait = s.object({
   activation_id: s.id,
   command_keys: s.array(s.id, 1000),
 });
-export const effectOccurrence = s.object({
-  scope: s.object({ tenant_id: s.id, namespace: s.id }),
-  workflow_id: s.id,
-  activation_id: s.id,
-  approval_key: s.id,
-});
 export const nativeEffectWait = s.object({
   parking_activation_id: s.id,
   key: s.id,
   occurrence: effectOccurrence,
   after_resolution_id: s.nullable(s.id),
+});
+export const providerWait = s.object({
+  parking_activation_id: s.id,
+  key: s.id,
+  occurrence: effectOccurrence,
+  after_effect_revision: s.nullable(
+    s.refine(s.decimal, (v) => BigInt(v) > 0n, "Invalid effect revision."),
+  ),
 });
 export const workflowDetail = s.refine(
   s.object({
@@ -211,6 +244,7 @@ export const workflowDetail = s.refine(
     child_wait: s.nullable(childWait),
     external_wait_key: s.nullable(s.string),
     native_effect_wait: s.nullable(nativeEffectWait),
+    provider_wait: s.nullable(providerWait),
     observed_at: s.timestamp,
   }),
   (value) =>
@@ -218,9 +252,13 @@ export const workflowDetail = s.refine(
       value.child_wait,
       value.external_wait_key,
       value.native_effect_wait,
+      value.provider_wait,
     ].filter((v) => v !== null).length <= 1 &&
     (!value.native_effect_wait ||
       value.native_effect_wait.occurrence.workflow_id ===
+        value.summary.workflow.workflow_id) &&
+    (!value.provider_wait ||
+      value.provider_wait.occurrence.workflow_id ===
         value.summary.workflow.workflow_id),
   "Inconsistent current workflow wait.",
 );
@@ -272,13 +310,26 @@ export const wait = s.refine(
     workflow_id: s.id,
     wait_key: s.id,
     activation_id: s.id,
-    kind: s.enumeration("event", "timer", "approval", "effect_resolution"),
+    kind: s.enumeration(
+      "event",
+      "timer",
+      "approval",
+      "effect_resolution",
+      "provider_operation",
+    ),
     deadline: s.nullable(s.timestamp),
     registered_at: s.timestamp,
     closed_at: s.nullable(s.timestamp),
     native_effect_wait: s.nullable(nativeEffectWait),
+    provider_wait: s.nullable(providerWait),
   }),
   (value) =>
+    (value.kind === "provider_operation") === (value.provider_wait !== null) &&
+    (!value.provider_wait ||
+      (value.deadline === null &&
+        value.provider_wait.occurrence.workflow_id === value.workflow_id &&
+        value.provider_wait.parking_activation_id === value.activation_id &&
+        value.provider_wait.key === value.wait_key)) &&
     (value.kind === "effect_resolution") ===
       (value.native_effect_wait !== null) &&
     (!value.native_effect_wait ||

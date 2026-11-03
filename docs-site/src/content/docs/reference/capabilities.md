@@ -108,6 +108,16 @@ records are collected. Matching development components, credentials, operator
 audit and database migrations are required.
 [Inspect and resolve effects](/how-to/inspect-effects).
 
+## Provider recovery in development
+
+Matching development components support approval-bound provider operations with
+business and provider deduplication identities, same-package registered adapters,
+a single dispatch grant, bounded read-only probes and typed workflow resumption.
+The Effects view exposes provider knowledge, recovery budget and operator
+handling. An explicit policy file controls dispatch and declared-restore
+quarantine. Use a dedicated matching-worker probe queue.
+[Recover provider operations](/how-to/recover-provider-operations).
+
 ## Installation channels
 
 | Method | Availability |

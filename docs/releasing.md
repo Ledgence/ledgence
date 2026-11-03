@@ -63,9 +63,15 @@ Console, using the pinned frontend toolchain and a disposable PostgreSQL 18.6
 service for relocated verification. Set `include_console=false` to run only the
 headless jobs; set `candidate=rc.N` to select the candidate label.
 
-The Linux Console job also upgrades a retained approval and an accepted tool
-result from the checksum-pinned 0.6.1 bundle with the packaged candidate,
-including its Python runner. Its evidence is retained separately.
+The Linux Console job upgrades both the historical 0.6.1 bundle and the last
+stable 0.7.0 Linux x86_64 bundle, each pinned to its published archive checksum.
+The 0.6.1 rehearsal preserves a pending approval and accepted tool result. The
+0.7.0 rehearsal verifies legacy decision bytes, authenticated attribution,
+cancelled approvals and recovery without a second dispatch. Both use the same
+extracted candidate executable, Console and Python runner. Each owns a separate
+database and evidence directory, retained under `approval-upgrade/evidence/0.6.1`
+and `approval-upgrade/evidence/0.7.0`. Neither a source-only test nor an upgrade
+from an older baseline substitutes for the last-stable rehearsal.
 
 Each successful job retains its verified archive, `SHA256SUMS` and provenance as
 an Actions artifact for 30 days. Artifact names distinguish the headless targets

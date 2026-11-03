@@ -6,6 +6,8 @@ mod approvals;
 mod audit;
 mod effect_resolution;
 mod evidence;
+mod provider;
+mod provider_console;
 mod routes;
 use routes::{Policy, Route};
 pub mod assets;
@@ -226,6 +228,11 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/workflows/approved-effects/v2/claim", Policy::Worker),
     Route::post("/v1/workflows/approved-effects/v2/confirm", Policy::Worker),
     Route::post("/v1/workflows/approved-effects/v2/observe", Policy::Worker),
+    Route::post("/v1/workflows/provider-operations/claim", Policy::Worker),
+    Route::post("/v1/workflows/provider-operations/report", Policy::Worker),
+    Route::post("/v1/workflows/provider-operations/observe", Policy::Worker),
+    Route::post("/v1/provider-probes/context", Policy::Worker),
+    Route::post("/v1/provider-probes/report", Policy::Worker),
     Route::post("/v1/workflows/approved-effects/inbox", Policy::Metadata),
     Route::post(
         "/v1/workflows/approved-effects/resolve",
@@ -821,6 +828,11 @@ async fn dispatch(
         });
     }
     let maximum = match path {
+        path if path.starts_with("/v1/workflows/provider-operations/")
+            || path.starts_with("/v1/provider-probes/") =>
+        {
+            PROVIDER_COMMAND_MAX_BYTES
+        }
         "/v1/audit/events" => 16 * 1024,
         "/v1/workflows/approved-effects/claim" => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/workflows/approved-effects/confirm" => APPROVED_EFFECT_CONFIRM_MAX_BYTES,
@@ -863,6 +875,11 @@ async fn dispatch(
     }
     if path == "/v1/audit/events" {
         return audit::query(server, bytes, None, context).await;
+    }
+    if path.starts_with("/v1/workflows/provider-operations/")
+        || path.starts_with("/v1/provider-probes/")
+    {
+        return provider::post(server, path, bytes, context).await;
     }
     if path.starts_with("/v1/workflows") {
         return workflow::post(server, path, bytes, maximum, context).await;

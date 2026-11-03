@@ -357,10 +357,12 @@ async fn compact_status_selects_no_payload_columns_and_corrupt_results_are_unava
         described
             .columns()
             .iter()
-            .all(|column| column.type_info().name() != "BYTEA")
+            .all(|column| column.type_info().name() != "BYTEA"
+                || column.name() == "provider_probe_bytes")
     );
-    // Includes one compact retirement marker; application payloads stay excluded.
-    assert_eq!(described.columns().len(), 19);
+    // Only the server-owned bounded provider role marker may be bytes. Input,
+    // output, descriptors, receipts and user payloads remain excluded.
+    assert_eq!(described.columns().len(), 20);
     let (task, _, assigned) = claimed(&db.store).await;
     db.store
         .settle(&completed(&assigned, Quiescence::Confirmed, Value::Null))

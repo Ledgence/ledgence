@@ -7,8 +7,8 @@ Console is the operator interface for **one self-hosted Ledgence instance**. The
 
 **Availability:** Console is included in Ledgence **0.7.0** source and Console-enabled native bundles. Use matching contract **5** server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.7.0](/how-to/upgrade-to-0-7) covers existing deployments.
 
-**Development:** matching development components use contract **6**. They add an
-**Effects** inbox, operator assessment review and native recovery waits in Graph
+**Development:** matching development components use contract **7**. They add an
+**Effects** inbox, operator assessment review and native/provider recovery waits in Graph
 and Trace. These additions are not part of the published 0.7.0 bundles.
 
 **General → Approvals** reviews immutable actions and recorded decisions. See [Require approval before an action](/how-to/require-approval).
@@ -56,6 +56,15 @@ location or timestamp does not imply a dependency on another branch. Use
 **Inspect effect** to read its retained evidence. Back restores the workflow's
 selection and graph position. A closed wait without a resumed activation remains
 explicit, and closing with an unknown outcome is not displayed as success.
+
+Provider-operation waits have their own node and durable namespace. The selection
+records a provider outcome, operator assessment, dispute or **Needs review**;
+only an actual selection connects to a resumed entrypoint. **Provider check**
+badges distinguish the controller's reconciliation tasks in execution history and
+details. Their evidence link opens the original approved occurrence. A successful
+check means its report was recorded, not that the provider operation succeeded.
+These tasks cannot be submitted again with **Run again**; the recovery controller
+allocates them within the reviewed budget.
 
 ## Filters and pagination
 
@@ -126,6 +135,20 @@ an occurrence. Its address consists of the workflow ID, original effect
 activation and approval key. The review page shows the approved action, program,
 worker claims, reported results and operator assessments. Follow additional
 evidence pages until no next page remains; large entries can shorten a page.
+
+Provider-operation filters add pending, succeeded, failed, cancelled, disputed and
+review-needed recovery. **Needs review** includes operations requiring external
+action. The approved binding identifies the provider target,
+business operation, deduplication domain/key/horizon, completion criterion,
+immutable program and finite recovery policy. Credential values stay outside the
+binding; it contains a reference used by the program.
+
+Recovery details show allocated checks, deadline, next check and stopped reason.
+Each allocation consumes budget even if its worker fails before making a request.
+The timeline distinguishes dispatch, probe allocation, callback source, typed
+report and finalization. Provider-backed operations have no local result journal.
+Pending or unknown reports do not prove failure, and a recorded response remains
+an adapter's classified evidence rather than independently verified provider truth.
 
 The inbox requires `metadata_read` in credential mode and also works in an
 operator-trusted deployment. Opening sensitive evidence requires `sensitive_read`
@@ -235,7 +258,7 @@ Do not rewrite API failures or missing assets into HTML. The orchestrator handle
 ## Upgrades
 
 The published 0.7.0 explorer uses Console contract version 5; matching development
-components use version 6. Start matching server and assets; incompatible Console
+components use version 7. Start matching server and assets; incompatible Console
 bundles fail explicitly. Each node carries typed invocation, registration,
 branch-membership, terminal-wait and resumption relations from the backend.
 References remain available when an endpoint is outside the loaded page. A local
@@ -252,6 +275,13 @@ cannot resume them. The graph preserves existing execution identities and links
 the parking and resumed activations only when those relationships were recorded.
 See the [development query contract](https://github.com/Ledgence/ledgence/blob/develop/docs/console-query-model.md#contract-5-to-6-upgrade)
 for the exact response and migration changes.
+
+C7 adds provider-wait metadata and required, nullable provider-check provenance
+on task status, task details and execution history. Apply the provider-operation
+migration, use matching server/assets, and restart wait-page traversal. Ordinary
+events cannot satisfy a provider wait, even when their logical keys match. The
+original effect and the entrypoint that parks can be different activations; the
+graph preserves both identities.
 
 The graph uses retained Ledgence records and works without an OTel backend. Local results are recorded durably on completion; abrupt process loss before result acceptance or a retained attempt report may leave no local node. Optional timing and tracing evidence must not be interpreted as a complete record of every started operation.
 

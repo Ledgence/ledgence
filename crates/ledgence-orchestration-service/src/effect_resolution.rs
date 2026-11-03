@@ -7,6 +7,7 @@ impl EffectResolution for ApplicationService {
     ) -> ContractFuture<'a, AuditedEffectResolution> {
         Box::pin(async move {
             c.validate()?;
+            self.effect_resolution()?;
             p.require(AccessCapability::EffectResolve)?;
             let proof = self
                 .workflows()?

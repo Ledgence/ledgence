@@ -285,3 +285,31 @@ continue from each typed outcome. The authenticated worker must negotiate
 0.7.0 does not include this capability.
 [Copyable worker example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/README.md#native-operator-rendezvous-development)
 · [Investigate and resolve an effect](/how-to/inspect-effects).
+
+
+## Provider operations in development
+
+`Workflow(Entry, providers=[adapter])` freezes registered `ProviderAdapter`
+callbacks when built. Import provider types from `ledgence.worker.providers`.
+Matching runtime components negotiate `provider_operation.v1`, which also
+requires native effect resolution and evidence v2.
+
+| Method or property | Behavior |
+| --- | --- |
+| `request_provider_approval(key, *, provider, arguments, binding, resume, state, timeout_ms)` | Persist a registered provider intent for review. The backend adds the immutable controller descriptor. |
+| `approved_provider_operation()` | Return an owned awaitable for the approved registered operation. Every result is a `ProviderOperationTicket`. |
+| `wait_provider_operation(key, *, resume, state, ticket=None, occurrence=None, after_effect_revision=...)` | Checkpoint a wait for the original occurrence and release the worker. A resumed provider wait defaults to its selected revision. |
+| `provider_operation_result` | The immutable `ProviderOperationResult` selected for this resume, or `None`. |
+
+`ProviderSelectionKind` distinguishes provider success, failure, cancellation,
+operator assessment, disputed evidence and needs-review handling. Read `.result`
+only for provider success. `.selection` preserves the complete typed selection as
+an independent JSON copy. `.occurrence` and `.selected_effect_revision` identify
+its source evidence. `ticket.to_dict()` can be persisted in workflow state and
+restored with `ProviderOperationTicket.from_dict(...)`.
+
+A provider approval cannot execute through `approved_local` or `approved_effect`.
+Provider recovery uses its own retained reports and leaves the local journal
+unchanged. A reference to another workflow's operation does not transfer wait
+ownership. Probe callbacks receive no workflow context.
+[Recover provider operations](/how-to/recover-provider-operations).

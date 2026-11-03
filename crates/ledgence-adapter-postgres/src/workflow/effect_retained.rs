@@ -219,6 +219,7 @@ pub(crate) async fn ensure(
     };
     binding.validate()?;
     let summary = EffectEvidenceSummary {
+        provider: None,
         operator_resolution: None,
         occurrence: occurrence.clone(),
         program: program.program,

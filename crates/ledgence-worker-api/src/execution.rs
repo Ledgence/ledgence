@@ -113,6 +113,7 @@ pub struct RuntimeFeatures {
     pub supported: Vec<String>,
 }
 pub const NATIVE_EFFECT_RESOLUTION_FEATURE: &str = "native_effect_resolution.v1";
+pub const PROVIDER_OPERATION_FEATURE: &str = "provider_operation.v1";
 impl Default for RuntimeFeatures {
     fn default() -> Self {
         Self {
@@ -135,6 +136,7 @@ impl RuntimeFeatures {
                     || !names.insert(name)
             })
             || serde_json::to_vec(self).map_or(true, |bytes| bytes.len() > 4096)
+            || (self.provider_operation() && !self.native_effect_resolution())
         {
             return Err(crate::Error::new(
                 crate::ErrorKind::Protocol,
@@ -147,6 +149,11 @@ impl RuntimeFeatures {
         self.supported
             .iter()
             .any(|name| name == NATIVE_EFFECT_RESOLUTION_FEATURE)
+    }
+    pub fn provider_operation(&self) -> bool {
+        self.supported
+            .iter()
+            .any(|name| name == PROVIDER_OPERATION_FEATURE)
     }
 }
 
@@ -250,5 +257,20 @@ mod feature_tests {
         ] {
             assert!(serde_json::from_value::<RuntimeFeatures>(value).is_err());
         }
+    }
+
+    #[test]
+    fn provider_operations_require_native_resolution_without_changing_legacy_features() {
+        let mut features = RuntimeFeatures {
+            v: 1,
+            supported: vec![PROVIDER_OPERATION_FEATURE.into()],
+        };
+        assert!(features.validate().is_err());
+        features
+            .supported
+            .push(NATIVE_EFFECT_RESOLUTION_FEATURE.into());
+        features.validate().unwrap();
+        assert!(features.provider_operation());
+        RuntimeFeatures::default().validate().unwrap();
     }
 }

@@ -32,8 +32,8 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "effect",
         name: "inbox",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--filter all|unconfirmed|confirmed|discrepant|disputed] [--workflow ID] [--cursor CURSOR] [--limit 1..100]",
-        description: "Read retained effect metadata. Requires metadata_read in credential mode. Preserve filters with next_cursor. Evidence summaries distinguish journal confirmation and differing reports.",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--filter all|unconfirmed|confirmed|discrepant|disputed] [--provider-filter all|pending|needs_review|succeeded|failed|cancelled|disputed] [--workflow ID] [--cursor CURSOR] [--limit 1..100]",
+        description: "Read retained effect metadata. Requires metadata_read in credential mode. Preserve filters with next_cursor. Evidence summaries distinguish journal confirmation, adapter-classified provider knowledge and operator handling. --provider-filter requires --filter all.",
     },
     Leaf {
         group: "effect",
@@ -164,8 +164,8 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "orchestrator",
         name: "serve",
-        options: "--store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR] [--allow-program-publication] [--access-config FILE] [--allow-insecure-console-access]",
-        description: "Serve HTTP orchestration and supervise recovery. DATABASE_URL is required; the schema is verified, never migrated automatically. Console requires explicit instance configuration; with --instance-config, the installed Console is used when available unless --console-dir overrides it. An external proxy can provide HTTPS. First SIGINT/SIGTERM drains; a second forces a nonzero exit. SQS delivery requires the sqs build feature.",
+        options: "--store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR] [--allow-program-publication] [--access-config FILE] [--provider-config FILE] [--allow-insecure-console-access]",
+        description: "Serve HTTP orchestration and supervise recovery. DATABASE_URL is required; the schema is verified, never migrated automatically. Console requires explicit instance configuration; with --instance-config, the installed Console is used when available unless --console-dir overrides it. Provider operations require --provider-config plus access and instance configurations; the bound file explicitly enables dispatch or declared-restore quarantine. An external proxy can provide HTTPS. First SIGINT/SIGTERM drains; a second forces a nonzero exit. SQS delivery requires the sqs build feature.",
     },
     Leaf {
         group: "orchestrator",

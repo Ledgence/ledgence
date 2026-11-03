@@ -1,5 +1,6 @@
 mod catalog;
 mod completion;
+mod effect_boundaries;
 mod workflow;
 
 use super::*;

@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
+import {
+  providerSummary,
+  providerReport,
+  providerReportReference,
+  providerStopReason,
+  providerProbeFailure,
+  providerFilters,
+  matchesProviderFilter,
+  type ProviderFilter,
+} from "./providers";
 import { ContractError } from "./codecs";
 import { approval, approvalAction, sameAction } from "./approvals";
 import { descriptor, program } from "./resources";
@@ -133,22 +143,47 @@ const summaryShape = {
   updated_at: s.timestamp,
 };
 function decodeSummary(value: unknown) {
-  const decoded =
-    s.isJsonObject(value) && Object.hasOwn(value, "operator_resolution")
-      ? s.object({ ...summaryShape, operator_resolution: resolutionSummary })(
-          value,
-        )
-      : { ...s.object(summaryShape)(value), operator_resolution: undefined };
+  const decoded = s.object({
+    ...summaryShape,
+    ...(s.isJsonObject(value) && Object.hasOwn(value, "operator_resolution")
+      ? { operator_resolution: resolutionSummary }
+      : {}),
+    ...(s.isJsonObject(value) && Object.hasOwn(value, "provider")
+      ? { provider: providerSummary }
+      : {}),
+  })(value);
+  const provider = decoded.provider;
+  if (
+    provider &&
+    ((provider.candidate_revision !== null &&
+      BigInt(provider.candidate_revision) > BigInt(decoded.effect_revision)) ||
+      [
+        ...(provider.selected_report ? [provider.selected_report] : []),
+        ...provider.conflicting_reports,
+      ].some(
+        (r) =>
+          BigInt(r.sequence) > BigInt(decoded.entry_count) ||
+          BigInt(r.recorded_revision) > BigInt(decoded.effect_revision),
+      ))
+  ) {
+    throw new ContractError(
+      "Provider summary exceeds its retained evidence revision.",
+    );
+  }
   const resolution = decoded.operator_resolution;
   if (
     BigInt(decoded.entry_count) >= BigInt(decoded.effect_revision) ||
     decoded.created_at > decoded.updated_at ||
+    (provider &&
+      (provider.handling === "operator_closed") !== Boolean(resolution)) ||
     (resolution &&
       (BigInt(resolution.reference.accepted_revision) >
         BigInt(decoded.effect_revision) ||
         BigInt(resolution.reference.sequence) > BigInt(decoded.entry_count) ||
         (resolution.first_conflicting_entry_sequence !== null &&
-          (resolution.reference.assessment_kind !== "record_success" ||
+          ((!provider
+            ? resolution.reference.assessment_kind !== "record_success"
+            : resolution.reference.assessment_kind === "close_unknown") ||
             BigInt(resolution.first_conflicting_entry_sequence) <=
               BigInt(resolution.reference.sequence) ||
             BigInt(resolution.first_conflicting_entry_sequence) >
@@ -157,7 +192,7 @@ function decodeSummary(value: unknown) {
     throw new ContractError(
       "Effect summary disagrees with its evidence revision.",
     );
-  return decoded;
+  return { ...decoded, operator_resolution: decoded.operator_resolution };
 }
 export type EffectSummary = ReturnType<typeof decodeSummary>;
 const commonEntry = {
@@ -201,7 +236,92 @@ const observationSource = s.variant({
     journal_accepted_at: s.timestamp,
   }),
 });
+const providerSource = s.variant({
+  dispatch: s.object({ kind: s.enumeration("dispatch"), claim_id: id }),
+  probe: s.object({
+    kind: s.enumeration("probe"),
+    probe_id: id,
+    generation: positive,
+    task_id: id,
+    attempt_id: id,
+  }),
+});
+const providerReportEntry = s.refine(
+  s.object({
+    ...commonEntry,
+    kind: s.enumeration("provider_report"),
+    source_id: id,
+    source: providerSource,
+    report_id: id,
+    worker,
+    ingress: s.enumeration("live_dispatch", "live_probe", "evidence_only"),
+    report: providerReport,
+  }),
+  (v) =>
+    !(v.source.kind === "dispatch" && v.ingress === "live_probe") &&
+    !(v.source.kind === "probe" && v.ingress === "live_dispatch"),
+  "Provider report has inconsistent ingress.",
+);
+const probeCompletion = s.variant({
+  reported: s.object({
+    kind: s.enumeration("reported"),
+    report: providerReportReference,
+  }),
+  unreported: s.object({
+    kind: s.enumeration("unreported"),
+    failure: providerProbeFailure,
+  }),
+});
 const entry = s.variant({
+  provider_dispatch: s.object({
+    ...commonEntry,
+    kind: s.enumeration("provider_dispatch"),
+    claim_id: id,
+    source_id: id,
+    report_id: id,
+    worker,
+  }),
+  provider_probe_scheduled: s.object({
+    ...commonEntry,
+    kind: s.enumeration("provider_probe_scheduled"),
+    probe_id: id,
+    generation: positive,
+    task_id: id,
+    due_at: s.timestamp,
+  }),
+  provider_probe_source: s.object({
+    ...commonEntry,
+    kind: s.enumeration("provider_probe_source"),
+    probe_id: id,
+    generation: positive,
+    task_id: id,
+    attempt_id: id,
+    source_id: id,
+    report_id: id,
+    worker,
+  }),
+  provider_report: providerReportEntry,
+  provider_probe_finished: s.refine(
+    s.object({
+      ...commonEntry,
+      kind: s.enumeration("provider_probe_finished"),
+      probe_id: id,
+      generation: positive,
+      task_id: id,
+      completion: probeCompletion,
+    }),
+    (v) =>
+      v.completion.kind !== "reported" ||
+      (BigInt(v.completion.report.sequence) < BigInt(v.sequence) &&
+        BigInt(v.completion.report.recorded_revision) <
+          BigInt(v.recorded_revision)),
+    "Probe completion precedes its report.",
+  ),
+  provider_recovery_stopped: s.object({
+    ...commonEntry,
+    kind: s.enumeration("provider_recovery_stopped"),
+    reason: providerStopReason,
+  }),
   assessment: assessmentEntry,
   claim: s.object({
     ...commonEntry,
@@ -220,6 +340,26 @@ const entry = s.variant({
   }),
 });
 export type EffectEntry = s.Decoded<typeof entry>;
+export function effectEntryIdentity(value: EffectEntry): string {
+  switch (value.kind) {
+    case "claim":
+    case "provider_dispatch":
+      return `${value.kind}:${value.claim_id}`;
+    case "observation":
+      return `${value.kind}:${value.observation_id}`;
+    case "assessment":
+      return `${value.kind}:${value.resolution_id}`;
+    case "provider_probe_scheduled":
+    case "provider_probe_finished":
+      return `${value.kind}:${value.probe_id}`;
+    case "provider_probe_source":
+      return `${value.kind}:${value.source_id}`;
+    case "provider_report":
+      return `${value.kind}:${value.report_id}`;
+    case "provider_recovery_stopped":
+      return `${value.kind}:${value.reason}`;
+  }
+}
 const binding = s.object({
   occurrence: effectOccurrence,
   approval,
@@ -256,6 +396,7 @@ export const effectFilters = [
 export type EffectFilter = (typeof effectFilters)[number];
 export type EffectInboxQuery = {
   filter: EffectFilter;
+  provider_filter?: ProviderFilter;
   workflow_id: string | null;
   cursor: string | null;
   limit: number;
@@ -305,7 +446,13 @@ function decodeInboxCursor(
   expectedScope?: EffectOccurrence["scope"],
 ) {
   const decoded = s.object({
-    version: s.integer(1, 1),
+    version: s.integer(
+      query.provider_filter === undefined ? 1 : 2,
+      query.provider_filter === undefined ? 1 : 2,
+    ),
+    ...(query.provider_filter === undefined
+      ? {}
+      : { provider_filter: s.enumeration(...providerFilters) }),
     scope,
     filter: s.enumeration(...effectFilters),
     workflow_id: s.nullable(id),
@@ -313,6 +460,7 @@ function decodeInboxCursor(
   })(cursorValue(value));
   if (
     decoded.filter !== query.filter ||
+    decoded.provider_filter !== query.provider_filter ||
     decoded.workflow_id !== query.workflow_id ||
     (expectedScope && !sameAction(decoded.scope, expectedScope)) ||
     (query.workflow_id !== null &&
@@ -325,6 +473,13 @@ export function effectInboxPage(
   query: EffectInboxQuery,
   expectedScope?: EffectOccurrence["scope"],
 ) {
+  if (
+    query.provider_filter !== undefined &&
+    (query.filter !== "all" || !providerFilters.includes(query.provider_filter))
+  )
+    throw new ContractError(
+      "Provider filtering requires the all-effects query.",
+    );
   return (raw: unknown) => {
     const page = s.object({
       items: s.array(decodeSummary, query.limit),
@@ -349,6 +504,12 @@ export function effectInboxPage(
         !matchesScope(item.occurrence, pageScope) ||
         ids.has(identity) ||
         !matchesFilter ||
+        (query.provider_filter !== undefined &&
+          !matchesProviderFilter(
+            item.provider,
+            query.provider_filter,
+            item.operator_resolution?.first_conflicting_entry_sequence != null,
+          )) ||
         (query.workflow_id !== null &&
           item.occurrence.workflow_id !== query.workflow_id) ||
         (prior !== null && compareInboxPosition(prior, position) <= 0)
@@ -391,10 +552,19 @@ export function effectDetail(
       entries: s.array(entry, query.limit),
       next_cursor: s.nullable(cursor),
     };
-    const detail =
-      s.isJsonObject(raw) && Object.hasOwn(raw, "current_assessment")
-        ? s.object({ ...shape, current_assessment: assessmentEntry })(raw)
-        : { ...s.object(shape)(raw), current_assessment: undefined };
+    const detail = s.object({
+      ...shape,
+      ...(s.isJsonObject(raw) && Object.hasOwn(raw, "current_assessment")
+        ? { current_assessment: assessmentEntry }
+        : {}),
+      ...(s.isJsonObject(raw) && Object.hasOwn(raw, "provider")
+        ? {
+            provider: s.object({
+              current_report: s.nullable(providerReportEntry),
+            }),
+          }
+        : {}),
+    })(raw);
     const { binding: bound, summary } = detail;
     if (
       !addressMatches(bound.occurrence, query) ||
@@ -411,6 +581,33 @@ export function effectDetail(
       throw new ContractError(
         "Effect evidence belongs to another occurrence or action.",
       );
+    const provider = summary.provider;
+    const providerBinding = bound.approval.provider_binding;
+    const providerCurrent = detail.provider?.current_report;
+    if (
+      Boolean(provider) !== Boolean(providerBinding) ||
+      Boolean(provider) !== Boolean(detail.provider) ||
+      (providerBinding &&
+        (!sameAction(providerBinding.program, bound.program) ||
+          bound.lookup !== null ||
+          summary.journal_state !== "unconfirmed")) ||
+      Boolean(providerCurrent) !== Boolean(provider?.selected_report)
+    )
+      throw new ContractError(
+        "Provider binding, summary and current report disagree.",
+      );
+    if (
+      providerCurrent &&
+      provider?.selected_report &&
+      (!sameReportReference(providerCurrent, provider.selected_report) ||
+        !sameAction(
+          providerCurrent.report.reported_target,
+          providerBinding?.target,
+        ))
+    )
+      throw new ContractError(
+        "Current provider report differs from its selected evidence.",
+      );
     let sequence = 0n,
       revision = 0n;
     if (query.cursor !== null) {
@@ -425,7 +622,7 @@ export function effectDetail(
     }
     const identities = new Set<string>();
     for (const evidence of detail.entries) {
-      const identity = `${evidence.kind}:${evidence.kind === "claim" ? evidence.claim_id : evidence.kind === "observation" ? evidence.observation_id : evidence.resolution_id}`;
+      const identity = effectEntryIdentity(evidence);
       if (identities.has(identity))
         throw new ContractError("Duplicate retained evidence identity.");
       identities.add(identity);
@@ -438,8 +635,36 @@ export function effectDetail(
         throw new ContractError(
           "Effect evidence contains a gap or invalid revision.",
         );
+      if (evidence.kind.startsWith("provider_") && !provider)
+        throw new ContractError("Provider evidence lacks a provider binding.");
+      if (
+        evidence.kind === "provider_report" &&
+        !sameAction(evidence.report.reported_target, providerBinding?.target)
+      )
+        throw new ContractError("Provider report changes its approved target.");
+      for (const reference of [
+        ...(provider?.selected_report ? [provider.selected_report] : []),
+        ...(provider?.conflicting_reports ?? []),
+      ]) {
+        if (
+          reference.sequence === evidence.sequence &&
+          (evidence.kind !== "provider_report" ||
+            !sameReportReference(evidence, reference))
+        )
+          throw new ContractError(
+            "Provider report reference disagrees with its immutable timeline.",
+          );
+      }
+      if (
+        providerCurrent &&
+        evidence.sequence === providerCurrent.sequence &&
+        !sameAction(providerCurrent, evidence)
+      )
+        throw new ContractError(
+          "Provider report header differs from its immutable timeline.",
+        );
       const source =
-        evidence.kind === "claim"
+        "worker" in evidence
           ? evidence.worker
           : evidence.kind === "observation" &&
               evidence.source.kind === "verified_worker_claim"
@@ -505,8 +730,21 @@ export function effectDetail(
           "The assessment timeline disagrees with its current header.",
         );
     }
-    return detail;
+    return { ...detail, current_assessment: detail.current_assessment };
   };
+}
+function sameReportReference(
+  evidence: s.Decoded<typeof providerReportEntry>,
+  reference: s.Decoded<typeof providerReportReference>,
+) {
+  return (
+    evidence.report_id === reference.report_id &&
+    evidence.source_id === reference.source_id &&
+    evidence.sequence === reference.sequence &&
+    evidence.recorded_revision === reference.recorded_revision &&
+    evidence.recorded_at === reference.recorded_at &&
+    evidence.report.knowledge.kind === reference.knowledge
+  );
 }
 export type EffectDetail = ReturnType<ReturnType<typeof effectDetail>>;
 export const decodeEffectResolutionCommand = s.refine(

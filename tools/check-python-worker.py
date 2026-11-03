@@ -31,7 +31,7 @@ SPEC.loader.exec_module(client)
 deps = client.deps
 run, install, interpreter = client.run, client.install, client.interpreter
 MODULES = {"__init__.py", "_logging.py", "_observations.py", "_protocol.py",
-           "bootstrap.py", "otel.py", "workflow.py", "py.typed"}
+           "bootstrap.py", "otel.py", "workflow.py", "providers.py", "py.typed"}
 SUITE = "tests/test_installed_package.py"
 
 
@@ -314,6 +314,7 @@ def main():
                                "installed invocation, checkpoint, local replay, logging and optional tracing tests",
                                "dedicated helper relocated from installed bytes under isolated protocols 1/2/3",
                                "installed native effect park, typed immutable resume and invocation feature isolation",
+                               "installed registered provider probe, failed negotiation and immutable typed provider resume",
                                "actual client/worker wheels in both install, import and uninstall orders"],
                     "hosted_ci": "not claimed by this local run", "publication": "not performed"}
         if args.dist_dir:

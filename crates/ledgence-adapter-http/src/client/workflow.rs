@@ -40,6 +40,9 @@ impl ApprovedEffects for HttpTaskService {
 }
 
 impl WorkflowService for HttpTaskService {
+    fn provider_operation_client(&self) -> Result<&dyn ProviderOperationClient> {
+        Ok(self)
+    }
     fn effect_resolution_client(&self) -> Result<&dyn EffectResolutionClient> {
         Ok(self)
     }
@@ -270,19 +273,15 @@ impl WorkflowService for HttpTaskService {
         owner: &'a LeaseOwner,
     ) -> ContractFuture<'a, WorkflowActivationContext> {
         Box::pin(async move {
-            let activation = owner.task_id.clone();
-            let scope = owner.scope.clone();
+            let expected = owner.clone();
             self.post_validated(
                 "v1/workflows/activations/context",
                 owner,
                 SUBMISSION_MAX_BYTES,
                 move |reply: &WorkflowActivationContext| {
-                    if reply.activation_id != activation
-                        || matches!(&reply.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != scope)
-                    {
-                        return Err(unavailable("workflow activation identity mismatch"));
-                    }
-                    Ok(())
+                    reply
+                        .validate_for_owner(&expected)
+                        .map_err(|_| unavailable("workflow activation identity mismatch"))
                 },
             )
             .await

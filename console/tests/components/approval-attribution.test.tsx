@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json?raw";
+import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import { accessController } from "../../src/app/access-state";
@@ -61,7 +61,7 @@ async function mount(
           status: failure ?? 200,
           headers: {
             "Content-Type": "application/json",
-            "Ledgence-Console-Contract": "6",
+            "Ledgence-Console-Contract": "7",
             "Ledgence-Instance-Id": config.instance_id,
           },
         },

@@ -1,0 +1,14 @@
+[project]
+name = "ledgence-provider-recovery-example"
+version = "1.0.0"
+description = "Approve a local asynchronous export and recover its result through durable read-only checks"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["ledgence-client", "ledgence-worker"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+ledgence-client = { path = "../../sdk/python-client" }
+ledgence-worker = { path = "../../sdk/python" }

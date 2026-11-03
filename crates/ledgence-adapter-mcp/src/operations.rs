@@ -171,6 +171,7 @@ impl ToolDispatcher {
                 let query = EffectInboxQuery {
                     scope: self.scope.clone(),
                     filter: args.filter,
+                    provider_filter: args.provider_filter,
                     workflow_id: args.workflow_id,
                     cursor: args.cursor,
                     limit: args.limit,
@@ -279,6 +280,7 @@ impl ToolDispatcher {
                         || reply.scope() != self.scope
                         || reply.workflow_id.is_some()
                         || reply.workflow_activation_id.is_some()
+                        || reply.provider_probe.is_some()
                         || reply.parent_workflow_id.is_some()
                         || reply.root_workflow_id.is_some()
                     {
@@ -314,7 +316,11 @@ impl ToolDispatcher {
                 reply
                     .validate(&self.scope, &query)
                     .map_err(|_| invalid_reply(false))?;
-                encode(reply, false)?
+                let mut value = encode(reply, false)?;
+                for item in value["items"].as_array_mut().expect("typed task page") {
+                    crate::effects::task(item);
+                }
+                value
             }
             "ledgence_task_status" | "ledgence_task_result" | "ledgence_task_cancel" => {
                 let args: TaskReference = parse(arguments)?;
@@ -324,14 +330,18 @@ impl ToolDispatcher {
                         let reply =
                             remote(self.tasks.status(&self.scope, &args.task_id).await, false)?;
                         check_task(&reply, &self.scope, &args.task_id)?;
-                        encode(reply, false)?
+                        let mut value = encode(reply, false)?;
+                        crate::effects::task(&mut value);
+                        value
                     }
                     "ledgence_task_result" => {
                         let reply =
                             remote(self.tasks.result(&self.scope, &args.task_id).await, false)?;
                         reply.validate().map_err(|_| invalid_reply(false))?;
                         check_task(&reply.task, &self.scope, &args.task_id)?;
-                        encode(reply, false)?
+                        let mut value = encode(reply, false)?;
+                        crate::effects::task(&mut value["task"]);
+                        value
                     }
                     _ => {
                         let state =
@@ -441,7 +451,11 @@ impl ToolDispatcher {
                 ) {
                     return Err(invalid_reply(false));
                 }
-                encode(reply, false)?
+                let mut value = encode(reply, false)?;
+                for item in value["items"].as_array_mut().expect("typed approval page") {
+                    crate::effects::approval(item);
+                }
+                value
             }
             "ledgence_approval_inspect" => {
                 let args: ApprovalReference = parse(arguments)?;
@@ -460,7 +474,9 @@ impl ToolDispatcher {
                 {
                     return Err(invalid_reply(false));
                 }
-                encode(reply, false)?
+                let mut value = encode(reply, false)?;
+                crate::effects::approval(&mut value);
+                value
             }
             _ => unreachable!("tool catalog and dispatcher must stay in sync"),
         };
@@ -560,10 +576,17 @@ fn required_value<'de, D: serde::Deserializer<'de>>(
 struct EffectInbox {
     #[serde(default = "all_effects")]
     filter: EffectInboxFilter,
+    #[serde(default, deserialize_with = "present_provider_filter")]
+    provider_filter: Option<ProviderInboxFilter>,
     workflow_id: Option<String>,
     cursor: Option<String>,
     #[serde(default = "default_limit")]
     limit: u32,
+}
+fn present_provider_filter<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<ProviderInboxFilter>, D::Error> {
+    ProviderInboxFilter::deserialize(d).map(Some)
 }
 fn all_effects() -> EffectInboxFilter {
     EffectInboxFilter::All
@@ -867,6 +890,7 @@ mod tests {
             root_workflow_id: None,
             workflow_id: None,
             workflow_activation_id: None,
+            provider_probe: None,
             task_id: "task-original".into(),
             run_id: "run-original".into(),
             idempotency_key: original.idempotency_key,

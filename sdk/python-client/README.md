@@ -792,3 +792,70 @@ the shared Rust/Python fixtures. Dependency versions, wheel/source hashes,
 licenses and notices are retained under `third_party`; normal wheel installation
 pins the reviewed runtime closure. The gate verifies those pins and distributed
 legal files. No dependencies are downloaded during program execution.
+
+## Typed provider operations (development)
+
+Matching development client, API and worker builds support approved asynchronous
+provider operations. Published 0.7.0 does not contain this capability. The client
+continues to use `client.effects`; no provider SDK or model service is required.
+
+```python
+from ledgence.client import ProviderFilter, ProviderSucceeded
+
+page = await client.effects.inbox(provider_filter=ProviderFilter.NEEDS_REVIEW)
+for item in page.items:
+    occurrence = item.occurrence
+    detail = await client.effects.inspect(
+        workflow_id=occurrence.workflow_id,
+        activation_id=occurrence.activation_id,
+        approval_key=occurrence.approval_key,
+    )
+    binding = detail.binding.approval.provider_binding
+    print(binding.business.key, detail.summary.provider.knowledge)
+    report = detail.provider.current_report
+    if report and isinstance(report.report.knowledge, ProviderSucceeded):
+        print(report.report.knowledge.result)  # A copy; JSON null is a valid success.
+```
+
+`provider_filter` accepts `ProviderFilter.ALL`, `.PENDING`, `.NEEDS_REVIEW`,
+`.SUCCEEDED`, `.FAILED`, `.CANCELLED` and `.DISPUTED`. It requires the ordinary
+`filter` to remain `EffectFilter.ALL`. Omit it for the existing mixed effect inbox.
+A provider cursor is bound to that provider filter, scope and workflow selector;
+it cannot be reused with another filter. Follow `next_cursor` even on short pages.
+`NEEDS_REVIEW` excludes historical disputes covered by the current clean operator
+assessment; `DISPUTED` retains that history. New conflicting evidence against the
+current assessment makes the occurrence need review again.
+
+`ApprovalProtection.PROVIDER_OPERATION` requires a `ProviderBinding`. Its frozen
+business identity, adapter contract, target, optional provider deduplication
+domain/key/horizon, credential **reference**, reconciliation policy and pinned
+program are reviewed together with `action.arguments`. Preparing and restoring
+an approval decision preserves and echoes that full binding. It never embeds a
+provider credential or invokes the provider from the client.
+
+`EffectEvidenceSummary.provider` separates `knowledge`, `reconciliation`,
+`handling`, `selected_report`/`conflicting_reports` and `candidate_revision`.
+`EffectEvidenceDetail.provider.current_report` is a bounded typed header, even
+when its timeline entry is on another page. Typed entries include
+`ProviderDispatchEntry`, `ProviderProbeScheduledEntry`, `ProviderProbeSourceEntry`,
+`ProviderReportEntry`, `ProviderProbeFinishedEntry` and `ProviderRecoveryStoppedEntry`.
+A report's `knowledge` is one of `ProviderUnknown`, `ProviderPending`,
+`ProviderRequiresAction`, `ProviderSucceeded`, `ProviderFailed` or
+`ProviderCancelled`. Disputed aggregate knowledge retains conflicting report or
+provider-reference facts. A reference conflict can arise before any terminal
+outcome; `disputed` is not a seventh individual report outcome.
+
+The SDK keeps exact integer metadata and immutable models; returned application
+JSON is copied. `TaskStatus.provider_probe` identifies a managed read-only check
+and its original occurrence; a successful check task alone does not establish
+provider success. Inspect the typed report instead.
+
+Provider reports remain adapter-classified evidence. Journal state stays
+`unconfirmed`; operator handling and workflow wake selection are independent.
+The existing frozen operator-resolution command and permission are unchanged.
+For typed provider evidence a later terminal report can also dispute a recorded
+failure. Closing an unknown outcome does not assert provider truth or authorize
+redispatch. A selected workflow wake is never rewritten.
+
+See the [provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/)
+and [source contract](../../docs/provider-operations.md).

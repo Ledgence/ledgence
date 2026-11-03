@@ -23,6 +23,7 @@ pub fn fixtures() -> Value {
         run_id: "run_invoice_1042".into(),
         workflow_id: None,
         workflow_activation_id: None,
+        provider_probe: None,
         queue: "billing".into(),
         correlation_key: Some("INV-1042".into()),
         state: TaskState::Queued,
@@ -237,6 +238,7 @@ pub fn fixtures() -> Value {
         run_id: status.run_id.clone(),
         workflow_id: None,
         workflow_activation_id: None,
+        provider_probe: None,
         parent_workflow_id: None,
         root_workflow_id: None,
         input: ConsoleSubmitTask {
@@ -268,6 +270,7 @@ pub fn fixtures() -> Value {
         }),
         external_wait_key: None,
         native_effect_wait: None,
+        provider_wait: None,
         observed_at: at,
     };
     let activations = ConsolePage {
@@ -343,6 +346,46 @@ pub fn fixtures() -> Value {
         input: json!({"v":1,"kind":"tool","version":"v1","arguments":{"id":u64::MAX,"factor":1.0}}),
         output: json!({"balance":-0.0}),
     }).unwrap();
+    let probe_marker = ConsoleProviderProbeAssignment {
+        occurrence: EffectOccurrence {
+            scope: Scope {
+                tenant_id: "acme".into(),
+                namespace: "billing".into(),
+            },
+            workflow_id: "wf_invoice_1042".into(),
+            activation_id: "task_controller_1".into(),
+            approval_key: "issue".into(),
+        },
+        probe_id: "probe_invoice_1".into(),
+        generation: ConsoleU64(3),
+    };
+    let mut probe_status = status.clone();
+    probe_status.task_id = "task_probe_invoice_1".into();
+    probe_status.workflow_id = Some(probe_marker.occurrence.workflow_id.clone());
+    probe_status.provider_probe = Some(probe_marker.clone());
+    probe_status.queue = "provider-checks".into();
+    let mut probe_detail = task_detail.clone();
+    probe_detail.task_id = probe_status.task_id.clone();
+    probe_detail.workflow_id = probe_status.workflow_id.clone();
+    // Detail carries the owning workflow's ancestry; the root owner itself is
+    // workflow_id. Execution history separately uses its direct owner.
+    probe_detail.parent_workflow_id = None;
+    probe_detail.root_workflow_id = None;
+    probe_detail.provider_probe = Some(probe_marker.clone());
+    probe_detail.input.queue = probe_status.queue.clone();
+    let probe_execution = ConsoleExecutionSummary {
+        kind: ConsoleExecutionKind::Task,
+        id: probe_status.task_id.clone(),
+        descriptor: probe_detail.descriptor.clone(),
+        queue: probe_status.queue.clone(),
+        state: ConsoleExecutionState::Queued,
+        submitted_at: at,
+        terminal_at: None,
+        correlation_key: probe_status.correlation_key.clone(),
+        parent_workflow_id: probe_status.workflow_id.clone(),
+        root_workflow_id: probe_status.workflow_id.clone(),
+        provider_probe: Some(probe_marker),
+    };
     let mut result = json!({"contract_version":CONSOLE_CONTRACT_VERSION,"config":config,"tasks":tasks,"task_status":ConsoleObservedTaskStatus{task:status,observed_at:at},"task_detail":task_detail,"attempts":attempts,"attempt_detail":attempt_detail,
         "workflows":workflows,"workflow_status":ConsoleObservedWorkflowStatus{workflow,observed_at:at},"workflow_detail":workflow_detail,"activations":activations,"children":children,"waits":waits,"local_steps":local_steps,"local_step_detail":local_step_detail,"workflow_history":workflow_history,
         "pending_result":pending,"null_result":success,"numeric_payload":numeric_payload,
@@ -351,5 +394,12 @@ pub fn fixtures() -> Value {
         .as_object_mut()
         .unwrap()
         .extend(explorer::fixtures().as_object().unwrap().clone());
+    result["provider_probe_status"] = serde_json::to_value(ConsoleObservedTaskStatus {
+        task: probe_status,
+        observed_at: at,
+    })
+    .unwrap();
+    result["provider_probe_detail"] = serde_json::to_value(probe_detail).unwrap();
+    result["provider_probe_execution"] = serde_json::to_value(probe_execution).unwrap();
     result
 }

@@ -415,6 +415,7 @@ async fn v2_pagination_is_scoped_bounded_and_preserves_integer_float_and_nul_dis
         Err(ContractError::InvalidInput(_))
     ));
     let inbox = EffectInboxQuery {
+        provider_filter: None,
         scope: scope(),
         filter: EffectInboxFilter::Discrepant,
         workflow_id: Some(c.workflow_id.clone()),

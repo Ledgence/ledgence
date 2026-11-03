@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
 import { apiPath } from "../../src/api/client";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
@@ -38,7 +38,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "6",
+      "Ledgence-Console-Contract": "7",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -119,6 +119,7 @@ function workflowReads(ids: string[], tab: "Waits" | "Context") {
                 activation_id: "task_activation",
                 kind: "event",
                 native_effect_wait: null,
+                provider_wait: null,
                 deadline: null,
                 registered_at: 0,
                 closed_at: null,

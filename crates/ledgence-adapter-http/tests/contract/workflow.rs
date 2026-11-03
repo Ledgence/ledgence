@@ -16,6 +16,15 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
+        if self.evidence_capabilities.load(Ordering::SeqCst) & 8 == 8 {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable(
+                "provider operations unavailable".into(),
+            ))
+        }
+    }
     fn effect_resolution(&self) -> Result<&dyn EffectResolution> {
         if self.evidence_capabilities.load(Ordering::SeqCst) & 4 == 4 {
             Ok(self)
@@ -168,6 +177,60 @@ fn context() -> WorkflowActivationContext {
         wake: None,
     }
 }
+
+fn scoped_wake_context(provider: bool, scope: Scope) -> WorkflowActivationContext {
+    let mut value = context();
+    value.revision = 1;
+    let occurrence = EffectOccurrence {
+        scope,
+        workflow_id: value.workflow_id.clone(),
+        activation_id: "effect_origin".into(),
+        approval_key: "approval".into(),
+    };
+    let output = json!({"private_result": "foreign_scope_payload"});
+    value.wake = Some(if provider {
+        WorkflowWake::ProviderOperation(Box::new(ProviderWake {
+            key: "provider_wait".into(),
+            occurrence,
+            parking_activation_id: "parked".into(),
+            parking_revision: 0,
+            resumed_activation_id: value.activation_id.clone(),
+            resumed_revision: 1,
+            selected_at: 20,
+            selected_effect_revision: 2,
+            selection: ProviderSelection::ProviderSucceeded {
+                report_ref: ProviderReportReference {
+                    report_id: "report".into(),
+                    source_id: "source".into(),
+                    sequence: 1,
+                    recorded_revision: 2,
+                    recorded_at: 10,
+                    knowledge: ProviderKnowledgeKind::Succeeded,
+                },
+                result: output,
+            },
+        }))
+    } else {
+        WorkflowWake::EffectResolution(Box::new(EffectResolutionWake {
+            key: "effect_wait".into(),
+            occurrence,
+            parking_activation_id: "parked".into(),
+            parking_revision: 0,
+            resumed_activation_id: value.activation_id.clone(),
+            resumed_revision: 1,
+            resolution_id: "resolution".into(),
+            accepted_at: 10,
+            accepted_revision: 2,
+            basis_revision: 1,
+            selected_at: 20,
+            selected_effect_revision: 2,
+            outcome: EffectResolutionOutcome::RecordedSuccess { result: output },
+        }))
+    });
+    value.validate().unwrap();
+    value
+}
+
 async fn setup(mock: &Arc<Mock>) -> Running {
     start(server::router_with_workflows(
         mock.clone(),
@@ -321,6 +384,79 @@ async fn workflow_identity_and_invalid_context_replies_cannot_be_accepted() {
         client.record_local_result(&local).await,
         Err(ContractError::Unavailable(_))
     ));
+}
+
+#[tokio::test]
+async fn activation_context_server_rejects_foreign_typed_wakes_before_serialization() {
+    let mock = Arc::new(Mock::default());
+    let running = setup(&mock).await;
+    let raw = reqwest::Client::new();
+    for provider in [false, true] {
+        for changed in ["none", "tenant", "namespace"] {
+            let mut wake_scope = scope();
+            match changed {
+                "tenant" => wake_scope.tenant_id = "foreign".into(),
+                "namespace" => wake_scope.namespace = "foreign".into(),
+                _ => {}
+            }
+            let expected = scoped_wake_context(provider, wake_scope);
+            mock.set("wf_context", Ok(&expected));
+            let reply = raw
+                .post(format!("{}/v1/workflows/activations/context", running.url))
+                .header("content-type", "application/json")
+                .body(exact(owner()))
+                .send()
+                .await
+                .unwrap();
+            let status = reply.status();
+            let body = reply.text().await.unwrap();
+            if changed == "none" {
+                assert_eq!(status, 200);
+                assert_eq!(
+                    serde_json::from_str::<Value>(&body).unwrap(),
+                    serde_json::to_value(&expected).unwrap()
+                );
+            } else {
+                assert_eq!(status, 503, "provider={provider}, {changed}");
+                assert!(!body.contains("foreign_scope_payload"));
+                assert_eq!(
+                    serde_json::from_str::<Value>(&body).unwrap()["code"],
+                    "unavailable"
+                );
+            }
+        }
+    }
+    assert_eq!(mock.calls.lock().unwrap().len(), 6);
+}
+
+#[tokio::test]
+async fn activation_context_client_rejects_foreign_typed_wakes_from_successful_raw_http() {
+    for provider in [false, true] {
+        for changed in ["none", "tenant", "namespace"] {
+            let mut wake_scope = scope();
+            match changed {
+                "tenant" => wake_scope.tenant_id = "foreign".into(),
+                "namespace" => wake_scope.namespace = "foreign".into(),
+                _ => {}
+            }
+            let expected = scoped_wake_context(provider, wake_scope);
+            let (running, count) =
+                raw_response(response(200, "application/json", &exact(&expected)), None).await;
+            let actual = HttpTaskService::new(&running.url)
+                .unwrap()
+                .activation_context(&owner())
+                .await;
+            if changed == "none" {
+                assert_eq!(exact(actual.unwrap()), exact(expected));
+            } else {
+                assert!(
+                    matches!(actual, Err(ContractError::Unavailable(_))),
+                    "provider={provider}, {changed}: {actual:?}"
+                );
+            }
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+        }
+    }
 }
 
 #[tokio::test]

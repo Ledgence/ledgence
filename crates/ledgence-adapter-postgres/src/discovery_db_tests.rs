@@ -327,7 +327,8 @@ async fn discovery_projects_all_states_and_does_not_read_application_payloads() 
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    // Even unreadable persisted bytes cannot affect a scalar discovery read.
+    // Even unreadable user payloads cannot affect discovery. The only byte column
+    // is the bounded, server-owned provider role marker, never application data.
     let request = TaskListQuery::default();
     let rows = discovery::query(&scope, &request, None)
         .build()
@@ -339,7 +340,8 @@ async fn discovery_projects_all_states_and_does_not_read_application_payloads() 
         rows[0]
             .columns()
             .iter()
-            .all(|column| column.type_info().name() != "BYTEA")
+            .all(|column| column.type_info().name() != "BYTEA"
+                || column.name() == "provider_probe_bytes")
     );
     assert_eq!(
         db.store

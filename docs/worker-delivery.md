@@ -156,3 +156,39 @@ Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use
 protocol 1 or 2 packages. See [workflows](workflows.md).
+
+### Provider operation recovery in development
+
+The additional `provider_operation.v1` feature requires the complete authenticated
+provider capability and native effect resolution. The startup exchange negotiates
+it once; ordinary tasks and earlier approved-effect paths add no provider RPC.
+The workflow host sends `provider_operation.claim.v1` once. A lost permission
+reply cannot authorize a second mutation. The helper recovers an existing ticket
+on a later explicit invocation. `provider_operation.report.v1` retries identical
+typed facts while its original attempt remains live; it does not call the provider
+again. These operations do not create local-result journal confirmations.
+
+The coordinator schedules read-only checks on the separately configured queue.
+Each is an ordinary task with one attempt, a 60-second attempt budget and a
+server-issued `provider_probe` marker. The marker supplies no authority by itself:
+the host obtains and validates the exact context using its current worker identity
+and lease. The context binds the original program digest, registered callable,
+source, report ID and generation. It enters the runtime through
+`ledgence.provider.probe.v1`, never through user-owned CloudEvent data.
+
+After package preparation and process startup, the host applies the configured
+1–30 second check budget (10 seconds by default). It requires another 10 seconds
+of parent budget before entering the callback. Cancellation remains shared with
+the parent attempt. Report delivery retries preserve the same frozen report and
+do not repeat the read-only callback. A report already retained through late
+observation keeps that original provenance; task settlement records
+`recorded_elsewhere` under the current lease. The next check cannot be allocated
+until the previous task has finalized and its cleanup is confirmed.
+
+Run matching workers on the reconciliation queue. Unsupported helpers or missing
+negotiation fail before the registered probe runs. Runtime failures remain task
+failures, not evidence that the provider operation failed. A successful probe task
+means its report was retained; that report may still say pending or unknown.
+The original mutation callback keeps the normal workflow-attempt budget. A due
+read-only check can overlap it; neither a missing result nor a lookup miss permits
+resending the mutation.
