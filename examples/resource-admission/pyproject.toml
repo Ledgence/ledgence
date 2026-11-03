@@ -1,0 +1,14 @@
+[project]
+name = "ledgence-resource-admission-example"
+version = "1.0.0"
+description = "Checkpointed resource admission for a registered model operation"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["ledgence-client", "ledgence-worker"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+ledgence-client = { path = "../../sdk/python-client" }
+ledgence-worker = { path = "../../sdk/python" }

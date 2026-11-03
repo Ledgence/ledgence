@@ -146,6 +146,7 @@ pub struct DeliveryDriver {
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     effect_access: Option<Arc<EffectAccess>>,
+    runtime_binding: Option<Arc<EffectAccess>>,
     runtime_features: ledgence_worker_api::RuntimeFeatures,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
@@ -169,6 +170,7 @@ impl DeliveryDriver {
             service,
             workflows: None,
             effect_access: None,
+            runtime_binding: None,
             runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
             config,
             observations: None,
@@ -218,6 +220,21 @@ impl DeliveryDriver {
         Ok(self)
     }
 
+    /// Attach a startup-authenticated audience independently of effect evidence.
+    pub fn with_runtime_binding(
+        mut self,
+        audience: AccessAudience,
+        identity: PrincipalIdentity,
+    ) -> Result<Self> {
+        audience.validate()?;
+        identity.validate()?;
+        if audience.scope != self.config.scope {
+            return Err(ContractError::Forbidden);
+        }
+        self.runtime_binding = Some(Arc::new(EffectAccess { audience, identity }));
+        Ok(self)
+    }
+
     /// Use only the features authenticated by this worker connection's startup
     /// discovery. Merely implementing a client trait does not establish support.
     /// Generic features do not confer effect authority; known effect features
@@ -243,6 +260,21 @@ impl DeliveryDriver {
                     )
                 })?
                 .provider_operation_client()?;
+        }
+        if features.resource_admission() {
+            if self.runtime_binding.is_none() {
+                return Err(ContractError::Unavailable(
+                    "resource admission requires authenticated runtime binding".into(),
+                ));
+            }
+            self.workflows
+                .as_ref()
+                .ok_or_else(|| {
+                    ContractError::Unavailable(
+                        "resource admission requires workflow delivery".into(),
+                    )
+                })?
+                .admission_client()?;
         }
         self.runtime_features = features;
         Ok(self)
@@ -323,6 +355,7 @@ impl DeliveryDriver {
                 service: self.service,
                 workflows: self.workflows,
                 effect_access: self.effect_access,
+                runtime_binding: self.runtime_binding,
                 runtime_features: self.runtime_features,
                 source: source.clone(),
                 config: self.config,
@@ -534,6 +567,7 @@ struct Context {
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     effect_access: Option<Arc<EffectAccess>>,
+    runtime_binding: Option<Arc<EffectAccess>>,
     runtime_features: ledgence_worker_api::RuntimeFeatures,
     source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,

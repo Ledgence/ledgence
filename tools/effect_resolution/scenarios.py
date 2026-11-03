@@ -69,7 +69,7 @@ def after_park_capacity_surfaces(d, interpreter):
         session=McpSession(d,"default-no-resolution",credentials_file=d.operator)
         d.sessions.append(session)
         catalog=session.request("tools/list",{})["result"]["tools"]
-        assert len(catalog)==19 and "ledgence_effect_resolve" not in {row["name"] for row in catalog}
+        assert len(catalog)==22 and "ledgence_effect_resolve" not in {row["name"] for row in catalog}
         session.invalid("ledgence_effect_resolve",{})
         session.close()
         saved=installed_client(d,interpreter,occurrence)
@@ -97,7 +97,7 @@ def before_park_disputed_followup(d, proxy):
         session=McpSession(d,"resolve-opt-in",credentials_file=d.resolver,allow_effect_resolution=True)
         d.sessions.append(session)
         catalog=session.request("tools/list",{})["result"]["tools"]
-        assert len(catalog)==20
+        assert len(catalog)==23
         args={key:value for key,value in command.items() if key!="occurrence"}
         args.update({key:occurrence[key] for key in ("workflow_id","activation_id","approval_key")})
         args["expected_effect_revision"]=str(args["expected_effect_revision"])

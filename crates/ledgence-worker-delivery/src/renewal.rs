@@ -508,6 +508,7 @@ mod tests {
         let context = Arc::new(Context {
             workflows: None,
             effect_access: None,
+            runtime_binding: None,
             runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
             worker,
             source: Arc::new(source::ServiceAcquisitionSource {

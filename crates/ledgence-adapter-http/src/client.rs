@@ -1,9 +1,12 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
 mod access;
+mod admission;
 mod audit;
 mod evidence;
 mod provider;
-pub use access::{WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess};
+pub use access::{
+    WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess, WorkerRuntimeBinding,
+};
 mod credentials;
 pub use credentials::HttpCredentials;
 mod catalog;

@@ -13,6 +13,7 @@ export function graphNodeSize(record: Pick<ExplorerNode, "kind">) {
   switch (record.kind) {
     case "child":
       return { width: 224, height: 100 };
+    case "admission_operation":
     case "local":
       return { width: 212, height: 84 };
     case "entrypoint":
@@ -20,6 +21,7 @@ export function graphNodeSize(record: Pick<ExplorerNode, "kind">) {
     case "fork":
     case "child_wait":
       return { width: 200, height: 48 };
+    case "admission_wait":
     case "external_wait":
     case "provider_wait":
     case "native_effect_wait":

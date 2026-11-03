@@ -137,7 +137,27 @@ impl ApplicationService {
             }
             _ => false,
         });
-        let applied = if provider {
+        let admission = matches!(work.source, WorkflowWorkSource::AdmissionWait)
+            || work.outcome.as_ref().is_some_and(|outcome| match outcome {
+                TaskOutcome::Succeeded { output, .. } => WorkflowDecision::decode(output)
+                    .is_ok_and(|d| {
+                        matches!(
+                            d.action,
+                            WorkflowAction::Wait {
+                                wait: WorkflowWait::ResourceAdmission { .. },
+                                ..
+                            }
+                        )
+                    }),
+                _ => false,
+            });
+        let applied = if admission {
+            self.admissions()?;
+            store
+                .admissions()?
+                .apply_admission_work(&work, &resolved)
+                .await
+        } else if provider {
             self.provider_operations()?;
             store
                 .provider_operations()?
@@ -209,6 +229,17 @@ impl ApplicationService {
             ));
         };
         let decision = WorkflowDecision::decode(output)?;
+        if matches!(
+            &decision.action,
+            WorkflowAction::Wait {
+                wait: WorkflowWait::ResourceAdmission { .. },
+                ..
+            }
+        ) {
+            self.admissions().map_err(|_| {
+                ContractError::InvalidInput("resource admission is unavailable".into())
+            })?;
+        }
         if matches!(
             &decision.action,
             WorkflowAction::Wait {
@@ -379,6 +410,11 @@ impl ApprovedEffects for ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn admissions(&self) -> Result<&dyn AdmissionOperations> {
+        self.workflows()?.admissions()?;
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
     fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
         self.effect_resolution()?;
         self.workflows()?.provider_operations()?;

@@ -2,6 +2,7 @@
 //! [`TaskService`]; readiness and database lifecycle belong to the executable.
 
 mod access;
+mod admission;
 mod approvals;
 mod audit;
 mod effect_resolution;
@@ -206,6 +207,13 @@ fn build_router(
 
 const ROUTES: &[Route] = &[
     Route::get("/v1/access", Policy::Access),
+    Route::post("/v1/resources/put", Policy::ResourceControl),
+    Route::post("/v1/resources/query", Policy::Metadata),
+    Route::post("/v1/resources/list", Policy::Metadata),
+    Route::post("/v1/admissions/start", Policy::Worker),
+    Route::post("/v1/admissions/finish", Policy::Worker),
+    Route::sensitive_post("/v1/admissions/inspect", AuditReadKind::AdmissionInspect),
+    Route::post("/v1/admissions/release", Policy::ResourceControl),
     Route::post("/v1/audit/events", Policy::Metadata),
     Route::post("/v1/completion-subscriptions", Policy::Control),
     Route::get("/v1/completion-subscriptions/status", Policy::Metadata),
@@ -828,6 +836,9 @@ async fn dispatch(
         });
     }
     let maximum = match path {
+        path if path.starts_with("/v1/resources/") || path.starts_with("/v1/admissions/") => {
+            ADMISSION_COMMAND_MAX_BYTES
+        }
         path if path.starts_with("/v1/workflows/provider-operations/")
             || path.starts_with("/v1/provider-probes/") =>
         {
@@ -870,6 +881,9 @@ async fn dispatch(
             }
         })?
         .to_vec();
+    if path.starts_with("/v1/resources/") || path.starts_with("/v1/admissions/") {
+        return admission::post(server, path, bytes, context).await;
+    }
     if path.starts_with("/v1/completion-subscriptions") {
         return completion::post(server, path, bytes).await;
     }

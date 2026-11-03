@@ -7,7 +7,7 @@ import {
   QueryClientProvider,
   type QueryClient,
 } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import * as dto from "../../src/api/resources";
@@ -39,7 +39,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "7",
+      "Ledgence-Console-Contract": "8",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -285,6 +285,7 @@ it("refreshes waits once after workflow completion", async () => {
           kind: "event",
           native_effect_wait: null,
           provider_wait: null,
+          admission_wait: null,
           deadline: null,
           registered_at: waits.page.observed_at,
           closed_at: terminal ? waits.page.observed_at : null,

@@ -95,5 +95,11 @@
     "sourceRef": "v0.8.0",
     "guide": "/how-to/recover-provider-operations",
     "verifiedOn": "2026-11-03"
+  },
+  "resourceAdmission": {
+    "title": "Checkpointed resource admission for registered model and tool callbacks",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/control-resource-capacity"
   }
 }

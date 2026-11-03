@@ -321,3 +321,13 @@ return their stored input and a null version.
 A missing, mismatched or retired identity returns 404. Invalid parameters return
 400. An adapter without the optional read capability returns 503. Requesting the
 detail reads one retained record and has no execution side effects.
+
+## Admission projections (development C8)
+
+`admission_wait` records a native wait episode, and `admission_operation` records
+an accepted result with its original source activation/attempt. Existing
+registers/resumes/invokes relationships retain their durable meaning. Replaying
+the accepted result does not create another physical-operation node.
+`POST /v1/console/admissions/inspect` accepts workflow_id, origin_activation_id
+and key; the server binds scope and records sensitive-read audit before exposing
+the frozen arguments or retained result. See [admission contract](resource-admission.md).

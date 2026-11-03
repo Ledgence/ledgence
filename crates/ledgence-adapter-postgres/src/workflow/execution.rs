@@ -27,6 +27,21 @@ impl PostgresStore {
             .iter()
             .map(|bytes| codec::decode(bytes))
             .collect::<Result<Vec<_>>>()?;
+        // The ordinary activation path performs no admission ledger query.
+        if let Some(WorkflowWake::ResourceAdmission(wake)) = &context.wake
+            && !matches!(wake.selection, AdmissionSelection::Closed { .. })
+        {
+            let o = &wake.occurrence;
+            let bytes:Option<Vec<u8>> = sqlx::query_scalar("SELECT snapshot_bytes FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND origin_activation_id=$4 AND logical_key=$5")
+                    .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.origin_activation_id).bind(&o.key).fetch_optional(&mut *tx).await?;
+            let snapshot: AdmissionSnapshot =
+                codec::decode(&bytes.ok_or_else(|| corrupt("admission context occurrence"))?)?;
+            snapshot.validate()?;
+            if let Some(receipt) = snapshot.finish {
+                wake.validate_result(&receipt)?;
+                context.admission_result = Some(receipt);
+            }
+        }
         context
             .validate()
             .map_err(|_| corrupt("activation context"))?;
@@ -192,6 +207,13 @@ pub(super) struct ActivationAuthority {
     authority_deadline: u64,
     execution_deadline: u64,
     execution_may_have_started: bool,
+}
+impl ActivationAuthority {
+    pub(super) fn valid_until(&self) -> u64 {
+        self.expires_at
+            .min(self.authority_deadline)
+            .min(self.execution_deadline)
+    }
 }
 pub(super) async fn lock_activation(
     connection: &mut PgConnection,

@@ -354,17 +354,31 @@ pub(super) async fn dispatch(
                 actor.class() == PrincipalClass::Worker
                     && actor.require(AccessCapability::WorkerExecute).is_ok()
             })
-            && evidence::available(server)
         {
-            let actor = principal.as_ref().expect("verified worker checked");
-            value["authority_id"] = serde_json::json!(actor.audience().authority_id);
-            value["runtime_capabilities"] = serde_json::json!({"approved_effect_evidence_v2":true});
-            if opted_in && effect_resolution::available(server) {
-                let mut supported = vec![ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE];
-                if provider::available(server) {
-                    supported.push(ledgence_worker_api::PROVIDER_OPERATION_FEATURE);
+            let effects = evidence::available(server);
+            let admissions = admission::available(server);
+            if effects || admissions {
+                let actor = principal.as_ref().expect("verified worker checked");
+                value["authority_id"] = serde_json::json!(actor.audience().authority_id);
+            }
+            if effects {
+                value["runtime_capabilities"] =
+                    serde_json::json!({"approved_effect_evidence_v2":true});
+            }
+            if opted_in {
+                let mut supported = Vec::new();
+                if effects && effect_resolution::available(server) {
+                    supported.push(ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE);
+                    if provider::available(server) {
+                        supported.push(ledgence_worker_api::PROVIDER_OPERATION_FEATURE);
+                    }
                 }
-                value["worker_features"] = serde_json::json!({"v":1,"supported":supported});
+                if admissions {
+                    supported.push(ledgence_worker_api::RESOURCE_ADMISSION_FEATURE);
+                }
+                if !supported.is_empty() {
+                    value["worker_features"] = serde_json::json!({"v":1,"supported":supported});
+                }
             }
         }
         return Ok((server.encode(value).await?, None));

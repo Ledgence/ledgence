@@ -202,3 +202,18 @@ acceptance and effect-resolution acceptance events survive task/workflow removal
 and currently have no automatic expiry.
 Execution retention and acceptance evidence therefore have separate lifetimes.
 [Operator audit](operator-audit.md#retention-and-operating-limits).
+
+## Retained admission usage in development
+
+Admission sources with unresolved occupancy remain durable after workflow
+termination. Workflow cleanup must not erase outstanding capacity obligations.
+A qualifying original-source Finish or an explicit audited operator release can
+settle the retained occupancy without reviving the workflow.
+
+This initial capability has no automatic expiry for admission occurrences,
+frozen bindings, accepted results, resource records or operator policy/release
+command receipts. They survive execution retirement even after completion or
+administrative release; the execution-retention interval does not erase them.
+Workflow admission waits and graph records follow their owning execution's
+retention instead. Account for continued growth of the independent admission
+records. See [resource admission](resource-admission.md#start-finish-and-failures).

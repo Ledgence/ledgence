@@ -135,6 +135,10 @@ pub(super) const ROUTES: &[Route] = &[
     Route::post("/v1/console/access/login", Policy::Login),
     Route::post("/v1/console/access/logout", Policy::Logout),
     Route::post("/v1/console/audit/events", Policy::Metadata),
+    Route::sensitive_post(
+        "/v1/console/admissions/inspect",
+        AuditReadKind::AdmissionInspect,
+    ),
     Route::post(
         "/v1/console/workflows/approved-effects/resolve",
         Policy::EffectResolution,
@@ -502,7 +506,9 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path == "/v1/console/workflows/approved-effects/resolve" {
+    let maximum = if path == "/v1/console/admissions/inspect" {
+        4096
+    } else if path == "/v1/console/workflows/approved-effects/resolve" {
         EFFECT_RESOLUTION_COMMAND_MAX_BYTES
     } else if path.starts_with("/v1/console/workflows/approved-effects/") {
         EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
@@ -522,6 +528,9 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if path == "/v1/console/admissions/inspect" {
+        return super::admission::console_inspect(server, bytes, scope, context).await;
+    }
     if path.starts_with("/v1/console/approvals/") {
         return super::approvals::post(server, path, bytes, Some(scope), context).await;
     }

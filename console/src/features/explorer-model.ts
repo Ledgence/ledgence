@@ -25,6 +25,10 @@ export function nodeLabel(node: ExplorerNode): string {
   switch (node.kind) {
     case "entrypoint":
       return node.entrypoint;
+    case "admission_wait":
+      return `Resource · ${node.resource}`;
+    case "admission_operation":
+      return node.occurrence.key;
     case "child":
       return node.key;
     case "fork":
@@ -47,6 +51,14 @@ export function nodeStatus(node: ExplorerNode): string {
       return node.error ? "decision rejected" : (node.state ?? "unavailable");
     case "child":
       return node.state ?? "unavailable";
+    case "admission_operation":
+      return "accepted";
+    case "admission_wait":
+      return node.selection_kind
+        ? `${node.selection_kind.replaceAll("_", " ")} · resume scheduled`
+        : node.closed_at !== null
+          ? "closed without resume"
+          : "awaiting resource admission";
     case "fork":
       return "registered";
     case "local":
@@ -78,6 +90,9 @@ export function nodeStatus(node: ExplorerNode): string {
   }
 }
 export function nodeType(node: ExplorerNode): string {
+  if (node.kind === "admission_wait") return "Resource admission";
+  if (node.kind === "admission_operation")
+    return node.operation_kind === "model" ? "Model call" : "Tool call";
   return node.kind === "entrypoint"
     ? "Entrypoint"
     : node.kind === "child"
@@ -115,6 +130,15 @@ export function referenceIdentity(
     case "fork":
     case "external_wait":
       return JSON.stringify([reference.kind, reference.key]);
+    case "admission_operation":
+      return JSON.stringify([
+        reference.kind,
+        "occurrence" in reference
+          ? reference.occurrence.origin_activation_id
+          : reference.origin_activation_id,
+        "occurrence" in reference ? reference.occurrence.key : reference.key,
+      ]);
+    case "admission_wait":
     case "provider_wait":
     case "native_effect_wait":
       return JSON.stringify([
@@ -139,6 +163,10 @@ export function referenceLabel(reference: ExplorerReference): string {
       return `Fork · ${reference.key}`;
     case "external_wait":
       return `External wait · ${reference.key}`;
+    case "admission_wait":
+      return `Resource admission · ${reference.parking_activation_id}`;
+    case "admission_operation":
+      return `Admitted operation · ${reference.key} · ${reference.origin_activation_id}`;
     case "provider_wait":
       return `Provider operation · ${reference.parking_activation_id}`;
     case "native_effect_wait":
@@ -260,6 +288,13 @@ export function nodeTiming(node: ExplorerNode): NodeTiming {
           node.state !== null &&
           !["succeeded", "failed", "cancelled"].includes(node.state),
       };
+    case "admission_operation":
+      return {
+        start: node.accepted_at,
+        end: node.accepted_at,
+        label: "Durable result accepted · callback interval not recorded",
+        milestone: true,
+      };
     case "fork":
       return {
         start: node.accepted_at,
@@ -301,6 +336,7 @@ export function nodeTiming(node: ExplorerNode): NodeTiming {
         milestone: true,
       };
     case "external_wait":
+    case "admission_wait":
     case "provider_wait":
     case "native_effect_wait":
       return {

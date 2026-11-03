@@ -5,6 +5,7 @@
 //! database time, and commit. No database implementation is selected here.
 
 mod acquisition;
+mod admission;
 pub mod catalog;
 mod completion;
 pub mod console;

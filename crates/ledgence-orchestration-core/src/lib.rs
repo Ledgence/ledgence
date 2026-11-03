@@ -5,6 +5,8 @@
 //! under the required locks, obtain fresh authoritative time, call a transition,
 //! persist ALL returned records/history, and commit before returning its reply.
 
+mod admission;
+pub use admission::*;
 mod completion;
 pub use completion::*;
 mod workflow;

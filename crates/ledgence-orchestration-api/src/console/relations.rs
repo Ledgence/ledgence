@@ -7,14 +7,38 @@ pub const CONSOLE_EXPLORER_MAX_RELATIONS: usize = WORKFLOW_MAX_COMMANDS + 2;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConsoleExplorerReference {
-    Entrypoint { activation_id: String },
-    Child { key: String },
-    Fork { key: String },
-    Local { activation_id: String, key: String },
-    ChildWait { activation_id: String },
-    ExternalWait { key: String },
-    NativeEffectWait { parking_activation_id: String },
-    ProviderWait { parking_activation_id: String },
+    Entrypoint {
+        activation_id: String,
+    },
+    Child {
+        key: String,
+    },
+    Fork {
+        key: String,
+    },
+    Local {
+        activation_id: String,
+        key: String,
+    },
+    ChildWait {
+        activation_id: String,
+    },
+    ExternalWait {
+        key: String,
+    },
+    NativeEffectWait {
+        parking_activation_id: String,
+    },
+    ProviderWait {
+        parking_activation_id: String,
+    },
+    AdmissionWait {
+        parking_activation_id: String,
+    },
+    AdmissionOperation {
+        origin_activation_id: String,
+        key: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,6 +180,32 @@ impl ConsoleExplorerNode {
                 ..
             } => {
                 let wait = Reference::NativeEffectWait {
+                    parking_activation_id: self.activation_id.clone(),
+                };
+                add(Kind::Registers, owner, wait.clone())?;
+                if let Some(activation_id) = resumed_activation_id {
+                    add(
+                        Kind::Resumes,
+                        wait,
+                        Reference::Entrypoint {
+                            activation_id: activation_id.clone(),
+                        },
+                    )?;
+                }
+            }
+            ConsoleExplorerData::AdmissionOperation { occurrence, .. } => add(
+                Kind::Invokes,
+                owner,
+                Reference::AdmissionOperation {
+                    origin_activation_id: occurrence.origin_activation_id.clone(),
+                    key: occurrence.key.clone(),
+                },
+            )?,
+            ConsoleExplorerData::AdmissionWait {
+                resumed_activation_id,
+                ..
+            } => {
+                let wait = Reference::AdmissionWait {
                     parking_activation_id: self.activation_id.clone(),
                 };
                 add(Kind::Registers, owner, wait.clone())?;

@@ -173,6 +173,11 @@ pub async fn run(
         .with_workflows(client.clone())
         .with_observation_publisher(observation_client, display_name)
         .map_err(contract_error)?;
+    if let Some(binding) = runtime_access.authenticated_binding {
+        driver = driver
+            .with_runtime_binding(binding.audience, binding.identity)
+            .map_err(contract_error)?;
+    }
     if let Some(binding) = runtime_access.effect_evidence {
         driver = driver
             .with_effect_evidence(binding.audience, binding.identity)

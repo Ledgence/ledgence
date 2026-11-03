@@ -873,3 +873,68 @@ redispatch. A selected workflow wake is never rewritten.
 
 See the [provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/)
 and [source contract](../../docs/provider-operations.md).
+
+## Resource policies and admission inspection (development source)
+
+Matching development servers expose `client.resources` and `client.admissions`.
+These provider-neutral APIs require configured credentialed access; installing a
+new client does not enable the server capability. Published availability remains
+in the release reference above.
+
+An operator creates a named, scoped resource with a concurrency limit and an
+optional token-bucket rate. `occupied` includes outstanding offers, running
+callbacks and unresolved starts; `unknown` is the unresolved subset.
+
+```python
+from ledgence.client import ResourcePolicy, ResourceRate
+
+# Inside an authenticated AsyncClient context with resource_control permission:
+receipt = await client.resources.put(
+    "reply-service",
+    policy=ResourcePolicy(
+        max_occupancy=4,
+        rate=ResourceRate(numerator=10, period_ms=1_000, burst=10),
+    ),
+    request_id="reply-service:create:1",
+    reason="Limit concurrent callbacks and accepted starts",
+)
+print(receipt.resource.revision)
+print(await client.resources.get("reply-service"))
+page = await client.resources.list(limit=50)
+```
+
+`expected_revision=None` creates a policy; pass the last reviewed revision for a
+compare-and-swap update. The `request_id` belongs to the immutable command. If an
+acknowledgement is uncertain, preserve and resend all the same arguments. A
+changed command with the same ID conflicts. Calls do not automatically retry.
+Disabling a resource pauses new admission; it does not prove existing work ended.
+
+To inspect an occurrence, use its original workflow activation and logical key,
+not the most recent resume activation. Inspection includes sensitive arguments
+and results, requires `sensitive_read`, and records an audit event:
+
+```python
+from ledgence.client import AdmissionOccurrence
+
+occurrence = AdmissionOccurrence(
+    client.scope, workflow_id="workflow-id",
+    origin_activation_id="original-activation-id", key="reply:1",
+)
+detail = await client.admissions.inspect(occurrence)
+print(detail.state, detail.revision)
+```
+
+After independently reviewing an unresolved source, an operator with
+`resource_control` can call `client.admissions.release(occurrence,
+source_id=detail.source["source_id"], expected_revision=detail.revision,
+request_id="review:1", reason="Explain the reviewed evidence")`. This explicit,
+audited override releases capacity. It does not report successful execution or
+invoke the callback again. Preserve the exact command when reconciling an
+uncertain response. A later completed result may still be retained with its
+original source; release and completion must not release occupancy twice.
+
+Worker Start/Finish calls are deliberately absent from this application client
+surface. The runtime owns their lease identity and execution permission. Use
+`Workflow.operation`, `ctx.request_admission` and `ctx.admitted_operation` from
+[`ledgence.worker`](../python/README.md#durable-resource-admission-development-source)
+for governed execution.

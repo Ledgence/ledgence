@@ -186,3 +186,11 @@ check scheduling are typed evidence, not a promise that task success equals
 external success. Platform u64 fields, including probe generations and program
 sizes, are decimal strings; application JSON remains unchanged. The tool count
 and explicit effect-resolution opt-in are unchanged. [Recover provider operations](/how-to/recover-provider-operations).
+
+## Resource tools in development
+
+Matching source builds add `ledgence_resource_list`, `ledgence_resource_inspect`
+and audited `ledgence_admission_inspect`. Explicit `--allow-resource-control`
+adds policy and release tools, subject to `resource_control`. It conflicts with
+`--read-only`. An administrative release acknowledges uncertain usage; it never
+asserts remote success. [Admission guide](/how-to/control-resource-capacity).

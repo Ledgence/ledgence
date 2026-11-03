@@ -32,8 +32,9 @@ const credentialShape = {
       "approval_decide",
       "worker_execute",
       "effect_resolve",
+      "resource_control",
     ),
-    8,
+    9,
   ),
   expires_at_ms: s.timestamp,
 };

@@ -284,3 +284,13 @@ SDK, CLI, and worker scope fields must match that binding; they do not introduce
 multi-tenant administration. [Instance binding](docs/self-hosted-instance.md),
 [query contracts](docs/console-query-model.md), and
 [worker observations](docs/worker-observations.md) describe the operational boundaries.
+
+### Durable resource admission in development
+
+The development branch adds [resource admission](docs/resource-admission.md):
+workflows park without a worker slot, then invoke one registered operation under
+a shared capacity/rate policy. Lost permissions remain uncertain; accepted results
+and justified capacity release commit together. [Try the local classifier example](examples/resource-admission/README.md).
+This capability requires matching source-built components and migrations; it is
+not part of the published 0.8.0 packages. Fairness, inherited budgets and protected
+provider composition are separate work.

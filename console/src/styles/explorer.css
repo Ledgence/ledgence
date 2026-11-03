@@ -190,13 +190,16 @@
   margin: 1px 0 0;
   white-space: nowrap;
 }
+.work-card-admission_operation .work-card-main,
 .work-card-local .work-card-main {
   padding: 7px 12px;
 }
+.work-card-admission_operation .work-card-icon,
 .work-card-local .work-card-icon {
   background: none;
   flex-basis: 24px;
 }
+.work-card-admission_operation strong,
 .work-card-local strong {
   font-size: 13px;
 }
@@ -765,6 +768,7 @@
   .work-card-gate strong {
     font-size: 13px;
   }
+  .work-card-admission_operation strong,
   .work-card-local strong {
     font-size: 14px;
   }

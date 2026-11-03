@@ -329,3 +329,11 @@ Console identity, client files, capabilities, rotation and operating limits.
 
 Approval review and decision dialogs load recorded acceptance independently from the caller-supplied reviewer label. Loading, verified acceptance, historical absence and unavailable attribution have distinct displays. Identity changes clear protected cached attribution.
 [Setup, queries and operating limits](/how-to/audit-operators).
+
+## Resource admission in development (C8)
+
+Matching development assets and server use C8 to show admission wait episodes
+and accepted callback results. Offer and Start indicate readiness/authorization,
+not evidence that a callback executed. Open an accepted operation for its
+original occurrence's audited arguments/result. The published 0.8.0 Console
+remains C7. [Admission guide](/how-to/control-resource-capacity).

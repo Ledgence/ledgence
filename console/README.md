@@ -255,7 +255,9 @@ and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-The browser and server use Console contract **7**; deploy matching assets together.
+This development branch uses Console contract **8** for native admission waits
+and accepted-operation inspection; deploy matching server and assets together.
+Published Ledgence 0.8.0 remains on contract **7**.
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
 
 Resources shows per-attempt runtime and Python-process CPU where recorded.

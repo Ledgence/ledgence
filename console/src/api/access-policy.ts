@@ -13,6 +13,7 @@ export function requiredCapabilities(
     return ["sensitive_read", "approval_decide"];
   if (
     [
+      "admissions/inspect",
       "approvals/inspect",
       "approvals/list",
       "workflows/input",

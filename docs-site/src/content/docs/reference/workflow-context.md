@@ -317,3 +317,12 @@ Provider recovery uses its own retained reports and leaves the local journal
 unchanged. A reference to another workflow's operation does not transfer wait
 ownership. Probe callbacks receive no workflow context.
 [Recover provider operations](/how-to/recover-provider-operations).
+
+## Resource admission in development
+
+`Workflow.operation` registers an artifact-owned model/tool function.
+`ctx.request_admission(...)` checkpoints its frozen binding;
+`await ctx.admitted_operation(function)` returns a typed outcome or retained
+result. `ctx.wait_admission(...)` reuses the original occurrence. These helpers
+require matching development server, worker and helper, with explicit admission
+configuration. [Complete flow and failure semantics](/how-to/control-resource-capacity).

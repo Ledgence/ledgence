@@ -180,3 +180,12 @@ be measured; these features do not establish a production throughput guarantee.
 
 Matching 0.8.0 components add verified approval acceptance and durable sensitive-response observations, exposed through API, CLI, Python, MCP and Console. Pending result polling creates no observation rows.
 [Setup, queries and operating limits](/how-to/audit-operators).
+
+## In development: durable resource admission
+
+Matching development components add shared capacity and token-bucket policies
+for registered workflow callbacks. Workflows park without a worker slot, then
+resume under a one-shot Start permission. Accepted results survive worker loss;
+uncertain usage remains occupied. CLI, Python, HTTP and MCP expose policy and
+inspection operations, and Console C8 renders the durable wait/result. This is
+not in the 0.8.0 packages. [Guide and limits](/how-to/control-resource-capacity).

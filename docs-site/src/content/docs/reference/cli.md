@@ -435,3 +435,15 @@ chooses `enabled` or `declared_restore_quarantine`; omitting it disables provide
 operations. It contains no provider credentials. See the
 [recovery guide](/how-to/recover-provider-operations) and
 [complete CLI policy format](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#provider-operation-recovery-in-development).
+
+## Resource commands in development
+
+The development checkout adds `resource list|inspect|put`,
+`admission inspect|release` and `orchestrator serve --admission-config FILE`.
+Mutations require `resource_control` and a destination-bound saved command.
+`mcp serve --allow-resource-control` separately opts into policy/release tools.
+`ledgence audit list --resource NAME` selects audit events for that resource's
+policy; choose only one of `--resource`, `--task` or `--workflow`. Admission
+release and inspection events use the original workflow's `--workflow` filter.
+The existing credential, scope, limit and cursor options apply.
+These additions are not in 0.8.0. [Guide](/how-to/control-resource-capacity).

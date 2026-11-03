@@ -1,4 +1,5 @@
 //! Framework-neutral MCP tool descriptions. Execution remains in Ledgence services.
+mod admission;
 use ledgence_orchestration_api::APPROVAL_PAGE_MAX_ITEMS;
 use serde_json::{Value, json};
 
@@ -16,7 +17,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     let mut tools = vec![
         tool(
             "ledgence_audit_query",
-            "Read payload-free operator audit events in the configured scope. Requires metadata_read and audited credential mode. Filter by one resource or exact approval occurrence. For event or approval_acceptance use limit 2 and no cursor. A successful empty exact result means no verified actor was recorded; an error does not establish absence. Actor attribution identifies the credential holder, including shared services. Pagination is not a cross-request snapshot.",
+            "Read operator audit events in the configured scope without task/workflow inputs or outputs. Resource policy and admission release events include retained operator reasons. Requires metadata_read and audited credential mode. Filter by one resource or exact approval occurrence. For event or approval_acceptance use limit 2 and no cursor. A successful empty exact result means no verified actor was recorded; an error does not establish absence. Actor attribution identifies the credential holder, including shared services. Pagination is not a cross-request snapshot.",
             object(
                 json!({"filter": audit_filter(), "cursor": cursor(), "limit": limit()}),
                 &[],
@@ -221,6 +222,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             false,
         ),
     ];
+    tools.extend(admission::definitions());
     if read_only {
         tools.retain(|tool| tool.read_only);
     }
@@ -232,7 +234,7 @@ fn audit_filter() -> Value {
         object(json!({"kind":{"const":"event"},"event_id":identifier()}), &["kind","event_id"]),
         object(json!({"kind":{"const":"all"}}), &["kind"]),
         object(json!({"kind":{"const":"resource"},
-            "resource_kind":{"enum":["task","workflow"]}, "resource_id":identifier()}),
+            "resource_kind":{"enum":["task","workflow","resource"]}, "resource_id":identifier()}),
             &["kind","resource_kind","resource_id"]),
         object(json!({"kind":{"const":"approval_acceptance"},
             "workflow_id":identifier(), "key":identifier(), "activation_id":identifier(),
@@ -314,11 +316,57 @@ fn cloud_event() -> Value {
 mod tests {
     use super::*;
     #[test]
+    fn audit_catalog_covers_each_portable_resource_filter() {
+        use ledgence_orchestration_api::{AuditFilter, AuditResourceKind};
+        let tools = tool_definitions(true);
+        let tool = tools
+            .iter()
+            .find(|tool| tool.name == "ledgence_audit_query")
+            .unwrap();
+        let variants = tool.input_schema["properties"]["filter"]["oneOf"]
+            .as_array()
+            .unwrap();
+        let resource = variants
+            .iter()
+            .find(|v| v["properties"]["kind"]["const"] == "resource")
+            .unwrap();
+        let advertised = resource["properties"]["resource_kind"]["enum"]
+            .as_array()
+            .unwrap();
+        for resource_kind in [
+            AuditResourceKind::Task,
+            AuditResourceKind::Workflow,
+            AuditResourceKind::Resource,
+        ] {
+            let filter = AuditFilter::Resource {
+                resource_kind,
+                resource_id: "model".into(),
+            };
+            let wire = serde_json::to_value(&filter).unwrap();
+            assert!(
+                advertised.contains(&wire["resource_kind"]),
+                "portable resource is absent from MCP discovery: {wire}"
+            );
+            assert_eq!(serde_json::from_value::<AuditFilter>(wire).unwrap(), filter);
+        }
+    }
+
+    #[test]
     fn catalog_has_closed_argument_objects_and_no_approval_decision() {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 20);
+        assert_eq!(all.len(), 25);
+        assert_eq!(tool_definitions(true).len(), 17);
+        for name in [
+            "ledgence_resource_list",
+            "ledgence_resource_inspect",
+            "ledgence_admission_inspect",
+            "ledgence_resource_put",
+            "ledgence_admission_release",
+        ] {
+            assert!(names.contains(name), "missing admission tool: {name}");
+        }
         assert!(
             all.iter()
                 .all(|tool| tool.input_schema["additionalProperties"] == false)

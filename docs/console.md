@@ -392,3 +392,12 @@ the provider action again. Its verified audit event is loaded separately from
 the assessment's reason and references. Retained evidence survives execution
 history collection and has no automatic expiry in this capability.
 See [retained effect evidence and native waits](effect-evidence.md).
+
+## Resource admission in development (C8)
+
+Console C8 adds native admission waits and accepted-operation nodes. Each wait
+retains its parking entrypoint and original occurrence; accepted callbacks have
+an audited occurrence inspector rather than reading a current-activation local
+journal. Offer/Start alone is readiness/authorization, not evidence of execution.
+The browser and backend must both use C8; published 0.8.0 remains C7.
+See [resource admission](resource-admission.md).

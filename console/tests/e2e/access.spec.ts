@@ -10,7 +10,7 @@ import type { Approval, ApprovalDecision } from "../../src/api/approvals";
 const raw = parseUserJson(
   readFileSync(
     new URL(
-      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
+      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json",
       import.meta.url,
     ),
     "utf8",
@@ -99,7 +99,7 @@ async function server(baseURL: string, trusted = false, audited = false) {
       const reply = (value: unknown, status = 200, cookie?: string) => {
         response.writeHead(status, {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "7",
+          "Ledgence-Console-Contract": "8",
           "Ledgence-Instance-Id": currentConfig.instance_id,
           ...(cookie ? { "Set-Cookie": cookie } : {}),
         });

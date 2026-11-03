@@ -1,10 +1,11 @@
 //! Bind runtime requests to the acquired activation's exact lease owner.
 use super::*;
 use ledgence_worker_api::{
-    Error, ErrorKind, PortFuture, RuntimeExtension, RuntimeReply, RuntimeRequest,
+    Error, ErrorKind, ExecutionRequest, PortFuture, RuntimeExtension, RuntimeReply, RuntimeRequest,
     RuntimeRequestHandler,
 };
 use serde_json::json;
+mod admission;
 mod evidence;
 mod provider;
 
@@ -18,12 +19,21 @@ impl Context {
     pub(super) async fn workflow_runtime(
         &self,
         owner: LeaseOwner,
-        expected_workflow: &str,
-        expected_parent: Option<&str>,
-        expected_root: Option<&str>,
+        request: &ExecutionRequest,
         processing_trace: Option<TraceContext>,
         control: &RunControl,
     ) -> ledgence_worker_api::Result<WorkflowRuntime> {
+        let expected_workflow =
+            request.event.value()["ldgworkflowid"]
+                .as_str()
+                .ok_or_else(|| {
+                    Error::new(
+                        ErrorKind::Protocol,
+                        "workflow assignment is missing workflow identity",
+                    )
+                })?;
+        let expected_parent = request.event.value()["ldgparentworkflowid"].as_str();
+        let expected_root = request.event.value()["ldgrootworkflowid"].as_str();
         if let Some(trace) = &processing_trace {
             trace.validate()?;
         }
@@ -59,6 +69,24 @@ impl Context {
                 "provider operations were not negotiated for this worker",
             ));
         }
+        let admission_wake = match &context.wake {
+            Some(WorkflowWake::ResourceAdmission(wake)) => {
+                if self.runtime_binding.is_none() || !self.runtime_features.resource_admission() {
+                    return Err(Error::new(
+                        ErrorKind::Incompatible,
+                        "resource admission was not negotiated",
+                    ));
+                }
+                if wake.binding.program != request.descriptor {
+                    return Err(Error::new(
+                        ErrorKind::Protocol,
+                        "admission program differs from assigned artifact",
+                    ));
+                }
+                Some(wake.as_ref().clone())
+            }
+            _ => None,
+        };
         let wake_trace = context.wake.as_ref().and_then(|wake| match wake {
             WorkflowWake::Event { event, .. } => event.trace_context(),
             _ => None,
@@ -68,6 +96,8 @@ impl Context {
         let handler = Arc::new(WorkflowOperations {
             service,
             effect_access: self.effect_access.clone(),
+            runtime_binding: self.runtime_binding.clone(),
+            admission_wake,
             runtime_features: self.runtime_features.clone(),
             owner,
             workflow_id: expected_workflow.to_owned(),
@@ -127,6 +157,8 @@ async fn fetch_context(
 struct WorkflowOperations {
     service: Arc<dyn WorkflowService>,
     effect_access: Option<Arc<EffectAccess>>,
+    runtime_binding: Option<Arc<EffectAccess>>,
+    admission_wake: Option<AdmissionWake>,
     runtime_features: ledgence_worker_api::RuntimeFeatures,
     owner: LeaseOwner,
     workflow_id: String,
@@ -151,6 +183,12 @@ impl RuntimeRequestHandler for WorkflowOperations {
         Box::pin(async move {
             request.validate()?;
             match request.operation.as_str() {
+                "resource_admission.start.v1" => {
+                    return self.start_admission(request, control).await;
+                }
+                "resource_admission.finish.v1" => {
+                    return self.finish_admission(request, control).await;
+                }
                 "provider_operation.claim.v1" => {
                     return self.claim_provider(request, control).await;
                 }

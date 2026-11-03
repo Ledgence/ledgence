@@ -14,3 +14,5 @@ SELECT
 
     AND NOT EXISTS(SELECT 1 FROM workflow_provider_waits WHERE parking_activation_id=$1)
     AND NOT EXISTS(SELECT 1 FROM provider_probe_tasks WHERE live_task_id=$1)
+
+    AND NOT EXISTS(SELECT 1 FROM workflow_admission_waits WHERE parking_activation_id=$1)

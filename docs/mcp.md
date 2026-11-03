@@ -317,3 +317,16 @@ result or expired provider key never grants another POST. Existing permissions,
 startup-bound scope, sensitive-read audit and explicit `--allow-effect-resolution`
 apply unchanged. These additions require matching 0.8.0 components.
 [Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).
+
+## Resource admission in development
+
+Matching source builds add three read tools: `ledgence_resource_list`,
+`ledgence_resource_inspect` and audited `ledgence_admission_inspect`. The native
+catalog with audit has 22 default tools and 17 read-only tools; explicit effect
+resolution adds one. `--allow-resource-control` separately adds
+`ledgence_resource_put` and `ledgence_admission_release` (24 default tools, or 25
+with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
+Session scope is fixed. Policy/release commands require stable caller request
+IDs, inspected revisions and the API's `resource_control` permission. Read-only
+mode rejects either mutation opt-in. Release never asserts remote success.
+See [resource admission](resource-admission.md) for limits and recovery semantics.

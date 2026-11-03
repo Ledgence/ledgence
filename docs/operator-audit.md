@@ -117,10 +117,11 @@ Conflicting or mismatched evidence fails the query. Generic revisions are unsign
 64-bit integers. Console uses decimal strings, preserving large revisions.
 
 Each event contains `event_id`, `recorded_at`, `audience`, `actor` and a typed
-`operation`. Operations are `approval_accepted`, `effect_resolved` or
-`sensitive_response`.
-The feed contains bounded identities and operation metadata. Action arguments,
-application results, reviewer labels, reasons and bearer credentials are excluded.
+`operation`. In published 0.8.0, operations are `approval_accepted`,
+`effect_resolved` or `sensitive_response`. Those events contain bounded identities
+and operation metadata; action arguments, application results, reviewer labels,
+reasons and bearer credentials are excluded. Development admission events retain
+operator reasons as described below.
 Pagination follows an ordering sequence. Sequence allocation is independent of
 transaction commit order, and multiple pages do not form a database snapshot.
 
@@ -172,3 +173,32 @@ stopping provider recovery is part of that acceptance transaction. Inspecting
 provider targets, bindings or reports requires the same sensitive permission
 and durable read observation through generic and Console aliases.
 [Provider operations](provider-operations.md).
+
+## Resource admission audit in development
+
+Matching development builds add `resource_policy_accepted` and
+`admission_released`; these operations are not in published 0.8.0. Policy events
+record the resource name, request ID, accepted revision, policy digest and
+operator reason. Release events record the original admission occurrence,
+source ID, request ID, accepted revision and operator reason. The reason is
+retained and returned exactly as supplied, bounded to 1024 UTF-8 bytes. These
+events contain no frozen callback arguments or accepted callback result.
+
+`ledgence audit list --resource NAME` selects policy events for that resource.
+Only one of `--resource`, `--task` and `--workflow` may be supplied. HTTP and
+MCP use `filter={"kind":"resource","resource_kind":"resource","resource_id":"NAME"}`;
+Python exposes `AuditFilter.resource(AuditResourceKind.RESOURCE, "NAME")`.
+Queries retain their existing `metadata_read` requirement and fixed scope.
+
+Admission release events and audited sensitive inspections are attached to the
+original workflow; query its `--workflow` filter for those records. An inspection
+uses read kind `admission_inspect` and an `admission` resource containing the
+original occurrence. It requires `sensitive_read` and a committed observation
+before returning arguments or results through either the generic or Console route.
+
+Policy and release acceptance events and command receipts have no automatic
+expiry, including after execution retirement. Sensitive-response observations
+follow the existing observation-retention lane. See
+[resource admission](resource-admission.md#http-cli-python-and-mcp) for the public
+interfaces and [retention](retention.md#retained-admission-usage-in-development)
+for the independent admission journal's lifetime.

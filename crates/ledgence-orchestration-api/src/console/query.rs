@@ -331,10 +331,17 @@ impl ConsoleQueryReply {
                         return Err(mismatch());
                     }
                 }
+                if let Some(wait) = &reply.admission_wait {
+                    wait.validate(workflow_id).map_err(|_| mismatch())?;
+                    if &wait.occurrence.scope != scope {
+                        return Err(mismatch());
+                    }
+                }
                 if usize::from(reply.child_wait.is_some())
                     + usize::from(reply.external_wait_key.is_some())
                     + usize::from(reply.native_effect_wait.is_some())
                     + usize::from(reply.provider_wait.is_some())
+                    + usize::from(reply.admission_wait.is_some())
                     > 1
                 {
                     return Err(mismatch());
@@ -372,6 +379,9 @@ impl ConsoleQueryReply {
                     r.native_effect_wait
                         .as_ref()
                         .is_some_and(|wait| &wait.occurrence.scope != scope)
+                        || r.admission_wait
+                            .as_ref()
+                            .is_some_and(|wait| &wait.occurrence.scope != scope)
                         || r.provider_wait
                             .as_ref()
                             .is_some_and(|wait| &wait.occurrence.scope != scope)

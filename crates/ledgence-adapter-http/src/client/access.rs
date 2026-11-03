@@ -15,10 +15,13 @@ pub struct WorkerEffectAccess {
 /// Authenticated audience and worker identity used to verify effect receipts.
 /// A feature name alone does not establish this binding or authorize effects.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkerEffectBinding {
+pub struct WorkerRuntimeBinding {
     pub audience: AccessAudience,
     pub identity: PrincipalIdentity,
 }
+
+/// Legacy effect-specific binding retains its existing public name.
+pub type WorkerEffectBinding = WorkerRuntimeBinding;
 
 /// Validated startup discovery metadata. Runtime feature negotiation is
 /// independent of the optional authenticated effect-receipt binding.
@@ -26,6 +29,7 @@ pub struct WorkerEffectBinding {
 pub struct WorkerRuntimeAccess {
     pub runtime_features: ledgence_worker_api::RuntimeFeatures,
     pub effect_evidence: Option<WorkerEffectBinding>,
+    pub authenticated_binding: Option<WorkerRuntimeBinding>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,10 +150,30 @@ impl AccessReply {
             }
         }
         let runtime_features = worker_features.clone().unwrap_or_default();
+        let authenticated_binding =
+            authority_id
+                .as_ref()
+                .map(|authority_id| WorkerRuntimeBinding {
+                    audience: AccessAudience {
+                        authority_id: authority_id.clone(),
+                        instance_id: instance_id.clone(),
+                        scope: scope.clone(),
+                    },
+                    identity: identity.clone(),
+                });
+        if let Some(binding) = &authenticated_binding {
+            binding.audience.validate()?;
+        }
+        if runtime_features.resource_admission() && authenticated_binding.is_none() {
+            return Err(unavailable(
+                "resource admission requires an authenticated audience",
+            ));
+        }
         if !enabled {
             return Ok(WorkerRuntimeAccess {
                 runtime_features,
                 effect_evidence: None,
+                authenticated_binding,
             });
         }
         if *operator_audit != Some(true) {
@@ -168,6 +192,7 @@ impl AccessReply {
         Ok(WorkerRuntimeAccess {
             runtime_features,
             effect_evidence: Some(WorkerEffectBinding { audience, identity }),
+            authenticated_binding,
         })
     }
 }
@@ -530,5 +555,21 @@ mod tests {
                 .is_err()
             );
         }
+    }
+    #[tokio::test]
+    async fn admission_negotiates_without_effect_evidence_but_requires_audience() {
+        let mut body = features_only_snapshot();
+        body["worker_features"] = json!({"v":1,"supported":["resource_admission.v1"]});
+        assert!(discover_runtime(body.clone(), 200, true).await.is_err());
+        body["authority_id"] = json!("authority");
+        body["operator_audit"] = json!(false);
+        let access = discover_runtime(body.clone(), 200, true).await.unwrap();
+        assert!(access.runtime_features.resource_admission());
+        assert!(access.effect_evidence.is_none());
+        assert_eq!(
+            access.authenticated_binding.unwrap().audience.authority_id,
+            "authority"
+        );
+        assert!(discover(body, 200, true).await.unwrap().is_none());
     }
 }

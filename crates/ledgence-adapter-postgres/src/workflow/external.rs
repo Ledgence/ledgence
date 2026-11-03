@@ -107,6 +107,9 @@ pub(super) async fn install_external_wait(
     wait: &WorkflowWait,
     now: u64,
 ) -> StoreResult<Option<TaskSnapshot>> {
+    if matches!(wait, WorkflowWait::ResourceAdmission { .. }) {
+        return admission::install_wait(connection, run, activation, wait, now).await;
+    }
     if matches!(wait, WorkflowWait::EffectResolution { .. }) {
         return effect_wait::install(connection, run, activation, wait, now).await;
     }
@@ -125,7 +128,9 @@ pub(super) async fn install_external_wait(
         return Err(ContractError::Conflict.into());
     }
     let kind = match wait {
-        WorkflowWait::EffectResolution { .. } | WorkflowWait::ProviderOperation { .. } => {
+        WorkflowWait::EffectResolution { .. }
+        | WorkflowWait::ProviderOperation { .. }
+        | WorkflowWait::ResourceAdmission { .. } => {
             return Err(corrupt("native wait reached legacy installer").into());
         }
         WorkflowWait::Event { .. } => "event",
@@ -152,7 +157,9 @@ pub(super) async fn install_external_wait(
         &ledgence_orchestration_api::console::ConsoleExplorerData::ExternalWait {
             key: wait.key().to_owned(),
             wait_kind: match wait {
-                WorkflowWait::EffectResolution { .. } | WorkflowWait::ProviderOperation { .. } => {
+                WorkflowWait::EffectResolution { .. }
+                | WorkflowWait::ProviderOperation { .. }
+                | WorkflowWait::ResourceAdmission { .. } => {
                     return Err(corrupt("native wait reached legacy projection").into());
                 }
                 WorkflowWait::Event { .. } => {
@@ -346,6 +353,7 @@ pub(super) async fn close_external_wait(
 ) -> StoreResult<()> {
     effect_wait::close(connection, run, now).await?;
     provider::close_wait(connection, run, now).await?;
+    admission::close_wait(connection, run, now).await?;
     if let Some(key) = run.external_wait_key.take() {
         approvals::close(connection, &run.snapshot.workflow_id, &key, now).await?;
         sqlx::query("UPDATE workflow_waits SET closed_at_ms=$3 WHERE workflow_id=$1 AND wait_key=$2 AND closed_at_ms IS NULL")
