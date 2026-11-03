@@ -14,6 +14,7 @@ pub(crate) mod explorer;
 mod external;
 mod forks;
 mod owned;
+mod provider;
 #[cfg(test)]
 mod tests;
 mod work;
@@ -42,6 +43,10 @@ impl ApprovedEffects for PostgresStore {
 }
 
 impl WorkflowStore for PostgresStore {
+    fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
+        self.provider_configured()?;
+        Ok(self)
+    }
     fn effect_resolution(&self) -> Result<&dyn EffectResolutionStore> {
         self.audit_audience()?;
         Ok(self)
@@ -286,6 +291,9 @@ pub(crate) async fn terminal_obligation(
     connection: &mut PgConnection,
     task: &TaskSnapshot,
 ) -> StoreResult<()> {
+    if task.provider_probe.is_some() {
+        return provider::terminal_obligation(connection, task).await;
+    }
     if task.workflow_id.is_none() {
         return Ok(());
     }

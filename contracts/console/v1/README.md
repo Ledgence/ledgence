@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v6.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json).
+[`console-v7.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -18,7 +18,7 @@ pnpm --dir console contracts:check
 ```
 
 All `/v1/console/*` responses identify the fixed instance with
-`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 6`. The browser rejects
+`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 7`. The browser rejects
 responses that disagree with the configuration used for its query keys.
 Queries and commands reject unknown and duplicate fields. The internal binding
 is never selected by a Console request or exposed in its response DTOs.
@@ -33,7 +33,7 @@ instance scope, parent and filters. A page is internally consistent; consecutive
 pages can observe later committed changes. The worker slot cursor uses the
 stable slot position, not a changing snapshot sequence.
 
-The HTTP namespace remains `/v1/console`; the Console contract version is 6.
+The HTTP namespace remains `/v1/console`; the Console contract version is 7.
 Explorer nodes carry backend-projected typed relations with references to existing
 workflow-scoped or activation-scoped identities. Relations remain present when an
 endpoint is outside the current page. See the [query model](../../../docs/console-query-model.md)
@@ -62,11 +62,20 @@ Matching components also support an optional exclusive `due_before`
 
 ## Native effect resolution in development
 
-The current development contract is C6. Native effect waits use their parking
+C6 introduced native effect waits, which use their parking
 activation identity, with explicit registration and resumption edges. The
 original effect activation remains a navigation reference. Assessment outcomes
 include recorded success, recorded failure, closed unknown and disputed. Sensitive
 results and reasons are available through audited effect inspection.
+
+The current development contract is C7. It adds required, nullable `provider_wait`
+to workflow detail and wait records, and `provider_probe` to task detail/status
+and execution-history rows (null for workflows).
+Provider wait nodes link their parking entrypoint to the one actually scheduled
+resumption. Their occurrence points to the original approved operation. Metadata
+contains selection kinds and revisions; provider results remain in audited Effects
+inspection. Probe task completion records delivery of a report, not provider success.
+Historical C6 fixtures remain unchanged for explicit compatibility rejection.
 
 C6 adds a separate native-wait field to workflow detail and wait projections.
 Its wait cursor distinguishes native and legacy waits even when their logical

@@ -2,6 +2,32 @@ use super::*;
 use ledgence_worker_api::{Error, Phase};
 use serde_json::Value;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsoleProviderProbeAssignment {
+    pub occurrence: EffectOccurrence,
+    pub probe_id: String,
+    pub generation: ConsoleU64,
+}
+impl From<ProviderProbeAssignment> for ConsoleProviderProbeAssignment {
+    fn from(value: ProviderProbeAssignment) -> Self {
+        Self {
+            occurrence: value.occurrence,
+            probe_id: value.probe_id,
+            generation: ConsoleU64(value.generation),
+        }
+    }
+}
+impl ConsoleProviderProbeAssignment {
+    pub fn into_core(self) -> ProviderProbeAssignment {
+        ProviderProbeAssignment {
+            occurrence: self.occurrence,
+            probe_id: self.probe_id,
+            generation: self.generation.0,
+        }
+    }
+}
+
 /// Scope-free status; every field is selected explicitly from the legacy model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10,6 +36,8 @@ pub struct ConsoleTaskStatus {
     pub run_id: String,
     pub workflow_id: Option<String>,
     pub workflow_activation_id: Option<String>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub provider_probe: Option<ConsoleProviderProbeAssignment>,
     pub queue: String,
     pub correlation_key: Option<String>,
     pub state: TaskState,
@@ -28,6 +56,7 @@ impl From<TaskStatus> for ConsoleTaskStatus {
             run_id: v.run_id,
             workflow_id: v.workflow_id,
             workflow_activation_id: v.workflow_activation_id,
+            provider_probe: v.provider_probe.map(Into::into),
             queue: v.queue,
             correlation_key: v.correlation_key,
             state: v.state,
@@ -44,14 +73,22 @@ impl From<TaskStatus> for ConsoleTaskStatus {
 impl ConsoleTaskStatus {
     pub fn validate(&self) -> Result<()> {
         TaskStatus {
-            scope: Scope {
-                tenant_id: "console-validation".into(),
-                namespace: "console-validation".into(),
-            },
+            scope: self
+                .provider_probe
+                .as_ref()
+                .map(|probe| probe.occurrence.scope.clone())
+                .unwrap_or_else(|| Scope {
+                    tenant_id: "console-validation".into(),
+                    namespace: "console-validation".into(),
+                }),
             task_id: self.task_id.clone(),
             run_id: self.run_id.clone(),
             workflow_id: self.workflow_id.clone(),
             workflow_activation_id: self.workflow_activation_id.clone(),
+            provider_probe: self
+                .provider_probe
+                .clone()
+                .map(ConsoleProviderProbeAssignment::into_core),
             queue: self.queue.clone(),
             correlation_key: self.correlation_key.clone(),
             state: self.state,
@@ -150,6 +187,8 @@ pub struct ConsoleTaskDetail {
     pub run_id: String,
     pub workflow_id: Option<String>,
     pub workflow_activation_id: Option<String>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub provider_probe: Option<ConsoleProviderProbeAssignment>,
     pub parent_workflow_id: Option<String>,
     pub root_workflow_id: Option<String>,
     pub input: ConsoleSubmitTask,
@@ -184,6 +223,14 @@ impl ConsoleTaskDetail {
         )?;
         if let Some(trace) = &self.origin_trace {
             trace.validate()?;
+        }
+        if let Some(probe) = &self.provider_probe {
+            probe.clone().into_core().validate()?;
+            if self.workflow_id.as_ref() != Some(&probe.occurrence.workflow_id)
+                || self.workflow_activation_id.is_some()
+            {
+                return Err(inconsistent("inconsistent provider probe identity"));
+            }
         }
         if let Some(id) = &self.current_attempt_id {
             validate_text(id, 128)?;
@@ -228,6 +275,7 @@ impl ConsoleTaskDetail {
             run_id: v.run_id,
             workflow_id: v.workflow_id,
             workflow_activation_id: v.workflow_activation_id,
+            provider_probe: v.provider_probe.map(Into::into),
             parent_workflow_id: v.parent_workflow_id,
             root_workflow_id: v.root_workflow_id,
             input: v.input.into(),

@@ -28,6 +28,7 @@ export function statusAppearance(value: string) {
     case "open":
     case "wait registered":
     case "awaiting operator resolution":
+    case "awaiting provider outcome":
       return { Icon: Clock3, tone: "waiting" } as const;
     default:
       return {

@@ -35,18 +35,31 @@ struct ConsoleDecision {
     action: ApprovalAction,
     #[serde(default)]
     protection: ApprovalProtection,
+    #[serde(default, deserialize_with = "optional_non_null")]
+    provider_binding: Option<provider_console::Binding>,
     decision_id: String,
     decision: ApprovalDecision,
     reviewer: String,
     #[serde(deserialize_with = "required_option")]
     reason: Option<String>,
 }
-fn required_option<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+pub(super) fn required_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer)
+}
+pub(super) fn optional_non_null<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 #[derive(Serialize)]
 pub(super) struct ConsoleApproval {
@@ -57,6 +70,8 @@ pub(super) struct ConsoleApproval {
     action: ApprovalAction,
     #[serde(skip_serializing_if = "ApprovalProtection::is_unspecified")]
     protection: ApprovalProtection,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_binding: Option<provider_console::Binding>,
     proposed_arguments: Option<serde_json::Value>,
     created_at: Timestamp,
     deadline: Timestamp,
@@ -73,6 +88,7 @@ impl From<ApprovalSnapshot> for ConsoleApproval {
             revision: ConsoleU64(value.revision),
             action: value.action,
             protection: value.protection,
+            provider_binding: value.provider_binding.map(Into::into),
             proposed_arguments: value.proposed_arguments,
             created_at: value.created_at,
             deadline: value.deadline,
@@ -239,6 +255,9 @@ pub(super) async fn post(
                     revision: value.revision.0,
                     action: value.action,
                     protection: value.protection,
+                    provider_binding: value
+                        .provider_binding
+                        .map(provider_console::Binding::into_core),
                     decision_id: value.decision_id,
                     decision: value.decision,
                     reviewer: value.reviewer,

@@ -17,7 +17,7 @@ impl PostgresStore {
         self.require_scope(&q.scope)?;
         let after = q.validate()?;
         let mut sql = QueryBuilder::<Postgres>::new(
-            "SELECT summary_bytes FROM approved_effect_occurrences WHERE tenant_id=",
+            "SELECT summary_bytes FROM approved_effect_occurrences e WHERE tenant_id=",
         );
         sql.push_bind(&q.scope.tenant_id)
             .push(" AND namespace=")
@@ -36,6 +36,31 @@ impl PostgresStore {
             EffectInboxFilter::Discrepant => {
                 sql.push(" AND has_discrepancy");
             }
+        }
+        if let Some(filter) = q.provider_filter {
+            sql.push(" AND EXISTS(SELECT 1 FROM provider_operations p WHERE p.tenant_id=e.tenant_id AND p.namespace=e.namespace AND p.workflow_id=e.workflow_id AND p.activation_id=e.activation_id AND p.approval_key=e.approval_key");
+            match filter {
+                ProviderInboxFilter::All => {}
+                ProviderInboxFilter::NeedsReview => {
+                    sql.push(" AND p.needs_review");
+                }
+                ProviderInboxFilter::Pending => {
+                    sql.push(" AND p.handling='unresolved' AND p.knowledge IN ('unknown','pending') AND p.stopped_reason IS NULL");
+                }
+                ProviderInboxFilter::Succeeded => {
+                    sql.push(" AND p.knowledge='succeeded'");
+                }
+                ProviderInboxFilter::Failed => {
+                    sql.push(" AND p.knowledge='failed'");
+                }
+                ProviderInboxFilter::Cancelled => {
+                    sql.push(" AND p.knowledge='cancelled'");
+                }
+                ProviderInboxFilter::Disputed => {
+                    sql.push(" AND (p.knowledge='disputed' OR e.disputed)");
+                }
+            }
+            sql.push(")");
         }
         if let Some(id) = &q.workflow_id {
             sql.push(" AND workflow_id=").push_bind(id);
@@ -90,7 +115,9 @@ impl PostgresStore {
         let rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT entry_bytes FROM approved_effect_evidence_entries WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND activation_id=$4 AND approval_key=$5 AND sequence>$6::text::numeric ORDER BY sequence LIMIT $7")
             .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.activation_id).bind(&o.approval_key).bind(after.to_string()).bind(i64::from(q.limit)+1).fetch_all(&mut *tx).await?;
         let mut more = rows.len() > q.limit as usize;
+        let provider = provider::detail(&mut tx, &r).await?;
         let mut page = EffectEvidenceDetail {
+            provider,
             current_assessment: r.current_assessment,
             binding: r.binding,
             summary: r.summary,

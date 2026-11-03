@@ -50,6 +50,7 @@ pub(super) async fn recover(store: &PostgresStore) {
 }
 pub(super) async fn failed_attempt(store: &PostgresStore, assigned: &Assignment) {
     let failed = SettleCommand {
+        provider_probe_failure: None,
         owner: assigned.lease.owner.clone(),
         operation_id: "retry-controller".into(),
         report: AttemptReport::Failed(ExecutionFailure {

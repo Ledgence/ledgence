@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useContext } from "react";
+import { providerFilters, providerNeedsReview } from "../api/providers";
+import { ProviderBindingDetails } from "./provider-binding";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { useAccess, usePermission } from "../app/access-session";
@@ -43,6 +45,10 @@ import { EffectResolutionForm } from "./effect-resolution-form";
 import "../styles/lists.css";
 
 function assessmentLabel(item: EffectSummary) {
+  if (item.provider && !item.operator_resolution) {
+    if (providerNeedsReview(item.provider, false)) return "Needs review";
+    return item.provider.knowledge.replaceAll("_", " ");
+  }
   const assessment = item.operator_resolution;
   if (!assessment) return "Unassessed";
   if (assessment.first_conflicting_entry_sequence !== null)
@@ -68,9 +74,13 @@ export function EffectsPage() {
   const paging = usePagination();
   const filter =
     effectFilters.find((value) => value === params.get("filter")) ?? "all";
+  const providerFilter = providerFilters.find(
+    (value) => value === params.get("provider_filter"),
+  );
   const workflowId = params.get("workflow_id") || null;
   const input = {
-    filter,
+    filter: providerFilter ? ("all" as const) : filter,
+    ...(providerFilter ? { provider_filter: providerFilter } : {}),
     workflow_id: workflowId,
     cursor: paging.cursor,
     limit: paging.limit,
@@ -109,13 +119,15 @@ export function EffectsPage() {
           <form
             className="filters list-filters"
             aria-label="Filter effects"
-            key={`${filter}:${workflowId}`}
+            key={`${filter}:${providerFilter}:${workflowId}`}
             onSubmit={(event) => {
               event.preventDefault();
               const values = new FormData(event.currentTarget);
               const next = new URLSearchParams();
               const chosen = String(values.get("filter"));
-              if (chosen !== "all") next.set("filter", chosen);
+              const provider = String(values.get("provider_filter") ?? "");
+              if (provider) next.set("provider_filter", provider);
+              else if (chosen !== "all") next.set("filter", chosen);
               const workflow = String(values.get("workflow_id") ?? "").trim();
               if (workflow) next.set("workflow_id", workflow);
               setParams(next);
@@ -127,6 +139,22 @@ export function EffectsPage() {
                 {effectFilters.map((value) => (
                   <option key={value} value={value}>
                     {filterLabels[value]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Provider operation
+              <select
+                name="provider_filter"
+                defaultValue={providerFilter ?? ""}
+              >
+                <option value="">All effect types</option>
+                {providerFilters.map((value) => (
+                  <option key={value} value={value}>
+                    {value === "all"
+                      ? "All provider operations"
+                      : value.replaceAll("_", " ")}
                   </option>
                 ))}
               </select>
@@ -189,11 +217,33 @@ export function EffectsPage() {
                               {item.occurrence.approval_key}
                             </div>
                           </TableCell>
-                          <TableCell>{assessmentLabel(item)}</TableCell>
                           <TableCell>
-                            {item.journal_state === "confirmed"
-                              ? "Confirmed"
-                              : "Unconfirmed"}
+                            {assessmentLabel(item)}
+                            {item.provider && (
+                              <div className="resource-id">
+                                {item.provider.reconciliation.checks_used}/
+                                {item.provider.reconciliation.max_checks} checks
+                                {item.provider.reconciliation.next_due_at !==
+                                  null && (
+                                  <>
+                                    {" "}
+                                    · next{" "}
+                                    <When
+                                      value={
+                                        item.provider.reconciliation.next_due_at
+                                      }
+                                    />
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {item.provider
+                              ? "No local journal result"
+                              : item.journal_state === "confirmed"
+                                ? "Confirmed"
+                                : "Unconfirmed"}
                           </TableCell>
                           <TableCell>
                             {item.has_discrepancy
@@ -381,7 +431,11 @@ function EffectReview({ address }: { address: EffectAddress }) {
               <Field label="Program">
                 {detail.summary.program.id} · {detail.summary.program.version}
               </Field>
-              <Field label="Journal">{detail.summary.journal_state}</Field>
+              <Field label="Journal">
+                {detail.summary.provider
+                  ? "No local journal result"
+                  : detail.summary.journal_state}
+              </Field>
               <Field label="Handling">{assessmentLabel(detail.summary)}</Field>
               <Field label="Evidence revision">
                 {detail.summary.effect_revision}
@@ -395,6 +449,55 @@ function EffectReview({ address }: { address: EffectAddress }) {
               label="Approved effective action"
               value={detail.binding.approval.action}
             />
+            {detail.binding.approval.provider_binding && (
+              <ProviderBindingDetails
+                binding={detail.binding.approval.provider_binding}
+              />
+            )}
+            {detail.summary.provider && (
+              <>
+                <h3>Recovery</h3>
+                <Fields>
+                  <Field label="Provider knowledge">
+                    {detail.summary.provider.knowledge.replaceAll("_", " ")}
+                  </Field>
+                  <Field label="Provenance">Adapter-classified response</Field>
+                  <Field label="Handling">
+                    {detail.summary.provider.handling.replaceAll("_", " ")}
+                  </Field>
+                  <Field label="Checks allocated">
+                    {detail.summary.provider.reconciliation.checks_used} /{" "}
+                    {detail.summary.provider.reconciliation.max_checks}
+                  </Field>
+                  <Field label="Deadline">
+                    <When
+                      value={detail.summary.provider.reconciliation.deadline_at}
+                    />
+                  </Field>
+                  <Field label="Next check">
+                    <When
+                      value={detail.summary.provider.reconciliation.next_due_at}
+                    />
+                  </Field>
+                  <Field label="Stopped reason">
+                    {detail.summary.provider.reconciliation.stopped_reason?.replaceAll(
+                      "_",
+                      " ",
+                    ) ?? "Recovery scheduled"}
+                  </Field>
+                  {detail.summary.provider.reconciliation.active_task_id && (
+                    <Field label="Active probe">
+                      <Link
+                        to={`/executions/${encodeURIComponent(detail.summary.provider.reconciliation.active_task_id)}`}
+                        state={returnState}
+                      >
+                        {detail.summary.provider.reconciliation.active_task_id}
+                      </Link>
+                    </Field>
+                  )}
+                </Fields>
+              </>
+            )}
             {detail.summary.has_discrepancy && (
               <p className="notice">
                 Worker reports disagree. This history remains visible after
@@ -421,6 +524,12 @@ function EffectReview({ address }: { address: EffectAddress }) {
               Refresh evidence
             </Button>
           </section>
+          {detail.provider?.current_report && (
+            <section className="card" aria-label="Current provider report">
+              <h2>Current provider report</h2>
+              <EvidenceEntry entry={detail.provider.current_report} />
+            </section>
+          )}
           {detail.current_assessment && (
             <section className="card" aria-label="Current assessment">
               <h2>Current assessment</h2>
@@ -480,7 +589,16 @@ function EvidenceEntry({ entry }: { entry: EffectEntry }) {
       ? "Worker claim"
       : entry.kind === "assessment"
         ? "Operator assessment"
-        : "Worker observation";
+        : entry.kind === "observation"
+          ? "Worker observation"
+          : {
+              provider_dispatch: "Provider dispatch grant",
+              provider_probe_scheduled: "Probe scheduled",
+              provider_probe_source: "Probe callback admitted",
+              provider_report: "Provider report",
+              provider_probe_finished: "Probe finished",
+              provider_recovery_stopped: "Recovery stopped",
+            }[entry.kind];
   return (
     <article
       className="approval-card"
@@ -517,7 +635,7 @@ function EvidenceEntry({ entry }: { entry: EffectEntry }) {
             ))}
           </ul>
         </>
-      ) : (
+      ) : entry.kind === "observation" ? (
         <>
           <p>
             {entry.source.kind === "verified_worker_claim"
@@ -525,6 +643,46 @@ function EvidenceEntry({ entry }: { entry: EffectEntry }) {
               : "Historical journal · worker claim provenance unavailable"}
           </p>
           <JsonView label="Reported output" value={entry.output} />
+        </>
+      ) : (
+        <>
+          <Fields>
+            {"worker" in entry && (
+              <Field label="Worker">{entry.worker.subject}</Field>
+            )}
+            {"task_id" in entry && (
+              <Field label="Probe execution">
+                <Link to={`/executions/${encodeURIComponent(entry.task_id)}`}>
+                  {entry.task_id}
+                </Link>
+              </Field>
+            )}
+            {"generation" in entry && (
+              <Field label="Generation">{entry.generation}</Field>
+            )}
+            {"source_id" in entry && (
+              <Field label="Source">{entry.source_id}</Field>
+            )}
+            {entry.kind === "provider_report" && (
+              <>
+                <Field label="Provenance">Adapter-classified response</Field>
+                <Field label="Ingress">
+                  {entry.ingress.replaceAll("_", " ")}
+                </Field>
+                <Field label="Knowledge">
+                  {entry.report.knowledge.kind.replaceAll("_", " ")}
+                </Field>
+              </>
+            )}
+          </Fields>
+          <JsonView
+            label={
+              entry.kind === "provider_report"
+                ? "Classified provider report"
+                : "Recovery evidence"
+            }
+            value={entry.kind === "provider_report" ? entry.report : entry}
+          />
         </>
       )}
     </article>

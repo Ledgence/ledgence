@@ -29,6 +29,10 @@ mod effect_evidence;
 mod effect_evidence_reads;
 mod effect_resolution;
 mod observation;
+mod provider_binding;
+mod provider_operation;
+mod provider_reads;
+mod provider_wait;
 mod retention;
 mod storage;
 mod submission;
@@ -48,6 +52,10 @@ pub use effect_evidence::*;
 pub use effect_evidence_reads::*;
 pub use effect_resolution::*;
 pub use observation::*;
+pub use provider_binding::*;
+pub use provider_operation::*;
+pub use provider_reads::*;
+pub use provider_wait::*;
 pub use retention::*;
 pub use storage::*;
 pub use submission::*;
@@ -159,3 +167,6 @@ pub fn validate_text(value: &str, maximum: usize) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod provider_tests;

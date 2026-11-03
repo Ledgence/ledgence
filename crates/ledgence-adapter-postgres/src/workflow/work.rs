@@ -143,6 +143,12 @@ impl PostgresStore {
         work: &WorkflowWork,
         resolved: &[ResolvedWorkflowChild],
     ) -> StoreResult<WorkflowProgress> {
+        if matches!(
+            work.source,
+            WorkflowWorkSource::ProviderWait | WorkflowWorkSource::ProviderProbeTerminal { .. }
+        ) {
+            self.provider_configured()?;
+        }
         if matches!(work.source, WorkflowWorkSource::EffectResolutionWait) {
             self.audit_audience()?;
         }
@@ -162,6 +168,31 @@ impl PostgresStore {
         };
         let mut wakes = Vec::new();
         if snapshot.state.is_terminal() {
+            finish_work(&mut tx, &work.id, now).await?;
+        } else if row.kind == "provider_probe_terminal" {
+            let run = load_run(
+                &mut tx,
+                &snapshot.scope,
+                Some(&snapshot.workflow_id),
+                None,
+                false,
+            )
+            .await?;
+            provider::finalize(&mut tx, &run, &row.task_id, now).await?;
+            finish_work(&mut tx, &work.id, now).await?;
+        } else if row.kind == "provider_wait" {
+            let mut run = load_run(
+                &mut tx,
+                &snapshot.scope,
+                Some(&snapshot.workflow_id),
+                None,
+                false,
+            )
+            .await?;
+            if let Some(task) = provider::apply_wait(&mut tx, &mut run, &row.task_id, now).await? {
+                wakes.push(task);
+                progress.activations_scheduled += 1;
+            }
             finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "drain" {
             let mut run = load_run(
@@ -255,6 +286,19 @@ impl PostgresStore {
                     TaskOutcome::Succeeded { output, .. } => {
                         let decision = WorkflowDecision::decode(&output)?;
                         if matches!(
+                            &decision.action,
+                            WorkflowAction::Wait {
+                                wait: WorkflowWait::ProviderOperation { .. }
+                                    | WorkflowWait::Approval {
+                                        protection: ApprovalProtection::ProviderOperation,
+                                        ..
+                                    },
+                                ..
+                            }
+                        ) {
+                            self.provider_configured()?;
+                        }
+                        if matches!(
                             decision.action,
                             WorkflowAction::Wait {
                                 wait: WorkflowWait::EffectResolution { .. },
@@ -319,7 +363,7 @@ impl PostgresStore {
                 }
             } else if snapshot.state == WorkflowState::Waiting {
                 let bytes: Option<Vec<u8>> = sqlx::query_scalar(
-                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL AND native_wait_activation_id IS NULL",
+                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL AND native_wait_activation_id IS NULL AND provider_wait_activation_id IS NULL",
                 )
                 .bind(&snapshot.workflow_id)
                 .fetch_optional(&mut *tx)
@@ -784,6 +828,16 @@ pub(super) async fn apply_decision(
             progress.activations_scheduled += 1;
         }
         core::WorkflowDisposition::Complete { output } => {
+            if run.has_provider_operations {
+                let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM provider_operations WHERE workflow_id=$1 AND (active_task_id IS NOT NULL OR stopped_reason IS NULL))").bind(&run.snapshot.workflow_id).fetch_one(&mut *connection).await?;
+                if active {
+                    return Err(ContractError::Unavailable(
+                        "provider recovery must stop and finish cleanup before workflow completion"
+                            .into(),
+                    )
+                    .into());
+                }
+            }
             // Owned children can finish after the coordinator's initial time
             // sample without locking this parent. Timestamp the observed join.
             applied_at = db::now(connection).await?;
@@ -796,6 +850,7 @@ pub(super) async fn apply_decision(
             run.wait_keys.clear();
             run.external_wait_key = None;
             run.native_wait_activation = None;
+            run.provider_wait_activation = None;
             save_run(connection, run).await?;
         }
         core::WorkflowDisposition::Fail { error } => fail_run(connection, run, &error, now).await?,
@@ -935,7 +990,9 @@ async fn drain(
         db::apply(connection, &transition).await?;
     }
     owned::enqueue_cancellations(connection, &run.snapshot.workflow_id, remaining, now).await?;
-    let unfinished = owned::unfinished(connection, &run.snapshot.workflow_id).await?;
+    let provider_pending = provider::drain(connection, run, now).await?;
+    let unfinished =
+        owned::unfinished(connection, &run.snapshot.workflow_id).await? || provider_pending;
     if unfinished {
         sqlx::query("UPDATE workflow_work SET available_at_ms=$2,lease_token=NULL,lease_until_ms=NULL WHERE id=$1")
             .bind(work_id).bind(codec::ms(now + 1_000)?).execute(connection).await?;
@@ -954,6 +1011,7 @@ async fn drain(
         run.wait_keys.clear();
         run.external_wait_key = None;
         run.native_wait_activation = None;
+        run.provider_wait_activation = None;
         save_run(connection, run).await?;
         record_history(
             connection,
@@ -995,6 +1053,22 @@ async fn work_source(
         "cancel_owned" => WorkflowWorkSource::CancelOwned,
         "wait" => WorkflowWorkSource::Wait,
         "effect_wait" => WorkflowWorkSource::EffectResolutionWait,
+        "provider_wait" => WorkflowWorkSource::ProviderWait,
+        "provider_probe_terminal" => {
+            let task_id: String = row.try_get("task_id")?;
+            let marker: Vec<u8> = sqlx::query_scalar(
+                "SELECT assignment_bytes FROM provider_probe_tasks WHERE task_id=$1",
+            )
+            .bind(&task_id)
+            .fetch_one(connection)
+            .await?;
+            let marker: ProviderProbeAssignment = codec::decode(&marker)?;
+            WorkflowWorkSource::ProviderProbeTerminal {
+                probe_id: marker.probe_id,
+                generation: marker.generation,
+                task_id,
+            }
+        }
         _ => return Err(corrupt("workflow work source").into()),
     })
 }

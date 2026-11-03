@@ -79,6 +79,12 @@ pub fn settle(
 ) -> Result<Transition<SettleReply>> {
     check_owner(task, attempt, &command.owner)?;
     validate_report(attempt, command)?;
+    if let Some(failure) = command.provider_probe_failure {
+        if task.provider_probe.is_none() {
+            return Err(invalid("provider probe failure on an ordinary task"));
+        }
+        failure.validate_settlement(&command.report)?;
+    }
     if let Some(accepted) = &attempt.settlement {
         if canonical_json_bytes(
             &serde_json::to_value(&accepted.command)

@@ -40,6 +40,63 @@ pub enum EffectObservationSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EffectEvidenceEntry {
+    ProviderDispatch {
+        sequence: u64,
+        recorded_at: Timestamp,
+        recorded_revision: u64,
+        claim_id: String,
+        source_id: String,
+        report_id: String,
+        worker: EffectWorkerIdentity,
+    },
+    ProviderProbeScheduled {
+        sequence: u64,
+        recorded_at: Timestamp,
+        recorded_revision: u64,
+        probe_id: String,
+        generation: u64,
+        task_id: String,
+        due_at: Timestamp,
+    },
+    ProviderProbeSource {
+        sequence: u64,
+        recorded_at: Timestamp,
+        recorded_revision: u64,
+        probe_id: String,
+        generation: u64,
+        task_id: String,
+        attempt_id: String,
+        source_id: String,
+        report_id: String,
+        worker: EffectWorkerIdentity,
+    },
+    ProviderReport {
+        sequence: u64,
+        recorded_at: Timestamp,
+        recorded_revision: u64,
+        source_id: String,
+        source: ProviderSourceReference,
+        report_id: String,
+        worker: EffectWorkerIdentity,
+        ingress: ProviderReportIngress,
+        report: Box<ProviderReport>,
+    },
+    ProviderProbeFinished {
+        sequence: u64,
+        recorded_at: Timestamp,
+        recorded_revision: u64,
+        probe_id: String,
+        generation: u64,
+        task_id: String,
+        completion: ProviderProbeCompletion,
+    },
+    ProviderRecoveryStopped {
+        sequence: u64,
+        recorded_at: Timestamp,
+        recorded_revision: u64,
+        reason: ProviderRecoveryStopReason,
+    },
+
     Assessment {
         sequence: u64,
         recorded_at: Timestamp,
@@ -76,6 +133,12 @@ pub enum EffectEvidenceEntry {
 impl EffectEvidenceEntry {
     pub fn sequence(&self) -> u64 {
         match self {
+            Self::ProviderDispatch { sequence, .. }
+            | Self::ProviderProbeScheduled { sequence, .. }
+            | Self::ProviderProbeSource { sequence, .. }
+            | Self::ProviderReport { sequence, .. }
+            | Self::ProviderProbeFinished { sequence, .. }
+            | Self::ProviderRecoveryStopped { sequence, .. } => *sequence,
             Self::Claim { sequence, .. }
             | Self::Observation { sequence, .. }
             | Self::Assessment { sequence, .. } => *sequence,
@@ -83,6 +146,24 @@ impl EffectEvidenceEntry {
     }
     pub fn recorded_revision(&self) -> u64 {
         match self {
+            Self::ProviderDispatch {
+                recorded_revision, ..
+            }
+            | Self::ProviderProbeScheduled {
+                recorded_revision, ..
+            }
+            | Self::ProviderProbeSource {
+                recorded_revision, ..
+            }
+            | Self::ProviderReport {
+                recorded_revision, ..
+            }
+            | Self::ProviderProbeFinished {
+                recorded_revision, ..
+            }
+            | Self::ProviderRecoveryStopped {
+                recorded_revision, ..
+            } => *recorded_revision,
             Self::Assessment {
                 recorded_revision, ..
             }
@@ -96,6 +177,12 @@ impl EffectEvidenceEntry {
     }
     pub fn recorded_at(&self) -> u64 {
         match self {
+            Self::ProviderDispatch { recorded_at, .. }
+            | Self::ProviderProbeScheduled { recorded_at, .. }
+            | Self::ProviderProbeSource { recorded_at, .. }
+            | Self::ProviderReport { recorded_at, .. }
+            | Self::ProviderProbeFinished { recorded_at, .. }
+            | Self::ProviderRecoveryStopped { recorded_at, .. } => *recorded_at,
             Self::Claim { recorded_at, .. }
             | Self::Observation { recorded_at, .. }
             | Self::Assessment { recorded_at, .. } => *recorded_at,
@@ -103,6 +190,12 @@ impl EffectEvidenceEntry {
     }
     pub fn command_id(&self) -> &str {
         match self {
+            Self::ProviderDispatch { claim_id, .. } => claim_id,
+            Self::ProviderProbeScheduled { probe_id, .. }
+            | Self::ProviderProbeFinished { probe_id, .. } => probe_id,
+            Self::ProviderProbeSource { source_id, .. } => source_id,
+            Self::ProviderReport { report_id, .. } => report_id,
+            Self::ProviderRecoveryStopped { reason, .. } => reason.as_str(),
             Self::Claim { claim_id, .. } => claim_id,
             Self::Assessment { resolution_id, .. } => resolution_id,
             Self::Observation { observation_id, .. } => observation_id,
@@ -110,6 +203,12 @@ impl EffectEvidenceEntry {
     }
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::ProviderDispatch { .. } => "provider_dispatch",
+            Self::ProviderProbeScheduled { .. } => "provider_probe_scheduled",
+            Self::ProviderProbeSource { .. } => "provider_probe_source",
+            Self::ProviderReport { .. } => "provider_report",
+            Self::ProviderProbeFinished { .. } => "provider_probe_finished",
+            Self::ProviderRecoveryStopped { .. } => "provider_recovery_stopped",
             Self::Claim { .. } => "claim",
             Self::Assessment { .. } => "assessment",
             Self::Observation { .. } => "observation",
@@ -133,6 +232,93 @@ impl EffectEvidenceEntry {
             Ok(())
         };
         match self {
+            Self::ProviderDispatch {
+                claim_id,
+                source_id,
+                report_id,
+                worker,
+                ..
+            } => {
+                for id in [claim_id, source_id, report_id] {
+                    validate_text(id, 128)?;
+                }
+                validate_worker(worker)?;
+            }
+            Self::ProviderProbeScheduled {
+                probe_id,
+                generation,
+                task_id,
+                due_at,
+                ..
+            } => {
+                validate_text(probe_id, 128)?;
+                validate_text(task_id, 128)?;
+                positive(*generation)?;
+                time(*due_at)?;
+            }
+            Self::ProviderProbeSource {
+                probe_id,
+                generation,
+                task_id,
+                attempt_id,
+                source_id,
+                report_id,
+                worker,
+                ..
+            } => {
+                for id in [probe_id, task_id, attempt_id, source_id, report_id] {
+                    validate_text(id, 128)?;
+                }
+                positive(*generation)?;
+                validate_worker(worker)?;
+            }
+            Self::ProviderReport {
+                source_id,
+                source,
+                report_id,
+                worker,
+                ingress,
+                report,
+                ..
+            } => {
+                validate_text(source_id, 128)?;
+                validate_text(report_id, 128)?;
+                source.validate()?;
+                validate_worker(worker)?;
+                report.validate()?;
+                if matches!(
+                    (source, ingress),
+                    (
+                        ProviderSourceReference::Dispatch { .. },
+                        ProviderReportIngress::LiveProbe
+                    ) | (
+                        ProviderSourceReference::Probe { .. },
+                        ProviderReportIngress::LiveDispatch
+                    )
+                ) {
+                    return Err(invalid());
+                }
+            }
+            Self::ProviderProbeFinished {
+                probe_id,
+                generation,
+                task_id,
+                completion,
+                ..
+            } => {
+                validate_text(probe_id, 128)?;
+                validate_text(task_id, 128)?;
+                positive(*generation)?;
+                if let ProviderProbeCompletion::Reported { report } = completion {
+                    report.validate()?;
+                    if report.sequence >= self.sequence()
+                        || report.recorded_revision >= self.recorded_revision()
+                    {
+                        return Err(invalid());
+                    }
+                }
+            }
+            Self::ProviderRecoveryStopped { .. } => {}
             Self::Assessment {
                 assessment,
                 reason,
@@ -178,12 +364,37 @@ impl EffectEvidenceEntry {
         }
         bounded(
             self,
-            if matches!(self, Self::Assessment { .. }) {
+            if self.kind().starts_with("provider_") {
+                PROVIDER_ENTRY_MAX_BYTES
+            } else if matches!(self, Self::Assessment { .. }) {
                 EFFECT_RESOLUTION_ENTRY_MAX_BYTES
             } else {
                 EFFECT_EVIDENCE_COMMAND_MAX_BYTES
             },
         )
+    }
+    pub fn provider_report_reference(&self) -> Option<ProviderReportReference> {
+        if let Self::ProviderReport {
+            sequence,
+            recorded_at,
+            recorded_revision,
+            source_id,
+            report_id,
+            report,
+            ..
+        } = self
+        {
+            Some(ProviderReportReference {
+                report_id: report_id.clone(),
+                source_id: source_id.clone(),
+                sequence: *sequence,
+                recorded_revision: *recorded_revision,
+                recorded_at: *recorded_at,
+                knowledge: report.knowledge.kind(),
+            })
+        } else {
+            None
+        }
     }
     pub fn resolution_reference(&self) -> Option<EffectResolutionReference> {
         if let Self::Assessment {
@@ -240,6 +451,11 @@ impl EffectEvidenceBinding {
         {
             return Err(invalid());
         }
+        if let Some(provider) = &self.approval.provider_binding
+            && (provider.program != self.program || self.lookup.is_some())
+        {
+            return Err(invalid());
+        }
         if let Some(lookup) = &self.lookup {
             validate_text(lookup, 512)?;
             if lookup == &self.approval.action.name {
@@ -255,6 +471,12 @@ impl EffectEvidenceBinding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectEvidenceSummary {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider: Option<ProviderEffectSummary>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -285,8 +507,23 @@ impl EffectEvidenceSummary {
         if self.created_at > self.updated_at || self.entry_count >= self.effect_revision {
             return Err(invalid());
         }
+        if let Some(provider) = &self.provider {
+            provider.validate(self.entry_count, self.effect_revision)?;
+            if self.journal_state != EffectJournalState::Unconfirmed
+                || (provider.handling == ProviderHandlingState::OperatorClosed)
+                    != self.operator_resolution.is_some()
+            {
+                return Err(invalid());
+            }
+        }
         if let Some(resolution) = &self.operator_resolution {
             resolution.validate(self.entry_count, self.effect_revision)?;
+            if self.provider.is_none()
+                && resolution.first_conflicting_entry_sequence.is_some()
+                && resolution.reference.assessment_kind != EffectAssessmentKind::RecordSuccess
+            {
+                return Err(invalid());
+            }
         }
         match &self.dispatch_provenance {
             EffectDispatchProvenance::VerifiedClaim { claim_id } => validate_text(claim_id, 128)?,
@@ -332,6 +569,12 @@ impl EffectInboxFilter {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectInboxQuery {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_filter: Option<ProviderInboxFilter>,
     pub scope: Scope,
     pub filter: EffectInboxFilter,
     pub workflow_id: Option<String>,
@@ -349,6 +592,12 @@ pub struct EffectInboxPosition {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InboxCursor {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    provider_filter: Option<ProviderInboxFilter>,
     version: u8,
     scope: Scope,
     filter: EffectInboxFilter,
@@ -357,6 +606,9 @@ struct InboxCursor {
 }
 impl EffectInboxQuery {
     pub fn validate(&self) -> Result<Option<EffectInboxPosition>> {
+        if self.provider_filter.is_some() && self.filter != EffectInboxFilter::All {
+            return Err(invalid());
+        }
         self.scope.validate()?;
         if let Some(id) = &self.workflow_id {
             validate_text(id, 128)?;
@@ -368,7 +620,8 @@ impl EffectInboxQuery {
             return Ok(None);
         };
         let c: InboxCursor = decode_cursor(text)?;
-        if c.version != 1
+        if c.version != if self.provider_filter.is_some() { 2 } else { 1 }
+            || c.provider_filter != self.provider_filter
             || c.scope != self.scope
             || c.filter != self.filter
             || c.workflow_id != self.workflow_id
@@ -394,7 +647,8 @@ impl EffectInboxQuery {
     }
     pub fn next_cursor(&self, item: &EffectEvidenceSummary) -> Result<String> {
         encode_cursor(&InboxCursor {
-            version: 1,
+            provider_filter: self.provider_filter,
+            version: if self.provider_filter.is_some() { 2 } else { 1 },
             scope: self.scope.clone(),
             filter: self.filter,
             workflow_id: self.workflow_id.clone(),
@@ -421,6 +675,9 @@ impl EffectInboxPage {
             let pos = item.position();
             if item.occurrence.scope != query.scope
                 || !query.filter.matches(item)
+                || query
+                    .provider_filter
+                    .is_some_and(|filter| !filter.matches(item))
                 || query
                     .workflow_id
                     .as_ref()
@@ -492,6 +749,12 @@ pub struct EffectEvidenceDetail {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::effect_resolution::present"
     )]
+    pub provider: Option<ProviderEffectDetail>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
     pub current_assessment: Option<EffectEvidenceEntry>,
     pub binding: EffectEvidenceBinding,
     pub summary: EffectEvidenceSummary,
@@ -523,6 +786,37 @@ impl EffectEvidenceDetail {
             }
             _ => return Err(invalid()),
         }
+        match (
+            &self.provider,
+            &self.summary.provider,
+            &self.binding.approval.provider_binding,
+        ) {
+            (None, None, None) => {}
+            (Some(detail), Some(summary), Some(binding)) => {
+                if binding.program != self.binding.program
+                    || summary.binding_digest != binding.digest(&self.binding.approval.action)?
+                    || self.binding.lookup.is_some()
+                {
+                    return Err(invalid());
+                }
+                match (&detail.current_report, &summary.selected_report) {
+                    (None, None) => {}
+                    (Some(entry), Some(reference)) => {
+                        entry.validate(&query.occurrence.scope)?;
+                        if let EffectEvidenceEntry::ProviderReport { report, .. } = entry.as_ref()
+                            && report.reported_target != binding.target
+                        {
+                            return Err(invalid());
+                        }
+                        if entry.provider_report_reference().as_ref() != Some(reference) {
+                            return Err(invalid());
+                        }
+                    }
+                    _ => return Err(invalid()),
+                }
+            }
+            _ => return Err(invalid()),
+        }
         if after > self.summary.entry_count {
             return Err(invalid());
         }
@@ -531,6 +825,40 @@ impl EffectEvidenceDetail {
         let mut ids = std::collections::HashSet::new();
         for e in &self.entries {
             e.validate(&query.occurrence.scope)?;
+            if let Some(provider_binding) = &self.binding.approval.provider_binding {
+                if let EffectEvidenceEntry::ProviderReport { report, .. } = e
+                    && report.reported_target != provider_binding.target
+                {
+                    return Err(invalid());
+                }
+                if let Some(summary) = &self.summary.provider {
+                    for reference in summary
+                        .selected_report
+                        .iter()
+                        .chain(&summary.conflicting_reports)
+                    {
+                        if e.sequence() == reference.sequence
+                            && e.provider_report_reference().as_ref() != Some(reference)
+                        {
+                            return Err(invalid());
+                        }
+                    }
+                }
+            }
+
+            if e.kind().starts_with("provider_") && self.provider.is_none() {
+                return Err(invalid());
+            }
+            if let Some(current) = self
+                .provider
+                .as_ref()
+                .and_then(|p| p.current_report.as_ref())
+                && e.sequence() == current.sequence()
+                && canonical_json_bytes(&serde_json::to_value(e).map_err(|_| invalid())?)?
+                    != canonical_json_bytes(&serde_json::to_value(current).map_err(|_| invalid())?)?
+            {
+                return Err(invalid());
+            }
             if matches!(e, EffectEvidenceEntry::Assessment { .. })
                 && self
                     .current_assessment

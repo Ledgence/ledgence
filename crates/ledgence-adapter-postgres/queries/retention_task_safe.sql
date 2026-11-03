@@ -11,3 +11,6 @@ SELECT
     AND NOT EXISTS(SELECT 1 FROM workflow_effect_waits WHERE parking_activation_id=$1)
     AND NOT EXISTS(SELECT 1 FROM workflow_activations a JOIN workflow_waits w ON w.activation_id=a.activation_id WHERE a.task_id=$1)
     AND NOT EXISTS(SELECT 1 FROM workflow_activations a JOIN owned_workflow_links l ON l.creating_activation_id=a.activation_id WHERE a.task_id=$1)
+
+    AND NOT EXISTS(SELECT 1 FROM workflow_provider_waits WHERE parking_activation_id=$1)
+    AND NOT EXISTS(SELECT 1 FROM provider_probe_tasks WHERE live_task_id=$1)

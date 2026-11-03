@@ -274,9 +274,38 @@ truth or workflow resumption. `sensitive_read` is independently needed to inspec
 evidence. Keep the complete original arguments and stable actor after an
 `outcome_unknown` error; no automatic retry occurs. An identical retry returns the
 original receipt, including after supersession or collection. Changed arguments
-or actor conflict. `disputed` filters current success-assessment conflict;
+or actor conflict. For opaque evidence, `disputed` filters current success-assessment conflict;
 `discrepant` remains historical disagreement. Cancelled executions stay closed.
 
 Use `ledgence_audit_query` with `filter={"kind":"event","event_id":"..."}`,
 `limit=2` and no cursor to inspect a receipt's exact scoped audit event. A successful
 empty response means absence; denied or unavailable reads remain errors.
+
+## Typed provider evidence in development
+
+The existing `ledgence_effect_inbox` accepts optional `provider_filter`:
+`all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled` or `disputed`.
+It requires the ordinary `filter` to be `all` or omitted. Omission preserves the
+mixed effect inbox; cursors cannot cross provider selections.
+Provider `needs_review` excludes a historical dispute covered by the current
+clean assessment; provider `disputed` still exposes that history. Typed provider
+evidence can also dispute a recorded failure, without changing the resolve input.
+`ledgence_effect_inspect` exposes the same original occurrence, full approved
+provider binding, current typed report and whole-entry timeline as HTTP.
+The tool catalog is unchanged: 19 native tools by default, 14 read-only tools,
+and 20 when effect resolution is explicitly enabled. No MCP approval mutation
+or automatic provider dispatch is introduced.
+
+All platform u64 counters, revisions, sequences, probe generations and pinned
+program sizes are canonical decimal strings in MCP results. Timestamps and u32
+check budgets remain JSON numbers; application arguments and results retain
+their original JSON types. In a task read, `provider_probe` marks a managed
+provider check; it does not change the task kind or imply business success.
+
+Provider knowledge, reconciliation schedule, operator handling and the immutable
+selected workflow wake describe different facts. A lost reply, missing lookup
+result or expired provider key never grants another POST. Existing permissions,
+startup-bound scope, sensitive-read audit and explicit `--allow-effect-resolution`
+apply unchanged. These additions require matching development components and
+are not in published 0.7.0.
+[Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).

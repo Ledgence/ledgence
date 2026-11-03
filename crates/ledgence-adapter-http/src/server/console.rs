@@ -911,6 +911,10 @@ pub(super) fn check_snapshot(reply: &TaskSnapshot, scope: &Scope, id: &str) -> R
     if reply.scope() != *scope
         || reply.task_id != id
         || reply.descriptor.program != reply.input.program
+        || reply
+            .provider_probe
+            .as_ref()
+            .is_some_and(|probe| &probe.occurrence.scope != scope)
     {
         return Err(unavailable("inconsistent task snapshot identity"));
     }

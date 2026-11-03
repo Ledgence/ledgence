@@ -2,6 +2,7 @@ use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
 mod access;
 mod audit;
 mod evidence;
+mod provider;
 pub use access::WorkerEffectAccess;
 mod credentials;
 pub use credentials::HttpCredentials;
@@ -828,6 +829,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            provider_probe: None,
             workflow_activation_id: None,            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },
                 digest: Digest(format!("sha256:{}", "a".repeat(64))), size: 123 },
             event: CloudEvent::new(serde_json::json!({"specversion":"1.0", "id":"event", "source":"urn:ledgence:orchestrator",
@@ -1129,6 +1131,7 @@ mod tests {
             namespace: "namespace".into(),
         };
         let expected = TaskStatus {
+            provider_probe: None,
             scope: scope.clone(),
             task_id: "task".into(),
             run_id: "run".into(),

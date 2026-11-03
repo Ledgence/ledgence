@@ -98,6 +98,17 @@ pub(super) async fn query(
                             )
                         })
                         .transpose()?;
+                    let provider_wait = r
+                        .try_get::<Option<Vec<u8>>, _>("provider_wait_bytes")?
+                        .map(|bytes| {
+                            provider_wait(
+                                &bytes,
+                                &r.try_get::<String, _>("activation_id")?,
+                                scope,
+                                workflow_id,
+                            )
+                        })
+                        .transpose()?;
                     Ok(ConsoleWorkflowWait {
                         workflow_id: r.try_get("workflow_id")?,
                         wait_key: r.try_get("wait_key")?,
@@ -107,6 +118,7 @@ pub(super) async fn query(
                         registered_at: number(r, "registered_at_ms")?,
                         closed_at: optional_number(r, "closed_at_ms")?,
                         native_effect_wait,
+                        provider_wait,
                     })
                 })
                 .collect::<StoreResult<Vec<_>>>()?;
@@ -199,22 +211,28 @@ pub(super) fn waits_query(
     position: Option<&ConsolePosition>,
 ) -> Result<QueryBuilder<Postgres>> {
     let mut sql = QueryBuilder::<Postgres>::new("SELECT * FROM (");
-    for native in [false, true] {
+    for namespace in [None, Some("effect_resolution"), Some("provider_operation")] {
+        let native = namespace.is_some();
         if native {
             sql.push(" UNION ALL ");
         }
         sql.push("(SELECT workflow_id,");
-        if native {
-            sql.push("logical_key AS wait_key,parking_activation_id AS activation_id,'effect_resolution'::text COLLATE \"C\" AS kind,NULL::bigint AS deadline_ms,registered_at_ms,closed_at_ms,wait_bytes AS native_wait_bytes FROM workflow_effect_waits WHERE workflow_id=");
+        if namespace == Some("provider_operation") {
+            sql.push("logical_key AS wait_key,parking_activation_id AS activation_id,'provider_operation'::text COLLATE \"C\" AS kind,NULL::bigint AS deadline_ms,registered_at_ms,closed_at_ms,NULL::bytea AS native_wait_bytes,wait_bytes AS provider_wait_bytes FROM workflow_provider_waits WHERE workflow_id=");
+        } else if native {
+            sql.push("logical_key AS wait_key,parking_activation_id AS activation_id,'effect_resolution'::text COLLATE \"C\" AS kind,NULL::bigint AS deadline_ms,registered_at_ms,closed_at_ms,wait_bytes AS native_wait_bytes,NULL::bytea AS provider_wait_bytes FROM workflow_effect_waits WHERE workflow_id=");
         } else {
-            sql.push("wait_key,activation_id,kind,deadline_ms,registered_at_ms,closed_at_ms,NULL::bytea AS native_wait_bytes FROM workflow_waits WHERE workflow_id=");
+            sql.push("wait_key,activation_id,kind,deadline_ms,registered_at_ms,closed_at_ms,NULL::bytea AS native_wait_bytes,NULL::bytea AS provider_wait_bytes FROM workflow_waits WHERE workflow_id=");
         }
         sql.push_bind(workflow_id.to_owned());
         if let Some(p) = position {
             if native {
                 // Constant namespace: reduce the cursor to a range the actual
                 // index can seek, including arbitrarily many equal timestamps.
-                match "effect_resolution".cmp(position_text(p, 1)?.as_str()) {
+                match namespace
+                    .expect("native namespace")
+                    .cmp(position_text(p, 1)?.as_str())
+                {
                     std::cmp::Ordering::Equal => {
                         sql.push(" AND (registered_at_ms,logical_key,parking_activation_id)>(")
                             .push_bind(position_time(p, 0)?)
@@ -350,6 +368,7 @@ struct Anchor {
     child_wait: Option<ConsoleChildWait>,
     external_wait_key: Option<String>,
     native_effect_wait: Option<ConsoleNativeEffectWait>,
+    provider_wait: Option<ConsoleProviderWait>,
 }
 fn native_wait(
     bytes: &[u8],
@@ -379,10 +398,48 @@ fn native_wait(
     }
     Ok(wait)
 }
+fn provider_wait(
+    bytes: &[u8],
+    activation: &str,
+    scope: &Scope,
+    workflow_id: &str,
+) -> StoreResult<ConsoleProviderWait> {
+    let wait: ProviderWait =
+        decode_unique_json(bytes, 4096).map_err(|_| corrupt("provider wait metadata"))?;
+    let wait = ConsoleProviderWait {
+        parking_activation_id: activation.into(),
+        key: wait.key,
+        occurrence: wait.occurrence,
+        after_effect_revision: wait.after_effect_revision.map(ConsoleU64),
+    };
+    wait.validate(workflow_id)?;
+    if &wait.occurrence.scope != scope {
+        return Err(corrupt("provider wait scope").into());
+    }
+    Ok(wait)
+}
 fn decode_anchor(row: &PgRow, scope: &Scope, workflow_id: &str) -> StoreResult<Anchor> {
     let external_wait_key: Option<String> = row.try_get("external_wait_key")?;
     let wait: Option<String> = row.try_get("wait_activation_id")?;
     let native_activation: Option<String> = row.try_get("native_wait_activation_id")?;
+    let provider_activation: Option<String> = row.try_get("provider_wait_activation_id")?;
+    let provider_wait = if let Some(activation) = &provider_activation {
+        if external_wait_key.is_some()
+            || native_activation.is_some()
+            || wait.as_ref() != Some(activation)
+        {
+            return Err(corrupt("provider wait anchor").into());
+        }
+        Some(provider_wait(
+            &row.try_get::<Option<Vec<u8>>, _>("provider_wait_bytes")?
+                .ok_or_else(|| corrupt("missing provider wait"))?,
+            activation,
+            scope,
+            workflow_id,
+        )?)
+    } else {
+        None
+    };
     let native_effect_wait = if let Some(activation) = &native_activation {
         if external_wait_key.is_some() || wait.as_ref() != Some(activation) {
             return Err(corrupt("native wait anchor").into());
@@ -397,7 +454,10 @@ fn decode_anchor(row: &PgRow, scope: &Scope, workflow_id: &str) -> StoreResult<A
     } else {
         None
     };
-    let child_wait = if external_wait_key.is_none() && native_activation.is_none() {
+    let child_wait = if external_wait_key.is_none()
+        && native_activation.is_none()
+        && provider_activation.is_none()
+    {
         if let Some(activation_id) = wait {
             let bytes = row
                 .try_get::<Option<Vec<u8>>, _>("wait_keys_bytes")?
@@ -419,10 +479,11 @@ fn decode_anchor(row: &PgRow, scope: &Scope, workflow_id: &str) -> StoreResult<A
         child_wait,
         external_wait_key,
         native_effect_wait,
+        provider_wait,
     })
 }
 async fn anchor(connection: &mut PgConnection, scope: &Scope, id: &str) -> StoreResult<Anchor> {
-    let row=sqlx::query("SELECT trunc(w.revision)::text AS revision_text,w.wait_activation_id,CASE WHEN octet_length(w.wait_keys_bytes)<=65536 THEN w.wait_keys_bytes ELSE NULL END AS wait_keys_bytes,w.external_wait_key,w.native_wait_activation_id,n.wait_bytes AS native_wait_bytes FROM workflow_runs w LEFT JOIN workflow_effect_waits n ON n.workflow_id=w.workflow_id AND n.parking_activation_id=w.native_wait_activation_id WHERE w.tenant_id=$1 AND w.namespace=$2 AND w.workflow_id=$3 AND w.retiring_at_ms IS NULL")
+    let row=sqlx::query("SELECT trunc(w.revision)::text AS revision_text,w.wait_activation_id,CASE WHEN octet_length(w.wait_keys_bytes)<=65536 THEN w.wait_keys_bytes ELSE NULL END AS wait_keys_bytes,w.external_wait_key,w.native_wait_activation_id,n.wait_bytes AS native_wait_bytes,w.provider_wait_activation_id,p.wait_bytes AS provider_wait_bytes FROM workflow_runs w LEFT JOIN workflow_effect_waits n ON n.workflow_id=w.workflow_id AND n.parking_activation_id=w.native_wait_activation_id LEFT JOIN workflow_provider_waits p ON p.workflow_id=w.workflow_id AND p.parking_activation_id=w.provider_wait_activation_id WHERE w.tenant_id=$1 AND w.namespace=$2 AND w.workflow_id=$3 AND w.retiring_at_ms IS NULL")
         .bind(&scope.tenant_id).bind(&scope.namespace).bind(id).fetch_optional(connection).await?.ok_or(ContractError::NotFound)?;
     decode_anchor(&row, scope, id)
 }
@@ -433,7 +494,7 @@ async fn detail(
     at: u64,
 ) -> StoreResult<ConsoleWorkflowDetail> {
     let mut sql = QueryBuilder::<Postgres>::new("SELECT ");
-    sql.push(SUMMARY_COLUMNS).push(",CASE WHEN octet_length(w.controller_bytes)<=4096 THEN w.controller_bytes ELSE NULL END AS controller,w.continuation,w.wait_activation_id,CASE WHEN octet_length(w.wait_keys_bytes)<=65536 THEN w.wait_keys_bytes ELSE NULL END AS wait_keys_bytes,w.external_wait_key,w.native_wait_activation_id,n.wait_bytes AS native_wait_bytes FROM workflow_runs w LEFT JOIN workflow_effect_waits n ON n.workflow_id=w.workflow_id AND n.parking_activation_id=w.native_wait_activation_id WHERE w.tenant_id=")
+    sql.push(SUMMARY_COLUMNS).push(",CASE WHEN octet_length(w.controller_bytes)<=4096 THEN w.controller_bytes ELSE NULL END AS controller,w.continuation,w.wait_activation_id,CASE WHEN octet_length(w.wait_keys_bytes)<=65536 THEN w.wait_keys_bytes ELSE NULL END AS wait_keys_bytes,w.external_wait_key,w.native_wait_activation_id,n.wait_bytes AS native_wait_bytes,w.provider_wait_activation_id,p.wait_bytes AS provider_wait_bytes FROM workflow_runs w LEFT JOIN workflow_effect_waits n ON n.workflow_id=w.workflow_id AND n.parking_activation_id=w.native_wait_activation_id LEFT JOIN workflow_provider_waits p ON p.workflow_id=w.workflow_id AND p.parking_activation_id=w.provider_wait_activation_id WHERE w.tenant_id=")
         .push_bind(scope.tenant_id.clone()).push(" AND w.namespace=").push_bind(scope.namespace.clone()).push(" AND w.workflow_id=").push_bind(id.to_owned()).push(" AND w.retiring_at_ms IS NULL");
     let row = sql
         .build()
@@ -447,6 +508,7 @@ async fn detail(
         child_wait: anchor.child_wait,
         external_wait_key: anchor.external_wait_key,
         native_effect_wait: anchor.native_effect_wait,
+        provider_wait: anchor.provider_wait,
         observed_at: at,
     })
 }

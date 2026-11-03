@@ -16,6 +16,10 @@ an immutable effective action. [Typed entrypoints and forks](workflow-entrypoint
 same-package branches that run while the parent continues local work.
 [External events and durable timers](workflow-events.md) add
 one-shot callback waits and persisted deadlines to the same checkpoint model.
+Matching development components add [provider operations](provider-operations.md),
+with explicit business identity, approval-bound intent and finite read-only
+recovery. Provider waits release the worker between independently leased probes.
+
 [Owned subworkflows](subworkflows.md) add nested workflow composition and
 parent/child lifecycle coordination. Administrative redrive, automatic code
 upgrades, and large externalized checkpoint/result payloads are later capabilities.

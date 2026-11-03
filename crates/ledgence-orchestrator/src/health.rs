@@ -22,6 +22,7 @@ struct Progress {
     publication: Option<ComponentProgress>,
     workflow: Option<ComponentProgress>,
     completion: Option<ComponentProgress>,
+    provider: Option<ComponentProgress>,
 }
 
 #[derive(Default)]
@@ -107,6 +108,21 @@ impl Health {
         self.stopping.store(true, Ordering::Release);
     }
 
+    pub fn require_providers(&self) {
+        self.progress().provider = Some(ComponentProgress::default());
+    }
+    pub fn provider_success(&self) {
+        if let Some(progress) = &mut self.progress().provider {
+            progress.last_success = Some(Instant::now());
+            progress.failure = None;
+        }
+    }
+    pub fn provider_failure(&self, reason: &'static str) {
+        if let Some(progress) = &mut self.progress().provider {
+            progress.failure = Some(reason);
+        }
+    }
+
     fn progress(&self) -> std::sync::MutexGuard<'_, Progress> {
         self.inner
             .lock()
@@ -148,6 +164,16 @@ impl Health {
             match workflow.last_success.map(|at| at.elapsed()) {
                 None => reasons.push("workflow_pending"),
                 Some(age) if age > self.freshness => reasons.push("workflow_stale"),
+                _ => {}
+            }
+        }
+        if let Some(provider) = &progress.provider {
+            if let Some(reason) = provider.failure {
+                reasons.push(reason);
+            }
+            match provider.last_success.map(|at| at.elapsed()) {
+                None => reasons.push("provider_recovery_pending"),
+                Some(age) if age > self.freshness => reasons.push("provider_recovery_stale"),
                 _ => {}
             }
         }
@@ -210,6 +236,31 @@ fn reply(status: StatusCode, body: serde_json::Value) -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn provider_recovery_health_is_required_only_when_configured() {
+        let health = Health::new(Duration::from_secs(40));
+        health.prerequisites_ready();
+        health.recovery_success();
+        assert_eq!(health.readiness().0, StatusCode::OK);
+        health.require_providers();
+        assert_eq!(
+            health.readiness().1["reasons"],
+            json!(["provider_recovery_pending"])
+        );
+        health.provider_success();
+        assert_eq!(health.readiness().0, StatusCode::OK);
+        tokio::time::advance(Duration::from_secs(41)).await;
+        health.recovery_success();
+        assert_eq!(
+            health.readiness().1["reasons"],
+            json!(["provider_recovery_stale"])
+        );
+        health.provider_failure("provider_recovery_failed");
+        assert_eq!(health.readiness().0, StatusCode::SERVICE_UNAVAILABLE);
+        health.provider_success();
+        assert_eq!(health.readiness().0, StatusCode::OK);
+    }
 
     #[tokio::test(start_paused = true)]
     async fn readiness_requires_prerequisites_and_fresh_success_and_stops_immediately() {

@@ -461,6 +461,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            provider_probe: None,
             workflow_activation_id: None,
             descriptor: ProgramDescriptor {
                 program: ProgramRef {

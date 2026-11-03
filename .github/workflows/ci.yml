@@ -20,6 +20,7 @@ env:
   RUSTDOCFLAGS: -D warnings
   PYTHONDONTWRITEBYTECODE: '1'
   SQLX_OFFLINE: 'true'
+  PROVIDER_PREDECESSOR_SHA: '3a5cc0d37cb70baeb300d0f77be3659f8c2ef48f'
 
 jobs:
   test:
@@ -103,6 +104,8 @@ jobs:
           python -m unittest discover -s tools -p 'test_program_fixture.py' -v
           python -m unittest discover -s tools -p 'test_instance_access_gate.py' -v
           python -m unittest discover -s tools -p 'test_effect_evidence_fixtures.py' -v
+          python -m unittest discover -s tools -p 'test_provider_operations_fixtures.py' -v
+          PYTHONPATH=sdk/python python -m unittest discover -s examples/provider-recovery/tests -v
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
@@ -242,6 +245,10 @@ jobs:
     name: Build acceptance executables
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
     outputs:
       artifact-name: ${{ steps.bundle.outputs.artifact-name }}
     steps:
@@ -268,11 +275,36 @@ jobs:
           cargo build -p ledgence-adapter-otel --example otlp-capture --locked
           cp target/debug/examples/otlp-capture "$RUNNER_TEMP/ledgence-acceptance-binaries/otlp-capture"
           git rev-parse HEAD > "$RUNNER_TEMP/ledgence-acceptance-binaries/SOURCE_SHA"
+          # Build the reviewed B predecessor from its own immutable source. Reuse
+          # dependency outputs within this job, after preserving current binaries.
+          git fetch --no-tags --depth=1 origin "$PROVIDER_PREDECESSOR_SHA"
+          test "$(git rev-parse "$PROVIDER_PREDECESSOR_SHA^{commit}")" = "$PROVIDER_PREDECESSOR_SHA"
+          mkdir -p "$RUNNER_TEMP/ledgence-predecessor-source" \
+            "$RUNNER_TEMP/ledgence-acceptance-binaries/predecessor/runtime/ledgence"
+          git archive --format=tar --output="$RUNNER_TEMP/ledgence-predecessor-source.tar" "$PROVIDER_PREDECESSOR_SHA"
+          tar -xf "$RUNNER_TEMP/ledgence-predecessor-source.tar" -C "$RUNNER_TEMP/ledgence-predecessor-source"
+          (
+            cd "$RUNNER_TEMP/ledgence-predecessor-source"
+            CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build -p ledgence-cli --bin ledgence --all-features --locked
+          )
+          cp target/debug/ledgence "$RUNNER_TEMP/ledgence-acceptance-binaries/predecessor/ledgence"
+          cp -R "$RUNNER_TEMP/ledgence-predecessor-source/sdk/python/ledgence/worker" \
+            "$RUNNER_TEMP/ledgence-acceptance-binaries/predecessor/runtime/ledgence/worker"
+          printf '%s\n' "$PROVIDER_PREDECESSOR_SHA" > "$RUNNER_TEMP/ledgence-acceptance-binaries/predecessor/SOURCE_SHA"
           cd "$RUNNER_TEMP/ledgence-acceptance-binaries"
-          sha256sum default/ledgence all-features/ledgence otlp-capture SOURCE_SHA > SHA256SUMS
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          paths = sorted(Path('.').rglob('*'))
+          assert not any(path.is_symlink() for path in paths)
+          Path('SHA256SUMS').write_text(''.join(
+              f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.as_posix()}\n'
+              for path in paths if path.is_file()
+          ))
+          PY
           # A tar archive preserves executable modes, unlike bare artifact files.
           tar -czf "$RUNNER_TEMP/ledgence-acceptance-binaries.tar.gz" \
-            default all-features otlp-capture SOURCE_SHA SHA256SUMS
+            default all-features otlp-capture SOURCE_SHA predecessor SHA256SUMS
       - name: Retain executables for this workflow run only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -290,7 +322,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [http, sqs, api, workflows-integrated, workflows-sqs, workflows-tracing]
+        suite: [http, sqs, api, provider, provider-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
     services:
       elasticmq:
         # An empty image disables this service in suites using integrated delivery.
@@ -339,10 +371,21 @@ jobs:
           (
             cd "$RUNNER_TEMP/ledgence-acceptance-binaries"
             sha256sum --check SHA256SUMS
+            python3 - <<'PY'
+          from pathlib import Path
+          paths = list(Path('.').rglob('*'))
+          assert not any(path.is_symlink() for path in paths)
+          expected = [line.split('  ', 1)[1] for line in Path('SHA256SUMS').read_text().splitlines()]
+          actual = {path.as_posix() for path in paths if path.is_file() and path.name != 'SHA256SUMS'}
+          assert len(expected) == len(set(expected)) and set(expected) == actual
+          PY
             test "$(cat SOURCE_SHA)" = "$GITHUB_SHA"
+            test "$(cat predecessor/SOURCE_SHA)" = "$PROVIDER_PREDECESSOR_SHA"
             test -x default/ledgence
             test -x all-features/ledgence
             test -x otlp-capture
+            test -x predecessor/ledgence
+            test -f predecessor/runtime/ledgence/worker/bootstrap.py
           )
           cat > "$RUNNER_TEMP/ledgence-psql" <<'SH'
           #!/bin/sh
@@ -378,11 +421,38 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
       - name: Build and install the Python client wheel for end-to-end acceptance
-        if: matrix.suite == 'api' || startsWith(matrix.suite, 'workflows-')
+        if: matrix.suite == 'api' || startsWith(matrix.suite, 'provider') || startsWith(matrix.suite, 'workflows-')
         run: |
           python tools/check-python-client.py \
             --venv-dir "$RUNNER_TEMP/ledgence-client-e2e-env" \
             --evidence "$RUNNER_TEMP/ledgence-client-package.json"
+      - name: Check complete provider recovery with the pinned prior worker
+        if: matrix.suite == 'provider'
+        run: |
+          mkdir -p "$RUNNER_TEMP/ledgence-provider-postgres"
+          for command in psql pg_dump pg_restore; do
+            cat > "$RUNNER_TEMP/ledgence-provider-postgres/$command" <<'SH'
+          #!/bin/sh
+          exec docker exec -i "$LEDGENCE_POSTGRES_CONTAINER" "$(basename "$0")" "$@"
+          SH
+            chmod +x "$RUNNER_TEMP/ledgence-provider-postgres/$command"
+          done
+          python tools/check-provider-operations.py --scenario all \
+            --psql "$RUNNER_TEMP/ledgence-provider-postgres/psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --old-binary "$RUNNER_TEMP/ledgence-acceptance-binaries/predecessor/ledgence" \
+            --old-runner "$RUNNER_TEMP/ledgence-acceptance-binaries/predecessor/runtime/ledgence/worker/bootstrap.py" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-provider-evidence"
+      - name: Check provider recovery and frozen report retries through ElasticMQ
+        if: matrix.suite == 'provider-sqs'
+        run: |
+          python tools/check-provider-operations.py --scenario sqs \
+            --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-provider-sqs-evidence"
       - name: Check instance credentials across real clients, publication and workers
         if: matrix.suite == 'api'
         run: |

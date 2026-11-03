@@ -8,6 +8,8 @@ const CANARY: &str = "private-payload-must-not-leak";
 mod effect_evidence;
 #[path = "effect_resolution.rs"]
 mod effect_resolution;
+#[path = "provider.rs"]
+mod provider;
 struct Verifier {
     audience: AccessAudience,
 }
@@ -200,6 +202,7 @@ impl ConsoleQueryService for Queries {
 }
 fn approval() -> ApprovalSnapshot {
     ApprovalSnapshot {
+        provider_binding: None,
         scope: scope(),
         workflow_id: "wf".into(),
         key: "review".into(),

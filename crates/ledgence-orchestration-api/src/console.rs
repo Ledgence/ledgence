@@ -30,10 +30,10 @@ use crate::*;
 use ledgence_worker_api::{Digest, ProgramDescriptor, ProgramRef};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Version 6 distinguishes native effect recovery waits and their metadata.
+/// Version 7 distinguishes provider waits, probe provenance and typed reports.
 /// Sensitive inspection and mutations use separate scope-free endpoints.
 /// Static assets and server must advertise the same contract version.
-pub const CONSOLE_CONTRACT_VERSION: u32 = 6;
+pub const CONSOLE_CONTRACT_VERSION: u32 = 7;
 pub const CONSOLE_QUERY_MAX_BYTES: usize = 16 * 1024;
 pub const CONSOLE_METADATA_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const CONSOLE_MAX_TIMESTAMP: Timestamp = 253_402_300_799_999;

@@ -225,7 +225,7 @@ async fn a_claim_is_bound_to_its_approval_action_and_live_resumed_activation() {
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn upgrading_fences_previously_approved_effects_and_preserves_pending_eligibility() {
-    let db = TestDb::without_migrations().await;
+    let mut db = TestDb::without_migrations().await;
     let previous = Migrator::with_migrations(
         MIGRATOR
             .iter()
@@ -245,6 +245,11 @@ async fn upgrading_fences_previously_approved_effects_and_preserves_pending_elig
     db.store.decide_approval(&queued).await.unwrap();
     db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
+    // Upgrade deploys stop old writers and reopen pools with the new row shape.
+    db.store.close().await;
+    db.store = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
     db.store.verify_schema().await.unwrap();
     dispatched(&db.store, &old).await;
     assert_eq!(

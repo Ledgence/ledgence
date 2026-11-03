@@ -94,6 +94,7 @@ pub(super) async fn post(
                 EffectInboxQuery {
                     scope: scope.clone(),
                     filter: query.filter,
+                    provider_filter: query.provider_filter,
                     workflow_id: query.workflow_id,
                     cursor: query.cursor,
                     limit: query.limit,
@@ -173,6 +174,8 @@ pub(super) async fn post(
 #[serde(deny_unknown_fields)]
 struct ConsoleInbox {
     filter: EffectInboxFilter,
+    #[serde(default, deserialize_with = "super::approvals::optional_non_null")]
+    provider_filter: Option<ProviderInboxFilter>,
     workflow_id: Option<String>,
     cursor: Option<String>,
     limit: u32,
@@ -206,6 +209,8 @@ struct ConsoleSummary {
     updated_at: Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_resolution: Option<ConsoleResolutionSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<provider_console::Summary>,
 }
 impl From<EffectEvidenceSummary> for ConsoleSummary {
     fn from(value: EffectEvidenceSummary) -> Self {
@@ -222,6 +227,7 @@ impl From<EffectEvidenceSummary> for ConsoleSummary {
             created_at: value.created_at,
             updated_at: value.updated_at,
             operator_resolution: value.operator_resolution.map(Into::into),
+            provider: value.provider.map(Into::into),
         }
     }
 }
@@ -317,10 +323,118 @@ enum ConsoleEntry {
         source: EffectObservationSource,
         output: serde_json::Value,
     },
+    #[serde(untagged)]
+    Provider(provider_console::Entry),
 }
 impl From<EffectEvidenceEntry> for ConsoleEntry {
     fn from(value: EffectEvidenceEntry) -> Self {
         match value {
+            EffectEvidenceEntry::ProviderDispatch {
+                sequence,
+                recorded_at,
+                recorded_revision,
+                claim_id,
+                source_id,
+                report_id,
+                worker,
+            } => Self::Provider(provider_console::Entry::Dispatch {
+                sequence: ConsoleU64(sequence),
+                recorded_at,
+                recorded_revision: ConsoleU64(recorded_revision),
+                claim_id,
+                source_id,
+                report_id,
+                worker,
+            }),
+            EffectEvidenceEntry::ProviderProbeScheduled {
+                sequence,
+                recorded_at,
+                recorded_revision,
+                probe_id,
+                generation,
+                task_id,
+                due_at,
+            } => Self::Provider(provider_console::Entry::ProbeScheduled {
+                sequence: ConsoleU64(sequence),
+                recorded_at,
+                recorded_revision: ConsoleU64(recorded_revision),
+                probe_id,
+                generation: ConsoleU64(generation),
+                task_id,
+                due_at,
+            }),
+            EffectEvidenceEntry::ProviderProbeSource {
+                sequence,
+                recorded_at,
+                recorded_revision,
+                probe_id,
+                generation,
+                task_id,
+                attempt_id,
+                source_id,
+                report_id,
+                worker,
+            } => Self::Provider(provider_console::Entry::ProbeSource {
+                sequence: ConsoleU64(sequence),
+                recorded_at,
+                recorded_revision: ConsoleU64(recorded_revision),
+                probe_id,
+                generation: ConsoleU64(generation),
+                task_id,
+                attempt_id,
+                source_id,
+                report_id,
+                worker,
+            }),
+            EffectEvidenceEntry::ProviderReport {
+                sequence,
+                recorded_at,
+                recorded_revision,
+                source_id,
+                source,
+                report_id,
+                worker,
+                ingress,
+                report,
+            } => Self::Provider(provider_console::Entry::Report {
+                sequence: ConsoleU64(sequence),
+                recorded_at,
+                recorded_revision: ConsoleU64(recorded_revision),
+                source_id,
+                source: source.into(),
+                report_id,
+                worker,
+                ingress,
+                report,
+            }),
+            EffectEvidenceEntry::ProviderProbeFinished {
+                sequence,
+                recorded_at,
+                recorded_revision,
+                probe_id,
+                generation,
+                task_id,
+                completion,
+            } => Self::Provider(provider_console::Entry::ProbeFinished {
+                sequence: ConsoleU64(sequence),
+                recorded_at,
+                recorded_revision: ConsoleU64(recorded_revision),
+                probe_id,
+                generation: ConsoleU64(generation),
+                task_id,
+                completion: completion.into(),
+            }),
+            EffectEvidenceEntry::ProviderRecoveryStopped {
+                sequence,
+                recorded_at,
+                recorded_revision,
+                reason,
+            } => Self::Provider(provider_console::Entry::RecoveryStopped {
+                sequence: ConsoleU64(sequence),
+                recorded_at,
+                recorded_revision: ConsoleU64(recorded_revision),
+                reason,
+            }),
             EffectEvidenceEntry::Assessment {
                 sequence,
                 recorded_at,
@@ -389,6 +503,12 @@ struct ConsoleDetail {
     next_cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     current_assessment: Option<ConsoleEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<ConsoleProviderDetail>,
+}
+#[derive(Serialize)]
+struct ConsoleProviderDetail {
+    current_report: Option<ConsoleEntry>,
 }
 fn encode_console_detail(
     value: EffectEvidenceDetail,
@@ -400,6 +520,9 @@ fn encode_console_detail(
         entries: value.entries.into_iter().map(Into::into).collect(),
         next_cursor: value.next_cursor,
         current_assessment: value.current_assessment.map(Into::into),
+        provider: value.provider.map(|value| ConsoleProviderDetail {
+            current_report: value.current_report.map(|value| (*value).into()),
+        }),
     };
     loop {
         let bytes = serde_json::to_vec(&detail).map_err(|_| invalid_reply())?;
@@ -412,6 +535,7 @@ fn encode_console_detail(
             ConsoleEntry::Claim { sequence, .. }
             | ConsoleEntry::Observation { sequence, .. }
             | ConsoleEntry::Assessment { sequence, .. } => sequence.0,
+            ConsoleEntry::Provider(entry) => entry.sequence(),
         };
         detail.next_cursor = Some(query.next_cursor(sequence)?);
     }

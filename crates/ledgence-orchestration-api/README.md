@@ -88,3 +88,26 @@ adapters remain source-compatible through default unavailable capability hooks.
 The retained ledger preserves claims and reported results after execution
 history is collected. Its identity, replay and legacy-proof rules are described
 in the [evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+Development builds also provide `EffectResolution` for authenticated operator
+assessments and `EffectResolutionStore` for the complete native-wait coordinator
+operation. `EffectResolutionClient` is the command-only remote port. Native waits
+carry the original effect occurrence and an immutable selected wake, without
+creating a provider result or another dispatch grant. Implementations must also
+provide retained evidence, its reader and operator audit before enabling this
+capability. [Native effect resolution](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md#record-an-operator-assessment).
+
+`ProviderOperationStore` adds the complete optional provider-recovery contract:
+request-time binding, one mutation grant, typed reports, finite read-only probe
+scheduling and provider-aware waits. `ProviderOperations` accepts verified worker
+identity out of band; `ProviderOperationClient` carries remote commands. Recovery
+requires explicit installation policy and the preceding evidence, resolution and
+audit capabilities. Existing A/B reports remain opaque and are not reclassified
+as provider facts. No vendor SDK is part of these portable types.
+[Provider operations](https://github.com/Ledgence/ledgence/blob/develop/docs/provider-operations.md).
+
+Adapters receiving `WorkflowActivationContext` should use `validate_for_owner`
+to bind the context and all scoped wake variants to the current lease, then
+check the expected workflow and parent/root lineage from their assignment.
+The application service applies complete-capability checks to direct evidence
+and resolution calls as well as discovery and native-wait admission.

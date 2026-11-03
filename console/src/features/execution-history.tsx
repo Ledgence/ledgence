@@ -10,6 +10,7 @@ import {
 } from "react-router";
 import { Activity, Box, GitFork, Plus, RefreshCw } from "lucide-react";
 import { useInstance } from "../app/instance";
+import { effectDetailPath } from "../api/effects";
 import { executionPath } from "../api/explorer";
 import { useExecutionHistory } from "./use-execution-history";
 import { LoadingState } from "../components/async-state";
@@ -272,6 +273,22 @@ export function ExecutionsPage() {
                                 )}
                                 {item.kind === "task" ? "Task" : "Workflow"}
                               </span>
+                              {item.provider_probe && (
+                                <Link
+                                  className="cell-secondary"
+                                  to={effectDetailPath(
+                                    item.provider_probe.occurrence,
+                                  )}
+                                  state={{
+                                    returnTo: `/executions${params.size ? `?${params}` : ""}`,
+                                    returnNavigationKey: location.key,
+                                    restoreNavigationKey: location.key,
+                                  }}
+                                >
+                                  Provider check ·{" "}
+                                  {item.provider_probe.generation}
+                                </Link>
+                              )}
                             </td>
                             <td>
                               <Link

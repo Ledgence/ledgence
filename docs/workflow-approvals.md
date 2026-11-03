@@ -423,3 +423,31 @@ activation retry after its approved local result has committed. The inbox scenar
 races opposite decisions from two operators and checks that the workflow resumes
 once and that another namespace cannot discover the requests. Adding
 `--endpoint http://127.0.0.1:9324` runs against a disposable local ElasticMQ queue.
+
+
+## Provider-bound approvals in development
+
+`ctx.request_provider_approval` declares `protection: "provider_operation"` with
+an immutable `provider_binding`. The request omits the self-referential package
+descriptor. The backend attaches the owning immutable controller descriptor
+before exposing the approval. The binding covers business identity, actual
+provider/account/endpoint, deduplication domain/key/horizon, credential reference,
+registered callback contract and bounded recovery policy. `action.arguments`
+remains the single effective request.
+
+The Python client, CLI and Console prepare and echo that full resolved binding
+when deciding. Missing, null, stripped or altered bindings fail validation.
+Provider binding fields are omitted from historical and external-effect
+approvals. Credentials remain configuration references. The adapter resolves
+actual credential values outside the reviewed JSON.
+
+After approval, `await ctx.approved_provider_operation()` resolves only the
+registered callback from the same prepared workflow package. Its durable ticket
+feeds `ctx.wait_provider_operation(...)`. Every dispatch outcome, including an
+immediate terminal response, crosses a provider-aware checkpoint. Generic local
+and legacy approved-effect execution paths reject this protection.
+
+Review the provider target, business identity, request and recovery limits in
+Console before deciding. The Effects history records subsequent dispatch,
+probe and response evidence independently from that approval decision.
+[Provider operations](provider-operations.md) documents the complete contract.

@@ -295,3 +295,36 @@ python3.13 tools/check-effect-resolution.py \
   --binaries target/debug --python-client /path/to/client-env/bin/python \
   --evidence ./effect-resolution-check
 ```
+
+
+## Typed provider evidence in development
+
+Provider-protected operations share this Effects inbox, sensitive inspection,
+operator assessment and audit contract. Their optional `provider` summary adds
+knowledge, selected/conflicting report references, recovery budget/schedule and
+handling state. The detail adds a `provider.current_report` header that agrees
+exactly with the referenced retained report even when it falls outside the
+current evidence page.
+
+Timeline entries distinguish provider dispatch admission, probe scheduling,
+probe callback admission, classified reports, probe finalization and recovery
+stoppage. A source binds one actual admitted callback and one immutable report.
+Cross-ingress replay retains its original acceptance source and revision.
+A transport error cannot fabricate a classified provider outcome.
+
+C operations leave `journal_state` at `unconfirmed`. Console labels this
+**No local journal result**. Provider knowledge and handling are shown alongside
+that independent field. A consistent terminal report or operator assessment can
+close the independent provider handling hold. Evidence survives eligible
+execution-history collection.
+
+Provider results may dispute success or failure assessments when genuinely new
+incompatible terminal facts follow their evidence basis. Duplicate old facts do
+not create a new dispute. `close_unknown` makes no terminal outcome claim. An
+already selected provider wake remains immutable.
+
+Use the optional `provider_filter` with base filter `all`. Provider-filtered
+cursors use version 2 and bind that filter. Omitting it preserves the existing
+cursor contract. Inspect the complete provider contract for startup policy,
+finite probe limits, wait selection, retention and declared-restore procedure.
+[Provider operations](provider-operations.md).

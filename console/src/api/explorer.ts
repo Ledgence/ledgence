@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
-import { descriptor, programSummary } from "./resources";
+import { descriptor, programSummary, providerProbe } from "./resources";
 export const executionKind = s.enumeration("task", "workflow");
 export const executionState = s.enumeration(
   "queued",
@@ -13,18 +13,26 @@ export const executionState = s.enumeration(
   "failed",
   "cancelled",
 );
-export const execution = s.object({
-  kind: executionKind,
-  id: s.id,
-  descriptor,
-  queue: s.id,
-  state: executionState,
-  submitted_at: s.timestamp,
-  terminal_at: s.nullable(s.timestamp),
-  correlation_key: s.nullable(s.string),
-  parent_workflow_id: s.nullable(s.id),
-  root_workflow_id: s.nullable(s.id),
-});
+export const execution = s.refine(
+  s.object({
+    kind: executionKind,
+    id: s.id,
+    descriptor,
+    queue: s.id,
+    state: executionState,
+    submitted_at: s.timestamp,
+    terminal_at: s.nullable(s.timestamp),
+    correlation_key: s.nullable(s.string),
+    parent_workflow_id: s.nullable(s.id),
+    root_workflow_id: s.nullable(s.id),
+    provider_probe: s.nullable(providerProbe),
+  }),
+  (value) =>
+    !value.provider_probe ||
+    (value.kind === "task" &&
+      value.parent_workflow_id === value.provider_probe.occurrence.workflow_id),
+  "Inconsistent provider check history.",
+);
 export const executionPage = s.page(execution);
 export type Execution = s.Decoded<typeof execution>;
 export const catalogPage = s.page(
@@ -72,6 +80,10 @@ export const explorerReference = s.variant({
     activation_id: s.id,
   }),
   external_wait: s.object({ kind: s.enumeration("external_wait"), key: s.id }),
+  provider_wait: s.object({
+    kind: s.enumeration("provider_wait"),
+    parking_activation_id: s.id,
+  }),
   native_effect_wait: s.object({
     kind: s.enumeration("native_effect_wait"),
     parking_activation_id: s.id,
@@ -178,6 +190,31 @@ const rawExplorerNode = s.variant({
     ),
     resumed_activation_id: s.nullable(s.id),
   }),
+  provider_wait: s.object({
+    ...base,
+    kind: s.enumeration("provider_wait"),
+    key: s.id,
+    occurrence: effectOccurrence,
+    after_effect_revision: s.nullable(
+      s.refine(s.decimal, (v) => BigInt(v) > 0n, "Invalid effect revision."),
+    ),
+    registered_at: s.timestamp,
+    closed_at: s.nullable(s.timestamp),
+    selected_effect_revision: s.nullable(
+      s.refine(s.decimal, (v) => BigInt(v) > 0n, "Invalid selected revision."),
+    ),
+    selection_kind: s.nullable(
+      s.enumeration(
+        "provider_succeeded",
+        "provider_failed",
+        "provider_cancelled",
+        "operator_assessment",
+        "disputed",
+        "needs_review",
+      ),
+    ),
+    resumed_activation_id: s.nullable(s.id),
+  }),
   native_effect_wait: s.object({
     ...base,
     kind: s.enumeration("native_effect_wait"),
@@ -217,6 +254,19 @@ export const explorerNode = s.refine(
       return new Set(node.branch_keys).size === node.branch_keys.length;
     if (node.kind === "child_wait")
       return new Set(node.member_keys).size === node.member_keys.length;
+    if (node.kind === "provider_wait")
+      return (
+        (node.selected_effect_revision === null) ===
+          (node.selection_kind === null) &&
+        (node.selected_effect_revision === null) ===
+          (node.resumed_activation_id === null) &&
+        (node.selected_effect_revision === null ||
+          (node.closed_at !== null &&
+            (node.after_effect_revision === null ||
+              BigInt(node.selected_effect_revision) >
+                BigInt(node.after_effect_revision)))) &&
+        (node.closed_at === null || node.closed_at >= node.registered_at)
+      );
     if (node.kind === "native_effect_wait")
       return (
         (node.resolution_id === null) === (node.outcome_kind === null) &&
@@ -257,7 +307,7 @@ export const workflowExplorer = s.refine(
     const records = new Map<string, string>();
     for (const node of page.items) {
       if (
-        node.kind === "native_effect_wait" &&
+        (node.kind === "native_effect_wait" || node.kind === "provider_wait") &&
         node.occurrence.workflow_id !== workflow.summary.workflow.workflow_id
       )
         return false;

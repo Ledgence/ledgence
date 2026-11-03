@@ -50,12 +50,23 @@ then restart every server, worker and embedded connection pool with matching
 components. Keeping old pooled statements or writers alive through these schema
 changes is outside the supported offline upgrade procedure.
 
+Migration `20261103060000_provider_operations.sql` adds provider bindings,
+retained callback sources/reports, business and provider-key uniqueness, finite
+probe scheduling and separate provider waits. Existing opaque effect outputs
+remain opaque; migration does not invent provider facts or new dispatch grants.
+Provider task markers and wait anchors require restarting all connection pools
+under the same stopped-writer procedure. The optional `--provider-config` enables
+recovery only for the authenticated installation it names. After a declared
+restore, use its quarantine policy before allowing workers to run.
+[Provider operation contract](provider-operations.md).
+
 Retained claims, reported results, assessments and acceptance receipts survive
 execution-history collection. This initial ledger has no automatic expiry.
 Include it in database capacity planning and backups. An unconfirmed effect
 keeps its execution-retention hold until confirmation or any verified assessment,
 including `close_unknown`. Assessment closes handling independently of journal
-confirmation. Later disagreement does not reopen the hold. Ordinary retention
+confirmation. A typed terminal provider outcome also releases the provider-operation
+hold without creating a local journal. Later disagreement does not reopen the hold. Ordinary retention
 conditions still apply. Native wait and graph rows follow execution retention.
 [Retained evidence](effect-evidence.md) · [Operator audit](operator-audit.md).
 

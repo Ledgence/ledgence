@@ -19,6 +19,7 @@ pub(super) fn wait(key: &str, timeout_ms: u64) -> WorkflowAction {
             key: key.into(),
             action: action(),
             protection: ApprovalProtection::Unspecified,
+            provider_binding: None,
             proposed_arguments: Some(json!({"count":3})),
             timeout_ms,
         },
@@ -37,6 +38,7 @@ pub(super) fn decide(
         revision: 0,
         action: action(),
         protection: ApprovalProtection::Unspecified,
+        provider_binding: None,
         decision_id: format!("review_{key}"),
         decision: ApprovalDecision::Approve,
         reviewer: "operator@example.test".into(),
@@ -174,6 +176,7 @@ async fn request_precedes_decision_and_restart_preserves_exact_logical_consume()
     let accepted = local(&resumed, "approved:send");
     recovered.record_local_result(&accepted).await.unwrap();
     let retry = SettleCommand {
+        provider_probe_failure: None,
         owner: resumed.lease.owner.clone(),
         operation_id: "retry".into(),
         report: AttemptReport::Failed(ExecutionFailure {

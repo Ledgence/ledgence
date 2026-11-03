@@ -165,3 +165,18 @@ or actor conflict. `disputed` filters current success-assessment conflict;
 Use `ledgence_audit_query` with `filter={"kind":"event","event_id":"..."}`,
 `limit=2` and no cursor to inspect a receipt's exact scoped audit event. A successful
 empty response means absence; denied or unavailable reads remain errors.
+
+## Inspect provider recovery
+
+Matching development MCP and API builds reuse `ledgence_effect_inbox` and
+`ledgence_effect_inspect`. Set `provider_filter` to `needs_review` to find
+operations needing review; leave ordinary `filter` as `all` or omit it. Other
+provider filters are `all`, `pending`, `succeeded`, `failed`, `cancelled` and
+`disputed`. Keep the same selection when following its cursor.
+
+Inspection requires `sensitive_read` and durable audit. Provider reports and
+check scheduling are typed evidence, not a promise that task success equals
+external success. Platform u64 fields, including probe generations and program
+sizes, are decimal strings; application JSON remains unchanged. The tool count
+and explicit effect-resolution opt-in are unchanged. Published 0.7.0 does not
+include these additions. [Recover provider operations](/how-to/recover-provider-operations).

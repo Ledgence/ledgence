@@ -1,9 +1,10 @@
+import { providerBindingFixture } from "../provider-fixture";
 // SPDX-License-Identifier: MIT
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { createMemoryRouter, RouterProvider, useParams } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v6.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import type { Approval, ApprovalDecision } from "../../src/api/approvals";
@@ -28,7 +29,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "6",
+      "Ledgence-Console-Contract": "7",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });
@@ -364,4 +365,31 @@ it("does not expose approval controls for a page belonging to another workflow",
   await expect
     .element(view.getByRole("button", { name: "Approve", exact: true }))
     .not.toBeInTheDocument();
+});
+
+it("reviews and submits the complete immutable provider intent", async () => {
+  const initial = approvalFixture();
+  const binding = providerBindingFixture();
+  binding.contract.dispatch_callable = initial.action.name;
+  binding.contract.version = initial.action.version;
+  const snapshot: Approval = {
+    ...initial,
+    protection: "provider_operation",
+    provider_binding: binding,
+  };
+  const { view, posts } = await mount({ snapshot });
+  await expect
+    .element(
+      view.getByRole("heading", { name: "Provider operation", exact: true }),
+    )
+    .toBeVisible();
+  expect(posts).toHaveLength(0);
+  await view.getByRole("button", { name: "Approve", exact: true }).click();
+  await view
+    .getByRole("textbox", { name: "Reviewer", exact: true })
+    .fill("Avery");
+  await view.getByRole("button", { name: "Confirm approval" }).click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(JSON.parse(posts[0]!).provider_binding).toEqual(binding);
+  expect(JSON.parse(posts[0]!).protection).toBe("provider_operation");
 });

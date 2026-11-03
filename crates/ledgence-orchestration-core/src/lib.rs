@@ -67,6 +67,7 @@ pub fn submit(
         return Err(ContractError::Conflict);
     }
     let task = TaskSnapshot {
+        provider_probe: None,
         parent_workflow_id: None,
         root_workflow_id: None,
         workflow_id: None,

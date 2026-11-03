@@ -448,6 +448,11 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
         "operator_audit_events",
         "approved_effect_occurrences",
         "approved_effect_evidence_entries",
+        "provider_operations",
+        "provider_probe_tasks",
+        "provider_invocations",
+        "provider_reports",
+        "provider_terminal_facts",
     ] {
         sqlx::query(AssertSqlSafe(format!("CREATE TEMP TABLE {table}(tenant_id text COLLATE \"C\" NOT NULL,namespace text COLLATE \"C\" NOT NULL)")))
             .execute(&mut *connection).await.unwrap();
@@ -485,9 +490,9 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
     .await
     .unwrap()
     .join("\n");
-    println!("Instance indexed scope audit, 100k rows in each of thirteen tables:\n{plan}");
+    println!("Instance indexed scope audit, 100k rows in each of eighteen tables:\n{plan}");
     assert!(!plan.contains("Seq Scan"));
-    assert_eq!(plan.matches("Index Only Scan").count(), 26);
+    assert_eq!(plan.matches("Index Only Scan").count(), 36);
     for table in [
         "tasks",
         "workflow_runs",
@@ -502,6 +507,11 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
         "operator_audit_events",
         "approved_effect_occurrences",
         "approved_effect_evidence_entries",
+        "provider_operations",
+        "provider_probe_tasks",
+        "provider_invocations",
+        "provider_reports",
+        "provider_terminal_facts",
     ] {
         for (tenant, namespace) in [
             ("a", "billing"),

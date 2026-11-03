@@ -47,6 +47,12 @@ const nativeCredentials = s.object({
   operator_audit: s.boolean,
   native_effect_resolution: s.boolean,
 });
+const providerCredentials = s.object({
+  ...credentialShape,
+  operator_audit: s.boolean,
+  native_effect_resolution: s.boolean,
+  provider_operation: s.boolean,
+});
 export function decodeAccess(value: unknown): Access {
   if (
     value &&
@@ -58,11 +64,15 @@ export function decodeAccess(value: unknown): Access {
     return { mode: "operator_trusted" };
   }
   const result =
-    value && typeof value === "object" && "native_effect_resolution" in value
-      ? nativeCredentials(value)
-      : value && typeof value === "object" && "operator_audit" in value
-        ? auditedCredentials(value)
-        : credentials(value);
+    value && typeof value === "object" && "provider_operation" in value
+      ? providerCredentials(value)
+      : value &&
+          typeof value === "object" &&
+          "native_effect_resolution" in value
+        ? nativeCredentials(value)
+        : value && typeof value === "object" && "operator_audit" in value
+          ? auditedCredentials(value)
+          : credentials(value);
   if (
     new Set(result.capabilities).size !== result.capabilities.length ||
     result.capabilities.includes("worker_execute")

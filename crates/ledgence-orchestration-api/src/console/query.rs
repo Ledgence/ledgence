@@ -269,13 +269,24 @@ impl ConsoleQueryReply {
             }
             (Self::Executions(reply), ConsoleQuery::Executions { filters, page }) => {
                 reply.validate(page, &binding)?;
-                if reply.items.iter().any(|r| !filters.matches(r)) {
+                if reply.items.iter().any(|r| {
+                    !filters.matches(r)
+                        || r.provider_probe
+                            .as_ref()
+                            .is_some_and(|probe| &probe.occurrence.scope != scope)
+                }) {
                     return Err(mismatch());
                 }
             }
             (Self::Tasks(reply), ConsoleQuery::Tasks { filters, page }) => {
                 reply.validate(page, &binding)?;
-                if reply.items.iter().any(|r| !r.task.matches(filters)) {
+                if reply.items.iter().any(|r| {
+                    !r.task.matches(filters)
+                        || r.task
+                            .provider_probe
+                            .as_ref()
+                            .is_some_and(|probe| &probe.occurrence.scope != scope)
+                }) {
                     return Err(mismatch());
                 }
             }
@@ -314,9 +325,16 @@ impl ConsoleQueryReply {
                         return Err(mismatch());
                     }
                 }
+                if let Some(wait) = &reply.provider_wait {
+                    wait.validate(workflow_id).map_err(|_| mismatch())?;
+                    if &wait.occurrence.scope != scope {
+                        return Err(mismatch());
+                    }
+                }
                 if usize::from(reply.child_wait.is_some())
                     + usize::from(reply.external_wait_key.is_some())
                     + usize::from(reply.native_effect_wait.is_some())
+                    + usize::from(reply.provider_wait.is_some())
                     > 1
                 {
                     return Err(mismatch());
@@ -354,6 +372,9 @@ impl ConsoleQueryReply {
                     r.native_effect_wait
                         .as_ref()
                         .is_some_and(|wait| &wait.occurrence.scope != scope)
+                        || r.provider_wait
+                            .as_ref()
+                            .is_some_and(|wait| &wait.occurrence.scope != scope)
                 }) {
                     return Err(mismatch());
                 }

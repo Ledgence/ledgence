@@ -24,6 +24,7 @@ export type Access =
       expires_at_ms: number;
       operator_audit?: boolean;
       native_effect_resolution?: boolean;
+      provider_operation?: boolean;
     };
 export type AccessState = {
   enabled: boolean;
@@ -110,6 +111,7 @@ export class AccessController {
             [...access.capabilities].sort(),
             access.operator_audit === true,
             access.native_effect_resolution === true,
+            access.provider_operation === true,
           ],
     );
     const changed = identity !== this.viewIdentity;

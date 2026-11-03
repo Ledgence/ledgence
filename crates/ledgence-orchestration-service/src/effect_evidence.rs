@@ -8,6 +8,7 @@ impl ApprovedEffectEvidence for ApplicationService {
     ) -> ContractFuture<'a, EffectClaimV2Receipt> {
         Box::pin(async move {
             command.validate()?;
+            self.approved_effect_evidence()?;
             require_worker(principal, &command.owner.scope)?;
             let reply = self
                 .workflows()?
@@ -25,6 +26,7 @@ impl ApprovedEffectEvidence for ApplicationService {
     ) -> ContractFuture<'a, EffectConfirmV2Receipt> {
         Box::pin(async move {
             command.validate()?;
+            self.approved_effect_evidence()?;
             require_worker(principal, &command.owner.scope)?;
             let reply = self
                 .workflows()?
@@ -42,6 +44,7 @@ impl ApprovedEffectEvidence for ApplicationService {
     ) -> ContractFuture<'a, EffectObservationReceipt> {
         Box::pin(async move {
             command.validate()?;
+            self.approved_effect_evidence()?;
             require_worker(principal, &command.occurrence.scope)?;
             let reply = self
                 .workflows()?

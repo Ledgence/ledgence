@@ -21,6 +21,7 @@ export function graphNodeSize(record: Pick<ExplorerNode, "kind">) {
     case "child_wait":
       return { width: 200, height: 48 };
     case "external_wait":
+    case "provider_wait":
     case "native_effect_wait":
       return { width: 224, height: 64 };
   }

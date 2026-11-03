@@ -141,17 +141,10 @@ pub(super) async fn post(
             server.require_scope(&owner.scope)?;
             log_owner(&owner)?;
             let reply = service.activation_context(&owner).await?;
-            if reply.activation_id != owner.task_id
-                || matches!(&reply.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != owner.scope)
-            {
-                return Err(
-                    unavailable("activation response identity disagrees with request").into(),
-                );
-            }
             server
                 .blocking(move || {
                     reply
-                        .validate()
+                        .validate_for_owner(&owner)
                         .map_err(|_| unavailable("invalid workflow service response"))?;
                     tracing::Span::current().record("ledgence.workflow.id", &reply.workflow_id);
                     tracing::Span::current().record("ledgence.activation.id", &reply.activation_id);

@@ -42,7 +42,7 @@ class InstalledPackageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(distribution.metadata["License-Expression"], "MIT")
         self.assertEqual(distribution.metadata["Requires-Python"], ">=3.11")
         self.assertTrue((self.helper / "py.typed").is_file())
-        for name in ("_logging", "_observations", "_protocol", "bootstrap", "otel", "workflow"):
+        for name in ("_logging", "_observations", "_protocol", "bootstrap", "otel", "workflow", "providers"):
             module = importlib.import_module("ledgence.worker." + name)
             self.assertEqual(Path(module.__file__).resolve().parent, self.helper)
         self.assertIsNone(importlib.util.find_spec("ledgence.client"))
@@ -276,6 +276,67 @@ def handle(event):
                     if version >= 2:
                         self.assertIn(b"shutdown-callback", result.stderr)
                     self.assertFalse(list(root.rglob("__pycache__")))
+
+
+    def test_installed_provider_probe_negotiation_and_typed_resume(self):
+        import hashlib
+        from ledgence.worker.providers import PROBE_SCHEMA
+        source = """from enum import StrEnum
+from ledgence.worker.workflow import Workflow, WorkflowError, workflow_context
+from ledgence.worker.providers import ProviderAdapter, ProviderLookup, ProviderReport, ProviderSelectionKind
+provider = ProviderAdapter('example.export',version='1',lookup=ProviderLookup.BY_BINDING,completion_criterion='CSV is ready')
+@provider.dispatch
+async def dispatch(request): raise AssertionError('DISPATCH_ENTERED')
+@provider.probe
+async def probe(request):
+    try: workflow_context()
+    except WorkflowError: pass
+    else: raise AssertionError('WORKFLOW_CONTEXT_LEAKED')
+    return ProviderReport.succeeded(None,target=request.target)
+class Entry(StrEnum): DONE='done'
+workflow=Workflow(Entry,providers=[provider])
+@workflow.entrypoint(Entry.DONE,default=True)
+def done(event,ctx):
+    selected=ctx.provider_operation_result
+    assert selected.kind is ProviderSelectionKind.PROVIDER_SUCCEEDED
+    result=selected.result
+    result['items'].append('mutated')
+    return ctx.complete(selected.result)
+handle=workflow.build()
+"""
+        contract = {"adapter_id":"example.export","version":"1","completion_criterion":"CSV is ready",
+            "dispatch_callable":"program:dispatch","reconcile_callable":"program:probe","lookup":"by_binding"}
+        contract["digest"]="sha256:"+hashlib.sha256(json.dumps(contract,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+        target={"provider":"example","environment":"test","account":"demo","api_variant":"v1","operation":"export","endpoint_identity":"local","dimensions":{}}
+        binding={"v":1,"business":{"namespace":"exports","key":"installed"},"contract":contract,"target":target,
+            "deduplication":None,"credential_reference":"fixture","reconciliation":{"queue":"probes","initial_delay_ms":1000,"interval_ms":1000,"maximum_interval_ms":5000,"max_checks":3,"max_elapsed_ms":60000,"check_timeout_ms":1000},
+            "program":{"program":{"id":"export","version":"1"},"digest":"sha256:"+"a"*64,"size":1234}}
+        occurrence={"scope":{"tenant_id":"tenant","namespace":"tests"},"workflow_id":"workflow-1","activation_id":"activation-1","approval_key":"export"}
+        ticket={"occurrence":occurrence,"binding_digest":"sha256:"+"b"*64}
+        event={"specversion":"1.0","id":"event-1","source":"urn:installed-provider","type":"test.invoke","ldgattemptid":"attempt-1","ldgtaskid":"probe-task","ldgworkflowid":"workflow-1","ldgtenantid":"tenant","ldgnamespace":"tests","data":{}}
+        probe={"v":3,"type":"invoke","event_id":"event-1","attempt_id":"attempt-1","event":event,"processing_context":None,
+            "runtime_capabilities":{"approved_effect_evidence_v2":True},"runtime_features":{"v":1,"supported":["native_effect_resolution.v1","provider_operation.v1"]},
+            "extension":{"schema":PROBE_SCHEMA,"payload":{"ticket":ticket,"binding":binding,"action":{"name":"program:dispatch","version":"1","arguments":{}},
+                "probe_id":"probe-1","generation":1,"task_id":"probe-task","attempt_id":"attempt-1","source_id":"source-1","report_id":"report-1","provider_reference":None,"check_timeout_ms":1000}}}
+        unsupported=json.loads(json.dumps(probe));unsupported.pop("runtime_features")
+        wake={"kind":"provider_operation","key":"wait","occurrence":occurrence,"parking_activation_id":"activation-park","parking_revision":1,"resumed_activation_id":"activation-resumed","resumed_revision":2,"selected_at":200,"selected_effect_revision":12,
+            "selection":{"kind":"provider_succeeded","report_ref":{"report_id":"report-1","source_id":"source-1","sequence":4,"recorded_revision":10,"recorded_at":100,"knowledge":"succeeded"},"result":{"items":[1]}}}
+        resumed=json.loads(json.dumps(probe));resumed["event"].update(ldgtaskid="activation-resumed",ldgworkflowid="workflow-1",ldgactivationid="activation-resumed")
+        resumed["extension"]={"schema":self.workflow.SCHEMA,"payload":activation(activation_id="activation-resumed",revision=2,continuation="done",wake=wake)}
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); helper=root/"helper/ledgence/worker"; package=root/"package";package.mkdir()
+            shutil.copytree(self.helper,helper,ignore=shutil.ignore_patterns("__pycache__","*.pyc"))
+            (package/"program.py").write_text(source)
+            result=subprocess.run([sys.executable,"-I","-S","-B",str(helper/"bootstrap.py"),"--package-root",str(package),"--handler","program:handle","--python-version",f"{sys.version_info.major}.{sys.version_info.minor}","--protocol-version","3"],
+                cwd=root,input=b"".join(json.dumps(message).encode()+b"\n" for message in (probe,unsupported,resumed,{"v":3,"type":"shutdown"})),capture_output=True,timeout=20)
+        self.assertEqual(result.returncode,0,result.stderr)
+        frames=[json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual([frame["type"] for frame in frames],["ready","result","result","result","closing"])
+        self.assertEqual(frames[1]["output"]["report"]["knowledge"],{"kind":"succeeded","result":None})
+        self.assertEqual(frames[2]["status"],"runtime_error")
+        self.assertEqual(frames[3]["output"]["output"],{"items":[1]})
+        self.assertNotIn(b"DISPATCH_ENTERED",result.stderr)
+        self.assertNotIn(b"WORKFLOW_CONTEXT_LEAKED",result.stderr)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ import {
 import { CommandFeedback } from "../components/command-feedback";
 import { ExecutionHeading } from "../components/execution-heading";
 import { TaskResources, AttemptResources } from "./execution-resources";
+import { effectDetailPath } from "../api/effects";
 import { DetailPanels, DetailSections } from "./detail-panels";
 export function ExecutionDetailPage() {
   const { taskId = "" } = useParams();
@@ -60,6 +61,9 @@ export function ExecutionDetailPage() {
             {task && (
               <>
                 <Status value={task.state} />
+                {task.provider_probe && (
+                  <span className="badge">Provider check</span>
+                )}
                 <Elapsed
                   start={task.submitted_at}
                   end={
@@ -80,14 +84,16 @@ export function ExecutionDetailPage() {
         actions={
           task && (
             <>
-              <Permission capability="execution_submit">
-                <Link
-                  className="button button-outline"
-                  to={`/executions/new?source_task=${encodeURIComponent(taskId)}`}
-                >
-                  Run again
-                </Link>
-              </Permission>
+              {!task.provider_probe && (
+                <Permission capability="execution_submit">
+                  <Link
+                    className="button button-outline"
+                    to={`/executions/new?source_task=${encodeURIComponent(taskId)}`}
+                  >
+                    Run again
+                  </Link>
+                </Permission>
+              )}
               {!dto.terminal(task.state) && (
                 <Permission capability="execution_control">
                   <CancelTask key={taskId} taskId={taskId} />
@@ -184,6 +190,22 @@ export function ExecutionDetailPage() {
                                     "None"
                                   )}
                                 </Field>
+                                {task.provider_probe && (
+                                  <Field label="Provider check">
+                                    <Link
+                                      to={effectDetailPath(
+                                        task.provider_probe.occurrence,
+                                      )}
+                                      state={{
+                                        returnTo: `${location.pathname}${location.search}`,
+                                        restoreNavigationKey: location.key,
+                                      }}
+                                    >
+                                      Inspect provider evidence
+                                    </Link>{" "}
+                                    · Check {task.provider_probe.generation}
+                                  </Field>
+                                )}
                                 {task.workflow_id && (
                                   <Field label="Workflow">
                                     <Link

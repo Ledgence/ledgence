@@ -23,7 +23,7 @@ before returning sensitive inspection data.
 
 ## Find an unconfirmed write
 
-In matching Console contract 6, open **Effects** from the sidebar, filter the
+In matching Console contract 7, open **Effects** from the sidebar, filter the
 inbox and select an occurrence to review its original action and evidence.
 Journal confirmation and operator handling are separate: a closed assessment
 can still have an unconfirmed journal. Use the CLI when investigating without
@@ -134,3 +134,23 @@ stay closed, even when evidence or assessments arrive later. An accepted
 assessment releases the unresolved execution retention hold; ordinary retention
 rules still apply, and the binding, reports, assessments and receipts remain
 available after execution collection. Later disagreement does not reopen that hold.
+
+## Provider operations
+
+For approved asynchronous operations, use **Effects** and the provider filter.
+The provider panel separates reported knowledge, read-only check schedule and
+operator handling. Open a managed check task from the schedule to inspect its
+attempt diagnostics; its successful completion alone is not provider success.
+The workflow graph shows a durable provider wait and its recorded resume, with
+an exact link back to the original effect occurrence.
+
+`unknown`, `pending`, `requires_action`, terminal reports and disputed evidence
+remain distinct. A dispute can also concern conflicting provider references
+before a terminal outcome. The complete binding was frozen before
+approval; inspect it together with the effective arguments. Provider reports
+never confirm the legacy local journal. An operator assessment cannot grant
+redispatch or rewrite an already selected wake.
+The provider **Needs review** filter excludes historical conflicts covered by the
+current clean assessment. **Disputed** keeps that history visible; new evidence
+that conflicts with the current assessment makes it need review again.
+[Configure and use provider recovery](/how-to/recover-provider-operations).

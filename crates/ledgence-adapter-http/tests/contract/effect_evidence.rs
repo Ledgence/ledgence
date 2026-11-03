@@ -190,8 +190,10 @@ fn detail() -> EffectEvidenceDetail {
     });
     let program = task(Value::Null).descriptor;
     EffectEvidenceDetail {
+        provider: None,
         current_assessment: None,
         summary: EffectEvidenceSummary {
+            provider: None,
             operator_resolution: None,
             occurrence: occurrence(),
             program: program.program.clone(),
@@ -237,6 +239,7 @@ async fn metadata_inbox_does_not_audit_but_new_sensitive_routes_never_use_legacy
     let f = setup().await;
     f.mock.evidence_capabilities.store(3, Ordering::SeqCst);
     let query = EffectInboxQuery {
+        provider_filter: None,
         scope: scope(),
         filter: EffectInboxFilter::All,
         workflow_id: None,

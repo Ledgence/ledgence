@@ -432,3 +432,55 @@ is durably audited, does not prove resumption and never redispatches an effect.
 Cancelled or collected executions remain closed. `--filter disputed` finds a
 current assessment disputed by later evidence; `discrepant` remains historical.
 See the [Python saved-command example](../sdk/python-client/README.md#operator-effect-assessments-development).
+
+## Provider operation recovery in development
+
+Matching development builds add `--provider-filter` to `effect inbox`; the
+published 0.7.0 CLI does not accept it. Use the existing Effects commands:
+
+```sh
+ledgence effect inbox --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file operator.json \
+  --provider-filter needs_review
+```
+
+Values are `all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled`
+and `disputed`. Keep `--filter all` (the default); provider selection cannot be
+combined with the local-journal filter. Omission retains the existing mixed
+inbox. Cursors bind the provider selection and all original query fields.
+`needs_review` excludes historical conflicts covered by the current clean
+assessment; `disputed` keeps them visible. A later conflict against that
+assessment makes the occurrence need review again.
+`effect inspect` shows the complete frozen provider binding, current typed
+report, finite reconciliation state and typed timeline. Pagination, permissions,
+durable sensitive-read audit and JSON integer fidelity remain unchanged.
+`effect resolve --file` continues to accept the same saved assessment envelope.
+
+Enabling provider dispatch is an installation decision. Add
+`--provider-config ./provider.json` to `ledgence orchestrator serve`, together
+with `--access-config` and `--instance-config`. The bounded version-1 file is:
+
+```json
+{
+  "v": 1,
+  "audience": {
+    "authority_id": "YOUR_AUTHORITY_ID",
+    "instance_id": "YOUR_INSTANCE_ID",
+    "scope": {"tenant_id": "acme", "namespace": "billing"}
+  },
+  "dispatch": "enabled"
+}
+```
+
+Copy the audience exactly from this installation's access configuration. The
+file contains policy, not a provider credential. Missing configuration leaves
+provider operations disabled; a mismatched or malformed file prevents startup.
+After a declared database restore, use `"dispatch": "declared_restore_quarantine"`
+before restarting API replicas. Existing operations can be reconciled by reads;
+new dispatch grants are denied, including business keys absent from the restored
+snapshot. A provider idempotency key does not make redispatch safe.
+
+All API replicas must agree on this policy. Run matching workers on the dedicated
+probe queue named in each immutable binding. There is no additional worker flag
+and no scheduler that redirects such work to an eligible older worker.
+[Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).

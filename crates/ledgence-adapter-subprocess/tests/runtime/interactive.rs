@@ -111,6 +111,32 @@ impl RuntimeRequestHandler for Handler {
 const REQUEST_AND_WAIT: &str = "i=receive()\nsend(bound(i,'runtime_request',id=1,operation='test.commit',payload={'step':'one'}))\nreceive()\n";
 
 #[tokio::test]
+async fn restricted_probe_phase_kills_real_child_without_expiring_parent_report_authority() {
+    let (_dir, artifact, runtime) = scripted(REQUEST_AND_WAIT);
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    let parent = RunControl::new(Duration::from_secs(5));
+    let phase = parent.shorter_deadline(std::time::Instant::now() + Duration::from_millis(100));
+    let handler = Handler::new(ReplyMode::Pending);
+    let result = tokio::time::timeout(
+        Duration::from_secs(3),
+        session.execute_with_requests(invocation("bounded-probe"), phase, handler.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.unwrap_err().kind, ErrorKind::TimedOut);
+    tokio::time::timeout(Duration::from_secs(2), session.close())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(parent.check().is_ok());
+    assert_eq!(handler.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(handler.dropped.load(Ordering::SeqCst), 1);
+    #[cfg(unix)]
+    assert!(!running(pid));
+}
+
+#[tokio::test]
 async fn v3_acknowledges_sequential_requests_and_reuses_with_fresh_context() {
     let (_dir, artifact, runtime) = scripted(
         r#"

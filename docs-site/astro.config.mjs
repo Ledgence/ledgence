@@ -53,6 +53,7 @@ export default defineConfig({
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
         { label: 'Require approval', slug: 'how-to/require-approval' },
         { label: 'Recover model and tool calls', slug: 'how-to/recover-agent-calls' },
+        { label: 'Recover provider operations', slug: 'how-to/recover-provider-operations' },
       ] },
       { label: 'Integrations and examples', collapsed: true, items: [
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },

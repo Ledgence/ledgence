@@ -111,11 +111,13 @@ async fn reserved_local_prior(
     let ctx: WorkflowActivationContext =
         codec::decode(&row.try_get::<Vec<u8>, _>("context_bytes")?)?;
     if let Some(WorkflowWake::Approval { approval }) = ctx.wake {
-        let protected_occurrence = approval.protection == ApprovalProtection::ExternalEffect
-            && row
-                .try_get::<Option<String>, _>("approval_step_key")?
-                .as_deref()
-                == Some(record.key.as_str());
+        let protected_occurrence = matches!(
+            approval.protection,
+            ApprovalProtection::ExternalEffect | ApprovalProtection::ProviderOperation
+        ) && row
+            .try_get::<Option<String>, _>("approval_step_key")?
+            .as_deref()
+            == Some(record.key.as_str());
         if protected_occurrence
             || approved_effects::confirmed_lookup(record, &record.key, &approval.action).is_ok()
         {

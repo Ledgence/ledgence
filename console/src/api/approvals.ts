@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
+import { providerBinding, type ProviderBinding } from "./providers";
 import { ContractError } from "./codecs";
 import { stringifyUserJson } from "./json";
 
@@ -65,10 +66,24 @@ const protectedApproval = s.object({
   ...approvalShape,
   protection: s.enumeration("external_effect"),
 });
-export type ApprovalProtection = "external_effect";
-function decodeApproval(
-  value: unknown,
-): s.Decoded<typeof legacyApproval> & { protection?: ApprovalProtection } {
+const providerApproval = s.refine(
+  s.object({
+    ...approvalShape,
+    protection: s.enumeration("provider_operation"),
+    provider_binding: providerBinding,
+  }),
+  (value) =>
+    value.action.name === value.provider_binding.contract.dispatch_callable &&
+    value.action.version === value.provider_binding.contract.version,
+  "Provider action differs from its binding.",
+);
+export type ApprovalProtection = "external_effect" | "provider_operation";
+function decodeApproval(value: unknown): s.Decoded<typeof legacyApproval> & {
+  protection?: ApprovalProtection;
+  provider_binding?: ProviderBinding;
+} {
+  if (s.isJsonObject(value) && value.protection === "provider_operation")
+    return providerApproval(value);
   return s.isJsonObject(value) && Object.hasOwn(value, "protection")
     ? protectedApproval(value)
     : legacyApproval(value);
@@ -198,6 +213,7 @@ export type ApprovalDecision = {
   revision: string;
   action: Approval["action"];
   protection?: ApprovalProtection;
+  provider_binding?: ProviderBinding;
   decision_id: string;
   decision: "approve" | "reject";
   reviewer: string;
@@ -208,7 +224,9 @@ export type ApprovalDecision = {
 export function decodeApprovalDecision(value: unknown): ApprovalDecision {
   const protectedValue =
     value && typeof value === "object" && "protection" in value;
-  return s.object({
+  const providerValue =
+    s.isJsonObject(value) && value.protection === "provider_operation";
+  const result = s.object({
     workflow_id: identifier,
     key: identifier,
     activation_id: identifier,
@@ -218,8 +236,19 @@ export function decodeApprovalDecision(value: unknown): ApprovalDecision {
     decision: s.enumeration("approve", "reject"),
     reviewer: identifier,
     reason: s.nullable(s.string),
-    ...(protectedValue ? { protection: s.enumeration("external_effect") } : {}),
+    ...(protectedValue
+      ? { protection: s.enumeration("external_effect", "provider_operation") }
+      : {}),
+    ...(providerValue ? { provider_binding: providerBinding } : {}),
   })(value);
+  if (
+    result.provider_binding &&
+    (result.action.name !==
+      result.provider_binding.contract.dispatch_callable ||
+      result.action.version !== result.provider_binding.contract.version)
+  )
+    throw new ContractError("Provider action differs from its binding.");
+  return result;
 }
 
 // JSON property order is not part of an action's identity. Number tokens are.
@@ -252,6 +281,10 @@ export function decisionReceipt(expected: ApprovalDecision) {
       current.activation_id !== expected.activation_id ||
       current.revision !== expected.revision ||
       current.protection !== expected.protection ||
+      !sameAction(
+        current.provider_binding ?? null,
+        expected.provider_binding ?? null,
+      ) ||
       !sameAction(current.action, expected.action) ||
       current.decision?.decision_id !== expected.decision_id ||
       current.decision.decision !== expected.decision ||

@@ -144,6 +144,7 @@ fn context(attempt: &AttemptSnapshot) -> Box<ExecutionContext> {
 
 fn success(attempt: &AttemptSnapshot, quiescence: Quiescence) -> SettleCommand {
     SettleCommand {
+        provider_probe_failure: None,
         owner: attempt.lease.owner.clone(),
         operation_id: format!("settle_{}", attempt.lease.owner.attempt_id),
         report: AttemptReport::Completed(ExecutionReport {

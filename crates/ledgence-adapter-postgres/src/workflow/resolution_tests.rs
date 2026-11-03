@@ -110,7 +110,7 @@ async fn new_coordinator_resumes_successful_resolutions_after_partial_failure() 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn partial_resolution_is_fenced_and_survives_reclaim_without_scheduling_children() {
-    let db = TestDb::without_migrations().await;
+    let mut db = TestDb::without_migrations().await;
     let previous = sqlx::migrate::Migrator::with_migrations(
         MIGRATOR
             .iter()
@@ -145,6 +145,11 @@ async fn partial_resolution_is_fenced_and_survives_reclaim_without_scheduling_ch
     // Upgrade a pending controller decision from the previous schema.
     db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
+    // Upgrade deploys stop old writers and reopen pools with the new row shape.
+    db.store.close().await;
+    db.store = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
     let old = one_work(&db.store).await;
     let mut wrong_kind = resolved("first");
     wrong_kind.kind = WorkflowChildKind::Workflow;

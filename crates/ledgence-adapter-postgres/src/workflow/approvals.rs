@@ -325,6 +325,7 @@ pub(super) async fn install(
         action,
         proposed_arguments,
         protection,
+        provider_binding,
         ..
     } = wait
     else {
@@ -342,6 +343,10 @@ pub(super) async fn install(
             .ok_or_else(|| corrupt("approval revision"))?,
         action: action.clone(),
         protection: *protection,
+        provider_binding: provider_binding
+            .as_ref()
+            .map(|b| b.resolve(run.controller.clone()))
+            .transpose()?,
         proposed_arguments: proposed_arguments.clone(),
         created_at: now,
         deadline: wait
@@ -352,14 +357,17 @@ pub(super) async fn install(
         resumed_activation_id: None,
     };
     approval.validate()?;
-    sqlx::query(
-        "INSERT INTO workflow_approvals(workflow_id,wait_key,snapshot_bytes) VALUES($1,$2,$3)",
-    )
-    .bind(&approval.workflow_id)
-    .bind(&approval.key)
-    .bind(codec::encode(&approval)?)
-    .execute(connection)
-    .await?;
+    if let Some(binding) = &approval.provider_binding
+        && binding.reconciliation.queue == run.submission.input.queue
+    {
+        return Err(invalid("provider reconciliation requires a separate queue").into());
+    }
+    let valid: Option<bool> = sqlx::query_scalar("INSERT INTO workflow_approvals(workflow_id,wait_key,snapshot_bytes,provider_operation) VALUES($1,$2,$3,$4) RETURNING workflow_id=$1 AND wait_key=$2 AND snapshot_bytes=$3 AND provider_operation=$4")
+        .bind(&approval.workflow_id).bind(&approval.key).bind(codec::encode(&approval)?)
+        .bind(approval.provider_binding.is_some()).fetch_optional(connection).await?;
+    if valid != Some(true) {
+        return Err(corrupt("approval proposal changed or suppressed").into());
+    }
     Ok(())
 }
 pub(super) async fn select_wake(

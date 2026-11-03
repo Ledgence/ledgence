@@ -1,0 +1,286 @@
+{
+  "binding": {
+    "occurrence": {
+      "scope": {
+        "tenant_id": "tenant",
+        "namespace": "tests"
+      },
+      "workflow_id": "workflow",
+      "activation_id": "effect-activation",
+      "approval_key": "refund"
+    },
+    "approval": {
+      "scope": {
+        "tenant_id": "tenant",
+        "namespace": "tests"
+      },
+      "workflow_id": "workflow",
+      "key": "refund",
+      "activation_id": "requested",
+      "revision": 1,
+      "action": {
+        "name": "program:refund",
+        "version": "1",
+        "arguments": {
+          "amount": 50
+        }
+      },
+      "proposed_arguments": {
+        "amount": 100
+      },
+      "created_at": 10,
+      "deadline": 100,
+      "status": "approved",
+      "decision": {
+        "decision_id": "decision-1",
+        "decision": "approve",
+        "reviewer": "operator",
+        "reason": null,
+        "decided_at": 11
+      },
+      "resumed_activation_id": "effect-activation",
+      "protection": "provider_operation",
+      "provider_binding": {
+        "v": 1,
+        "business": {
+          "namespace": "exports",
+          "key": "daily:1042"
+        },
+        "contract": {
+          "adapter_id": "example.export",
+          "version": "1",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "completion_criterion": "The CSV artifact is committed",
+          "dispatch_callable": "program:refund",
+          "reconcile_callable": "program:probe",
+          "lookup": "by_binding"
+        },
+        "target": {
+          "provider": "example",
+          "environment": "local",
+          "account": "demo",
+          "api_variant": "v1",
+          "operation": "export",
+          "endpoint_identity": "loopback-export",
+          "dimensions": {
+            "region": "local"
+          }
+        },
+        "deduplication": {
+          "domain": {
+            "provider": "example",
+            "namespace": "account",
+            "dimensions": {
+              "account": "demo"
+            }
+          },
+          "key": "export:1042",
+          "horizon": {
+            "kind": "minimum_duration",
+            "duration_ms": 1000
+          }
+        },
+        "credential_reference": "example-local",
+        "reconciliation": {
+          "queue": "provider-checks",
+          "initial_delay_ms": 1000,
+          "interval_ms": 1000,
+          "maximum_interval_ms": 5000,
+          "max_checks": 3,
+          "max_elapsed_ms": 60000,
+          "check_timeout_ms": 1000
+        },
+        "program": {
+          "program": {
+            "id": "refund",
+            "version": "1"
+          },
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 1
+        }
+      }
+    },
+    "program": {
+      "program": {
+        "id": "refund",
+        "version": "1"
+      },
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 1
+    },
+    "key": "_approval:1d630127108f1feaf1f7beee59b66dd679daf712a441f3d0a39ee9ea0f2b7a95",
+    "lookup": null,
+    "approval_acceptance_event_id": "audit-1"
+  },
+  "summary": {
+    "occurrence": {
+      "scope": {
+        "tenant_id": "tenant",
+        "namespace": "tests"
+      },
+      "workflow_id": "workflow",
+      "activation_id": "effect-activation",
+      "approval_key": "refund"
+    },
+    "program": {
+      "id": "refund",
+      "version": "1"
+    },
+    "callable": "program:refund",
+    "action_version": "1",
+    "dispatch_provenance": {
+      "kind": "verified_claim",
+      "claim_id": "claim-1"
+    },
+    "journal_state": "unconfirmed",
+    "has_discrepancy": false,
+    "entry_count": 2,
+    "effect_revision": 3,
+    "created_at": 0,
+    "updated_at": 15,
+    "provider": {
+      "binding_digest": "sha256:069017473d406cbb2a343f9c8246d7024982f6d68c26bcf6037bb6332d5c074c",
+      "knowledge": "succeeded",
+      "selected_report": {
+        "source_id": "source-1",
+        "report_id": "report-1",
+        "sequence": 2,
+        "recorded_revision": 3,
+        "recorded_at": 15,
+        "knowledge": "succeeded"
+      },
+      "conflicting_reports": [],
+      "reconciliation": {
+        "queue": "provider-checks",
+        "checks_used": 0,
+        "max_checks": 3,
+        "generation": 0,
+        "active_probe_id": null,
+        "active_task_id": null,
+        "first_due_at": 1000,
+        "next_due_at": null,
+        "deadline_at": 60000,
+        "stopped_reason": "provider_terminal"
+      },
+      "handling": "provider_terminal",
+      "candidate_revision": 3
+    }
+  },
+  "entries": [
+    {
+      "kind": "provider_dispatch",
+      "sequence": 1,
+      "recorded_at": 12,
+      "recorded_revision": 2,
+      "claim_id": "claim-1",
+      "source_id": "source-1",
+      "report_id": "report-1",
+      "worker": {
+        "audience": {
+          "authority_id": "authority",
+          "instance_id": "instance",
+          "scope": {
+            "tenant_id": "tenant",
+            "namespace": "tests"
+          }
+        },
+        "issuer": "urn:worker",
+        "subject": "pool-1",
+        "credential_id": "credential-1"
+      }
+    },
+    {
+      "kind": "provider_report",
+      "sequence": 2,
+      "recorded_at": 15,
+      "recorded_revision": 3,
+      "source_id": "source-1",
+      "source": {
+        "kind": "dispatch",
+        "claim_id": "claim-1"
+      },
+      "report_id": "report-1",
+      "worker": {
+        "audience": {
+          "authority_id": "authority",
+          "instance_id": "instance",
+          "scope": {
+            "tenant_id": "tenant",
+            "namespace": "tests"
+          }
+        },
+        "issuer": "urn:worker",
+        "subject": "pool-1",
+        "credential_id": "credential-1"
+      },
+      "ingress": "live_dispatch",
+      "report": {
+        "reported_target": {
+          "provider": "example",
+          "environment": "local",
+          "account": "demo",
+          "api_variant": "v1",
+          "operation": "export",
+          "endpoint_identity": "loopback-export",
+          "dimensions": {
+            "region": "local"
+          }
+        },
+        "provider_reference": "export-1042",
+        "provider_request_id": null,
+        "knowledge": {
+          "kind": "succeeded",
+          "result": null
+        }
+      }
+    }
+  ],
+  "next_cursor": null,
+  "provider": {
+    "current_report": {
+      "kind": "provider_report",
+      "sequence": 2,
+      "recorded_at": 15,
+      "recorded_revision": 3,
+      "source_id": "source-1",
+      "source": {
+        "kind": "dispatch",
+        "claim_id": "claim-1"
+      },
+      "report_id": "report-1",
+      "worker": {
+        "audience": {
+          "authority_id": "authority",
+          "instance_id": "instance",
+          "scope": {
+            "tenant_id": "tenant",
+            "namespace": "tests"
+          }
+        },
+        "issuer": "urn:worker",
+        "subject": "pool-1",
+        "credential_id": "credential-1"
+      },
+      "ingress": "live_dispatch",
+      "report": {
+        "reported_target": {
+          "provider": "example",
+          "environment": "local",
+          "account": "demo",
+          "api_variant": "v1",
+          "operation": "export",
+          "endpoint_identity": "loopback-export",
+          "dimensions": {
+            "region": "local"
+          }
+        },
+        "provider_reference": "export-1042",
+        "provider_request_id": null,
+        "knowledge": {
+          "kind": "succeeded",
+          "result": null
+        }
+      }
+    }
+  }
+}

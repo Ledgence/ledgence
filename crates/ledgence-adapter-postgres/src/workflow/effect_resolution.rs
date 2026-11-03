@@ -35,8 +35,14 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         // Collection may have removed the run. Retained assessment/replay remains legal.
-        let row=sqlx::query("SELECT state,native_wait_activation_id,retiring_at_ms FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
+        let row=sqlx::query("SELECT state,native_wait_activation_id,retiring_at_ms,has_provider_operations FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
             .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).fetch_optional(&mut *tx).await?;
+        if row.as_ref().is_some_and(|r| {
+            r.try_get::<bool, _>("has_provider_operations")
+                .unwrap_or(false)
+        }) {
+            provider::lock_active(&mut tx, o).await?;
+        }
         let mut retained = retained::load(&mut tx, o)
             .await?
             .ok_or(ContractError::NotFound)?;
@@ -83,6 +89,12 @@ impl PostgresStore {
         {
             return Err(ContractError::Conflict.into());
         }
+        // Load the old provider projection before changing the common assessment.
+        let provider_state = if retained.summary.provider.is_some() {
+            Some(provider::state::load(&mut tx, &retained).await?)
+        } else {
+            None
+        };
         let previous = retained
             .summary
             .operator_resolution
@@ -135,6 +147,9 @@ impl PostgresStore {
             _ => None,
         };
         retained.current_assessment = Some(entry.clone());
+        if let Some(summary) = &mut retained.summary.provider {
+            summary.handling = ProviderHandlingState::OperatorClosed;
+        }
         crate::operator_audit::insert_event(&mut tx, &event, Some(&bytes), None, false).await?;
         retained::append(
             &mut tx,
@@ -146,6 +161,9 @@ impl PostgresStore {
             Some(codec::encode(&receipt)?),
         )
         .await?;
+        if let Some(state) = provider_state {
+            provider::close_for_assessment(&mut tx, &mut retained, state, now).await?;
+        }
         if let Some(row) = row
             && row.try_get::<Option<i64>, _>("retiring_at_ms")?.is_none()
             && row.try_get::<String, _>("state")? == "waiting"

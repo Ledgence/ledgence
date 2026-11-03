@@ -163,3 +163,12 @@ inspection requires configured credentials, `sensitive_read` and durable audit
 before either generic or Console response bytes are released. Worker claims and
 reported callback results have their own evidence provenance.
 [Retained effect evidence](effect-evidence.md).
+
+Provider-operation details use that same `effect_inspect` boundary and exact
+occurrence resource. Typed provider reports and probe source admission belong to
+the retained worker-evidence ledger, not `AuditActor` operator events. The
+existing `effect_resolved` acceptance event records an operator assessment;
+stopping provider recovery is part of that acceptance transaction. Inspecting
+provider targets, bindings or reports requires the same sensitive permission
+and durable read observation through generic and Console aliases.
+[Provider operations](provider-operations.md).

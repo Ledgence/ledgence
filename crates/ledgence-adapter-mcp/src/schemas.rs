@@ -29,6 +29,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             "Read retained approved-effect metadata in the configured scope, most recently updated first. Requires metadata_read. Keep filters unchanged when following next_cursor; a short page can have a cursor due to the byte limit. Reports and discrepancies do not establish provider truth or authorize another dispatch.",
             object(
                 json!({"filter":{"type":"string","enum":["all","unconfirmed","confirmed","discrepant","disputed"],"default":"all"},
+                    "provider_filter":{"type":"string","enum":["all","pending","needs_review","succeeded","failed","cancelled","disputed"],"description":"Provider operations only; requires filter=all. Knowledge is adapter-classified; needs_review does not authorize redispatch."},
                     "workflow_id":identifier(),"cursor":effect_cursor(),"limit":limit()}),
                 &[],
             ),

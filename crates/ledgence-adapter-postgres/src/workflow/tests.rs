@@ -685,6 +685,7 @@ async fn local_journal_survives_retry_and_exact_receipts_outlive_authority() {
     let accepted = local(&first, "committed");
     db.store.record_local_result(&accepted).await.unwrap();
     let retryable = SettleCommand {
+        provider_probe_failure: None,
         owner: first.lease.owner.clone(),
         operation_id: "failed_activation".into(),
         report: AttemptReport::Failed(ExecutionFailure {
@@ -1189,3 +1190,6 @@ mod resolution;
 
 #[path = "approval_inbox_tests.rs"]
 mod inbox;
+
+#[path = "provider_tests.rs"]
+mod providers;

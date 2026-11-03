@@ -188,7 +188,7 @@ def parse_resolution_reference(raw):
         EffectAssessmentKind(raw["assessment_kind"]), codec.text(raw["acceptance_event_id"], "acceptance_event_id"))
 
 
-def parse_resolution_summary(raw, entry_count, effect_revision):
+def parse_resolution_summary(raw, entry_count, effect_revision, *, provider=False):
     codec.fields(raw, {"reference", "first_conflicting_entry_sequence"})
     reference = parse_resolution_reference(raw["reference"])
     if reference.sequence > entry_count or reference.accepted_revision > effect_revision:
@@ -196,8 +196,8 @@ def parse_resolution_summary(raw, entry_count, effect_revision):
     conflict = raw["first_conflicting_entry_sequence"]
     if conflict is not None:
         codec.integer(conflict, "first_conflicting_entry_sequence", reference.sequence + 1, entry_count)
-        if reference.assessment_kind != EffectAssessmentKind.RECORD_SUCCESS:
-            raise InputError("opaque reports cannot dispute failure or unknown assessments")
+        if reference.assessment_kind != EffectAssessmentKind.RECORD_SUCCESS and not (provider and reference.assessment_kind == EffectAssessmentKind.RECORD_FAILURE):
+            raise InputError("evidence cannot dispute this assessment kind")
     return EffectResolutionSummary(reference, conflict)
 
 

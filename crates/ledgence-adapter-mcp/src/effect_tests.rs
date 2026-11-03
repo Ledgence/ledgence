@@ -428,3 +428,91 @@ async fn resolution_denial_is_definite_but_bad_accepted_receipt_is_uncertain() {
     );
     assert_eq!(server.await.unwrap().len(), 3);
 }
+
+fn provider_detail() -> Value {
+    let mut value: Value = serde_json::from_slice(include_bytes!(
+        "../../../sdk/python-client/tests/fixtures/provider-effect.json"
+    ))
+    .unwrap();
+    value["binding"]["occurrence"]["scope"] = json!(scope());
+    value["binding"]["approval"]["scope"] = json!(scope());
+    value["summary"]["occurrence"]["scope"] = json!(scope());
+    for entry in value["entries"].as_array_mut().unwrap() {
+        entry["worker"]["audience"]["scope"] = json!(scope());
+    }
+    value["provider"]["current_report"]["worker"]["audience"]["scope"] = json!(scope());
+    value
+}
+
+#[tokio::test]
+async fn provider_inspection_preserves_bound_target_and_stringifies_only_platform_counters() {
+    let detail = provider_detail();
+    let (dispatcher, server) = dispatcher(vec![(200, detail)]).await;
+    let observed = dispatcher
+        .call("ledgence_effect_inspect", &identity())
+        .await
+        .unwrap();
+    assert_eq!(
+        observed["summary"]["provider"]["selected_report"]["recorded_revision"],
+        "3"
+    );
+    assert_eq!(observed["summary"]["provider"]["candidate_revision"], "3");
+    assert_eq!(
+        observed["summary"]["provider"]["reconciliation"]["generation"],
+        "0"
+    );
+    assert_eq!(
+        observed["summary"]["provider"]["reconciliation"]["max_checks"],
+        3
+    );
+    assert_eq!(
+        observed["binding"]["approval"]["provider_binding"]["program"]["size"],
+        "1"
+    );
+    assert_eq!(
+        observed["provider"]["current_report"]["recorded_revision"],
+        "3"
+    );
+    assert!(observed["provider"]["current_report"]["report"]["knowledge"]["result"].is_null());
+    assert_eq!(observed["provider"]["current_report"]["recorded_at"], 15);
+    assert_eq!(
+        observed["binding"]["approval"]["provider_binding"]["target"]["account"],
+        "demo"
+    );
+    assert_eq!(server.await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn provider_inbox_filter_is_explicit_scoped_and_disallows_mixed_or_null_filters() {
+    let detail = provider_detail();
+    let (dispatcher, server) = dispatcher(vec![(
+        200,
+        json!({"items":[detail["summary"]],"next_cursor":null}),
+    )])
+    .await;
+    for args in [
+        json!({"provider_filter":null}),
+        json!({"provider_filter":"invented"}),
+        json!({"provider_filter":"all","filter":"unconfirmed"}),
+    ] {
+        assert!(
+            dispatcher
+                .call("ledgence_effect_inbox", &args)
+                .await
+                .is_err()
+        );
+    }
+    let page = dispatcher
+        .call(
+            "ledgence_effect_inbox",
+            &json!({"provider_filter":"succeeded"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page["items"][0]["provider"]["knowledge"], "succeeded");
+    let calls = server.await.unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].1["provider_filter"], "succeeded");
+    assert_eq!(calls[0].1["filter"], "all");
+    assert_eq!(calls[0].1["scope"], json!(scope()));
+}

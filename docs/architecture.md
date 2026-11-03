@@ -150,3 +150,26 @@ obligation atomically, then selects an immutable wake under workflow ordering.
 Wait records have their own namespace and release the existing worker reservation.
 The selected assessment remains separate from journal confirmation and retained
 worker observations. [Contract and operating guide](effect-evidence.md).
+
+### Provider operation recovery in development
+
+The complete `ProviderOperationStore` adds immutable business/provider bindings,
+the shared dispatch permission, retained typed reports, bounded due-work
+maintenance and provider-aware workflow coordination. `ProviderOperations`
+receives verified worker identity out of band; the remote
+`ProviderOperationClient` carries commands without inventing trusted principals.
+The existing Effects reader projects the retained evidence. No provider SDK is
+part of these portable ports.
+
+Dispatch and reconciliation use different registered callables in the workflow's
+already-pinned package. A dedicated trusted probe extension carries the frozen
+binding to a normal worker task. Its invocation budget is shorter than its parent
+attempt budget, leaving time for immutable report delivery. Typed host failures
+travel through an optional settlement field that is rejected on ordinary tasks;
+application error strings cannot claim host authority. Durable terminal-work
+processing waits for task finalization and cleanup before the next check. The
+coordinator does not keep a worker process parked or scan every active task.
+
+Provider waits have their own namespace and select one immutable wake. Provider
+knowledge, operator assessments, task completion and journal confirmation remain
+distinct. Earlier A/B observations are not reinterpreted as typed provider facts.
