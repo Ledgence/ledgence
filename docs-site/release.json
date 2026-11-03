@@ -1,13 +1,13 @@
 {
-  "series": "0.7",
-  "sourceRef": "v0.7.0",
-  "nativeVersion": "0.7.0",
-  "clientVersion": "0.7.0",
-  "rustApiVersion": "0.7.0",
+  "series": "0.8",
+  "sourceRef": "v0.8.0",
+  "nativeVersion": "0.8.0",
+  "clientVersion": "0.8.0",
+  "rustApiVersion": "0.8.0",
   "nativeTargets": [
     "x86_64-unknown-linux-gnu",
     "aarch64-apple-darwin"
   ],
-  "verifiedOn": "2026-11-02",
-  "sourceRevision": "215d88ff3193c7bb120cb1d37c673ced9f94edb8"
+  "verifiedOn": "2026-11-03",
+  "sourceRevision": "e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b"
 }

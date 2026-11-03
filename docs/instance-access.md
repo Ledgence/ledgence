@@ -1,8 +1,8 @@
 # Instance access
 
-This capability is available on `develop` with matching CLI, server, worker,
-Python client and Console components. The published 0.7.0 distributions use the
-operator-trusted deployment model.
+Available in Ledgence 0.8.0 with matching CLI, server, worker, Python client
+and Console components. Credentials remain opt-in. Existing operator-trusted
+installations keep their deployment access boundary.
 
 An installation can authenticate individual operators, service clients and
 workers using locally provisioned credentials. The optional access adapter
@@ -22,7 +22,7 @@ pnpm --dir console install --frozen-lockfile --ignore-scripts
 pnpm --dir console build
 ```
 
-The commands below select the development executable explicitly. The
+The commands below select the source-built executable explicitly. The
 [HTTP deployment guide](http-orchestration.md) describes the database and program
 store. Save this instance configuration as `instance.json` in your working
 folder.
@@ -53,7 +53,7 @@ The directory contains three files.
 - `access.json` holds the installation authority, credential verifiers,
   capabilities and expirations. Mount it on each orchestrator.
 - `operator.json` holds Alice's reusable credential and its intended server.
-  A newly initialized development bundle grants all operator capabilities,
+  A newly initialized 0.8.0 bundle grants all operator capabilities,
   including `effect_resolve`. Existing access files keep their explicit
   capabilities; upgrading does not add this permission to old credentials.
 - `worker.json` holds a separate credential for the trusted worker plane.
@@ -235,7 +235,7 @@ original command, authority and subject; rotation must not change its actor.
 
 Access configuration is opt-in for the native service. The packaged local kits
 continue their operator-trusted deployment contract and checksum validation.
-Use explicit native service configuration for this development capability.
+Use explicit native service configuration for this capability.
 
 Native credential mode requires durable approval and effect-assessment attribution
 and sensitive-response audit. Approval `reviewer` remains caller supplied.

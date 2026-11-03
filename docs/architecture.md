@@ -118,7 +118,9 @@ completion. The store atomically registers parent decisions and new child runs;
 direct-edge cancellation and completion obligations avoid a tree-wide mutable lock.
 The existing worker pool and execution concurrency apply to every activation.
 
-## Instance access in development
+<span id="instance-access-in-development"></span>
+
+## Instance access
 
 The portable `CredentialVerifier` returns a validated principal, installation
 audience and explicit capabilities. The optional access adapter verifies local
@@ -138,7 +140,9 @@ read-only client `AuditReader` port delegates to authenticated HTTP ingress.
 Worker paths and pending result polls avoid audit database work.
 [Contract and retention](operator-audit.md).
 
-### Native effect resolution in development
+<span id="native-effect-resolution-in-development"></span>
+
+### Native effect resolution
 
 `EffectResolution` accepts verified, revision-bound operator assessments.
 `EffectResolutionStore` also supplies the durable coordinator operation required
@@ -151,7 +155,9 @@ Wait records have their own namespace and release the existing worker reservatio
 The selected assessment remains separate from journal confirmation and retained
 worker observations. [Contract and operating guide](effect-evidence.md).
 
-### Provider operation recovery in development
+<span id="provider-operation-recovery-in-development"></span>
+
+### Provider operation recovery
 
 The complete `ProviderOperationStore` adds immutable business/provider bindings,
 the shared dispatch permission, retained typed reports, bounded due-work

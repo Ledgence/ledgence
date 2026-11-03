@@ -7,8 +7,8 @@ durable local step. No model SDK or hosted service is required.
 
 This capability is included in Ledgence 0.3.1. Use matching worker,
 orchestrator, Python client, and Console versions and apply all migrations with
-`ledgence orchestrator migrate`. Published 0.7.0 uses Console contract 5; the
-development effect-assessment views described below require matching contract 6.
+`ledgence orchestrator migrate`. Ledgence 0.8.0 uses Console contract 7.
+Upgrade server and assets together from the historical 0.7.0 contract 5.
 Follow the [0.3 upgrade guide](upgrading-to-0.3.md) before replacing a 0.2 deployment.
 
 ## Request and execute an action
@@ -76,9 +76,9 @@ reconcile that uncertainty; this API does not guarantee exactly-once effects.
 
 ## Protect an approved external write
 
-**Development source only.** The published 0.7.0 helper provides
+**Available in Ledgence 0.8.0.** The published 0.7.0 helper provides
 `approved_local`. To use `approved_effect`, stop the old workers and server,
-apply the orchestrator migration, and run matching development builds of the
+apply the orchestrator migration, and run matching 0.8.0 builds of the
 server, worker and Python helper. An approval that was already granted before
 the migration is lookup-only: the old runtime may already have sent the write.
 
@@ -104,7 +104,7 @@ decision. Changing or removing it conflicts with the reviewed request.
 `ctx.approval.protection` exposes `ApprovalProtection.EXTERNAL_EFFECT`. For this
 occurrence, `approved_local` rejects execution before calling the function,
 including cached replay. The backend also rejects an ordinary local-result
-commit before any dispatch grant has been issued. Use matching development
+commit before any dispatch grant has been issued. Use matching 0.8.0
 clients to inspect and decide this newly typed request.
 
 Existing `request_approval` requests retain their untagged representation and
@@ -161,15 +161,17 @@ same business request. Cancellation cannot retract an issued grant. The
 callback is responsible for validating the provider's receipt. The stored
 attempt IDs identify who obtained dispatch permission and who confirmed the
 result. The IDs alone cannot establish which callback produced a receipt.
-Matching authenticated development workers additionally retain a verified worker
+Matching authenticated 0.8.0 workers additionally retain a verified worker
 claim and the callback mode reported by the helper. The evidence timeline
 survives collection of confirmed execution history. See the
 [retained evidence contract](effect-evidence.md) for negotiation, inspection and
-legacy provenance. Matching development components also support the native
+legacy provenance. Matching 0.8.0 components also support the native
 operator rendezvous below; published 0.7.0 does not include it.
 [Retention and upgrade behavior](retention.md#unresolved-approved-writes)
 
-## Wait for an operator assessment in development
+<span id="wait-for-an-operator-assessment-in-development"></span>
+
+## Wait for an operator assessment
 
 Instead of failing an inconclusive write, a workflow can park durably for an
 operator's reviewed result. Add a registered entrypoint such as `Entry.RESOLVE`
@@ -257,14 +259,14 @@ decisions, reviewers, reasons, request bindings or arguments conflict.
 
 `reviewer` is caller-supplied attribution. Published 0.7.0 requires the
 installation's authenticated application boundary to protect inspection and
-decisions. Development builds support [instance credentials](instance-access.md)
+decisions. Ledgence 0.8.0 supports [instance credentials](instance-access.md)
 and separate capabilities for sensitive reads and approval decisions. Native credential
 mode records a verified acceptance event atomically with each new decision and
 keeps historical decisions unverified. [Operator audit](operator-audit.md).
 
 ## Approval inbox
 
-Available in Ledgence 0.7.0. Apply the orchestrator migrations
+Available since Ledgence 0.7.0. Apply the orchestrator migrations
 before starting the updated service. The migration includes existing retained
 approvals. Release 0.6.1 supports review from a known workflow.
 
@@ -425,7 +427,9 @@ once and that another namespace cannot discover the requests. Adding
 `--endpoint http://127.0.0.1:9324` runs against a disposable local ElasticMQ queue.
 
 
-## Provider-bound approvals in development
+<span id="provider-bound-approvals-in-development"></span>
+
+## Provider-bound approvals
 
 `ctx.request_provider_approval` declares `protection: "provider_operation"` with
 an immutable `provider_binding`. The request omits the self-referential package

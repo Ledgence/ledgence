@@ -16,7 +16,7 @@ an immutable effective action. [Typed entrypoints and forks](workflow-entrypoint
 same-package branches that run while the parent continues local work.
 [External events and durable timers](workflow-events.md) add
 one-shot callback waits and persisted deadlines to the same checkpoint model.
-Matching development components add [provider operations](provider-operations.md),
+Matching 0.8.0 components add [provider operations](provider-operations.md),
 with explicit business identity, approval-bound intent and finite read-only
 recovery. Provider waits release the worker between independently leased probes.
 
@@ -197,7 +197,7 @@ the core API contains no SQS or PostgreSQL types.
 | `POST /v1/workflows/local-results` | Commit `{owner, record}` for a local step |
 | `POST /v1/workflows/forks` | Commit `{owner, fork, processing_trace?}` without suspending the parent |
 
-Development workers also use `POST /v1/workflows/approved-effects/claim` to
+Ledgence 0.8.0 workers also use `POST /v1/workflows/approved-effects/claim` to
 claim a dispatch permission with their live lease and exact approved action.
 Lost responses are not replayed as new permission. See
 [approved external writes](workflow-approvals.md#protect-an-approved-external-write).
@@ -277,7 +277,9 @@ to an existing immutable action and its effective arguments. Generic events
 remain application input; they cannot approve an action. The unified CLI
 provides `ledgence approval list`, `inspect`, and `decide`.
 
-## Native effect resolution in development
+<span id="native-effect-resolution-in-development"></span>
+
+## Native effect resolution
 
 A workflow that needs an operator assessment of a retained external effect can
 return `ctx.wait_effect_resolution(...)`. The wait releases its invocation

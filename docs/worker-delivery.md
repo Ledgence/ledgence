@@ -109,12 +109,12 @@ user data cannot choose that authority. Lost acknowledgments retry the identical
 record while authority remains live. A returned controller decision uses the
 existing settlement and cleanup path.
 
-Development workflows can declare `protection: "external_effect"` in their
+Ledgence 0.8.0 workflows can declare `protection: "external_effect"` in their
 approval request. The helper rejects `approved_local` for that saved request,
 and the store checks the persisted wake before accepting any reserved ordinary
 local-result commit. This check applies before the first dispatch grant.
 
-Development workers also handle `approved_effect.claim` for an approved
+Ledgence 0.8.0 workers also handle `approved_effect.claim` for an approved
 workflow continuation. Unlike a local-result commit, the worker sends a claim
 once; replaying a previously committed grant would permit a second write. It
 checks the receipt against the live owner, approval and action before passing
@@ -126,7 +126,7 @@ confirmation after losing a reply. A valid reply identifies the scope,
 workflow, activation, attempt, approval and journal key. See
 [approved external writes](workflow-approvals.md#protect-an-approved-external-write).
 
-Before starting a connected worker, matching development binaries request
+Before starting a connected worker, matching 0.8.0 binaries request
 `GET /v1/access`. A credentialed connection validates the worker class,
 permissions, scope and expiry. When complete v2 support is advertised, the
 connection retains the returned authority, instance and stable worker identity
@@ -157,7 +157,9 @@ Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use
 protocol 1 or 2 packages. See [workflows](workflows.md).
 
-### Provider operation recovery in development
+<span id="provider-operation-recovery-in-development"></span>
+
+### Provider operation recovery
 
 The additional `provider_operation.v1` feature requires the complete authenticated
 provider capability and native effect resolution. The startup exchange negotiates

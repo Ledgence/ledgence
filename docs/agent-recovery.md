@@ -194,16 +194,15 @@ before the worker can send. A normal activation retry performs one read, sends
 no mutation and parks; the destination records one lookup and zero refunds.
 
 The [reference workflow](../tools/workflow_acceptance/refund_program.py) uses
-the development SDK’s [approved external write](workflow-approvals.md#protect-an-approved-external-write).
+the 0.8.0 SDK’s [approved external write](workflow-approvals.md#protect-an-approved-external-write).
 The orchestrator decides whether the SDK may call the write or only its lookup.
 The application validates the destination receipt and decides how to handle
 an unknown outcome. The cooperative workflow completes once; the other parks.
 Its handler does not accept an ordinary workflow event as proof of success.
-The published 0.7.0 helper does not include this API.
 
 ## Inspect an accepted operation
 
-In Ledgence 0.7.0, open a workflow execution in Console, select a
+In Ledgence 0.8.0, open a workflow execution in Console, select a
 local step in Graph or Trace, and open its operation details. For a model or tool
 operation, the inspector shows the callable, its version, the effective arguments
 (including bound defaults), the result stored in the journal, and the attempt and

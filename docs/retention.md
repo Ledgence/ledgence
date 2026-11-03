@@ -81,7 +81,7 @@ lifetime. Compact Console graph records are collected with that workflow;
 accepted attempt measurements are collected with their settlement. The latest
 worker observation is collected with its expired session. In 0.7.0, retention
 does not preserve an independent audit archive after those records expire. The
-development operator-audit capability below adds independent acceptance evidence.
+operator-audit capability below adds independent acceptance evidence.
 
 ## API and idempotency boundary
 
@@ -113,7 +113,7 @@ its operational dead-letter handling for records retained beyond that boundary.
 
 ## Unresolved approved writes
 
-Development builds retain a workflow with an unresolved `approved_effect`
+Ledgence 0.8.0 retains a workflow with an unresolved `approved_effect`
 after it becomes eligible by age. For example, cancelling a refund workflow
 after dispatch leaves its approval, attempts and journal available for
 investigation. The hold starts in the transaction that grants dispatch. A
@@ -135,11 +135,11 @@ approval by itself does not put every previously approved workflow on hold.
 
 Execution cleanup collects native effect waits and their graph records with
 the owning workflow. The independent retained occurrence, reported results,
-operator assessments and acceptance receipts survive. Their initial development
+operator assessments and acceptance receipts survive. Their retained
 ledger has no automatic expiry, including after `close_unknown` or later
 `disputed` evidence. Closing handling neither removes evidence nor revives work.
 
-Provider operations in development builds also release their unresolved hold
+Provider operations in 0.8.0 also release their unresolved hold
 when typed provider knowledge becomes terminal. They deliberately have no local
 journal result. An operator assessment releases the hold even when provider
 knowledge remains unknown or disputed. Cancelling a workflow alone does not
@@ -190,9 +190,11 @@ opt-in completed-task fixture reports cleanup throughput and empty-lane overhead
 its timing is diagnostic, not a production capacity guarantee.
 
 
-## Operator audit in development
+<span id="operator-audit-in-development"></span>
 
-Matching development schemas add a fourth bounded maintenance lane for expired
+## Operator audit
+
+Matching 0.8.0 schemas add a fourth bounded maintenance lane for expired
 sensitive-response observations. The selected retention interval has the same
 90-day minimum. Preview reports `audit_observation_candidates`; applying removes
 at most the configured batch size in each observation transaction. Approval

@@ -14,9 +14,9 @@ The new API serializes revision and sequence values as decimal strings. Program 
 
 ## Unified discovery and execution explorer
 
-Published 0.7.0 uses Console contract version 5. Matching development components
-use version 7, adding typed native effect/provider waits while retaining these discovery
-and inspection endpoints:
+Ledgence 0.8.0 uses Console contract version 7, with typed native effect/provider
+waits and these discovery and inspection endpoints. The historical 0.7.0 release
+uses version 5.
 
 - `GET /v1/console/executions` merges tasks and workflows in a stable descending
   order of submission time, kind and immutable ID. Each typed index seek is
@@ -240,7 +240,9 @@ actor permissions, only when the complete configured capability is available.
 The legacy operator-trusted access response remains unchanged. C7 does not grant
 provider dispatch authority to the browser.
 
-## Effects and operator assessments in development
+<span id="effects-and-operator-assessments-in-development"></span>
+
+## Effects and operator assessments
 
 These operations use the retained evidence and verified operator ports, rather
 than the metadata-only `ConsoleQueryStore`:
@@ -306,7 +308,7 @@ can move a request out of a filtered view between page reads. [Inbox contract](w
 
 ## Inspect one local step
 
-Ledgence 0.7.0 accepts `GET /v1/console/workflows/local-steps/inspect` with
+Ledgence 0.8.0 accepts `GET /v1/console/workflows/local-steps/inspect` with
 `workflow_id`, `activation_id` and `step_key`. The server obtains the scope from
 the instance. A successful response contains the local-step summary in `step`,
 a `kind` of `local`, `model` or `tool`, a nullable `version`, and `arguments`

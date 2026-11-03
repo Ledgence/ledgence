@@ -4,7 +4,7 @@ Console is the self-hosted operator UI for one Ledgence instance. It serves stat
 files from the Rust orchestrator and calls the same instance's APIs. Production
 needs no Node process, CDN, vendor account or hosted web service.
 
-Console is included in Ledgence 0.3.1 source and Console-enabled native bundles.
+Console has been included since Ledgence 0.3.1 in source and Console-enabled native bundles.
 The historical `v0.1.1` source tag and `0.1.0` native bundle predate it. The [guided Console tutorial](https://docs.ledgence.com/tutorials/use-console)
 walks through startup and real executions. The [public reference](https://docs.ledgence.com/reference/console)
 covers the interface and operational behavior.
@@ -12,14 +12,13 @@ covers the interface and operational behavior.
 ## Open the local deployment
 
 Follow [local deployment](local-deployment.md), including the explicit publication
-command, then open [Console](http://127.0.0.1:8080/console/). Ledgence 0.7.0 includes Executions, Programs, Workers and Approvals.
+command, then open [Console](http://127.0.0.1:8080/console/). Ledgence 0.8.0 includes Executions, Programs, Approvals, Effects and Workers.
 The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
 
-Matching development builds use Console contract **7** and add **Effects** for
-retained external-effect evidence, operator assessments and provider recovery. Published 0.7.0
-bundles use contract **5**; upgrade the server, workers and assets together to use
-the development capability.
+Console contract **7** includes retained external-effect evidence, operator
+assessments and provider recovery. Upgrade the server, workers and assets together
+from the historical 0.7.0 contract **5**.
 
 - **Executions**: one history for tasks and workflows, filtered by type, status,
   program/version, queue, correlation, exact execution ID and submission time.
@@ -46,8 +45,8 @@ The browser validates instance identity and contract version before accepting
 responses.
 
 Use **Collapse sidebar** to make room for inspection. Select the Ledgence mark
-to expand it again. In 0.7.0, choose **System**, **Light** or **Dark** with the
-**Appearance** control in the top bar. In development builds, find it in the
+to expand it again. In 0.8.0, choose **System**, **Light** or **Dark** with the
+**Appearance** control in the top bar. In 0.8.0, find it in the
 desktop sidebar or beside the navigation links on small screens. **System**
 follows your device setting. The browser remembers the choice when local
 storage is available.
@@ -137,7 +136,7 @@ for scope, bounds, replay and unavailable-measurement behavior.
 ## Native startup
 
 Build assets explicitly with the pinned toolchain in [Console build guide](https://github.com/Ledgence/ledgence/blob/develop/console/README.md),
-or use the `console/` directory from the matching 0.7.0 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
+or use the `console/` directory from the matching 0.8.0 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
 build/test does not run frontend tooling. Create a server-only instance file:
 
 ```json
@@ -162,7 +161,7 @@ cargo run -p ledgence-cli -- orchestrator serve --store /path/to/program-store \
 
 For a newly built native bundle use `bin/ledgence orchestrator serve` and
 `--console-dir /absolute/path/to/bundle/console`. Keep `--instance-config` on every
-startup. In a complete 0.7.0 native bundle, `--instance-config` automatically
+startup. In a complete 0.8.0 native bundle, `--instance-config` automatically
 selects the bundled Console when `--console-dir` is omitted. To run without
 assets, use a source build or a bundle packaged with `--headless`, and omit
 `--console-dir`; the instance binding remains required. A missing,
@@ -171,7 +170,7 @@ The console source manifest and retained notices accompany the assets.
 
 ## Register immutable programs
 
-Ledgence 0.7.0 can prepare and upload programs from the CLI with
+Ledgence 0.8.0 can prepare and upload programs from the CLI with
 [`program build` and `publish --server URL --register`](program-publication.md).
 The Console registration form still registers an existing store reference; it
 does not become a code uploader. Publication must be explicitly enabled on the
@@ -224,9 +223,9 @@ and [query contracts](console-query-model.md).
 
 ## Reverse proxy and upgrades
 
-For the published 0.7.0 operator-trusted deployment, protect both `/console/`
+For an operator-trusted deployment, protect both `/console/`
 and `/v1/` with the same access-controlled TLS proxy for remote access.
-Development builds can use [instance credentials](instance-access.md) with a
+Ledgence 0.8.0 can use [instance credentials](instance-access.md) with a
 TLS proxy and an explicit origin. Preserve
 these paths and serve assets/API from the same public origin. Configure that
 exact origin in the server's `allowed_origins`, for example
@@ -247,8 +246,8 @@ No migration deletes or reassigns them. Rollback to an older binary that ignores
 the persisted binding requires an offline plan; never run it concurrently against
 the bound database. Catalog retention is independent of execution-history cleanup.
 
-Published 0.7.0 uses Console contract version 5. The development explorer requires
-contract version 7 and matching server and assets. Nodes include typed invocation, registration, fork-membership,
+Ledgence 0.8.0 uses Console contract version 7 with matching server and assets.
+The historical 0.7.0 release uses version 5. Nodes include typed invocation, registration, fork-membership,
 terminal-wait and resumption relations from the backend. The browser resolves
 their references to loaded nodes; timestamps do not establish dependencies.
 Local steps connect to their invoking entrypoint without becoming fork or join
@@ -311,9 +310,11 @@ Open a local step in Graph or Trace to inspect its
 accepted arguments and result on demand. The attempt that recorded the result
 can differ from a later attempt that reused it. [Operation inspection](agent-recovery.md#inspect-an-accepted-operation).
 
-## Credential access in development
+<span id="credential-access-in-development"></span>
 
-Matching development components support optional installation credentials across
+## Credential access
+
+Matching 0.8.0 components support optional installation credentials across
 API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
@@ -322,7 +323,7 @@ Verified ingress identity and durable approval attribution have separate scope.
 
 ### Verified approval attribution
 
-Development credential mode exposes `operator_audit` in access discovery.
+Credential mode exposes `operator_audit` in access discovery.
 Approval review and decision dialogs load an exact acceptance event separately
 from the caller-supplied reviewer label. Loading, verified actor, successful
 historical absence and unavailable attribution are distinct states. Changed
@@ -330,7 +331,9 @@ identity or capabilities clear cached attribution. The separate audit routes
 did not change existing approval payloads or require the C6 upgrade by themselves.
 [Operator audit](operator-audit.md).
 
-## Review external effects in development
+<span id="review-external-effects-in-development"></span>
+
+## Review external effects
 
 **Effects** lists retained approved occurrences by their original workflow,
 activation and approval key. Its filters distinguish journal confirmation,
