@@ -158,6 +158,34 @@ lost acknowledgments, and records per-attempt evidence. Add
 Its provider fixtures are synthetic: the gate proves recovery behavior, not a
 live model integration or throughput target.
 
+### Verify an uncertain refund
+
+From a checkout that includes the refund fixture, run the two scenarios together
+using the disposable PostgreSQL instance, client dependencies and binaries
+described above:
+
+```sh
+python3.13 tools/check-workflows.py --scenario agent-effect-gap \
+  --scenario agent-refund-recovery --psql /path/to/psql \
+  --binaries target/debug --evidence /path/to/new-refund-evidence
+```
+
+The first scenario shows an ordinary tool callable executing twice after a
+crash. The second submits two synthetic refunds to independent local HTTP
+destinations. Each destination records a refund and withholds its reply. The
+harness kills the original Rust worker, replaces it, and compares the destination
+ledger with the workflow journal. The approved amount, original and recovery
+worker sessions, mutation and lookup counts, and completed continuations are in
+the scenario evidence.
+
+The [reference workflow](../tools/workflow_acceptance/refund_program.py) records
+which attempt may send the refund before it calls the tool. Its replacement
+attempt only looks up a receipt. A matching receipt completes one workflow.
+When lookup is unavailable, the other workflow stays parked with an unknown
+outcome. An ordinary workflow event claiming success cannot resolve it. The
+rule to look up or park belongs to this fixture. Released workflow helpers
+still rely on application code for reconciliation.
+
 ## Inspect an accepted operation
 
 In Ledgence 0.7.0, open a workflow execution in Console, select a
