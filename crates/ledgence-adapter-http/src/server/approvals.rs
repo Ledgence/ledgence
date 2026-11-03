@@ -33,6 +33,8 @@ struct ConsoleDecision {
     activation_id: String,
     revision: ConsoleU64,
     action: ApprovalAction,
+    #[serde(default)]
+    protection: ApprovalProtection,
     decision_id: String,
     decision: ApprovalDecision,
     reviewer: String,
@@ -53,6 +55,8 @@ struct ConsoleApproval {
     activation_id: String,
     revision: ConsoleU64,
     action: ApprovalAction,
+    #[serde(skip_serializing_if = "ApprovalProtection::is_unspecified")]
+    protection: ApprovalProtection,
     proposed_arguments: Option<serde_json::Value>,
     created_at: Timestamp,
     deadline: Timestamp,
@@ -68,6 +72,7 @@ impl From<ApprovalSnapshot> for ConsoleApproval {
             activation_id: value.activation_id,
             revision: ConsoleU64(value.revision),
             action: value.action,
+            protection: value.protection,
             proposed_arguments: value.proposed_arguments,
             created_at: value.created_at,
             deadline: value.deadline,
@@ -220,6 +225,7 @@ pub(super) async fn post(
                     activation_id: value.activation_id,
                     revision: value.revision.0,
                     action: value.action,
+                    protection: value.protection,
                     decision_id: value.decision_id,
                     decision: value.decision,
                     reviewer: value.reviewer,

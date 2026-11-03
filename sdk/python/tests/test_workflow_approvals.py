@@ -4,7 +4,7 @@ import unittest
 
 import test_workflow
 from ledgence.worker.workflow import (
-    ApprovalAction, ApprovalStatus, MAX_APPROVAL_BYTES, MAX_WAIT_MS, WorkflowError,
+    ApprovalAction, ApprovalProtection, ApprovalStatus, MAX_APPROVAL_BYTES, MAX_WAIT_MS, WorkflowError,
 )
 
 
@@ -51,6 +51,53 @@ class ApprovalTests(unittest.IsolatedAsyncioTestCase):
         for timeout in (0, MAX_WAIT_MS):
             self.assertEqual(context.wait_approval("refund", action=action, continuation="after",
                                                    state=None, timeout_ms=timeout)["wait"]["timeout_ms"], timeout)
+
+    async def test_protected_request_freezes_the_execution_contract_and_observation(self):
+        action = ApprovalAction.for_callable(refund, version="1", arguments={"amount": 50})
+        context = self.context()
+        decision = context.request_effect_approval("refund", action=action, resume="after",
+                                                    state=None, timeout_ms=100)
+        self.assertEqual(decision["wait"]["protection"], "external_effect")
+        self.assertEqual(context._validate_decision(decision), decision)
+        legacy = context.request_approval("refund", action=action, resume="after",
+                                          state=None, timeout_ms=100)
+        self.assertNotIn("protection", legacy["wait"])
+        observed = self.approved_context(snapshot(protection="external_effect"))
+        self.assertIs(observed.approval.protection, ApprovalProtection.EXTERNAL_EFFECT)
+        observed.approval.to_dict()["protection"] = None
+        self.assertIs(observed.approval.protection, ApprovalProtection.EXTERNAL_EFFECT)
+        self.assertIsNone(self.approved_context().approval.protection)
+
+    async def test_invalid_protection_is_rejected_in_wait_and_wake(self):
+        action = ApprovalAction.for_callable(refund, version="1", arguments={"amount": 50})
+        context = self.context()
+        for protection in (None, "unspecified", "ordinary", "", True, {}, []):
+            with self.subTest(protection=protection):
+                decision = context.request_approval("refund", action=action, resume="after",
+                                                      state=None, timeout_ms=100)
+                decision["wait"]["protection"] = protection
+                with self.assertRaisesRegex(WorkflowError, "invalid approval protection"):
+                    context._validate_decision(decision)
+                with self.assertRaisesRegex(WorkflowError, "invalid approval protection"):
+                    self.approved_context(snapshot(protection=protection))
+
+    async def test_protected_local_call_rejects_before_execution_and_cached_replay(self):
+        calls = []
+        def operation(amount, currency):
+            calls.append(amount)
+            return {"refunded": amount}
+        protected = snapshot(operation, protection="external_effect")
+        with self.assertRaisesRegex(WorkflowError, "requires approved_effect"):
+            await self.approved_context(protected).approved_local(operation, version="1")
+        self.assertEqual(calls, [])
+        self.assertEqual(self.commits, [])
+        # A cache imported from an older generic approval cannot waive the
+        # saved execution contract on a newly protected occurrence.
+        await self.approved_context(snapshot(operation)).approved_local(operation, version="1")
+        cached = self.approved_context(protected, local_steps=self.commits)
+        with self.assertRaisesRegex(WorkflowError, "requires approved_effect"):
+            await cached.approved_local(operation, version="1")
+        self.assertEqual(calls, [50])
 
     async def test_approved_local_uses_private_saved_arguments_and_replays_after_restart(self):
         calls = []

@@ -277,9 +277,12 @@ class WorkflowHandle:
         snapshot = approval.to_dict()
         # Revalidate even if an application manually constructed a view.
         parse_approval(snapshot, self.scope, self.id, approval.key, self._base_url)
-        body = codec.encode({name: snapshot[name] for name in (
-            "scope", "workflow_id", "key", "activation_id", "revision", "action")} | {
-                "decision_id": decision_id, "decision": decision, "reviewer": reviewer, "reason": reason},
+        binding = {name: snapshot[name] for name in (
+            "scope", "workflow_id", "key", "activation_id", "revision", "action")}
+        if "protection" in snapshot:
+            binding["protection"] = snapshot["protection"]
+        body = codec.encode(binding | {
+            "decision_id": decision_id, "decision": decision, "reviewer": reviewer, "reason": reason},
             APPROVAL_LIMIT, max_depth=96)
         return ApprovalDecisionCommand._create(self._base_url, self.scope, self.id, approval.key, body)
 
@@ -290,10 +293,11 @@ class WorkflowHandle:
         still verifies the pending request or returns its identical decision.
         Only restore application-owned storage, never untrusted client history.
         """
-        from .approval_models import _action
+        from .approval_models import _action, _protection
         from .models import _scope
         codec.fields(saved, {"scope", "workflow_id", "key", "activation_id", "revision", "action",
-                             "decision_id", "decision", "reviewer", "reason"})
+                             "decision_id", "decision", "reviewer", "reason"}, {"protection"})
+        _protection(saved)
         if _scope(saved["scope"]) != self.scope or saved["workflow_id"] != self.id:
             raise InputError("saved approval command belongs to another scope or workflow")
         for name in ("workflow_id", "key", "activation_id", "decision_id", "reviewer"):
@@ -308,9 +312,12 @@ class WorkflowHandle:
             raise InputError("reason must contain Unicode scalar values") from exc
         # Use the same field order as prepare_approval_decision, even if a
         # storage serializer reordered the object's keys.
-        body = codec.encode({name: saved[name] for name in (
-            "scope", "workflow_id", "key", "activation_id", "revision", "action", "decision_id",
-            "decision", "reviewer", "reason")}, APPROVAL_LIMIT, max_depth=96)
+        binding = {name: saved[name] for name in (
+            "scope", "workflow_id", "key", "activation_id", "revision", "action")}
+        if "protection" in saved:
+            binding["protection"] = saved["protection"]
+        body = codec.encode(binding | {name: saved[name] for name in (
+            "decision_id", "decision", "reviewer", "reason")}, APPROVAL_LIMIT, max_depth=96)
         return ApprovalDecisionCommand._create(self._base_url, self.scope, self.id, saved["key"], body)
 
     async def decide_approval(self, command: ApprovalDecisionCommand) -> ApprovalDecisionReceipt:

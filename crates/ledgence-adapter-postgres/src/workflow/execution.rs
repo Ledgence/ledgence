@@ -86,23 +86,38 @@ async fn reserved_local_prior(
     owner: &LeaseOwner,
     record: &LocalStepRecord,
 ) -> StoreResult<Option<(Vec<u8>, String)>> {
+    // Extract only the control-free key from a temporary parsing copy. As in
+    // the approval metadata projection, protect literal backslashes before
+    // replacing genuine NUL escapes in unrelated user arguments. The returned
+    // authoritative context bytes remain unchanged.
     let row = sqlx::query(
-        "SELECT j.record_bytes,j.attempt_id,
+        r"SELECT j.record_bytes,j.attempt_id,
                 EXISTS(SELECT 1 FROM workflow_approvals WHERE workflow_id=$3 AND effect_step_key=$2) AS protected,
-                CASE WHEN $4 THEN a.context_bytes END AS context_bytes
+                a.context_bytes,
+                '_approval:' || encode(sha256(convert_to(
+                    replace(replace(convert_from(a.context_bytes,'UTF8'),
+                        $s$\\$s$, $s$\u005c$s$), $s$\u0000$s$, $s$\u0001$s$)::json
+                        ->'wake'->'approval'->>'key',
+                    'UTF8')),'hex') AS approval_step_key
          FROM workflow_activations a
          LEFT JOIN workflow_local_results j ON j.activation_id=a.activation_id AND j.step_key=$2
          WHERE a.activation_id=$1",
     )
     .bind(&owner.task_id).bind(&record.key).bind(&workflow.workflow_id)
-    .bind(record.input.get("action_json").is_some()).fetch_one(connection).await?;
+    .fetch_one(connection).await?;
     if row.try_get::<bool, _>("protected")? {
         return Err(ContractError::Conflict.into());
     }
-    if let Some(bytes) = row.try_get::<Option<Vec<u8>>, _>("context_bytes")? {
-        let ctx: WorkflowActivationContext = codec::decode(&bytes)?;
-        if let Some(WorkflowWake::Approval { approval }) = ctx.wake
-            && approved_effects::confirmed_lookup(record, &record.key, &approval.action).is_ok()
+    let ctx: WorkflowActivationContext =
+        codec::decode(&row.try_get::<Vec<u8>, _>("context_bytes")?)?;
+    if let Some(WorkflowWake::Approval { approval }) = ctx.wake {
+        let protected_occurrence = approval.protection == ApprovalProtection::ExternalEffect
+            && row
+                .try_get::<Option<String>, _>("approval_step_key")?
+                .as_deref()
+                == Some(record.key.as_str());
+        if protected_occurrence
+            || approved_effects::confirmed_lookup(record, &record.key, &approval.action).is_ok()
         {
             return Err(ContractError::Conflict.into());
         }

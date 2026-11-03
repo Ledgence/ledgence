@@ -77,6 +77,11 @@ those hints do not replace application authorization.
 | `ledgence_approval_inbox` | Discover approval summaries within the server's configured scope. Defaults to pending. Optional `due_before` selects deadlines strictly earlier than the supplied UTC epoch millisecond. Use the returned workflow ID and key with approval inspection. |
 | `ledgence_approval_list`, `ledgence_approval_inspect` | Read persisted requests and their exact effective action. |
 
+Development builds preserve the optional `protection: "external_effect"`
+field when listing or inspecting typed approval requests. It identifies the
+required execution helper. Use matching development components for these
+requests. The operator's application boundary still controls approval access.
+
 Program discovery reads the existing installation catalog. Configure the
 orchestrator's `--instance-config` and register packages with
 `ledgence program register`. Serving frontend assets is not required.

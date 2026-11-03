@@ -47,20 +47,34 @@ export const approvalStatuses = [
 ] as const;
 export type ApprovalStatus = (typeof approvalStatuses)[number];
 const approvalStatus = s.enumeration(...approvalStatuses);
+const approvalShape = {
+  workflow_id: identifier,
+  key: identifier,
+  activation_id: identifier,
+  revision: s.decimal,
+  action: approvalAction,
+  proposed_arguments: s.nullable(argumentsObject),
+  created_at: s.timestamp,
+  deadline: s.timestamp,
+  status: approvalStatus,
+  decision: s.nullable(decision),
+  resumed_activation_id: s.nullable(identifier),
+};
+const legacyApproval = s.object(approvalShape);
+const protectedApproval = s.object({
+  ...approvalShape,
+  protection: s.enumeration("external_effect"),
+});
+export type ApprovalProtection = "external_effect";
+function decodeApproval(
+  value: unknown,
+): s.Decoded<typeof legacyApproval> & { protection?: ApprovalProtection } {
+  return s.isJsonObject(value) && Object.hasOwn(value, "protection")
+    ? protectedApproval(value)
+    : legacyApproval(value);
+}
 export const approval = s.refine(
-  s.object({
-    workflow_id: identifier,
-    key: identifier,
-    activation_id: identifier,
-    revision: s.decimal,
-    action: approvalAction,
-    proposed_arguments: s.nullable(argumentsObject),
-    created_at: s.timestamp,
-    deadline: s.timestamp,
-    status: approvalStatus,
-    decision: s.nullable(decision),
-    resumed_activation_id: s.nullable(identifier),
-  }),
+  decodeApproval,
   (value) =>
     bytes(value) <= 96 * 1024 &&
     (value.status === "approved"
@@ -183,6 +197,7 @@ export type ApprovalDecision = {
   activation_id: string;
   revision: string;
   action: Approval["action"];
+  protection?: ApprovalProtection;
   decision_id: string;
   decision: "approve" | "reject";
   reviewer: string;
@@ -218,6 +233,7 @@ export function decisionReceipt(expected: ApprovalDecision) {
       current.key !== expected.key ||
       current.activation_id !== expected.activation_id ||
       current.revision !== expected.revision ||
+      current.protection !== expected.protection ||
       !sameAction(current.action, expected.action) ||
       current.decision?.decision_id !== expected.decision_id ||
       current.decision.decision !== expected.decision ||

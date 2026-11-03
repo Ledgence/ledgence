@@ -207,6 +207,7 @@ pub(super) async fn install(
         key,
         action,
         proposed_arguments,
+        protection,
         ..
     } = wait
     else {
@@ -223,6 +224,7 @@ pub(super) async fn install(
             .checked_sub(1)
             .ok_or_else(|| corrupt("approval revision"))?,
         action: action.clone(),
+        protection: *protection,
         proposed_arguments: proposed_arguments.clone(),
         created_at: now,
         deadline: wait

@@ -89,6 +89,22 @@ class EffectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.provider.posts, [(50, "USD")])
         self.assertEqual(self.provider.lookups, [])
 
+    async def test_explicit_protection_uses_claim_and_confirmation_after_rejecting_local(self):
+        self.approval["protection"] = "external_effect"
+        ctx = self.activation()
+        with self.assertRaisesRegex(WorkflowError, "requires approved_effect"):
+            await ctx.approved_local(self.provider.issue, version="1")
+        self.assertEqual(self.provider.posts, [])
+        self.assertEqual(await self.effect(ctx), {"receipt": "r1"})
+        async def unexpected_rpc(*args):
+            self.fail("durable protected replay must not contact the orchestrator")
+        self.assertEqual(await self.effect(self.activation(unexpected_rpc, replay=True)),
+                         {"receipt": "r1"})
+        self.assertEqual(len(self.claims), 1)
+        self.assertEqual(len(self.commits), 1)
+        self.assertEqual(self.provider.posts, [(50, "USD")])
+        self.assertEqual(self.provider.lookups, [])
+
     async def test_replay_accepts_other_json_encoders_and_rejects_changed_actions(self):
         await self.effect(self.activation())
         saved = self.commits[0]["input"]

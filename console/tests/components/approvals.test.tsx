@@ -112,6 +112,7 @@ function decidedApproval(
     ...approvalFixture(sent.decision === "approve" ? "approved" : "rejected"),
     workflow_id: sent.workflow_id,
     action: sent.action,
+    ...(sent.protection ? { protection: sent.protection } : {}),
     resumed_activation_id: resumedActivationId,
     decision: {
       decision_id: sent.decision_id,
@@ -184,55 +185,69 @@ it.each(["approved", "rejected", "expired", "cancelled"] as const)(
   },
 );
 
-it("freezes a decision and retries identical bytes after a lost response and resource refresh", async () => {
-  const { view, posts, client } = await mount({
-    decide: (sent, count) => (count === 1 ? response({}, 503) : receipt(sent)),
-  });
-  await view.getByRole("button", { name: "Approve", exact: true }).click();
-  await view
-    .getByRole("textbox", { name: "Reviewer", exact: true })
-    .fill("Avery");
-  await view
-    .getByRole("textbox", { name: "Reason (optional)" })
-    .fill("Validated effective arguments");
-  const confirm = view.getByRole("button", { name: "Confirm approval" });
-  const element = confirm.element();
-  if (!(element instanceof HTMLButtonElement))
-    throw new Error("Expected a decision button");
-  element.click();
-  element.click();
-  await expect.element(view.getByRole("alert")).toBeVisible();
-  expect(posts).toHaveLength(1);
-  await client.invalidateQueries();
-  await expect
-    .element(view.getByRole("textbox", { name: "Reviewer", exact: true }))
-    .toBeDisabled();
-  await expect
-    .element(view.getByRole("textbox", { name: "Reason (optional)" }))
-    .toBeDisabled();
-  await expect
-    .element(view.getByRole("button", { name: "Separate this operation" }))
-    .not.toBeInTheDocument();
-  await view.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect
-    .element(view.getByText(/This exact decision was already recorded/))
-    .toBeVisible();
-  expect(posts).toHaveLength(2);
-  expect(posts[1]).toBe(posts[0]);
-  const sent = JSON.parse(posts[0]!);
-  expect(sent).toMatchObject({
-    workflow_id: "workflow-review",
-    key: "publish-report",
-    activation_id: "activation-review",
-    revision: "9007199254740993",
-    decision: "approve",
-    reviewer: "Avery",
-    reason: "Validated effective arguments",
-  });
-  expect(sent).not.toHaveProperty("scope");
-  expect(sent.decision_id).toMatch(/^[0-9a-f-]{36}$/);
-  expect(posts[0]).toContain("18446744073709551615");
-});
+it.each([undefined, "external_effect"] as const)(
+  "freezes a decision and retries identical bytes after a lost response and refresh (protection: %s)",
+  async (protection) => {
+    const { view, posts, client } = await mount({
+      snapshot: {
+        ...approvalFixture(),
+        ...(protection ? { protection } : {}),
+      },
+      decide: (sent, count) =>
+        count === 1 ? response({}, 503) : receipt(sent),
+    });
+    if (protection)
+      await expect
+        .element(view.getByText("Protected external write"))
+        .toBeVisible();
+    await view.getByRole("button", { name: "Approve", exact: true }).click();
+    await view
+      .getByRole("textbox", { name: "Reviewer", exact: true })
+      .fill("Avery");
+    await view
+      .getByRole("textbox", { name: "Reason (optional)" })
+      .fill("Validated effective arguments");
+    const confirm = view.getByRole("button", { name: "Confirm approval" });
+    const element = confirm.element();
+    if (!(element instanceof HTMLButtonElement))
+      throw new Error("Expected a decision button");
+    element.click();
+    element.click();
+    await expect.element(view.getByRole("alert")).toBeVisible();
+    expect(posts).toHaveLength(1);
+    await client.invalidateQueries();
+    await expect
+      .element(view.getByRole("textbox", { name: "Reviewer", exact: true }))
+      .toBeDisabled();
+    await expect
+      .element(view.getByRole("textbox", { name: "Reason (optional)" }))
+      .toBeDisabled();
+    await expect
+      .element(view.getByRole("button", { name: "Separate this operation" }))
+      .not.toBeInTheDocument();
+    await view.getByRole("button", { name: "Try again", exact: true }).click();
+    await expect
+      .element(view.getByText(/This exact decision was already recorded/))
+      .toBeVisible();
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toBe(posts[0]);
+    const sent = JSON.parse(posts[0]!);
+    expect(sent).toMatchObject({
+      workflow_id: "workflow-review",
+      key: "publish-report",
+      activation_id: "activation-review",
+      revision: "9007199254740993",
+      decision: "approve",
+      reviewer: "Avery",
+      reason: "Validated effective arguments",
+    });
+    expect(sent).not.toHaveProperty("scope");
+    if (protection) expect(sent.protection).toBe(protection);
+    else expect(sent).not.toHaveProperty("protection");
+    expect(sent.decision_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(posts[0]).toContain("18446744073709551615");
+  },
+);
 
 it.each([null, "activation-resumed"])(
   "keeps the accepted receipt ahead of stale reads and renders a later resume (receipt resume: %s)",

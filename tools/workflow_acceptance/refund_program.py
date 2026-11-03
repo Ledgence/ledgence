@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
-from ledgence.worker.workflow import ApprovalAction, ApprovalStatus, EffectOutcomeUnknown, Workflow
+from ledgence.worker.workflow import ApprovalAction, ApprovalStatus, EffectOutcomeUnknown, Workflow, WorkflowError
 
 
 class Entry(StrEnum):
@@ -81,13 +81,21 @@ def propose(event, ctx):
     action = ApprovalAction.for_callable(issue_refund, version="1", arguments={
         "provider": data["provider"], "effect_key": data["effect_key"], "amount": data["amount"],
     })
-    return ctx.request_approval("refund", action=action, resume=Entry.APPLY, state=None, timeout_ms=300_000)
+    return ctx.request_effect_approval("refund", action=action, resume=Entry.APPLY, state=None, timeout_ms=300_000)
 
 
 @workflow.entrypoint(Entry.APPLY)
 async def apply(event, ctx):
     if ctx.approval.status != ApprovalStatus.APPROVED:
         return ctx.fail("refund_not_approved", "Approval was required for this refund")
+    if event["data"].get("unprotected_helper"):
+        # Negative acceptance case. The saved request must reject this call
+        # before the callback sends a provider request.
+        try:
+            result = await ctx.approved_local(issue_refund, version="1")
+        except WorkflowError as error:
+            return ctx.fail("protected_helper_rejected", str(error))
+        return ctx.complete(result)
     # Crash-test observability only. Dispatch authority belongs to Ledgence.
     with Path(event["data"]["marker"]).open("a", encoding="utf-8") as stream:
         stream.write(json.dumps({"tag": event["data"]["effect_key"], "kind": "apply",

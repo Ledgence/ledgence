@@ -48,7 +48,7 @@ def runtime_alive(pid, session):
 
 
 async def run(d, record, records, snapshot):
-    from ledgence.client import AsyncClient, ApprovalStatus, RetryPolicy
+    from ledgence.client import AsyncClient, ApprovalProtection, ApprovalStatus, RetryPolicy, WorkflowFailed
 
     options = dict(tenant=d.scope["tenant_id"], namespace=d.scope["namespace"])
     with contextlib.ExitStack() as stack:
@@ -59,6 +59,39 @@ async def run(d, record, records, snapshot):
         }
         worker = d.start_worker(concurrency=2)
         async with AsyncClient(d.server_url, **options) as client:
+            protected = await client.workflows.submit(
+                program="refund-controller", version="1.0.0", queue=d.queue,
+                data={"effect_key": "reject-local-helper", "provider": providers["refund-lookup"].url,
+                      "amount": ARGUMENTS["amount"], "unprotected_helper": True},
+                idempotency_key="reject-local-helper",
+                retry_policy=RetryPolicy(max_attempts=1, retry_delay_ms=0),
+            )
+            await asyncio.to_thread(eventually, lambda: snapshot(d, protected.id)["state"] == "waiting",
+                                    timeout=130, description="protected negative case waits for approval")
+            proposal = await protected.approval("refund")
+            assert proposal.protection == ApprovalProtection.EXTERNAL_EFFECT
+            await protected.decide_approval(protected.prepare_approval_decision(
+                proposal, decision_id="reject-local-helper", decision="approve",
+                reviewer="fixture-operator",
+            ))
+            await asyncio.to_thread(eventually, lambda: snapshot(d, protected.id)["state"] == "failed",
+                                    timeout=130, description="ordinary helper rejected by real worker")
+            try:
+                await protected.result(timeout=1)
+            except WorkflowFailed as error:
+                assert error.error.kind == "protected_helper_rejected", error.error
+                assert "requires approved_effect" in error.error.message, error.error
+            else:
+                raise AssertionError("ordinary helper completed a protected occurrence")
+            proposal = await protected.approval("refund")
+            assert journal(d, proposal.resumed_activation_id) == []
+            assert effect_evidence(d, protected.id) == {
+                "claimed": False, "attempt_id": None, "state": None, "confirmed_attempt_id": None,
+            }
+            census = providers["refund-lookup"].census()
+            assert census == {"post_requests": 0, "lookup_requests": 0, "refunds": []}, census
+            record("agent-refund-protected-helper", {"workflow_id": protected.id,
+                "state": "failed", "destination": census, "committed_result_count": 0})
             handles, first_attempts = {}, {}
             for key, provider in providers.items():
                 handle = await client.workflows.submit(
@@ -71,6 +104,7 @@ async def run(d, record, records, snapshot):
                 await asyncio.to_thread(eventually, lambda: snapshot(d, handle.id)["state"] == "waiting",
                                         timeout=130, description="pending refund approval")
                 proposal = await handle.approval("refund")
+                assert proposal.protection == ApprovalProtection.EXTERNAL_EFFECT
                 assert proposal.status == ApprovalStatus.PENDING and not provider.census()["post_requests"]
                 assert proposal.action.arguments == {"provider": provider.url, "effect_key": key, **ARGUMENTS}
                 await handle.decide_approval(handle.prepare_approval_decision(
@@ -82,6 +116,7 @@ async def run(d, record, records, snapshot):
                 first, = records(d, key, "apply")
                 first_attempts[key] = first
                 proposal = await handles[key].approval("refund")
+                assert proposal.protection == ApprovalProtection.EXTERNAL_EFFECT
                 assert proposal.status == ApprovalStatus.APPROVED
                 assert proposal.resumed_activation_id == first["activation"]
                 assert effect_evidence(d, handles[key].id) == {
