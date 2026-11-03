@@ -100,13 +100,21 @@ pnpm --dir console contracts:check
 pnpm --dir console test
 pnpm --dir console test:e2e
 pnpm --dir console licenses:check
+# Build assets separately when browser checks are not needed:
 pnpm --dir console build
 ```
 
 `test` includes unit tests and real Chromium/WebKit component tests. `test:e2e`
-checks browser interaction against Rust-generated contract fixtures. These
-controlled transport tests complement the repository's real server, database and
-worker acceptance gate; they do not establish end-to-end orchestration behavior.
+runs the full production build, then serves those fresh static assets through a
+loopback preview server and checks browser interaction against Rust-generated
+contract fixtures. No Vite development client or automatic reconnect reload runs
+in these pages. The server has a strict port and never reuses an existing server;
+if port 5173 is occupied, set `LEDGENCE_CONSOLE_TEST_PORT` to an unused port. Its
+120-second startup budget includes the build; test timeouts and retries are
+unchanged. CI uses the same checked `dist/` for the subsequent native acceptance
+gate. These controlled transport tests complement the repository's real server,
+database and worker acceptance gate; they do not establish end-to-end
+orchestration behavior.
 
 Production output is `dist/`, including legal notices, the inventory of packages
 actually included in browser chunks and `console-manifest.json`. The manifest
