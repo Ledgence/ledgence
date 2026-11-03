@@ -53,8 +53,28 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
   await page.route("**/v1/console/config", (route) =>
     route.fulfill({ status: 503, body: "Unavailable" }),
   );
+  // Navigation can finish while the asynchronous access boundary still owns
+  // the loading shell. Hold its reply to exercise that transition explicitly.
+  let releaseAccess!: () => void;
+  const accessReady = new Promise<void>((resolve) => {
+    releaseAccess = resolve;
+  });
+  await page.route("**/v1/console/access", async (route) => {
+    await accessReady;
+    await route.fallback();
+  });
   await page.goto("/console/executions");
+  const accessHeading = page.getByRole("heading", {
+    name: "Access your instance",
+  });
+  try {
+    await expect(accessHeading).toBeVisible();
+  } finally {
+    releaseAccess();
+  }
+  await expect(accessHeading).toBeHidden();
   const main = page.getByRole("main");
+  await expect(main).toBeVisible();
   const expandedLeft = (await main.boundingBox())!.x;
   const sidebar = page.getByRole("complementary", { name: "Console sidebar" });
   const collapse = sidebar.getByRole("button", {
