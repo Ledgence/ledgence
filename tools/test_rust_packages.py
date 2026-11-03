@@ -2,10 +2,12 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('rust_packages', Path(__file__).with_name('check-rust-packages.py'))
 packages = importlib.util.module_from_spec(spec)
@@ -13,6 +15,112 @@ spec.loader.exec_module(packages)
 
 
 class RustPackageChecks(unittest.TestCase):
+    def registry_fixture(self, directory):
+        output, target, cache = (directory / name for name in ('evidence', 'target', 'original-cache'))
+        output.mkdir()
+        temporary_registry = target / 'package/tmp-registry'
+        temporary_registry.mkdir(parents=True)
+        dependency = {'name': 'cross-target', 'version': '1.2.3', 'source': packages.REGISTRY,
+                      'checksum': packages.digest(b'exact dependency archive')}
+        qualified = {}
+        for name in packages.APIS:
+            content = name.encode()
+            (temporary_registry / f'{name}-0.7.0.crate').write_bytes(content)
+            qualified[name] = {'version': '0.7.0', 'sha256': packages.digest(content),
+                               'lock': {'package': [dependency]}}
+        return output, target, cache, qualified, dependency
+
+    def cached_dependency(self, home, dependency, *, content=b'exact dependency archive', index=True,
+                          checksum=None):
+        archive = home / 'registry/cache/fixture' / f"{dependency['name']}-{dependency['version']}.crate"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_bytes(content)
+        if index:
+            entry = home / 'registry/index/fixture/.cache' / packages.index_path(dependency['name'])
+            entry.parent.mkdir(parents=True, exist_ok=True)
+            entry.write_text(json.dumps({'name': dependency['name'], 'vers': dependency['version'],
+                                         'cksum': checksum or dependency['checksum']}))
+
+    def test_cached_archives_never_start_a_network_prefetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, target, cache, qualified, dependency = self.registry_fixture(Path(directory))
+            self.cached_dependency(cache, dependency)
+            with patch.dict(os.environ, {'CARGO_HOME': str(cache)}), patch.object(packages.subprocess, 'run') as run:
+                registry, _, inventory, prefetch = packages.fixture_registry(output, target, qualified, '1.98.1')
+            run.assert_not_called()
+            self.assertEqual(prefetch['packages'], [])
+            self.assertFalse((output / 'archive-prefetch').exists())
+            self.assertEqual(inventory['cross-target-1.2.3.crate'], dependency['checksum'])
+            self.assertEqual((registry / 'cross-target-1.2.3.crate').read_bytes(), b'exact dependency archive')
+
+    def test_missing_cross_target_archive_uses_exact_isolated_cargo_prefetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, target, cache, qualified, dependency = self.registry_fixture(Path(directory))
+            # An unpacked source is insufficient; the exact source archive is required.
+            unpacked = cache / 'registry/src/fixture/cross-target-1.2.3'
+            unpacked.mkdir(parents=True)
+            (unpacked / 'Cargo.toml').write_text('cached source must not substitute for an archive')
+            locked = target / 'Cargo.lock'
+            locked.write_bytes(b'original packaged lock bytes')
+
+            def fetch(command, **kwargs):
+                self.assertEqual(command, ['cargo', '+1.98.1', 'info', 'cross-target@1.2.3',
+                                           '--registry', 'crates-io', '--color', 'never'])
+                self.assertEqual(kwargs['cwd'], output / 'archive-prefetch/empty')
+                self.assertEqual(list(kwargs['cwd'].iterdir()), [])
+                self.assertEqual(kwargs['timeout'], 120)
+                self.assertTrue(kwargs['check'])
+                fetched_home = Path(kwargs['env']['CARGO_HOME'])
+                self.assertNotEqual(fetched_home, cache)
+                self.cached_dependency(fetched_home, dependency)
+
+            with patch.dict(os.environ, {'CARGO_HOME': str(cache)}), patch.object(packages.subprocess, 'run', side_effect=fetch) as run:
+                registry, _, _, prefetch = packages.fixture_registry(output, target, qualified, '1.98.1')
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(prefetch['packages'][0]['checksum'], dependency['checksum'])
+            self.assertEqual((registry / 'cross-target-1.2.3.crate').read_bytes(), b'exact dependency archive')
+            self.assertEqual(locked.read_bytes(), b'original packaged lock bytes')
+            self.assertEqual(list((output / 'archive-prefetch/empty').iterdir()), [])
+            self.assertIn('cross-target@1.2.3', (output / 'cargo-archive-prefetch.log').read_text())
+
+    def test_prefetched_archive_must_match_the_unchanged_packaged_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, target, cache, qualified, dependency = self.registry_fixture(Path(directory))
+            def fetch(command, **kwargs):
+                self.cached_dependency(Path(kwargs['env']['CARGO_HOME']), dependency, content=b'wrong bytes')
+            with patch.dict(os.environ, {'CARGO_HOME': str(cache)}), patch.object(packages.subprocess, 'run', side_effect=fetch):
+                with self.assertRaisesRegex(ValueError, 'exact locked archive missing.*after prefetch'):
+                    packages.fixture_registry(output, target, qualified, '1.98.1')
+            self.assertFalse((output / 'fixture-registry/cross-target-1.2.3.crate').exists())
+
+    def test_cached_archive_without_matching_index_fails_without_network(self):
+        for index, checksum in ((False, None), (True, 'b' * 64)):
+            with self.subTest(index=index), tempfile.TemporaryDirectory() as directory:
+                output, target, cache, qualified, dependency = self.registry_fixture(Path(directory))
+                self.cached_dependency(cache, dependency, index=index, checksum=checksum)
+                with patch.dict(os.environ, {'CARGO_HOME': str(cache)}), patch.object(packages.subprocess, 'run') as run:
+                    with self.assertRaisesRegex(ValueError, 'exact locked index entry missing'):
+                        packages.fixture_registry(output, target, qualified, '1.98.1')
+                run.assert_not_called()
+
+    def test_prefetched_archive_without_index_proof_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, target, cache, qualified, dependency = self.registry_fixture(Path(directory))
+            def fetch(command, **kwargs):
+                self.cached_dependency(Path(kwargs['env']['CARGO_HOME']), dependency, index=False)
+            with patch.dict(os.environ, {'CARGO_HOME': str(cache)}), patch.object(packages.subprocess, 'run', side_effect=fetch):
+                with self.assertRaisesRegex(ValueError, 'exact locked index entry missing'):
+                    packages.fixture_registry(output, target, qualified, '1.98.1')
+
+    def test_prefetch_cannot_inherit_a_cargo_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, target, cache, qualified, _ = self.registry_fixture(Path(directory))
+            (Path(directory) / 'Cargo.toml').write_text('[workspace]\n')
+            with patch.dict(os.environ, {'CARGO_HOME': str(cache)}), patch.object(packages.subprocess, 'run') as run:
+                with self.assertRaisesRegex(ValueError, 'outside every Cargo workspace'):
+                    packages.fixture_registry(output, target, qualified, '1.98.1')
+            run.assert_not_called()
+
     def normalized(self):
         return {'package': {'name': packages.APIS[1], 'version': '0.1.1', 'publish': ['crates-io'],
                             'license': 'MIT', 'readme': 'README.md', 'description': 'Portable contracts',

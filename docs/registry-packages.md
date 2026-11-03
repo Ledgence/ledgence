@@ -99,9 +99,13 @@ inter-crate dependencies. The gate checks source/notice bytes, normalized
 manifests, the registry dependency graph and the worker archive checksum recorded
 in the orchestration archive. It then runs tests, doctests and warning-denied
 documentation builds from fresh archive extracts, using a temporary registry of
-checksum-verified dependencies without workspace paths. Registry reads are
-required. Exported archives and `evidence.json` identify the exact source commit
-and SHA256 values.
+checksum-verified dependencies without workspace paths. The packaged lockfile
+also includes dependencies for other architectures. If an exact archive is absent
+from the build cache, the gate fetches that package version through Cargo into a
+separate qualification cache and validates its checksum and index entry against
+the packaged lockfile. Extracted builds still run locked and offline.
+Registry reads are required. Exported archives and `evidence.json` identify the
+exact source commit and SHA256 values.
 
 Run package-gate regressions with:
 
