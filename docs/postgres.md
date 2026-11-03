@@ -11,6 +11,10 @@ The [delivery driver](worker-delivery.md) executes assignments through the appli
 
 ## Upgrade from 0.7.0 to development source
 
+The [0.8.0 candidate upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-8.md)
+provides the maintenance sequence. Public release availability remains 0.7.0
+until the candidate and its distributions are verified.
+
 Stop all writers, back up the database and program store, run
 `ledgence orchestrator migrate`, and start matching development server and
 worker builds. Migration `20261102020000_approved_effect_claim.sql` marks

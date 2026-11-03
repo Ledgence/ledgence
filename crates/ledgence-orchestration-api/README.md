@@ -7,11 +7,11 @@ submission, acquisition and leases, durable settlement, observation, completion
 callbacks, retention, resumable workflows with child tasks and subworkflows,
 events, and durable action approvals.
 
-This README describes the current source. Check the
-[registry package guide](https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md)
-for verified published versions; a development checkout can contain contracts
-that are not available from a registry yet. To develop an adapter against this
-checkout:
+This README describes this package source. Check the
+[release reference](https://docs.ledgence.com/reference/releases) for verified
+registry availability. A source checkout can contain contracts that are not yet
+published. Select the version matching your deployment and pin it in your adapter's
+dependencies. To work against this checkout, use its local package.
 
 ```toml
 [dependencies]
@@ -31,7 +31,7 @@ acknowledging an operation. This crate provides no database, HTTP service, broke
 or worker implementation; those components remain in the Ledgence source
 repository and release bundles.
 
-In development, `WorkflowStore::approved_effects` and
+`WorkflowStore::approved_effects` and
 `WorkflowService::approved_effects` expose the optional `ApprovedEffects` port.
 An adapter must implement both `claim_approved_effect` and
 `confirm_approved_effect` to enable protected external writes.
@@ -41,8 +41,8 @@ transaction. An exact retry of a confirmation can acknowledge the existing
 result. An unresolved grant keeps the associated workflow evidence available
 during retention. [Protected external writes](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
 
-Development builds expose `CredentialVerifier`, `AccessAudience` and
-`VerifiedPrincipal` for installation-scoped authentication. The HTTP adapter
+`CredentialVerifier`, `AccessAudience` and
+`VerifiedPrincipal` provide installation-scoped authentication. The HTTP adapter
 checks each route's required `AccessCapability` before dispatching to services.
 The local opaque-credential implementation lives in a separate adapter.
 [Instance access contract](https://github.com/Ledgence/ledgence/blob/develop/docs/instance-access.md)
@@ -71,7 +71,7 @@ those dependencies separately, with their own licenses and redistribution
 notices. This license does not require users to disclose their applications.
 
 
-Development builds add the grouped `OperatorAccess` capability for verified
+The grouped `OperatorAccess` capability supports verified
 approval decisions, durable sensitive-response observations and scoped audit
 queries. All three operations are required by native credential mode.
 `VerifiedPrincipal` and `OperatorRequest` enter through trusted adapters.
@@ -79,7 +79,7 @@ Existing approval commands and worker continuation schemas remain unchanged.
 `AuditReader` is the separate read-only client port for authenticated remote
 queries. [Operator audit contract](https://github.com/Ledgence/ledgence/blob/develop/docs/operator-audit.md).
 
-Development builds add the optional grouped `ApprovedEffectEvidence` port for
+The optional grouped `ApprovedEffectEvidence` port supports
 verified claims, confirmation and separate observations. Implement all three
 methods together. `EffectEvidenceClient` carries the portable commands across
 a remote boundary. `EffectEvidenceReader` provides bounded inbox and inspection
@@ -89,8 +89,8 @@ The retained ledger preserves claims and reported results after execution
 history is collected. Its identity, replay and legacy-proof rules are described
 in the [evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
 
-Development builds also provide `EffectResolution` for authenticated operator
-assessments and `EffectResolutionStore` for the complete native-wait coordinator
+`EffectResolution` supports authenticated operator
+assessments and `EffectResolutionStore` provides the complete native-wait coordinator
 operation. `EffectResolutionClient` is the command-only remote port. Native waits
 carry the original effect occurrence and an immutable selected wake, without
 creating a provider result or another dispatch grant. Implementations must also

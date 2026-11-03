@@ -8,27 +8,31 @@ self-hosted Ledgence service. The distribution is `ledgence-client`; its public
 import is `ledgence.client`. Python 3.11–3.14 is tested on Linux x86_64 and macOS
 arm64. Public APIs may evolve before version 1.0.
 
+This README describes this package source. Check the
+[release reference](https://docs.ledgence.com/reference/releases) for verified
+registry versions and targets. A source checkout may contain capabilities not yet
+published. The APIs below require matching server support.
+
 ## Installation
 
-Install the client version matching your service in a virtual environment.
-For Ledgence **0.7.0**, first check its
-[PyPI availability](https://pypi.org/project/ledgence-client/0.7.0/), then run:
+Use Python 3.11 or newer and an activated virtual environment.
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install "ledgence-client==0.7.0"
+python -m pip install ledgence-client
 ```
 
-Use Python 3.11 or newer. Native Ledgence bundles and registry packages
-are published separately; see the [release reference](https://docs.ledgence.com/reference/releases)
-for verified versions and targets.
-Pin your client version and review release notes before upgrading.
+This selects an available registry version. For an existing deployment, select
+the client version matching your service and pin that exact version in your
+application's dependency configuration. Review release notes before upgrading.
+Native bundles and registry packages are published separately.
 
-For an unreleased checkout or a locally qualified build, install its wheel:
+For an unreleased checkout or a locally qualified build, install its selected
+wheel instead. Replace the example path with that wheel's actual filename.
 
 ```sh
-python -m pip install /path/to/ledgence_client-0.7.0-py3-none-any.whl
+python -m pip install /path/to/your/client.whl
 ```
 
 The client connects to an existing Ledgence service. Follow the
@@ -97,7 +101,9 @@ physical cleanup. Check `result.outcome.quiescence` when cleanup evidence matter
 Cancellation outcomes have no deciding attempt or output. The status's
 `latest_attempt_id` is only a diagnostic reference to earlier work.
 
-## Credentials (development)
+<a id="credentials-development"></a>
+
+## Credentials
 
 For a credential-enabled instance, keep the private credential file supplied by
 your administrator outside application source and pass its path:
@@ -135,9 +141,9 @@ is included in prepared commands or saved approval decisions.
 `Unauthenticated` and `Forbidden` are definitive `ServiceError` subclasses.
 A matching 401/403 response does not become submission or approval uncertainty,
 and the client does not automatically retry it. Existing clients without a
-credential continue to support operator-trusted deployments. These options
-describe development behavior and require matching server support; they are not
-available in published 0.7.0 packages.
+credential continue to support operator-trusted deployments. Credential options
+require matching server support. The published 0.7.0 client predates this
+authentication boundary.
 
 ## Workflow references and observations
 
@@ -498,7 +504,7 @@ IDs remain distinct from tracing IDs.
 
 ## Workflow approvals
 
-Matching 0.7.0 clients and servers provide a scope-wide inbox. By default it lists
+Matching clients and servers provide a scope-wide inbox. By default it lists
 pending requests, earliest deadline first. Pass an exact `program_id` to filter,
 or `status=None` to include every persisted status. Read the full effective
 action before preparing a decision.
@@ -525,7 +531,7 @@ status between discovery and inspection.
 `approval.proposed_arguments` for optional original input. These views return
 independent JSON copies and expose typed `ApprovalStatus` values.
 
-On the development branch, requests created with the worker's
+Requests created with the worker's
 `ctx.request_effect_approval(...)` expose
 `approval.protection is ApprovalProtection.EXTERNAL_EFFECT`. The prepared
 decision preserves this protection, and receipt validation rejects a changed
@@ -551,7 +557,7 @@ Choose `approve` or `reject` only after reviewing the exact stored action. The
 command binds its scope, workflow, request activation/revision, full action,
 and any requested external-effect protection.
 `reviewer` is a caller-supplied label. It does not establish the actor who accepted
-the decision. Credential-enabled development servers record verified acceptance
+the decision. Credential-enabled servers record verified acceptance
 separately, as described below. No pending request is created by deciding.
 
 `ApprovalDecisionUncertain` retains the command when the response cannot prove
@@ -560,10 +566,12 @@ acceptance. No automatic resend occurs. Explicitly resend that command, or use
 identical decision returns its original receipt; changed decisions or bindings
 conflict. Restoring a command performs validation only; it never grants approval.
 
-## Operator audit (development)
+<a id="operator-audit-development"></a>
 
-Matching development clients and credential-enabled native servers expose a
-scoped metadata audit feed. These APIs are not included in published 0.7.0.
+## Operator audit
+
+Matching clients and credential-enabled native servers expose a scoped metadata
+audit feed.
 The credential needs `metadata_read`. Operator-trusted deployments and adapters
 without the audit capability report audit as unavailable.
 
@@ -615,10 +623,12 @@ original receipt after credential rotation; a changed actor cannot take ownershi
 of that receipt. Historical decisions accepted without audit remain unattributed
 after an otherwise valid identical replay.
 
-## Retained effect evidence (development)
+<a id="retained-effect-evidence-development"></a>
 
-Matching development clients and servers expose `client.effects`. These APIs
-are not included in published 0.7.0. They inspect retained evidence from approved
+## Retained effect evidence
+
+Matching clients and servers expose `client.effects` to inspect retained
+evidence from approved
 external-effect execution, including records whose original execution has been
 collected. Reads do not authorize execution. The assessment API below records an operator decision without redispatching or confirming the journal.
 
@@ -679,10 +689,12 @@ unattributed. A confirmed journal is Ledgence's recorded execution result, not
 proof of exactly-once provider effects. Private lease owners and frozen worker
 commands are never returned. See the [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
 
-## Operator effect assessments (development)
+<a id="operator-effect-assessments-development"></a>
 
-Matching development components add native operator assessment and typed workflow
-resumption. Published 0.7.0 does not include these APIs. The resolver needs the
+## Operator effect assessments
+
+Matching components support native operator assessment and typed workflow
+resumption. The resolver needs the
 explicit `effect_resolve` capability; this is separate from `approval_decide`,
 execution control and sensitive reads. A credential limited to `effect_resolve`
 can submit a previously reviewed command without receiving application evidence.
@@ -793,10 +805,12 @@ licenses and notices are retained under `third_party`; normal wheel installation
 pins the reviewed runtime closure. The gate verifies those pins and distributed
 legal files. No dependencies are downloaded during program execution.
 
-## Typed provider operations (development)
+<a id="typed-provider-operations-development"></a>
 
-Matching development client, API and worker builds support approved asynchronous
-provider operations. Published 0.7.0 does not contain this capability. The client
+## Typed provider operations
+
+Matching client, API and worker builds support approved asynchronous
+provider operations. The client
 continues to use `client.effects`; no provider SDK or model service is required.
 
 ```python

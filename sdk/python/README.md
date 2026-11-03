@@ -12,22 +12,27 @@ Use a runtime helper matching your worker. The helper is standard-library-only;
 application integrations and their prepared dependencies belong in the program
 package. No agent framework or model provider is required.
 
+This README describes this package source. Check the
+[release reference](https://docs.ledgence.com/reference/releases) for verified
+registry availability. A source checkout may contain capabilities not yet
+published. The APIs below require matching server and worker support.
+
 ## Install for local development
 
-`ledgence-worker` requires Python 3.11+. Install the version matching your
-worker in your application's existing uv project as a development dependency.
-For Ledgence **0.7.0**, use:
+`ledgence-worker` requires Python 3.11+. In an existing uv project, install it
+as a development dependency.
 
 ```sh
-uv add --dev "ledgence-worker==0.7.0"
+uv add --dev ledgence-worker
 ```
 
-For pip, use `python -m pip install "ledgence-worker==0.7.0"` in the application's
-activated virtual environment. Check
-[registry availability](https://pypi.org/project/ledgence-worker/0.7.0/) before
-using these commands. For an unreleased checkout, use the local source
-installation below. The historical `v0.4.0` source tag does not contain this
-package's `pyproject.toml`.
+This selects an available registry version. For an existing deployment, select
+the version matching its worker and pin that exact version in your dependency
+configuration before synchronizing. Installing the helper does not check the
+remote worker's compatibility. For pip, use `python -m pip install ledgence-worker`
+in the application's activated virtual environment with the same version policy.
+Use the source installation below for an unreleased checkout. The historical
+`v0.4.0` source tag does not contain this package's `pyproject.toml`.
 
 ### Install from source
 
@@ -187,7 +192,7 @@ for its behavior and external authorization. Approval does not make an external
 effect exactly once: an effect can succeed before its durable local result is
 acknowledged, so use external idempotency keys or reconciliation as needed.
 
-**Development source.** Request a protected external write with
+Request a protected external write with
 `ctx.request_effect_approval`, using the same parameters as `request_approval`.
 In its approved continuation, execute
 `await ctx.approved_effect(dispatch, version="1", lookup=read_receipt)`.
@@ -195,7 +200,7 @@ The saved `protection: "external_effect"` contract rejects `approved_local`
 before execution or cached replay and rejects generic journal commits for that
 occurrence. `ctx.approval.protection` exposes
 `ApprovalProtection.EXTERNAL_EFFECT`. Untagged existing requests keep their
-original behavior. Use matching development components to review the new request.
+original behavior. Use matching components to review the protected request.
 Only the first committed orchestrator grant permits the dispatch callback. If
 an attempt dies before the grant commits, a retry can still receive that first
 grant. After it commits, a retry without a saved result can only query the
@@ -206,10 +211,10 @@ raise `EffectOutcomeUnknown` (from `ledgence.worker.workflow`) if the outcome
 is inconclusive. Disable write retries inside your own adapter and never fall back
 to `approved_local` for the same external write. See
 [the refund contract and example](../../docs/workflow-approvals.md#protect-an-approved-external-write)
-for migration, replay, and failure handling. This requires matching development
-components and is absent from the 0.7.0 packages.
+for migration, replay, and failure handling. The published 0.7.0 helper predates
+protected-effect operations.
 
-Matching authenticated development workers negotiate the v2 evidence capability
+Matching authenticated workers negotiate the v2 evidence capability
 before accepting work. The existing `approved_effect` call then records a unique
 owned claim and reports the callback mode with its confirmation. Repeated awaits
 share that invocation. A remotely accepted result can replay its original journal
@@ -223,10 +228,12 @@ authenticated evidence operation is available to surviving Rust/HTTP callers wit
 a retained claim. See [effect evidence](../../docs/effect-evidence.md) for its
 provenance, migration, inspection and retention contract.
 
-## Native operator rendezvous (development)
+<a id="native-operator-rendezvous-development"></a>
 
-Matching authenticated development components add a native wait for an operator
-assessment of an approved effect. This is absent from published 0.7.0. Use your
+## Native operator rendezvous
+
+Matching authenticated components support a native wait for an operator
+assessment of an approved effect. Use your
 named write and lookup callbacks in place of `issue_refund` and `find_refund`, and
 add `Entry.REVIEW` to the existing workflow enum. Catch `EffectOutcomeUnknown`
 and return the wait decision from the workflow entrypoint:
@@ -301,9 +308,11 @@ releases the unresolved execution retention hold without confirming the journal;
 all evidence and assessment receipts remain retained after ordinary collection.
 See [operator resolution and public clients](../../docs/effect-evidence.md#record-an-operator-assessment).
 
-## Provider operations (development)
+<a id="provider-operations-development"></a>
 
-Matching development components add `ledgence.worker.providers`. Register
+## Provider operations
+
+`ledgence.worker.providers` defines application-owned provider adapters. Register
 `ProviderAdapter(adapter_id, version=..., lookup=ProviderLookup.BY_BINDING,
 completion_criterion=...)`, decorate its dispatch and read-only probe callbacks,
 and include it in `Workflow(Entry, providers=[adapter])`. `workflow.build()` freezes
