@@ -17,7 +17,10 @@ mod instance;
 #[cfg(test)]
 mod instance_db_tests;
 mod migration;
+mod migration_effect_retained;
+mod migration_effects;
 mod notifications;
+mod operator_audit;
 mod persistence;
 mod retention;
 mod storage;
@@ -64,6 +67,8 @@ impl Default for PostgresOptions {
 pub struct PostgresStore {
     pool: PgPool,
     instance_scope: Arc<std::sync::OnceLock<Scope>>,
+    instance_access: Arc<std::sync::OnceLock<AccessAudience>>,
+    provider_config: Arc<std::sync::OnceLock<ProviderOperationConfig>>,
     operation_timeout: Duration,
     trace_bridge: Arc<dyn TraceBridge>,
     acquisition_wake: Arc<notifications::WakeDispatch>,
@@ -107,6 +112,8 @@ impl PostgresStore {
         let store = Self {
             pool,
             instance_scope: Arc::new(std::sync::OnceLock::new()),
+            instance_access: Arc::new(std::sync::OnceLock::new()),
+            provider_config: Arc::new(std::sync::OnceLock::new()),
             operation_timeout: options.operation_timeout,
             trace_bridge: Arc::new(NoopTraceBridge),
             acquisition_wake: Arc::new(notifications::WakeDispatch::default()),
@@ -116,6 +123,21 @@ impl PostgresStore {
             return Err(error);
         }
         Ok(store)
+    }
+
+    /// Explicit external policy, bound to the initialized authenticated installation.
+    /// It is immutable for this store and all clones; absent policy disables C.
+    pub fn configure_provider_operations(&self, config: &ProviderOperationConfig) -> Result<()> {
+        config.validate_for(self.audit_audience()?)?;
+        if self.provider_config.set(config.clone()).is_err()
+            && self.provider_config.get() != Some(config)
+        {
+            return Err(ContractError::Conflict);
+        }
+        Ok(())
+    }
+    pub fn provider_operation_config(&self) -> Option<&ProviderOperationConfig> {
+        self.provider_config.get()
     }
 
     /// Instrument genuinely new invocation allocations. Durable replays retain
@@ -168,7 +190,8 @@ impl PostgresStore {
                     "database schema does not match this orchestrator's migrations".into(),
                 ));
             }
-            Ok(())
+            migration_effects::verify_backfill(&self.pool).await?;
+            migration_effect_retained::verify_backfill(&self.pool).await
         };
         tokio::time::timeout(self.operation_timeout, work)
             .await

@@ -97,20 +97,7 @@ pub struct WorkflowForkCommand {
 }
 impl WorkflowForkCommand {
     pub fn validate(&self) -> Result<()> {
-        self.owner.scope.validate()?;
-        if self.owner.generation == 0 {
-            return Err(ContractError::InvalidInput(
-                "lease generation must be positive".into(),
-            ));
-        }
-        for id in [
-            &self.owner.task_id,
-            &self.owner.attempt_id,
-            &self.owner.lease_id,
-            &self.owner.worker_session_id,
-        ] {
-            validate_text(id, 128)?;
-        }
+        self.owner.validate()?;
         self.fork.validate()?;
         if let Some(trace) = &self.processing_trace {
             trace.validate()?;
@@ -265,6 +252,16 @@ mod tests {
             assert!(
                 matches!(result, std::task::Poll::Ready(Err(ContractError::InvalidInput(message))) if message == "workflow forks are unsupported by this adapter")
             );
+        }
+    }
+
+    #[test]
+    fn legacy_store_and_service_cannot_grant_a_dispatch_without_confirmation_support() {
+        for capability in [
+            WorkflowStore::approved_effects(&LegacyAdapter),
+            WorkflowService::approved_effects(&LegacyAdapter),
+        ] {
+            assert!(matches!(capability, Err(ContractError::InvalidInput(_))));
         }
     }
 }

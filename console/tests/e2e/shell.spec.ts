@@ -9,22 +9,39 @@ for (const width of [320, 375, 768, 1280]) {
       route.fulfill({ status: 503, body: "Unavailable" }),
     );
     await page.goto("/console/");
+    const sidebar = page.getByRole("complementary", {
+      name: "Console sidebar",
+    });
+    const navigation = sidebar.getByRole("navigation", {
+      name: "Main navigation",
+    });
+    const appearance = sidebar.getByRole("combobox", { name: "Appearance" });
+    await expect(navigation).toBeVisible();
+    await expect(appearance).toBeVisible();
     await expect(
-      page.getByRole("navigation", { name: "Main navigation" }),
-    ).toBeVisible();
+      page.getByRole("combobox", { name: "Appearance" }),
+    ).toHaveCount(1);
+    await expect(page.locator(".shell-header")).toBeHidden();
+    if (width <= 768) {
+      const link = (await navigation
+        .getByRole("link", { name: "Workers" })
+        .boundingBox())!;
+      const control = (await appearance.boundingBox())!;
+      expect(control.height).toBeGreaterThanOrEqual(44);
+      const center = control.y + control.height / 2;
+      expect(center).toBeGreaterThanOrEqual(link.y);
+      expect(center).toBeLessThanOrEqual(link.y + link.height);
+    }
     await expect(page.getByRole("alert")).toContainText("cannot connect");
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
-    await page
-      .getByRole("combobox", { name: "Appearance" })
-      .selectOption("dark");
+    await appearance.click({ trial: true });
+    await appearance.selectOption("dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await page
-      .getByRole("combobox", { name: "Appearance" })
-      .selectOption("light");
+    await appearance.selectOption("light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 }
@@ -36,8 +53,28 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
   await page.route("**/v1/console/config", (route) =>
     route.fulfill({ status: 503, body: "Unavailable" }),
   );
+  // Navigation can finish while the asynchronous access boundary still owns
+  // the loading shell. Hold its reply to exercise that transition explicitly.
+  let releaseAccess!: () => void;
+  const accessReady = new Promise<void>((resolve) => {
+    releaseAccess = resolve;
+  });
+  await page.route("**/v1/console/access", async (route) => {
+    await accessReady;
+    await route.fallback();
+  });
   await page.goto("/console/executions");
+  const accessHeading = page.getByRole("heading", {
+    name: "Access your instance",
+  });
+  try {
+    await expect(accessHeading).toBeVisible();
+  } finally {
+    releaseAccess();
+  }
+  await expect(accessHeading).toBeHidden();
   const main = page.getByRole("main");
+  await expect(main).toBeVisible();
   const expandedLeft = (await main.boundingBox())!.x;
   const sidebar = page.getByRole("complementary", { name: "Console sidebar" });
   const collapse = sidebar.getByRole("button", {
@@ -47,8 +84,8 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
     sidebar.getByRole("link", { name: "Ledgence Console home" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("banner").getByRole("button", { name: /sidebar/ }),
-  ).toHaveCount(0);
+    page.getByRole("button", { name: "Collapse sidebar", exact: true }),
+  ).toHaveCount(1);
   await expect(collapse).toHaveAttribute("title", "Collapse sidebar");
   expect((await collapse.boundingBox())!.y).toBeLessThan(80);
   await collapse.focus();
@@ -73,7 +110,12 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
     page.getByRole("link", { name: "Executions", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("link", { name: "Documentation" })).toBeVisible();
+  const appearance = sidebar.getByRole("combobox", { name: "Appearance" });
+  await appearance.click({ trial: true });
+  await appearance.selectOption("dark");
   await page.reload();
+  await expect(appearance).toHaveValue("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(
     page.getByRole("button", { name: "Expand sidebar" }),
   ).toBeVisible();
@@ -83,10 +125,19 @@ test("sidebar preference survives reload and mobile navigation stays usable", as
     page.getByRole("button", { name: "Expand sidebar" }),
   ).toBeHidden();
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
-  for (const name of ["Executions", "Programs", "Approvals", "Workers"]) {
+  for (const name of [
+    "Executions",
+    "Programs",
+    "Approvals",
+    "Effects",
+    "Workers",
+  ]) {
     await expect(navigation.getByText(name, { exact: true })).toBeVisible();
   }
+  await appearance.click({ trial: true });
+  await appearance.selectOption("system");
   await navigation.getByRole("link", { name: "Workers" }).click();
+  await expect(appearance).toHaveValue("system");
   await expect(page).toHaveURL(/\/workers$/);
   await expect(
     navigation.getByRole("link", { name: "Workers" }),
@@ -148,13 +199,13 @@ test("sidebar remains operable when preference storage is blocked", async ({
   ).toBeVisible();
 });
 
-test("a long instance name stays bounded beside the header controls", async ({
+test("a long instance name remains available without reserving a page header", async ({
   page,
 }) => {
   const fixture = parseUserJson(
     readFileSync(
       new URL(
-        "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+        "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
         import.meta.url,
       ),
       "utf8",
@@ -167,6 +218,19 @@ test("a long instance name stays bounded beside the header controls", async ({
   config.instance_name =
     "Research and operations — " + "production-instance-".repeat(12);
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "7",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const resource = new URL(route.request().url()).pathname.replace(
       "/v1/console/",
       "",
@@ -177,7 +241,7 @@ test("a long instance name stays bounded beside the header controls", async ({
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "5",
+        "Ledgence-Console-Contract": "7",
         "Ledgence-Instance-Id": config.instance_id,
       },
       body: stringifyUserJson(
@@ -192,12 +256,11 @@ test("a long instance name stays bounded beside the header controls", async ({
   for (const width of [320, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(name).toBeVisible();
-    await expect(page.locator(".shell-page-heading")).toBeHidden();
+    await expect(page.locator(".shell-header")).toBeHidden();
     const nameBox = (await name.boundingBox())!;
-    const appearanceBox = (await page
-      .getByRole("combobox", { name: "Appearance" })
-      .boundingBox())!;
-    expect(nameBox.x + nameBox.width).toBeLessThan(appearanceBox.x);
+    expect(nameBox.width).toBeGreaterThan(0);
+    expect(nameBox.x).toBeGreaterThanOrEqual(0);
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(width);
     expect(
       await name.evaluate(
         (element) => element.scrollWidth > element.clientWidth,
@@ -209,4 +272,19 @@ test("a long instance name stays bounded beside the header controls", async ({
       ),
     ).toBe(true);
   }
+});
+
+// Shell fixtures run against the explicitly operator-trusted deployment mode.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/v1/console/access", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Ledgence-Console-Contract": "7",
+        "Ledgence-Instance-Id": "instance_demo",
+      },
+      body: JSON.stringify({ mode: "operator_trusted" }),
+    }),
+  );
 });

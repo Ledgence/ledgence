@@ -12,6 +12,12 @@ pub const TASK_STATUS_MAX_BYTES: usize = 16 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskStatus {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_probe: Option<ProviderProbeAssignment>,
     pub scope: Scope,
     pub task_id: String,
     pub run_id: String,
@@ -42,6 +48,15 @@ impl TaskStatus {
     pub fn validate(&self) -> Result<()> {
         let invalid = || observation_error("inconsistent task status");
         self.scope.validate().map_err(|_| invalid())?;
+        if let Some(probe) = &self.provider_probe {
+            probe.validate()?;
+            if probe.occurrence.scope != self.scope
+                || self.workflow_id.as_ref() != Some(&probe.occurrence.workflow_id)
+                || self.workflow_activation_id.is_some()
+            {
+                return Err(invalid());
+            }
+        }
         for value in [&self.task_id, &self.run_id, &self.queue] {
             validate_text(value, 128).map_err(|_| invalid())?;
         }

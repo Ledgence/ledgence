@@ -685,6 +685,7 @@ async fn local_journal_survives_retry_and_exact_receipts_outlive_authority() {
     let accepted = local(&first, "committed");
     db.store.record_local_result(&accepted).await.unwrap();
     let retryable = SettleCommand {
+        provider_probe_failure: None,
         owner: first.lease.owner.clone(),
         operation_id: "failed_activation".into(),
         report: AttemptReport::Failed(ExecutionFailure {
@@ -1161,8 +1162,14 @@ async fn child_completion_and_local_receipt_do_not_hydrate_unneeded_payloads() {
 
 #[path = "approval_tests.rs"]
 mod approvals;
+#[path = "approved_effect_tests.rs"]
+mod approved_effects;
+#[path = "../migration_effect_db_tests.rs"]
+mod effect_migration;
 #[path = "event_tests.rs"]
 mod events;
+#[path = "operator_audit_tests.rs"]
+mod operator_audit;
 
 fn task_input_id(input: &WorkflowChildResult) -> &str {
     match input {
@@ -1183,3 +1190,6 @@ mod resolution;
 
 #[path = "approval_inbox_tests.rs"]
 mod inbox;
+
+#[path = "provider_tests.rs"]
+mod providers;

@@ -537,6 +537,30 @@ impl Worker {
                 ));
             }
         };
+        // Apply an optional phase budget only once the artifact and process are
+        // ready. The parent remains available for durable completion work.
+        let phase_control = match catch_call(|| {
+            invocation_control(
+                &control,
+                interactive.as_ref().map(|value| value.handler.as_ref()),
+            )
+        }) {
+            Ok(result) => result,
+            Err(error) => {
+                self.fail_closed(&context.identity);
+                Err(error)
+            }
+        };
+        let phase_control = match phase_control {
+            Ok(control) => control,
+            Err(error) => {
+                let cleanup = self.retire_owned(ownership, &context.identity).await.err();
+                return Err(with_cleanup(
+                    failure(error, Phase::Startup, false, context),
+                    cleanup,
+                ));
+            }
+        };
         self.inner.pool.lock().await.executing(
             &ownership.session.as_ref().expect("session acquired").slot,
             pid,
@@ -565,10 +589,10 @@ impl Worker {
             match interactive {
                 Some(interactive) => {
                     session
-                        .execute_with_requests(invocation, control, interactive.handler)
+                        .execute_with_requests(invocation, phase_control, interactive.handler)
                         .await
                 }
-                None => session.execute(invocation, control).await,
+                None => session.execute(invocation, phase_control).await,
             }
         })
         .instrument(execution_span.clone())
@@ -1243,6 +1267,35 @@ fn invocation_span(context: &ExecutionContext, direct: bool) -> tracing::Span {
 
 fn elapsed_ms(started: Instant) -> i64 {
     started.elapsed().as_millis().try_into().unwrap_or(i64::MAX)
+}
+
+fn invocation_control(
+    parent: &RunControl,
+    handler: Option<&dyn RuntimeRequestHandler>,
+) -> Result<RunControl> {
+    parent.check()?;
+    let Some((handler, timeout)) = handler.and_then(|h| h.invocation_timeout().map(|t| (h, t)))
+    else {
+        return Ok(parent.clone());
+    };
+    if timeout.is_zero() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "invocation budget must be positive",
+        ));
+    }
+    let now = Instant::now();
+    let required = timeout
+        .checked_add(handler.completion_reserve())
+        .and_then(|value| now.checked_add(value))
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "invocation budget overflow"))?;
+    if required > parent.deadline() {
+        return Err(Error::new(
+            ErrorKind::TimedOut,
+            "insufficient invocation and completion budget",
+        ));
+    }
+    Ok(parent.shorter_deadline(now + timeout))
 }
 
 fn operation_span(operation: &str) -> tracing::Span {

@@ -143,23 +143,30 @@ jobs:
       - name: Verify candidate archive checksum
         working-directory: ${{ runner.temp }}/ledgence-candidate
         run: shasum -a 256 -c SHA256SUMS
-      - name: Upgrade a pending 0.6.1 approval with the packaged candidate
+      - name: Upgrade historical and last stable approvals with the packaged candidate
         run: |
-          baseline=ledgence-0.6.1-x86_64-unknown-linux-gnu
           rehearsal="$RUNNER_TEMP/approval-upgrade"
-          mkdir -p "$rehearsal/previous" "$rehearsal/candidate"
-          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
-            "https://github.com/Ledgence/ledgence/releases/download/v0.6.1/$baseline.tar.gz" \
-            --output "$rehearsal/previous.tar.gz"
-          echo "7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be  $rehearsal/previous.tar.gz" | sha256sum --check
-          tar -xzf "$rehearsal/previous.tar.gz" --strip-components=1 -C "$rehearsal/previous"
+          mkdir -p "$rehearsal/candidate"
           archives=("$RUNNER_TEMP"/ledgence-candidate/*.tar.gz)
           test "${#archives[@]}" -eq 1
           tar -xzf "${archives[0]}" --strip-components=1 -C "$rehearsal/candidate"
-          python tools/check-approval-upgrade.py --previous-bundle "$rehearsal/previous" \
-            --binaries "$rehearsal/candidate/bin" --console-dist "$rehearsal/candidate/console" \
-            --candidate-runner "$rehearsal/candidate/runtime/ledgence/worker/bootstrap.py" \
-            --evidence "$rehearsal/evidence"
+          while read -r version checksum; do
+            baseline="ledgence-$version-x86_64-unknown-linux-gnu"
+            previous="$rehearsal/previous-$version"
+            mkdir -p "$previous"
+            curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+              "https://github.com/Ledgence/ledgence/releases/download/v$version/$baseline.tar.gz" \
+              --output "$rehearsal/$baseline.tar.gz"
+            echo "$checksum  $rehearsal/$baseline.tar.gz" | sha256sum --check
+            tar -xzf "$rehearsal/$baseline.tar.gz" --strip-components=1 -C "$previous"
+            python tools/check-approval-upgrade.py --previous-bundle "$previous" \
+              --binaries "$rehearsal/candidate/bin" --console-dist "$rehearsal/candidate/console" \
+              --candidate-runner "$rehearsal/candidate/runtime/ledgence/worker/bootstrap.py" \
+              --evidence "$rehearsal/evidence/$version"
+          done <<'BASELINES'
+          0.6.1 7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be
+          0.7.0 1795cc0ed9acc42613ab8e8c63d845a9ce5235a5d06cff4a5289e287d06143c3
+          BASELINES
       - name: Retain upgrade evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

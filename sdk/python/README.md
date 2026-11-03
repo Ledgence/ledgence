@@ -12,22 +12,27 @@ Use a runtime helper matching your worker. The helper is standard-library-only;
 application integrations and their prepared dependencies belong in the program
 package. No agent framework or model provider is required.
 
+This README describes this package source. Check the
+[release reference](https://docs.ledgence.com/reference/releases) for verified
+registry availability. A source checkout may contain capabilities not yet
+published. The APIs below require matching server and worker support.
+
 ## Install for local development
 
-`ledgence-worker` requires Python 3.11+. Install the version matching your
-worker in your application's existing uv project as a development dependency.
-For Ledgence **0.7.0**, use:
+`ledgence-worker` requires Python 3.11+. In an existing uv project, install it
+as a development dependency.
 
 ```sh
-uv add --dev "ledgence-worker==0.7.0"
+uv add --dev ledgence-worker
 ```
 
-For pip, use `python -m pip install "ledgence-worker==0.7.0"` in the application's
-activated virtual environment. Check
-[registry availability](https://pypi.org/project/ledgence-worker/0.7.0/) before
-using these commands. For an unreleased checkout, use the local source
-installation below. The historical `v0.4.0` source tag does not contain this
-package's `pyproject.toml`.
+This selects an available registry version. For an existing deployment, select
+the version matching its worker and pin that exact version in your dependency
+configuration before synchronizing. Installing the helper does not check the
+remote worker's compatibility. For pip, use `python -m pip install ledgence-worker`
+in the application's activated virtual environment with the same version policy.
+Use the source installation below for an unreleased checkout. The historical
+`v0.4.0` source tag does not contain this package's `pyproject.toml`.
 
 ### Install from source
 
@@ -186,6 +191,203 @@ Approvals are for operator-trusted code. A Python callable remains responsible
 for its behavior and external authorization. Approval does not make an external
 effect exactly once: an effect can succeed before its durable local result is
 acknowledged, so use external idempotency keys or reconciliation as needed.
+
+Request a protected external write with
+`ctx.request_effect_approval`, using the same parameters as `request_approval`.
+In its approved continuation, execute
+`await ctx.approved_effect(dispatch, version="1", lookup=read_receipt)`.
+The saved `protection: "external_effect"` contract rejects `approved_local`
+before execution or cached replay and rejects generic journal commits for that
+occurrence. `ctx.approval.protection` exposes
+`ApprovalProtection.EXTERNAL_EFFECT`. Untagged existing requests keep their
+original behavior. Use matching components to review the protected request.
+Only the first committed orchestrator grant permits the dispatch callback. If
+an attempt dies before the grant commits, a retry can still receive that first
+grant. After it commits, a retry without a saved result can only query the
+destination. Both callbacks receive the frozen approved arguments. Ledgence
+retains unresolved evidence even if the workflow ends. It saves the returned
+receipt and closes that retention hold together. Return a validated JSON receipt, or
+raise `EffectOutcomeUnknown` (from `ledgence.worker.workflow`) if the outcome
+is inconclusive. Disable write retries inside your own adapter and never fall back
+to `approved_local` for the same external write. See
+[the refund contract and example](../../docs/workflow-approvals.md#protect-an-approved-external-write)
+for migration, replay, and failure handling. The published 0.7.0 helper predates
+protected-effect operations.
+
+Matching authenticated workers negotiate the v2 evidence capability
+before accepting work. The existing `approved_effect` call then records a unique
+owned claim and reports the callback mode with its confirmation. Repeated awaits
+share that invocation. A remotely accepted result can replay its original journal
+binding without another callback or report. The helper receives only the runtime
+capability flag, while Rust validates the authenticated receipt identities.
+Historical and credentialless v1 operation keeps its existing wire contract.
+
+The same managed-process lifecycle applies. Checkpointing drains owned calls and
+cancellation may terminate them before a provider reply can be recorded. A separate
+authenticated evidence operation is available to surviving Rust/HTTP callers with
+a retained claim. See [effect evidence](../../docs/effect-evidence.md) for its
+provenance, migration, inspection and retention contract.
+
+<a id="native-operator-rendezvous-development"></a>
+
+## Native operator rendezvous
+
+Matching authenticated components support a native wait for an operator
+assessment of an approved effect. Use your
+named write and lookup callbacks in place of `issue_refund` and `find_refund`, and
+add `Entry.REVIEW` to the existing workflow enum. Catch `EffectOutcomeUnknown`
+and return the wait decision from the workflow entrypoint:
+
+```python
+from ledgence.worker.workflow import ApprovalStatus, EffectOutcomeUnknown, EffectResolutionOutcomeKind
+
+@workflow.entrypoint(Entry.APPLY)
+async def apply(event, ctx):
+    if ctx.approval.status is not ApprovalStatus.APPROVED:
+        return ctx.fail("refund_not_approved", "A refund requires approval")
+    try:
+        receipt = await ctx.approved_effect(issue_refund, lookup=find_refund, version="1")
+    except EffectOutcomeUnknown:
+        return ctx.wait_effect_resolution("refund-review:0", resume=Entry.REVIEW, state={})
+    return ctx.complete(receipt)
+
+@workflow.entrypoint(Entry.REVIEW)
+def review(event, ctx):
+    outcome = ctx.effect_resolution.outcome
+    if outcome.kind is EffectResolutionOutcomeKind.RECORDED_SUCCESS:
+        return ctx.complete(outcome.result)
+    if outcome.kind is EffectResolutionOutcomeKind.RECORDED_FAILURE:
+        failure = outcome.failure
+        return ctx.fail(failure["kind"], failure["message"])
+    return ctx.fail("refund_unresolved", "The operator result remains unknown or disputed")
+```
+
+Register `Entry.REVIEW` in the workflow's entrypoint enum. The outcome describes
+an operator assessment, not independent provider verification. Application code
+chooses how that assessment affects its business workflow.
+
+`wait_effect_resolution(key, *, resume, state, occurrence=None,
+after_resolution_id=...)` checkpoints explicit JSON state and releases the
+worker slot after owned work drains. It waits without a dedicated process or
+open request. It has no timeout argument. Use the existing cancellation API when
+an application needs to stop a pending review.
+
+`ctx.effect_occurrence` returns the typed `EffectOccurrence` of the approved protected-effect
+or resolution activation, or `None` when neither exists. An explicitly supplied
+occurrence lets a later entrypoint refer to the original approved effect; the
+server checks workflow and scope ownership. Reuse the same key across retries
+of the same logical wait; an intentional later wait requires a new key.
+
+When omitted, `after_resolution_id` selects the current resolution ID if this
+activation resumed an assessment for the same occurrence, otherwise `None`.
+A later wait therefore asks for a newer assessment. Explicit `None` permits
+selection of the current assessment again. This is deliberate replay selection,
+not a new dispatch. Keys for native effect waits and generic event waits occupy
+separate namespaces; a generic event never satisfies a native wait.
+
+On resume, `ctx.effect_resolution` is a typed `EffectResolutionWake` (otherwise
+`None`). `.occurrence`, `.resolution_id`, `.accepted_revision`, `.key` and
+`.outcome` are available directly; `.to_dict()` returns an independent copy of
+the complete selected identity/revision/timestamp record. `EffectResolutionOutcomeKind`
+has `RECORDED_SUCCESS`, `RECORDED_FAILURE`, `CLOSED_UNKNOWN` and `DISPUTED`.
+The corresponding `.result`, `.failure` or `.first_conflicting_entry_sequence`
+accessors reject the wrong variant. Results and failure values are detached JSON.
+
+Selection happens durably in the coordinator, whether an operator resolves
+before or after park. Attempts of the resumed activation share that frozen wake.
+Later reports and assessments cannot rewrite it; request another assessment with
+a new wait key when needed. A success selection can be disputed by a later unequal
+report present at selection. Opaque report contents do not reinterpret failure
+or unknown assessments. Cancellation and terminal execution prevent resumption.
+
+The worker negotiates `native_effect_resolution.v1` before accepting work and
+supplies the additive outer runtime feature manifest to this helper. Unsupported
+servers/runtimes reject native waiting explicitly; there is no generic-event
+fallback. Older helpers retain their existing behavior. An accepted assessment
+releases the unresolved execution retention hold without confirming the journal;
+all evidence and assessment receipts remain retained after ordinary collection.
+See [operator resolution and public clients](../../docs/effect-evidence.md#record-an-operator-assessment).
+
+<a id="provider-operations-development"></a>
+
+## Provider operations
+
+`ledgence.worker.providers` defines application-owned provider adapters. Register
+`ProviderAdapter(adapter_id, version=..., lookup=ProviderLookup.BY_BINDING,
+completion_criterion=...)`, decorate its dispatch and read-only probe callbacks,
+and include it in `Workflow(Entry, providers=[adapter])`. `workflow.build()` freezes
+the registry. Callbacks must be named functions inside the prepared application
+artifact. The immutable owning program descriptor is part of the reviewed binding.
+
+`adapter.binding(business=..., target=..., credential_reference=..., queue=...,
+deduplication=None, reconciliation=None)` returns a `ProviderBindingRequest`.
+`business` contains `namespace` and `key`. `target` contains `provider`,
+`environment`, `account`, `api_variant`, `operation`, `endpoint_identity` and
+`dimensions`. `deduplication`, when available, contains the provider's actual
+`domain`, `key` and `horizon`. The optional `reconciliation` dictionary overrides
+finite timing and check limits. The queue is supplied separately and must differ
+from the controller queue.
+
+| Helper | Contract |
+| --- | --- |
+| `ctx.request_provider_approval(key, provider=adapter, arguments=..., binding=..., resume=Entry.DISPATCH, state=..., timeout_ms=...)` | Checkpoint the complete intent for review. Effective request JSON lives only in the action arguments. |
+| `await ctx.approved_provider_operation()` | Invoke the registered dispatch on the single original grant and return a durable `ProviderOperationTicket`. |
+| `ctx.wait_provider_operation(key, ticket=ticket, resume=Entry.COMPLETE, state=...)` | Park until provider knowledge or an operator assessment is selected, releasing the worker. |
+| `ctx.provider_operation_result` | Typed immutable selection on a provider resume, otherwise `None`. |
+
+`ProviderOperationTicket.to_dict()` and `.from_dict(...)` support explicit saved
+state. `ticket.occurrence` is an `EffectOccurrence`. An existing equal operation
+can return the original ticket, including one owned by another workflow. Only
+the owning workflow can wait for that occurrence. Changed action, program or
+binding data conflicts with the existing business identity.
+
+Every callback receives one `ProviderRequest`. Its `.arguments`, `.binding` and
+`.target` return independent JSON copies. `.provider_reference` is the retained
+provider reference available to this check. The helper passes a credential
+reference through the binding. Application code resolves its credential value.
+
+Return a `ProviderReport` using one of these constructors. Each takes the required
+`target=...` and optional `provider_reference=...` and `provider_request_id=...`.
+
+- `ProviderReport.unknown(reason, ...)`
+- `ProviderReport.pending(...)`
+- `ProviderReport.requires_action(action_kind, ...)`
+- `ProviderReport.succeeded(result, ...)`
+- `ProviderReport.failed(kind, message, ...)`
+- `ProviderReport.cancelled(reason, ...)`
+
+A success result may be `None`. Missing or malformed responses and transport
+errors do not establish terminal provider failure. The report's target must
+match the reviewed target. These reports retain adapter-classified provenance.
+Disable automatic mutation retries and redirects in the adapter's HTTP client
+when one network attempt is required. Ledgence grants dispatch once and never
+retries that callback after an uncertain grant or result.
+
+`ProviderLookup.UNAVAILABLE` permits dispatch-only registration. Recovery then
+reaches needs-review handling without allocating status probes. Reference-only
+lookup requires a retained provider reference. A probe invokes its registered
+callback directly and receives no `WorkflowContext`.
+
+`ProviderSelectionKind` distinguishes `PROVIDER_SUCCEEDED`, `PROVIDER_FAILED`,
+`PROVIDER_CANCELLED`, `OPERATOR_ASSESSMENT`, `DISPUTED` and `NEEDS_REVIEW`.
+Read `.result` only on provider success. `.selection` returns the complete selected
+JSON, `.occurrence` identifies its original operation, and
+`.selected_effect_revision` identifies the evidence boundary. A later report
+cannot rewrite this selection. A follow-up `wait_provider_operation` can omit the
+ticket after a provider wake, using its original occurrence and selected revision
+as the default `after_effect_revision`. Supply a fresh stable key for each
+intentional wait.
+
+Callback results use the provider ledger. They never write an ordinary local-step
+result. `approved_local` and `approved_effect` reject provider-protected approvals.
+The runtime negotiates `provider_operation.v1`, with native effect resolution and
+evidence v2 prerequisites. Ordinary tasks and historical A/B helpers preserve
+their existing protocol.
+
+See [provider operations](../../docs/provider-operations.md) for policy,
+configuration, limits, restore quarantine and evidence retention. The
+[asynchronous export example](../../examples/provider-recovery/README.md) includes
+a real local provider and an independent mutation/effect census.
 
 ## Runtime helper
 

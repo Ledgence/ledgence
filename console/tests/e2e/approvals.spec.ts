@@ -7,7 +7,7 @@ import { workflowDetail } from "../../src/api/resources";
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,6 +24,19 @@ test("approvals remain readable and keyboard-accessible inside workflow General"
   const approval = approvalFixture();
   const writes: string[] = [];
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "7",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const request = route.request();
     const path = new URL(request.url()).pathname;
     let body: unknown;
@@ -55,7 +68,7 @@ test("approvals remain readable and keyboard-accessible inside workflow General"
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "5",
+        "Ledgence-Console-Contract": "7",
         "Ledgence-Instance-Id": "instance_demo",
       },
       body: stringifyUserJson(body),
@@ -122,6 +135,19 @@ test("the inbox filters across workflows, pages by cursor and reconciles another
     inspected = 0,
     sent = 0;
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "7",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const path = new URL(route.request().url()).pathname;
     let value: unknown;
     if (path.endsWith("/config")) value = field("config");
@@ -174,7 +200,7 @@ test("the inbox filters across workflows, pages by cursor and reconciles another
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "5",
+        "Ledgence-Console-Contract": "7",
         "Ledgence-Instance-Id": "instance_demo",
       },
       body: stringifyUserJson(value),

@@ -4,6 +4,15 @@ use ledgence_orchestration_api::console::*;
 use ledgence_worker_api::ProgramRef;
 use serde::Deserialize;
 
+/// Validate the credential-mode browser boundary before persisting installation
+/// configuration or opening a listener. No credentials or services are accessed.
+pub fn validate_access_origin(
+    instance: &SelfHostedInstanceConfig,
+    allow_insecure: bool,
+) -> Result<()> {
+    access::validate_origin(instance, allow_insecure).map(|_| ())
+}
+
 #[derive(Clone)]
 pub struct ConsoleServices {
     pub(crate) instance: SelfHostedInstanceConfig,
@@ -12,6 +21,8 @@ pub struct ConsoleServices {
     pub(super) catalog: Option<Arc<dyn ProgramCatalogService>>,
     pub(super) publication: Option<super::publication::PublicationService>,
     observations: Option<Arc<dyn WorkerObservationService>>,
+    pub(super) access: Option<access::AccessControl>,
+    pub(super) operator_audit: bool,
 }
 impl ConsoleServices {
     pub fn new(
@@ -61,8 +72,34 @@ impl ConsoleServices {
             queries,
             catalog,
             publication: None,
+            access: None,
+            operator_audit: false,
             observations,
         })
+    }
+    /// Enable credential verification for every API route in this fixed instance.
+    /// Exactly one Console origin is required. The executable must also restrict
+    /// its listener to loopback when permitting insecure local Console access.
+    pub fn with_access(
+        mut self,
+        verifier: Arc<dyn CredentialVerifier>,
+        allow_insecure_console: bool,
+    ) -> Result<Self> {
+        self.access = Some(access::AccessControl::new(
+            verifier,
+            &self.instance,
+            allow_insecure_console,
+        )?);
+        Ok(self)
+    }
+    /// Require the complete verified decision and response-audit capability.
+    /// Router composition validates that the workflow service supplies it.
+    pub fn with_operator_audit(mut self) -> Result<Self> {
+        if self.access.is_none() {
+            return Err(invalid("operator audit requires verified access"));
+        }
+        self.operator_audit = true;
+        Ok(self)
     }
     /// Enable immutable artifact uploads for this bound installation.
     pub fn with_publication(mut self, publication: super::publication::PublicationService) -> Self {
@@ -93,45 +130,70 @@ impl ConsoleServices {
         Ok(())
     }
 }
-pub(super) const ROUTES: &[(&str, &str)] = &[
-    ("/v1/console/approvals/inspect", "POST"),
-    ("/v1/console/approvals/list", "POST"),
-    ("/v1/console/approvals/inbox", "POST"),
-    ("/v1/console/approvals/decide", "POST"),
-    ("/v1/console/executions", "GET"),
-    ("/v1/console/executions/ancestry", "GET"),
-    ("/v1/console/workflows/explorer", "GET"),
-    ("/v1/console/workflows/input", "GET"),
-    ("/v1/console/attempts/observations", "GET"),
-    ("/v1/console/programs/catalog", "GET"),
-    ("/v1/console/config", "GET"),
-    ("/v1/console/tasks", "GET, POST"),
-    ("/v1/console/tasks/inspect", "GET"),
-    ("/v1/console/tasks/status", "GET"),
-    ("/v1/console/tasks/result", "GET"),
-    ("/v1/console/tasks/history", "GET"),
-    ("/v1/console/tasks/cancel", "POST"),
-    ("/v1/console/tasks/attempts", "GET"),
-    ("/v1/console/attempts/inspect", "GET"),
-    ("/v1/console/workflows", "GET, POST"),
-    ("/v1/console/workflows/inspect", "GET"),
-    ("/v1/console/workflows/status", "GET"),
-    ("/v1/console/workflows/result", "GET"),
-    ("/v1/console/workflows/cancel", "POST"),
-    ("/v1/console/workflows/events", "POST"),
-    ("/v1/console/workflows/activations", "GET"),
-    ("/v1/console/workflows/children", "GET"),
-    ("/v1/console/workflows/waits", "GET"),
-    ("/v1/console/workflows/history", "GET"),
-    ("/v1/console/workflows/local-steps", "GET"),
-    ("/v1/console/workflows/local-steps/inspect", "GET"),
-    ("/v1/console/programs", "GET"),
-    ("/v1/console/programs/versions", "GET"),
-    ("/v1/console/programs/inspect", "GET"),
-    ("/v1/console/programs/register", "POST"),
-    ("/v1/console/workers", "GET"),
-    ("/v1/console/workers/inspect", "GET"),
-    ("/v1/worker-observations", "POST"),
+pub(super) const ROUTES: &[Route] = &[
+    Route::get("/v1/console/access", Policy::Access),
+    Route::post("/v1/console/access/login", Policy::Login),
+    Route::post("/v1/console/access/logout", Policy::Logout),
+    Route::post("/v1/console/audit/events", Policy::Metadata),
+    Route::post(
+        "/v1/console/workflows/approved-effects/resolve",
+        Policy::EffectResolution,
+    ),
+    Route::post(
+        "/v1/console/workflows/approved-effects/inbox",
+        Policy::Metadata,
+    ),
+    Route::sensitive_post(
+        "/v1/console/workflows/approved-effects/inspect",
+        AuditReadKind::EffectInspect,
+    ),
+    Route::sensitive_post(
+        "/v1/console/approvals/inspect",
+        AuditReadKind::ApprovalInspect,
+    ),
+    Route::sensitive_post("/v1/console/approvals/list", AuditReadKind::ApprovalList),
+    Route::post("/v1/console/approvals/inbox", Policy::Metadata),
+    Route::post("/v1/console/approvals/decide", Policy::Approval),
+    Route::get("/v1/console/executions", Policy::Metadata),
+    Route::get("/v1/console/executions/ancestry", Policy::Metadata),
+    Route::get("/v1/console/workflows/explorer", Policy::Metadata),
+    Route::sensitive_get("/v1/console/workflows/input", AuditReadKind::WorkflowInput),
+    Route::get("/v1/console/attempts/observations", Policy::Metadata),
+    Route::get("/v1/console/programs/catalog", Policy::Metadata),
+    Route::get("/v1/console/config", Policy::Metadata),
+    Route::read_write("/v1/console/tasks", Policy::Metadata, Policy::Submit),
+    Route::sensitive_get("/v1/console/tasks/inspect", AuditReadKind::TaskInspect),
+    Route::get("/v1/console/tasks/status", Policy::Metadata),
+    Route::sensitive_get("/v1/console/tasks/result", AuditReadKind::TaskResult),
+    Route::get("/v1/console/tasks/history", Policy::Metadata),
+    Route::post("/v1/console/tasks/cancel", Policy::Control),
+    Route::get("/v1/console/tasks/attempts", Policy::Metadata),
+    Route::get("/v1/console/attempts/inspect", Policy::Metadata),
+    Route::read_write("/v1/console/workflows", Policy::Metadata, Policy::Submit),
+    Route::get("/v1/console/workflows/inspect", Policy::Metadata),
+    Route::get("/v1/console/workflows/status", Policy::Metadata),
+    Route::sensitive_get(
+        "/v1/console/workflows/result",
+        AuditReadKind::WorkflowResult,
+    ),
+    Route::post("/v1/console/workflows/cancel", Policy::Control),
+    Route::post("/v1/console/workflows/events", Policy::Control),
+    Route::get("/v1/console/workflows/activations", Policy::Metadata),
+    Route::get("/v1/console/workflows/children", Policy::Metadata),
+    Route::get("/v1/console/workflows/waits", Policy::Metadata),
+    Route::get("/v1/console/workflows/history", Policy::Metadata),
+    Route::get("/v1/console/workflows/local-steps", Policy::Metadata),
+    Route::sensitive_get(
+        "/v1/console/workflows/local-steps/inspect",
+        AuditReadKind::LocalStepInspect,
+    ),
+    Route::get("/v1/console/programs", Policy::Metadata),
+    Route::get("/v1/console/programs/versions", Policy::Metadata),
+    Route::get("/v1/console/programs/inspect", Policy::Metadata),
+    Route::post("/v1/console/programs/register", Policy::Publish),
+    Route::get("/v1/console/workers", Policy::Metadata),
+    Route::get("/v1/console/workers/inspect", Policy::Metadata),
+    Route::post("/v1/worker-observations", Policy::Worker),
 ];
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -160,6 +222,7 @@ struct TaskCancellation {
 pub(super) async fn dispatch(
     server: &Server,
     request: Request,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     let console = server.console.as_ref().ok_or(ContractError::NotFound)?;
     let scope = &console.instance.scope;
@@ -252,18 +315,27 @@ pub(super) async fn dispatch(
                     let reply = server.service.result(scope, &id).await?;
                     check_task_identity(&reply.task, scope, &id)?;
                     reply.validate()?;
-                    server
+                    let pending = reply.outcome.is_none();
+                    let bytes = server
                         .encode(ConsoleTaskResult {
                             task: reply.task.into(),
                             outcome: reply.outcome,
                             observed_at: now()?,
                         })
-                        .await
+                        .await?;
+                    if pending {
+                        context.pending_result()?;
+                    } else {
+                        context.sensitive(AuditResource::Task { task_id: id })?;
+                    }
+                    Ok(bytes)
                 }
                 "/v1/console/tasks/inspect" => {
                     let reply = server.service.inspect(scope, &id).await?;
                     check_snapshot(&reply, scope, &id)?;
-                    server.encode(task_detail(reply)?).await
+                    let bytes = server.encode(task_detail(reply)?).await?;
+                    context.sensitive(AuditResource::Task { task_id: id })?;
+                    Ok(bytes)
                 }
                 _ => task_history(server, scope, &id, page).await,
             };
@@ -289,13 +361,20 @@ pub(super) async fn dispatch(
             let reply = service.workflow_result(scope, &id).await?;
             check_workflow(&reply.workflow, scope, &id)?;
             reply.validate()?;
-            return server
+            let pending = reply.outcome.is_none();
+            let bytes = server
                 .encode(ConsoleWorkflowResult {
                     workflow: reply.workflow.into(),
                     outcome: reply.outcome,
                     observed_at: now()?,
                 })
-                .await;
+                .await?;
+            if pending {
+                context.pending_result()?;
+            } else {
+                context.sensitive(AuditResource::Workflow { workflow_id: id })?;
+            }
+            return Ok(bytes);
         }
         if path == "/v1/console/workflows/local-steps/inspect" {
             let lookup = ConsoleLocalStepLookup {
@@ -306,7 +385,13 @@ pub(super) async fn dispatch(
             lookup.validate()?;
             let detail = console.queries.inspect_local_step(&lookup).await?;
             lookup.validate_reply(&detail)?;
-            return server.encode(detail).await;
+            let bytes = server.encode(detail).await?;
+            context.sensitive(AuditResource::LocalStep {
+                workflow_id: lookup.workflow_id,
+                activation_id: lookup.activation_id,
+                step_key: lookup.step_key,
+            })?;
+            return Ok(bytes);
         }
         if path == "/v1/console/workflows/explorer"
             && let Some(approval_key) = fields.get("approval_key")
@@ -390,7 +475,14 @@ pub(super) async fn dispatch(
         return match reply {
             ConsoleQueryReply::Executions(v) => metadata(server, v).await,
             ConsoleQueryReply::Explorer(v) => metadata(server, v).await,
-            ConsoleQueryReply::WorkflowInput(v) => server.encode(v).await,
+            ConsoleQueryReply::WorkflowInput(v) => {
+                let ConsoleQuery::WorkflowInput { workflow_id } = query else {
+                    unreachable!("validated reply")
+                };
+                let bytes = server.encode(v).await?;
+                context.sensitive(AuditResource::Workflow { workflow_id })?;
+                Ok(bytes)
+            }
             ConsoleQueryReply::Ancestry(v) => metadata(server, v).await,
             ConsoleQueryReply::AttemptObservations(v) => metadata(server, v).await,
             ConsoleQueryReply::Tasks(v) => metadata(server, v).await,
@@ -410,7 +502,13 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path.starts_with("/v1/console/approvals/") {
+    let maximum = if path == "/v1/console/workflows/approved-effects/resolve" {
+        EFFECT_RESOLUTION_COMMAND_MAX_BYTES
+    } else if path.starts_with("/v1/console/workflows/approved-effects/") {
+        EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
+    } else if path == "/v1/console/audit/events" {
+        16 * 1024
+    } else if path.starts_with("/v1/console/approvals/") {
         APPROVAL_SNAPSHOT_MAX_BYTES
     } else if path == "/v1/console/workflows/events" {
         WORKFLOW_EVENT_COMMAND_MAX_BYTES
@@ -425,7 +523,16 @@ pub(super) async fn dispatch(
         })?
         .to_vec();
     if path.starts_with("/v1/console/approvals/") {
-        return super::approvals::post(server, path, bytes, Some(scope)).await;
+        return super::approvals::post(server, path, bytes, Some(scope), context).await;
+    }
+    if path == "/v1/console/audit/events" {
+        return audit::query(server, bytes, Some(scope), context).await;
+    }
+    if path == "/v1/console/workflows/approved-effects/resolve" {
+        return super::effect_resolution::post(server, bytes, Some(scope), context).await;
+    }
+    if path.starts_with("/v1/console/workflows/approved-effects/") {
+        return super::evidence::post(server, path, bytes, Some(scope), context).await;
     }
     match path {
         "/v1/console/tasks" | "/v1/console/workflows" => {
@@ -539,6 +646,7 @@ pub(super) async fn dispatch(
         "/v1/worker-observations" => {
             let command: WorkerObservationCommand = server.decode(bytes, maximum).await?;
             command.validate()?;
+            server.require_scope(&command.scope)?;
             let reply = console
                 .observations
                 .as_ref()
@@ -799,10 +907,14 @@ fn require_catalog_scope(fields: &BTreeMap<String, String>, scope: &Scope) -> Re
     }
 }
 
-fn check_snapshot(reply: &TaskSnapshot, scope: &Scope, id: &str) -> Result<()> {
+pub(super) fn check_snapshot(reply: &TaskSnapshot, scope: &Scope, id: &str) -> Result<()> {
     if reply.scope() != *scope
         || reply.task_id != id
         || reply.descriptor.program != reply.input.program
+        || reply
+            .provider_probe
+            .as_ref()
+            .is_some_and(|probe| &probe.occurrence.scope != scope)
     {
         return Err(unavailable("inconsistent task snapshot identity"));
     }
@@ -821,7 +933,9 @@ fn check_workflow(reply: &WorkflowSnapshot, scope: &Scope, id: &str) -> Result<(
     }
     reply.validate()
 }
-fn check_content_type(headers: &axum::http::HeaderMap) -> std::result::Result<(), Failure> {
+pub(super) fn check_content_type(
+    headers: &axum::http::HeaderMap,
+) -> std::result::Result<(), Failure> {
     if headers.get_all(header::CONTENT_TYPE).iter().count() != 1
         || !headers
             .get(header::CONTENT_TYPE)

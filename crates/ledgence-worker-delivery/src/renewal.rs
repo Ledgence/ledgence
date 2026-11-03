@@ -461,6 +461,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            provider_probe: None,
             workflow_activation_id: None,
             descriptor: ProgramDescriptor {
                 program: ProgramRef {
@@ -506,6 +507,7 @@ mod tests {
         config.retry_delay = Duration::from_millis(1);
         let context = Arc::new(Context {
             workflows: None,
+            effect_access: None,
             worker,
             source: Arc::new(source::ServiceAcquisitionSource {
                 service: service.clone(),

@@ -15,12 +15,128 @@ type ForkRequest = (
     oneshot::Sender<Result<WorkflowForkReceipt>>,
 );
 
+type EffectClaim = (
+    ApprovedEffectClaimCommand,
+    oneshot::Sender<Result<ApprovedEffectClaimReceipt>>,
+);
+
+type EffectConfirm = (
+    ApprovedEffectConfirmCommand,
+    oneshot::Sender<Result<ApprovedEffectConfirmReceipt>>,
+);
+type EffectClaimV2 = (
+    EffectClaimV2Command,
+    oneshot::Sender<Result<EffectClaimV2Receipt>>,
+);
+type EffectConfirmV2 = (
+    EffectConfirmV2Command,
+    oneshot::Sender<Result<EffectConfirmV2Receipt>>,
+);
+
 struct Mock {
+    provider_claims: Option<
+        mpsc::UnboundedSender<(
+            ProviderClaimCommand,
+            oneshot::Sender<Result<ProviderClaimReceipt>>,
+        )>,
+    >,
+    provider_reports: Option<
+        mpsc::UnboundedSender<(
+            ProviderDispatchReportCommand,
+            oneshot::Sender<Result<ProviderReportReply>>,
+        )>,
+    >,
     contexts: mpsc::UnboundedSender<ContextRequest>,
     commits: mpsc::UnboundedSender<CommitRequest>,
     forks: Option<mpsc::UnboundedSender<ForkRequest>>,
+    effect_claims: Option<mpsc::UnboundedSender<EffectClaim>>,
+    effect_confirms: Option<mpsc::UnboundedSender<EffectConfirm>>,
+    claims_v2: Option<mpsc::UnboundedSender<EffectClaimV2>>,
+    confirms_v2: Option<mpsc::UnboundedSender<EffectConfirmV2>>,
 }
+impl EffectEvidenceClient for Mock {
+    fn claim_v2<'a>(
+        &'a self,
+        command: &'a EffectClaimV2Command,
+    ) -> ContractFuture<'a, EffectClaimV2Receipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.claims_v2
+                .as_ref()
+                .expect("unexpected v2 claim")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
+    fn confirm_v2<'a>(
+        &'a self,
+        command: &'a EffectConfirmV2Command,
+    ) -> ContractFuture<'a, EffectConfirmV2Receipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.confirms_v2
+                .as_ref()
+                .expect("unexpected v2 confirm")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
+    fn observe<'a>(
+        &'a self,
+        _: &'a EffectObservationCommand,
+    ) -> ContractFuture<'a, EffectObservationReceipt> {
+        unreachable!("managed runtime cannot send independent late observations")
+    }
+}
+impl ApprovedEffects for Mock {
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.effect_confirms
+                .as_ref()
+                .expect("unexpected approved effect confirmation")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.effect_claims
+                .as_ref()
+                .expect("unexpected approved effect claim")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
+}
+
 impl WorkflowService for Mock {
+    fn provider_operation_client(&self) -> Result<&dyn ProviderOperationClient> {
+        Ok(self)
+    }
+    fn effect_evidence_client(&self) -> Result<&dyn EffectEvidenceClient> {
+        Ok(self)
+    }
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        if self.effect_claims.is_none() && self.effect_confirms.is_none() {
+            return Err(ContractError::InvalidInput(
+                "protected effects unsupported".into(),
+            ));
+        }
+        Ok(self)
+    }
+
     fn fork_workflow<'a>(
         &'a self,
         command: &'a WorkflowForkCommand,
@@ -95,9 +211,15 @@ fn fixture() -> (
     let (commits, commit_requests) = mpsc::unbounded_channel();
     (
         Arc::new(Mock {
+            provider_claims: None,
+            provider_reports: None,
             contexts,
             commits,
             forks: None,
+            effect_claims: None,
+            effect_confirms: None,
+            claims_v2: None,
+            confirms_v2: None,
         }),
         context_requests,
         commit_requests,
@@ -149,12 +271,21 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
     let config = config();
     WorkflowOperations {
         service,
+        effect_access: None,
         owner: owner(),
+        workflow_id: context().workflow_id,
         processing_trace: None,
         request_timeout: config.request_timeout,
         retry_delay: config.retry_delay,
     }
 }
+
+#[path = "approved_effect_tests.rs"]
+mod approved_effect;
+#[path = "evidence_tests.rs"]
+mod evidence;
+#[path = "provider_tests.rs"]
+mod provider;
 
 #[path = "fork_tests.rs"]
 mod forks;
@@ -198,6 +329,97 @@ async fn wrong_workflow_activation_or_context_version_is_rejected_before_runtime
             ErrorKind::Protocol
         );
         assert!(commits.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
+async fn typed_wake_scope_must_match_the_acquired_owner_before_runtime_use() {
+    for provider in [false, true] {
+        for changed in ["none", "tenant", "namespace"] {
+            let mut wake_scope = owner().scope;
+            match changed {
+                "tenant" => wake_scope.tenant_id = "foreign".into(),
+                "namespace" => wake_scope.namespace = "foreign".into(),
+                _ => {}
+            }
+            let mut value = context();
+            let mut wake = json!({
+                "kind": if provider { "provider_operation" } else { "effect_resolution" },
+                "key": "wait",
+                "occurrence": {
+                    "scope": wake_scope,
+                    "workflow_id": value.workflow_id,
+                    "activation_id": "effect_origin",
+                    "approval_key": "approval"
+                },
+                "parking_activation_id": "parked",
+                "parking_revision": 2,
+                "resumed_activation_id": value.activation_id,
+                "resumed_revision": 3,
+                "selected_at": 20,
+                "selected_effect_revision": 2
+            });
+            if provider {
+                wake["selection"] = json!({
+                    "kind": "provider_succeeded",
+                    "report_ref": {
+                        "report_id": "report",
+                        "source_id": "source",
+                        "sequence": 1,
+                        "recorded_revision": 2,
+                        "recorded_at": 10,
+                        "knowledge": "succeeded"
+                    },
+                    "result": {"private_result": "foreign_scope_payload"}
+                });
+            } else {
+                wake["resolution_id"] = json!("resolution");
+                wake["accepted_at"] = json!(10);
+                wake["accepted_revision"] = json!(2);
+                wake["basis_revision"] = json!(1);
+                wake["outcome"] = json!({
+                    "kind": "recorded_success",
+                    "result": {"private_result": "foreign_scope_payload"}
+                });
+            }
+            value.wake = Some(serde_json::from_value(wake).unwrap());
+            value.validate().unwrap();
+            let expected = value.clone();
+            let (service, mut contexts, mut commits) = fixture();
+            let pending = tokio::spawn(async move {
+                fetch_context(
+                    service.as_ref(),
+                    &owner(),
+                    "workflow",
+                    None,
+                    None,
+                    &config(),
+                    &RunControl::new(Duration::from_secs(1)),
+                )
+                .await
+            });
+            let (received, reply) = bounded(contexts.recv()).await.unwrap();
+            assert_eq!(received, owner());
+            reply.send(Ok(value)).unwrap();
+            let actual = bounded(pending).await.unwrap();
+            if changed == "none" {
+                assert_eq!(
+                    serde_json::to_value(actual.unwrap()).unwrap(),
+                    serde_json::to_value(expected).unwrap()
+                );
+            } else {
+                assert_eq!(
+                    actual.unwrap_err().kind,
+                    ErrorKind::Protocol,
+                    "provider={provider}, {changed}"
+                );
+            }
+            assert!(
+                contexts.try_recv().is_err(),
+                "no context retry after a bad reply"
+            );
+            assert!(commits.try_recv().is_err());
+        }
     }
 }
 

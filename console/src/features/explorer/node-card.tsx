@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { Handle, Position } from "@xyflow/react";
 import {
-  ArrowRight,
   Box,
-  Check,
-  Circle,
   Clock3,
   Code2,
   GitFork,
@@ -13,22 +10,10 @@ import {
   Radio,
   ShieldCheck,
   Workflow,
-  X,
 } from "lucide-react";
+import { statusAppearance } from "../../components/status-appearance";
 import type { ExplorerNode } from "../../api/explorer";
 import { micros, nodeLabel, nodeStatus, nodeType } from "../explorer-model";
-
-function statusAppearance(status: string) {
-  if (["succeeded", "accepted", "returned", "replayed"].includes(status))
-    return { Icon: Check, tone: "success" };
-  if (["failed", "failing", "decision rejected"].includes(status))
-    return { Icon: X, tone: "failure" };
-  if (["running", "active", "waiting", "wait registered"].includes(status))
-    return { Icon: Clock3, tone: "waiting" };
-  if (status.includes("scheduled"))
-    return { Icon: ArrowRight, tone: "neutral" };
-  return { Icon: Circle, tone: "neutral" };
-}
 
 function recordedDuration(node: ExplorerNode) {
   if (node.kind === "local" && node.observation)
@@ -65,7 +50,11 @@ export function WorkCard({ node }: { node: ExplorerNode }) {
   const { Icon: StatusIcon, tone } = statusAppearance(status);
   const gate = node.kind === "fork" || node.kind === "child_wait";
   const compact =
-    gate || node.kind === "entrypoint" || node.kind === "external_wait";
+    gate ||
+    node.kind === "entrypoint" ||
+    node.kind === "external_wait" ||
+    node.kind === "native_effect_wait" ||
+    node.kind === "provider_wait";
   const Icon =
     node.kind === "entrypoint"
       ? LogIn
@@ -79,11 +68,14 @@ export function WorkCard({ node }: { node: ExplorerNode }) {
               : node.wait_kind === "approval"
                 ? ShieldCheck
                 : Clock3
-            : node.kind === "local"
-              ? Code2
-              : node.execution.kind === "workflow"
-                ? Workflow
-                : Box;
+            : node.kind === "native_effect_wait" ||
+                node.kind === "provider_wait"
+              ? ShieldCheck
+              : node.kind === "local"
+                ? Code2
+                : node.execution.kind === "workflow"
+                  ? Workflow
+                  : Box;
   const duration = recordedDuration(node);
   const count =
     node.kind === "fork"

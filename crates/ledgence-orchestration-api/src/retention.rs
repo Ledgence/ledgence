@@ -58,6 +58,9 @@ pub struct RetentionPreview {
     pub retiring_tasks: Vec<String>,
     pub retiring_workflows: Vec<String>,
     pub expired_session_candidates: Vec<String>,
+    /// Payload-free response observations; decision acceptance events are retained.
+    #[serde(default)]
+    pub audit_observation_candidates: Vec<String>,
 }
 
 pub trait RetentionStore: Send + Sync {

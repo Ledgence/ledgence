@@ -1,7 +1,8 @@
+import { Permission } from "../app/permission";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Package, Plus } from "lucide-react";
+import { ArrowRight, Layers, Package, Plus } from "lucide-react";
 import { useInstance } from "../app/instance";
 import { usePagination, useResource } from "../api/hooks";
 import { freezeCommand, useCommand } from "../api/commands";
@@ -32,6 +33,8 @@ import {
   DialogTrigger,
 } from "../components/ui/dialog";
 
+import "../styles/lists.css";
+
 const validReference = (value: string) =>
   /^[a-z0-9._-]{1,128}$/.test(value) && value !== "." && value !== "..";
 const versionPath = (id: string, version: string) =>
@@ -59,131 +62,155 @@ export function AgentsPage() {
       <PageHeading
         title="Programs"
         description="Your registered tasks and workflows, ready to run."
-        actions={config.capabilities.programs && <RegisterProgram />}
+        actions={
+          config.capabilities.programs && (
+            <Permission capability="program_publish">
+              <RegisterProgram />
+            </Permission>
+          )
+        }
       />
-      <nav className="tabs" aria-label="Program type">
-        {[
-          ["", "All"],
-          ["task", "Tasks"],
-          ["workflow", "Workflows"],
-          ["unspecified", "Unspecified"],
-        ].map(([kind, label]) => (
-          <Button
-            key={kind}
-            variant="ghost"
-            aria-pressed={(params.get("kind") ?? "") === kind}
-            onClick={() => {
-              const next = new URLSearchParams(params);
-              if (kind) next.set("kind", kind);
-              else next.delete("kind");
-              next.delete("cursor");
-              setParams(next);
-            }}
-          >
-            {label}
-          </Button>
-        ))}
-      </nav>
-      <p className="muted list-caption">
-        Filter by the type of any registered version.
-      </p>
-      {!config.capabilities.programs ? (
-        <Empty>The program catalog is unavailable on this server.</Empty>
-      ) : (
-        <>
-          {query.isPending && (
-            <LoadingState label="Loading registered programs" />
-          )}
-          {query.error && (
-            <QueryError
-              error={query.error}
-              retry={() => void query.refetch()}
-              stale={!!query.data}
-            />
-          )}
-          {query.data && (
-            <>
-              {query.data.items.length ? (
-                <div className="card-grid program-grid">
-                  {query.data.items.map(({ program: item, kinds }) => (
-                    <article
-                      className="card program-card"
-                      key={item.program_id}
-                    >
-                      <div className="summary-line">
-                        <Package aria-hidden="true" />
-                        <Status
-                          value={
-                            kinds.includes("task") && kinds.includes("workflow")
-                              ? "mixed"
-                              : (kinds.filter(
-                                  (kind) => kind !== "unspecified",
-                                )[0] ?? "unspecified")
-                          }
-                        />
-                        {kinds.includes("unspecified") && kinds.length > 1 && (
-                          <span className="muted">
-                            Some versions unspecified
-                          </span>
-                        )}
-                      </div>
-                      <h2>
-                        <Link
-                          to={`/programs/${encodeURIComponent(item.program_id)}`}
-                        >
-                          {item.metadata.display_name ?? item.program_id}
-                        </Link>
-                      </h2>
-                      {item.metadata.display_name && (
-                        <p className="muted wrap">{item.program_id}</p>
-                      )}
-                      {item.metadata.description && (
-                        <p className="wrap">{item.metadata.description}</p>
-                      )}
-                      <p>
-                        {item.registered_versions} registered{" "}
-                        {item.registered_versions === "1"
-                          ? "version"
-                          : "versions"}
-                      </p>
-                      <p className="muted">
-                        Last registration{" "}
-                        <When value={item.last_registered_at} />
-                      </p>
-                      <div className="program-card-actions">
-                        <Link
-                          to={`/programs/${encodeURIComponent(item.program_id)}`}
-                        >
-                          View versions <ArrowRight aria-hidden="true" />
-                        </Link>
-                        <Link to={programHistory(item.program_id)}>
-                          View executions
-                        </Link>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <section className="empty-state">
-                  <h2>No registered programs</h2>
-                  <p>
-                    Publish a package to the configured program store, then
-                    register its exact program ID and version here. Existing
-                    executions can still use unregistered programs.
-                  </p>
-                </section>
-              )}
-              <PageControls
-                pagination={pagination}
-                nextCursor={query.data.next_cursor}
-                observedAt={query.data.observed_at}
-                refresh={() => void query.refetch()}
-                fetching={query.isFetching}
+      <section className="resource-list">
+        <header className="resource-list-heading">
+          <Layers aria-hidden="true" />
+          <div>
+            <h2>Program registry</h2>
+            <p>Filter by the type of any registered version.</p>
+          </div>
+        </header>
+        <nav className="registry-kinds" aria-label="Program type">
+          {[
+            ["", "All"],
+            ["task", "Tasks"],
+            ["workflow", "Workflows"],
+            ["unspecified", "Unspecified"],
+          ].map(([kind, label]) => (
+            <Button
+              key={kind}
+              variant="ghost"
+              aria-pressed={(params.get("kind") ?? "") === kind}
+              onClick={() => {
+                const next = new URLSearchParams(params);
+                if (kind) next.set("kind", kind);
+                else next.delete("kind");
+                next.delete("cursor");
+                setParams(next);
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </nav>
+
+        {!config.capabilities.programs ? (
+          <Empty>The program catalog is unavailable on this server.</Empty>
+        ) : (
+          <>
+            {query.isPending && (
+              <LoadingState label="Loading registered programs" />
+            )}
+            {query.error && (
+              <QueryError
+                error={query.error}
+                retry={() => void query.refetch()}
+                stale={!!query.data}
               />
-            </>
-          )}
-        </>
-      )}
+            )}
+            {query.data && (
+              <>
+                {query.data.items.length ? (
+                  <div className="registry-entries">
+                    {query.data.items.map(({ program: item, kinds }) => (
+                      <article className="registry-entry" key={item.program_id}>
+                        <div className="registry-identity">
+                          <div className="resource-icon">
+                            <Package aria-hidden="true" />
+                          </div>
+                          <div>
+                            <h3>
+                              <Link
+                                to={`/programs/${encodeURIComponent(item.program_id)}`}
+                              >
+                                {item.metadata.display_name ?? item.program_id}
+                              </Link>
+                            </h3>
+                            {item.metadata.display_name &&
+                              item.metadata.display_name !==
+                                item.program_id && (
+                                <p className="resource-id">{item.program_id}</p>
+                              )}
+                            {item.metadata.description && (
+                              <p className="registry-description">
+                                {item.metadata.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="registry-meta">
+                          <Status
+                            value={
+                              kinds.includes("task") &&
+                              kinds.includes("workflow")
+                                ? "mixed"
+                                : (kinds.find(
+                                    (kind) => kind !== "unspecified",
+                                  ) ?? "unspecified")
+                            }
+                          />
+                          {kinds.includes("unspecified") &&
+                            kinds.length > 1 && (
+                              <span>Some versions unspecified</span>
+                            )}
+                          <span>
+                            {item.registered_versions} registered{" "}
+                            {item.registered_versions === "1"
+                              ? "version"
+                              : "versions"}
+                          </span>
+                        </div>
+                        <div className="registry-registered">
+                          <span>Last registration</span>
+                          <When value={item.last_registered_at} />
+                        </div>
+                        <div className="registry-actions">
+                          <Link
+                            to={`/programs/${encodeURIComponent(item.program_id)}`}
+                          >
+                            View versions <ArrowRight aria-hidden="true" />
+                          </Link>
+                          <Link to={programHistory(item.program_id)}>
+                            View executions
+                          </Link>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <section className="empty-state">
+                    <h3>
+                      {params.has("kind")
+                        ? "No matching programs"
+                        : "No registered programs"}
+                    </h3>
+                    <p>
+                      {params.has("kind")
+                        ? "Select All to see the rest of the registry."
+                        : "Publish a package to the configured program store, then register its exact program ID and version here. Existing executions can still use unregistered programs."}
+                    </p>
+                  </section>
+                )}
+                <PageControls
+                  pagination={pagination}
+                  nextCursor={query.data.next_cursor}
+                  observedAt={query.data.observed_at}
+                  refresh={() => void query.refetch()}
+                  fetching={query.isFetching}
+                />
+              </>
+            )}
+          </>
+        )}
+      </section>
     </>
   );
 }
@@ -222,7 +249,9 @@ export function AgentDetailPage() {
         actions={
           valid &&
           config.capabilities.programs && (
-            <RegisterProgram key={programId} programId={programId} />
+            <Permission capability="program_publish">
+              <RegisterProgram key={programId} programId={programId} />
+            </Permission>
           )
         }
       />
@@ -364,12 +393,14 @@ export function ProgramVersionPage() {
         }
         actions={
           canUse && (
-            <Link
-              className="button button-primary"
-              to={`/executions/new?program=${encodeURIComponent(programId)}&version=${encodeURIComponent(version)}`}
-            >
-              Use in an execution
-            </Link>
+            <Permission capability="execution_submit">
+              <Link
+                className="button button-primary"
+                to={`/executions/new?program=${encodeURIComponent(programId)}&version=${encodeURIComponent(version)}`}
+              >
+                Use in an execution
+              </Link>
+            </Permission>
           )
         }
       />
@@ -464,11 +495,13 @@ export function ProgramVersionPage() {
                 >
                   Refresh
                 </Button>
-                <RegisterProgram
-                  key={JSON.stringify([programId, version])}
-                  programId={programId}
-                  version={version}
-                />
+                <Permission capability="program_publish">
+                  <RegisterProgram
+                    key={JSON.stringify([programId, version])}
+                    programId={programId}
+                    version={version}
+                  />
+                </Permission>
               </div>
             </section>
           )}

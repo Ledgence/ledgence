@@ -88,7 +88,8 @@ class CompanionSdkTests(unittest.TestCase):
         self.ticket = Path(self.temp.name) / "ticket.json"
         self.ticket.write_text(json.dumps({"ticket_id": "SUP-1042", "question": "¿Cómo recupero el resultado?"}))
 
-        def create(base_url):
+        def create(base_url, token=None):
+            self.assertIsNone(token, "the example must use its explicit operator-trusted setup")
             transport = StubTransport(self, base_url)
             self.transports.append(transport)
             return transport

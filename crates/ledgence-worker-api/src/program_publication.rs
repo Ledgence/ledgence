@@ -5,6 +5,8 @@ use std::{fmt, future::Future, pin::Pin};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum PublicationErrorKind {
+    Unauthenticated,
+    Forbidden,
     #[serde(rename = "publication_disabled")]
     Disabled,
     #[serde(rename = "invalid_artifact")]

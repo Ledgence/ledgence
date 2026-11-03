@@ -45,8 +45,9 @@ Host configuration formats vary; the executable and arguments above are the
 integration contract. Add `--read-only` to omit mutation tools and reject direct
 attempts to call them. Scope and API URL are fixed at startup; tool arguments
 cannot select another tenant, namespace or server. Scope is a constraint, not an
-authentication mechanism. The existing operator-trusted deployment boundary
-still applies.
+authentication mechanism. Published 0.7.0 uses the operator-trusted deployment
+boundary. Development clients can use [instance credentials](instance-access.md)
+with a service-specific `--credentials-file`.
 
 Use the binding from the orchestrator's instance file. The local Compose stack
 uses `acme/demo`; a new instance that omits `scope` uses `default/default`. Replace
@@ -76,6 +77,11 @@ those hints do not replace application authorization.
 | `ledgence_workflow_send_event` | Deliver an original CloudEvent to an application wait key. |
 | `ledgence_approval_inbox` | Discover approval summaries within the server's configured scope. Defaults to pending. Optional `due_before` selects deadlines strictly earlier than the supplied UTC epoch millisecond. Use the returned workflow ID and key with approval inspection. |
 | `ledgence_approval_list`, `ledgence_approval_inspect` | Read persisted requests and their exact effective action. |
+
+Development builds preserve the optional `protection: "external_effect"`
+field when listing or inspecting typed approval requests. It identifies the
+required execution helper. Use matching development components for these
+requests. The operator's application boundary still controls approval access.
 
 Program discovery reads the existing installation catalog. Configure the
 orchestrator's `--instance-config` and register packages with
@@ -182,3 +188,124 @@ server; [Prefect](https://github.com/PrefectHQ/prefect-mcp-server) provides a
 separate MCP integration. Ledgence reuses its existing service semantics rather
 than creating a second orchestration authority. See [dependency review](dependencies.md#optional-mcp-server)
 for the selected SDK and license material.
+
+## Credential access in development
+
+Matching development components support optional installation credentials across
+API operations, workers and Console. Configure the authority, client credential
+files and capabilities using the [instance access guide](instance-access.md).
+The existing operator-trusted mode requires its deployment access boundary.
+Verified ingress identity and durable approval attribution have separate scope.
+
+
+## Operator audit in development
+
+Matching development components expose `ledgence_audit_query` in read-only and
+ordinary MCP mode. It accepts an optional typed `filter` (`all`, `resource` or
+`approval_acceptance`), `cursor` and `limit`, with scope fixed by the server.
+Exact acceptance requires the complete occurrence, `limit=2` and no cursor.
+Native credential mode and `metadata_read` authorize the metadata feed.
+A shared MCP credential records the service identity. The tool's errors remain
+distinct from a successful empty page. The portable adapter's audit tool is
+available when its `AuditReader` port is configured. [Audit contract](operator-audit.md).
+
+## Retained effect tools in development
+
+Matching development components add two read-only tools, bringing the native
+catalog with audit configured to 19 tools. These additions are not in published
+0.7.0. Both are available with `--read-only`; the startup scope and credential
+remain fixed. Tool arguments cannot override scope, identity or credentials.
+
+| Tool | Arguments and access |
+| --- | --- |
+| `ledgence_effect_inbox` | Optional `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`, `disputed`; default `all`), `workflow_id`, `cursor`, and `limit` (1–100; default 50). Metadata only; requires `metadata_read` in credential mode and is also available in trusted mode. |
+| `ledgence_effect_inspect` | Required `workflow_id`, `activation_id`, `approval_key`; optional `cursor` and `limit` (1–4; default 4). Uses the original effect activation from the inbox. Requires credential mode, `sensitive_read` and a successful durable audit observation before returning sensitive evidence. |
+
+The underlying HTTP response is limited to 1 MiB and contains whole entries.
+Follow `next_cursor` with the same identity or filters even if a page is short;
+a short page may have reached the byte budget. No polling or retry happens
+inside either tool. Denied or unavailable reads remain errors, not historical
+absence. Effect records remain readable after execution collection.
+
+The detail separates immutable approval binding, journal state, claim provenance
+and reported observations. Authenticated worker attribution does not verify the
+external provider's outcome. Legacy sources remain unattributed. These tools
+cannot approve, resolve or dispatch an action. See the [effect evidence
+contract](effect-evidence.md) for retention and evidence interpretation.
+
+
+## Operator effect resolution in development
+
+Enable the mutation tool explicitly when starting the native server:
+
+```sh
+ledgence mcp serve --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file resolver.json \
+  --allow-effect-resolution
+```
+
+`--read-only` and `--allow-effect-resolution` cannot be combined. Matching development
+builds expose 19 tools by default with audit configured, 14 in read-only mode, or
+20 with resolution enabled. Published 0.7.0 does not include these effect tools.
+The added `ledgence_effect_resolve` also requires the credential's dedicated
+`effect_resolve` capability. Fixed scope and credentials cannot be supplied or
+overridden through tool arguments. Worker credentials cannot resolve effects.
+
+Arguments are `workflow_id`, original `activation_id`, `approval_key`, stable
+`resolution_id`, `expected_effect_revision`, `supersedes_resolution_id` (explicit
+null for the first assessment), the reviewed `action`, `assessment`, mandatory
+`reason` and ordered `evidence_references`. Assessment variants are
+`{"kind":"record_success","result":...}`,
+`{"kind":"record_failure","failure":{"kind":"...","message":"..."}}`, or
+`{"kind":"close_unknown"}`. Success/failure require at least one reference;
+closing unknown may use an empty list. Limits: result 128 KiB, full command 256 KiB,
+reason 4096 UTF-8 bytes, and at most eight references of 1024 UTF-8 bytes each.
+
+The input revision must be a **canonical decimal string**, for example `"42"`.
+All effect-tool platform revision, sequence and count values, including program
+size, are decimal strings in outputs and declared in output schemas. Timestamps
+remain JSON numbers. Application arguments, reported outputs and assessment
+results remain unchanged JSON. Never convert platform counters through JavaScript
+floating-point numbers.
+
+The server records an append-only operator assessment and returns a metadata
+receipt with `acceptance_event_id`. It never dispatches work or proves provider
+truth or workflow resumption. `sensitive_read` is independently needed to inspect
+evidence. Keep the complete original arguments and stable actor after an
+`outcome_unknown` error; no automatic retry occurs. An identical retry returns the
+original receipt, including after supersession or collection. Changed arguments
+or actor conflict. For opaque evidence, `disputed` filters current success-assessment conflict;
+`discrepant` remains historical disagreement. Cancelled executions stay closed.
+
+Use `ledgence_audit_query` with `filter={"kind":"event","event_id":"..."}`,
+`limit=2` and no cursor to inspect a receipt's exact scoped audit event. A successful
+empty response means absence; denied or unavailable reads remain errors.
+
+## Typed provider evidence in development
+
+The existing `ledgence_effect_inbox` accepts optional `provider_filter`:
+`all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled` or `disputed`.
+It requires the ordinary `filter` to be `all` or omitted. Omission preserves the
+mixed effect inbox; cursors cannot cross provider selections.
+Provider `needs_review` excludes a historical dispute covered by the current
+clean assessment; provider `disputed` still exposes that history. Typed provider
+evidence can also dispute a recorded failure, without changing the resolve input.
+`ledgence_effect_inspect` exposes the same original occurrence, full approved
+provider binding, current typed report and whole-entry timeline as HTTP.
+The tool catalog is unchanged: 19 native tools by default, 14 read-only tools,
+and 20 when effect resolution is explicitly enabled. No MCP approval mutation
+or automatic provider dispatch is introduced.
+
+All platform u64 counters, revisions, sequences, probe generations and pinned
+program sizes are canonical decimal strings in MCP results. Timestamps and u32
+check budgets remain JSON numbers; application arguments and results retain
+their original JSON types. In a task read, `provider_probe` marks a managed
+provider check; it does not change the task kind or imply business success.
+
+Provider knowledge, reconciliation schedule, operator handling and the immutable
+selected workflow wake describe different facts. A lost reply, missing lookup
+result or expired provider key never grants another POST. Existing permissions,
+startup-bound scope, sensitive-read audit and explicit `--allow-effect-resolution`
+apply unchanged. These additions require matching development components and
+are not in published 0.7.0.
+[Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).

@@ -12,7 +12,7 @@ import aiohttp
 
 from . import codec, otel
 from .errors import (
-    ClientClosed, Conflict, InputError, NotFound, ProtocolError, RequestTimeout,
+    ClientClosed, Conflict, Forbidden, InputError, NotFound, ProtocolError, RequestTimeout, Unauthenticated,
     ServiceError, TransportError, Unavailable,
 )
 
@@ -80,7 +80,7 @@ def _decode_response(raw: bytes, status: int, request_id: str | None,
             "invalid_input": {400, 413, 415}, "not_found": {404}, "unknown_session": {404},
             "conflict": {409}, "ownership_lost": {409}, "obsolete_operation": {409},
             "out_of_order": {409}, "busy": {409}, "session_expired": {410},
-            "unavailable": {503},
+            "unavailable": {503}, "unauthenticated": {401}, "forbidden": {403},
         }
         if type(code) is not str or status not in statuses.get(code, set()):
             raise ProtocolError("unknown or mismatched HTTP error response")
@@ -92,7 +92,8 @@ def _decode_response(raw: bytes, status: int, request_id: str | None,
             raise ProtocolError("unexpected HTTP error message")
         if code == "unavailable":
             raise Unavailable("service unavailable", request_id=request_id)
-        error_class = NotFound if code == "not_found" else Conflict if code == "conflict" else ServiceError
+        error_class = {"not_found": NotFound, "conflict": Conflict,
+                       "unauthenticated": Unauthenticated, "forbidden": Forbidden}.get(code, ServiceError)
         raise error_class(message or code, code=code, request_id=request_id)
     except InputError as exc:
         raise ProtocolError("invalid response fields", request_id=request_id) from exc
@@ -102,8 +103,9 @@ def _decode_response(raw: bytes, status: int, request_id: str | None,
 
 
 class _Transport:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, token: str | None = None):
         self.base_url = base_url
+        self._token = token
         self._loop = asyncio.get_running_loop()
         self._slots = asyncio.Semaphore(_MAX_EXCHANGES)
         self._codec = _CodecJobs()
@@ -162,6 +164,8 @@ class _Transport:
                     with otel._exchange(method, operation, deadline=deadline) as (carrier, span):
                         headers = {"Accept": "application/json", "Accept-Encoding": "identity",
                                    **carrier}
+                        if self._token is not None:
+                            headers["Authorization"] = "Bearer " + self._token
                         if body is not None:
                             headers["Content-Type"] = "application/json"
                         if self._loop.time() >= deadline:
@@ -216,7 +220,7 @@ class _Transport:
             exc.request_id = request_id
             raise
         except (aiohttp.ClientError, OSError) as exc:
-            raise TransportError("HTTP exchange failed", request_id=request_id) from exc
+            raise TransportError("HTTP exchange failed", request_id=request_id) from None
 
     async def close(self):
         if self._close_task is None:

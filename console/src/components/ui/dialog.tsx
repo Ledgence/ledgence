@@ -1,4 +1,5 @@
 // Adapted from shadcn/ui; see third_party/shadcn/provenance.json (MIT).
+import { useAccess } from "../../app/access-session";
 import type { ComponentProps } from "react";
 import * as Primitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
@@ -16,6 +17,8 @@ export function DialogContent({
   className = "",
   ...props
 }: ComponentProps<typeof Primitive.Content>) {
+  const access = useAccess();
+  if (access.enabled && access.phase !== "ready") return null;
   return (
     <Primitive.Portal>
       <Primitive.Overlay className="dialog-overlay" />

@@ -139,7 +139,13 @@ export async function doubledLayout(page: Page) {
   });
   const scaled = await heading.boundingBox();
   expect((scaled?.height ?? 0) / (original?.height ?? 1)).toBeCloseTo(2, 1);
-  for (const title of ["Executions", "Programs", "Approvals", "Workers"]) {
+  for (const title of [
+    "Executions",
+    "Programs",
+    "Approvals",
+    "Effects",
+    "Workers",
+  ]) {
     await page.getByRole("link", { name: title, exact: true }).click();
     const pageHeading = page.getByRole("heading", { name: title, exact: true });
     await expect(pageHeading).toBeVisible();

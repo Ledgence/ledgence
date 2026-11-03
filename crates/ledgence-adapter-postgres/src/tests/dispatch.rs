@@ -78,6 +78,7 @@ async fn make_due(store: &PostgresStore) {
 }
 fn failed(assignment: &Assignment) -> SettleCommand {
     SettleCommand {
+        provider_probe_failure: None,
         owner: assignment.lease.owner.clone(),
         operation_id: "retry_failure".into(),
         report: AttemptReport::Failed(ExecutionFailure {

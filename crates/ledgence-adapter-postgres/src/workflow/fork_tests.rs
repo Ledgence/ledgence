@@ -96,7 +96,7 @@ async fn historical_workflow_fixture(store: &PostgresStore) -> WorkflowSnapshot 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn fork_migration_preserves_existing_activation_and_local_receipts() {
-    let db = TestDb::without_migrations().await;
+    let mut db = TestDb::without_migrations().await;
     let previous = sqlx::migrate::Migrator::with_migrations(
         MIGRATOR
             .iter()
@@ -108,6 +108,7 @@ async fn fork_migration_preserves_existing_activation_and_local_receipts() {
         .migrate_with_migrator(MigrationOptions::default(), &previous)
         .await
         .unwrap();
+    db.begin_legacy_workflow_seed().await;
     let parent = historical_workflow_fixture(&db.store).await;
     let controller = acquire(&db.store, "python").await;
     dispatched(&db.store, &controller).await;
@@ -120,7 +121,14 @@ async fn fork_migration_preserves_existing_activation_and_local_receipts() {
         .activation_context(&controller.lease.owner)
         .await
         .unwrap();
+    db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
+    // Deployment stops old API/worker pools before migration. Reconnect here too:
+    // the historical SELECT * cache describes the old workflow_runs row type.
+    db.store.close().await;
+    db.store = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
     db.store.verify_schema().await.unwrap();
     assert_json_eq!(
         db.store
@@ -497,7 +505,10 @@ async fn fork_lost_ack_reconciles_from_new_attempt_then_owned_cancellation_and_r
         .execute(&db.store.pool)
         .await
         .unwrap();
-    for _ in 0..300 {
+    // Preserve the original 100 turns per lane for the two-row collection
+    // pages. Audit observations add a fourth lane alongside tasks, workflows
+    // and sessions; 300 total calls would now give each lane only 75 turns.
+    for _ in 0..(100 * 4) {
         let progress = db
             .store
             .retain_batch(

@@ -53,6 +53,15 @@ async with AsyncClient(
 
 Open the client with `async with`, reuse it across calls, and keep it on its owning event loop. It exposes `tasks`, `workflows`, and `completions`. Handles retain their scoped client; reconnect through a new client after the original closes.
 
+## Credentials in development
+
+The development client accepts `credentials_file="access/operator.json"` or
+`token=` in `AsyncClient`. Choose one credential source. Files bind the credential
+to the configured server URL. HTTPS is required for remote access, with loopback
+HTTP supported for development. `Unauthenticated` and `Forbidden` describe
+rejected operations. These options require matching development components.
+[Configure instance access](/how-to/configure-instance-access).
+
 ## Submit a task or root workflow
 
 `client.tasks.prepare(...)` returns a frozen `Submission`. `client.workflows.prepare(...)` returns a distinct `WorkflowSubmission`. Neither sends a request.
@@ -171,3 +180,104 @@ Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="app
 A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
 
 **Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.7.0/sdk/python-client/src/ledgence/client)
+
+
+## Operator audit in development
+
+Matching client builds add `client.audit.list()` and `client.audit.approval_acceptance(approval)`. The exact helper returns a typed event or `None` after a successful empty lookup. Errors remain errors.
+[Setup, queries and operating limits](/how-to/audit-operators).
+
+## Retained effect evidence in development
+
+Matching development client and server builds add `client.effects`; published
+0.7.0 does not include it. Start with an open `AsyncClient` using the instance's
+scope and credentials:
+
+```python
+from ledgence.client import EffectFilter
+
+page = await client.effects.inbox(filter=EffectFilter.UNCONFIRMED, limit=20)
+if page.items:
+    occurrence = page.items[0].occurrence
+    evidence = await client.effects.inspect(
+        workflow_id=occurrence.workflow_id,
+        activation_id=occurrence.activation_id,
+        approval_key=occurrence.approval_key,
+    )
+    print(evidence.summary.journal_state, evidence.summary.has_discrepancy)
+```
+
+`inbox` accepts `filter` (`all`, `unconfirmed`, `confirmed`, `discrepant`, `disputed`), optional
+`workflow_id` and `cursor`, and `limit` from 1–100 (default 50). Metadata reads
+require `metadata_read` in credential mode and also work in trusted mode.
+`inspect` uses the original effect activation from that occurrence, accepts
+`cursor` and `limit` from 1–4 (default 4), and returns the immutable binding and
+whole claim, observation and assessment entries. It requires credential mode, `sensitive_read`
+and a durable audit observation. Permission or audit errors never become empty
+evidence.
+
+Both responses are bounded to 1 MiB. Follow `next_cursor` with the same filters
+or occurrence until it is `None`, even when a page contains fewer than `limit`
+entries. Returned models are frozen; `EffectObservationEntry.output` returns
+an independent JSON value and preserves exact large integers. No implicit
+retries or background polling occur.
+
+Evidence is retained independently of execution collection. Verified worker
+sources identify who reported an outcome, not whether the provider performed
+it. Legacy sources remain unattributed. Inspection does not approve, resolve or
+retry an effect. See the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#retained-effect-evidence-development)
+and [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+
+## Operator effect assessments in development
+
+Use `client.effects.prepare_resolution(evidence, resolution_id=..., assessment=...,
+reason=..., evidence_references=[...])` to freeze a reviewed effect's original
+occurrence, action, revision and prior assessment. Factories are
+`EffectResolutionAssessment.record_success(result)`, `.record_failure(kind, message)`
+and `.close_unknown()`. Save `command.to_json()` to an application-owned file before
+`await client.effects.resolve(command)`. The saved file contains sensitive action
+and result data, but no credential.
+
+A restarted client restores that exact file with
+`client.effects.restore_resolution(saved_text)`. Endpoint and scope must match;
+no revision or action is refreshed. `.to_dict()` is an inspection view, not the
+saved format. `EffectResolutionUncertain` means acceptance may have committed;
+reconcile with the same saved command and verified actor. Credentials may rotate.
+No automatic retry occurs. Changed commands or actors conflict.
+
+Resolution requires `effect_resolve`, independently of `sensitive_read` used for
+inspection. Receipts are metadata only and carry `acceptance_event_id`; they do
+not claim the workflow resumed. Use `await client.audit.event(receipt.acceptance_event_id)`
+for the exact scoped audit event; a successful absence is `None`, while errors propagate. `current_assessment` accompanies detail even when
+its entry is outside the selected page. `EffectFilter.DISPUTED` selects current
+assessment conflict; `DISCREPANT` preserves historical disagreement. An operator
+assessment never redispatches, confirms the journal or claims provider truth.
+
+See the [complete assessment API and copyable file-based example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#operator-effect-assessments-development).
+These additions require matching development builds and are absent from 0.7.0.
+
+## Typed provider evidence in development
+
+Matching development components add `ProviderFilter` to the existing
+`client.effects.inbox(provider_filter=ProviderFilter.NEEDS_REVIEW)` call. Choices
+are `ALL`, `PENDING`, `NEEDS_REVIEW`, `SUCCEEDED`, `FAILED`, `CANCELLED` and
+`DISPUTED`; the ordinary effect `filter` must remain `ALL`. Omit the new argument
+for the mixed inbox. Preserve the filter while following `next_cursor`.
+
+An approval with `ApprovalProtection.PROVIDER_OPERATION` includes a frozen
+`provider_binding`, covering business identity, adapter contract, target,
+deduplication policy, credential reference, reconciliation policy and pinned
+program. Review it together with `action.arguments`. The existing decision
+preparation and restore methods retain that complete binding.
+
+`detail.summary.provider` separates knowledge, scheduling and operator handling.
+`detail.provider.current_report` is a typed report header independent of the
+selected timeline page. Test `isinstance(report.report.knowledge,
+ProviderSucceeded)` before reading its copied `.result`; explicit JSON null can
+be a successful result. `TaskStatus.provider_probe` identifies managed checks,
+whose task success does not itself establish external success.
+
+Published 0.7.0 does not include this contract. See the
+[provider recovery guide](/how-to/recover-provider-operations) and the
+[complete SDK models and example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#typed-provider-operations-development).

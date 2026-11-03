@@ -166,6 +166,8 @@ fn explorer(
             continuation: continuation.into(),
             child_wait: None,
             external_wait_key: None,
+            native_effect_wait: None,
+            provider_wait: None,
             observed_at: OBSERVED,
         },
         page: ConsolePage {
@@ -729,6 +731,130 @@ fn partial_pages(full: &ConsoleWorkflowExplorer) -> Vec<ExplorerFixturePage> {
     pages
 }
 
+fn native_wait_case(
+    outcome: Option<ConsoleEffectOutcomeKind>,
+    cancelled: bool,
+) -> ConsoleWorkflowExplorer {
+    let id = "wf_native_recovery";
+    let occurrence = EffectOccurrence {
+        scope: scope(),
+        workflow_id: id.into(),
+        activation_id: activation(id, 0),
+        approval_key: "approve:payment".into(),
+    };
+    let mut nodes = vec![
+        entrypoint(id, 0, "apply", ConsoleDecisionKind::Continue, Some(1)),
+        entrypoint(id, 1, "recover", ConsoleDecisionKind::Wait, None),
+    ];
+    nodes.push(node(
+        id,
+        1,
+        "recover",
+        ConsoleExplorerData::NativeEffectWait {
+            key: "recovery:0".into(),
+            occurrence: occurrence.clone(),
+            after_resolution_id: None,
+            registered_at: AT + 1100,
+            closed_at: (outcome.is_some() || cancelled).then_some(AT + 2000),
+            resolution_id: outcome.map(|_| "resolution_1".into()),
+            outcome_kind: outcome,
+            resumed_activation_id: outcome.map(|_| activation(id, 2)),
+        },
+    ));
+    if outcome.is_some() {
+        nodes.push(entrypoint(
+            id,
+            2,
+            "resolved",
+            ConsoleDecisionKind::Complete,
+            None,
+        ));
+    }
+    let mut result = explorer(
+        id,
+        if cancelled {
+            WorkflowState::Cancelled
+        } else if outcome.is_some() {
+            WorkflowState::Succeeded
+        } else {
+            WorkflowState::Waiting
+        },
+        "recover",
+        nodes,
+    );
+    if outcome.is_none() && !cancelled {
+        result.workflow.native_effect_wait = Some(ConsoleNativeEffectWait {
+            parking_activation_id: activation(id, 1),
+            key: "recovery:0".into(),
+            occurrence,
+            after_resolution_id: None,
+        });
+    }
+    result
+}
+
+fn provider_wait_case(
+    selection: Option<ConsoleProviderSelectionKind>,
+    cancelled: bool,
+) -> ConsoleWorkflowExplorer {
+    let id = "wf_provider_recovery";
+    let occurrence = EffectOccurrence {
+        scope: scope(),
+        workflow_id: id.into(),
+        activation_id: activation(id, 0),
+        approval_key: "approve:export".into(),
+    };
+    let mut nodes = vec![
+        entrypoint(id, 0, "dispatch", ConsoleDecisionKind::Continue, Some(1)),
+        entrypoint(id, 1, "await_export", ConsoleDecisionKind::Wait, None),
+    ];
+    nodes.push(node(
+        id,
+        1,
+        "await_export",
+        ConsoleExplorerData::ProviderWait {
+            key: "export:0".into(),
+            occurrence: occurrence.clone(),
+            after_effect_revision: Some(ConsoleU64(3)),
+            registered_at: AT + 1100,
+            closed_at: (selection.is_some() || cancelled).then_some(AT + 2000),
+            selected_effect_revision: selection.map(|_| ConsoleU64(7)),
+            selection_kind: selection,
+            resumed_activation_id: selection.map(|_| activation(id, 2)),
+        },
+    ));
+    if selection.is_some() {
+        nodes.push(entrypoint(
+            id,
+            2,
+            "export_result",
+            ConsoleDecisionKind::Complete,
+            None,
+        ));
+    }
+    let mut result = explorer(
+        id,
+        if cancelled {
+            WorkflowState::Cancelled
+        } else if selection.is_some() {
+            WorkflowState::Succeeded
+        } else {
+            WorkflowState::Waiting
+        },
+        "await_export",
+        nodes,
+    );
+    if selection.is_none() && !cancelled {
+        result.workflow.provider_wait = Some(ConsoleProviderWait {
+            parking_activation_id: activation(id, 1),
+            key: "export:0".into(),
+            occurrence,
+            after_effect_revision: Some(ConsoleU64(3)),
+        });
+    }
+    result
+}
+
 pub fn fixtures() -> Value {
     let main = release();
     let cases = BTreeMap::from([
@@ -750,8 +876,52 @@ pub fn fixtures() -> Value {
             terminal_branch(ConsoleExecutionState::Cancelled),
         ),
         ("review_declined", review_declined()),
+        ("native_wait_pending", native_wait_case(None, false)),
+        ("native_wait_cancelled", native_wait_case(None, true)),
+        ("provider_wait_pending", provider_wait_case(None, false)),
+        ("provider_wait_cancelled", provider_wait_case(None, true)),
+        (
+            "provider_wait_succeeded",
+            provider_wait_case(Some(ConsoleProviderSelectionKind::ProviderSucceeded), false),
+        ),
+        (
+            "provider_wait_failed",
+            provider_wait_case(Some(ConsoleProviderSelectionKind::ProviderFailed), false),
+        ),
+        (
+            "provider_wait_needs_review",
+            provider_wait_case(Some(ConsoleProviderSelectionKind::NeedsReview), false),
+        ),
+        (
+            "provider_wait_disputed",
+            provider_wait_case(Some(ConsoleProviderSelectionKind::Disputed), false),
+        ),
+        (
+            "provider_wait_assessed",
+            provider_wait_case(
+                Some(ConsoleProviderSelectionKind::OperatorAssessment),
+                false,
+            ),
+        ),
+        (
+            "native_wait_success",
+            native_wait_case(Some(ConsoleEffectOutcomeKind::RecordedSuccess), false),
+        ),
+        (
+            "native_wait_failure",
+            native_wait_case(Some(ConsoleEffectOutcomeKind::RecordedFailure), false),
+        ),
+        (
+            "native_wait_unknown",
+            native_wait_case(Some(ConsoleEffectOutcomeKind::ClosedUnknown), false),
+        ),
+        (
+            "native_wait_disputed",
+            native_wait_case(Some(ConsoleEffectOutcomeKind::Disputed), false),
+        ),
     ]);
     let mut execution_rows = vec![ConsoleExecutionSummary {
+        provider_probe: None,
         kind: ConsoleExecutionKind::Workflow,
         id: ROOT.into(),
         descriptor: descriptor(true),
@@ -772,6 +942,7 @@ pub fn fixtures() -> Value {
         } = &node.data
         {
             execution_rows.push(ConsoleExecutionSummary {
+                provider_probe: None,
                 kind: execution.kind,
                 id: execution.id.clone(),
                 descriptor: descriptor(execution.kind == ConsoleExecutionKind::Workflow),

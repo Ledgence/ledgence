@@ -2,12 +2,19 @@
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
 mod approval_inbox;
 mod approvals;
+pub(crate) mod approved_effects;
 mod data;
+mod effect_evidence;
+mod effect_reads;
+mod effect_resolution;
+pub(crate) mod effect_retained;
+mod effect_wait;
 mod execution;
 pub(crate) mod explorer;
 mod external;
 mod forks;
 mod owned;
+mod provider;
 #[cfg(test)]
 mod tests;
 mod work;
@@ -20,7 +27,46 @@ use serde_json::Value;
 use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::collections::BTreeMap;
 
+impl ApprovedEffects for PostgresStore {
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(self.run(move || self.claim_approved_effect_once(command)))
+    }
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(self.run(move || self.confirm_approved_effect_once(command)))
+    }
+}
+
 impl WorkflowStore for PostgresStore {
+    fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
+        self.provider_configured()?;
+        Ok(self)
+    }
+    fn effect_resolution(&self) -> Result<&dyn EffectResolutionStore> {
+        self.audit_audience()?;
+        Ok(self)
+    }
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        self.audit_audience()?;
+        Ok(self)
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        Ok(self)
+    }
+
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        self.audit_audience()?;
+        Ok(self)
+    }
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        Ok(self)
+    }
+
     fn approval<'a>(
         &'a self,
         scope: &'a Scope,
@@ -245,6 +291,9 @@ pub(crate) async fn terminal_obligation(
     connection: &mut PgConnection,
     task: &TaskSnapshot,
 ) -> StoreResult<()> {
+    if task.provider_probe.is_some() {
+        return provider::terminal_obligation(connection, task).await;
+    }
     if task.workflow_id.is_none() {
         return Ok(());
     }

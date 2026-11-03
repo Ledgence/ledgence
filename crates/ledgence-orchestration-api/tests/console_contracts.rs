@@ -15,7 +15,7 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
     let actual = serde_json::to_string_pretty(&fixture::fixtures()).unwrap() + "\n";
     assert_eq!(
         actual,
-        include_str!("fixtures/console-v5.json"),
+        include_str!("fixtures/console-v7.json"),
         "regenerate with cargo run -p ledgence-orchestration-api --example console-fixtures -- --write"
     );
     let data = fixture::fixtures();
@@ -34,12 +34,51 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
 }
 
 #[test]
+fn historical_console_five_is_preserved_but_not_current() {
+    let old: Value = serde_json::from_str(include_str!("fixtures/console-v5.json")).unwrap();
+    assert_eq!(old["contract_version"], 5);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 7);
+    assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
+}
+
+#[test]
+fn historical_console_six_lacks_provider_provenance() {
+    let old: Value = serde_json::from_str(include_str!("fixtures/console-v6.json")).unwrap();
+    assert_eq!(old["contract_version"], 6);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 7);
+    assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
+    assert!(
+        serde_json::from_value::<ConsolePage<ConsoleTaskSummary>>(old["tasks"].clone()).is_err()
+    );
+}
+
+#[test]
+fn provider_probe_provenance_is_explicit_and_bound_to_its_owner() {
+    let fixture = fixture::fixtures();
+    let status: ConsoleObservedTaskStatus =
+        serde_json::from_value(fixture["provider_probe_status"].clone()).unwrap();
+    status.task.validate().unwrap();
+    let detail: ConsoleTaskDetail =
+        serde_json::from_value(fixture["provider_probe_detail"].clone()).unwrap();
+    detail.validate().unwrap();
+    let mut execution: ConsoleExecutionSummary =
+        serde_json::from_value(fixture["provider_probe_execution"].clone()).unwrap();
+    execution.validate().unwrap();
+    assert_eq!(
+        fixture["provider_probe_execution"]["provider_probe"]["generation"],
+        "3"
+    );
+    execution.parent_workflow_id = Some("another-workflow".into());
+    assert!(execution.validate().is_err());
+}
+
+#[test]
 fn historical_console_two_is_explicitly_incompatible() {
     let historical: Value =
         serde_json::from_str(include_str!("fixtures/historical/console-v2.json")).unwrap();
     assert_eq!(historical["contract_version"], 2);
     assert_eq!(historical["config"]["contract_version"], 2);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 5);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 7);
     assert_ne!(
         historical["contract_version"],
         json!(CONSOLE_CONTRACT_VERSION)
@@ -318,6 +357,15 @@ fn fixture_metadata_contains_no_authority_or_payload_fields() {
         match value {
             Value::Object(map) => {
                 for (key, value) in map {
+                    // C6's explicitly typed effect address carries the bound
+                    // scope as metadata, never as lease or dispatch authority.
+                    if key == "occurrence" {
+                        let occurrence: EffectOccurrence =
+                            serde_json::from_value(value.clone()).unwrap();
+                        occurrence.validate().unwrap();
+                        assert_eq!(occurrence.scope, scope());
+                        continue;
+                    }
                     assert!(
                         ![
                             "scope",

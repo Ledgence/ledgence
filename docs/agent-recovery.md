@@ -144,19 +144,62 @@ does not install or implement a PydanticAI, ADK, or other framework integration.
 ```sh
 python3.13 examples/agent-recovery/check.py
 python3.13 -m unittest discover -s sdk/python/tests -p 'test_workflow_operations.py'
-# With an owned disposable PostgreSQL 18 instance and the installed client:
+```
+
+For the process scenarios, activate a Python 3.13 environment with the local
+client's dependencies installed and put `psql` on your path. Set
+`LEDGENCE_POSTGRES_URL` to the maintenance database on a disposable PostgreSQL
+18 server you control. Its role needs permission to create and drop databases.
+Replace the connection details below with those for your test server. The
+harness creates a unique database per run and removes it afterward.
+
+```sh
+export LEDGENCE_POSTGRES_URL='postgresql://postgres@127.0.0.1:55432/postgres'
 python3.13 tools/check-workflows.py --scenario agent-crash-model \
   --scenario agent-crash-tool --scenario agent-lost-ack \
-  --scenario agent-effect-gap --scenario agent-binding --scenario agent-example \
-  --psql /path/to/psql --binaries target/debug --evidence /path/to/new-evidence
+  --scenario agent-effect-gap --scenario agent-binding --scenario agent-example
 ```
 
 The offline check simulates journal transport. The process gate runs the Rust
 orchestrator and worker with PostgreSQL, uses controlled process termination and
 lost acknowledgments, and records per-attempt evidence. Add
-`--endpoint http://127.0.0.1:9324` to use a disposable local ElasticMQ queue.
-Its provider fixtures are synthetic: the gate proves recovery behavior, not a
+`--endpoint http://127.0.0.1:9324` to use a disposable local ElasticMQ queue; put the AWS CLI on your PATH
+so the harness can provision that local queue. Its provider fixtures are synthetic: the gate proves recovery behavior, not a
 live model integration or throughput target.
+
+### Verify an uncertain refund
+
+In the same shell, with `LEDGENCE_POSTGRES_URL` set as above, run these three scenarios
+from a checkout that includes the refund fixture. The harness builds the CLI
+by default. Use a new directory for each run to retain the provider records
+and results for inspection:
+
+```sh
+python3.13 tools/check-workflows.py --scenario agent-effect-gap --scenario agent-refund-recovery \
+  --scenario agent-refund-lost-grant --evidence ./refund-evidence
+```
+
+The first scenario shows an ordinary tool callable executing twice after a
+crash. The second submits two synthetic refunds to independent local HTTP
+destinations. Each destination records a refund and withholds its reply. The
+harness kills the original Rust worker, replaces it, and compares the destination
+ledger with the workflow journal. The approved amount, original and recovery
+worker sessions, mutation and lookup counts, and completed continuations are in
+the scenario evidence. The replacement worker loses the first successful
+confirmation reply and resubmits the same record. The store reports a replay,
+the destination still counts one refund, and the original dispatch and later
+confirmation remain distinguishable by attempt ID. The opaque provider keeps
+an open retention hold. The third scenario discards a committed grant reply
+before the worker can send. A normal activation retry performs one read, sends
+no mutation and parks; the destination records one lookup and zero refunds.
+
+The [reference workflow](../tools/workflow_acceptance/refund_program.py) uses
+the development SDK’s [approved external write](workflow-approvals.md#protect-an-approved-external-write).
+The orchestrator decides whether the SDK may call the write or only its lookup.
+The application validates the destination receipt and decides how to handle
+an unknown outcome. The cooperative workflow completes once; the other parks.
+Its handler does not accept an ordinary workflow event as proof of success.
+The published 0.7.0 helper does not include this API.
 
 ## Inspect an accepted operation
 

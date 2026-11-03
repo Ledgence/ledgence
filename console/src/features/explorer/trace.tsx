@@ -2,7 +2,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ExplorerNode } from "../../api/explorer";
 import type { ExplorerViewState } from "../../app/navigation-state";
-import { Empty, Status, When } from "../../components/resource-ui";
+import { Empty, Status } from "../../components/resource-ui";
+import { statusAppearance } from "../../components/status-appearance";
 import { Button } from "../../components/ui/button";
 import {
   nodeLabel,
@@ -13,6 +14,38 @@ import {
 } from "../explorer-model";
 const rowHeight = 86;
 const overscan = 4;
+const tickNumber = new Intl.NumberFormat(undefined, {
+  maximumSignificantDigits: 3,
+});
+
+const timestampOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZoneName: "short",
+} as const;
+const wallClock = new Intl.DateTimeFormat(undefined, timestampOptions);
+const preciseClock = new Intl.DateTimeFormat(undefined, {
+  ...timestampOptions,
+  fractionalSecondDigits: 3,
+});
+
+// All ticks use the same unit so short intervals and their midpoint stay distinguishable.
+const timeUnits = [
+  [86_400_000, "d"],
+  [3_600_000, "h"],
+  [60_000, "min"],
+  [1000, "s"],
+] as const;
+
+function timeScale(span: number) {
+  const [scale, unit] = timeUnits.find(([width]) => span >= width) ?? [1, "ms"];
+  return (offset: number) => `${tickNumber.format(offset / scale)} ${unit}`;
+}
+
 export function Trace({
   nodes,
   observedAt,
@@ -79,7 +112,15 @@ export function Trace({
     Number.isFinite(rangeEnd) &&
     rangeEnd > rangeStart;
   const start = validRange ? rangeStart : naturalStart;
-  const end = validRange ? rangeEnd : naturalEnd + 1;
+  const end = validRange ? rangeEnd : naturalEnd;
+  const span = end - start;
+  // A single recorded instant has no interval. Only protect the coordinate division.
+  const plotSpan = span || 1;
+  const tick = timeScale(span);
+  const clock =
+    Math.floor(start / 1000) === Math.floor(end / 1000)
+      ? preciseClock
+      : wallClock;
   const first = Math.max(0, Math.floor(scroll / rowHeight) - overscan);
   const last = Math.min(
     rows.length,
@@ -131,13 +172,33 @@ export function Trace({
           Choose an end after the start. Showing the full observed range.
         </p>
       )}
+      <div className="timeline-window">
+        {span === 0 ? (
+          <span>
+            Recorded at{" "}
+            <time dateTime={new Date(start).toISOString()}>
+              {clock.format(start)}
+            </time>
+          </span>
+        ) : (
+          <span>{clock.formatRange(start, end)}</span>
+        )}
+      </div>
       <p className="muted timeline-caption">
         Bars show recorded intervals; dots show milestones.
         Submitted-to-terminal bars include queue and waiting time.
       </p>
-      <div className="timeline-axis">
-        <When value={start} />
-        <When value={end} />
+      <div className="timeline-ruler">
+        <span>From window start</span>
+        <span className="timeline-scale">
+          <span>0 ms</span>
+          {span > 0 && (
+            <>
+              <span>{tick(span / 2)}</span>
+              <span>{tick(span)}</span>
+            </>
+          )}
+        </span>
       </div>
       <div
         className="timeline-viewport"
@@ -153,17 +214,27 @@ export function Trace({
           style={{ height: rows.length * rowHeight, position: "relative" }}
         >
           {rows.slice(first, last).map(({ node, timing }, offset) => {
+            const status = nodeStatus(node);
+            const observedState =
+              node.kind === "local" ? node.observation?.state : undefined;
+            const observationLabel =
+              observedState === "replayed"
+                ? "Replay observed"
+                : observedState && `Call ${observedState}`;
+            const trackLabel = observationLabel
+              ? `${observationLabel} · ${timing.label}`
+              : timing.label;
             const open = timing.open && workflowActive;
             const unknownEnd = timing.end === null && !open;
             const renderedEnd =
               timing.end ?? (open ? observedAt : timing.start);
             const left = Math.max(
               0,
-              Math.min(100, ((timing.start - start) / (end - start)) * 100),
+              Math.min(100, ((timing.start - start) / plotSpan) * 100),
             );
             const right = Math.max(
               0,
-              Math.min(100, ((renderedEnd - start) / (end - start)) * 100),
+              Math.min(100, ((renderedEnd - start) / plotSpan) * 100),
             );
             const inRange = timing.start <= end && renderedEnd >= start;
             return (
@@ -181,6 +252,7 @@ export function Trace({
               >
                 <button
                   className="timeline-row"
+                  data-tone={statusAppearance(observedState ?? status).tone}
                   type="button"
                   aria-pressed={selectedId === node.id}
                   data-focus-key={`node:${node.id}`}
@@ -189,11 +261,15 @@ export function Trace({
                   <span className="timeline-row-label">
                     <strong>{nodeLabel(node)}</strong>
                     <small>
-                      {nodeType(node)} · {node.entrypoint}
+                      {observationLabel ?? nodeType(node)} · {node.entrypoint}
                     </small>
-                    <Status value={nodeStatus(node)} />
+                    <Status value={status} />
                   </span>
-                  <span className="timeline-track" aria-label={timing.label}>
+                  <span
+                    className="timeline-track"
+                    aria-label={trackLabel}
+                    title={trackLabel}
+                  >
                     {unknownEnd && (
                       <span className="timeline-unknown">End not recorded</span>
                     )}
@@ -214,7 +290,7 @@ export function Trace({
                       />
                     )}
                     <span className="sr-only">
-                      {timing.label}: {new Date(timing.start).toISOString()}
+                      {trackLabel}: {new Date(timing.start).toISOString()}
                       {timing.end !== null
                         ? ` to ${new Date(timing.end).toISOString()}`
                         : "; end not recorded"}

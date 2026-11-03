@@ -10,6 +10,9 @@ pub(super) struct RunRecord {
     pub wait_activation: Option<String>,
     pub wait_keys: Vec<String>,
     pub external_wait_key: Option<String>,
+    pub native_wait_activation: Option<String>,
+    pub provider_wait_activation: Option<String>,
+    pub has_provider_operations: bool,
     pub outcome: Option<WorkflowOutcome>,
 }
 impl RunRecord {
@@ -137,6 +140,9 @@ pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
         checkpoint: codec::decode(&row.try_get::<Vec<u8>, _>("checkpoint_bytes")?)?,
         wait_activation: row.try_get("wait_activation_id")?,
         external_wait_key: row.try_get("external_wait_key")?,
+        native_wait_activation: row.try_get("native_wait_activation_id")?,
+        provider_wait_activation: row.try_get("provider_wait_activation_id")?,
+        has_provider_operations: row.try_get("has_provider_operations")?,
         wait_keys: row
             .try_get::<Option<Vec<u8>>, _>("wait_keys_bytes")?
             .map(|b| codec::decode(&b))
@@ -192,11 +198,14 @@ pub(super) async fn save_run(connection: &mut PgConnection, run: &RunRecord) -> 
         .as_ref()
         .map(|_| codec::encode(&run.wait_keys))
         .transpose()?;
-    sqlx::query("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10,external_wait_key=$11 WHERE workflow_id=$1")
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10,external_wait_key=$11,native_wait_activation_id=$12,provider_wait_activation_id=$13,has_provider_operations=$14 WHERE workflow_id=$1 RETURNING workflow_id=$1 AND state=$2 AND revision=($3::text)::ldg_u64 AND continuation=$4 AND checkpoint_bytes=$5 AND current_activation_id IS NOT DISTINCT FROM $6 AND wait_activation_id IS NOT DISTINCT FROM $7 AND wait_keys_bytes IS NOT DISTINCT FROM $8 AND outcome_bytes IS NOT DISTINCT FROM $9 AND terminal_at_ms IS NOT DISTINCT FROM $10 AND external_wait_key IS NOT DISTINCT FROM $11 AND native_wait_activation_id IS NOT DISTINCT FROM $12 AND provider_wait_activation_id IS NOT DISTINCT FROM $13 AND has_provider_operations=$14")
         .bind(&run.snapshot.workflow_id).bind(codec::label(&run.snapshot.state)?).bind(run.snapshot.revision.to_string())
         .bind(&run.continuation).bind(codec::encode(&run.checkpoint)?).bind(&run.snapshot.activation_id).bind(&run.wait_activation)
-        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key)
-        .execute(&mut *connection).await?;
+        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key).bind(&run.native_wait_activation).bind(&run.provider_wait_activation).bind(run.has_provider_operations)
+        .fetch_optional(&mut *connection).await?;
+    if valid != Some(true) {
+        return Err(corrupt("workflow checkpoint suppressed or changed").into());
+    }
     if run.snapshot.state.is_terminal() {
         if run.snapshot.parent_workflow_id.is_some() {
             owned::terminal_obligation(connection, &run.snapshot).await?;
@@ -219,8 +228,11 @@ pub(super) async fn record_history(
 ) -> StoreResult<()> {
     let sequence: String = sqlx::query_scalar("UPDATE workflow_runs SET history_sequence=history_sequence+1 WHERE workflow_id=$1 RETURNING trunc(history_sequence)::text")
         .bind(id).fetch_one(&mut *connection).await?;
-    sqlx::query("INSERT INTO workflow_history(workflow_id,sequence,activation_id,at_ms,reason) VALUES($1,($2::text)::ldg_u64,$3,$4,$5)")
-        .bind(id).bind(sequence).bind(activation).bind(codec::ms(now)?).bind(reason).execute(connection).await?;
+    let affected=sqlx::query("INSERT INTO workflow_history(workflow_id,sequence,activation_id,at_ms,reason) VALUES($1,($2::text)::ldg_u64,$3,$4,$5)")
+        .bind(id).bind(sequence).bind(activation).bind(codec::ms(now)?).bind(reason).execute(connection).await?.rows_affected();
+    if affected != 1 {
+        return Err(corrupt("workflow history was not persisted").into());
+    }
     Ok(())
 }
 
@@ -256,10 +268,20 @@ pub(super) async fn schedule_activation(
     connection: &mut PgConnection,
     run: &mut RunRecord,
     inputs: BTreeMap<String, WorkflowChildResult>,
-    mut wake: Option<WorkflowWake>,
+    wake: Option<WorkflowWake>,
     now: u64,
 ) -> StoreResult<TaskSnapshot> {
     let task_id = db::id(connection, "task").await?;
+    schedule_activation_with_id(connection, run, inputs, wake, now, task_id).await
+}
+pub(super) async fn schedule_activation_with_id(
+    connection: &mut PgConnection,
+    run: &mut RunRecord,
+    inputs: BTreeMap<String, WorkflowChildResult>,
+    mut wake: Option<WorkflowWake>,
+    now: u64,
+    task_id: String,
+) -> StoreResult<TaskSnapshot> {
     if let Some(WorkflowWake::Approval { approval }) = &mut wake {
         if approval.resumed_activation_id.is_some()
             || approval.workflow_id != run.snapshot.workflow_id
@@ -316,6 +338,8 @@ pub(super) async fn schedule_activation(
     run.wait_activation = None;
     run.wait_keys.clear();
     run.external_wait_key = None;
+    run.native_wait_activation = None;
+    run.provider_wait_activation = None;
     save_run(connection, run).await?;
     Ok(task)
 }

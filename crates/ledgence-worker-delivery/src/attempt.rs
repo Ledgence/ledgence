@@ -58,6 +58,8 @@ impl Context {
             event: assignment.event.clone(),
         };
         let workflow_activation_id = assignment.workflow_activation_id.clone();
+        let provider_probe = assignment.provider_probe.clone();
+        let mut provider_probe_failure = None;
         let monitor = Arc::new(Monitor::new(&assignment));
         let _monitor_guard = MonitorGuard(monitor.clone());
         let ongoing = monitor.clone();
@@ -68,7 +70,19 @@ impl Context {
                 .with_current_subscriber(),
         );
         let report = if let Some(control) = monitor.dispatch(&self.shared).await {
-            if let Some(activation_id) = workflow_activation_id {
+            if let Some(probe) = provider_probe.as_ref() {
+                let (report, failure) = self
+                    .provider_probe(
+                        &mut reservation,
+                        request.clone(),
+                        monitor.owner(),
+                        probe.clone(),
+                        control,
+                    )
+                    .await;
+                provider_probe_failure = failure;
+                report
+            } else if let Some(activation_id) = workflow_activation_id {
                 if activation_id != monitor.owner().task_id {
                     failure(
                         &request,
@@ -152,6 +166,7 @@ impl Context {
             report,
             quiescence,
             processing_trace,
+            provider_probe_failure,
         };
         let mut report_valid = valid_settlement(&command);
         if !report_valid {
@@ -170,6 +185,9 @@ impl Context {
                 "execution report exceeds the settlement contract",
                 true,
             );
+            if provider_probe.is_some() {
+                command.provider_probe_failure = provider::classify_failure(&command.report);
+            }
             report_valid = valid_settlement(&command);
         }
         // No changes to command after the first exchange, even when cleanup

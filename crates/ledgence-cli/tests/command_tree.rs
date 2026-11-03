@@ -20,9 +20,12 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
         let text = String::from_utf8(result.stdout).unwrap();
         for group in [
             "local",
+            "access",
             "program",
             "task",
             "approval",
+            "audit",
+            "effect",
             "mcp",
             "worker",
             "orchestrator",
@@ -42,8 +45,11 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
     }
     for (group, leaves) in [
         ("local", vec!["up", "status", "logs", "down"]),
+        ("access", vec!["init", "issue"]),
         ("program", vec!["new", "build", "publish", "register"]),
         ("approval", vec!["inbox", "list", "inspect", "decide"]),
+        ("audit", vec!["list", "approval"]),
+        ("effect", vec!["inbox", "inspect", "resolve"]),
         ("mcp", vec!["serve"]),
         ("worker", vec!["run", "connect"]),
         ("orchestrator", vec!["migrate", "serve", "retain"]),
@@ -89,7 +95,11 @@ fn unknown_paths_and_invalid_options_fail_as_usage_before_startup() {
         vec!["local", "down", "--volumes"],
         vec!["local", "logs", "--service", "unknown"],
         vec!["local", "logs", "--follow", "--follow"],
+        vec!["access", "unknown", "--help"],
+        vec!["access", "init", "--instance-config"],
         vec!["approval", "unknown", "--help"],
+        vec!["effect", "unknown", "--help"],
+        vec!["effect", "resolve", "--file"],
         vec!["mcp", "unknown", "--help"],
         vec!["mcp", "serve"],
         vec!["mcp", "serve", "--read-only", "--read-only"],

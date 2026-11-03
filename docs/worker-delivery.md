@@ -109,7 +109,86 @@ user data cannot choose that authority. Lost acknowledgments retry the identical
 record while authority remains live. A returned controller decision uses the
 existing settlement and cleanup path.
 
+Development workflows can declare `protection: "external_effect"` in their
+approval request. The helper rejects `approved_local` for that saved request,
+and the store checks the persisted wake before accepting any reserved ordinary
+local-result commit. This check applies before the first dispatch grant.
+
+Development workers also handle `approved_effect.claim` for an approved
+workflow continuation. Unlike a local-result commit, the worker sends a claim
+once; replaying a previously committed grant would permit a second write. It
+checks the receipt against the live owner, approval and action before passing
+the disposition to Python. A retry with no accepted result must claim again
+and can only look up the outcome if permission was already consumed. The
+claim binds the lookup callback before dispatch. The worker confirms the
+returned record through `approved_effect.confirm`. It may retry that exact
+confirmation after losing a reply. A valid reply identifies the scope,
+workflow, activation, attempt, approval and journal key. See
+[approved external writes](workflow-approvals.md#protect-an-approved-external-write).
+
+Before starting a connected worker, matching development binaries request
+`GET /v1/access`. A credentialed connection validates the worker class,
+permissions, scope and expiry. When complete v2 support is advertised, the
+connection retains the returned authority, instance and stable worker identity
+for receipt validation. The host advertises this capability per invocation,
+outside the persisted activation context.
+
+The helper then uses `approved_effect.claim.v2` and
+`approved_effect.confirm.v2`. The claim is sent once. Confirmation retries the
+same frozen command while the runtime control remains live. A replay receipt
+restores the accepted journal without calling the provider or appending an
+observation. Original v1 and 0.7.0 helpers retain their existing protocols.
+A valid legacy discovery response selects the original protocol. Invalid
+credentialed discovery prevents worker startup. V2 errors never downgrade an
+invocation. [Negotiated evidence protocol](effect-evidence.md).
+
+Native operator resolution additionally requires the versioned worker feature
+`native_effect_resolution.v1` and v2 effect evidence. Connected workers request
+this manifest with `Ledgence-Worker-Features: 1` on the existing startup access
+exchange. The host passes supported features through the outer
+`runtime_features` field, preserving the earlier `runtime_capabilities` shape.
+A native wait without this negotiated support fails before it can park. An
+accepted wait releases the same invocation reservation and resumes only through
+the durable coordinator's selected assessment. See
+[native operator rendezvous](effect-evidence.md#park-without-occupying-a-worker).
+
 Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use
 protocol 1 or 2 packages. See [workflows](workflows.md).
+
+### Provider operation recovery in development
+
+The additional `provider_operation.v1` feature requires the complete authenticated
+provider capability and native effect resolution. The startup exchange negotiates
+it once; ordinary tasks and earlier approved-effect paths add no provider RPC.
+The workflow host sends `provider_operation.claim.v1` once. A lost permission
+reply cannot authorize a second mutation. The helper recovers an existing ticket
+on a later explicit invocation. `provider_operation.report.v1` retries identical
+typed facts while its original attempt remains live; it does not call the provider
+again. These operations do not create local-result journal confirmations.
+
+The coordinator schedules read-only checks on the separately configured queue.
+Each is an ordinary task with one attempt, a 60-second attempt budget and a
+server-issued `provider_probe` marker. The marker supplies no authority by itself:
+the host obtains and validates the exact context using its current worker identity
+and lease. The context binds the original program digest, registered callable,
+source, report ID and generation. It enters the runtime through
+`ledgence.provider.probe.v1`, never through user-owned CloudEvent data.
+
+After package preparation and process startup, the host applies the configured
+1–30 second check budget (10 seconds by default). It requires another 10 seconds
+of parent budget before entering the callback. Cancellation remains shared with
+the parent attempt. Report delivery retries preserve the same frozen report and
+do not repeat the read-only callback. A report already retained through late
+observation keeps that original provenance; task settlement records
+`recorded_elsewhere` under the current lease. The next check cannot be allocated
+until the previous task has finalized and its cleanup is confirmed.
+
+Run matching workers on the reconciliation queue. Unsupported helpers or missing
+negotiation fail before the registered probe runs. Runtime failures remain task
+failures, not evidence that the provider operation failed. A successful probe task
+means its report was retained; that report may still say pending or unknown.
+The original mutation callback keeps the normal workflow-attempt budget. A due
+read-only check can overlap it; neither a missing result nor a lookup miss permits
+resending the mutation.

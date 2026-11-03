@@ -9,6 +9,7 @@ fn scope() -> Scope {
 }
 fn status(id: &str, at: Timestamp) -> TaskStatus {
     TaskStatus {
+        provider_probe: None,
         scope: scope(),
         task_id: id.into(),
         run_id: format!("run_{id}"),

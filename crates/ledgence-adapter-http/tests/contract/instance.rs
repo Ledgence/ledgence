@@ -147,6 +147,41 @@ async fn instance_legacy_routes_reject_foreign_scope_before_calling_any_service(
     );
     assert_eq!(
         client
+            .claim_approved_effect(&ApprovedEffectClaimCommand {
+                owner: owner(),
+                workflow_id: "wf".into(),
+                approval_key: "approve".into(),
+                lookup: "lookup-transfer".into(),
+                action: ApprovalAction {
+                    name: "transfer".into(),
+                    version: "1".into(),
+                    arguments: json!({"amount": 1}),
+                },
+            })
+            .await
+            .unwrap_err(),
+        ContractError::NotFound
+    );
+    assert_eq!(
+        client
+            .confirm_approved_effect(&ApprovedEffectConfirmCommand {
+                owner: owner(),
+                workflow_id: "wf".into(),
+                approval_key: "approve".into(),
+                lookup: "lookup-transfer".into(),
+                record: LocalStepRecord {
+                    key: format!("_approval:{}", "a".repeat(64)),
+                    callable: "transfer".into(),
+                    input: json!({"v":1}),
+                    output: json!("receipt"),
+                },
+            })
+            .await
+            .unwrap_err(),
+        ContractError::NotFound
+    );
+    assert_eq!(
+        client
             .fork_workflow(&WorkflowForkCommand {
                 owner: owner(),
                 processing_trace: None,

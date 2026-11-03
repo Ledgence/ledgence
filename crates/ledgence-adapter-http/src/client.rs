@@ -1,4 +1,11 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
+mod access;
+mod audit;
+mod evidence;
+mod provider;
+pub use access::WorkerEffectAccess;
+mod credentials;
+pub use credentials::HttpCredentials;
 mod catalog;
 mod publication;
 pub use catalog::HttpProgramCatalogService;
@@ -37,6 +44,7 @@ struct ExchangeBudget {
 pub struct HttpTaskService {
     client: Client,
     base: Url,
+    authorization: Option<header::HeaderValue>,
     timeout: Duration,
     blocking: Arc<Semaphore>,
     observer: Option<Arc<Observer>>,
@@ -44,6 +52,11 @@ pub struct HttpTaskService {
 }
 
 impl HttpTaskService {
+    /// Canonical configured destination, without the URL join trailing slash.
+    pub fn base_url(&self) -> &str {
+        self.base.as_str().trim_end_matches('/')
+    }
+
     pub fn new(base_url: &str) -> Result<Self> {
         Self::with_timeout(base_url, Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS))
     }
@@ -87,11 +100,24 @@ impl HttpTaskService {
         Ok(Self {
             client,
             base,
+            authorization: None,
             timeout,
             blocking: Arc::new(Semaphore::new(4)),
             observer: None,
             trace_bridge: Arc::new(NoopTraceBridge),
         })
+    }
+
+    /// Bind a credential to this destination. Redirects remain disabled.
+    pub fn with_credentials(mut self, credentials: HttpCredentials) -> Result<Self> {
+        self.authorization = Some(credentials.for_server(&self.base)?);
+        Ok(self)
+    }
+
+    /// Supply an application-managed bearer credential over HTTPS or loopback HTTP.
+    pub fn with_bearer_token(self, token: &str) -> Result<Self> {
+        let credentials = HttpCredentials::new(self.base.as_str(), token)?;
+        self.with_credentials(credentials)
     }
 
     /// Called once after each observed exchange, including malformed responses.
@@ -286,10 +312,17 @@ impl HttpTaskService {
                         .extend_pairs(query.iter().map(|(key, value)| (*key, value.as_str())));
                 }
                 let body = body.await?;
+                let discover_features = method == Method::GET && route == "v1/access";
                 let mut request = self
                     .client
                     .request(method, url)
                     .header(header::ACCEPT, "application/json");
+                if discover_features {
+                    request = request.header("Ledgence-Worker-Features", "1");
+                }
+                if let Some(authorization) = &self.authorization {
+                    request = request.header(header::AUTHORIZATION, authorization.clone());
+                }
                 if let Some(context) = &exchange_trace {
                     request = request.header("traceparent", &context.traceparent);
                     if let Some(state) = &context.tracestate {
@@ -796,6 +829,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            provider_probe: None,
             workflow_activation_id: None,            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },
                 digest: Digest(format!("sha256:{}", "a".repeat(64))), size: 123 },
             event: CloudEvent::new(serde_json::json!({"specversion":"1.0", "id":"event", "source":"urn:ledgence:orchestrator",
@@ -1097,6 +1131,7 @@ mod tests {
             namespace: "namespace".into(),
         };
         let expected = TaskStatus {
+            provider_probe: None,
             scope: scope.clone(),
             task_id: "task".into(),
             run_id: "run".into(),

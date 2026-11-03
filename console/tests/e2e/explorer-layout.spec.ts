@@ -49,7 +49,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
     import.meta.url,
   ),
   "utf8",
@@ -76,7 +76,7 @@ const parentUrl = `/console/workflows/${encodeURIComponent(parentId)}`;
 const config = decodeConfig(field("config"));
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "5",
+  "Ledgence-Console-Contract": "7",
   "Ledgence-Instance-Id": config.instance_id,
 };
 
@@ -95,6 +95,19 @@ async function mount(
   let settled = !delayedObservation;
   let visibleNodes = initialVisible;
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "7",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const url = new URL(route.request().url());
     const path = url.pathname.replace("/v1/console/", "");
     const id =
@@ -313,6 +326,8 @@ const nodeDimensions = {
   fork: [200, 48],
   child_wait: [200, 48],
   external_wait: [224, 64],
+  native_effect_wait: [224, 64],
+  provider_wait: [224, 64],
 } as const;
 
 async function expectReadableGeometry(
@@ -707,12 +722,34 @@ test("dragging and panning survive observation refresh, view switches and fullsc
   await expect(page.locator("[data-edge-id]")).toHaveCount(27);
   expect(await positions(page)).toEqual(placed);
   expect(await viewport(page)).toBe(camera);
+  const viewTransitions: { tab: string | null; section: string | null }[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame !== page.mainFrame()) return;
+    const url = new URL(frame.url());
+    viewTransitions.push({
+      tab: url.searchParams.get("tab"),
+      section: url.searchParams.get("section"),
+    });
+  });
   await page.getByRole("button", { name: "Trace", exact: true }).click();
   await expectNoManualWorkflowControls(page);
   await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(20);
   await expect(page.locator("[data-edge-id]")).toHaveCount(27);
+  await expect(page).toHaveURL(
+    (url) => url.searchParams.get("tab") === "Graph",
+  );
+  await expect(
+    page.getByRole("button", { name: "Graph", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  // Each click must commit its canonical destination immediately. A later
+  // General section correction must not overwrite the newer Graph selection.
+  expect(viewTransitions).toEqual([
+    { tab: "Trace", section: null },
+    { tab: "General", section: "identity" },
+    { tab: "Graph", section: null },
+  ]);
   expect(await positions(page)).toEqual(placed);
   expect(await viewport(page)).toBe(camera);
   await page

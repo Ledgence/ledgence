@@ -1,0 +1,35 @@
+[
+  {
+    "name": "stable-0.7.0",
+    "source_ref": "v0.7.0",
+    "source_commit": "215d88ff3193c7bb120cb1d37c673ced9f94edb8",
+    "paths": [
+      "LICENSE",
+      "sdk/python/ledgence/worker"
+    ],
+    "tar_sha256": "4172603474ea2efd99301096c04bc873a6b89046261647fb218249673eea9c57",
+    "gzip_sha256": "61ba2e34981b259e2d5ecc78a5dadb4ca07d4738d5e0ac3bb914dea5563b466c"
+  },
+  {
+    "name": "effect-v1",
+    "source_ref": "59a216e37517726f63013f695384eb1e95bbc705",
+    "source_commit": "59a216e37517726f63013f695384eb1e95bbc705",
+    "paths": [
+      "LICENSE",
+      "sdk/python/ledgence/worker"
+    ],
+    "tar_sha256": "20b65a8271c1b416a14c935ca086e297bbb96950c32f9d47c7025bbf7444a534",
+    "gzip_sha256": "3df3b2388a8fa84d9f01cf278f7fc619d6483ccdc53298b1a3d0d73b27171e58"
+  },
+  {
+    "name": "effect-v2",
+    "source_ref": "7d6054751ca775128e37afd97112e8ac2a58cdc5",
+    "source_commit": "7d6054751ca775128e37afd97112e8ac2a58cdc5",
+    "paths": [
+      "LICENSE",
+      "sdk/python/ledgence/worker"
+    ],
+    "tar_sha256": "aee92826372cbd260234329bad094e04b23c7895a2c579735013de192b071b55",
+    "gzip_sha256": "00626acaeab810c2633c37dc1098e83d85c4e47d25c339bd60e0723a2df45848"
+  }
+]

@@ -49,6 +49,64 @@ fn child(key: &str) -> ConsoleExplorerData {
 }
 
 #[test]
+fn native_wait_relations_bind_the_parking_activation_not_the_effect_origin_or_event_key() {
+    let occurrence = EffectOccurrence {
+        scope: Scope {
+            tenant_id: "acme".into(),
+            namespace: "billing".into(),
+        },
+        workflow_id: "workflow:1".into(),
+        activation_id: "original-effect".into(),
+        approval_key: "approve".into(),
+    };
+    let native = node(
+        "parking",
+        ConsoleExplorerData::NativeEffectWait {
+            key: "same-key".into(),
+            occurrence,
+            after_resolution_id: None,
+            registered_at: 10,
+            closed_at: Some(20),
+            resolution_id: Some("resolution".into()),
+            outcome_kind: Some(ConsoleEffectOutcomeKind::ClosedUnknown),
+            resumed_activation_id: Some("resumed".into()),
+        },
+    );
+    assert_eq!(native.relations.len(), 2);
+    assert_eq!(
+        native.relations[0].source,
+        ConsoleExplorerReference::Entrypoint {
+            activation_id: "parking".into()
+        }
+    );
+    assert_eq!(
+        native.relations[0].target,
+        ConsoleExplorerReference::NativeEffectWait {
+            parking_activation_id: "parking".into()
+        }
+    );
+    assert_eq!(
+        native.relations[1].kind,
+        ConsoleExplorerRelationKind::Resumes
+    );
+    assert_eq!(
+        native.relations[1].target,
+        ConsoleExplorerReference::Entrypoint {
+            activation_id: "resumed".into()
+        }
+    );
+    assert!(
+        !serde_json::to_string(&native.relations)
+            .unwrap()
+            .contains("original-effect")
+    );
+    let mut missing = serde_json::to_value(&native).unwrap();
+    missing["resolution_id"] = serde_json::Value::Null;
+    let missing: ConsoleExplorerNode = serde_json::from_value(missing).unwrap();
+    assert!(missing.validate().is_err());
+}
+
+#[test]
 fn fork_and_child_supply_the_same_membership_without_loaded_endpoints() {
     let key = "review:\"東京\\0";
     let branch = node("activation:0", child(key));

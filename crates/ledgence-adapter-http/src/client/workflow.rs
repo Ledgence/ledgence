@@ -1,6 +1,60 @@
 use super::*;
 
+impl ApprovedEffects for HttpTaskService {
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let expected = command.clone();
+            self.post_validated(
+                "v1/workflows/approved-effects/claim",
+                command,
+                APPROVAL_SNAPSHOT_MAX_BYTES,
+                move |reply: &ApprovedEffectClaimReceipt| {
+                    check_approved_effect_receipt(reply.matches(&expected))
+                },
+            )
+            .await
+        })
+    }
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let expected = command.clone();
+            self.post_validated(
+                "v1/workflows/approved-effects/confirm",
+                command,
+                APPROVED_EFFECT_CONFIRM_MAX_BYTES,
+                move |reply: &ApprovedEffectConfirmReceipt| {
+                    check_approved_effect_receipt(reply.matches(&expected))
+                },
+            )
+            .await
+        })
+    }
+}
+
 impl WorkflowService for HttpTaskService {
+    fn provider_operation_client(&self) -> Result<&dyn ProviderOperationClient> {
+        Ok(self)
+    }
+    fn effect_resolution_client(&self) -> Result<&dyn EffectResolutionClient> {
+        Ok(self)
+    }
+    fn effect_evidence_client(&self) -> Result<&dyn EffectEvidenceClient> {
+        Ok(self)
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        Ok(self)
+    }
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        Ok(self)
+    }
     fn approval<'a>(
         &'a self,
         scope: &'a Scope,
@@ -219,19 +273,15 @@ impl WorkflowService for HttpTaskService {
         owner: &'a LeaseOwner,
     ) -> ContractFuture<'a, WorkflowActivationContext> {
         Box::pin(async move {
-            let activation = owner.task_id.clone();
-            let scope = owner.scope.clone();
+            let expected = owner.clone();
             self.post_validated(
                 "v1/workflows/activations/context",
                 owner,
                 SUBMISSION_MAX_BYTES,
                 move |reply: &WorkflowActivationContext| {
-                    if reply.activation_id != activation
-                        || matches!(&reply.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != scope)
-                    {
-                        return Err(unavailable("workflow activation identity mismatch"));
-                    }
-                    Ok(())
+                    reply
+                        .validate_for_owner(&expected)
+                        .map_err(|_| unavailable("workflow activation identity mismatch"))
                 },
             )
             .await

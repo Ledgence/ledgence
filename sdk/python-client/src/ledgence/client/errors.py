@@ -28,6 +28,14 @@ class ServiceError(LedgenceError):
         self.code = code
 
 
+class Unauthenticated(ServiceError):
+    """The server rejected missing, invalid, revoked or expired credentials."""
+
+
+class Forbidden(ServiceError):
+    """The authenticated principal lacks permission for this operation."""
+
+
 class NotFound(ServiceError):
     """The requested scoped resource was not found."""
 
@@ -172,5 +180,14 @@ class CompletionRetryUncertain(LedgenceError):
 
     def __init__(self, command, cause: TransportError):
         super().__init__("completion retry acceptance is uncertain", request_id=cause.request_id)
+        self.command = command
+        self.cause = cause
+
+
+class EffectResolutionUncertain(LedgenceError):
+    """Assessment acceptance is uncertain; reconcile the unchanged frozen command."""
+
+    def __init__(self, command, cause: TransportError):
+        super().__init__("effect resolution acceptance is uncertain", request_id=cause.request_id)
         self.command = command
         self.cause = cause

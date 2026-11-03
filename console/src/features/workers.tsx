@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { Server, Activity, Scan } from "lucide-react";
+import { Server, Activity, Scan, Network } from "lucide-react";
 import { useInstance } from "../app/instance";
 import { usePagination, useResource } from "../api/hooks";
 import { ContractError } from "../api/codecs";
@@ -27,6 +27,8 @@ import {
   Status,
   When,
 } from "../components/resource-ui";
+
+import "../styles/lists.css";
 
 export function WorkersPage() {
   const config = useInstance();
@@ -56,15 +58,23 @@ export function WorkersPage() {
     <>
       <PageHeading
         title="Workers"
-        description="Worker sessions, reported capacity and process activity."
+        description="Inspect the workers that pick up and run your programs."
       />
       {!config.capabilities.workers ? (
         <Empty>Worker observations are unavailable on this server.</Empty>
       ) : (
-        <>
+        <section className="resource-list worker-list">
+          <header className="resource-list-heading">
+            <Network aria-hidden="true" />
+            <div>
+              <h2>Worker sessions</h2>
+              <p>Capacity and activity at the last observation.</p>
+            </div>
+          </header>
           <form
+            aria-label="Filter worker sessions"
             key={params.get("queue") ?? ""}
-            className="filters"
+            className="filters list-filters"
             onSubmit={(e) => {
               e.preventDefault();
               filter(e.currentTarget);
@@ -107,28 +117,33 @@ export function WorkersPage() {
           {query.data && (
             <>
               {query.data.items.length ? (
-                <div className="card-grid worker-grid">
+                <div className="session-grid">
                   {query.data.items.map((worker) => (
                     <article
-                      className="card worker-card"
+                      className="session-card"
                       key={worker.worker_session_id}
                     >
                       <div className="worker-card-heading">
-                        <Server aria-hidden="true" />
-                        <h2>
-                          <Link
-                            to={`/workers/${encodeURIComponent(worker.worker_session_id)}`}
-                          >
-                            {worker.display_name ?? worker.worker_session_id}
-                          </Link>
-                        </h2>
+                        <span className="resource-icon">
+                          <Server aria-hidden="true" />
+                        </span>
+                        <div>
+                          <h3>
+                            <Link
+                              to={`/workers/${encodeURIComponent(worker.worker_session_id)}`}
+                            >
+                              {worker.display_name ?? worker.worker_session_id}
+                            </Link>
+                          </h3>
+                          {worker.display_name &&
+                            worker.display_name !==
+                              worker.worker_session_id && (
+                              <p className="resource-id">
+                                {worker.worker_session_id}
+                              </p>
+                            )}
+                        </div>
                       </div>
-                      {worker.display_name &&
-                        worker.display_name !== worker.worker_session_id && (
-                          <p className="wrap muted worker-session-id">
-                            {worker.worker_session_id}
-                          </p>
-                        )}
                       <WorkerSummary
                         worker={worker}
                         observedAt={query.data.observed_at}
@@ -151,7 +166,7 @@ export function WorkersPage() {
               />
             </>
           )}
-        </>
+        </section>
       )}
     </>
   );

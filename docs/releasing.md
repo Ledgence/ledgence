@@ -63,9 +63,15 @@ Console, using the pinned frontend toolchain and a disposable PostgreSQL 18.6
 service for relocated verification. Set `include_console=false` to run only the
 headless jobs; set `candidate=rc.N` to select the candidate label.
 
-The Linux Console job also upgrades a retained approval and an accepted tool
-result from the checksum-pinned 0.6.1 bundle with the packaged candidate,
-including its Python runner. Its evidence is retained separately.
+The Linux Console job upgrades both the historical 0.6.1 bundle and the last
+stable 0.7.0 Linux x86_64 bundle, each pinned to its published archive checksum.
+The 0.6.1 rehearsal preserves a pending approval and accepted tool result. The
+0.7.0 rehearsal verifies legacy decision bytes, authenticated attribution,
+cancelled approvals and recovery without a second dispatch. Both use the same
+extracted candidate executable, Console and Python runner. Each owns a separate
+database and evidence directory, retained under `approval-upgrade/evidence/0.6.1`
+and `approval-upgrade/evidence/0.7.0`. Neither a source-only test nor an upgrade
+from an older baseline substitutes for the last-stable rehearsal.
 
 Each successful job retains its verified archive, `SHA256SUMS` and provenance as
 an Actions artifact for 30 days. Artifact names distinguish the headless targets
@@ -120,6 +126,20 @@ prevent dependency resolution drift; they do not pin operating-system/toolchain
 implementation details by themselves.
 
 ## Candidate acceptance
+
+Before publishing any version, review the full change from the previous stable
+tag to the exact candidate commit. For each promised capability, trace its
+public entry point through the implementation and exercise its failure paths.
+Check the upgrade from the previous release, documentation, supported targets
+and distribution artifacts. A test fixture that implements the policy itself
+establishes fixture behavior only.
+
+Record the stable tag, candidate SHA, findings and supporting test and GitHub
+job results. Hold publication for incomplete scope, unresolved blocking defects
+or missing, pending, cancelled or failed required checks. Explain any jobs that
+are inapplicable. If the candidate changes, review the updated diff and qualify
+the new commit. Once the authorized candidate passes, proceed with promotion
+and verify each published artifact using the procedures below.
 
 Run and preserve the repository quality gates for the exact candidate source:
 formatting, crate boundaries, warnings, Rust unit/doc tests, feature isolation,

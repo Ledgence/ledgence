@@ -33,26 +33,45 @@ struct ConsoleDecision {
     activation_id: String,
     revision: ConsoleU64,
     action: ApprovalAction,
+    #[serde(default)]
+    protection: ApprovalProtection,
+    #[serde(default, deserialize_with = "optional_non_null")]
+    provider_binding: Option<provider_console::Binding>,
     decision_id: String,
     decision: ApprovalDecision,
     reviewer: String,
     #[serde(deserialize_with = "required_option")]
     reason: Option<String>,
 }
-fn required_option<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+pub(super) fn required_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer)
 }
+pub(super) fn optional_non_null<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
 #[derive(Serialize)]
-struct ConsoleApproval {
+pub(super) struct ConsoleApproval {
     workflow_id: String,
     key: String,
     activation_id: String,
     revision: ConsoleU64,
     action: ApprovalAction,
+    #[serde(skip_serializing_if = "ApprovalProtection::is_unspecified")]
+    protection: ApprovalProtection,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_binding: Option<provider_console::Binding>,
     proposed_arguments: Option<serde_json::Value>,
     created_at: Timestamp,
     deadline: Timestamp,
@@ -68,6 +87,8 @@ impl From<ApprovalSnapshot> for ConsoleApproval {
             activation_id: value.activation_id,
             revision: ConsoleU64(value.revision),
             action: value.action,
+            protection: value.protection,
+            provider_binding: value.provider_binding.map(Into::into),
             proposed_arguments: value.proposed_arguments,
             created_at: value.created_at,
             deadline: value.deadline,
@@ -93,6 +114,7 @@ pub(super) async fn post(
     path: &str,
     bytes: Vec<u8>,
     console_scope: Option<&Scope>,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     let service = server.workflows.as_deref().ok_or(ContractError::NotFound)?;
     let console = console_scope.is_some();
@@ -142,7 +164,11 @@ pub(super) async fn post(
             let reply = service
                 .approval(&command.scope, &command.workflow_id, &command.key)
                 .await?;
-            server
+            let resource = AuditResource::Approval {
+                workflow_id: command.workflow_id.clone(),
+                key: command.key.clone(),
+            };
+            let bytes = server
                 .blocking(move || {
                     reply.validate().map_err(|_| invalid_reply())?;
                     if reply.scope != command.scope
@@ -157,7 +183,9 @@ pub(super) async fn post(
                         encode_bounded(&reply, APPROVAL_SNAPSHOT_MAX_BYTES)
                     }
                 })
-                .await
+                .await?;
+            context.sensitive(resource)?;
+            Ok(bytes)
         }
         Some("list") => {
             let command: ApprovalListRequest = if let Some(scope) = console_scope {
@@ -184,7 +212,11 @@ pub(super) async fn post(
                     command.limit,
                 )
                 .await?;
-            server
+            let resource = AuditResource::ApprovalPage {
+                workflow_id: command.workflow_id.clone(),
+                keys: reply.items.iter().map(|item| item.key.clone()).collect(),
+            };
+            let bytes = server
                 .blocking(move || {
                     reply.validate().map_err(|_| invalid_reply())?;
                     if !reply.matches(
@@ -207,7 +239,9 @@ pub(super) async fn post(
                         encode_bounded(&reply, 1024 * 1024)
                     }
                 })
-                .await
+                .await?;
+            context.sensitive(resource)?;
+            Ok(bytes)
         }
         Some("decide") => {
             let command: ApprovalDecisionCommand = if let Some(scope) = console_scope {
@@ -220,6 +254,10 @@ pub(super) async fn post(
                     activation_id: value.activation_id,
                     revision: value.revision.0,
                     action: value.action,
+                    protection: value.protection,
+                    provider_binding: value
+                        .provider_binding
+                        .map(provider_console::Binding::into_core),
                     decision_id: value.decision_id,
                     decision: value.decision,
                     reviewer: value.reviewer,
@@ -236,8 +274,26 @@ pub(super) async fn post(
                 .await?;
             server.require_scope(&command.scope)?;
             record(&command.scope, &command.workflow_id);
-            let reply = service.decide_approval(&command).await?;
-            server
+            context.recheck(server)?;
+            let reply = if context.audited() {
+                let principal = context.principal()?;
+                let audited = service
+                    .operator_access()?
+                    .decide_verified(principal, &command, context.request()?)
+                    .await?;
+                context.decision_committed();
+                audited.validate_for(principal, &command)?;
+                audited.receipt
+            } else {
+                let reply = service.decide_approval(&command).await?;
+                context.decision_committed();
+                reply
+            };
+            let resource = AuditResource::Approval {
+                workflow_id: command.workflow_id.clone(),
+                key: command.key.clone(),
+            };
+            let bytes = server
                 .blocking(move || {
                     reply.validate().map_err(|_| invalid_reply())?;
                     if !reply.matches(&command).map_err(|_| invalid_reply())? {
@@ -255,7 +311,9 @@ pub(super) async fn post(
                         encode_bounded(&reply, APPROVAL_SNAPSHOT_MAX_BYTES + 1024)
                     }
                 })
-                .await
+                .await?;
+            context.sensitive(resource)?;
+            Ok(bytes)
         }
         _ => Err(ContractError::NotFound.into()),
     }

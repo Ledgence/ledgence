@@ -445,6 +445,14 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
         "retention_turn",
         "console_programs",
         "console_program_versions",
+        "operator_audit_events",
+        "approved_effect_occurrences",
+        "approved_effect_evidence_entries",
+        "provider_operations",
+        "provider_probe_tasks",
+        "provider_invocations",
+        "provider_reports",
+        "provider_terminal_facts",
     ] {
         sqlx::query(AssertSqlSafe(format!("CREATE TEMP TABLE {table}(tenant_id text COLLATE \"C\" NOT NULL,namespace text COLLATE \"C\" NOT NULL)")))
             .execute(&mut *connection).await.unwrap();
@@ -482,9 +490,9 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
     .await
     .unwrap()
     .join("\n");
-    println!("Instance indexed scope audit, 100k rows in each of ten tables:\n{plan}");
+    println!("Instance indexed scope audit, 100k rows in each of eighteen tables:\n{plan}");
     assert!(!plan.contains("Seq Scan"));
-    assert_eq!(plan.matches("Index Only Scan").count(), 20);
+    assert_eq!(plan.matches("Index Only Scan").count(), 36);
     for table in [
         "tasks",
         "workflow_runs",
@@ -496,6 +504,14 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
         "retention_turn",
         "console_programs",
         "console_program_versions",
+        "operator_audit_events",
+        "approved_effect_occurrences",
+        "approved_effect_evidence_entries",
+        "provider_operations",
+        "provider_probe_tasks",
+        "provider_invocations",
+        "provider_reports",
+        "provider_terminal_facts",
     ] {
         for (tenant, namespace) in [
             ("a", "billing"),
@@ -528,4 +544,207 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
     }
     drop(connection);
     db.finish().await;
+}
+
+fn access(config: &SelfHostedInstanceConfig) -> AccessAudience {
+    AccessAudience {
+        authority_id: "auth_test".into(),
+        instance_id: config.instance_id.clone(),
+        scope: config.scope.clone(),
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn instance_access_authority_persists_and_cannot_be_omitted_or_replaced() {
+    let db = TestDb::new().await;
+    let config = config();
+    let audience = access(&config);
+    db.store.initialize_instance(Some(&config)).await.unwrap();
+    let session = db.store.open_session(&scope(), "python", 1).await.unwrap();
+    db.store
+        .initialize_instance_with_access(Some(&config), Some(&audience))
+        .await
+        .unwrap();
+    // Rotation changes credentials, never the authority or existing worker scope.
+    db.store
+        .initialize_instance_with_access(Some(&config), Some(&audience))
+        .await
+        .unwrap();
+    db.store.extend_session(&session.id).await.unwrap();
+    assert!(db.store.initialize_instance(Some(&config)).await.is_err());
+    assert!(db.store.initialize_instance(None).await.is_err());
+    let mut changed = audience.clone();
+    changed.authority_id = "another".into();
+    assert!(
+        db.store
+            .initialize_instance_with_access(Some(&config), Some(&changed))
+            .await
+            .is_err()
+    );
+    let saved: String =
+        sqlx::query_scalar("SELECT access_authority_id FROM self_hosted_instance WHERE singleton")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(saved, audience.authority_id);
+    let reconnected = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
+    assert!(
+        reconnected
+            .initialize_instance(Some(&config))
+            .await
+            .is_err()
+    );
+    reconnected
+        .initialize_instance_with_access(Some(&config), Some(&audience))
+        .await
+        .unwrap();
+    reconnected.close().await;
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn instance_access_rejects_wrong_audience_and_foreign_sessions_before_binding() {
+    let db = TestDb::new().await;
+    let config = config();
+    let audience = access(&config);
+    assert!(
+        db.store
+            .initialize_instance_with_access(None, Some(&audience))
+            .await
+            .is_err()
+    );
+    for field in 0..3 {
+        let mut wrong = audience.clone();
+        match field {
+            0 => wrong.instance_id.push('x'),
+            1 => wrong.scope.tenant_id.push('x'),
+            _ => wrong.scope.namespace.push('x'),
+        }
+        assert!(
+            db.store
+                .initialize_instance_with_access(Some(&config), Some(&wrong))
+                .await
+                .is_err()
+        );
+    }
+    sqlx::query("INSERT INTO worker_sessions(session_id,tenant_id,namespace,queue,concurrency,expires_at_ms) VALUES('foreign','other','other','q',1,1)").execute(&db.store.pool).await.unwrap();
+    assert!(
+        db.store
+            .initialize_instance_with_access(Some(&config), Some(&audience))
+            .await
+            .is_err()
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM self_hosted_instance")
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn instance_access_competing_authorities_have_only_one_winner() {
+    let db = TestDb::new().await;
+    let config = config();
+    let first = access(&config);
+    let mut second = first.clone();
+    second.authority_id = "other".into();
+    let (a, b) = tokio::join!(
+        db.store
+            .initialize_instance_with_access(Some(&config), Some(&first)),
+        db.store
+            .initialize_instance_with_access(Some(&config), Some(&second))
+    );
+    assert_ne!(a.is_ok(), b.is_ok());
+    let saved: String =
+        sqlx::query_scalar("SELECT access_authority_id FROM self_hosted_instance WHERE singleton")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        saved,
+        if a.is_ok() {
+            first.authority_id
+        } else {
+            second.authority_id
+        }
+    );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn instance_access_migration_and_physical_binding_drift_fail_closed() {
+    let db = TestDb::new().await;
+    let config = config();
+    let audience = access(&config);
+    db.store.verify_schema().await.unwrap();
+    sqlx::query(
+        "UPDATE _sqlx_migrations SET checksum=decode('00','hex') WHERE version=20261103010000",
+    )
+    .execute(&db.store.pool)
+    .await
+    .unwrap();
+    assert!(db.store.verify_schema().await.is_err());
+    sqlx::query("ALTER TABLE self_hosted_instance DROP COLUMN access_authority_id")
+        .execute(&db.store.pool)
+        .await
+        .unwrap();
+    assert!(
+        db.store
+            .initialize_instance_with_access(Some(&config), Some(&audience))
+            .await
+            .is_err()
+    );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18 via LEDGENCE_POSTGRES_URL"]
+async fn instance_access_suppressed_binding_cannot_report_success_or_enable_downgrade() {
+    for existing in [false, true] {
+        let db = TestDb::new().await;
+        let config = config();
+        let audience = access(&config);
+        if existing {
+            db.store.initialize_instance(Some(&config)).await.unwrap();
+        }
+        sqlx::raw_sql("CREATE FUNCTION suppress_instance_binding() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$;")
+            .execute(&db.store.pool).await.unwrap();
+        if existing {
+            sqlx::query("CREATE TRIGGER suppress_instance_binding BEFORE UPDATE ON self_hosted_instance FOR EACH ROW EXECUTE FUNCTION suppress_instance_binding()")
+                .execute(&db.store.pool).await.unwrap();
+        } else {
+            sqlx::query("CREATE TRIGGER suppress_instance_binding BEFORE INSERT ON self_hosted_instance FOR EACH ROW EXECUTE FUNCTION suppress_instance_binding()")
+                .execute(&db.store.pool).await.unwrap();
+        }
+        assert!(matches!(
+            db.store
+                .initialize_instance_with_access(Some(&config), Some(&audience))
+                .await,
+            Err(ContractError::Unavailable(_))
+        ));
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM self_hosted_instance WHERE access_authority_id IS NOT NULL",
+        )
+        .fetch_one(&db.store.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
+        // Removing the faulty hook permits a real binding, after which omission
+        // remains rejected across the same persisted startup boundary.
+        sqlx::raw_sql("DROP TRIGGER suppress_instance_binding ON self_hosted_instance; DROP FUNCTION suppress_instance_binding();")
+            .execute(&db.store.pool).await.unwrap();
+        db.store
+            .initialize_instance_with_access(Some(&config), Some(&audience))
+            .await
+            .unwrap();
+        assert!(db.store.initialize_instance(Some(&config)).await.is_err());
+        db.finish().await;
+    }
 }

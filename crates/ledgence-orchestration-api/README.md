@@ -7,11 +7,11 @@ submission, acquisition and leases, durable settlement, observation, completion
 callbacks, retention, resumable workflows with child tasks and subworkflows,
 events, and durable action approvals.
 
-This README describes the current source. Check the
-[registry package guide](https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md)
-for verified published versions; a development checkout can contain contracts
-that are not available from a registry yet. To develop an adapter against this
-checkout:
+This README describes this package source. Check the
+[release reference](https://docs.ledgence.com/reference/releases) for verified
+registry availability. A source checkout can contain contracts that are not yet
+published. Select the version matching your deployment and pin it in your adapter's
+dependencies. To work against this checkout, use its local package.
 
 ```toml
 [dependencies]
@@ -30,6 +30,22 @@ must preserve the documented transactional, replay and ownership semantics befor
 acknowledging an operation. This crate provides no database, HTTP service, broker
 or worker implementation; those components remain in the Ledgence source
 repository and release bundles.
+
+`WorkflowStore::approved_effects` and
+`WorkflowService::approved_effects` expose the optional `ApprovedEffects` port.
+An adapter must implement both `claim_approved_effect` and
+`confirm_approved_effect` to enable protected external writes.
+Bind the one-use dispatch grant to the saved action and its read-only lookup
+callback. Confirm the matching journal entry and the effect outcome in one
+transaction. An exact retry of a confirmation can acknowledge the existing
+result. An unresolved grant keeps the associated workflow evidence available
+during retention. [Protected external writes](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
+
+`CredentialVerifier`, `AccessAudience` and
+`VerifiedPrincipal` provide installation-scoped authentication. The HTTP adapter
+checks each route's required `AccessCapability` before dispatching to services.
+The local opaque-credential implementation lives in a separate adapter.
+[Instance access contract](https://github.com/Ledgence/ledgence/blob/develop/docs/instance-access.md)
 
 A workflow adapter can implement `WorkflowStore::approval_inbox` to list scoped
 approval summaries across workflows. Console adapters can implement
@@ -53,3 +69,45 @@ Ledgence-owned code is MIT licensed; the included LICENSE contains the notice.
 This source crate does not bundle third-party dependency sources. Cargo obtains
 those dependencies separately, with their own licenses and redistribution
 notices. This license does not require users to disclose their applications.
+
+
+The grouped `OperatorAccess` capability supports verified
+approval decisions, durable sensitive-response observations and scoped audit
+queries. All three operations are required by native credential mode.
+`VerifiedPrincipal` and `OperatorRequest` enter through trusted adapters.
+Existing approval commands and worker continuation schemas remain unchanged.
+`AuditReader` is the separate read-only client port for authenticated remote
+queries. [Operator audit contract](https://github.com/Ledgence/ledgence/blob/develop/docs/operator-audit.md).
+
+The optional grouped `ApprovedEffectEvidence` port supports
+verified claims, confirmation and separate observations. Implement all three
+methods together. `EffectEvidenceClient` carries the portable commands across
+a remote boundary. `EffectEvidenceReader` provides bounded inbox and inspection
+queries over retained occurrences and immutable entries. Existing workflow-store
+adapters remain source-compatible through default unavailable capability hooks.
+The retained ledger preserves claims and reported results after execution
+history is collected. Its identity, replay and legacy-proof rules are described
+in the [evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+`EffectResolution` supports authenticated operator
+assessments and `EffectResolutionStore` provides the complete native-wait coordinator
+operation. `EffectResolutionClient` is the command-only remote port. Native waits
+carry the original effect occurrence and an immutable selected wake, without
+creating a provider result or another dispatch grant. Implementations must also
+provide retained evidence, its reader and operator audit before enabling this
+capability. [Native effect resolution](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md#record-an-operator-assessment).
+
+`ProviderOperationStore` adds the complete optional provider-recovery contract:
+request-time binding, one mutation grant, typed reports, finite read-only probe
+scheduling and provider-aware waits. `ProviderOperations` accepts verified worker
+identity out of band; `ProviderOperationClient` carries remote commands. Recovery
+requires explicit installation policy and the preceding evidence, resolution and
+audit capabilities. Existing A/B reports remain opaque and are not reclassified
+as provider facts. No vendor SDK is part of these portable types.
+[Provider operations](https://github.com/Ledgence/ledgence/blob/develop/docs/provider-operations.md).
+
+Adapters receiving `WorkflowActivationContext` should use `validate_for_owner`
+to bind the context and all scoped wake variants to the current lease, then
+check the expected workflow and parent/root lineage from their assignment.
+The application service applies complete-capability checks to direct evidence
+and resolution calls as well as discovery and native-wait admission.

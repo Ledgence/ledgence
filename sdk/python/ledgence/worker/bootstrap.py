@@ -154,6 +154,9 @@ def _load_handler(root, module_name, function_name, allow_async=False):
     handler = getattr(module, function_name)
     if not callable(handler) or (inspect.iscoroutinefunction(handler) and not allow_async):
         raise ProtocolError("handler must be a synchronous callable")
+    if getattr(handler, "_ledgence_providers", None):
+        from ledgence.worker.providers import _validate_artifact_registry
+        _validate_artifact_registry(handler, root)
     return handler
 
 
@@ -174,8 +177,24 @@ def _text(value, field):
     return value
 
 
+
+def _runtime_features(value):
+    if (type(value) is not dict or set(value) != {"v", "supported"}
+            or type(value["v"]) is not int or value["v"] != 1
+            or type(value["supported"]) is not list or len(value["supported"]) > 16):
+        raise ProtocolError("invalid runtime features")
+    names = value["supported"]
+    if any(type(name) is not str or re.fullmatch(r"[a-z0-9_.-]{1,128}", name) is None for name in names):
+        raise ProtocolError("invalid runtime feature name")
+    if len(set(names)) != len(names):
+        raise ProtocolError("duplicate runtime feature name")
+    _encode(value, 4096)
+    return frozenset(names)
+
+
 def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
-            extension=None, rpc=None, observe=False):
+            extension=None, rpc=None, observe=False, effect_evidence_v2=False, native_effect_resolution=False,
+            provider_operation=False):
     from ledgence.worker import InvocationContext, _invocation
     from ledgence.worker.otel import _activate
 
@@ -211,7 +230,8 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
         with _activate(processing_context):
             if version >= 3:
                 import asyncio
-                response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc))
+                response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc,
+                                                    effect_evidence_v2, native_effect_resolution, provider_operation))
             else:
                 response = _invoke_output(handler, event, envelope, limit)
         if observation is not None:
@@ -247,7 +267,8 @@ def _invoke_output(handler, event, envelope, limit):
         return _failure(envelope, "business_error", exc, limit)
 
 
-async def _invoke_async(handler, event, envelope, limit, extension, rpc):
+async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2=False,
+                        native_effect_resolution=False, provider_operation=False):
     import asyncio
     from ledgence.worker.workflow import SCHEMA, WorkflowContext, _workflow
 
@@ -256,10 +277,23 @@ async def _invoke_async(handler, event, envelope, limit, extension, rpc):
     failed = True
     try:
         if extension is not None:
-            if (not isinstance(extension, dict) or set(extension) != {"schema", "payload"}
-                    or extension["schema"] != SCHEMA):
+            if not isinstance(extension, dict) or set(extension) != {"schema", "payload"}:
                 raise ProtocolError("unsupported runtime extension")
-            context = WorkflowContext(extension["payload"], rpc)
+            if extension["schema"] == "ledgence.provider.probe.v1":
+                if not (provider_operation and native_effect_resolution and effect_evidence_v2):
+                    raise ProtocolError("provider operations are unavailable")
+                from ledgence.worker.providers import _invoke_probe
+                output = await _invoke_probe(handler, event, envelope["attempt_id"], extension["payload"])
+                response = dict(envelope, status="success", output=output)
+                _validate_wire_value(output, max_depth=96)
+                _encode(response, limit)
+                failed = False
+                return response
+            if extension["schema"] != SCHEMA:
+                raise ProtocolError("unsupported runtime extension")
+            context = WorkflowContext(extension["payload"], rpc, effect_evidence_v2=effect_evidence_v2,
+                                      native_effect_resolution=native_effect_resolution,
+                                      provider_operation=provider_operation)
             if (context.activation_id != event.get("ldgtaskid")
                     or context.activation_id != event.get("ldgactivationid")
                     or context.workflow_id != event.get("ldgworkflowid")
@@ -470,13 +504,27 @@ def main():
             if "processing_context" not in message:
                 raise ProtocolError("v2+ invocation requires processing_context (null when disabled)")
             processing = _processing_context(message["processing_context"])
+        capabilities = message.get("runtime_capabilities", {})
+        if (type(capabilities) is not dict or set(capabilities) - {"approved_effect_evidence_v2"}
+                or type(capabilities.get("approved_effect_evidence_v2", False)) is not bool):
+            raise ProtocolError("invalid runtime capabilities")
+        effect_evidence_v2 = capabilities.get("approved_effect_evidence_v2", False)
+        features = (_runtime_features(message["runtime_features"])
+                    if "runtime_features" in message else frozenset())
+        native_effect_resolution = "native_effect_resolution.v1" in features
+        provider_operation = "provider_operation.v1" in features
+        if provider_operation and not native_effect_resolution:
+            raise ProtocolError("provider operation requires native effect resolution")
+        if native_effect_resolution and not effect_evidence_v2:
+            raise ProtocolError("native effect resolution requires effect evidence v2")
         extension = message.get("extension") if args.protocol_version >= 3 else None
         rpc = _RuntimeRpc(write, sys.stdin.buffer, args.max_input_bytes, event_id, attempt_id) if args.protocol_version >= 3 else None
         # A fresh Context prevents contextvars set by an earlier invocation
         # leaking into the next one in this persistent process.
         response = contextvars.Context().run(
             _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
-            args.protocol_version, processing, extension, rpc, message.get("observe") is True
+            args.protocol_version, processing, extension, rpc, message.get("observe") is True,
+            effect_evidence_v2, native_effect_resolution, provider_operation
         )
         write(response)
 

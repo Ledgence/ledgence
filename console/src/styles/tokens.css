@@ -1,64 +1,47 @@
 /* SPDX-License-Identifier: MIT */
 :root {
   color-scheme: light dark;
-  --bg: #fff;
-  --side: #f7f8fa;
-  --well: #f3f4f6;
-  --ink: #20252e;
-  --muted: #606b79;
-  --line: #dce0e7;
-  --hover: #eef0f4;
-  --primary: #20252e;
-  --on-primary: #fff;
-  --success: #386649;
-  --waiting: #795626;
-  --failure: #a33f48;
-  --focus: #516cbd;
-  /* Landing-inspired dark surfaces; preserve the existing light palette.
-     light-dark follows explicit appearance and the system color scheme. */
-  --surface: light-dark(var(--bg), #242832);
-  --input-bg: light-dark(var(--bg), var(--well));
-  --control-line: light-dark(var(--line), #8d98a9);
-  --selected: light-dark(var(--hover), #30343d);
+  --bg: light-dark(#f4f5f5, #040506);
+  --surface: light-dark(#fff, #101316);
+  --well: light-dark(#ebeeee, #191d21);
+  --ink: light-dark(#121619, #f8faf9);
+  --muted: light-dark(#404b50, #c5cdd0);
+  --line: light-dark(#c4cbcd, #394148);
+  --control-line: light-dark(#707b7f, #74828b);
+  --hover: light-dark(#eef2f2, #20292c);
+  --selected: light-dark(#e4edf0, #253135);
+  --input-bg: light-dark(#fff, #0b0e10);
+  --primary: light-dark(#171d20, #f3f7f6);
+  --on-primary: light-dark(#fff, #101416);
+  --accent: light-dark(#124f79, #a2d4ff);
+  --focus: light-dark(#005f96, #a4dbff);
+  --success: light-dark(#005632, #72fab0);
+  --waiting: light-dark(#754708, #fbd684);
+  --failure: light-dark(#8e1935, #ffabb9);
+  /* The graphite navigation belongs to the brand in both appearances. */
+  --side: light-dark(#f1f3f3, #0e1113);
+  --rail: light-dark(#111517, #090b0d);
+  --rail-ink: light-dark(#fbfcfc, #f4f8f7);
+  --rail-muted: light-dark(#cbd1d3, #c6ced1);
+  --rail-hover: light-dark(#21282b, #1b2124);
+  --rail-selected: light-dark(#2c3438, #252c30);
+  --rail-line: light-dark(#394449, #343d43);
+  --technical-font: Menlo, Consolas, "Liberation Mono", ui-monospace, monospace;
   --radius: 10px;
   --motion: 150ms;
 }
+/* The named container scopes light typography without changing layout. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    container-name: console-light;
+  }
+}
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0c0d10;
-  --side: #0c0d10;
-  --well: #171a21;
-  --ink: #f2f2f4;
-  --muted: #a0a3ad;
-  --line: #30343d;
-  --hover: #30343d;
-  --primary: #f2f2f4;
-  --on-primary: #0c0d10;
-  --success: #adc1b4;
-  --waiting: #d5bd92;
-  --failure: #e4a0a8;
-  --focus: #b9c0ce;
 }
 :root[data-theme="light"] {
   color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0c0d10;
-    --side: #0c0d10;
-    --well: #171a21;
-    --ink: #f2f2f4;
-    --muted: #a0a3ad;
-    --line: #30343d;
-    --hover: #30343d;
-    --primary: #f2f2f4;
-    --on-primary: #0c0d10;
-    --success: #adc1b4;
-    --waiting: #d5bd92;
-    --failure: #e4a0a8;
-    --focus: #b9c0ce;
-  }
+  container-name: console-light;
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

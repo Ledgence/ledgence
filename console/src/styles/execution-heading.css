@@ -58,7 +58,7 @@
 }
 .execution-heading-context h1 {
   margin: 0;
-  font-size: 17px;
+  font-size: clamp(17px, 1.6vw, 22px);
   font-weight: 600;
   line-height: 1.5;
   letter-spacing: -0.4px;
@@ -77,82 +77,106 @@
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.shell-header:has(.execution-heading-context) .instance-header-name {
-  max-width: 20ch;
-  flex-shrink: 1;
+.shell-header {
+  margin-bottom: 16px;
 }
-.shell-header:has(.execution-heading-context) .shell-page-heading {
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
-}
-.console-workspace:has(.execution-heading-context) .main-content {
-  padding-top: 8px;
+.main-content:has(> .shell-header) {
+  padding-top: 16px;
 }
 .execution-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px 20px;
-  margin-bottom: 12px;
+  gap: 16px 28px;
+  padding: clamp(16px, 2vw, 24px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.execution-summary-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  min-width: 0;
+}
+.execution-kind-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--well);
+  color: var(--ink);
+}
+.execution-kind-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.execution-summary-identity > div {
+  min-width: 0;
+}
+.execution-kind {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+.execution-program-description {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  overflow-wrap: anywhere;
+}
+.execution-program-description strong {
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+}
+.execution-program-description code {
+  padding: 1px 5px;
+  background: var(--well);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .execution-summary-metadata {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   min-width: 0;
-  gap: 6px 18px;
-  font-size: 12px;
+  max-width: 100%;
+  gap: 4px 14px;
   color: var(--muted);
-}
-.execution-program-description {
-  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 .execution-summary .copy-value {
   min-width: 0;
-  font-size: 11px;
 }
 .execution-summary .copy-value code {
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: min(42ch, 60vw);
+  max-width: min(32ch, 50vw);
+  font-size: 12px;
 }
 .execution-summary .copy-value .button {
-  min-height: 32px;
-  min-width: 32px;
-  padding: 6px;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 8px;
 }
 .execution-summary .copy-value svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 .execution-summary .actions {
-  flex-shrink: 0;
+  margin-left: auto;
 }
 @media (max-width: 768px) {
-  .shell-header:has(.execution-heading-context) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0 12px;
-  }
-  .shell-header:has(.execution-heading-context) .shell-header-leading {
-    display: contents;
-  }
-  .shell-header:has(.execution-heading-context) .instance-header-name {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .shell-header:has(.execution-heading-context) .theme-control {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .shell-header:has(.execution-heading-context) .shell-page-heading {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    border: 0;
-    padding: 0;
-  }
   .execution-heading-context .context-actions .button,
   .execution-heading-context .context-actions .back-link {
     width: 36px;
@@ -165,11 +189,25 @@
   .execution-heading-context .breadcrumbs > ol > li {
     max-width: 9ch;
   }
+  .execution-summary {
+    gap: 10px 16px;
+  }
   .execution-summary-metadata {
     gap: 4px 12px;
+  }
+  .execution-summary .actions {
+    margin-left: 0;
   }
   .execution-summary .copy-value .button {
     min-width: 44px;
     min-height: 44px;
+  }
+}
+
+@container console-light {
+  .execution-summary .copy-value code {
+    font-family: var(--technical-font);
+    font-size: 13px;
+    letter-spacing: normal;
   }
 }

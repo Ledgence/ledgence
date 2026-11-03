@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useRef } from "react";
+import { ListChecks } from "lucide-react";
+import "../styles/lists.css";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { useInstance } from "../app/instance";
 import {
@@ -93,152 +95,177 @@ function FilteredInbox({ dueBefore }: { dueBefore: number | null }) {
     <>
       <PageHeading
         title="Approvals"
-        description="Review requests across workflows, ordered by the earliest deadline."
+        description="Review requested actions and their decisions across workflows."
       />
-      <form
-        className="filters"
-        key={JSON.stringify([status, program, dueBefore])}
-        onSubmit={(event) => {
-          event.preventDefault();
-          const data = new FormData(event.currentTarget);
-          const next = new URLSearchParams();
-          const state = String(data.get("status"));
-          const id = String(data.get("program_id") ?? "").trim();
-          if (state !== "pending") next.set("status", state);
-          if (id) next.set("program_id", id);
-          const cutoff = String(data.get("due_before") ?? "");
-          if (cutoff) next.set("due_before", String(Date.parse(cutoff + "Z")));
-          setParams(next);
-        }}
-      >
-        <label>
-          Status
-          <select name="status" defaultValue={status ?? "all"}>
-            <option value="all">All statuses</option>
-            {approvalStatuses.map((s) => (
-              <option key={s} value={s}>
-                {s[0]!.toUpperCase() + s.slice(1)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Program ID
-          <input
-            name="program_id"
-            defaultValue={program ?? ""}
-            placeholder="All programs"
-            maxLength={128}
+      <section className="resource-list">
+        <header className="resource-list-heading">
+          <ListChecks aria-hidden="true" />
+          <div>
+            <h2>Approval inbox</h2>
+            <p>
+              Earliest deadline first. Deadlines are shown in your local time.
+            </p>
+          </div>
+        </header>
+        <form
+          aria-label="Filter approval requests"
+          className="filters list-filters"
+          key={JSON.stringify([status, program, dueBefore])}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            const next = new URLSearchParams();
+            const state = String(data.get("status"));
+            const id = String(data.get("program_id") ?? "").trim();
+            if (state !== "pending") next.set("status", state);
+            if (id) next.set("program_id", id);
+            const cutoff = String(data.get("due_before") ?? "");
+            if (cutoff)
+              next.set("due_before", String(Date.parse(cutoff + "Z")));
+            setParams(next);
+          }}
+        >
+          <label>
+            Status
+            <select name="status" defaultValue={status ?? "all"}>
+              <option value="all">All statuses</option>
+              {approvalStatuses.map((s) => (
+                <option key={s} value={s}>
+                  {s[0]!.toUpperCase() + s.slice(1)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Program ID
+            <input
+              name="program_id"
+              defaultValue={program ?? ""}
+              placeholder="All programs"
+              maxLength={128}
+            />
+          </label>
+          <label>
+            Due before (UTC)
+            <input
+              name="due_before"
+              type="datetime-local"
+              step="any"
+              min="1970-01-01T00:00"
+              max="9999-12-31T23:59:59.999"
+              defaultValue={
+                dueBefore === null
+                  ? ""
+                  : new Date(dueBefore).toISOString().slice(0, -1)
+              }
+            />
+          </label>
+          <Button variant="outline" type="submit">
+            Apply filters
+          </Button>
+        </form>
+        {query.isPending && <LoadingState label="Loading approval requests" />}
+        {query.error && (
+          <QueryError
+            error={query.error}
+            stale={!!query.data}
+            retry={() => void query.refetch()}
           />
-        </label>
-        <label>
-          Due before (UTC)
-          <input
-            name="due_before"
-            type="datetime-local"
-            step="any"
-            min="1970-01-01T00:00"
-            max="9999-12-31T23:59:59.999"
-            defaultValue={
-              dueBefore === null
-                ? ""
-                : new Date(dueBefore).toISOString().slice(0, -1)
-            }
-          />
-        </label>
-        <Button variant="outline" type="submit">
-          Apply filters
-        </Button>
-      </form>
-      {query.isPending && <LoadingState label="Loading approval requests" />}
-      {query.error && (
-        <QueryError
-          error={query.error}
-          stale={!!query.data}
-          retry={() => void query.refetch()}
-        />
-      )}
-      {query.data && (
-        <>
-          {query.data.items.length ? (
-            <Table aria-label="Approval requests">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Requested action</TableHead>
-                  <TableHead>Program / workflow</TableHead>
-                  <TableHead aria-sort="ascending">Deadline</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {query.data.items.map((item) => {
-                  const identity = new URLSearchParams({
-                    workflow: item.workflow_id,
-                    key: item.key,
-                  });
-                  return (
-                    <TableRow key={identity.toString()}>
-                      <TableCell>
-                        <Link
-                          to={`/approvals/review?${identity}`}
-                          state={{
-                            returnTo: location.pathname + location.search,
-                          }}
-                        >
-                          {item.action_name}
-                        </Link>
-                        <div className="muted wrap">{item.key}</div>
-                      </TableCell>
-                      <TableCell>
-                        {item.program_id} · {item.program_version}
-                        <div className="muted wrap">{item.workflow_id}</div>
-                      </TableCell>
-                      <TableCell>
-                        <When value={item.deadline} />
-                      </TableCell>
-                      <TableCell>
-                        <Status value={item.status} />
-                      </TableCell>
+        )}
+        {query.data && (
+          <>
+            {query.data.items.length ? (
+              <div
+                className="approval-table-scroll"
+                role="region"
+                aria-label="Approval inbox results"
+                tabIndex={0}
+              >
+                <Table
+                  className="approval-requests"
+                  aria-label="Approval requests"
+                >
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Requested action</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead aria-sort="ascending">Deadline</TableHead>
+                      <TableHead>Program / workflow</TableHead>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          ) : (
-            <Empty filtered>
-              {status === "pending"
-                ? "No pending approval requests match this view."
-                : "No approval requests match this view."}
-            </Empty>
-          )}
-          {(paging.cursor || query.data.next_cursor) && (
-            <nav className="page-controls" aria-label="Approval pages">
-              <Button
-                variant="outline"
-                disabled={!paging.cursor}
-                onClick={paging.back}
-              >
-                {paging.previous.length ? "Previous" : "First page"}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={!query.data.next_cursor}
-                onClick={() => {
-                  if (query.data.next_cursor)
-                    paging.next(query.data.next_cursor);
-                }}
-              >
-                Next
-              </Button>
-            </nav>
-          )}
-        </>
-      )}
-      {query.isError && !query.data && paging.cursor && (
-        <Button variant="outline" onClick={paging.reset}>
-          First page
-        </Button>
-      )}
+                  </TableHeader>
+                  <TableBody>
+                    {query.data.items.map((item) => {
+                      const identity = new URLSearchParams({
+                        workflow: item.workflow_id,
+                        key: item.key,
+                      });
+                      return (
+                        <TableRow key={identity.toString()}>
+                          <TableCell>
+                            <Link
+                              to={`/approvals/review?${identity}`}
+                              state={{
+                                returnTo: location.pathname + location.search,
+                              }}
+                            >
+                              {item.action_name}
+                            </Link>
+                            <div className="resource-id">{item.key}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Status value={item.status} />
+                          </TableCell>
+                          <TableCell>
+                            <When value={item.deadline} />
+                          </TableCell>
+                          <TableCell>
+                            {item.program_id} · {item.program_version}
+                            <div className="resource-id">
+                              {item.workflow_id}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <Empty filtered>
+                {status === "pending"
+                  ? "No pending approval requests match this view."
+                  : "No approval requests match this view."}
+              </Empty>
+            )}
+            {(paging.cursor || query.data.next_cursor) && (
+              <nav className="page-controls" aria-label="Approval pages">
+                <Button
+                  variant="outline"
+                  disabled={!paging.cursor}
+                  onClick={paging.back}
+                >
+                  {paging.previous.length ? "Previous" : "First page"}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={!query.data.next_cursor}
+                  onClick={() => {
+                    if (query.data.next_cursor)
+                      paging.next(query.data.next_cursor);
+                  }}
+                >
+                  Next
+                </Button>
+              </nav>
+            )}
+          </>
+        )}
+        {query.isError && !query.data && paging.cursor && (
+          <Button variant="outline" onClick={paging.reset}>
+            First page
+          </Button>
+        )}
+      </section>
     </>
   );
 }
@@ -312,6 +339,7 @@ function ApprovalReview({
             </Link>
           </p>
           <ApprovalCard
+            showAttribution
             approval={query.data}
             unavailable={
               query.error instanceof ApiError && query.error.status === 404

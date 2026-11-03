@@ -27,8 +27,10 @@ impl RetentionStore for PostgresStore {
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(i64::from(policy.batch_size)).fetch_all(&mut *tx).await?;
             let expired_session_candidates=sqlx::query_scalar("SELECT session_id FROM worker_sessions WHERE tenant_id=$1 AND namespace=$2 AND expires_at_ms<=$3 ORDER BY expires_at_ms,session_id LIMIT $4")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(codec::ms(now)?).bind(i64::from(policy.batch_size)).fetch_all(&mut *tx).await?;
+            let audit_observation_candidates=sqlx::query_scalar("SELECT event_id FROM operator_audit_events WHERE tenant_id=$1 AND namespace=$2 AND event_kind='sensitive_response' AND recorded_at_ms<=$3 ORDER BY recorded_at_ms,event_id LIMIT $4")
+                .bind(&scope.tenant_id).bind(&scope.namespace).bind(cutoff).bind(i64::from(policy.batch_size)).fetch_all(&mut *tx).await?;
             tx.commit().await?;
-            Ok(RetentionPreview {task_candidates,workflow_candidates,retiring_tasks,retiring_workflows,expired_session_candidates})
+            Ok(RetentionPreview {task_candidates,workflow_candidates,retiring_tasks,retiring_workflows,expired_session_candidates,audit_observation_candidates})
         }))
     }
 
@@ -50,6 +52,11 @@ impl PostgresStore {
     ) -> StoreResult<RetentionProgress> {
         self.require_scope(scope)?;
         policy.validate()?;
+        // An incomplete offline schema upgrade is database-wide. The partial
+        // pending index makes this bounded; ordinary execution never checks it.
+        // In particular, an already-retiring legacy run must not lose its last
+        // journal proof before the independent retained copy commits.
+        crate::migration_effect_retained::verify_backfill(&self.pool).await?;
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         sqlx::query("INSERT INTO retention_turn(tenant_id,namespace,lane) VALUES($1,$2,0) ON CONFLICT DO NOTHING").bind(&scope.tenant_id).bind(&scope.namespace).execute(&mut *tx).await?;
@@ -58,11 +65,21 @@ impl PostgresStore {
         sqlx::query("UPDATE retention_turn SET lane=$3 WHERE tenant_id=$1 AND namespace=$2")
             .bind(&scope.tenant_id)
             .bind(&scope.namespace)
-            .bind((lane + 1) % 3)
+            .bind((lane + 1) % 4)
             .execute(&mut *tx)
             .await?;
         let now = db::now(&mut tx).await?;
         let cutoff = now.saturating_sub(policy.retain_for_ms);
+        if lane == 3 {
+            let deleted=sqlx::query("DELETE FROM operator_audit_events WHERE event_id IN (SELECT event_id FROM operator_audit_events WHERE tenant_id=$1 AND namespace=$2 AND event_kind='sensitive_response' AND recorded_at_ms<=$3 ORDER BY recorded_at_ms,event_id LIMIT $4 FOR UPDATE SKIP LOCKED)")
+                .bind(&scope.tenant_id).bind(&scope.namespace).bind(retention_cutoff(now,policy.retain_for_ms)).bind(i64::from(policy.batch_size)).execute(&mut *tx).await?.rows_affected();
+            tx.commit().await?;
+            return Ok(RetentionProgress {
+                examined: deleted as u32,
+                deleted_rows: deleted as u32,
+                ..Default::default()
+            });
+        }
         let kind = match lane {
             0 => "task",
             1 => "workflow",
@@ -268,7 +285,7 @@ async fn retire_workflow(
     let Some(removed) = expire_subscriptions(connection, "workflow", id, cutoff).await? else {
         return Ok(());
     };
-    sqlx::query("UPDATE workflow_runs SET retiring_at_ms=$2,current_activation_id=NULL,wait_activation_id=NULL,wait_keys_bytes=NULL,external_wait_key=NULL WHERE workflow_id=$1")
+    sqlx::query("UPDATE workflow_runs SET retiring_at_ms=$2,current_activation_id=NULL,wait_activation_id=NULL,wait_keys_bytes=NULL,external_wait_key=NULL,native_wait_activation_id=NULL WHERE workflow_id=$1")
         .bind(id).bind(codec::ms(now)?).execute(connection).await?;
     progress.retired = 1;
     progress.deleted_rows = removed;
@@ -342,6 +359,8 @@ async fn collect_workflow(
         "DELETE FROM workflow_forks WHERE ctid IN (SELECT ctid FROM workflow_forks WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_events WHERE ctid IN (SELECT ctid FROM workflow_events WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_approvals WHERE ctid IN (SELECT ctid FROM workflow_approvals WHERE workflow_id=$1 LIMIT $2)",
+        "DELETE FROM workflow_provider_waits WHERE ctid IN (SELECT ctid FROM workflow_provider_waits WHERE workflow_id=$1 LIMIT $2)",
+        "DELETE FROM workflow_effect_waits WHERE ctid IN (SELECT ctid FROM workflow_effect_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_waits WHERE ctid IN (SELECT ctid FROM workflow_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",
         "DELETE FROM workflow_work WHERE id IN (SELECT id FROM workflow_work WHERE child_workflow_id=$1 AND processed_at_ms IS NOT NULL LIMIT $2)",

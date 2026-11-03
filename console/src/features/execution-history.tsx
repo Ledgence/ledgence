@@ -1,3 +1,4 @@
+import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -7,8 +8,9 @@ import {
   useNavigationType,
   useSearchParams,
 } from "react-router";
-import { Plus } from "lucide-react";
+import { Activity, Box, GitFork, Plus, RefreshCw } from "lucide-react";
 import { useInstance } from "../app/instance";
+import { effectDetailPath } from "../api/effects";
 import { executionPath } from "../api/explorer";
 import { useExecutionHistory } from "./use-execution-history";
 import { LoadingState } from "../components/async-state";
@@ -29,6 +31,7 @@ import {
   historyElapsed,
   historyStates,
 } from "./execution-history-filters";
+import "../styles/lists.css";
 import "../styles/execution-history.css";
 
 export function LegacyWorkflowsRedirect() {
@@ -152,35 +155,43 @@ export function ExecutionsPage() {
                     window.scrollTo(0, 0);
                   }}
                 >
+                  <RefreshCw aria-hidden="true" />
                   Refresh executions
                 </Button>
               )}
-              <Link className="button button-primary" to="/executions/new">
-                <Plus aria-hidden="true" />
-                New execution
-              </Link>
+              <Permission capability="execution_submit">
+                <Link className="button button-primary" to="/executions/new">
+                  <Plus aria-hidden="true" />
+                  New execution
+                </Link>
+              </Permission>
             </>
           )
         }
       />
-      <HistoryFilters key={params.toString()} />
-      <p className="muted list-caption">
-        {includesChildren
-          ? "Root and child executions."
-          : "Root workflows and standalone tasks."}{" "}
-        <span>Submitted dates are shown in UTC.</span>
-        {(pageCount > 1 || params.has("cursor")) && (
-          <span>
-            {" "}
-            Automatic updates are paused while browsing older results. Refresh
-            for the latest executions.
-          </span>
-        )}
-      </p>
       {!config.capabilities.executions && !config.capabilities.workflows ? (
         <Empty>Executions are unavailable on this server.</Empty>
       ) : (
-        <div className="table-panel history-table-panel">
+        <section className="resource-list history-table-panel">
+          <header className="resource-list-heading">
+            <Activity aria-hidden="true" />
+            <div>
+              <h2>Execution history</h2>
+              <p>
+                {includesChildren
+                  ? "Root and child executions."
+                  : "Root workflows and standalone tasks."}{" "}
+                Submitted dates are shown in UTC.
+              </p>
+            </div>
+          </header>
+          <HistoryFilters key={params.toString()} />
+          {(pageCount > 1 || params.has("cursor")) && (
+            <p className="history-browsing-note">
+              Automatic updates are paused while browsing older results. Refresh
+              for the latest executions.
+            </p>
+          )}
           {query.isPending && <LoadingState label="Loading executions" />}
           {query.error && !query.data && (
             <QueryError
@@ -255,8 +266,29 @@ export function ExecutionsPage() {
                             </td>
                             <td>
                               <span className="execution-kind">
+                                {item.kind === "task" ? (
+                                  <Box aria-hidden="true" />
+                                ) : (
+                                  <GitFork aria-hidden="true" />
+                                )}
                                 {item.kind === "task" ? "Task" : "Workflow"}
                               </span>
+                              {item.provider_probe && (
+                                <Link
+                                  className="cell-secondary"
+                                  to={effectDetailPath(
+                                    item.provider_probe.occurrence,
+                                  )}
+                                  state={{
+                                    returnTo: `/executions${params.size ? `?${params}` : ""}`,
+                                    returnNavigationKey: location.key,
+                                    restoreNavigationKey: location.key,
+                                  }}
+                                >
+                                  Provider check ·{" "}
+                                  {item.provider_probe.generation}
+                                </Link>
+                              )}
                             </td>
                             <td>
                               <Link
@@ -368,7 +400,7 @@ export function ExecutionsPage() {
               )}
             </>
           )}
-        </div>
+        </section>
       )}
     </>
   );
@@ -417,6 +449,7 @@ export function HistoryFilters() {
     <form
       className="filters history-filters history-filters--calendar"
       aria-label="Filter executions"
+      data-default-filters={(activeFilters === 0 && !error) || undefined}
       onSubmit={(event) => {
         event.preventDefault();
         const result = applyHistoryFilters(
@@ -432,30 +465,6 @@ export function HistoryFilters() {
       }}
     >
       <div className="filter-primary">
-        <label>
-          Submitted from · UTC
-          <input
-            type="date"
-            name="submitted_from"
-            min="1970-01-01"
-            max="9999-12-31"
-            defaultValue={historyDateValue(params, "submitted_from")}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? "history-date-error" : undefined}
-          />
-        </label>
-        <label>
-          Submitted through · UTC
-          <input
-            type="date"
-            name="submitted_until"
-            min="1970-01-01"
-            max="9999-12-30"
-            defaultValue={historyDateValue(params, "submitted_until")}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? "history-date-error" : undefined}
-          />
-        </label>
         <label>
           Type
           <select
@@ -491,6 +500,30 @@ export function HistoryFilters() {
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          Submitted from · UTC
+          <input
+            type="date"
+            name="submitted_from"
+            min="1970-01-01"
+            max="9999-12-31"
+            defaultValue={historyDateValue(params, "submitted_from")}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "history-date-error" : undefined}
+          />
+        </label>
+        <label>
+          Submitted through · UTC
+          <input
+            type="date"
+            name="submitted_until"
+            min="1970-01-01"
+            max="9999-12-30"
+            defaultValue={historyDateValue(params, "submitted_until")}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "history-date-error" : undefined}
+          />
         </label>
         <div className="filter-actions">
           <Button type="submit" variant="outline">

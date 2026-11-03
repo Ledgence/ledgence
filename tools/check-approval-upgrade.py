@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Qualify an offline upgrade from the verified 0.6.1 native bundle on an owned PostgreSQL server."""
+"""Qualify an offline upgrade from a verified 0.6.1 or 0.7.0 native bundle on an owned PostgreSQL server."""
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -10,7 +11,9 @@ import sys
 import uuid
 
 from console_acceptance.harness import ConsoleDeployment
+from instance_access.harness import AccessDeployment
 from http_acceptance.harness import eventually
+from workflow_acceptance.owned_scenarios import quote
 from postgres_fixture import create_owned_database, owned_database_url
 
 
@@ -25,7 +28,7 @@ def submit(d, name, data):
     return d.api("POST", "workflows", command)["workflow"]["workflow_id"]
 
 
-def exercise(d, old_bundle, binaries, new_console, new_runner):
+def exercise_inbox(d, old_bundle, binaries, new_console, new_runner):
     migrate(d)
     d.server, _ = d.start_server()
     worker = d.start_worker(runner=old_bundle / "runtime/ledgence/worker/bootstrap.py")
@@ -84,9 +87,114 @@ def exercise(d, old_bundle, binaries, new_console, new_runner):
             "accepted_operation": step_id, "migrations": sorted(applied)}
 
 
+def exercise_effects(d, old_bundle, binaries, new_console, new_runner):
+    # Use the same pinned program on both sides. The old worker only executes
+    # its request entrypoint; the method under test is first used after upgrade.
+    migrate(d)
+    d.server, _ = d.start_server()
+    old_worker = d.start_worker(runner=old_bundle / "runtime/ledgence/worker/bootstrap.py")
+    program = "upgrade-effect"
+    source = d.root / "tools/workflow_acceptance/upgrade_effect_program.py"
+    d.publish(program, "1.0.0", program_source=source.read_text(), runtime_protocol=3)
+    requests = {}
+    for key in ("old-approval", "pending-approval", "cancelled-approval"):
+        command = d.console_submission(key, program=program)
+        marker = d.directory / (key + ".jsonl")
+        command["input"]["data"] = {"marker": str(marker)}
+        workflow = d.api("POST", "workflows", command)["workflow"]["workflow_id"]
+        eventually(lambda: d.workflow_status(workflow)["state"] == "waiting", description="0.7.0 pending approval")
+        identity = {"workflow_id": workflow, "key": "write"}
+        snap = d.api("POST", "approvals/inspect", identity)
+        assert snap["status"] == "pending" and not marker.exists()
+        decision = {field: snap[field] for field in ("workflow_id", "key", "activation_id", "revision", "action")}
+        decision.update(decision_id=key, decision="approve", reviewer="upgrade-test", reason=None)
+        requests[key] = (workflow, marker, decision)
+
+    old_worker.stop()
+    assert not d.api("POST", "approvals/decide", requests["old-approval"][2])["already_accepted"]
+    old_workflow = requests["old-approval"][0]
+    original_bytes = d.sql("SELECT encode(decision_bytes,'hex') FROM workflow_approvals WHERE workflow_id=" + quote(old_workflow))
+    d.server.stop()
+    d.binaries, d.console_dist = binaries, new_console
+    migrate(d)
+    assert d.sql("SELECT count(*) FROM _sqlx_migrations WHERE version IN (20261102020000,20261103000000,20261103020000) AND success") == "3"
+    bundle = provision_upgrade_access(d)
+    d.server, _ = d.start_server(access_config=bundle / "access.json")
+    d.credentials_file = bundle / "operator.json"
+    assert d.api("POST", "approvals/decide", requests["old-approval"][2])["already_accepted"]
+    assert d.sql("SELECT encode(decision_bytes,'hex') FROM workflow_approvals WHERE workflow_id=" + quote(old_workflow)) == original_bytes
+    assert acceptance(d, requests["old-approval"][2]) is None
+    pending = requests["pending-approval"][2]
+    assert not d.api("POST", "approvals/decide", pending)["already_accepted"]
+    assert d.api("POST", "approvals/decide", pending)["already_accepted"]
+    verified = acceptance(d, pending)
+    assert verified["actor"]["subject"] == "upgrade-operator"
+    cancelled = requests["cancelled-approval"][0]
+    d.api("POST", "workflows/cancel", {"workflow_id": cancelled})
+    d.api("POST", "approvals/decide", requests["cancelled-approval"][2], expected=409)
+    assert acceptance(d, requests["cancelled-approval"][2]) is None
+    d.start_worker(runner=new_runner, credentials_file=bundle / "worker.json")
+    evidence = {"verified_acceptance": verified, "historical_decision_bytes_unchanged": True,
+                "cancelled_workflow_id": cancelled}
+    for key, expected in (("old-approval", "lookup"), ("pending-approval", "dispatch")):
+        workflow, marker, _ = requests[key]
+        assert d.workflow_result(workflow)["outcome"]["output"] == expected
+        assert marker.read_text().splitlines() == [expected]
+        # A pre-upgrade fence grants no new send, even when its later lookup
+        # finds a receipt. Preserve the distinction after durable confirmation.
+        binding = json.loads(d.sql(
+            "SELECT json_build_object('state',effect_evidence_state,'dispatched',"
+            "effect_dispatch_attempt_id IS NOT NULL,'confirmed',effect_confirmed_attempt_id IS NOT NULL) "
+            "FROM workflow_approvals WHERE workflow_id=" + quote(workflow)))
+        assert binding == {"state": "confirmed", "dispatched": expected == "dispatch", "confirmed": True}, binding
+        approval = d.api("POST", "approvals/inspect", {"workflow_id": workflow, "key": "write"})
+        assert d.sql("SELECT count(*) FROM workflow_activations WHERE workflow_id=" + quote(workflow)
+                     + " AND activation_id=" + quote(approval["resumed_activation_id"])) == "1"
+        assert d.sql("SELECT count(*) FROM workflow_activations WHERE workflow_id=" + quote(workflow)) == "2"
+        evidence[key] = {"workflow_id": workflow, "callback": expected, "evidence": binding}
+    assert not requests["cancelled-approval"][1].exists()
+    # The unchanged 0.7 application package also runs as a new workflow after upgrade.
+    marker = d.directory / "new-old-package.jsonl"
+    workflow = submit(d, program, {"marker": str(marker)})
+    eventually(lambda: d.workflow_status(workflow)["state"] == "waiting", description="old package request after upgrade")
+    approval = d.api("POST", "approvals/inspect", {"workflow_id": workflow, "key": "write"})
+    decision = {field: approval[field] for field in ("workflow_id", "key", "activation_id", "revision", "action")}
+    decision.update(decision_id="new-old-package", decision="approve", reviewer="claimed-label", reason=None)
+    d.api("POST", "approvals/decide", decision)
+    assert acceptance(d, decision)["actor"]["subject"] == "upgrade-operator"
+    assert d.workflow_result(workflow)["outcome"]["output"] == "dispatch"
+    assert marker.read_text().splitlines() == ["dispatch"]
+    evidence["new_old_package_workflow_id"] = workflow
+    return evidence
+
+
+def provision_upgrade_access(d):
+    d.instance["allowed_origins"] = [d.server_url]
+    d.instance_file.write_text(json.dumps(d.instance))
+    bundle = d.directory / "upgrade-credentials"
+    # Register the directory before provisioning so partial failures are scrubbed too.
+    d.bundle_directories = [bundle]
+    d.secret_files, d.secrets = [], []
+    expires = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)).isoformat()
+    AccessDeployment.command(d, "ledgence", ["access", "init", "--server", d.server_url,
+        "--instance-config", str(d.instance_file), "--directory", str(bundle),
+        "--subject", "upgrade-operator", "--expires-at", expires])
+    AccessDeployment.track_bundle(d, bundle)
+    return bundle
+
+
+def acceptance(d, decision):
+    query = {"filter": dict(kind="approval_acceptance", **{
+        field: decision[field] for field in ("workflow_id", "key", "activation_id", "revision", "decision_id")}),
+        "cursor": None, "limit": 2}
+    page = d.api("POST", "audit/events", query)
+    assert page["next_cursor"] is None and len(page["items"]) <= 1
+    return page["items"][0] if page["items"] else None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--previous-bundle", type=Path, required=True, help="extracted, checksum-verified 0.6.1 bundle")
+    parser.add_argument("--previous-bundle", type=Path, required=True, help="extracted, checksum-verified 0.6.1 or 0.7.0 bundle")
     parser.add_argument("--binaries", type=Path, required=True, help="directory containing the candidate ledgence")
     parser.add_argument("--console-dist", type=Path, required=True, help="Console assets for the candidate")
     parser.add_argument("--candidate-runner", type=Path, help="bundled runtime/ledgence/worker/bootstrap.py; defaults to the source checkout")
@@ -96,8 +204,10 @@ def main():
     root = Path(__file__).resolve().parents[1]
     previous, binaries, dist = (p.resolve() for p in (args.previous_bundle, args.binaries, args.console_dist))
     old, new = previous / "bin/ledgence", binaries / "ledgence"
-    if subprocess.check_output([old, "--version"], text=True).strip() != "ledgence 0.6.1":
-        parser.error("the previous bundle must contain Ledgence 0.6.1")
+    previous_version = subprocess.check_output([old, "--version"], text=True).strip()
+    checks = {"ledgence 0.6.1": exercise_inbox, "ledgence 0.7.0": exercise_effects}
+    if previous_version not in checks:
+        parser.error("the previous bundle must contain Ledgence 0.6.1 or 0.7.0")
     hashes = {}
     for name, binary in (("previous", old), ("candidate", new)):
         with binary.open("rb") as stream:
@@ -125,15 +235,20 @@ def main():
         d = ConsoleDeployment(root, directory, old.parent, os.getenv("LEDGENCE_PYTHON", sys.executable),
                               url, args.psql, console_dist=previous / "console")
         try:
-            result = exercise(d, previous, binaries, dist, candidate_runner)
+            result = checks[previous_version](d, previous, binaries, dist, candidate_runner)
         finally:
-            d.close()
+            try:
+                d.close()
+            finally:
+                if hasattr(d, "bundle_directories"):
+                    assert AccessDeployment.remove_credentials_and_scan(d), "fixture credential scan failed"
     finally:
         admin(f'DROP DATABASE "{database}" WITH (FORCE)')
+    result["previous_version"] = previous_version
     result["executable_sha256"] = hashes
     result["candidate_version"] = subprocess.check_output([new, "--version"], text=True).strip()
     (directory / "results.json").write_text(json.dumps(result, indent=2) + "\n")
-    print("PASS 0.6.1 upgrade, approval resumption and accepted operation inspection")
+    print(f"PASS offline upgrade and approval behavior from {previous_version}")
 
 
 if __name__ == "__main__":

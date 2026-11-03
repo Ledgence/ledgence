@@ -53,6 +53,7 @@ export default defineConfig({
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },
         { label: 'Require approval', slug: 'how-to/require-approval' },
         { label: 'Recover model and tool calls', slug: 'how-to/recover-agent-calls' },
+        { label: 'Recover provider operations', slug: 'how-to/recover-provider-operations' },
       ] },
       { label: 'Integrations and examples', collapsed: true, items: [
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },
@@ -61,6 +62,10 @@ export default defineConfig({
       { label: 'Operate your installation', collapsed: true, items: [
         { label: 'Manage the local stack', slug: 'how-to/run-local-distribution' },
         { label: 'Configure observability', slug: 'how-to/configure-observability' },
+        { label: 'Configure instance access', slug: 'how-to/configure-instance-access' },
+        { label: 'Inspect external effects', slug: 'how-to/inspect-effects' },
+        { label: 'Inspect operator audit', slug: 'how-to/audit-operators' },
+        { label: 'Prepare the 0.8.0 upgrade', slug: 'how-to/upgrade-to-0-8' },
         { label: 'Upgrade to 0.7.0', slug: 'how-to/upgrade-to-0-7' },
         { label: 'Advanced setup', collapsed: true, items: [
           { label: 'Manual archives and native services', slug: 'how-to/manual-native-installation' },

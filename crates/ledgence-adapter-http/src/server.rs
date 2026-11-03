@@ -1,7 +1,15 @@
 //! Axum composition boundary. Application and persistence remain behind
 //! [`TaskService`]; readiness and database lifecycle belong to the executable.
 
+mod access;
 mod approvals;
+mod audit;
+mod effect_resolution;
+mod evidence;
+mod provider;
+mod provider_console;
+mod routes;
+use routes::{Policy, Route};
 pub mod assets;
 mod completion;
 pub mod console;
@@ -141,6 +149,9 @@ pub fn router_with_console(
 ) -> Result<Router> {
     let instance = console.instance.context();
     instance.validate()?;
+    if console.operator_audit {
+        workflows.operator_access()?;
+    }
     Ok(build_router(
         service,
         Some(workflows),
@@ -183,46 +194,70 @@ fn build_router(
         invalid_trace_headers: Arc::new(AtomicU64::new(0)),
     };
     let mut router = Router::new();
-    for (path, _) in ROUTES
+    for route in ROUTES
         .iter()
         .chain(console::ROUTES)
         .chain(publication::ROUTES)
     {
-        router = router.route(path, any(handle));
+        router = router.route(route.path, any(handle));
     }
     router.fallback(handle).with_state(state)
 }
 
-const ROUTES: &[(&str, &str)] = &[
-    ("/v1/completion-subscriptions", "POST"),
-    ("/v1/completion-subscriptions/status", "GET"),
-    ("/v1/completion-subscriptions/retry", "POST"),
-    ("/v1/workflows", "POST"),
-    ("/v1/workflows/status", "GET"),
-    ("/v1/workflows/result", "GET"),
-    ("/v1/workflows/cancel", "POST"),
-    ("/v1/workflows/events", "POST"),
-    ("/v1/workflows/approvals/inspect", "POST"),
-    ("/v1/workflows/approvals/list", "POST"),
-    ("/v1/workflows/approvals/inbox", "POST"),
-    ("/v1/workflows/approvals/decide", "POST"),
-    ("/v1/workflows/activations/context", "POST"),
-    ("/v1/workflows/local-results", "POST"),
-    ("/v1/workflows/forks", "POST"),
-    ("/v1/tasks", "GET, POST"),
-    ("/v1/tasks/inspect", "GET"),
-    ("/v1/tasks/status", "GET"),
-    ("/v1/tasks/result", "GET"),
-    ("/v1/attempts/inspect", "GET"),
-    ("/v1/tasks/history", "GET"),
-    ("/v1/tasks/cancel", "POST"),
-    ("/v1/worker-sessions", "POST"),
-    ("/v1/worker-sessions/extend", "POST"),
-    ("/v1/acquisitions", "POST"),
-    ("/v1/dispatch/claim", "POST"),
-    ("/v1/renewals", "POST"),
-    ("/v1/settlements", "POST"),
-    ("/v1/quiescence-confirmations", "POST"),
+const ROUTES: &[Route] = &[
+    Route::get("/v1/access", Policy::Access),
+    Route::post("/v1/audit/events", Policy::Metadata),
+    Route::post("/v1/completion-subscriptions", Policy::Control),
+    Route::get("/v1/completion-subscriptions/status", Policy::Metadata),
+    Route::post("/v1/completion-subscriptions/retry", Policy::Control),
+    Route::post("/v1/workflows", Policy::Submit),
+    Route::get("/v1/workflows/status", Policy::Metadata),
+    Route::sensitive_get("/v1/workflows/result", AuditReadKind::WorkflowResult),
+    Route::post("/v1/workflows/cancel", Policy::Control),
+    Route::post("/v1/workflows/events", Policy::Control),
+    Route::sensitive_post(
+        "/v1/workflows/approvals/inspect",
+        AuditReadKind::ApprovalInspect,
+    ),
+    Route::sensitive_post("/v1/workflows/approvals/list", AuditReadKind::ApprovalList),
+    Route::post("/v1/workflows/approvals/inbox", Policy::Metadata),
+    Route::post("/v1/workflows/approvals/decide", Policy::Approval),
+    Route::post("/v1/workflows/activations/context", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/claim", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/confirm", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/v2/claim", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/v2/confirm", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/v2/observe", Policy::Worker),
+    Route::post("/v1/workflows/provider-operations/claim", Policy::Worker),
+    Route::post("/v1/workflows/provider-operations/report", Policy::Worker),
+    Route::post("/v1/workflows/provider-operations/observe", Policy::Worker),
+    Route::post("/v1/provider-probes/context", Policy::Worker),
+    Route::post("/v1/provider-probes/report", Policy::Worker),
+    Route::post("/v1/workflows/approved-effects/inbox", Policy::Metadata),
+    Route::post(
+        "/v1/workflows/approved-effects/resolve",
+        Policy::EffectResolution,
+    ),
+    Route::sensitive_post(
+        "/v1/workflows/approved-effects/inspect",
+        AuditReadKind::EffectInspect,
+    ),
+    Route::post("/v1/workflows/local-results", Policy::Worker),
+    Route::post("/v1/workflows/forks", Policy::Worker),
+    Route::read_write("/v1/tasks", Policy::Metadata, Policy::Submit),
+    Route::sensitive_get("/v1/tasks/inspect", AuditReadKind::TaskInspect),
+    Route::get("/v1/tasks/status", Policy::Metadata),
+    Route::sensitive_get("/v1/tasks/result", AuditReadKind::TaskResult),
+    Route::get("/v1/attempts/inspect", Policy::Worker),
+    Route::get("/v1/tasks/history", Policy::Metadata),
+    Route::post("/v1/tasks/cancel", Policy::Control),
+    Route::post("/v1/worker-sessions", Policy::Worker),
+    Route::post("/v1/worker-sessions/extend", Policy::Worker),
+    Route::post("/v1/acquisitions", Policy::Worker),
+    Route::post("/v1/dispatch/claim", Policy::Worker),
+    Route::post("/v1/renewals", Policy::Worker),
+    Route::post("/v1/settlements", Policy::Worker),
+    Route::post("/v1/quiescence-confirmations", Policy::Worker),
 ];
 
 struct Failure {
@@ -262,9 +297,9 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         .iter()
         .chain(console::ROUTES)
         .chain(publication::ROUTES)
-        .find(|(path, _)| *path == request.uri().path())
+        .find(|route| route.path == request.uri().path())
         .or_else(|| publication::match_route(request.uri().path()));
-    let route_label = route.map_or("unmatched", |(path, _)| *path);
+    let route_label = route.map_or("unmatched", |route| route.path);
     let span = tracing::info_span!(
         parent: None,
         "ledgence.http.server",
@@ -301,32 +336,68 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         .trace_bridge
         .set_parent(&span, transport_context.as_ref());
     async {
+        let admission = match route.and_then(|route| route.policy(&method)) {
+            Some(policy) => access::authorize(&server, &request, policy),
+            None => Ok(None),
+        };
+        let mut set_cookie = None;
         let (status, body, code) = match route {
             None => (
                 404,
                 br#"{"code":"route_not_found"}"#.to_vec(),
                 Some("route_not_found"),
             ),
-            Some((_, expected)) if !expected.split(", ").any(|allowed| method == allowed) => (
+            Some(route) if route.policy(&method).is_none() => (
                 405,
                 br#"{"code":"method_not_allowed"}"#.to_vec(),
                 Some("method_not_allowed"),
             ),
+            Some(_) if admission.is_err() => {
+                failure_reply(admission.expect_err("checked denial").into())
+            }
+            Some(route) if route.policy(&method).is_some_and(Policy::is_access) => {
+                let policy = route.policy(&method).expect("method checked");
+                match tokio::time::timeout_at(
+                    deadline,
+                    access::dispatch(&server, request, policy, admission.ok().flatten()),
+                )
+                .await
+                {
+                    Ok(Ok((body, cookie))) => {
+                        set_cookie = cookie;
+                        (200, body, None)
+                    }
+                    Ok(Err(error)) => failure_reply(error),
+                    Err(_) => failure_reply(unavailable("access request deadline exceeded").into()),
+                }
+            }
             Some(_) if publication::is_route(route_label) => {
                 publication::dispatch(&server, request).await
             }
-            Some(_) => {
+            Some(route) => {
                 let result = if server.stopping.load(Ordering::Acquire) {
                     Err(unavailable("orchestrator is shutting down").into())
                 } else {
-                    tokio::time::timeout_at(deadline, dispatch(&server, request, deadline))
-                        .await
-                        .unwrap_or_else(|_| {
-                            Err(unavailable(
-                                "server request deadline exceeded; operation outcome is uncertain",
-                            )
-                            .into())
-                        })
+                    tokio::time::timeout_at(deadline, async {
+                        let context = audit::RequestContext::new(
+                            &server,
+                            admission.ok().flatten(),
+                            route,
+                            &method,
+                            &request_id,
+                        )?;
+                        let bytes = dispatch(&server, request, deadline, &context)
+                            .await
+                            .map_err(|error| context.failure(error))?;
+                        audit::release(&server, context.prepare(bytes)).await
+                    })
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(unavailable(
+                            "server request deadline exceeded; operation outcome is uncertain",
+                        )
+                        .into())
+                    })
                 };
                 // A synchronous poll can finish after timeout_at's deadline.
                 // Never acknowledge a late success as fresh authority.
@@ -340,19 +411,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 };
                 match result {
                     Ok(bytes) => (200, bytes, None),
-                    Err(Failure { status, mut error }) => {
-                        let code = error_code(&error);
-                        if let ContractError::InvalidInput(message)
-                        | ContractError::Unavailable(message) = &mut error
-                        {
-                            *message = message.chars().take(4096).collect();
-                        }
-                        (
-                            status,
-                            serde_json::to_vec(&error).expect("error has JSON representation"),
-                            Some(code),
-                        )
-                    }
+                    Err(error) => failure_reply(error),
                 }
             }
         };
@@ -413,13 +472,33 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         if status == 405 {
             response.headers_mut().insert(
                 header::ALLOW,
-                HeaderValue::from_static(route.expect("known route").1),
+                HeaderValue::from_static(route.expect("known route").methods),
             );
+        }
+        if let Some(cookie) = set_cookie {
+            response.headers_mut().insert(header::SET_COOKIE, cookie);
+        }
+        if status == 401 {
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
         }
         response
     }
     .instrument(span)
     .await
+}
+
+fn failure_reply(Failure { status, mut error }: Failure) -> (u16, Vec<u8>, Option<&'static str>) {
+    let code = error_code(&error);
+    if let ContractError::InvalidInput(message) | ContractError::Unavailable(message) = &mut error {
+        *message = message.chars().take(4096).collect();
+    }
+    (
+        status,
+        serde_json::to_vec(&error).expect("error has JSON representation"),
+        Some(code),
+    )
 }
 
 /// One fixed W3C carrier. The HTTP context never changes the JSON command.
@@ -584,6 +663,7 @@ async fn dispatch(
     server: &Server,
     request: Request,
     deadline: Instant,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     if Instant::now() >= deadline {
         return Err(unavailable("server request deadline exceeded before dispatch").into());
@@ -596,7 +676,7 @@ async fn dispatch(
     if request.uri().path().starts_with("/v1/console/")
         || request.uri().path() == "/v1/worker-observations"
     {
-        return console::dispatch(server, request).await;
+        return console::dispatch(server, request, context).await;
     }
     let (parts, body) = request.into_parts();
     let path = parts.uri.path();
@@ -628,7 +708,8 @@ async fn dispatch(
             return completion::get(server, scope, fields["subscription_id"].clone()).await;
         }
         if path.starts_with("/v1/workflows/") {
-            return workflow::get(server, path, scope, fields["workflow_id"].clone()).await;
+            return workflow::get(server, path, scope, fields["workflow_id"].clone(), context)
+                .await;
         }
         let task = &fields["task_id"];
         validate_text(task, 128)?;
@@ -643,8 +724,17 @@ async fn dispatch(
         return match path {
             "/v1/tasks/inspect" => {
                 let reply = server.service.inspect(&scope, task).await?;
+                console::check_snapshot(&reply, &scope, task)?;
+                reply
+                    .input
+                    .validate()
+                    .map_err(|_| unavailable("invalid service task snapshot"))?;
                 log_task(&reply);
-                server.encode(reply).await
+                let bytes = server.encode(reply).await?;
+                context.sensitive(AuditResource::Task {
+                    task_id: task.clone(),
+                })?;
+                Ok(bytes)
             }
             "/v1/tasks/status" => {
                 let reply = server.service.status(&scope, task).await?;
@@ -661,14 +751,23 @@ async fn dispatch(
             "/v1/tasks/result" => {
                 let reply = server.service.result(&scope, task).await?;
                 check_task_identity(&reply.task, &scope, task)?;
-                server
+                let pending = reply.outcome.is_none();
+                let bytes = server
                     .blocking(move || {
                         reply
                             .validate()
                             .map_err(|_| unavailable("invalid service task result"))?;
                         encode_bounded(&reply, RESPONSE_MAX_BYTES)
                     })
-                    .await
+                    .await?;
+                if pending {
+                    context.pending_result()?;
+                } else {
+                    context.sensitive(AuditResource::Task {
+                        task_id: task.clone(),
+                    })?;
+                }
+                Ok(bytes)
             }
             "/v1/attempts/inspect" => {
                 let attempt = &fields["attempt_id"];
@@ -729,6 +828,21 @@ async fn dispatch(
         });
     }
     let maximum = match path {
+        path if path.starts_with("/v1/workflows/provider-operations/")
+            || path.starts_with("/v1/provider-probes/") =>
+        {
+            PROVIDER_COMMAND_MAX_BYTES
+        }
+        "/v1/audit/events" => 16 * 1024,
+        "/v1/workflows/approved-effects/claim" => APPROVAL_SNAPSHOT_MAX_BYTES,
+        "/v1/workflows/approved-effects/confirm" => APPROVED_EFFECT_CONFIRM_MAX_BYTES,
+        "/v1/workflows/approved-effects/resolve" => EFFECT_RESOLUTION_COMMAND_MAX_BYTES,
+        path if path.starts_with("/v1/workflows/approved-effects/v2/") => {
+            EFFECT_EVIDENCE_COMMAND_MAX_BYTES
+        }
+        "/v1/workflows/approved-effects/inbox" | "/v1/workflows/approved-effects/inspect" => {
+            EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
+        }
         path if path.starts_with("/v1/workflows/approvals/") => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
@@ -759,8 +873,16 @@ async fn dispatch(
     if path.starts_with("/v1/completion-subscriptions") {
         return completion::post(server, path, bytes).await;
     }
+    if path == "/v1/audit/events" {
+        return audit::query(server, bytes, None, context).await;
+    }
+    if path.starts_with("/v1/workflows/provider-operations/")
+        || path.starts_with("/v1/provider-probes/")
+    {
+        return provider::post(server, path, bytes, context).await;
+    }
     if path.starts_with("/v1/workflows") {
-        return workflow::post(server, path, bytes, maximum).await;
+        return workflow::post(server, path, bytes, maximum, context).await;
     }
     match path {
         "/v1/tasks" => {

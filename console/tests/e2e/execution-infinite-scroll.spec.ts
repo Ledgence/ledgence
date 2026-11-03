@@ -8,7 +8,7 @@ import { observedTask } from "../../src/api/resources";
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,7 +24,7 @@ const canonicalPage = executionPage(fixture("execution_history"));
 const observedAt = canonicalPage.observed_at;
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "5",
+  "Ledgence-Console-Contract": "7",
   "Ledgence-Instance-Id": canonicalConfig.instance_id,
 };
 
@@ -79,6 +79,19 @@ async function mount(
     completed = resolve;
   });
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "7",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const url = new URL(route.request().url());
     const resource = url.pathname.replace("/v1/console/", "");
     let body: unknown;

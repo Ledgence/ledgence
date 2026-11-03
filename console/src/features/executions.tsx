@@ -1,3 +1,4 @@
+import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,6 +33,7 @@ import {
 import { CommandFeedback } from "../components/command-feedback";
 import { ExecutionHeading } from "../components/execution-heading";
 import { TaskResources, AttemptResources } from "./execution-resources";
+import { effectDetailPath } from "../api/effects";
 import { DetailPanels, DetailSections } from "./detail-panels";
 export function ExecutionDetailPage() {
   const { taskId = "" } = useParams();
@@ -53,11 +55,15 @@ export function ExecutionDetailPage() {
         kind="task"
         id={taskId}
         title={task?.correlation_key || "Task execution"}
+        context={task && { label: "Task queue", value: task.queue }}
         metadata={
           <>
             {task && (
               <>
                 <Status value={task.state} />
+                {task.provider_probe && (
+                  <span className="badge">Provider check</span>
+                )}
                 <Elapsed
                   start={task.submitted_at}
                   end={
@@ -78,14 +84,20 @@ export function ExecutionDetailPage() {
         actions={
           task && (
             <>
-              <Link
-                className="button button-outline"
-                to={`/executions/new?source_task=${encodeURIComponent(taskId)}`}
-              >
-                Run again
-              </Link>
+              {!task.provider_probe && (
+                <Permission capability="execution_submit">
+                  <Link
+                    className="button button-outline"
+                    to={`/executions/new?source_task=${encodeURIComponent(taskId)}`}
+                  >
+                    Run again
+                  </Link>
+                </Permission>
+              )}
               {!dto.terminal(task.state) && (
-                <CancelTask key={taskId} taskId={taskId} />
+                <Permission capability="execution_control">
+                  <CancelTask key={taskId} taskId={taskId} />
+                </Permission>
               )}
             </>
           )
@@ -178,6 +190,22 @@ export function ExecutionDetailPage() {
                                     "None"
                                   )}
                                 </Field>
+                                {task.provider_probe && (
+                                  <Field label="Provider check">
+                                    <Link
+                                      to={effectDetailPath(
+                                        task.provider_probe.occurrence,
+                                      )}
+                                      state={{
+                                        returnTo: `${location.pathname}${location.search}`,
+                                        restoreNavigationKey: location.key,
+                                      }}
+                                    >
+                                      Inspect provider evidence
+                                    </Link>{" "}
+                                    · Check {task.provider_probe.generation}
+                                  </Field>
+                                )}
                                 {task.workflow_id && (
                                   <Field label="Workflow">
                                     <Link

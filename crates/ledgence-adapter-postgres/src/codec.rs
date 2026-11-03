@@ -127,6 +127,9 @@ fn identifier(row: &impl Record, column: &str, maximum: usize) -> Result<String>
 pub(crate) fn status(row: &PgRow) -> Result<TaskStatus> {
     visible(row)?;
     let status = TaskStatus {
+        provider_probe: get::<Option<Vec<u8>>>(row, "provider_probe_bytes")?
+            .map(|b| decode(&b))
+            .transpose()?,
         workflow_id: get(row, "workflow_id")?,
         workflow_activation_id: get(row, "workflow_activation_id")?,
         scope: Scope {
@@ -196,6 +199,9 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
         return Err(corrupt("indexed submission differs from immutable binding"));
     }
     let task = TaskSnapshot {
+        provider_probe: get::<Option<Vec<u8>>>(row, "provider_probe_bytes")?
+            .map(|b| decode(&b))
+            .transpose()?,
         workflow_id: get(row, "workflow_id")?,
         parent_workflow_id: get(row, "parent_workflow_id")?,
         root_workflow_id: get(row, "root_workflow_id")?,

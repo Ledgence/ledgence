@@ -8,7 +8,7 @@ use crate::{
     required,
     signals::{ShutdownSignals, forced_exit},
 };
-use ledgence_adapter_http::HttpTaskService;
+use ledgence_adapter_http::{HttpCredentials, HttpTaskService};
 use ledgence_orchestration_api::{ContractError, LONG_POLL_WAIT_MS, Scope, validate_text};
 use ledgence_worker_api::{Error, ErrorKind, Result, TraceBridge};
 use ledgence_worker_delivery::{DeliveryConfig, DeliveryDriver, DeliveryHandle};
@@ -18,6 +18,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 pub struct ConnectOptions {
     server: String,
     client: HttpTaskService,
+    credentials: Option<HttpCredentials>,
     scope: Scope,
     queue: String,
     store: String,
@@ -45,6 +46,11 @@ impl ConnectOptions {
             return Err(input("acquisition wait must be between 0 and 20000 ms"));
         }
         let server = required(&mut options, "--server")?;
+        let credentials = options
+            .remove("--credentials-file")
+            .map(|path| HttpCredentials::from_file(std::path::Path::new(&path)))
+            .transpose()
+            .map_err(contract_error)?;
         let scope = Scope {
             tenant_id: required(&mut options, "--tenant")?,
             namespace: required(&mut options, "--namespace")?,
@@ -74,10 +80,16 @@ impl ConnectOptions {
         }
         // Reuse the adapter's URL validation before runtime/telemetry startup.
         // The constructor does not connect; retain the client for execution.
-        let client = HttpTaskService::new(&server).map_err(contract_error)?;
+        let mut client = HttpTaskService::new(&server).map_err(contract_error)?;
+        if let Some(credentials) = &credentials {
+            client = client
+                .with_credentials(credentials.clone())
+                .map_err(contract_error)?;
+        }
         let config = Self {
             server,
             client,
+            credentials,
             scope,
             queue,
             store,
@@ -101,14 +113,31 @@ pub async fn run(
     trace: Arc<dyn TraceBridge>,
 ) -> Result<()> {
     let client = Arc::new(config.client.clone().with_trace_bridge(trace.clone()));
+    // Authenticate and negotiate before any broker, session or runtime exists.
+    let effect_access = {
+        let discovered = client.discover_worker(&config.scope);
+        tokio::pin!(discovered);
+        tokio::select! {
+            result = &mut discovered => result.map_err(contract_error)?,
+            signal = signals.recv() => {
+                signal?;
+                *interrupted = true;
+                return Err(Error::new(ErrorKind::Cancelled, "worker discovery interrupted"));
+            }
+        }
+    };
     let broker_source = prepare_broker(&config, client.clone(), signals, interrupted).await?;
     // Reporting has its own bounded JSON executor and connection pool, so a slow
     // observation exchange cannot consume execution-control admission.
-    let observation_client = Arc::new(
+    let mut observation_client =
         HttpTaskService::with_timeout(&config.server, Duration::from_secs(2))
-            .map_err(contract_error)?
-            .with_trace_bridge(trace.clone()),
-    );
+            .map_err(contract_error)?;
+    if let Some(credentials) = &config.credentials {
+        observation_client = observation_client
+            .with_credentials(credentials.clone())
+            .map_err(contract_error)?;
+    }
+    let observation_client = Arc::new(observation_client.with_trace_bridge(trace.clone()));
     let display_name = config.display_name.clone();
     let mut delivery_config = DeliveryConfig::new(config.scope, config.queue);
     delivery_config.acquire_wait = config.acquire_wait;
@@ -141,9 +170,15 @@ pub async fn run(
     }
     let mut driver = DeliveryDriver::new(worker, client.clone(), delivery_config)
         .map_err(contract_error)?
-        .with_workflows(client)
+        .with_workflows(client.clone())
         .with_observation_publisher(observation_client, display_name)
         .map_err(contract_error)?;
+    if let Some(access) = effect_access {
+        driver = driver
+            .with_effect_evidence(access.audience, access.identity)
+            .and_then(|driver| driver.with_runtime_features(access.runtime_features))
+            .map_err(contract_error)?;
+    }
     if let Some(source) = broker_source {
         driver = driver.with_acquisition_source(source);
     }

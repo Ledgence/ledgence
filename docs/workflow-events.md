@@ -195,3 +195,13 @@ Use [durable workflow approvals](workflow-approvals.md) when a review must bind
 to an existing immutable action and its effective arguments. Generic events
 remain application input; they cannot approve an action. The unified CLI
 provides `ledgence approval list`, `inspect`, and `decide`.
+
+## Native effect waits in development
+
+Operator assessment of a retained external effect uses
+`ctx.wait_effect_resolution(...)` and a typed `ctx.effect_resolution` wake.
+Its native namespace is independent of event wait keys. Publishing an event with
+a matching textual key leaves the native wait unchanged. Verified resolution,
+assessment selection and workflow eligibility are durable backend operations.
+[Effect evidence and resolution](effect-evidence.md) describes the contract and
+its negotiated worker support.

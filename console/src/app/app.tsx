@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { AccessBoundary } from "./access";
+import { accessController } from "./access-state";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { AppShell } from "../components/app-shell";
@@ -27,6 +29,8 @@ import {
   ApprovalReviewPage,
 } from "../features/approval-inbox";
 
+import { EffectsPage, EffectReviewPage } from "../features/effects";
+
 function Console() {
   const config = useQuery({
     queryKey: [location.origin, consoleContractVersion, "config"],
@@ -34,7 +38,10 @@ function Console() {
     staleTime: Infinity,
   });
   return (
-    <AppShell instanceName={config.data?.instance_name ?? "Ledgence"}>
+    <AppShell
+      instanceName={config.data?.instance_name ?? "Ledgence"}
+      serverVersion={config.data?.server_version}
+    >
       {config.isPending ? (
         <LoadingState label="Connecting to your instance" />
       ) : config.isError ? (
@@ -68,6 +75,8 @@ function Console() {
               path="workflows/:workflowId"
               element={<WorkflowDetailPage />}
             />
+            <Route path="effects" element={<EffectsPage />} />
+            <Route path="effects/review" element={<EffectReviewPage />} />
             <Route path="approvals" element={<ApprovalInboxPage />} />
             <Route path="approvals/review" element={<ApprovalReviewPage />} />
             <Route path="programs" element={<AgentsPage />} />
@@ -102,15 +111,36 @@ function Console() {
     </AppShell>
   );
 }
-export function App() {
+function AuthenticatedConsole() {
   const [client] = useState(createQueryClient);
+  useEffect(() => {
+    const view = accessController.getSnapshot().view;
+    const unsubscribe = accessController.subscribe(() => {
+      const state = accessController.getSnapshot();
+      if (state.view !== view || state.phase === "locked") client.clear();
+      else if (state.phase === "checking") void client.cancelQueries();
+      else void client.invalidateQueries();
+    });
+    return () => {
+      unsubscribe();
+      void client.cancelQueries();
+      client.clear();
+    };
+  }, [client]);
   return (
     <QueryClientProvider client={client}>
-      <BrowserRouter basename="/console">
-        <NavigationHistoryProvider>
-          <Console />
-        </NavigationHistoryProvider>
-      </BrowserRouter>
+      <NavigationHistoryProvider>
+        <Console />
+      </NavigationHistoryProvider>
     </QueryClientProvider>
+  );
+}
+export function App() {
+  return (
+    <BrowserRouter basename="/console">
+      <AccessBoundary>
+        <AuthenticatedConsole />
+      </AccessBoundary>
+    </BrowserRouter>
   );
 }

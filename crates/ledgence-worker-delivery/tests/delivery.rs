@@ -470,6 +470,7 @@ impl TaskService for Service {
                         AcquireReply::Assigned {
                             sequence: command.sequence,
                             assignment: Box::new(Assignment {
+                                provider_probe: None,
                                 workflow_activation_id: None,
                                 descriptor: descriptor(),
                                 event,

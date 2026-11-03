@@ -219,40 +219,6 @@ a {
 .workspace {
   min-width: 0;
 }
-.instance-header {
-  min-height: 76px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 32px;
-}
-.instance-header-name {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-}
-.instance-header-name span {
-  overflow-wrap: anywhere;
-}
-.theme-control {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.theme-control select {
-  min-height: 44px;
-  max-width: 120px;
-  padding: 6px;
-  background: var(--input-bg);
-  color: var(--ink);
-  border: 1px solid var(--control-line);
-  border-radius: 7px;
-}
 .main-content {
   padding: 32px;
   max-width: 1560px;
@@ -287,11 +253,15 @@ a {
 }
 .button-primary {
   background: var(--primary);
+  font-weight: 600;
   color: var(--on-primary);
 }
 .button-outline {
   border-color: var(--control-line);
   background: var(--input-bg);
+}
+.button-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 88%, var(--on-primary));
 }
 .button-ghost {
   background: transparent;
@@ -485,18 +455,8 @@ a {
     padding: 8px 3px;
     font-size: 12px;
   }
-  .instance-header {
-    padding: 12px 20px;
-    min-height: 68px;
-  }
   .main-content {
     padding: 24px 20px;
-  }
-  .theme-control {
-    gap: 4px;
-  }
-  .theme-control > svg {
-    display: none;
   }
   .page-header {
     flex-wrap: wrap;
@@ -526,17 +486,8 @@ a {
   .main-content {
     padding: 22px 14px;
   }
-  .instance-header {
-    padding: 10px 14px;
-  }
   .sidebar {
     padding: 14px 10px;
-  }
-  .instance-header-name > svg {
-    display: none;
-  }
-  .theme-control select {
-    max-width: 92px;
   }
   .navigation a {
     font-size: 11px;
@@ -592,43 +543,40 @@ a {
 }
 .status {
   display: inline-flex;
+  width: fit-content;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 9%, var(--surface));
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
   text-transform: capitalize;
   white-space: nowrap;
-  overflow-wrap: normal;
-  font-size: 13px;
 }
 .status svg {
-  width: 9px;
-  height: 9px;
-  fill: currentColor;
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.3;
 }
-.status-succeeded,
-.status-fresh,
-.status-warm {
+.status[data-tone="success"] {
   color: var(--success);
+  background: light-dark(#e0f4e8, #112b20);
 }
-.status-failed,
-.status-lost,
-.status-failing,
-.status-cleanup_pending {
+.status[data-tone="failure"] {
   color: var(--failure);
+  background: light-dark(
+    #fbe8ec,
+    color-mix(in srgb, currentColor 9%, var(--surface))
+  );
 }
-.status-active,
-.status-running,
-.status-waiting,
-.status-queued,
-.status-open,
-.status-cancelling {
+.status[data-tone="active"] {
+  color: var(--accent);
+}
+.status[data-tone="waiting"] {
   color: var(--waiting);
-}
-.status-stale,
-.status-no_recent_report,
-.status-unavailable,
-.status-cancelled,
-.status-unknown {
-  color: var(--muted);
 }
 input:not([type="checkbox"]),
 select,
@@ -715,11 +663,24 @@ summary {
   flex-direction: row;
   align-items: center;
 }
+.empty-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--well);
+  color: var(--muted);
+}
 .empty-state {
   padding: 44px 16px;
   text-align: center;
 }
 .empty-state p {
+  margin-inline: auto;
+  max-width: 52ch;
   color: var(--muted);
   margin-top: 10px;
 }
@@ -998,9 +959,6 @@ summary {
     overflow: auto;
   }
 }
-.theme-control {
-  flex-direction: row;
-}
 
 .status-tabs [aria-pressed="true"] {
   background: var(--well);
@@ -1009,7 +967,6 @@ summary {
 }
 
 /* One execution model, two complementary views. */
-.navigation a.active,
 .tabs [aria-pressed="true"],
 .segmented [aria-pressed="true"] {
   background: var(--well);
@@ -1242,10 +1199,12 @@ summary {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.timeline-row-label small {
+  color: var(--muted);
+}
 .timeline-row-label small,
 .timeline-row .status {
   font-size: 11px;
-  color: var(--muted);
 }
 .timeline-track {
   display: block;
@@ -1294,9 +1253,6 @@ summary {
 }
 .resource-local-list li {
   padding: 10px 0;
-}
-.status-accepted {
-  color: var(--success);
 }
 @media (max-width: 1400px) {
   .explorer-body {
@@ -1358,11 +1314,15 @@ summary {
 }
 .page-heading h1 {
   overflow-wrap: anywhere;
-  font-size: clamp(23px, 2vw, 28px);
-  letter-spacing: -0.7px;
+  font-size: clamp(28px, 2.6vw, 40px);
+  font-weight: 630;
+  letter-spacing: -0.045em;
+  line-height: 1.14;
 }
 .page-heading p {
-  max-width: 70ch;
+  max-width: 66ch;
+  font-size: 15px;
+  line-height: 1.55;
 }
 .page-heading .actions {
   flex-shrink: 0;
@@ -1381,7 +1341,7 @@ summary {
   min-width: 0;
 }
 .heading-metadata code {
-  font-size: 11px;
+  font-size: 12px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1530,11 +1490,11 @@ summary {
   background: var(--surface);
 }
 .table th {
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.02em;
 }
 .table td {
-  font-size: 13px;
+  font-size: 14px;
 }
 .table tbody tr:last-child td {
   border-bottom: 0;
@@ -1583,6 +1543,7 @@ summary {
   font-weight: 550;
 }
 .execution-table .execution-id {
+  font-variant-numeric: tabular-nums;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 10px;
 }
@@ -1591,10 +1552,10 @@ summary {
   gap: 8px;
 }
 .page-controls .button {
-  font-size: 12px;
+  font-size: 13px;
 }
 .page-controls > .muted {
-  font-size: 11px;
+  font-size: 13px;
 }
 .card-grid.program-grid,
 .card-grid.worker-grid {
@@ -1842,5 +1803,17 @@ summary {
   }
   .execution-context .breadcrumbs {
     flex-basis: auto;
+  }
+}
+
+@container console-light {
+  .status,
+  .timeline-row .status {
+    font-size: 13px;
+  }
+  .worker-session-id {
+    font-family: var(--technical-font);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
   }
 }

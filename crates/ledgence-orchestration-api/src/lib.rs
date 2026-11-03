@@ -10,6 +10,10 @@
 
 pub use ledgence_worker_api::TraceContext;
 
+mod operator_audit;
+pub use operator_audit::*;
+mod access;
+pub use access::*;
 mod acquisition;
 mod completion;
 pub mod console;
@@ -19,8 +23,16 @@ mod discovery;
 pub mod instance;
 pub use instance::*;
 mod approval_inbox;
+mod approved_effects;
 mod dispatch;
+mod effect_evidence;
+mod effect_evidence_reads;
+mod effect_resolution;
 mod observation;
+mod provider_binding;
+mod provider_operation;
+mod provider_reads;
+mod provider_wait;
 mod retention;
 mod storage;
 mod submission;
@@ -31,11 +43,19 @@ mod workflow_events;
 mod workflow_forks;
 pub use acquisition::*;
 pub use approval_inbox::*;
+pub use approved_effects::*;
 pub use completion::*;
 pub use delivery::*;
 pub use discovery::*;
 pub use dispatch::*;
+pub use effect_evidence::*;
+pub use effect_evidence_reads::*;
+pub use effect_resolution::*;
 pub use observation::*;
+pub use provider_binding::*;
+pub use provider_operation::*;
+pub use provider_reads::*;
+pub use provider_wait::*;
 pub use retention::*;
 pub use storage::*;
 pub use submission::*;
@@ -54,6 +74,10 @@ use std::{fmt, future::Future, pin::Pin};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "code", content = "message", rename_all = "snake_case")]
 pub enum ContractError {
+    /// Missing, invalid or expired transport credentials. No operation was authorized.
+    Unauthenticated,
+    /// The verified principal lacks permission. No operation was authorized.
+    Forbidden,
     InvalidInput(String),
     /// Integrated acquisition rejected because the queue requires external
     /// dispatch. This exact operation granted no authority and committed no
@@ -143,3 +167,6 @@ pub fn validate_text(value: &str, maximum: usize) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod provider_tests;

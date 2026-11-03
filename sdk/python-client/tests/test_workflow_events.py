@@ -125,19 +125,50 @@ class WorkflowEventClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(raised.exception.code, code)
 
     async def test_dispatched_timeout_and_predispatch_expiration_are_distinct(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        timeouts = []
+        original_timeout = asyncio.timeout_at
+        transport = self.client._require_transport()
+
         async def delayed(request, body):
-            await asyncio.sleep(.2)
+            entered.set()
+            await asyncio.wait_for(release.wait(), 5)
             return response(receipt(body))
+
+        def controlled_timeout(deadline):
+            if asyncio.current_task() not in transport._operations:
+                return original_timeout(deadline)
+            # Expire the real transport timeout after the server reads the
+            # request, independent of socket startup and CI scheduling.
+            timeout = original_timeout(None)
+            timeouts.append(timeout)
+            return timeout
+
         self.callback = delayed
-        async with AsyncClient(self.url, tenant="tenant", namespace="tests", request_timeout=.03) as client:
-            workflow = client.workflows.handle("workflow")
-            command = workflow.prepare_event("approval", event=event())
-            with self.assertRaises(WorkflowEventUncertain) as raised:
-                await workflow.send_event(command)
-            self.assertIsInstance(raised.exception.cause, RequestTimeout)
-            self.assertTrue(raised.exception.cause.dispatched)
         workflow = self.client.workflows.handle("workflow")
-        with patch.object(self.client._require_transport(), "exchange",
+        command = workflow.prepare_event("approval", event=event())
+        with patch("ledgence.client.transport.asyncio.timeout_at", controlled_timeout):
+            pending = asyncio.create_task(workflow.send_event(command))
+            try:
+                await asyncio.wait_for(entered.wait(), 5)
+                self.assertEqual(len(self.requests), 1)
+                self.assertEqual(len(timeouts), 1)
+                timeouts[0].reschedule(loop.time())
+                with self.assertRaises(WorkflowEventUncertain) as raised:
+                    await asyncio.wait_for(pending, 5)
+                self.assertIsInstance(raised.exception.cause, RequestTimeout)
+                self.assertTrue(raised.exception.cause.dispatched)
+                self.assertIs(raised.exception.command, command)
+                self.assertFalse(transport._operations)
+            finally:
+                release.set()
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.wait_for(asyncio.gather(pending, return_exceptions=True), 5)
+
+        with patch.object(transport, "exchange",
                           new=AsyncMock(side_effect=RequestTimeout(dispatched=False))):
             with self.assertRaises(RequestTimeout) as raised:
                 await workflow.send_event(key="approval", event=event())

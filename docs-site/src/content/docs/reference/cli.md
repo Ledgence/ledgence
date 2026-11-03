@@ -72,7 +72,7 @@ MCP requires its build feature, which is included in native release bundles.
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
 | `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
-| `approval` | `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
+| `approval` | `inbox`, `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
 | `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
 
 There is no separate `workflow` command group. Use the
@@ -339,3 +339,90 @@ See [Connect an MCP client](/how-to/connect-mcp).
 
 `--no-default-features --features mcp` builds MCP without OpenTelemetry or SQS.
 Earlier 0.2.0 binaries do not include this command.
+
+## Instance access in development
+
+Use scoped credentials with matching development components. The
+[instance access guide](/how-to/configure-instance-access) covers provisioning,
+Console identity, client files, capabilities, rotation and operating limits.
+
+
+## Operator audit in development
+
+Use `ledgence audit list` for bounded scoped pages or `ledgence audit approval` for one exact approval occurrence. Both use the configured credential file.
+[Setup, queries and operating limits](/how-to/audit-operators).
+
+## Retained effect evidence in development
+
+Matching development CLI and server builds add the `effect` group. These commands
+are not included in published 0.7.0. They read retained records without invoking
+a program or authorizing another external action.
+
+```sh
+ledgence effect inbox --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --filter unconfirmed \
+  --credentials-file operator.json
+ledgence effect inspect --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --workflow WORKFLOW_ID \
+  --activation EFFECT_ACTIVATION_ID --key APPROVAL_KEY \
+  --credentials-file operator.json
+```
+
+Use the workflow, original effect activation and approval key returned by the
+inbox. `operator.json` is the destination-bound credential file from instance
+access provisioning; it is not an evidence output file.
+
+`inbox` accepts `--filter all|unconfirmed|confirmed|discrepant|disputed` (default `all`),
+optional `--workflow`, `--limit 1..100` (default 50), and `--cursor`. It returns
+metadata only and requires `metadata_read` in credential mode. Trusted mode can
+also read the metadata. `inspect` requires the three occurrence identifiers,
+accepts `--limit 1..4` (default 4) and `--cursor`, and requires credential mode,
+`sensitive_read` and durable audit before the frozen binding or evidence is
+returned. A permission or audit failure is an error, not an empty page.
+
+Responses are at most 1 MiB. Continue with `next_cursor` and the same query even
+when the page is shorter than `--limit`; entries are never truncated. One JSON
+response goes to stdout, diagnostics to stderr; there are no implicit retries.
+The evidence distinguishes authenticated worker reports from unattributed legacy
+records. Neither proves provider truth or permits redispatch. Native effect
+resolution is not part of these commands. [Effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+
+## Submit an operator effect assessment in development
+
+Export a reviewed command from Console or `command.to_json()` in the Python
+client, then submit its complete saved envelope:
+
+```sh
+ledgence effect resolve --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file resolver.json \
+  --file effect-assessment.json
+```
+
+This requires matching development CLI/server builds and `effect_resolve`; it is
+absent from 0.7.0. The CLI checks the original canonical endpoint and scope, then
+sends the exact frozen body once. The envelope is at most 1 MiB, body 256 KiB.
+The file contains sensitive reviewed action/result data but no credential. There
+is no CLI preparation command. Use the same saved file and verified actor to
+reconcile uncertain delivery; rotated credentials are allowed, changed commands
+or actors conflict. A metadata receipt proves audited acceptance, not workflow
+resumption or provider truth. It never redispatches an effect.
+
+`effect inbox --filter disputed` selects current assessment conflict, separately
+from historical `discrepant` reports. See the [full saved-command contract](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#submit-a-saved-operator-assessment).
+
+## Provider recovery in development
+
+Use `ledgence effect inbox --provider-filter needs_review` with the same server,
+scope and credential options as other Effects commands. Accepted provider
+filters are `all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled`
+and `disputed`; keep the ordinary `--filter all`. `effect inspect` includes
+provider binding, typed reports and finite reconciliation metadata. These
+options require matching development components, not the published 0.7.0 CLI.
+
+`ledgence orchestrator serve --provider-config FILE` requires access and instance
+configurations. The versioned file binds the exact installation audience and
+chooses `enabled` or `declared_restore_quarantine`; omitting it disables provider
+operations. It contains no provider credentials. See the
+[recovery guide](/how-to/recover-provider-operations) and
+[complete CLI policy format](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#provider-operation-recovery-in-development).

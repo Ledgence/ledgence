@@ -1,0 +1,312 @@
+/* SPDX-License-Identifier: MIT */
+.resource-list {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  container-type: inline-size;
+}
+.resource-list-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 20px;
+}
+.resource-list-heading > svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  margin-top: 3px;
+  color: var(--muted);
+}
+.resource-list-heading h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.4;
+}
+.resource-list-heading p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.resource-list .list-filters,
+.resource-list .history-filters {
+  padding: 0 20px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+.resource-list .list-filters {
+  display: flex;
+  align-items: flex-end;
+  padding-block: 16px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--well) 32%, var(--surface));
+}
+.resource-list .list-filters > label,
+.history-filters--calendar .filter-primary > label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 550;
+  gap: 6px;
+}
+.resource-list .list-filters > .button {
+  margin: 0;
+}
+.resource-list .list-filters input,
+.resource-list .list-filters select,
+.resource-list .history-filters input:not([type="checkbox"]),
+.resource-list .history-filters select {
+  font-size: 14px;
+  font-weight: 400;
+}
+.resource-list > .empty-state,
+.resource-list > .notice,
+.resource-list > .loading-state {
+  margin: 16px 20px;
+}
+.resource-list > .page-controls {
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+}
+.resource-list .resource-id {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.resource-icon {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--well);
+  color: var(--ink);
+}
+.resource-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.registry-kinds {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.registry-kinds .button {
+  min-height: 36px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.registry-kinds .button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--selected);
+  border-color: var(--line);
+}
+.registry-entry {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.7fr) minmax(100px, 0.78fr) minmax(0, 1fr)
+    auto;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+}
+.registry-entry + .registry-entry {
+  border-top: 1px solid var(--line);
+}
+.registry-identity,
+.session-card .worker-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.registry-identity > div:last-child {
+  min-width: 0;
+}
+.registry-entry h3,
+.session-card h3 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.registry-entry a {
+  text-decoration: none;
+}
+.registry-entry a:hover {
+  text-decoration: underline;
+}
+.registry-description {
+  margin: 5px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.registry-actions,
+.registry-meta,
+.registry-registered {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.registry-registered time {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.registry-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  gap: 6px;
+}
+.registry-actions a:first-child {
+  color: var(--ink);
+  font-weight: 600;
+}
+.registry-actions svg {
+  width: 14px;
+  height: 14px;
+}
+.approval-table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.approval-table-scroll:focus-visible {
+  outline-offset: -3px;
+}
+.approval-table-scroll > .table-container {
+  overflow: visible;
+}
+.approval-table-scroll .approval-requests {
+  min-width: 650px;
+}
+.approval-table-scroll .approval-requests th,
+.approval-table-scroll .approval-requests td {
+  padding: 14px 16px;
+}
+.approval-requests td {
+  font-size: 14px;
+}
+.approval-table-scroll .approval-requests :is(th, td):first-child {
+  padding-left: 20px;
+}
+.approval-requests th:first-child {
+  min-width: 195px;
+}
+.approval-requests td:first-child a {
+  font-weight: 600;
+}
+.approval-requests time {
+  font-variant-numeric: tabular-nums;
+}
+.session-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+  gap: 14px;
+  padding: 16px 20px;
+}
+.session-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.session-card .worker-summary {
+  margin-top: 15px;
+  gap: 15px;
+}
+.session-card .worker-metrics dt,
+.session-card .worker-context dt,
+.session-card .worker-report {
+  font-size: 12px;
+}
+.session-card .worker-context dd {
+  font-size: 14px;
+}
+.session-card .worker-metrics dd {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.session-card .worker-report {
+  margin: 0;
+}
+@container (max-width: 780px) {
+  .registry-entry {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px 24px;
+  }
+  .registry-identity {
+    grid-column: 1 / -1;
+  }
+  .registry-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    gap: 22px;
+  }
+}
+@media (max-width: 768px) {
+  .resource-list-heading {
+    padding: 16px;
+  }
+  .resource-list .list-filters {
+    padding: 14px 16px;
+  }
+  .registry-kinds {
+    padding-inline: 12px;
+  }
+  .registry-kinds .button,
+  .registry-actions a {
+    min-height: 44px;
+  }
+  .registry-entry {
+    padding: 16px;
+  }
+  .session-grid {
+    padding: 12px;
+  }
+}
+@media (max-width: 359px) {
+  .approval-table-scroll .approval-requests {
+    width: 650px;
+    table-layout: fixed;
+  }
+  .approval-requests th:first-child {
+    width: 164px;
+    min-width: 0;
+  }
+  .approval-requests th:nth-child(2) {
+    width: 109px;
+  }
+}
+
+@container console-light {
+  .resource-list .resource-id {
+    font-family: var(--technical-font);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+}

@@ -350,3 +350,137 @@ See [MCP setup, tools and recovery](mcp.md).
 `--no-default-features` omits both MCP and OpenTelemetry. Add `--features mcp`
 to include only MCP, or `--features otel` for telemetry without MCP. Use a 0.7.0 native bundle or build the matching source for MCP; earlier 0.2.0
 binaries retain their original command set.
+
+## Credential access in development
+
+Matching development components support optional installation credentials across
+API operations, workers and Console. Configure the authority, client credential
+files and capabilities using the [instance access guide](instance-access.md).
+The existing operator-trusted mode requires its deployment access boundary.
+Native credential mode requires transactional verified approval attribution and
+audit before sensitive payload responses. [Operator audit](operator-audit.md).
+
+
+### Inspect operator audit
+
+Development builds add `ledgence audit list` with an optional `--task` or
+`--workflow` resource filter, `--limit` and `--cursor`. `ledgence audit approval`
+queries exact acceptance with `--workflow`, `--key`, `--activation`, `--revision`
+and `--decision`. Both take `--server`, `--tenant`, `--namespace` and the configured
+`--credentials-file`. Commands make one read exchange. [Copyable examples and
+interpretation](operator-audit.md#query-audit-events).
+
+## Retained effect evidence in development
+
+Matching development CLI and server builds add the `effect` group. These commands
+are not included in published 0.7.0. They read retained records without invoking
+a program or authorizing another external action.
+
+```sh
+ledgence effect inbox --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --filter unconfirmed \
+  --credentials-file operator.json
+ledgence effect inspect --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --workflow WORKFLOW_ID \
+  --activation EFFECT_ACTIVATION_ID --key APPROVAL_KEY \
+  --credentials-file operator.json
+```
+
+Use the workflow, original effect activation and approval key returned by the
+inbox. `operator.json` is the destination-bound credential file from instance
+access provisioning; it is not an evidence output file.
+
+`inbox` accepts `--filter all|unconfirmed|confirmed|discrepant|disputed` (default `all`),
+optional `--workflow`, `--limit 1..100` (default 50), and `--cursor`. It returns
+metadata only and requires `metadata_read` in credential mode. Trusted mode can
+also read the metadata. `inspect` requires the three occurrence identifiers,
+accepts `--limit 1..4` (default 4) and `--cursor`, and requires credential mode,
+`sensitive_read` and durable audit before the frozen binding or evidence is
+returned. A permission or audit failure is an error, not an empty page.
+
+Responses are at most 1 MiB. Continue with `next_cursor` and the same query even
+when the page is shorter than `--limit`; entries are never truncated. One JSON
+response goes to stdout, diagnostics to stderr; there are no implicit retries.
+The evidence distinguishes authenticated worker reports from unattributed legacy
+records. Neither proves provider truth or permits redispatch. Read commands do not resolve effects. [Effect evidence](effect-evidence.md).
+
+
+### Submit a saved operator assessment
+
+Matching development builds add `ledgence effect resolve`. Export the reviewed
+command from Console or the Python client's `command.to_json()` and save the
+complete versioned envelope as `effect-assessment.json`:
+
+```sh
+ledgence effect resolve --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file resolver.json \
+  --file effect-assessment.json
+```
+
+The credential needs `effect_resolve`; this is independent of `approval_decide`
+and `sensitive_read`. Newly created `access init` operator credentials include it;
+existing credentials remain unchanged. The CLI validates the saved canonical
+endpoint and scope before sending its original request bytes. It rejects bare
+wire-command JSON, symlinks, nonregular files, duplicate JSON fields and envelopes
+over 1 MiB (the command body is at most 256 KiB). There is no CLI preparation command.
+
+One metadata receipt goes to stdout. If a reply is lost, retain the file and
+reconcile with the same endpoint, scope and stable actor; a rotated credential
+for that actor is accepted. Never change the resolution ID, reviewed revision or
+body to retry uncertain delivery. A changed command or actor conflicts. Acceptance
+is durably audited, does not prove resumption and never redispatches an effect.
+Cancelled or collected executions remain closed. `--filter disputed` finds a
+current assessment disputed by later evidence; `discrepant` remains historical.
+See the [Python saved-command example](../sdk/python-client/README.md#operator-effect-assessments-development).
+
+## Provider operation recovery in development
+
+Matching development builds add `--provider-filter` to `effect inbox`; the
+published 0.7.0 CLI does not accept it. Use the existing Effects commands:
+
+```sh
+ledgence effect inbox --server http://127.0.0.1:8080 \
+  --tenant acme --namespace billing --credentials-file operator.json \
+  --provider-filter needs_review
+```
+
+Values are `all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled`
+and `disputed`. Keep `--filter all` (the default); provider selection cannot be
+combined with the local-journal filter. Omission retains the existing mixed
+inbox. Cursors bind the provider selection and all original query fields.
+`needs_review` excludes historical conflicts covered by the current clean
+assessment; `disputed` keeps them visible. A later conflict against that
+assessment makes the occurrence need review again.
+`effect inspect` shows the complete frozen provider binding, current typed
+report, finite reconciliation state and typed timeline. Pagination, permissions,
+durable sensitive-read audit and JSON integer fidelity remain unchanged.
+`effect resolve --file` continues to accept the same saved assessment envelope.
+
+Enabling provider dispatch is an installation decision. Add
+`--provider-config ./provider.json` to `ledgence orchestrator serve`, together
+with `--access-config` and `--instance-config`. The bounded version-1 file is:
+
+```json
+{
+  "v": 1,
+  "audience": {
+    "authority_id": "YOUR_AUTHORITY_ID",
+    "instance_id": "YOUR_INSTANCE_ID",
+    "scope": {"tenant_id": "acme", "namespace": "billing"}
+  },
+  "dispatch": "enabled"
+}
+```
+
+Copy the audience exactly from this installation's access configuration. The
+file contains policy, not a provider credential. Missing configuration leaves
+provider operations disabled; a mismatched or malformed file prevents startup.
+After a declared database restore, use `"dispatch": "declared_restore_quarantine"`
+before restarting API replicas. Existing operations can be reconciled by reads;
+new dispatch grants are denied, including business keys absent from the restored
+snapshot. A provider idempotency key does not make redispatch safe.
+
+All API replicas must agree on this policy. Run matching workers on the dedicated
+probe queue named in each immutable binding. There is no additional worker flag
+and no scheduler that redirects such work to an eligible older worker.
+[Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).

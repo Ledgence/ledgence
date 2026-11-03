@@ -39,7 +39,8 @@ WRITE_TOOLS = {"ledgence_task_submit", "ledgence_task_cancel", "ledgence_workflo
 READ_TOOLS = {"ledgence_program_list", "ledgence_program_versions", "ledgence_program_inspect",
               "ledgence_task_list", "ledgence_task_status", "ledgence_task_result",
               "ledgence_workflow_status", "ledgence_workflow_result", "ledgence_approval_list",
-              "ledgence_approval_inspect", "ledgence_approval_inbox"}
+              "ledgence_approval_inspect", "ledgence_approval_inbox", "ledgence_audit_query",
+              "ledgence_effect_inbox", "ledgence_effect_inspect"}
 
 
 def task_arguments(d, key, **data):
@@ -80,6 +81,7 @@ def scenarios(d, record, sessions):
         assert not {"scope", "tenant_id", "namespace"} & item["inputSchema"]["properties"].keys(), item
         assert item["annotations"]["readOnlyHint"] is (item["name"] in READ_TOOLS), item
     assert "ledgence_approval_decide" not in {item["name"] for item in tools}
+    assert "ledgence_effect_resolve" not in {item["name"] for item in tools}
     programs, cursor = [], None
     for _ in range(4):
         page = main.tool("ledgence_program_list", {"limit": 1, **({"cursor": cursor} if cursor else {})})

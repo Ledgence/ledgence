@@ -194,19 +194,55 @@ class CompletionClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(Conflict): await self.client.completions.handle("subscription").retry(expected_generation=1)
 
     async def test_dispatched_timeout_and_predispatch_expiration_remain_distinct(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        timeouts = []
+        original_timeout = asyncio.timeout_at
+        transport = self.client._require_transport()
+
         async def delayed(request, body):
-            await asyncio.sleep(.2)
+            entered.set()
+            await asyncio.wait_for(release.wait(), 5)
             return response(snapshot(json.loads(body)))
+
+        def controlled_timeout(deadline):
+            if asyncio.current_task() not in transport._operations:
+                return original_timeout(deadline)
+            # The server must have the command before the post-dispatch timeout.
+            timeout = original_timeout(None)
+            timeouts.append(timeout)
+            return timeout
+
         self.callback = delayed
-        async with AsyncClient(self.url, tenant="tenant", namespace="tests", request_timeout=.03) as client:
-            with self.assertRaises(CompletionSubscriptionUncertain) as raised:
-                await client.tasks.handle("task").subscribe(destination="billing-results", idempotency_key="completion")
-            self.assertIsInstance(raised.exception.cause, RequestTimeout)
-        with patch.object(self.client._require_transport(), "exchange", new=AsyncMock(side_effect=RequestTimeout(dispatched=False))):
-            with self.assertRaises(RequestTimeout):
-                await self.client.tasks.handle("task").subscribe(destination="billing-results", idempotency_key="completion")
-            with self.assertRaises(RequestTimeout):
+        task = self.client.tasks.handle("task")
+        prepared = task.prepare_subscribe(destination="billing-results", idempotency_key="completion")
+        with patch("ledgence.client.transport.asyncio.timeout_at", controlled_timeout):
+            pending = asyncio.create_task(task.subscribe(prepared))
+            try:
+                await asyncio.wait_for(entered.wait(), 5)
+                self.assertEqual(len(self.requests), 1)
+                self.assertEqual(len(timeouts), 1)
+                timeouts[0].reschedule(loop.time())
+                with self.assertRaises(CompletionSubscriptionUncertain) as raised:
+                    await asyncio.wait_for(pending, 5)
+                self.assertIsInstance(raised.exception.cause, RequestTimeout)
+                self.assertTrue(raised.exception.cause.dispatched)
+                self.assertIs(raised.exception.command, prepared)
+                self.assertFalse(transport._operations)
+            finally:
+                release.set()
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.wait_for(asyncio.gather(pending, return_exceptions=True), 5)
+
+        with patch.object(transport, "exchange", new=AsyncMock(side_effect=RequestTimeout(dispatched=False))):
+            with self.assertRaises(RequestTimeout) as raised:
+                await task.subscribe(prepared)
+            self.assertFalse(raised.exception.dispatched)
+            with self.assertRaises(RequestTimeout) as raised:
                 await self.client.completions.handle("subscription").retry(expected_generation=1)
+            self.assertFalse(raised.exception.dispatched)
         self.assertEqual(len(self.requests), 1)
 
     async def test_reference_event_preserves_long_ids_trace_lineage_and_correlation(self):

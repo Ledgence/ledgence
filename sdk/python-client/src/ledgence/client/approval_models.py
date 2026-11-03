@@ -9,12 +9,18 @@ import json
 from . import codec
 from .errors import InputError, ProtocolError
 from .models import Scope, _scope
+from .provider_bindings import ProviderBinding, parse_provider_binding
 
 ACTION_LIMIT = 32 * 1024
 APPROVAL_LIMIT = 96 * 1024
 APPROVAL_PAGE_LIMIT = 1024 * 1024
 INBOX_CURSOR_MAX_BYTES = 8192
 MAX_APPROVAL_WAIT_MS = 31_536_000_000
+
+
+class ApprovalProtection(StrEnum):
+    EXTERNAL_EFFECT = "external_effect"
+    PROVIDER_OPERATION = "provider_operation"
 
 
 class ApprovalStatus(StrEnum):
@@ -64,12 +70,14 @@ class WorkflowApproval:
     resumed_activation_id: str | None
     _proposed_arguments: bytes = field(repr=False)
     _base_url: str = field(repr=False, compare=False)
+    protection: ApprovalProtection | None = None
+    provider_binding: ProviderBinding | None = None
 
     @property
     def proposed_arguments(self): return json.loads(self._proposed_arguments)
 
     def to_dict(self):
-        return {"scope": {"tenant_id": self.scope.tenant_id, "namespace": self.scope.namespace},
+        result = {"scope": {"tenant_id": self.scope.tenant_id, "namespace": self.scope.namespace},
                 "workflow_id": self.workflow_id, "key": self.key,
                 "activation_id": self.activation_id, "revision": self.revision,
                 "action": self.action.to_dict(), "proposed_arguments": self.proposed_arguments,
@@ -77,6 +85,11 @@ class WorkflowApproval:
                 "decision": None if self.decision is None else {
                     name: getattr(self.decision, name) for name in ApprovalDecision.__dataclass_fields__},
                 "resumed_activation_id": self.resumed_activation_id}
+        if self.protection is not None:
+            result["protection"] = self.protection.value
+        if self.provider_binding is not None:
+            result["provider_binding"] = self.provider_binding.to_dict()
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,10 +170,34 @@ def _reason(value):
     return value
 
 
+def _protection(raw):
+    if "protection" not in raw:
+        return None
+    if type(raw["protection"]) is not str:
+        raise InputError("invalid approval protection")
+    try:
+        return ApprovalProtection(raw["protection"])
+    except ValueError as exc:
+        raise InputError("invalid approval protection") from exc
+
+
+def _provider_binding(raw, protection, action):
+    present = "provider_binding" in raw
+    if present != (protection == ApprovalProtection.PROVIDER_OPERATION):
+        raise InputError("approval protection and provider binding disagree")
+    if not present:
+        return None
+    binding = parse_provider_binding(raw["provider_binding"])
+    if binding.contract.dispatch_callable != action.name or binding.contract.version != action.version:
+        raise InputError("provider contract and approved action disagree")
+    return binding
+
+
 def _approval(raw, scope, workflow_id, key, base_url):
     codec.fields(raw, {"scope", "workflow_id", "key", "activation_id", "revision", "action",
                        "proposed_arguments", "created_at", "deadline", "status", "decision",
-                       "resumed_activation_id"})
+                       "resumed_activation_id"}, {"protection", "provider_binding"})
+    protection = _protection(raw)
     actual_scope = _scope(raw["scope"])
     actual_id = codec.text(raw["workflow_id"], "workflow_id")
     actual_key = codec.text(raw["key"], "key")
@@ -169,6 +206,7 @@ def _approval(raw, scope, workflow_id, key, base_url):
     activation = codec.text(raw["activation_id"], "activation_id")
     revision = codec.integer(raw["revision"], "revision")
     action = _action(raw["action"])
+    provider_binding = _provider_binding(raw, protection, action)
     if raw["proposed_arguments"] is not None and type(raw["proposed_arguments"]) is not dict:
         raise InputError("proposed arguments must be an object or null")
     codec.validate_authoritative(raw["proposed_arguments"], ACTION_LIMIT)
@@ -197,7 +235,7 @@ def _approval(raw, scope, workflow_id, key, base_url):
             raise InputError("invalid resumed approval activation")
     return WorkflowApproval(actual_scope, actual_id, actual_key, activation, revision, action,
                             created, deadline, status, decision, resumed,
-                            codec.encode(raw["proposed_arguments"], APPROVAL_LIMIT), base_url)
+                            codec.encode(raw["proposed_arguments"], APPROVAL_LIMIT), base_url, protection, provider_binding)
 
 
 def parse_approval(raw, scope, workflow_id, key, base_url):
@@ -292,6 +330,9 @@ def parse_approval_receipt(raw, command):
             raise InputError("already_accepted must be a boolean")
         expected = command.to_dict()
         actual = approval.to_dict()
+        if (actual.get("protection") != expected.get("protection") or
+                _json_identity(actual.get("provider_binding")) != _json_identity(expected.get("provider_binding"))):
+            raise InputError("approval receipt changed the request protection")
         for name in ("activation_id", "revision", "action"):
             if _json_identity(actual[name]) != _json_identity(expected[name]):
                 raise InputError("approval receipt changed the request binding")

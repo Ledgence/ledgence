@@ -2,7 +2,7 @@
 import { expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { ReactFlow, type Node, type NodeProps } from "@xyflow/react";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { workflowExplorer, type ExplorerNode } from "../../src/api/explorer";
 import { WorkCard } from "../../src/features/explorer/node-card";
@@ -18,6 +18,9 @@ const cases = Reflect.get(fixture, "explorer_cases");
 if (!cases || typeof cases !== "object")
   throw Error("Missing Rust explorer cases");
 const branch = workflowExplorer(Reflect.get(cases, "branch_security"));
+const recovery = workflowExplorer(
+  Reflect.get(cases, "native_wait_pending"),
+).page.items.find((node) => node.kind === "native_effect_wait")!;
 const joins = parent.page.items.filter(
   (node) => node.kind === "child_wait" && node.member_keys.length === 1,
 );
@@ -39,6 +42,20 @@ function Card({ data }: NodeProps<CardNode>) {
   return <WorkCard node={data.record} />;
 }
 const nodeTypes = { card: Card };
+it("shows native recovery as waiting without claiming an external effect succeeded", async () => {
+  const view = await render(<Gallery records={[recovery]} />);
+  await expect
+    .element(view.getByText("Effect recovery", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(
+      view.getByLabelText("awaiting operator resolution", { exact: true }),
+    )
+    .toBeVisible();
+  expect(
+    document.querySelector(".work-card")?.getAttribute("data-status"),
+  ).toBe("waiting");
+});
 function Gallery({ records }: { records: ExplorerNode[] }) {
   const nodes: CardNode[] = records.map((record, index) => ({
     id: record.id,
@@ -124,4 +141,20 @@ it("replaces callable duration with Replay when an accepted local result is repl
   expect(
     document.querySelector(".work-card-duration")?.getAttribute("title"),
   ).toBe("Replay observation; the callable did not run");
+});
+
+it("shows a provider wait as pending rather than a successful dispatch", async () => {
+  const node = workflowExplorer(
+    Reflect.get(cases, "provider_wait_pending"),
+  ).page.items.find((node) => node.kind === "provider_wait")!;
+  const view = await render(<Gallery records={[node]} />);
+  await expect
+    .element(view.getByText("Provider operation", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(view.getByLabelText("awaiting provider outcome", { exact: true }))
+    .toBeVisible();
+  expect(
+    document.querySelector(".work-card")?.getAttribute("data-status"),
+  ).toBe("waiting");
 });

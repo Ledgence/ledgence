@@ -8,27 +8,31 @@ self-hosted Ledgence service. The distribution is `ledgence-client`; its public
 import is `ledgence.client`. Python 3.11–3.14 is tested on Linux x86_64 and macOS
 arm64. Public APIs may evolve before version 1.0.
 
+This README describes this package source. Check the
+[release reference](https://docs.ledgence.com/reference/releases) for verified
+registry versions and targets. A source checkout may contain capabilities not yet
+published. The APIs below require matching server support.
+
 ## Installation
 
-Install the client version matching your service in a virtual environment.
-For Ledgence **0.7.0**, first check its
-[PyPI availability](https://pypi.org/project/ledgence-client/0.7.0/), then run:
+Use Python 3.11 or newer and an activated virtual environment.
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install "ledgence-client==0.7.0"
+python -m pip install ledgence-client
 ```
 
-Use Python 3.11 or newer. Native Ledgence bundles and registry packages
-are published separately; see the [release reference](https://docs.ledgence.com/reference/releases)
-for verified versions and targets.
-Pin your client version and review release notes before upgrading.
+This selects an available registry version. For an existing deployment, select
+the client version matching your service and pin that exact version in your
+application's dependency configuration. Review release notes before upgrading.
+Native bundles and registry packages are published separately.
 
-For an unreleased checkout or a locally qualified build, install its wheel:
+For an unreleased checkout or a locally qualified build, install its selected
+wheel instead. Replace the example path with that wheel's actual filename.
 
 ```sh
-python -m pip install /path/to/ledgence_client-0.7.0-py3-none-any.whl
+python -m pip install /path/to/your/client.whl
 ```
 
 The client connects to an existing Ledgence service. Follow the
@@ -96,6 +100,50 @@ physical cleanup. Check `result.outcome.quiescence` when cleanup evidence matter
 `result()` returns a succeeded task's output even when quiescence is unconfirmed.
 Cancellation outcomes have no deciding attempt or output. The status's
 `latest_attempt_id` is only a diagnostic reference to earlier work.
+
+<a id="credentials-development"></a>
+
+## Credentials
+
+For a credential-enabled instance, keep the private credential file supplied by
+your administrator outside application source and pass its path:
+
+```python
+from pathlib import Path
+from ledgence.client import AsyncClient, Forbidden, Unauthenticated
+
+async with AsyncClient(
+    "https://ledgence.example.com",
+    tenant="acme",
+    namespace="demo",
+    credentials_file=Path.home() / ".config/ledgence/operator.json",
+) as client:
+    try:
+        status = await client.tasks.handle("task_id").status()
+    except Unauthenticated:
+        print("The credential is missing, expired, revoked, or invalid.")
+    except Forbidden:
+        print("This credential does not permit the requested operation.")
+```
+
+The file contains exactly `server` and `token`. Its normalized server endpoint
+must match the client, including any base path. On POSIX, it must be a regular
+file owned by the current user without group/other permissions (normally mode
+`0600`); symlinks are rejected. Reads are bounded. HTTPS is required except for
+trusted loopback HTTP development. Authentication does not follow redirects.
+
+Applications using a secret manager can instead pass `token=credential` as a
+programmatic argument. Never supply both options. Do not put reusable tokens in
+source, shell arguments, logs, or task data. The client reads a file at
+construction; create a new client after replacing the credential. No credential
+is included in prepared commands or saved approval decisions.
+
+`Unauthenticated` and `Forbidden` are definitive `ServiceError` subclasses.
+A matching 401/403 response does not become submission or approval uncertainty,
+and the client does not automatically retry it. Existing clients without a
+credential continue to support operator-trusted deployments. Credential options
+require matching server support. The published 0.7.0 client predates this
+authentication boundary.
 
 ## Workflow references and observations
 
@@ -456,7 +504,7 @@ IDs remain distinct from tracing IDs.
 
 ## Workflow approvals
 
-Matching 0.7.0 clients and servers provide a scope-wide inbox. By default it lists
+Matching clients and servers provide a scope-wide inbox. By default it lists
 pending requests, earliest deadline first. Pass an exact `program_id` to filter,
 or `status=None` to include every persisted status. Read the full effective
 action before preparing a decision.
@@ -483,6 +531,15 @@ status between discovery and inspection.
 `approval.proposed_arguments` for optional original input. These views return
 independent JSON copies and expose typed `ApprovalStatus` values.
 
+Requests created with the worker's
+`ctx.request_effect_approval(...)` expose
+`approval.protection is ApprovalProtection.EXTERNAL_EFFECT`. The prepared
+decision preserves this protection, and receipt validation rejects a changed
+or missing marker. Import `ApprovalProtection` from `ledgence.client`. Generic
+and historical requests have `protection is None`, and their saved commands
+omit the field. Use matching client, CLI and worker versions for protected
+requests. The 0.7.0 client predates this optional response field.
+
 ```python
 from ledgence.client import ApprovalStatus, ApprovalDecisionUncertain
 
@@ -497,15 +554,227 @@ if approval.status is ApprovalStatus.PENDING:
 ```
 
 Choose `approve` or `reject` only after reviewing the exact stored action. The
-command binds its scope, workflow, request activation/revision, and full action.
-`reviewer` is claimed attribution; deployment authentication and authorization
-must establish the actual approver. No pending request is created by deciding.
+command binds its scope, workflow, request activation/revision, full action,
+and any requested external-effect protection.
+`reviewer` is a caller-supplied label. It does not establish the actor who accepted
+the decision. Credential-enabled servers record verified acceptance
+separately, as described below. No pending request is created by deciding.
 
 `ApprovalDecisionUncertain` retains the command when the response cannot prove
 acceptance. No automatic resend occurs. Explicitly resend that command, or use
 `workflow.restore_approval_decision(saved_dict)` after a client restart. An
 identical decision returns its original receipt; changed decisions or bindings
 conflict. Restoring a command performs validation only; it never grants approval.
+
+<a id="operator-audit-development"></a>
+
+## Operator audit
+
+Matching clients and credential-enabled native servers expose a scoped metadata
+audit feed.
+The credential needs `metadata_read`. Operator-trusted deployments and adapters
+without the audit capability report audit as unavailable.
+
+```python
+from ledgence.client import ApprovalStatus, AuditFilter
+
+# Inspect the original acceptance without changing the approval or decision.
+approval = await client.workflows.handle(workflow_id).approval("refund")
+if approval.status in (ApprovalStatus.APPROVED, ApprovalStatus.REJECTED):
+    accepted_by = await client.audit.approval_acceptance(approval)
+    if accepted_by is None:
+        print("No verified actor recorded")
+    else:
+        print(accepted_by.actor.subject, accepted_by.actor.issuer)
+else:
+    print("Approval status", approval.status.value)
+
+# Read one bounded page of metadata directly associated with a workflow.
+page = await client.audit.list(
+    filter=AuditFilter.resource("workflow", workflow_id), limit=50,
+)
+for event in page.items:
+    print(event.recorded_at, event.actor.subject, event.operation.kind)
+```
+
+`approval_acceptance` requires an approved or rejected observation from this
+client's endpoint and scope. It validates the full request occurrence, decision
+ID, decision and acceptance time. The actor is the original verified operator or
+service, even when the current reader or credential has changed. Its
+`credential_id` identifies the original credential; it is not a bearer token.
+Only a successful empty exact query returns `None`. Authentication, permission,
+unavailable and invalid-response errors propagate; they must not be presented as
+historical absence.
+
+`client.audit.list()` reads the current scope. A resource filter includes directly
+owned observations, not a traversal into child tasks or subworkflows. Continue
+with `page.next_cursor`, the same filter and limit. Cursors are opaque; do not
+construct them or infer a total execution order from event timestamps. The feed
+contains typed resource IDs, verified actor metadata and observation times,
+without action arguments, reviewer labels, reasons or payloads. A sensitive
+response event records authorization to return that response. Delivery may
+still fail. Audit queries themselves create no audit events.
+
+Returned audit events describe recorded facts. The server supplies authorization
+through the verified principal and its durable acceptance linkage.
+Decisions and restored commands retain their existing wire format. For an audited
+decision, a deliberate identical retry by the same verified actor can recover the
+original receipt after credential rotation; a changed actor cannot take ownership
+of that receipt. Historical decisions accepted without audit remain unattributed
+after an otherwise valid identical replay.
+
+<a id="retained-effect-evidence-development"></a>
+
+## Retained effect evidence
+
+Matching clients and servers expose `client.effects` to inspect retained
+evidence from approved
+external-effect execution, including records whose original execution has been
+collected. Reads do not authorize execution. The assessment API below records an operator decision without redispatching or confirming the journal.
+
+With an open, scoped `AsyncClient`, find an occurrence and inspect its original
+effect activation:
+
+```python
+from ledgence.client import EffectFilter, EffectObservationEntry
+
+# Metadata only: unconfirmed, confirmed, discrepant, disputed, or all (default).
+page = await client.effects.inbox(filter=EffectFilter.UNCONFIRMED, limit=20)
+for item in page.items:
+    print(item.occurrence.workflow_id, item.journal_state, item.has_discrepancy)
+
+if page.items:
+    occurrence = page.items[0].occurrence
+    evidence = await client.effects.inspect(
+        workflow_id=occurrence.workflow_id,
+        activation_id=occurrence.activation_id,
+        approval_key=occurrence.approval_key,
+    )
+    print(evidence.binding.approval.action.name)
+    for entry in evidence.entries:
+        if isinstance(entry, EffectObservationEntry):
+            print(entry.sequence, entry.source.kind, entry.output)
+```
+
+`inbox(filter=EffectFilter.ALL, workflow_id=None, cursor=None, limit=50)` returns
+an `EffectInboxPage`. `limit` ranges from 1 through 100. It uses the client's
+scope, optionally restricts one workflow and orders by most recent update, then
+byte-ordered occurrence identity. `discrepant` selects differing reports; it is
+independent of the journal being confirmed. Metadata reads need `metadata_read`
+in credential mode; the trusted deployment mode can also read this metadata.
+
+`inspect(workflow_id=..., activation_id=..., approval_key=..., cursor=None,
+limit=4)` returns an `EffectEvidenceDetail` with the frozen binding, current
+summary and up to four whole entries, ordered by sequence. Supply the occurrence
+from the inbox, including its original effect activation. Sensitive inspection
+requires credential mode, `sensitive_read`, and a working durable audit sink.
+The server records `AuditReadKind.EFFECT_INSPECT` with an `AuditEffect` resource
+before returning evidence. Trusted mode without audit cannot expose the detail.
+Authentication, permission, missing-record and unavailable errors propagate;
+none is an empty result.
+
+Both response types have a 1 MiB bound. A byte-limited page can contain fewer
+than `limit` items and still have `next_cursor`. Pass that opaque cursor with the
+same filters or occurrence until it is `None`. Do not use page length to decide
+whether reading is complete. Inbox pagination is a current view, not a frozen
+snapshot across requests; concurrent updates may move occurrences.
+
+Returned models are frozen. `.output` supplies an independent copy of each
+reported application JSON value, preserving integers through `u64::MAX` without
+converting them to floats. Claims and `verified_worker_claim` sources identify
+the authenticated worker credential, callback and ingress (`live_confirm` or
+`late_observe`); this is worker attribution, not provider verification. Historical
+`legacy_attempt`, `legacy_fence` and `legacy_journal` sources remain explicitly
+unattributed. A confirmed journal is Ledgence's recorded execution result, not
+proof of exactly-once provider effects. Private lease owners and frozen worker
+commands are never returned. See the [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+
+<a id="operator-effect-assessments-development"></a>
+
+## Operator effect assessments
+
+Matching components support native operator assessment and typed workflow
+resumption. The resolver needs the
+explicit `effect_resolve` capability; this is separate from `approval_decide`,
+execution control and sensitive reads. A credential limited to `effect_resolve`
+can submit a previously reviewed command without receiving application evidence.
+`access init` grants the new capability to newly created operator credentials;
+existing credentials do not gain it automatically.
+
+After inspecting an occurrence, freeze your assessment and save it **before**
+sending. This example assumes `evidence` came from the inspection above:
+
+```python
+from pathlib import Path
+from ledgence.client import EffectResolutionAssessment, EffectResolutionUncertain
+
+command = client.effects.prepare_resolution(
+    evidence,
+    resolution_id="support-case-1042-assessment-1",  # Stable identity for this decision.
+    assessment=EffectResolutionAssessment.record_success({"receipt": "refund-1042"}),
+    reason="Matched the original action against the provider receipt.",
+    evidence_references=["support:case:1042", "provider:refund:1042"],
+)
+# Application-owned storage: this file contains sensitive action/result data.
+saved = Path("effect-assessment.json")
+saved.write_text(command.to_json(), encoding="utf-8")
+try:
+    receipt = await client.effects.resolve(command)
+    print(receipt.resolution_id, receipt.already_accepted)
+except EffectResolutionUncertain:
+    print("Acceptance is unknown. Keep this saved command for reconciliation.")
+```
+
+For a documented failure use
+`EffectResolutionAssessment.record_failure("declined", "Provider rejected the action")`.
+Use `close_unknown()` to record that the outcome remains unknown. Success and
+failure require at least one evidence reference; closing unknown permits none.
+Reasons are nonblank and limited to 4096 UTF-8 bytes. Up to eight ordered
+references of 1024 UTF-8 bytes each are retained exactly. Success results are
+JSON, including `None`, with a 128 KiB bound. The full command is at most 256 KiB.
+
+`prepare_resolution` freezes the original occurrence, approved action, reviewed
+`effect_revision` and prior assessment ID from the detail header. The header's
+`current_assessment` is available even when that entry is outside the current
+page. Preparing a command does not claim that every evidence page was read.
+A newer revision makes a new command conflict; inspect again and make a new
+assessment with a new resolution ID. Do not silently refresh a saved command.
+
+`command.to_json()` stores a versioned envelope with the canonical endpoint and
+exact request-body text. `command.to_dict()` is a detached wire view for inspection;
+it is **not** the saved format. Restore after restarting the application:
+
+```python
+# Use the original endpoint, scope and stable actor (rotated credentials are allowed).
+command = client.effects.restore_resolution(saved.read_text(encoding="utf-8"))
+receipt = await client.effects.resolve(command)
+```
+
+Restore validates locally without contacting the server, rejects a different
+endpoint or scope, and preserves the original bytes. The saved envelope is
+bounded to 1 MiB and contains no credential. There are no automatic mutation
+retries. `EffectResolutionUncertain` retains `.command` and `.cause`; an invalid
+success response, dispatched timeout or unavailable response can mean acceptance
+already happened. A definite permission or conflict error remains that error.
+Cancellation propagates; keep the saved command because acceptance may precede
+response cancellation.
+
+An identical command by the same verified actor returns the original receipt,
+including after supersession or execution collection. A changed command or actor
+conflicts. Acceptance is append-only and durably audited as `AuditEffectResolved`;
+the metadata receipt includes `acceptance_event_id`, not proof of workflow resumption.
+`await client.audit.event(receipt.acceptance_event_id)` reads that exact scoped
+event or returns `None` after a successful empty lookup; errors stay errors.
+The equivalent `AuditFilter.event(event_id)` query requires `limit=2` and no cursor.
+
+`EffectFilter.DISPUTED` selects a current success assessment contradicted by a
+later unequal JSON report. `DISCREPANT` separately describes differing historical
+reports. The new `operator_resolution` summary and `current_assessment` detail
+are independent of journal state. Reports are opaque: a failure or unknown
+assessment cannot be contradicted merely by interpreting a report's `state` key.
+An assessment does not grant dispatch, assert provider truth, or rewrite a prior
+workflow wake. Workflows opt into native rendezvous with
+`ctx.wait_effect_resolution(...)`; cancellation and collection never revive work.
 
 ## Local verification
 
@@ -535,3 +804,72 @@ the shared Rust/Python fixtures. Dependency versions, wheel/source hashes,
 licenses and notices are retained under `third_party`; normal wheel installation
 pins the reviewed runtime closure. The gate verifies those pins and distributed
 legal files. No dependencies are downloaded during program execution.
+
+<a id="typed-provider-operations-development"></a>
+
+## Typed provider operations
+
+Matching client, API and worker builds support approved asynchronous
+provider operations. The client
+continues to use `client.effects`; no provider SDK or model service is required.
+
+```python
+from ledgence.client import ProviderFilter, ProviderSucceeded
+
+page = await client.effects.inbox(provider_filter=ProviderFilter.NEEDS_REVIEW)
+for item in page.items:
+    occurrence = item.occurrence
+    detail = await client.effects.inspect(
+        workflow_id=occurrence.workflow_id,
+        activation_id=occurrence.activation_id,
+        approval_key=occurrence.approval_key,
+    )
+    binding = detail.binding.approval.provider_binding
+    print(binding.business.key, detail.summary.provider.knowledge)
+    report = detail.provider.current_report
+    if report and isinstance(report.report.knowledge, ProviderSucceeded):
+        print(report.report.knowledge.result)  # A copy; JSON null is a valid success.
+```
+
+`provider_filter` accepts `ProviderFilter.ALL`, `.PENDING`, `.NEEDS_REVIEW`,
+`.SUCCEEDED`, `.FAILED`, `.CANCELLED` and `.DISPUTED`. It requires the ordinary
+`filter` to remain `EffectFilter.ALL`. Omit it for the existing mixed effect inbox.
+A provider cursor is bound to that provider filter, scope and workflow selector;
+it cannot be reused with another filter. Follow `next_cursor` even on short pages.
+`NEEDS_REVIEW` excludes historical disputes covered by the current clean operator
+assessment; `DISPUTED` retains that history. New conflicting evidence against the
+current assessment makes the occurrence need review again.
+
+`ApprovalProtection.PROVIDER_OPERATION` requires a `ProviderBinding`. Its frozen
+business identity, adapter contract, target, optional provider deduplication
+domain/key/horizon, credential **reference**, reconciliation policy and pinned
+program are reviewed together with `action.arguments`. Preparing and restoring
+an approval decision preserves and echoes that full binding. It never embeds a
+provider credential or invokes the provider from the client.
+
+`EffectEvidenceSummary.provider` separates `knowledge`, `reconciliation`,
+`handling`, `selected_report`/`conflicting_reports` and `candidate_revision`.
+`EffectEvidenceDetail.provider.current_report` is a bounded typed header, even
+when its timeline entry is on another page. Typed entries include
+`ProviderDispatchEntry`, `ProviderProbeScheduledEntry`, `ProviderProbeSourceEntry`,
+`ProviderReportEntry`, `ProviderProbeFinishedEntry` and `ProviderRecoveryStoppedEntry`.
+A report's `knowledge` is one of `ProviderUnknown`, `ProviderPending`,
+`ProviderRequiresAction`, `ProviderSucceeded`, `ProviderFailed` or
+`ProviderCancelled`. Disputed aggregate knowledge retains conflicting report or
+provider-reference facts. A reference conflict can arise before any terminal
+outcome; `disputed` is not a seventh individual report outcome.
+
+The SDK keeps exact integer metadata and immutable models; returned application
+JSON is copied. `TaskStatus.provider_probe` identifies a managed read-only check
+and its original occurrence; a successful check task alone does not establish
+provider success. Inspect the typed report instead.
+
+Provider reports remain adapter-classified evidence. Journal state stays
+`unconfirmed`; operator handling and workflow wake selection are independent.
+The existing frozen operator-resolution command and permission are unchanged.
+For typed provider evidence a later terminal report can also dispute a recorded
+failure. Closing an unknown outcome does not assert provider truth or authorize
+redispatch. A selected workflow wake is never rewritten.
+
+See the [provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/)
+and [source contract](../../docs/provider-operations.md).

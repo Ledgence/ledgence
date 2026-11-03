@@ -45,7 +45,7 @@ building, publishing and execution remain explicit operations.
 | Browse Programs, Executions, Approvals and Workers in the self-hosted Console. | [Explore Console](/tutorials/use-console) |
 | Inspect a workflow's recorded graph or trace view, and navigate into child executions. | [Console reference](/reference/console) |
 | Inspect and decide persisted approvals in Console, through the client or with the CLI. | [Require approval](/how-to/require-approval) |
-| Connect an MCP host through 15 stdio tools, with an optional read-only mode. | [Connect an MCP client](/how-to/connect-mcp) |
+| Connect an MCP host through 16 stdio tools, with an optional read-only mode. | [Connect an MCP client](/how-to/connect-mcp) |
 | Export optional OTLP HTTP/protobuf traces and metrics, and write correlated Python logs. | [Configure observability](/how-to/configure-observability) |
 | Use integrated HTTP acquisition or the optional SQS Standard / ElasticMQ adapter. | [Queue delivery](/concepts/queue-delivery) |
 | Implement custom Rust ports and adapters without exposing provider SDK types in core contracts. | [Rust API packages](/reference/releases#rust-adapter-contracts) |
@@ -68,6 +68,55 @@ with the call. [Inspect an accepted operation](/reference/console#inspect-an-acc
 Find pending actions across workflow runs within the instance or configured
 scope. Console, CLI, Python and MCP share the same deadline-ordered listing.
 [Find pending requests across workflows](/how-to/require-approval#find-pending-requests-across-workflows).
+
+## In development: approved external writes
+
+A workflow using the development helper can declare a protected action before
+approval, authorize one dispatch, restrict later attempts to receipt lookup and
+keep unresolved evidence past the ordinary retention period. Its saved contract
+rejects execution through the ordinary approval helper.
+[Protect an approved write](/how-to/require-approval#protect-an-approved-write-in-development).
+The published 0.7.0 packages do not include this helper.
+
+## Instance access in development
+
+The optional self-hosted credential adapter authenticates operators, service
+clients and workers across HTTP, CLI, Python, MCP and Console. Capabilities
+separate metadata, sensitive payloads, submission, control, publication, approval
+and worker execution. Console binds cached data and pending commands to the
+current actor. Published 0.7.0 uses the operator-trusted deployment model.
+[Configure instance access](/how-to/configure-instance-access).
+
+## External-effect evidence in development
+
+Matching development components retain approved effect occurrences, authenticated
+worker claims and reported results independently of execution history. Inspect
+unconfirmed or discrepant cases through the API, CLI, Python, MCP and Console. Sensitive
+inspection requires credentials and durable audit. Historical imports retain
+the provenance actually available at upgrade.
+[Inspect external effects](/how-to/inspect-effects).
+
+## Native effect resolution in development
+
+An operator can record success, failure or an unknown outcome against an exact
+evidence revision and approved action. Saved commands preserve their content for
+explicit retry. Workflows can wait durably for the assessment, release their
+worker slot and resume at a registered entrypoint with a typed outcome. Console
+shows retained evidence and links native waits to the original effect occurrence.
+Later conflicting worker reports remain visible, including after execution
+records are collected. Matching development components, credentials, operator
+audit and database migrations are required.
+[Inspect and resolve effects](/how-to/inspect-effects).
+
+## Provider recovery in development
+
+Matching development components support approval-bound provider operations with
+business and provider deduplication identities, same-package registered adapters,
+a single dispatch grant, bounded read-only probes and typed workflow resumption.
+The Effects view exposes provider knowledge, recovery budget and operator
+handling. An explicit policy file controls dispatch and declared-restore
+quarantine. Use a dedicated matching-worker probe queue.
+[Recover provider operations](/how-to/recover-provider-operations).
 
 ## Installation channels
 
@@ -114,3 +163,9 @@ cost-based worker placement, Kafka/Kinesis/RabbitMQ adapters, hostile-code
 isolation, and checkpointing a provider's partial token stream are not built-in
 capabilities in this release. Capacity depends on the deployed workload and must
 be measured; these features do not establish a production throughput guarantee.
+
+
+## Operator audit in development
+
+Matching development components add verified approval acceptance and durable sensitive-response observations, exposed through API, CLI, Python, MCP and Console. Pending result polling creates no observation rows.
+[Setup, queries and operating limits](/how-to/audit-operators).

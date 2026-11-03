@@ -114,7 +114,7 @@ fn query_url(running: &Running, path: &str, parameters: &[(&str, &str)]) -> reqw
 }
 fn assert_headers(response: &reqwest::Response) {
     assert_eq!(response.headers()["ledgence-instance-id"], "local-console");
-    assert_eq!(response.headers()["ledgence-console-contract"], "5");
+    assert_eq!(response.headers()["ledgence-console-contract"], "7");
     assert_eq!(response.headers()["cache-control"], "no-store");
     assert_eq!(response.headers()["content-type"], "application/json");
     assert_eq!(response.headers()["x-content-type-options"], "nosniff");
@@ -148,7 +148,7 @@ async fn explorer_http_preserves_canonical_c4_entrypoints_and_relationship_evide
     let mock = Arc::new(Mock::default());
     let queries = Arc::new(Queries::default());
     let fixtures: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v5.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v7.json"
     ))
     .unwrap();
     let explorer: ConsoleWorkflowExplorer =
@@ -240,7 +240,7 @@ async fn explorer_http_rejects_missing_or_fabricated_relations_from_query_adapte
     let queries = Arc::new(Queries::default());
     let running = setup(&mock, &queries).await;
     let fixtures: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v5.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v7.json"
     ))
     .unwrap();
     let explorer: ConsoleWorkflowExplorer =
@@ -281,7 +281,7 @@ async fn unified_execution_endpoint_decodes_filters_and_preserves_typed_identity
     let mock = Arc::new(Mock::default());
     let queries = Arc::new(Queries::default());
     let fixtures: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v1.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v2.json"
     ))
     .unwrap();
     *queries.reply.lock().unwrap() = Some(ConsoleQueryReply::Executions(
@@ -346,7 +346,7 @@ async fn catalog_endpoint_filters_any_version_kind_and_binds_its_cursor() {
     let queries = Arc::new(Queries::default());
     let catalog = Arc::new(Catalog::default());
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v1.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v2.json"
     ))
     .unwrap();
     *catalog.reply.lock().unwrap() = Some(ProgramCatalogReply::Catalog(
@@ -410,7 +410,7 @@ async fn catalog_endpoint_rejects_a_store_reply_outside_the_requested_kind() {
     let queries = Arc::new(Queries::default());
     let catalog = Arc::new(Catalog::default());
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v1.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/execution-discovery-v2.json"
     ))
     .unwrap();
     *catalog.reply.lock().unwrap() = Some(ProgramCatalogReply::Catalog(
@@ -446,7 +446,7 @@ async fn console_configuration_and_errors_identify_instance_without_exposing_sco
     let bytes = response.bytes().await.unwrap();
     let config: ConsoleConfig = decode_unique_json(&bytes, CONSOLE_METADATA_MAX_BYTES).unwrap();
     assert_eq!(config.instance_id, "local-console");
-    assert_eq!(config.contract_version, 5);
+    assert_eq!(config.contract_version, 7);
     assert!(config.capabilities.executions);
     assert!(!config.capabilities.programs);
     assert!(!config.capabilities.workers);

@@ -15,7 +15,7 @@ impl ApplicationService {
         self
     }
 
-    fn workflows(&self) -> Result<&dyn WorkflowStore> {
+    pub(super) fn workflows(&self) -> Result<&dyn WorkflowStore> {
         self.workflows
             .as_deref()
             .ok_or_else(|| ContractError::InvalidInput("workflow support is not configured".into()))
@@ -80,8 +80,8 @@ impl ApplicationService {
                 .await?;
             return Ok(WorkflowProgress::default());
         }
-        match resolution {
-            Ok(Ok(())) => {}
+        let native = match resolution {
+            Ok(Ok(native)) => native,
             Ok(Err(error))
                 if matches!(
                     error,
@@ -115,7 +115,44 @@ impl ApplicationService {
                 return Ok(WorkflowProgress::default());
             }
         };
-        match store.apply_work(&work, &resolved).await {
+
+        let provider = matches!(
+            work.source,
+            WorkflowWorkSource::ProviderWait | WorkflowWorkSource::ProviderProbeTerminal { .. }
+        ) || work.outcome.as_ref().is_some_and(|outcome| match outcome {
+            TaskOutcome::Succeeded { output, .. } => {
+                WorkflowDecision::decode(output).is_ok_and(|d| {
+                    matches!(
+                        d.action,
+                        WorkflowAction::Wait {
+                            wait: WorkflowWait::ProviderOperation { .. }
+                                | WorkflowWait::Approval {
+                                    protection: ApprovalProtection::ProviderOperation,
+                                    ..
+                                },
+                            ..
+                        }
+                    )
+                })
+            }
+            _ => false,
+        });
+        let applied = if provider {
+            self.provider_operations()?;
+            store
+                .provider_operations()?
+                .apply_provider_work(&work, &resolved)
+                .await
+        } else if native {
+            self.effect_resolution()?;
+            store
+                .effect_resolution()?
+                .apply_effect_work(&work, &resolved)
+                .await
+        } else {
+            store.apply_work(&work, &resolved).await
+        };
+        match applied {
             Ok(progress) => Ok(progress),
             // Another coordinator may have recovered an expired work lease.
             Err(ContractError::OwnershipLost | ContractError::ObsoleteOperation) => {
@@ -150,22 +187,55 @@ impl ApplicationService {
         &self,
         work: &WorkflowWork,
         resolved: &mut Vec<ResolvedWorkflowChild>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let WorkflowWorkSource::TaskTerminal {
             task_id,
             activation: true,
         } = &work.source
         else {
-            return Ok(());
+            return Ok(matches!(
+                work.source,
+                WorkflowWorkSource::EffectResolutionWait
+            ));
         };
         let outcome = work
             .outcome
             .as_ref()
             .ok_or_else(|| ContractError::Unavailable("missing controller outcome".into()))?;
         let TaskOutcome::Succeeded { output, .. } = outcome else {
-            return Ok(());
+            return Ok(matches!(
+                work.source,
+                WorkflowWorkSource::EffectResolutionWait
+            ));
         };
         let decision = WorkflowDecision::decode(output)?;
+        if matches!(
+            &decision.action,
+            WorkflowAction::Wait {
+                wait: WorkflowWait::ProviderOperation { .. }
+                    | WorkflowWait::Approval {
+                        protection: ApprovalProtection::ProviderOperation,
+                        ..
+                    },
+                ..
+            }
+        ) {
+            self.provider_operations().map_err(|_| {
+                ContractError::InvalidInput("provider operations are unavailable".into())
+            })?;
+        }
+        let native = matches!(
+            decision.action,
+            WorkflowAction::Wait {
+                wait: WorkflowWait::EffectResolution { .. },
+                ..
+            }
+        );
+        if native {
+            self.effect_resolution().map_err(|_| {
+                ContractError::InvalidInput("native effect resolution is unavailable".into())
+            })?;
+        }
         if decision.activation_id != *task_id {
             return Err(ContractError::Conflict);
         }
@@ -242,7 +312,7 @@ impl ApplicationService {
             }
         }
         resolved.sort_by_key(|binding| positions[binding.key.as_str()]);
-        Ok(())
+        Ok(native)
     }
 
     async fn resolve_workflow_program(
@@ -267,7 +337,79 @@ impl ApplicationService {
     }
 }
 
+impl ApprovedEffects for ApplicationService {
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let receipt = self
+                .workflows()?
+                .approved_effects()?
+                .claim_approved_effect(command)
+                .await?;
+            if !receipt.matches(command).unwrap_or(false) {
+                return Err(ContractError::Unavailable(
+                    "invalid approved effect claim reply".into(),
+                ));
+            }
+            Ok(receipt)
+        })
+    }
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let receipt = self
+                .workflows()?
+                .approved_effects()?
+                .confirm_approved_effect(command)
+                .await?;
+            if !receipt.matches(command).unwrap_or(false) {
+                return Err(ContractError::Unavailable(
+                    "invalid approved effect confirmation reply".into(),
+                ));
+            }
+            Ok(receipt)
+        })
+    }
+}
+
 impl WorkflowService for ApplicationService {
+    fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
+        self.effect_resolution()?;
+        self.workflows()?.provider_operations()?;
+        Ok(self)
+    }
+    fn effect_resolution(&self) -> Result<&dyn EffectResolution> {
+        self.workflows()?.effect_resolution()?;
+        self.workflows()?.approved_effect_evidence()?;
+        self.workflows()?.effect_evidence_reader()?;
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        self.workflows()?.approved_effect_evidence()?;
+        self.workflows()?.effect_evidence_reader()?;
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        self.workflows()?.effect_evidence_reader()?;
+        Ok(self)
+    }
+
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        self.workflows()?.approved_effects()?;
+        Ok(self)
+    }
     fn approval<'a>(
         &'a self,
         scope: &'a Scope,
@@ -499,11 +641,69 @@ pub(super) fn validate_activation_context_reply(
     owner: &LeaseOwner,
     context: WorkflowActivationContext,
 ) -> Result<WorkflowActivationContext> {
-    context.validate()?;
-    if context.activation_id != owner.task_id
-        || matches!(&context.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != owner.scope)
-    {
-        return Err(ContractError::Conflict);
-    }
+    context.validate_for_owner(owner)?;
     Ok(context)
+}
+
+/// Validate every receipt before allowing a transport to expose user payloads.
+impl OperatorAccess for ApplicationService {
+    fn decide_verified<'a>(
+        &'a self,
+        principal: &'a VerifiedPrincipal,
+        command: &'a ApprovalDecisionCommand,
+        request: &'a OperatorRequest,
+    ) -> ContractFuture<'a, AuditedDecision> {
+        Box::pin(async move {
+            command.validate()?;
+            principal.require(AccessCapability::ApprovalDecide)?;
+            principal.require(AccessCapability::SensitiveRead)?;
+            if command.scope != principal.audience().scope {
+                return Err(ContractError::Forbidden);
+            }
+            let result = self
+                .workflows()?
+                .operator_access()?
+                .decide_verified(principal, command, request)
+                .await?;
+            result.validate_for(principal, command)?;
+            Ok(result)
+        })
+    }
+    fn record_sensitive_response<'a>(
+        &'a self,
+        principal: &'a VerifiedPrincipal,
+        observation: &'a SensitiveObservation,
+    ) -> ContractFuture<'a, AuditReceipt> {
+        Box::pin(async move {
+            observation.validate()?;
+            principal.require(AccessCapability::SensitiveRead)?;
+            let receipt = self
+                .workflows()?
+                .operator_access()?
+                .record_sensitive_response(principal, observation)
+                .await?;
+            receipt.validate_for(principal, observation)?;
+            Ok(receipt)
+        })
+    }
+    fn query_audit<'a>(
+        &'a self,
+        principal: &'a VerifiedPrincipal,
+        query: &'a AuditQuery,
+    ) -> ContractFuture<'a, AuditPage> {
+        Box::pin(async move {
+            query.validate()?;
+            principal.require(AccessCapability::MetadataRead)?;
+            if query.scope != principal.audience().scope {
+                return Err(ContractError::Forbidden);
+            }
+            let page = self
+                .workflows()?
+                .operator_access()?
+                .query_audit(principal, query)
+                .await?;
+            page.validate_for(query, principal.audience())?;
+            Ok(page)
+        })
+    }
 }

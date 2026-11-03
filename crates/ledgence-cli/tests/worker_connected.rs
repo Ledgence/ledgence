@@ -47,14 +47,17 @@ async fn read_request_or_closed(socket: &mut TcpStream) -> Option<Request> {
         bytes.extend_from_slice(&buffer[..count]);
     };
     let header = String::from_utf8(bytes[..end].to_vec()).unwrap();
-    let size = header
-        .lines()
-        .find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case("content-length")
-                .then(|| value.trim().parse::<usize>().unwrap())
-        })
-        .unwrap();
+    let size = header.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("content-length")
+            .then(|| value.trim().parse::<usize>().unwrap())
+    });
+    let size = if header.starts_with("GET /v1/access HTTP/1.1\r\n") {
+        assert!(size.is_none() || size == Some(0));
+        0
+    } else {
+        size.expect("POST requests retain an explicit content length")
+    };
     while bytes.len() < end + size {
         let mut buffer = [0; 4096];
         let count = match socket.read(&mut buffer).await {
@@ -74,7 +77,11 @@ async fn read_request_or_closed(socket: &mut TcpStream) -> Option<Request> {
     }
     Some((
         header.lines().next().unwrap().into(),
-        serde_json::from_slice(&bytes[end..end + size]).unwrap(),
+        if size == 0 {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes[end..end + size]).unwrap()
+        },
     ))
 }
 
@@ -170,9 +177,18 @@ fn signal(child: &Child, value: Signal) {
     kill(Pid::from_raw(child.id().unwrap() as i32), value).unwrap();
 }
 
-async fn register(socket: &mut TcpStream, concurrency: u32) {
-    let request = read_request(socket).await;
-    register_request(socket, request, concurrency).await;
+async fn register(listener: &TcpListener, concurrency: u32) {
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let request = read_request(&mut socket).await;
+    discovery(&mut socket, request).await;
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let request = read_request(&mut socket).await;
+    register_request(&mut socket, request, concurrency).await;
+}
+async fn discovery(socket: &mut TcpStream, (route, body): Request) {
+    assert_eq!(route, "GET /v1/access HTTP/1.1");
+    assert_eq!(body, Value::Null);
+    reply(socket, json!({"mode":"operator_trusted"})).await;
 }
 
 async fn register_request(socket: &mut TcpStream, (route, body): Request, concurrency: u32) {
@@ -202,6 +218,8 @@ async fn connected_worker_registers_exact_concurrency_and_drains_on_first_signal
     let (ready, acquired) = oneshot::channel();
     let transport = tokio::spawn(async move {
         let mut readers = JoinSet::new();
+        let (mut socket, request) = next_request(&listener, &mut readers).await;
+        discovery(&mut socket, request).await;
         let (mut socket, request) = next_request(&listener, &mut readers).await;
         register_request(&mut socket, request, 3).await;
         let mut consumers = HashSet::new();
@@ -267,8 +285,7 @@ async fn repeated_shutdown_wait_retains_unknown_acquisition_until_explicit_secon
     let server = format!("http://{}", listener.local_addr().unwrap());
     let (ready, acquired) = oneshot::channel();
     let transport = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        register(&mut socket, 1).await;
+        register(&listener, 1).await;
         let mut readers = JoinSet::new();
         let (socket, (route, _)) = next_request(&listener, &mut readers).await;
         assert_eq!(route, "POST /v1/acquisitions HTTP/1.1");
@@ -392,8 +409,7 @@ async fn short_python_attempt_executes_after_fifteen_seconds_of_acquisition_wait
     let server = format!("http://{}", listener.local_addr().unwrap());
     let (settled, report) = oneshot::channel();
     let transport = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        register(&mut socket, 1).await;
+        register(&listener, 1).await;
         let mut readers = JoinSet::new();
         let (mut socket, (route, body)) = next_request(&listener, &mut readers).await;
         assert_eq!(route, "POST /v1/acquisitions HTTP/1.1");

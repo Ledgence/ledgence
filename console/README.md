@@ -22,18 +22,68 @@ pnpm --dir console dev
 On Linux browser runners, provision the operating-system browser prerequisites
 with the pinned Playwright installer (`playwright install --with-deps chromium webkit`).
 Vite binds to loopback and proxies `/v1` to `http://127.0.0.1:8080`. Start a configured
-orchestrator separately. Include `http://127.0.0.1:5173` in that development
-instance's `allowed_origins`: the proxy preserves the browser Origin. Retain
-`http://127.0.0.1:8080` too if using the directly served Console. An unlisted Origin
-causes write requests to be rejected. The development server contains no demo API
+orchestrator separately. In operator-trusted mode, include
+`http://127.0.0.1:5173` in that development instance's `allowed_origins`: the proxy
+preserves the browser Origin. You may retain `http://127.0.0.1:8080` too when using
+the directly served Console in that mode. Credential mode requires exactly one
+selected origin. Prefer the built Console served by the orchestrator at the API's
+own origin; choose the Vite origin alone when testing through its development
+proxy. An unlisted Origin causes requests to be rejected. The development server contains no demo API
 or mock data.
+
+## Instance access (development)
+
+Credential-enabled instances present an instance-credential sign-in form. Use an
+individual operator credential issued by your administrator. Console stores it
+in a host-only HttpOnly cookie; application JavaScript does not retain it in
+localStorage, sessionStorage or IndexedDB. The sidebar identifies the verified
+operator. Worker credentials cannot sign in to Console.
+
+The server checks expiry, installation, scope and capabilities on each request.
+The UI hides unavailable actions and presents permission errors for restricted
+payloads. The server remains authoritative. Production access requires HTTPS
+on a dedicated hostname; local HTTP is for trusted loopback development only.
+Cookies are shared across ports on the same hostname, so different ports are not
+an isolation boundary. Configure the exact Console origin, including its port.
+
+Each Console request carries the actor of the displayed view. A changed cookie
+from another tab cannot submit that view's command as the replacement actor.
+Tabs broadcast only an access-invalidation signal and verify access again when
+becoming visible. Content and dialogs are hidden during that check. Unsent form
+drafts remain in memory when the verified actor, instance and permissions are
+unchanged; a changed actor, instance or permission set discards the old view.
+Read requests are cancelled or wait for verification, then refresh. Old responses
+cannot repopulate the new actor's cache. No write is automatically resubmitted
+after authentication changes.
+
+**Sign out of this browser** clears its cookie and pending decisions; it does
+not revoke other copies of the credential. Administrators revoke credentials by
+updating the verifier configuration and restarting all server replicas; the
+configuration is loaded at startup. Cookie retention
+does not replace server-enforced credential expiry.
+
+A denied first attempt is reported as rejected. A later denied replay does not
+resolve an earlier uncertain outcome. An uncertain approval request remains
+frozen in memory, bound to its instance, during the current page
+lifetime. After reauthentication as the same actor with the same instance and
+permissions,
+**Try again** deliberately resends the same bytes and decision ID. Explicit
+sign-out or switching actors discards that pending request. A full browser
+reload can inspect a persisted server decision, but cannot restore an unsaved
+local command. The reviewer field remains a caller-supplied label; verified
+acceptance attribution is shown separately when the instance supports audit.
+
+Instances without credential configuration retain their explicit
+operator-trusted deployment mode and do not invent an authenticated actor.
+These access capabilities describe the development branch, not published 0.7.0
+packages.
 
 ## Brand assets
 
 The Curvatura master artwork lives in [`../assets/brand/`](../assets/brand/).
 `public/brand/` contains unchanged copies of the mark, theme-aware favicon,
 and Apple touch icon. The shell uses the mark as a CSS mask in the current text
-color for its expanded sidebar, collapsed sidebar, and mobile header. Keep
+color for its expanded sidebar, collapsed sidebar, and mobile navigation. Keep
 these copies aligned with the masters; do not redraw the mark in CSS.
 
 All brand files are served locally under `/console/brand/` and included in the
@@ -142,7 +192,7 @@ decision. The backend owns pending, approved, rejected, expired and cancelled
 states; the browser never infers expiry from its clock. A decision echoes the
 exact request binding and action. An uncertain response can only retry the same
 decision bytes and ID. Reviewer is caller-supplied audit attribution, not an
-authenticated identity; access remains controlled by the installation's proxy.
+authenticated identity. Credential-enabled instances separately authenticate the caller; operator-trusted instances retain their deployment access boundary.
 Approval permits a continuation; it does not prove that the action executed.
 
 Executions combines root workflows and standalone tasks in one server-paginated
@@ -217,14 +267,27 @@ missing reports never become fabricated process slots.
 
 ## Interface and dependencies
 
-The shell has a persistent collapsible desktop sidebar, compact mobile navigation,
-and light/dark/system appearance. Collapse from the sidebar header; its Ledgence
-mark expands it again without navigating. Execution details share one header for
-the instance, ancestry and title, with status and timing directly below;
-primary date/type/status filters stay visible and advanced exact filters expand on demand. The explorer can expand to
+On desktop, **Collapse sidebar** makes room for the content. Select the Ledgence
+mark to expand the sidebar again. In development builds, choose **System**,
+**Light** or **Dark** from **Appearance** in the sidebar. On small screens, the
+same control appears beside the four navigation links. **System** is the default
+and follows changes to the device appearance. The browser remembers the selected
+preference when local storage is available.
+
+List pages open directly with their content. Execution details keep the title,
+Back button and ancestry together, with status and timing below.
+
+Primary date/type/status filters stay visible and advanced exact filters expand on demand. The explorer can expand to
 full screen with Escape to exit, keeps selection and canvas state, and opens its
 inspector only when work is selected. Secondary evidence remains available in an
 expandable work list.
+
+In development builds, the expanded sidebar shows the connected server version.
+Execution history groups its filters and results together. Names and states lead each
+row, with technical IDs beneath the names. State badges pair a label with a symbol.
+Program and worker entries group identity, version or capacity, and related actions.
+The Graph legend distinguishes fork membership from other execution links. The Trace
+ruler shows elapsed time across the visible range of recorded work.
 
 The interface uses responsive tables, local system fonts, visible focus, semantic controls and
 reduced-motion support. Selected shadcn primitives are adapted locally; Radix Dialog supplies modal behavior and React Flow supplies graph interaction. The modal scroll lock inserts reviewed CSS at runtime,
@@ -250,6 +313,39 @@ Follow the workflow link to open Graph at the recorded approval wait, including
 waits deep in a long workflow. Select **View workflow from start** to see the
 original first page. The inbox uses the instance's existing access boundary and
 decision contract.
+
+On the development branch, approval details label requests created through
+`request_effect_approval` as **Protected external write**. The submitted
+decision and any retry preserve this requirement. Receipt validation rejects
+a changed protection marker. Use Console assets from the same build as the
+orchestrator for this extended contract.
+
+### Verified approval attribution (development)
+
+On credential-enabled native instances, an accepted approval's review page and
+submitted-decision dialog show **Accepted by**, the identity issuer, actor type
+and acceptance event ID. This is the original verified operator or service,
+which may differ from the current viewer or the **Reviewer label (caller
+supplied)**. The original acceptance time remains the decision time; later
+inspection does not replace it.
+
+The Console makes one exact lookup for that approval occurrence and decision.
+It displays **No verified actor recorded** only after a successful empty query,
+for example for a historical decision accepted before audit was enabled.
+Unsupported audit, denied access, failed or inconsistent responses remain
+unavailable. **Retry attribution** retries only the metadata read. It never
+resubmits a decision. Reading attribution requires `metadata_read`; the approval
+payload retains its `sensitive_read` requirement.
+
+Accepted evidence is cached in memory within the current instance and access
+view. Workflow approval lists link to detail without fetching every card's audit
+history. Actor, instance, permission or audit-capability changes discard the
+view; late responses cannot repopulate it. Credential rotation for the same actor
+preserves a pending command only under the same instance and permissions and
+still requires a deliberate identical retry. Operator-trusted deployments do not
+invent verified identities. These additions preserve Console contract 5 and the
+existing approval/decision representation; use matching development assets and
+server builds.
 
 ### Inspect a durable operation
 

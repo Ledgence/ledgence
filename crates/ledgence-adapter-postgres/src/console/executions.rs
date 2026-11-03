@@ -28,6 +28,14 @@ pub(super) async fn list(
                 correlation_key: row.try_get("correlation_key")?,
                 parent_workflow_id: row.try_get("parent_workflow_id")?,
                 root_workflow_id: row.try_get("root_workflow_id")?,
+                provider_probe: row
+                    .try_get::<Option<Vec<u8>>, _>("provider_probe_bytes")?
+                    .map(|bytes| {
+                        decode_unique_json::<ProviderProbeAssignment>(&bytes, 4096)
+                            .map(Into::into)
+                            .map_err(ContractError::from)
+                    })
+                    .transpose()?,
             })
         })
         .collect::<StoreResult<Vec<_>>>()?;
@@ -151,6 +159,6 @@ pub(super) fn discovery_query(
     }
     sql.push(") candidates ORDER BY submitted_at_ms DESC,kind COLLATE \"C\" DESC,id COLLATE \"C\" DESC LIMIT ")
         .push_bind(i64::from(limit)+1)
-        .push(") SELECT chosen.*,CASE WHEN chosen.kind='task' THEN CASE WHEN octet_length(t.descriptor_bytes)<=4096 THEN t.descriptor_bytes END ELSE CASE WHEN octet_length(w.controller_bytes)<=4096 THEN w.controller_bytes END END AS descriptor FROM chosen LEFT JOIN tasks t ON chosen.kind='task' AND t.task_id=chosen.id LEFT JOIN workflow_runs w ON chosen.kind='workflow' AND w.workflow_id=chosen.id ORDER BY chosen.submitted_at_ms DESC,chosen.kind COLLATE \"C\" DESC,chosen.id COLLATE \"C\" DESC");
+        .push(") SELECT chosen.*,t.provider_probe_bytes,CASE WHEN chosen.kind='task' THEN CASE WHEN octet_length(t.descriptor_bytes)<=4096 THEN t.descriptor_bytes END ELSE CASE WHEN octet_length(w.controller_bytes)<=4096 THEN w.controller_bytes END END AS descriptor FROM chosen LEFT JOIN tasks t ON chosen.kind='task' AND t.task_id=chosen.id LEFT JOIN workflow_runs w ON chosen.kind='workflow' AND w.workflow_id=chosen.id ORDER BY chosen.submitted_at_ms DESC,chosen.kind COLLATE \"C\" DESC,chosen.id COLLATE \"C\" DESC");
     Ok(sql)
 }

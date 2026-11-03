@@ -13,6 +13,7 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
     )
     .map_err(|_| corrupt())?;
     let status = TaskStatus {
+        provider_probe: task.provider_probe.clone(),
         scope: task.scope(),
         task_id: task.task_id.clone(),
         run_id: task.run_id.clone(),

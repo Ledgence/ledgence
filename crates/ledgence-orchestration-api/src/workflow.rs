@@ -96,6 +96,30 @@ pub struct WorkflowActivationContext {
     pub wake: Option<WorkflowWake>,
 }
 impl WorkflowActivationContext {
+    /// Validate the frozen context and bind its activation and every scoped wake
+    /// to the current lease. The caller separately checks expected workflow lineage.
+    pub fn validate_for_owner(&self, owner: &LeaseOwner) -> Result<()> {
+        owner.validate()?;
+        self.validate()?;
+        let wake_scope = match &self.wake {
+            Some(WorkflowWake::Approval { approval }) => Some(&approval.scope),
+            Some(WorkflowWake::EffectResolution(wake)) => Some(&wake.occurrence.scope),
+            Some(WorkflowWake::ProviderOperation(wake)) => Some(&wake.occurrence.scope),
+            Some(
+                WorkflowWake::Event { .. }
+                | WorkflowWake::Timeout { .. }
+                | WorkflowWake::Timer { .. },
+            )
+            | None => None,
+        };
+        if self.activation_id != owner.task_id
+            || wake_scope.is_some_and(|scope| scope != &owner.scope)
+        {
+            return Err(ContractError::Conflict);
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<()> {
         version(self.v)?;
         validate_workflow_lineage(
@@ -126,6 +150,20 @@ impl WorkflowActivationContext {
                 return Err(invalid(
                     "approval wake disagrees with its logical activation",
                 ));
+            }
+            if let WorkflowWake::EffectResolution(wake) = wake
+                && (wake.occurrence.workflow_id != self.workflow_id
+                    || wake.resumed_activation_id != self.activation_id
+                    || wake.resumed_revision != self.revision)
+            {
+                return Err(invalid("effect resolution wake disagrees with activation"));
+            }
+            if let WorkflowWake::ProviderOperation(wake) = wake
+                && (wake.occurrence.workflow_id != self.workflow_id
+                    || wake.resumed_activation_id != self.activation_id
+                    || wake.resumed_revision != self.revision)
+            {
+                return Err(invalid("provider wake disagrees with activation"));
             }
             #[derive(Serialize)]
             struct FrozenInputs<'a> {
@@ -484,6 +522,39 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
+        Err(ContractError::Unavailable(
+            "provider operations are unavailable".into(),
+        ))
+    }
+
+    fn effect_resolution(&self) -> Result<&dyn EffectResolutionStore> {
+        Err(ContractError::Unavailable(
+            "native effect resolution is unavailable".into(),
+        ))
+    }
+    /// Complete verified decision and response-audit capability; no partial fallback.
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        Err(ContractError::Unavailable(
+            "operator audit is unsupported by this adapter".into(),
+        ))
+    }
+    /// Expose the complete protected-write protocol, or reject it before dispatch.
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence is unavailable".into(),
+        ))
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence reads are unavailable".into(),
+        ))
+    }
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        Err(ContractError::InvalidInput(
+            "protected external writes are unsupported by this adapter".into(),
+        ))
+    }
     /// Read an existing immutable proposal. Absence never grants approval.
     fn approval<'a>(
         &'a self,
@@ -624,6 +695,54 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
+        Err(ContractError::Unavailable(
+            "provider operations are unavailable".into(),
+        ))
+    }
+    fn provider_operation_client(&self) -> Result<&dyn ProviderOperationClient> {
+        Err(ContractError::Unavailable(
+            "provider operations are unavailable".into(),
+        ))
+    }
+
+    fn effect_resolution(&self) -> Result<&dyn EffectResolution> {
+        Err(ContractError::Unavailable(
+            "native effect resolution is unavailable".into(),
+        ))
+    }
+    fn effect_resolution_client(&self) -> Result<&dyn EffectResolutionClient> {
+        Err(ContractError::Unavailable(
+            "native effect resolution client is unavailable".into(),
+        ))
+    }
+    /// Complete verified decision and response-audit capability; no partial fallback.
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        Err(ContractError::Unavailable(
+            "operator audit is unsupported by this adapter".into(),
+        ))
+    }
+    /// Expose the complete protected-write protocol, or reject it before dispatch.
+    fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence is unavailable".into(),
+        ))
+    }
+    fn effect_evidence_reader(&self) -> Result<&dyn EffectEvidenceReader> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence reads are unavailable".into(),
+        ))
+    }
+    fn effect_evidence_client(&self) -> Result<&dyn EffectEvidenceClient> {
+        Err(ContractError::Unavailable(
+            "approved effect evidence transport is unavailable".into(),
+        ))
+    }
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        Err(ContractError::InvalidInput(
+            "protected external writes are unsupported by this adapter".into(),
+        ))
+    }
     /// Read an existing immutable proposal. Absence never grants approval.
     fn approval<'a>(
         &'a self,
@@ -889,5 +1008,52 @@ mod tests {
             missing.as_object_mut().unwrap().remove(key);
             assert!(serde_json::from_value::<LocalStepRecord>(missing).is_err());
         }
+    }
+    #[test]
+    fn owner_validation_preserves_unscoped_contexts_and_checks_lease_and_payload() {
+        let owner = LeaseOwner {
+            scope: Scope {
+                tenant_id: "tenant".into(),
+                namespace: "ns".into(),
+            },
+            task_id: "activation".into(),
+            attempt_id: "attempt".into(),
+            lease_id: "lease".into(),
+            generation: 1,
+            worker_session_id: "session".into(),
+            consumer_id: 0,
+        };
+        let mut context: WorkflowActivationContext = serde_json::from_value(json!({"v":1,"workflow_id":"workflow","activation_id":"activation","revision":0,"continuation":"start","state":null,"inputs":{},"local_steps":[]})).unwrap();
+        for wake in [
+            None,
+            Some(WorkflowWake::Timer {
+                key: "timer".into(),
+                deadline: 1,
+            }),
+            Some(WorkflowWake::Timeout {
+                key: "event".into(),
+                deadline: 1,
+            }),
+        ] {
+            context.wake = wake;
+            context.validate_for_owner(&owner).unwrap();
+        }
+        let mut invalid = owner.clone();
+        invalid.generation = 0;
+        assert!(matches!(
+            context.validate_for_owner(&invalid),
+            Err(ContractError::InvalidInput(_))
+        ));
+        invalid = owner.clone();
+        invalid.task_id = "another".into();
+        assert_eq!(
+            context.validate_for_owner(&invalid),
+            Err(ContractError::Conflict)
+        );
+        context.continuation.clear();
+        assert!(matches!(
+            context.validate_for_owner(&owner),
+            Err(ContractError::InvalidInput(_))
+        ));
     }
 }

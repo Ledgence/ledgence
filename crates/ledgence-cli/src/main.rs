@@ -1,8 +1,11 @@
 //! Unified entry point for program administration and platform services.
 
+mod access;
 mod approvals;
 mod args;
 mod bundle;
+mod credentials;
+mod effects;
 mod local;
 mod logging;
 mod mcp;
@@ -15,7 +18,9 @@ mod telemetry;
 
 use args::{Command, Operation};
 use ledgence_adapter_http::HttpTaskService;
-use ledgence_orchestration_api::{ContractError, Result, TaskService};
+use ledgence_orchestration_api::{
+    AuditReader, ContractError, EffectEvidenceReader, Result, TaskService,
+};
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -45,6 +50,7 @@ fn main() -> ExitCode {
             ledgence_orchestrator::entrypoint(bundle::orchestrator_arguments(arguments))
         }
         Ok(routing::Route::Local(arguments)) => local::run(arguments),
+        Ok(routing::Route::Access(arguments)) => access::run(arguments),
         Ok(routing::Route::ProgramNew(arguments)) => program_new::run(arguments),
         Ok(routing::Route::ProgramBuild(arguments)) => program_build::run(arguments),
         Ok(routing::Route::ProgramPublish(arguments)) => program_publish::run(arguments),
@@ -62,12 +68,18 @@ fn write_stdout(text: &str) -> ExitCode {
     }
 }
 
-fn run_admin(arguments: Vec<String>) -> ExitCode {
+fn run_admin(mut arguments: Vec<String>) -> ExitCode {
+    let credentials = match credentials::take(&mut arguments) {
+        Ok(value) => value,
+        Err(error) => return diagnose(error, None),
+    };
     let command = match Command::parse(arguments) {
         Ok(command) => command,
         Err(error) => return diagnose(error, None),
     };
     let (server, operation) = match command {
+        Command::Effect { server, operation } => (server, RunOperation::Effect(operation)),
+        Command::Audit { server, query } => (server, RunOperation::Audit(query)),
         Command::Approval { server, operation } => (server, RunOperation::Approval(operation)),
         Command::Task { server, operation } => (server, RunOperation::Task(operation)),
         Command::Program {
@@ -77,7 +89,7 @@ fn run_admin(arguments: Vec<String>) -> ExitCode {
         Command::Help => return write_stdout(routing::HELP),
     };
     // Validate the endpoint before optional telemetry or output services start.
-    let client = match HttpTaskService::new(&server) {
+    let client = match credentials::task_client(&server, credentials.as_ref()) {
         Ok(client) => client,
         Err(error) => return diagnose(error, None),
     };
@@ -121,6 +133,8 @@ fn run_admin(arguments: Vec<String>) -> ExitCode {
 }
 
 enum RunOperation {
+    Effect(args::EffectOperation),
+    Audit(ledgence_orchestration_api::AuditQuery),
     Approval(args::ApprovalOperation),
     Task(Operation),
     Program(ledgence_orchestration_api::console::RegisterProgram),
@@ -156,6 +170,16 @@ fn run_task(
     };
     let result = runtime.block_on(async {
         match operation {
+            RunOperation::Effect(args::EffectOperation::Inbox(query)) => {
+                encode(client.effect_inbox(&query).await?)
+            }
+            RunOperation::Effect(args::EffectOperation::Inspect(query)) => {
+                encode(client.inspect_effect(&query).await?)
+            }
+            RunOperation::Effect(args::EffectOperation::Resolve { scope, file }) => {
+                effects::resolve(&client, scope, file).await
+            }
+            RunOperation::Audit(query) => encode(client.query_audit(&query).await?),
             RunOperation::Approval(operation) => approvals::execute(&client, operation).await,
             RunOperation::Task(operation) => execute(&client, operation).await,
             RunOperation::Program(command) => encode(client.register_program(&command).await?),

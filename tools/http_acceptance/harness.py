@@ -160,7 +160,10 @@ class ArtifactServer:
 class FaultProxy:
     """Consume a committed upstream reply, then deterministically lose it."""
 
-    def __init__(self, upstream):
+    def __init__(self, upstream, *, forward_authorization=False):
+        if type(forward_authorization) is not bool:
+            raise ValueError("authorization forwarding must be explicitly boolean")
+        self.forward_authorization = forward_authorization
         self.upstream = upstream
         self.lock = threading.Lock()
         self.blocked = False
@@ -188,9 +191,13 @@ class FaultProxy:
                 connection = http.client.HTTPConnection(url.hostname, url.port, timeout=35)
                 try:
                     headers = {"Accept": "application/json", "Content-Type": "application/json"}
-                    for key in ("traceparent", "tracestate"):
+                    for key in ("traceparent", "tracestate", "Ledgence-Worker-Features"):
                         if self.headers.get(key):
                             headers[key] = self.headers[key]
+                    # Only credential-aware gates opt in. Never retain this
+                    # header in request records or diagnostics.
+                    if owner.forward_authorization and self.headers.get("Authorization"):
+                        headers["Authorization"] = self.headers["Authorization"]
                     connection.request(self.command, self.path, body=body, headers=headers)
                     response = connection.getresponse()
                     payload = response.read(16 * 1024 * 1024 + 1)
@@ -365,7 +372,7 @@ class Deployment:
         self.proxies.append(proxy)
         return proxy
 
-    def start_worker(self, server=None, concurrency=1, cache="cache", *, runner=None):
+    def start_worker(self, server=None, concurrency=1, cache="cache", *, runner=None, credentials_file=None):
         self.counter += 1
         args = [str(self.binaries / "ledgence"), "worker", "connect", "--server",
                 server or self.server_url, "--tenant", self.scope["tenant_id"], "--namespace",
@@ -373,6 +380,8 @@ class Deployment:
                 "--cache", str(self.directory / cache), "--python", self.python,
                 "--runner", str(runner or self.root / "sdk/python/ledgence/worker/bootstrap.py"),
                 "--concurrency", str(concurrency)]
+        if credentials_file is not None:
+            args += ["--credentials-file", str(credentials_file)]
         process = Process(args, self.directory, f"worker-{self.counter}", self.environment)
         self.processes.append(process)
         return process

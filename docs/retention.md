@@ -79,8 +79,9 @@ now returns `NotFound`. A child's own pending/recent callback protects that chil
 Approval proposals and decisions follow their owning workflow's retention
 lifetime. Compact Console graph records are collected with that workflow;
 accepted attempt measurements are collected with their settlement. The latest
-worker observation is collected with its expired session. Retention therefore
-does not preserve an independent audit archive after those records expire.
+worker observation is collected with its expired session. In 0.7.0, retention
+does not preserve an independent audit archive after those records expire. The
+development operator-audit capability below adds independent acceptance evidence.
 
 ## API and idempotency boundary
 
@@ -109,6 +110,45 @@ an expired removed session returns `UnknownSession`. A broker record for a delet
 execution returns `NotFound` and conveys no execution or acknowledgment authority.
 Keep broker delivery/reconciliation lifetimes within execution retention and use
 its operational dead-letter handling for records retained beyond that boundary.
+
+## Unresolved approved writes
+
+Development builds retain a workflow with an unresolved `approved_effect`
+after it becomes eligible by age. For example, cancelling a refund workflow
+after dispatch leaves its approval, attempts and journal available for
+investigation. The hold starts in the transaction that grants dispatch. A
+successful lookup and confirmation can close it on a later attempt. A verified
+[operator assessment](effect-evidence.md#record-an-operator-assessment) also
+releases this handling hold for `record_success`, `record_failure` and
+`close_unknown`. An assessment does not confirm the execution journal
+or prove what happened at the provider. A later disagreement does not restore
+the hold. Generic workflow events cannot close it. The same policy covers an
+approved action first adopted for protected lookup after an offline upgrade.
+
+The normal terminal retention clock still runs while the hold is open. Once
+the result is durably confirmed or an assessment is accepted, an already-old
+workflow can be collected on a subsequent maintenance run, subject to terminal
+state, owned work, live sessions and its other protective references. An
+unresolved hold without either event can persist indefinitely. A historical
+approval by itself does not put every previously approved workflow on hold.
+[Upgrade procedure](postgres.md#upgrade-from-070-to-development-source).
+
+Execution cleanup collects native effect waits and their graph records with
+the owning workflow. The independent retained occurrence, reported results,
+operator assessments and acceptance receipts survive. Their initial development
+ledger has no automatic expiry, including after `close_unknown` or later
+`disputed` evidence. Closing handling neither removes evidence nor revives work.
+
+Provider operations in development builds also release their unresolved hold
+when typed provider knowledge becomes terminal. They deliberately have no local
+journal result. An operator assessment releases the hold even when provider
+knowledge remains unknown or disputed. Cancelling a workflow alone does not
+close an unresolved provider hold. Probe tasks must finish their ordinary
+cleanup and lose live scheduling references before collection can proceed.
+Provider waits and their graph records follow execution retention; immutable
+bindings, reports, source receipts and business/provider-key reservations remain
+in the independent ledger with no automatic expiry.
+[Provider operations](provider-operations.md).
 
 ## Storage and operations
 
@@ -148,3 +188,15 @@ Query-plan regressions measure actual rows/probes for sparse and drained 200,000
 activation ledgers and task discovery with a 20,000-row retirement backlog. An
 opt-in completed-task fixture reports cleanup throughput and empty-lane overhead;
 its timing is diagnostic, not a production capacity guarantee.
+
+
+## Operator audit in development
+
+Matching development schemas add a fourth bounded maintenance lane for expired
+sensitive-response observations. The selected retention interval has the same
+90-day minimum. Preview reports `audit_observation_candidates`; applying removes
+at most the configured batch size in each observation transaction. Approval
+acceptance and effect-resolution acceptance events survive task/workflow removal
+and currently have no automatic expiry.
+Execution retention and acceptance evidence therefore have separate lifetimes.
+[Operator audit](operator-audit.md#retention-and-operating-limits).

@@ -10,6 +10,7 @@ def violations(graph):
     """Check manifest declarations, including renamed and target dependencies."""
     allowed = {
         "ledgence-worker-api": set(),
+        "ledgence-adapter-access": {"ledgence-orchestration-api"},
         "ledgence-adapter-otel": {"ledgence-worker-api"},
         "ledgence-adapter-mcp": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestration-api": {"ledgence-worker-api"},
@@ -30,11 +31,13 @@ def violations(graph):
         "ledgence-adapter-sqs": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-adapter-http": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestrator": {
+            "ledgence-adapter-access",
             "ledgence-adapter-otel", "ledgence-adapter-sqs",
             "ledgence-adapter-http", "ledgence-adapter-artifact", "ledgence-adapter-postgres",
             "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
         },
         "ledgence-cli": {
+            "ledgence-adapter-access",
             "ledgence-adapter-artifact", "ledgence-adapter-mcp",
             "ledgence-adapter-otel", "ledgence-adapter-http", "ledgence-orchestration-api",
             "ledgence-worker-api", "ledgence-worker", "ledgence-orchestrator",

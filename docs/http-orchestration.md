@@ -117,7 +117,8 @@ also serves these documented surfaces:
 | --- | --- |
 | Workflow submission, status, results, cancellation, activation context, local results, and forks | [Workflows](workflows.md) and [typed entrypoints](workflow-entrypoints.md) |
 | External workflow events and timers | [Workflow events](workflow-events.md) |
-| Persisted approval inspection and bound decisions | [Workflow approvals](workflow-approvals.md) |
+| Persisted approval inspection, bound decisions, and development worker routes `POST /v1/workflows/approved-effects/claim` and `POST /v1/workflows/approved-effects/confirm` | [Workflow approvals](workflow-approvals.md) |
+| Development retained-effect inspection, verified operator resolution and native waits | [Effect evidence and resolution](effect-evidence.md) |
 | Completion subscriptions, status, and explicit redelivery | [Completion notifications](completion-notifications.md) |
 | Installation catalog, execution discovery, graph metadata, and worker observations | [Console query model](console-query-model.md) and [instance binding](self-hosted-instance.md) |
 | Opt-in immutable program uploads and publication capabilities | [Program publication](program-publication.md#binary-api-and-bounds) |
@@ -267,3 +268,54 @@ checks. Shutdown first closes HTTP admission and drains accepted requests, then
 stops background recovery; unprocessed obligations remain durable for restart.
 Task statuses include optional `workflow_id` and `workflow_activation_id` for
 linked tasks. Ordinary statuses omit those fields.
+
+## Credential access in development
+
+Matching development components support optional installation credentials across
+API operations, workers and Console. Configure the authority, client credential
+files and capabilities using the [instance access guide](instance-access.md).
+The existing operator-trusted mode requires its deployment access boundary.
+Native credential mode requires transactional verified approval attribution and
+audit before sensitive payload responses. [Operator audit](operator-audit.md).
+
+Matching development servers also expose retained approved-effect evidence.
+`POST /v1/workflows/approved-effects/v2/claim`, `/confirm` and `/observe` require
+verified worker authority. The inbox and inspect routes use their respective
+metadata and sensitive-read permissions. Inspect additionally requires durable
+operator audit, including on the Console aliases. `GET /v1/access` advertises
+v2 to credentialed workers only when the complete grouped capability exists.
+Generic integer fields remain JSON integers. Console evidence revisions and
+sequences use decimal strings. [Evidence routes and bounds](effect-evidence.md).
+
+### Provider operations in development
+
+Provider recovery is explicitly enabled with `--provider-config FILE`, together
+with `--instance-config` and `--access-config`. The bounded JSON document contains
+`v: 1`, the exact access `audience` (`authority_id`, `instance_id`, `scope`) and
+`dispatch: "enabled"` or `"declared_restore_quarantine"`. The native process
+validates this external policy before binding its listener and checks the complete
+provider port. Only configured instances start the bounded reconciliation
+coordinator; readiness includes its progress. A declared restore quarantine
+prevents new dispatch permission. It is an explicit operator policy, not automatic
+detection of a database rollback.
+
+Authenticated worker routes are:
+
+- `POST /v1/workflows/provider-operations/claim`
+- `POST /v1/workflows/provider-operations/report`
+- `POST /v1/workflows/provider-operations/observe`
+- `POST /v1/provider-probes/context`
+- `POST /v1/provider-probes/report`
+
+Each requires worker class and `worker_execute`; operator credentials cannot
+substitute for a worker lease or retained source. Context admission also records
+the exact source of that check before a callback runs. The independent observe
+route accepts a retained source's frozen facts, not permission for another query
+or mutation. Commands are bounded to 256 KiB, context replies to 64 KiB and
+receipts to 16 KiB. Invalid receipts after a possible commit report uncertainty.
+
+Existing Effects inbox/inspect routes include typed provider evidence and an
+optional `provider_filter`. Inspection remains sensitive and audited. Matching
+Console components use C7; earlier C6 assets must be upgraded together with the
+server. Worker feature discovery remains opt-in through
+`Ledgence-Worker-Features: 1`; the header-absent response retains the earlier shape.

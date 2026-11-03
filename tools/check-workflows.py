@@ -33,10 +33,10 @@ from postgres_fixture import create_owned_database, owned_database_url
 from program_fixture import prepare_package
 from http_acceptance.harness import Deployment, Process, eventually, exchange, timed
 from http_acceptance.sqs import SqsDeployment, acquisition_wait
-from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, owned_scenarios
+from workflow_acceptance import agent_scenarios, approval_scenarios, fork_scenarios, lost_grant_scenario, owned_scenarios, refund_scenarios
 
 
-SCENARIOS = ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS]
+SCENARIOS = ['examples','resume','lost-ack','depth','crash','events','event-boundaries','timers','wait-cancellation','placement',*owned_scenarios.SCENARIOS,*fork_scenarios.SCENARIOS,*approval_scenarios.SCENARIOS,*agent_scenarios.SCENARIOS,refund_scenarios.SCENARIO,lost_grant_scenario.SCENARIO]
 
 
 FIXTURE = r'''
@@ -521,6 +521,10 @@ async def scenarios(d, delay, names, record, placement_iterations=3, capture=Non
     await fork_scenarios.run(d,names,record,records,snapshot)
     await approval_scenarios.run(d,names,record,snapshot)
     await agent_scenarios.run(d,names,record,records)
+    if refund_scenarios.SCENARIO in names:
+        await refund_scenarios.run(d, record, records, snapshot)
+    if lost_grant_scenario.SCENARIO in names:
+        await lost_grant_scenario.run(d, record, snapshot)
 
 
 async def timed_scenarios(d, delay, names, record, placement_iterations=3, capture=None):
@@ -649,6 +653,7 @@ def self_test(root):
     compile(CHILD,'child_fixture.py','exec')
     for fixture in [root/'tools/workflow_acceptance/owned_program.py', root/'examples/owned-subworkflows/program.py',
                     root/'tools/workflow_acceptance/fork_program.py', root/'examples/mixed-workflow/program.py',
+                    root/'tools/workflow_acceptance/refund_program.py',
                     root/'tools/workflow_acceptance/agent_program.py', root/'examples/agent-recovery/program.py']:
         compile(fixture.read_text(),str(fixture),'exec')
     compile((root/'examples/checkpoint-workflow/child/program.py').read_text(),'example_child.py','exec')
@@ -662,6 +667,15 @@ def self_test(root):
         delay.close()
     print('Workflow harness self-test passed: compiled fixtures and overlapping real loopback HTTP I/O')
     return 0
+
+
+def remove_temporary_evidence(directory):
+    # Workers have stopped. Unseal directories in this owned fixture without
+    # following symlinks or changing the permissions of any linked file.
+    for _, _, _, directory_fd in os.fwalk(directory, follow_symlinks=False):
+        if not os.fstat(directory_fd).st_mode & 0o200:
+            os.fchmod(directory_fd, 0o700)
+    shutil.rmtree(directory)
 
 
 def main():
@@ -718,13 +732,12 @@ def main():
     for binary in ('ledgence',):
         if not (binaries/binary).is_file():
             parser.error(f'missing executable {binaries/binary}')
-    temporary = not args.evidence
     directory = args.evidence.resolve() if args.evidence else Path(tempfile.mkdtemp(prefix='ledgence-workflows-'))
     if args.evidence:
         directory.mkdir(parents=True,exist_ok=False)
     deployment = delay = queue_admin = queue_url = capture = None
     queue_name = 'ledgence-test-workflow-'+uuid.uuid4().hex
-    created = queue_started = succeeded = False
+    created = queue_started = False
     results = []
     def admin(statement):
         result = subprocess.run([args.psql,'--dbname',parent_url,'-X','--set','ON_ERROR_STOP=1','--command',statement],capture_output=True,timeout=40)
@@ -769,6 +782,9 @@ def main():
             'agent-recovery':publish(deployment,'agent-recovery',(root/'examples/agent-recovery/program.py').read_text()),
             'workflow-summary':publish(deployment,'workflow-summary',(root/'examples/checkpoint-workflow/child/program.py').read_text()),
         }
+        if not args.scenario or {refund_scenarios.SCENARIO, lost_grant_scenario.SCENARIO}.intersection(args.scenario):
+            source = (root/'tools/workflow_acceptance/refund_program.py').read_text()
+            packages['refund-controller'] = publish(deployment, 'refund-controller', source)
         migration = subprocess.run([str(binaries/'ledgence'),'orchestrator','migrate'],env=deployment.environment,capture_output=True,timeout=40)
         assert migration.returncode==0,migration.stderr.decode(errors='replace')[-3000:]
         deployment.server,_ = deployment.start_server()
@@ -793,9 +809,6 @@ def main():
             with timed(directory, 'scenario', 'fork-traces'):
                 record('fork-traces',fork_scenarios.verify_traces(deployment,capture,results,records,trace_rows))
         deployment.server.stop()
-        succeeded = True
-        print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}',flush=True)
-        return 0
     except Exception as error:
         print(f'Workflow acceptance failed: {error}\nEvidence: {directory}',file=sys.stderr)
         (directory/'failure.txt').write_text(traceback.format_exc())
@@ -817,8 +830,14 @@ def main():
                     if queue_url is None:
                         queue_url = queue_admin.queue_url(queue_admin.call('GetQueueUrl',{'QueueName':queue_name}))
                     queue_admin.call('DeleteQueue',{'QueueUrl':queue_url})
-                if temporary and succeeded:
-                    shutil.rmtree(directory)
+
+    # Reaching this point means both scenarios and resource teardown succeeded.
+    if args.evidence is None:
+        remove_temporary_evidence(directory)
+        print(f'Workflow acceptance passed: {len(results)} scenarios', flush=True)
+    else:
+        print(f'Workflow acceptance passed: {len(results)} scenarios; evidence {directory}', flush=True)
+    return 0
 
 
 if __name__=='__main__':

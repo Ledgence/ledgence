@@ -1,3 +1,4 @@
+import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { useEffect, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
@@ -6,6 +7,7 @@ import { useInstance } from "../app/instance";
 import { useResource, usePagination } from "../api/hooks";
 import { useTerminalRefresh } from "../api/terminal-refresh";
 import * as dto from "../api/resources";
+import { effectDetailPath } from "../api/effects";
 import { useCommand, freezeCommand } from "../api/commands";
 import { parseUserJson } from "../api/json";
 import { WorkflowApprovals } from "./approvals";
@@ -61,10 +63,12 @@ export function WorkflowDetailPage() {
           detail?.summary.controller.program.id ||
           "Workflow"
         }
-        description={
-          detail
-            ? `Workflow · ${detail.summary.controller.program.id} / ${detail.summary.controller.program.version}`
-            : "Workflow execution"
+        context={
+          detail && {
+            label: "Workflow program",
+            value: detail.summary.controller.program.id,
+            version: detail.summary.controller.program.version,
+          }
         }
         metadata={
           <>
@@ -85,7 +89,9 @@ export function WorkflowDetailPage() {
         actions={
           detail &&
           !dto.terminal(detail.summary.workflow.state) && (
-            <CancelWorkflow key={workflowId} workflowId={workflowId} />
+            <Permission capability="execution_control">
+              <CancelWorkflow key={workflowId} workflowId={workflowId} />
+            </Permission>
           )
         }
       />
@@ -103,9 +109,13 @@ export function WorkflowDetailPage() {
             <p className="notice">
               {detail.child_wait
                 ? `Waiting for terminal outcomes: ${detail.child_wait.command_keys.join(", ")}.`
-                : detail.external_wait_key
-                  ? `Waiting for external wake: ${detail.external_wait_key}.`
-                  : "Waiting for a recorded continuation."}
+                : detail.provider_wait
+                  ? `Waiting for provider outcome: ${detail.provider_wait.key}.`
+                  : detail.native_effect_wait
+                    ? `Waiting for operator resolution: ${detail.native_effect_wait.key}.`
+                    : detail.external_wait_key
+                      ? `Waiting for external wake: ${detail.external_wait_key}.`
+                      : "Waiting for a recorded continuation."}
             </p>
           )}
           {["failing", "cancelling"].includes(
@@ -581,14 +591,23 @@ function Waits({
             {query.data.page.items.map((wait) => (
               <article
                 className="card"
-                key={JSON.stringify([workflowId, wait.wait_key])}
+                key={JSON.stringify([
+                  workflowId,
+                  wait.kind,
+                  wait.wait_key,
+                  wait.activation_id,
+                ])}
               >
                 <h3>
                   {wait.kind === "event"
                     ? "External event"
                     : wait.kind === "approval"
                       ? "Approval"
-                      : "Timer"}
+                      : wait.kind === "provider_operation"
+                        ? "Provider operation"
+                        : wait.kind === "effect_resolution"
+                          ? "Effect recovery"
+                          : "Timer"}
                 </h3>
                 <CopyText value={wait.wait_key} />
                 <Status value={wait.closed_at === null ? "open" : "closed"} />
@@ -612,11 +631,39 @@ function Waits({
                     enabled={active && wait.closed_at === null}
                   />
                 )}
+                {wait.provider_wait && (
+                  <p>
+                    Durable provider outcome for approval{" "}
+                    <code>{wait.provider_wait.occurrence.approval_key}</code>.
+                    The worker is free while this wait is parked.{" "}
+                    <Link to={effectDetailPath(wait.provider_wait.occurrence)}>
+                      Inspect provider evidence
+                    </Link>
+                  </p>
+                )}
+                {wait.native_effect_wait && (
+                  <p>
+                    Operator resolution for approval{" "}
+                    <code>
+                      {wait.native_effect_wait.occurrence.approval_key}
+                    </code>{" "}
+                    from activation{" "}
+                    <code>
+                      {wait.native_effect_wait.occurrence.activation_id}
+                    </code>
+                    . Ordinary events cannot resolve this wait.{" "}
+                    <Link
+                      to={effectDetailPath(wait.native_effect_wait.occurrence)}
+                    >
+                      Inspect effect
+                    </Link>
+                  </p>
+                )}
               </article>
             ))}
           </div>
           {!query.data.page.items.length && !query.data.child_wait && (
-            <Empty>No external waits were recorded on this page.</Empty>
+            <Empty>No waits were recorded on this page.</Empty>
           )}
           <PageControls
             navigationOnly
@@ -901,7 +948,18 @@ function CancelWorkflow({ workflowId }: { workflowId: string }) {
     </>
   );
 }
-function SendEvent({
+function SendEvent(props: {
+  workflowId: string;
+  waitKey: string;
+  enabled: boolean;
+}) {
+  return (
+    <Permission capability="execution_control">
+      <SendEventForm {...props} />
+    </Permission>
+  );
+}
+function SendEventForm({
   workflowId,
   waitKey,
   enabled,

@@ -9,6 +9,98 @@ success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
+## Upgrade from 0.7.0 to development source
+
+The [0.8.0 candidate upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-8.md)
+provides the maintenance sequence. Public release availability remains 0.7.0
+until the candidate and its distributions are verified.
+
+Stop all writers, back up the database and program store, run
+`ledgence orchestrator migrate`, and start matching development server and
+worker builds. Migration `20261102020000_approved_effect_claim.sql` marks
+previously approved actions as **lookup-only**: an older worker may have
+issued the write without recording a grant. An approval still pending at
+migration can authorize its first dispatch after approval. Allow maintenance
+time for the update of retained approved rows. Do not mix old writers into
+the upgraded installation.
+
+The next migration, `20261103000000_approved_effect_evidence.sql`, also
+handles grants recorded by the earlier development worker. It checks each
+grant against the journal of the activation that resumed after approval.
+A matching protected result preserves the original accepting attempt, which
+may differ from the dispatch attempt. A grant without a matching result
+opens a retention hold. Ordinary historical approvals keep their existing
+retention policy.
+
+Migration `20261103030000_retained_effect_evidence.sql` adds independent
+occurrence and evidence tables. Its offline backfill commits batches of at most
+16 approvals, preserving the original program binding and exact accepted journal
+bytes. Startup and retention maintenance refuse incomplete backfill. Confirmed rows without matching
+historical proof fail migration. Rerunning the migration resumes completed
+batches without inventing a verified worker identity for older records.
+
+Migration `20261103040000_native_effect_resolution.sql` adds immutable operator
+assessments and their linked audit events, plus `workflow_effect_waits` and the
+workflow's native parking-activation anchor. Native waits use a separate table
+from generic event/timer/approval waits, so equal textual keys cannot consume
+each other's events. Assessment acceptance, verified audit and eligible resume
+obligations commit together; selecting a wake and creating its resumed activation
+also commit together. Existing accepted journals are not replaced.
+
+Migration `20261103050000_console_native_effect_wait.sql` adds the corresponding
+Console graph kind and indexed wait-page ordering. Native parking identity is
+indexed for retention lookups. Apply both as part of the complete migration set,
+then restart every server, worker and embedded connection pool with matching
+components. Keeping old pooled statements or writers alive through these schema
+changes is outside the supported offline upgrade procedure.
+
+Migration `20261103060000_provider_operations.sql` adds provider bindings,
+retained callback sources/reports, business and provider-key uniqueness, finite
+probe scheduling and separate provider waits. Existing opaque effect outputs
+remain opaque; migration does not invent provider facts or new dispatch grants.
+Provider task markers and wait anchors require restarting all connection pools
+under the same stopped-writer procedure. The optional `--provider-config` enables
+recovery only for the authenticated installation it names. After a declared
+restore, use its quarantine policy before allowing workers to run.
+[Provider operation contract](provider-operations.md).
+
+Retained claims, reported results, assessments and acceptance receipts survive
+execution-history collection. This initial ledger has no automatic expiry.
+Include it in database capacity planning and backups. An unconfirmed effect
+keeps its execution-retention hold until confirmation or any verified assessment,
+including `close_unknown`. Assessment closes handling independently of journal
+confirmation. A typed terminal provider outcome also releases the provider-operation
+hold without creating a local journal. Later disagreement does not reopen the hold. Ordinary retention
+conditions still apply. Native wait and graph rows follow execution retention.
+[Retained evidence](effect-evidence.md) · [Operator audit](operator-audit.md).
+
+If migration times out, run `ledgence orchestrator migrate` again before
+starting workers. The server checks for unfinished evidence recovery at
+startup. If an earlier cleanup already started deleting an unresolved
+workflow, migration identifies the affected workflow and stops. Restore a
+backup from before retirement to recover that evidence. Previously deleted
+records cannot be reconstructed by migration.
+
+From the candidate’s development checkout, set `LEDGENCE_POSTGRES_URL` to a
+disposable PostgreSQL 18 server where the test can create and drop a database.
+Build the candidate CLI and Console assets first. Use a new evidence directory:
+
+```sh
+python3.13 tools/check-approval-upgrade.py \
+  --previous-bundle /path/to/extracted-0.7.0 \
+  --binaries target/debug --console-dist console/dist \
+  --evidence ./approval-effect-upgrade-evidence
+```
+
+The default candidate runner is the helper in this checkout. To test a bundled
+candidate instead, pass its `--candidate-runner`, CLI and Console paths.
+Supply `--psql /path/to/psql` if it is not on your PATH. The rehearsal checks
+unchanged historical decision bytes and absent historical attribution, verified
+acceptance for a pending approval, cancellation without resumption, and which
+callback actually ran. It also starts a new workflow from the unchanged old
+program package. Old and new Console responses are each checked against their
+own bundle's contract version.
+
 ## Upgrade from 0.6.1 to 0.7.0
 
 When upgrading from 0.6.1, stop the orchestrator, workers and any other writers. Back up the database and program store, then run `ledgence orchestrator migrate` against the installation database before starting the updated service. Migration `20261102000000_workflow_resolution_progress.sql` preserves partial child-program resolution progress across retries. Migration `20261102010000_approval_inbox.sql` backfills indexed metadata for existing approval requests. Allow maintenance time and storage for the backfill and indexes in proportion to retained approvals. Listing a page reads metadata ordered by deadline. The original request and decision remain the records used to inspect or settle an approval. [Inbox contract](workflow-approvals.md#approval-inbox).
@@ -48,8 +140,8 @@ The supplied deployment command is `ledgence orchestrator migrate`, which reads 
 
 Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
 
-The development checkout adds migration `20261102000000_workflow_resolution_progress.sql`
-for partial workflow program resolution. When upgrading from 0.6.1, stop the
+The 0.7.0 migration `20261102000000_workflow_resolution_progress.sql` preserves
+partial workflow program resolution. When upgrading from 0.6.1, stop the
 previous orchestrators, apply migrations and start the matching new binaries.
 Existing work items can run immediately with an empty resolution checkpoint.
 

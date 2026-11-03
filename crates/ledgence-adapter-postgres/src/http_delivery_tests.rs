@@ -467,6 +467,7 @@ async fn http_old_unconfirmed_failure_receipt_and_cleanup_leave_later_attempt_un
     let server = HttpServer::new(db.store.clone()).await;
     let (task, session, first) = acquire_first(server.client.as_ref()).await;
     let report = SettleCommand {
+        provider_probe_failure: None,
         owner: first.lease.owner.clone(),
         operation_id: "controlled_failed_attempt".into(),
         report: AttemptReport::Failed(ExecutionFailure {

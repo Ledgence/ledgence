@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: MIT
 import { useState, type ReactNode } from "react";
-import { NavLink, Link, useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 import {
   Activity,
   ArrowUpRight,
   BookOpen,
   Inbox,
+  ShieldCheck,
   FileText,
   Layers2,
+  LogOut,
+  ChevronDown,
   Monitor,
+  Moon,
+  Sun,
+  Cpu,
   PanelLeftClose,
   Server,
 } from "lucide-react";
+import { useAccess, signOut } from "../app/access-session";
 import { applyTheme, readTheme, type Theme } from "../app/theme";
-import { ShellHeaderTargetContext } from "../app/header-slot-context";
 import "../styles/shell.css";
 
 const sidebarStorageKey = "ledgence.console.sidebar-collapsed";
@@ -21,6 +27,7 @@ const sections = [
   { to: "/executions", title: "Executions", icon: Activity },
   { to: "/programs", title: "Programs", icon: Layers2 },
   { to: "/approvals", title: "Approvals", icon: Inbox },
+  { to: "/effects", title: "Effects", icon: ShieldCheck },
   { to: "/workers", title: "Workers", icon: Server },
 ];
 
@@ -32,17 +39,59 @@ function readSidebarCollapsed(): boolean {
   }
 }
 
+function AccountControls({
+  subject,
+  issuer,
+}: {
+  subject: string;
+  issuer: string;
+}) {
+  return (
+    <div className="shell-account">
+      <p className="shell-actor sidebar-label wrap" title={issuer}>
+        Signed in as <strong>{subject}</strong>
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          void signOut();
+        }}
+        aria-label="Sign out of this browser"
+        title="Sign out of this browser"
+        className="shell-signout"
+      >
+        <LogOut aria-hidden="true" />
+        <span className="sidebar-label">Sign out</span>
+      </button>
+    </div>
+  );
+}
+
 export function AppShell({
   instanceName,
+  serverVersion,
   children,
 }: {
   instanceName: string;
+  serverVersion?: string | undefined;
   children: ReactNode;
 }) {
-  const location = useLocation();
+  const { pathname } = useLocation();
+  const access = useAccess();
+  const identity =
+    access.phase === "ready" && access.access?.mode === "credentials"
+      ? access.access
+      : null;
+  const section = pathname.split("/")[1];
+  const activeSection =
+    section === "workflows"
+      ? "executions"
+      : section === "agents"
+        ? "programs"
+        : section;
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
-  const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
+  const ThemeIcon = { system: Monitor, light: Sun, dark: Moon }[theme];
   function changeTheme(value: string) {
     if (value !== "system" && value !== "light" && value !== "dark") return;
     setTheme(value);
@@ -58,7 +107,7 @@ export function AppShell({
     }
   }
   return (
-    <ShellHeaderTargetContext.Provider value={headerTarget}>
+    <>
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
@@ -75,7 +124,9 @@ export function AppShell({
                 aria-label="Ledgence Console home"
               >
                 <span className="brand-mark" aria-hidden="true" />
-                <span className="sidebar-label">ledgence</span>
+                <span className="brand-wordmark sidebar-label">
+                  ledgence<span className="brand-product">Console</span>
+                </span>
               </Link>
             )}
             {/* Keep this button mounted so keyboard focus survives either shape. */}
@@ -95,33 +146,34 @@ export function AppShell({
               )}
             </button>
           </div>
+          <div className="shell-workspace-id">
+            <span className="brand-mark" aria-hidden="true" />
+            <span title={instanceName}>{instanceName}</span>
+          </div>
           <nav
             id="console-navigation"
             className="navigation shell-navigation"
             aria-label="Main navigation"
           >
             {sections.map(({ to, title, icon: Icon }) => (
-              <NavLink
+              <Link
                 key={to}
                 to={to}
                 aria-label={title}
                 title={collapsed ? title : undefined}
-                className={({ isActive }) =>
-                  isActive ||
-                  (to === "/executions" &&
-                    location.pathname.startsWith("/workflows")) ||
-                  (to === "/programs" &&
-                    location.pathname.startsWith("/agents"))
-                    ? "active"
-                    : undefined
-                }
+                aria-current={to === `/${activeSection}` ? "page" : undefined}
               >
                 <Icon aria-hidden="true" />
                 <span className="sidebar-label">{title}</span>
-              </NavLink>
+              </Link>
             ))}
           </nav>
           <div className="sidebar-footer shell-sidebar-footer">
+            {identity && <AccountControls {...identity} />}
+
+            <span className="shell-caption sidebar-label" aria-hidden="true">
+              Resources
+            </span>
             <a
               href="https://docs.ledgence.com/"
               target="_blank"
@@ -141,25 +193,17 @@ export function AppShell({
               <FileText aria-hidden="true" />
               <span className="sidebar-label">Notices</span>
             </a>
-          </div>
-        </aside>
-        <div className="workspace console-workspace">
-          <header className="instance-header shell-header">
-            <div className="shell-header-leading">
-              <div className="instance-header-name">
-                <span
-                  className="brand-mark shell-mobile-mark"
-                  aria-hidden="true"
-                />
-                <Server className="shell-instance-icon" aria-hidden="true" />
-                <span title={instanceName}>{instanceName}</span>
-              </div>
-              <div className="shell-page-heading" ref={setHeaderTarget} />
-            </div>
-            <label className="theme-control">
-              <Monitor aria-hidden="true" />
-              <span className="sr-only">Appearance</span>
+            <label className="shell-theme" title={`Appearance: ${theme}`}>
+              <ThemeIcon aria-hidden="true" />
+              <span className="shell-theme-label" aria-hidden="true">
+                Appearance
+              </span>
+              <span className="shell-theme-value" aria-hidden="true">
+                {theme}
+              </span>
+              <ChevronDown className="shell-theme-chevron" aria-hidden="true" />
               <select
+                aria-label="Appearance"
                 value={theme}
                 onChange={(event) => changeTheme(event.target.value)}
               >
@@ -168,7 +212,19 @@ export function AppShell({
                 <option value="dark">Dark</option>
               </select>
             </label>
-          </header>
+            {serverVersion && (
+              <div
+                className="shell-version"
+                title={`Server version ${serverVersion}`}
+              >
+                <Cpu aria-hidden="true" />
+                <span className="sidebar-label">Server version</span>
+                <code className="sidebar-label">{serverVersion}</code>
+              </div>
+            )}
+          </div>
+        </aside>
+        <div className="workspace console-workspace">
           <main id="main-content" className="main-content" tabIndex={-1}>
             {children}
             <footer className="mobile-notices">
@@ -184,6 +240,6 @@ export function AppShell({
           </main>
         </div>
       </div>
-    </ShellHeaderTargetContext.Provider>
+    </>
   );
 }

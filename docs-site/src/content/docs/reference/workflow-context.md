@@ -230,3 +230,86 @@ Application JSON supports at most 64 nested containers, finite numbers, and stri
 **Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.7.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/subworkflows.md)
 
 **Additional contracts:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.7.0/sdk/python/ledgence/worker/workflow.py)
+
+**Development source only.** `ctx.request_effect_approval` accepts the same
+parameters as `request_approval` and records a protected execution contract.
+Its saved `ApprovalProtection.EXTERNAL_EFFECT` rejects `approved_local` before
+execution or cached replay. The backend enforces it for generic journal writes.
+[`ctx.approved_effect(dispatch, version=..., lookup=...)`](/how-to/require-approval#protect-an-approved-write-in-development)
+binds an external write to the approved action. Once the orchestrator commits
+the dispatch grant, later attempts can only look up a receipt or replay a saved
+result. Ledgence retains unresolved evidence independently. The execution
+retention hold ends when a callback confirms a receipt or an operator assessment
+closes handling; assessment does not confirm the journal. If no grant committed, a retry can still receive the first grant. Published 0.7.0
+provides `approved_local` and does not implement this dispatch protection.
+
+
+## Native effect resolution in development
+
+Matching authenticated development workers add
+`wait_effect_resolution(key, *, resume, state, occurrence=None, after_resolution_id=...)`.
+Return this decision after `EffectOutcomeUnknown` to checkpoint explicit state,
+drain owned calls and release the worker slot while an operator investigates.
+There is no timeout argument or process waiting for the external review. Existing
+cancellation stops a pending workflow without reviving it on later acceptance.
+
+`ctx.effect_occurrence` is the original typed occurrence from the approved protected-effect or
+resolution activation. Supply it explicitly when carrying it through a later
+entrypoint. The backend checks workflow/scope ownership. A logical native wait
+key is one-shot; retries recover the same wait, while intentional subsequent
+waits use a new key. Generic events have their own namespace and cannot resolve
+native waits, even when their text keys match.
+
+On resume, `ctx.effect_resolution` contains a frozen `EffectResolutionWake`.
+Its `.outcome.kind` is a member of `EffectResolutionOutcomeKind`:
+
+| Kind | Available value |
+| --- | --- |
+| `RECORDED_SUCCESS` | `.result`, including JSON null |
+| `RECORDED_FAILURE` | `.failure` with `kind` and `message` |
+| `CLOSED_UNKNOWN` | No selected success or failure |
+| `DISPUTED` | `.first_conflicting_entry_sequence` |
+
+Wrong-variant access raises `WorkflowError`. `.to_dict()` gives an independent
+copy of the complete wake. It carries the original occurrence, parking/resumed
+activation identities, selected assessment and effect revisions, and timestamps.
+Later evidence never rewrites that selected wake. If `after_resolution_id` is
+omitted on a resumed assessment for the same occurrence, it defaults to that
+assessment ID; a new wait requests a newer result. Explicit `None` permits
+selection of the current assessment.
+
+These are operator judgments, not provider truth or permission to dispatch again.
+An assessment does not confirm the execution journal. Applications decide how to
+continue from each typed outcome. The authenticated worker must negotiate
+`native_effect_resolution.v1`; unsupported deployments fail explicitly. Published
+0.7.0 does not include this capability.
+[Copyable worker example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python/README.md#native-operator-rendezvous-development)
+· [Investigate and resolve an effect](/how-to/inspect-effects).
+
+
+## Provider operations in development
+
+`Workflow(Entry, providers=[adapter])` freezes registered `ProviderAdapter`
+callbacks when built. Import provider types from `ledgence.worker.providers`.
+Matching runtime components negotiate `provider_operation.v1`, which also
+requires native effect resolution and evidence v2.
+
+| Method or property | Behavior |
+| --- | --- |
+| `request_provider_approval(key, *, provider, arguments, binding, resume, state, timeout_ms)` | Persist a registered provider intent for review. The backend adds the immutable controller descriptor. |
+| `approved_provider_operation()` | Return an owned awaitable for the approved registered operation. Every result is a `ProviderOperationTicket`. |
+| `wait_provider_operation(key, *, resume, state, ticket=None, occurrence=None, after_effect_revision=...)` | Checkpoint a wait for the original occurrence and release the worker. A resumed provider wait defaults to its selected revision. |
+| `provider_operation_result` | The immutable `ProviderOperationResult` selected for this resume, or `None`. |
+
+`ProviderSelectionKind` distinguishes provider success, failure, cancellation,
+operator assessment, disputed evidence and needs-review handling. Read `.result`
+only for provider success. `.selection` preserves the complete typed selection as
+an independent JSON copy. `.occurrence` and `.selected_effect_revision` identify
+its source evidence. `ticket.to_dict()` can be persisted in workflow state and
+restored with `ProviderOperationTicket.from_dict(...)`.
+
+A provider approval cannot execute through `approved_local` or `approved_effect`.
+Provider recovery uses its own retained reports and leaves the local journal
+unchanged. A reference to another workflow's operation does not transfer wait
+ownership. Probe callbacks receive no workflow context.
+[Recover provider operations](/how-to/recover-provider-operations).

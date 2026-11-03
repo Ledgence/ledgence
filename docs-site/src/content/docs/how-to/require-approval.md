@@ -119,3 +119,46 @@ Approval, rejection, and expiry resume one logical activation. Cancellation clos
 `approved_local` accepts no replacement arguments. It checks the saved callable identity and version, uses a private copy of the approved arguments, and reuses an acknowledged local result on activation retry. The callable remains operator-trusted Python code. An external effect can succeed **before** its local result commits; use the external service's idempotency mechanism or reconcile that gap. Durable approval does not guarantee exactly-once external effects.
 
 For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflow-approvals.md).
+
+## Protect an approved write in development
+
+Use `ctx.request_effect_approval` with the same parameters as
+`request_approval` to declare the execution contract before reviewing the
+action.
+
+```python
+return ctx.request_effect_approval(
+    "refund", action=action, resume=Entry.APPLY, state=None,
+    timeout_ms=86_400_000,
+)
+```
+
+The saved request carries `protection: "external_effect"`. The client echoes it
+when preparing the decision. `approved_local` rejects this occurrence before
+calling the function, even with a cached result. The backend rejects an ordinary
+journal commit for the same occurrence. Existing untagged requests retain their
+behavior. Use matching development clients and Console to review typed requests.
+
+Suppose a payment provider accepts a refund just before the worker dies. A
+retry of `approved_local` could send it again. In development builds,
+`await ctx.approved_effect(issue_refund, version="1", lookup=find_refund)`
+asks the orchestrator for permission before making a write. Only one claim
+can permit the send. If no grant committed before the original attempt died,
+a retry can still get that first grant. After the grant commits, recovery uses
+`find_refund` with the exact approved arguments; a saved receipt replays
+without either function running. If the refund remains uncertain, Ledgence
+keeps its workflow evidence even after cancellation and past the normal
+retention period. When a callback confirms the receipt, Ledgence saves the
+result and lifts that hold together.
+
+Keep `find_refund` read-only. Both callbacks should validate that the receipt
+matches the approved action. If the outcome is uncertain, raise
+`EffectOutcomeUnknown` and have the workflow stop or wait for investigation.
+A lost grant may mean no refund was sent; a missing receipt is not permission
+to try again. Disable automatic write retries inside the provider client and
+keep the same protected helper on every attempt. Trusted application code
+remains responsible for its own direct provider calls.
+
+This method requires an offline migration and matching development components.
+The [source contract and example](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
+explain the upgrade and the limits. It is not in 0.7.0.

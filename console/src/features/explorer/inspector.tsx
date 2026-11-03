@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { ArrowUpRight } from "lucide-react";
 import { executionPath, type ExplorerNode } from "../../api/explorer";
+import { effectDetailPath } from "../../api/effects";
 import {
   Field,
   Fields,
@@ -217,6 +218,83 @@ export function NodeInspector({
               were not recorded.
             </p>
           )}
+        </>
+      )}
+      {node.kind === "provider_wait" && (
+        <>
+          <p>
+            {node.selection_kind
+              ? `Selected ${node.selection_kind.replaceAll("_", " ")}. A continuation was scheduled from retained evidence; this does not prove the resumed code has run.`
+              : node.closed_at !== null
+                ? "This provider wait closed without scheduling a continuation. Closure does not establish an external outcome."
+                : "Waiting durably for a provider outcome. No worker process is held by this wait; ordinary workflow events cannot resolve it."}
+          </p>
+          <Fields>
+            <Field label="Effect origin activation">
+              {node.occurrence.activation_id}
+            </Field>
+            <Field label="Approval key">{node.occurrence.approval_key}</Field>
+            <Field label="After effect revision">
+              {node.after_effect_revision ?? "First outcome"}
+            </Field>
+            <Field label="Selected effect revision">
+              {node.selected_effect_revision ?? "Not selected"}
+            </Field>
+          </Fields>
+          <Link
+            to={effectDetailPath(node.occurrence)}
+            state={{
+              returnTo: `${location.pathname}${location.search}`,
+              returnNavigationKey: location.key,
+              restoreNavigationKey: location.key,
+            }}
+          >
+            Inspect provider evidence
+          </Link>
+        </>
+      )}
+      {node.kind === "native_effect_wait" && (
+        <>
+          <p>
+            {node.outcome_kind
+              ? `Recorded operator resolution: ${node.outcome_kind.replaceAll("_", " ")}. A resume was scheduled; this does not confirm provider execution.`
+              : node.closed_at !== null
+                ? "This recovery wait closed without a resume. Closure does not establish an effect outcome."
+                : "Waiting for a recorded operator resolution. Ordinary workflow events cannot resolve this wait."}
+          </p>
+          <Fields>
+            <Field label="Effect origin activation">
+              {node.occurrence.activation_id}
+            </Field>
+            <Field label="Approval key">{node.occurrence.approval_key}</Field>
+            <Field label="After resolution">
+              {node.after_resolution_id ?? "First resolution"}
+            </Field>
+            <Field label="Selected resolution">
+              {node.resolution_id ?? "Not selected"}
+            </Field>
+          </Fields>
+          <Link
+            to={effectDetailPath(node.occurrence)}
+            state={{
+              returnTo: `${location.pathname}${location.search}`,
+              returnNavigationKey: location.key,
+              restoreNavigationKey: location.key,
+            }}
+          >
+            Inspect effect and operator resolution
+          </Link>
+          <p>
+            <Link
+              to={`${executionPath("task", node.occurrence.activation_id)}?tab=Attempts`}
+              state={{
+                returnTo: `${location.pathname}${location.search}`,
+                restoreNavigationKey: location.key,
+              }}
+            >
+              Inspect original effect activation
+            </Link>
+          </p>
         </>
       )}
       <details className="explorer-relationships">

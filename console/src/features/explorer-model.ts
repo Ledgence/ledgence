@@ -35,6 +35,10 @@ export function nodeLabel(node: ExplorerNode): string {
       return `Join · ${node.resume}`;
     case "external_wait":
       return `${node.wait_kind === "event" ? "Event" : node.wait_kind === "approval" ? "Approval" : "Timer"} · ${node.key}`;
+    case "provider_wait":
+      return `Provider · ${node.key}`;
+    case "native_effect_wait":
+      return `Recovery · ${node.key}`;
   }
 }
 export function nodeStatus(node: ExplorerNode): string {
@@ -59,6 +63,18 @@ export function nodeStatus(node: ExplorerNode): string {
         : node.closed_at !== null
           ? "closed · reason unavailable"
           : "waiting";
+    case "provider_wait":
+      return node.selection_kind
+        ? `${node.selection_kind.replaceAll("_", " ")} · resume scheduled`
+        : node.closed_at !== null
+          ? "closed without resume"
+          : "awaiting provider outcome";
+    case "native_effect_wait":
+      return node.outcome_kind
+        ? `${node.outcome_kind.replaceAll("_", " ")} · resume scheduled`
+        : node.closed_at !== null
+          ? "closed without resume"
+          : "awaiting operator resolution";
   }
 }
 export function nodeType(node: ExplorerNode): string {
@@ -74,11 +90,17 @@ export function nodeType(node: ExplorerNode): string {
           ? "Fork"
           : node.kind === "child_wait"
             ? "Join"
-            : "External wait";
+            : node.kind === "provider_wait"
+              ? "Provider operation"
+              : node.kind === "native_effect_wait"
+                ? "Effect recovery"
+                : "External wait";
 }
 
 // These keys only resolve explicit typed references; they never establish edges.
-export function referenceIdentity(reference: ExplorerReference): string {
+export function referenceIdentity(
+  reference: ExplorerReference | ExplorerNode,
+): string {
   switch (reference.kind) {
     case "entrypoint":
     case "child_wait":
@@ -93,6 +115,14 @@ export function referenceIdentity(reference: ExplorerReference): string {
     case "fork":
     case "external_wait":
       return JSON.stringify([reference.kind, reference.key]);
+    case "provider_wait":
+    case "native_effect_wait":
+      return JSON.stringify([
+        reference.kind,
+        "parking_activation_id" in reference
+          ? reference.parking_activation_id
+          : reference.activation_id,
+      ]);
   }
 }
 export function referenceLabel(reference: ExplorerReference): string {
@@ -109,6 +139,10 @@ export function referenceLabel(reference: ExplorerReference): string {
       return `Fork · ${reference.key}`;
     case "external_wait":
       return `External wait · ${reference.key}`;
+    case "provider_wait":
+      return `Provider operation · ${reference.parking_activation_id}`;
+    case "native_effect_wait":
+      return `Effect recovery · ${reference.parking_activation_id}`;
   }
 }
 const relationLabels: Record<ExplorerRelation["kind"], string> = {
@@ -267,6 +301,8 @@ export function nodeTiming(node: ExplorerNode): NodeTiming {
         milestone: true,
       };
     case "external_wait":
+    case "provider_wait":
+    case "native_effect_wait":
       return {
         start: node.registered_at,
         end: node.closed_at,
@@ -294,11 +330,11 @@ export function timelineBounds(
   observedAt: number,
   workflowActive = true,
 ) {
-  if (!rows.length) return { start: observedAt, end: observedAt + 1 };
+  if (!rows.length) return { start: observedAt, end: observedAt };
   const start = Math.min(...rows.map((row) => row.timing.start));
   // An observation made after completion must not stretch a completed run.
   const end = Math.max(
-    start + 1,
+    start,
     ...rows.map(
       (row) =>
         row.timing.end ??

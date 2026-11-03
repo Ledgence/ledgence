@@ -15,6 +15,71 @@ pub struct ToolDefinition {
 pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     let mut tools = vec![
         tool(
+            "ledgence_audit_query",
+            "Read payload-free operator audit events in the configured scope. Requires metadata_read and audited credential mode. Filter by one resource or exact approval occurrence. For event or approval_acceptance use limit 2 and no cursor. A successful empty exact result means no verified actor was recorded; an error does not establish absence. Actor attribution identifies the credential holder, including shared services. Pagination is not a cross-request snapshot.",
+            object(
+                json!({"filter": audit_filter(), "cursor": cursor(), "limit": limit()}),
+                &[],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_effect_inbox",
+            "Read retained approved-effect metadata in the configured scope, most recently updated first. Requires metadata_read. Keep filters unchanged when following next_cursor; a short page can have a cursor due to the byte limit. Reports and discrepancies do not establish provider truth or authorize another dispatch.",
+            object(
+                json!({"filter":{"type":"string","enum":["all","unconfirmed","confirmed","discrepant","disputed"],"default":"all"},
+                    "provider_filter":{"type":"string","enum":["all","pending","needs_review","succeeded","failed","cancelled","disputed"],"description":"Provider operations only; requires filter=all. Knowledge is adapter-classified; needs_review does not authorize redispatch."},
+                    "workflow_id":identifier(),"cursor":effect_cursor(),"limit":limit()}),
+                &[],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_effect_inspect",
+            "Read the frozen approval binding and whole retained claim/observation entries for an exact effect occurrence. Requires credential mode and sensitive_read; the server durably audits the read before returning evidence. Follow next_cursor with the same identity even on a short page. Worker reports are attributed evidence, not independent verification of an external effect. This tool cannot resolve or redispatch effects.",
+            object(
+                json!({"workflow_id":identifier(),"activation_id":identifier(),"approval_key":identifier(),
+                    "cursor":effect_cursor(),"limit":{"type":"integer","minimum":1,"maximum":4,"default":4}}),
+                &["workflow_id", "activation_id", "approval_key"],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_effect_resolve",
+            "Append an authenticated operator assessment of one exact approved effect. Requires process opt-in and effect_resolve. Supply the frozen reviewed action, revision, previous assessment, reason and ordered evidence references. Replay an uncertain request only with exactly the same command and stable actor. Acceptance does not assert provider truth, confirm the journal, redispatch work or prove workflow resumption. Revision strings preserve all u64 digits.",
+            object(
+                json!({"workflow_id":identifier(),"activation_id":identifier(),"approval_key":identifier(),
+                    "resolution_id":identifier(),"expected_effect_revision":{"type":"string","pattern":"^[1-9][0-9]{0,19}$","description":"Canonical decimal u64 less than 18446744073709551615; use the inspected effect_revision unchanged."},
+                    "supersedes_resolution_id":{"anyOf":[identifier(),{"type":"null"}]},
+                    "action":object(json!({"name":{"type":"string","minLength":1,"maxLength":512},"version":identifier(),"arguments":{}}), &["name","version","arguments"]),
+                    "assessment":{"oneOf":[
+                        object(json!({"kind":{"const":"record_success"},"result":{}}), &["kind","result"]),
+                        object(json!({"kind":{"const":"record_failure"},"failure":object(json!({"kind":identifier(),"message":{"type":"string","maxLength":4096}}), &["kind","message"])}), &["kind","failure"]),
+                        object(json!({"kind":{"const":"close_unknown"}}), &["kind"])
+                    ]},
+                    "reason":{"type":"string","minLength":1,"maxLength":4096,"description":"Nonblank, at most 4096 UTF-8 bytes; retained exactly."},
+                    "evidence_references":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":1024},"description":"Ordered references, at most 1024 UTF-8 bytes each. Success/failure requires at least one; close_unknown may use none."}
+                }),
+                &[
+                    "workflow_id",
+                    "activation_id",
+                    "approval_key",
+                    "resolution_id",
+                    "expected_effect_revision",
+                    "supersedes_resolution_id",
+                    "action",
+                    "assessment",
+                    "reason",
+                    "evidence_references",
+                ],
+            ),
+            false,
+            true,
+        ),
+        tool(
             "ledgence_program_list",
             "List registered programs in the configured installation. Kind is display metadata, not an execution permission. Follow next_cursor with the same filters.",
             object(
@@ -162,6 +227,20 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     tools
 }
 
+fn audit_filter() -> Value {
+    json!({"oneOf": [
+        object(json!({"kind":{"const":"event"},"event_id":identifier()}), &["kind","event_id"]),
+        object(json!({"kind":{"const":"all"}}), &["kind"]),
+        object(json!({"kind":{"const":"resource"},
+            "resource_kind":{"enum":["task","workflow"]}, "resource_id":identifier()}),
+            &["kind","resource_kind","resource_id"]),
+        object(json!({"kind":{"const":"approval_acceptance"},
+            "workflow_id":identifier(), "key":identifier(), "activation_id":identifier(),
+            "revision":{"type":"integer","minimum":0,"maximum":u64::MAX}, "decision_id":identifier()}),
+            &["kind","workflow_id","key","activation_id","revision","decision_id"])
+    ]})
+}
+
 fn tool(
     name: &'static str,
     description: &'static str,
@@ -186,6 +265,10 @@ fn limit() -> Value {
 }
 fn cursor() -> Value {
     json!({"type":"string","minLength":1,"description":"Opaque next_cursor from the previous response; do not construct or modify."})
+}
+fn effect_cursor() -> Value {
+    json!({"type":"string","minLength":2,"maxLength":8192,"pattern":"^(?:[0-9a-f]{2})+$",
+        "description":"Opaque next_cursor from the previous effect response; preserve it unchanged."})
 }
 fn object(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
@@ -235,7 +318,7 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 20);
         assert!(
             all.iter()
                 .all(|tool| tool.input_schema["additionalProperties"] == false)

@@ -70,20 +70,21 @@ pub(super) async fn child(
 
 pub(super) async fn local(
     connection: &mut PgConnection,
-    command: &LocalResultCommand,
+    owner: &LeaseOwner,
+    record: &LocalStepRecord,
     now: u64,
 ) -> StoreResult<()> {
     let data = ConsoleExplorerData::Local {
-        key: command.record.key.clone(),
-        callable: command.record.callable.clone(),
+        key: record.key.clone(),
+        callable: record.callable.clone(),
         accepted_at: Some(now),
-        accepting_attempt_id: Some(command.owner.attempt_id.clone()),
+        accepting_attempt_id: Some(owner.attempt_id.clone()),
         observation: None,
     };
     // Only metadata identifiers and timestamps enter this JSON merge. Application
     // input/output remain exclusively in the accepted-result journal.
     sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT workflow_id,revision,'local',$2,activation_id,entrypoint,$3 FROM workflow_explorer_records WHERE activation_id=$1 AND kind='entrypoint' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=convert_to((convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb || jsonb_build_object('observation',CASE WHEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable'=convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable' THEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->'observation' ELSE NULL END))::text,'UTF8')")
-        .bind(&command.owner.task_id).bind(&command.record.key).bind(codec::encode(&data)?).execute(connection).await?;
+        .bind(&owner.task_id).bind(&record.key).bind(codec::encode(&data)?).execute(connection).await?;
     Ok(())
 }
 
@@ -177,7 +178,12 @@ pub(super) async fn resumed(
                 resumed_activation_id,
                 ..
             } => {
-                let Some(wake) = wake.filter(|wake| wake.key() == key) else {
+                let Some(wake) = wake.filter(|wake| {
+                    !matches!(
+                        wake,
+                        WorkflowWake::EffectResolution(_) | WorkflowWake::ProviderOperation(_)
+                    ) && wake.key() == key
+                }) else {
                     continue;
                 };
                 *closed_at = Some(now);
@@ -192,6 +198,9 @@ pub(super) async fn resumed(
                         ApprovalStatus::Expired => ConsoleWakeReason::Expired,
                         _ => return Err(corrupt("approval wake status").into()),
                     },
+                    WorkflowWake::EffectResolution(_) | WorkflowWake::ProviderOperation(_) => {
+                        unreachable!("native wakes have a distinct namespace")
+                    }
                 });
             }
             _ => continue,
@@ -199,6 +208,155 @@ pub(super) async fn resumed(
         data.validate()?;
         sqlx::query("UPDATE workflow_explorer_records SET metadata_bytes=$3 WHERE activation_id=$1 AND kind=$2 AND record_key=$4")
             .bind(activation).bind(row.try_get::<String, _>("kind")?).bind(codec::encode(&data)?).bind(row.try_get::<String, _>("record_key")?).execute(&mut *connection).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn native_wait(
+    connection: &mut PgConnection,
+    activation: &str,
+    wait: &WorkflowWait,
+    now: u64,
+) -> StoreResult<()> {
+    let WorkflowWait::EffectResolution {
+        key,
+        occurrence,
+        after_resolution_id,
+    } = wait
+    else {
+        return Err(corrupt("native explorer wait kind").into());
+    };
+    insert(
+        connection,
+        activation,
+        &ConsoleExplorerData::NativeEffectWait {
+            key: key.clone(),
+            occurrence: occurrence.clone(),
+            after_resolution_id: after_resolution_id.clone(),
+            registered_at: now,
+            closed_at: None,
+            resolution_id: None,
+            outcome_kind: None,
+            resumed_activation_id: None,
+        },
+    )
+    .await
+}
+
+pub(super) async fn native_closed(
+    connection: &mut PgConnection,
+    activation: &str,
+    wake: Option<&EffectResolutionWake>,
+    now: u64,
+) -> StoreResult<()> {
+    let bytes: Vec<u8> = sqlx::query_scalar("SELECT metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind='native_effect_wait'")
+        .bind(activation).fetch_one(&mut *connection).await?;
+    let mut data: ConsoleExplorerData = codec::decode(&bytes)?;
+    let ConsoleExplorerData::NativeEffectWait {
+        key,
+        occurrence,
+        closed_at,
+        resolution_id,
+        outcome_kind,
+        resumed_activation_id,
+        ..
+    } = &mut data
+    else {
+        return Err(corrupt("native explorer wait kind").into());
+    };
+    if let Some(wake) = wake {
+        wake.validate()?;
+        if wake.parking_activation_id != activation
+            || wake.key != *key
+            || wake.occurrence != *occurrence
+        {
+            return Err(corrupt("native explorer wake identity").into());
+        }
+        *resolution_id = Some(wake.resolution_id.clone());
+        *resumed_activation_id = Some(wake.resumed_activation_id.clone());
+        *outcome_kind = Some(match &wake.outcome {
+            EffectResolutionOutcome::RecordedSuccess { .. } => {
+                ConsoleEffectOutcomeKind::RecordedSuccess
+            }
+            EffectResolutionOutcome::RecordedFailure { .. } => {
+                ConsoleEffectOutcomeKind::RecordedFailure
+            }
+            EffectResolutionOutcome::ClosedUnknown => ConsoleEffectOutcomeKind::ClosedUnknown,
+            EffectResolutionOutcome::Disputed { .. } => ConsoleEffectOutcomeKind::Disputed,
+        });
+    }
+    *closed_at = Some(now);
+    data.validate()?;
+    let valid: Option<bool> = sqlx::query_scalar("UPDATE workflow_explorer_records SET metadata_bytes=$2 WHERE activation_id=$1 AND kind='native_effect_wait' RETURNING activation_id=$1 AND kind='native_effect_wait' AND metadata_bytes=$2")
+        .bind(activation).bind(codec::encode(&data)?).fetch_optional(connection).await?;
+    if valid != Some(true) {
+        return Err(corrupt("native explorer wait closure suppressed or changed").into());
+    }
+    Ok(())
+}
+
+pub(super) async fn provider_wait(
+    connection: &mut PgConnection,
+    activation: &str,
+    wait: &ProviderWait,
+    now: u64,
+) -> StoreResult<()> {
+    wait.validate()?;
+    insert(
+        connection,
+        activation,
+        &ConsoleExplorerData::ProviderWait {
+            key: wait.key.clone(),
+            occurrence: wait.occurrence.clone(),
+            after_effect_revision: wait.after_effect_revision.map(ConsoleU64),
+            registered_at: now,
+            closed_at: None,
+            selected_effect_revision: None,
+            selection_kind: None,
+            resumed_activation_id: None,
+        },
+    )
+    .await
+}
+pub(super) async fn provider_closed(
+    connection: &mut PgConnection,
+    activation: &str,
+    wake: Option<&ProviderWake>,
+    now: u64,
+) -> StoreResult<()> {
+    let bytes:Vec<u8>=sqlx::query_scalar("SELECT metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind='provider_wait'")
+        .bind(activation).fetch_one(&mut *connection).await?;
+    let mut data: ConsoleExplorerData = codec::decode(&bytes)?;
+    let ConsoleExplorerData::ProviderWait {
+        key,
+        occurrence,
+        closed_at,
+        selected_effect_revision,
+        selection_kind,
+        resumed_activation_id,
+        ..
+    } = &mut data
+    else {
+        return Err(corrupt("provider explorer wait kind").into());
+    };
+    if let Some(wake) = wake {
+        wake.validate()?;
+        if wake.parking_activation_id != activation
+            || wake.key != *key
+            || wake.occurrence != *occurrence
+        {
+            return Err(corrupt("provider explorer wake identity").into());
+        }
+        *selected_effect_revision = Some(ConsoleU64(wake.selected_effect_revision));
+        *selection_kind = Some((&wake.selection).into());
+        *resumed_activation_id = Some(wake.resumed_activation_id.clone());
+    }
+    *closed_at = Some(now);
+    data.validate()?;
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_explorer_records SET metadata_bytes=$2 WHERE activation_id=$1 AND kind='provider_wait' RETURNING activation_id=$1 AND kind='provider_wait' AND metadata_bytes=$2")
+        .bind(activation).bind(codec::encode(&data)?).fetch_optional(connection).await?;
+    if valid != Some(true) {
+        return Err(corrupt("provider explorer wait closure suppressed or changed").into());
     }
     Ok(())
 }

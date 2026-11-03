@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
+import { providerBinding, type ProviderBinding } from "./providers";
 import { ContractError } from "./codecs";
 import { stringifyUserJson } from "./json";
 
@@ -47,20 +48,48 @@ export const approvalStatuses = [
 ] as const;
 export type ApprovalStatus = (typeof approvalStatuses)[number];
 const approvalStatus = s.enumeration(...approvalStatuses);
-export const approval = s.refine(
+const approvalShape = {
+  workflow_id: identifier,
+  key: identifier,
+  activation_id: identifier,
+  revision: s.decimal,
+  action: approvalAction,
+  proposed_arguments: s.nullable(argumentsObject),
+  created_at: s.timestamp,
+  deadline: s.timestamp,
+  status: approvalStatus,
+  decision: s.nullable(decision),
+  resumed_activation_id: s.nullable(identifier),
+};
+const legacyApproval = s.object(approvalShape);
+const protectedApproval = s.object({
+  ...approvalShape,
+  protection: s.enumeration("external_effect"),
+});
+const providerApproval = s.refine(
   s.object({
-    workflow_id: identifier,
-    key: identifier,
-    activation_id: identifier,
-    revision: s.decimal,
-    action: approvalAction,
-    proposed_arguments: s.nullable(argumentsObject),
-    created_at: s.timestamp,
-    deadline: s.timestamp,
-    status: approvalStatus,
-    decision: s.nullable(decision),
-    resumed_activation_id: s.nullable(identifier),
+    ...approvalShape,
+    protection: s.enumeration("provider_operation"),
+    provider_binding: providerBinding,
   }),
+  (value) =>
+    value.action.name === value.provider_binding.contract.dispatch_callable &&
+    value.action.version === value.provider_binding.contract.version,
+  "Provider action differs from its binding.",
+);
+export type ApprovalProtection = "external_effect" | "provider_operation";
+function decodeApproval(value: unknown): s.Decoded<typeof legacyApproval> & {
+  protection?: ApprovalProtection;
+  provider_binding?: ProviderBinding;
+} {
+  if (s.isJsonObject(value) && value.protection === "provider_operation")
+    return providerApproval(value);
+  return s.isJsonObject(value) && Object.hasOwn(value, "protection")
+    ? protectedApproval(value)
+    : legacyApproval(value);
+}
+export const approval = s.refine(
+  decodeApproval,
   (value) =>
     bytes(value) <= 96 * 1024 &&
     (value.status === "approved"
@@ -183,11 +212,44 @@ export type ApprovalDecision = {
   activation_id: string;
   revision: string;
   action: Approval["action"];
+  protection?: ApprovalProtection;
+  provider_binding?: ProviderBinding;
   decision_id: string;
   decision: "approve" | "reject";
   reviewer: string;
   reason: string | null;
 };
+
+// Used only to restore an exact in-memory command after same-actor reauthentication.
+export function decodeApprovalDecision(value: unknown): ApprovalDecision {
+  const protectedValue =
+    value && typeof value === "object" && "protection" in value;
+  const providerValue =
+    s.isJsonObject(value) && value.protection === "provider_operation";
+  const result = s.object({
+    workflow_id: identifier,
+    key: identifier,
+    activation_id: identifier,
+    revision: s.decimal,
+    action: approvalAction,
+    decision_id: identifier,
+    decision: s.enumeration("approve", "reject"),
+    reviewer: identifier,
+    reason: s.nullable(s.string),
+    ...(protectedValue
+      ? { protection: s.enumeration("external_effect", "provider_operation") }
+      : {}),
+    ...(providerValue ? { provider_binding: providerBinding } : {}),
+  })(value);
+  if (
+    result.provider_binding &&
+    (result.action.name !==
+      result.provider_binding.contract.dispatch_callable ||
+      result.action.version !== result.provider_binding.contract.version)
+  )
+    throw new ContractError("Provider action differs from its binding.");
+  return result;
+}
 
 // JSON property order is not part of an action's identity. Number tokens are.
 function canonical(value: unknown): unknown {
@@ -218,6 +280,11 @@ export function decisionReceipt(expected: ApprovalDecision) {
       current.key !== expected.key ||
       current.activation_id !== expected.activation_id ||
       current.revision !== expected.revision ||
+      current.protection !== expected.protection ||
+      !sameAction(
+        current.provider_binding ?? null,
+        expected.provider_binding ?? null,
+      ) ||
       !sameAction(current.action, expected.action) ||
       current.decision?.decision_id !== expected.decision_id ||
       current.decision.decision !== expected.decision ||

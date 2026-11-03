@@ -8,7 +8,7 @@ fn scope() -> Scope {
     }
 }
 fn fixture() -> Value {
-    serde_json::from_str(include_str!("fixtures/execution-discovery-v1.json")).unwrap()
+    serde_json::from_str(include_str!("fixtures/execution-discovery-v2.json")).unwrap()
 }
 
 #[test]

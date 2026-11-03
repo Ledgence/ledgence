@@ -29,6 +29,23 @@ impl ApprovalAction {
     }
 }
 
+/// Execution contract selected before an action is reviewed. Omission preserves
+/// generic approvals created by earlier versions.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalProtection {
+    #[default]
+    #[serde(skip)]
+    Unspecified,
+    ExternalEffect,
+    ProviderOperation,
+}
+impl ApprovalProtection {
+    pub fn is_unspecified(&self) -> bool {
+        *self == Self::Unspecified
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalStatus {
@@ -72,6 +89,14 @@ pub struct ApprovalSnapshot {
     pub activation_id: String,
     pub revision: u64,
     pub action: ApprovalAction,
+    #[serde(default, skip_serializing_if = "ApprovalProtection::is_unspecified")]
+    pub protection: ApprovalProtection,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_binding: Option<ProviderBinding>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub proposed_arguments: Option<Value>,
     pub created_at: Timestamp,
@@ -89,6 +114,11 @@ impl ApprovalSnapshot {
             validate_text(id, 128)?;
         }
         self.action.validate()?;
+        validate_provider_approval(
+            self.protection,
+            self.provider_binding.as_ref(),
+            &self.action,
+        )?;
         if let Some(value) = &self.proposed_arguments {
             validate_approval_proposed_arguments(value)?;
         }
@@ -136,6 +166,8 @@ impl ApprovalSnapshot {
             && self.key == command.key
             && self.activation_id == command.activation_id
             && self.revision == command.revision
+            && self.protection == command.protection
+            && self.provider_binding == command.provider_binding
             && self.action.matches(&command.action)?)
     }
 }
@@ -149,6 +181,14 @@ pub struct ApprovalDecisionCommand {
     pub activation_id: String,
     pub revision: u64,
     pub action: ApprovalAction,
+    #[serde(default, skip_serializing_if = "ApprovalProtection::is_unspecified")]
+    pub protection: ApprovalProtection,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_binding: Option<ProviderBinding>,
     pub decision_id: String,
     pub decision: ApprovalDecision,
     pub reviewer: String,
@@ -162,6 +202,11 @@ impl ApprovalDecisionCommand {
             validate_text(id, 128)?;
         }
         self.action.validate()?;
+        validate_provider_approval(
+            self.protection,
+            self.provider_binding.as_ref(),
+            &self.action,
+        )?;
         decision_fields(&self.decision_id, &self.reviewer, self.reason.as_deref())?;
         bounded(
             self,
@@ -286,6 +331,20 @@ fn invalid(message: &str) -> ContractError {
     ContractError::InvalidInput(message.into())
 }
 
+fn validate_provider_approval(
+    protection: ApprovalProtection,
+    binding: Option<&ProviderBinding>,
+    action: &ApprovalAction,
+) -> Result<()> {
+    match (protection, binding) {
+        (ApprovalProtection::ProviderOperation, Some(binding)) => binding.validate_action(action),
+        (ApprovalProtection::ProviderOperation, None) | (_, Some(_)) => Err(invalid(
+            "provider binding does not match approval protection",
+        )),
+        (_, None) => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +358,7 @@ mod tests {
     }
     fn snapshot() -> ApprovalSnapshot {
         ApprovalSnapshot {
+            provider_binding: None,
             scope: Scope {
                 tenant_id: "t".into(),
                 namespace: "n".into(),
@@ -308,6 +368,7 @@ mod tests {
             activation_id: "task_1".into(),
             revision: u64::MAX - 1,
             action: action(),
+            protection: ApprovalProtection::Unspecified,
             proposed_arguments: Some(json!({"count":3})),
             created_at: 1,
             deadline: 10,
@@ -353,8 +414,10 @@ mod tests {
         approval.deadline = approval.created_at + WORKFLOW_MAX_DELAY_MS + 1;
         assert!(approval.validate().is_err());
         let wait = WorkflowWait::Approval {
+            provider_binding: None,
             key: "send".into(),
             action: action(),
+            protection: ApprovalProtection::Unspecified,
             proposed_arguments: None,
             timeout_ms: 0,
         };
@@ -431,5 +494,79 @@ mod tests {
         for proposal in [json!([]), json!(1), json!("raw")] {
             assert!(validate_approval_proposed_arguments(&proposal).is_err());
         }
+    }
+    fn generic_command() -> ApprovalDecisionCommand {
+        ApprovalDecisionCommand {
+            provider_binding: None,
+            scope: snapshot().scope,
+            workflow_id: "wf_1".into(),
+            key: "send".into(),
+            activation_id: "task_1".into(),
+            revision: u64::MAX - 1,
+            action: action(),
+            protection: ApprovalProtection::Unspecified,
+            decision_id: "decision_1".into(),
+            decision: ApprovalDecision::Approve,
+            reviewer: "operator".into(),
+            reason: None,
+        }
+    }
+
+    fn protection_wire<T: Serialize + serde::de::DeserializeOwned>(legacy: T) {
+        let plain = serde_json::to_value(legacy).unwrap();
+        assert!(plain.get("protection").is_none());
+        let decoded: T = serde_json::from_value(plain.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), plain);
+
+        let mut protected = plain.clone();
+        protected["protection"] = json!("external_effect");
+        let decoded: T = serde_json::from_value(protected.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), protected);
+        for invalid in [
+            json!(null),
+            json!("unspecified"),
+            json!("local"),
+            json!(false),
+            json!({}),
+        ] {
+            let mut changed = plain.clone();
+            changed["protection"] = invalid;
+            assert!(serde_json::from_value::<T>(changed).is_err());
+        }
+    }
+
+    #[test]
+    fn approval_protection_is_opt_in_and_strict_across_requests_observations_and_decisions() {
+        protection_wire(snapshot());
+        protection_wire(generic_command());
+        protection_wire(WorkflowWait::Approval {
+            provider_binding: None,
+            key: "send".into(),
+            action: action(),
+            protection: ApprovalProtection::Unspecified,
+            proposed_arguments: None,
+            timeout_ms: 10,
+        });
+    }
+
+    #[test]
+    fn approval_decisions_cannot_downgrade_or_invent_the_requested_execution_protection() {
+        let mut approval = snapshot();
+        let mut command = generic_command();
+        assert!(approval.matches(&command).unwrap());
+        approval.protection = ApprovalProtection::ExternalEffect;
+        assert!(!approval.matches(&command).unwrap());
+        command.protection = ApprovalProtection::ExternalEffect;
+        assert!(approval.matches(&command).unwrap());
+        approval.protection = ApprovalProtection::Unspecified;
+        assert!(!approval.matches(&command).unwrap());
+    }
+
+    #[test]
+    fn a_legacy_decision_preserves_its_exact_persisted_bytes() {
+        let legacy = br#"{"scope":{"tenant_id":"t","namespace":"n"},"workflow_id":"wf","key":"send","activation_id":"task","revision":0,"action":{"name":"app:send","version":"1","arguments":{"count":1}},"decision_id":"d","decision":"approve","reviewer":"operator","reason":null}"#;
+        let command: ApprovalDecisionCommand = serde_json::from_slice(legacy).unwrap();
+        assert_eq!(command.protection, ApprovalProtection::Unspecified);
+        assert_eq!(serde_json::to_vec(&command).unwrap(), legacy);
     }
 }

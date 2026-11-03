@@ -49,6 +49,8 @@ enum ReplyMode {
 }
 struct Handler {
     mode: ReplyMode,
+    evidence_v2: bool,
+    features: ledgence_worker_api::RuntimeFeatures,
     calls: AtomicUsize,
     dropped: Arc<AtomicUsize>,
 }
@@ -56,6 +58,8 @@ impl Handler {
     fn new(mode: ReplyMode) -> Arc<Self> {
         Arc::new(Self {
             mode,
+            evidence_v2: false,
+            features: ledgence_worker_api::RuntimeFeatures::default(),
             calls: AtomicUsize::new(0),
             dropped: Arc::new(AtomicUsize::new(0)),
         })
@@ -68,6 +72,14 @@ impl Drop for DropNotice {
     }
 }
 impl RuntimeRequestHandler for Handler {
+    fn features(&self) -> ledgence_worker_api::RuntimeFeatures {
+        self.features.clone()
+    }
+    fn capabilities(&self) -> ledgence_worker_api::RuntimeCapabilities {
+        ledgence_worker_api::RuntimeCapabilities {
+            approved_effect_evidence_v2: self.evidence_v2,
+        }
+    }
     fn handle<'a>(
         &'a self,
         request: RuntimeRequest,
@@ -97,6 +109,32 @@ impl RuntimeRequestHandler for Handler {
     }
 }
 const REQUEST_AND_WAIT: &str = "i=receive()\nsend(bound(i,'runtime_request',id=1,operation='test.commit',payload={'step':'one'}))\nreceive()\n";
+
+#[tokio::test]
+async fn restricted_probe_phase_kills_real_child_without_expiring_parent_report_authority() {
+    let (_dir, artifact, runtime) = scripted(REQUEST_AND_WAIT);
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    let parent = RunControl::new(Duration::from_secs(5));
+    let phase = parent.shorter_deadline(std::time::Instant::now() + Duration::from_millis(100));
+    let handler = Handler::new(ReplyMode::Pending);
+    let result = tokio::time::timeout(
+        Duration::from_secs(3),
+        session.execute_with_requests(invocation("bounded-probe"), phase, handler.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.unwrap_err().kind, ErrorKind::TimedOut);
+    tokio::time::timeout(Duration::from_secs(2), session.close())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(parent.check().is_ok());
+    assert_eq!(handler.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(handler.dropped.load(Ordering::SeqCst), 1);
+    #[cfg(unix)]
+    assert!(!running(pid));
+}
 
 #[tokio::test]
 async fn v3_acknowledges_sequential_requests_and_reuses_with_fresh_context() {
@@ -135,6 +173,95 @@ while True:
     }
     assert_eq!(handler.calls.load(Ordering::SeqCst), 4);
     session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn negotiated_capability_is_outer_only_and_does_not_survive_session_reuse() {
+    let (_dir, artifact, runtime) = scripted(
+        r#"
+while True:
+    i=receive()
+    if i['type']=='shutdown':
+        send(dict(v=3,type='bye'))
+        break
+    send(bound(i,'result',status='success',output=i))
+"#,
+    );
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    for (enabled, native) in [(true, false), (true, true), (false, false), (true, false)] {
+        let mut handler = Handler::new(ReplyMode::Echo);
+        Arc::get_mut(&mut handler).unwrap().evidence_v2 = enabled;
+        if native {
+            Arc::get_mut(&mut handler)
+                .unwrap()
+                .features
+                .supported
+                .push(ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE.into());
+        }
+        let invocation = invocation("capability");
+        let reply = output(
+            session
+                .execute_with_requests(invocation.clone(), control(), handler.clone())
+                .await
+                .unwrap(),
+        );
+        assert_eq!(reply["event"], *invocation.event.value());
+        assert_eq!(
+            reply["extension"],
+            serde_json::to_value(invocation.extension).unwrap()
+        );
+        if enabled {
+            assert_eq!(
+                reply["runtime_capabilities"],
+                json!({"approved_effect_evidence_v2":true})
+            );
+        } else {
+            assert!(reply.get("runtime_capabilities").is_none());
+        }
+        if native {
+            assert_eq!(
+                reply["runtime_features"],
+                json!({"v":1,"supported":["native_effect_resolution.v1"]})
+            );
+        } else {
+            assert!(reply.get("runtime_features").is_none());
+        }
+        assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(session.pid(), pid);
+    }
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn invalid_or_inconsistent_features_fail_before_invocation_dispatch() {
+    for bad_version in [false, true] {
+        let (_dir, artifact, runtime) = scripted(
+            r#"
+while True:
+    i=receive()
+    if i['type']=='shutdown':
+        send(dict(v=3,type='bye'))
+        break
+    send(bound(i,'result',status='success',output='unexpected invocation'))
+"#,
+        );
+        let mut session = ready(runtime.start(artifact, control()).await);
+        let mut handler = Handler::new(ReplyMode::Echo);
+        let values = Arc::get_mut(&mut handler).unwrap();
+        values.evidence_v2 = bad_version;
+        values.features.v = if bad_version { 2 } else { 1 };
+        values.features.supported =
+            vec![ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE.into()];
+        assert!(
+            session
+                .execute_with_requests(invocation("bad-feature"), control(), handler.clone())
+                .await
+                .is_err()
+        );
+        assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
+        session.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

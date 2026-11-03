@@ -135,6 +135,7 @@ async fn populated_020_upgrade_preserves_state_resumes_waits_and_enables_approva
             .unwrap();
     assert!(approvals.is_none());
 
+    db.begin_legacy_workflow_seed().await;
     // Ordinary completed and queued tasks coexist with dormant workflows.
     let terminal = db
         .store
@@ -218,6 +219,7 @@ async fn populated_020_upgrade_preserves_state_resumes_waits_and_enables_approva
     assert_eq!(timer_before.state, WorkflowState::Waiting);
     let before = persisted_rows(&db.store).await;
 
+    db.finish_legacy_workflow_seed().await;
     db.store.migrate().await.unwrap();
     db.store.verify_schema().await.unwrap();
     assert_eq!(before, persisted_rows(&db.store).await);
@@ -303,6 +305,8 @@ async fn populated_020_upgrade_preserves_state_resumes_waits_and_enables_approva
             wait: WorkflowWait::Approval {
                 key: "review".into(),
                 action: action.clone(),
+                protection: ApprovalProtection::Unspecified,
+                provider_binding: None,
                 proposed_arguments: None,
                 timeout_ms: 60_000,
             },
@@ -323,6 +327,8 @@ async fn populated_020_upgrade_preserves_state_resumes_waits_and_enables_approva
         activation_id: resumed.lease.owner.task_id.clone(),
         revision: 1,
         action,
+        protection: ApprovalProtection::Unspecified,
+        provider_binding: None,
         decision_id: "upgrade-review".into(),
         decision: ApprovalDecision::Approve,
         reviewer: "release-test".into(),

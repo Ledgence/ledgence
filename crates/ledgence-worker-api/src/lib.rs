@@ -24,8 +24,9 @@ mod trace;
 pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;
 pub use execution::{
-    ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult, Phase,
-    RuntimeExtension, RuntimeInvocation, RuntimeReply, RuntimeRequest,
+    ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult,
+    NATIVE_EFFECT_RESOLUTION_FEATURE, PROVIDER_OPERATION_FEATURE, Phase, RuntimeCapabilities,
+    RuntimeExtension, RuntimeFeatures, RuntimeInvocation, RuntimeReply, RuntimeRequest,
 };
 mod invocation;
 mod observation;
@@ -673,6 +674,14 @@ impl RunControl {
     pub fn deadline(&self) -> Instant {
         self.deadline
     }
+    /// Restrict one phase without extending its parent authority or separating
+    /// cancellation. Expiry of this phase does not cancel later parent work.
+    pub fn shorter_deadline(&self, deadline: Instant) -> Self {
+        Self {
+            cancelled: self.cancelled.clone(),
+            deadline: deadline.min(self.deadline),
+        }
+    }
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
@@ -785,6 +794,28 @@ pub trait ExecutionRuntime: Send + Sync {
 /// stale attempts and make repeated operations idempotent. A successful reply
 /// must acknowledge the requested operation before execution may continue.
 pub trait RuntimeRequestHandler: Send + Sync {
+    /// Optional bound on the actual invocation, after preparation and startup.
+    /// Existing interactive handlers retain the parent execution deadline.
+    fn invocation_timeout(&self) -> Option<Duration> {
+        None
+    }
+
+    /// Parent execution time that must remain available after the optional
+    /// invocation budget, for durable reporting. This never extends authority.
+    fn completion_reserve(&self) -> Duration {
+        Duration::ZERO
+    }
+
+    /// Advertise only capabilities established by this handler's connection.
+    fn capabilities(&self) -> RuntimeCapabilities {
+        RuntimeCapabilities::default()
+    }
+
+    /// Unknown well-formed names are reserved for future negotiated features.
+    fn features(&self) -> RuntimeFeatures {
+        RuntimeFeatures::default()
+    }
+
     fn handle<'a>(
         &'a self,
         request: RuntimeRequest,

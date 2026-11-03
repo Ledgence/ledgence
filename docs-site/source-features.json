@@ -53,5 +53,41 @@
     "sourceRef": "v0.7.0",
     "guide": "/reference/console#inspect-an-accepted-operation",
     "verifiedOn": "2026-11-02"
+  },
+  "approvedExternalWrites": {
+    "title": "One dispatch grant per approved external write",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/require-approval#protect-an-approved-write-in-development"
+  },
+  "instanceAccess": {
+    "title": "Scoped operator and worker credentials",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/configure-instance-access"
+  },
+  "operatorAudit": {
+    "title": "Verified approval attribution and durable response audit",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/audit-operators"
+  },
+  "effectEvidence": {
+    "title": "Retained approved-effect claims and reported outcomes",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/inspect-effects"
+  },
+  "nativeEffectResolution": {
+    "title": "Revision-bound operator assessments and worker-free effect waits",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/inspect-effects"
+  },
+  "providerOperations": {
+    "title": "Approval-bound provider identities and bounded worker-free recovery",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/recover-provider-operations"
   }
 }

@@ -320,6 +320,7 @@ export function WorkflowExplorer({
       });
     } else (selectedButton ?? canvas.current)?.focus({ preventScroll: true });
   }
+  const ViewIcon = view === "graph" ? GitFork : ListTree;
   const canvas = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (state.follow && canvas.current) {
@@ -340,16 +341,21 @@ export function WorkflowExplorer({
       <div className="explorer-toolbar">
         {query.data && (
           <div className="explorer-record-count">
-            {maximized && (
-              <strong title={workflowId}>
-                {query.data.workflow.summary.controller.program.id ||
-                  workflowId}
+            <ViewIcon aria-hidden="true" />
+            <div>
+              <strong title={maximized ? workflowId : undefined}>
+                {maximized
+                  ? query.data.workflow.summary.controller.program.id ||
+                    workflowId
+                  : view === "graph"
+                    ? "Execution graph"
+                    : "Execution trace"}
               </strong>
-            )}
-            <span>
-              {nodes.length} recorded {nodes.length === 1 ? "item" : "items"}
-              {search ? ` · ${filtered.length} matching` : ""}
-            </span>
+              <span>
+                {nodes.length} recorded {nodes.length === 1 ? "item" : "items"}
+                {search ? ` · ${filtered.length} matching` : ""}
+              </span>
+            </div>
           </div>
         )}
         {!controlledView && (

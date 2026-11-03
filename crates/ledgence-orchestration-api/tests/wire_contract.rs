@@ -20,6 +20,7 @@ fn command(output: Value) -> SettleCommand {
     };
     let context = ExecutionContext::from(&ExecutionRequest { descriptor, event });
     SettleCommand {
+        provider_probe_failure: None,
         owner: LeaseOwner {
             scope: Scope {
                 tenant_id: "tenant".into(),

@@ -651,6 +651,28 @@ async fn invoke(
     let mut request = json!({"v": version, "type": "invoke", "event_id": event.id(), "attempt_id": event.attempt_id(), "event": event.value()});
     // Optional and understood by the bundled helper; legacy helpers ignore it.
     request["observe"] = Value::Bool(true);
+    if dispatch
+        .handler
+        .is_some_and(|handler| handler.capabilities().approved_effect_evidence_v2)
+    {
+        request["runtime_capabilities"] = json!({"approved_effect_evidence_v2": true});
+    }
+    if let Some(handler) = dispatch.handler {
+        let features = handler.features();
+        features.validate()?;
+        if features.native_effect_resolution()
+            && !handler.capabilities().approved_effect_evidence_v2
+        {
+            return Err(Error::new(
+                ErrorKind::Incompatible,
+                "native effect resolution requires evidence v2",
+            ));
+        }
+        if !features.supported.is_empty() {
+            request["runtime_features"] = serde_json::to_value(features)
+                .map_err(|_| protocol("cannot encode runtime features"))?;
+        }
+    }
     if version >= 2 {
         if let Some(context) = &invocation.processing_context {
             context.validate()?;

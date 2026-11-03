@@ -67,6 +67,42 @@ impl TestDb {
         }
     }
 
+    /// Seed legacy payloads using current test helpers without claiming that the
+    /// current binary supports serving an old schema. The temporary authority fields
+    /// are always empty, and must be removed before migration/schema assertions.
+    /// If seeding panics, TestDb::drop removes this unique DB on its own bounded
+    /// runtime; no modified legacy fixture is left behind.
+    pub(crate) async fn begin_legacy_workflow_seed(&self) {
+        sqlx::raw_sql("ALTER TABLE workflow_runs ADD COLUMN native_wait_activation_id text COLLATE \"C\", ADD COLUMN has_provider_operations boolean NOT NULL DEFAULT false, ADD COLUMN provider_wait_activation_id text COLLATE \"C\"; ALTER TABLE tasks ADD COLUMN provider_probe_bytes bytea; ALTER TABLE IF EXISTS workflow_approvals ADD COLUMN provider_operation boolean NOT NULL DEFAULT false")
+            .execute(&self.store.pool).await.unwrap();
+    }
+    pub(crate) async fn finish_legacy_workflow_seed(&self) {
+        let mut tx = self.store.pool.begin().await.unwrap();
+        let used:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_runs WHERE native_wait_activation_id IS NOT NULL OR provider_wait_activation_id IS NOT NULL OR has_provider_operations) OR EXISTS(SELECT 1 FROM tasks WHERE provider_probe_bytes IS NOT NULL)").fetch_one(&mut *tx).await.unwrap();
+        assert!(
+            !used,
+            "legacy fixture seeding cannot exercise new native/provider authority"
+        );
+        let approvals: bool =
+            sqlx::query_scalar("SELECT to_regclass('workflow_approvals') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        if approvals {
+            let used: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM workflow_approvals WHERE provider_operation)",
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert!(!used);
+        }
+        sqlx::raw_sql("ALTER TABLE workflow_runs DROP COLUMN native_wait_activation_id,DROP COLUMN provider_wait_activation_id,DROP COLUMN has_provider_operations; ALTER TABLE tasks DROP COLUMN provider_probe_bytes; ALTER TABLE IF EXISTS workflow_approvals DROP COLUMN provider_operation").execute(&mut *tx).await.unwrap();
+        let remains:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid IN ('workflow_runs'::regclass,'tasks'::regclass) AND attname IN ('native_wait_activation_id','provider_wait_activation_id','has_provider_operations','provider_probe_bytes') AND NOT attisdropped)").fetch_one(&mut *tx).await.unwrap();
+        assert!(!remains, "migration must receive actual historical schema");
+        tx.commit().await.unwrap();
+    }
+
     pub(crate) async fn finish(mut self) {
         self.store.close().await;
         let admin = PgPoolOptions::new()
@@ -199,6 +235,7 @@ pub(crate) fn completed(
     output: Value,
 ) -> SettleCommand {
     SettleCommand {
+        provider_probe_failure: None,
         owner: assigned.lease.owner.clone(),
         operation_id: "settle_1".into(),
         report: AttemptReport::Completed(ExecutionReport {
@@ -472,6 +509,7 @@ async fn retry_keeps_digest_and_old_receipt_does_not_change_new_ownership() {
     let db = TestDb::new().await;
     let (task, session, first) = claimed(&db.store).await;
     let report = SettleCommand {
+        provider_probe_failure: None,
         owner: first.lease.owner.clone(),
         operation_id: "failed_1".into(),
         report: AttemptReport::Failed(ExecutionFailure {

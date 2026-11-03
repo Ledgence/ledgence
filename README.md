@@ -55,6 +55,34 @@ From a recorded local step in the workflow graph or trace, open the
 [operation inspector](docs/agent-recovery.md#inspect-an-accepted-operation) to see
 the arguments, accepted result and worker attempt that recorded it.
 
+On `develop`, workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write).
+`request_effect_approval` declares its execution contract before approval and
+requires the protected helper for that occurrence.
+After a worker crash, a replacement can look up a refund without issuing it a
+second time. An unresolved effect holds its workflow evidence past ordinary
+retention. An accepted operator assessment releases that hold even if the
+journal remains unconfirmed, while the durable effect history is retained
+independently. This requires matching development components and a database
+migration; it is not included in the 0.7.0 packages.
+
+On `develop`, [instance access](docs/instance-access.md) adds scoped operator,
+service and worker credentials across the API, CLI, Python, MCP and Console.
+Native credential mode adds [verified decision attribution and operator audit](docs/operator-audit.md),
+with a payload-free feed available through the API, CLI, Python, MCP and Console.
+[Retained effect evidence](docs/effect-evidence.md) records worker claims and reported
+results independently of execution-history retention, with bounded inspection
+through the API, CLI, Python, MCP and Console. Native operator assessments bind
+to the inspected revision and exact approved action. Workflows can park with
+`ctx.wait_effect_resolution` and resume from a typed outcome while the worker
+slot serves other work. See the [effect-resolution contract](docs/effect-evidence.md)
+for prerequisites, retries and handling of later conflicting evidence.
+
+Matching development components add [provider operations](docs/provider-operations.md).
+Registered adapters bind the reviewed business identity, target and request to a
+single dispatch grant. Workflows park while bounded read-only probes recover
+pending or uncertain outcomes. The Effects view exposes the policy, reports and
+operator handling. Try the [local asynchronous export example](examples/provider-recovery/README.md).
+
 ### Install and start Ledgence
 
 Install the latest stable release on a supported native platform:
@@ -231,8 +259,8 @@ Operational metrics are available through the optional OTLP adapter; see [metric
 
 ## Self-hosted Console
 
-[Ledgence Console](docs/console.md) brings **Executions**, **Programs**, and
-**Workers** into one self-hosted interface. Follow tasks and workflows in a
+[Ledgence Console](docs/console.md) brings **Executions**, **Programs**, **Approvals**,
+and **Workers** into one self-hosted interface. Follow tasks and workflows in a
 filterable execution table with infinite scrolling. Inspect a workflow one level
 at a time in Graph, follow its recorded intervals in Trace, and open General for
 inputs, outputs and resources. Task Trace shows attempts and lifecycle history.

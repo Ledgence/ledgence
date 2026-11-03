@@ -15,6 +15,7 @@ Tracing supplements these records and never supplies missing relationships.
 
 | Crate | Responsibility | Production workspace dependencies |
 | --- | --- | --- |
+| `ledgence-adapter-access` | Optional local opaque-credential verification and provisioning | Orchestration API |
 | `ledgence-worker-api` | Events, manifests, descriptors, runtime input, portable trace carriers, cancellation, and adapter ports | None |
 | `ledgence-adapter-mcp` | Optional stdio MCP server over task, workflow and catalog ports; no HTTP or framework dependency in production | Worker API, orchestration API |
 | `ledgence-adapter-otel` | Optional trace and metrics exporters, context bridge, correlated JSON logging | Worker API |
@@ -23,14 +24,14 @@ Tracing supplements these records and never supplies missing relationships.
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
 | `ledgence-worker` | Internal library for program packaging, local fixture execution and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
-| `ledgence-orchestration-api` | Task/workflow, approval, completion, Console, delivery, lease, and storage/service contracts | Worker API |
+| `ledgence-orchestration-api` | Task/workflow, approval, completion, Console, delivery, lease, and storage/service contracts, portable access audience, principal and verifier contracts | Worker API |
 | `ledgence-orchestration-core` | Pure lifecycle transitions and conservative local work authority | Orchestration API, worker API |
 | `ledgence-orchestration-service` | Submission resolution, workflow coordination, and portable service composition | Orchestration API/core, worker API |
 | `ledgence-adapter-postgres` | Atomic PostgreSQL operations, row codecs, and migrations | Orchestration API/core, worker API |
 | `ledgence-adapter-sqs` | Optional SQS Standard publishing, receiving, acknowledgment and deployment configuration | Orchestration API, worker API |
 | `ledgence-adapter-http` | Optional HTTP task/workflow clients, server routes, Console assets, and completion callback transport | Orchestration API, worker API |
-| `ledgence-orchestrator` | Internal library for HTTP/Console serving, explicit migrations, instance binding, readiness, workflow/expiry recovery, callbacks, and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters |
-| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator, task, approval, optional MCP, and local-stack commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel and MCP adapters |
+| `ledgence-orchestrator` | Internal library for HTTP/Console serving, explicit migrations, instance binding, readiness, workflow/expiry recovery, callbacks, and optional dispatch publication | Orchestration API/service, worker API, HTTP/artifact/PostgreSQL adapters, optional OTel and SQS adapters, access adapter |
+| `ledgence-cli` | The `ledgence` executable: program, worker, orchestrator, task, approval, optional MCP, and local-stack commands | Worker/orchestrator composition libraries, orchestration API, worker API, HTTP adapter, optional OTel and MCP adapters, access adapter |
 
 Since 0.4.0, the CLI locates resources in a complete installed bundle and manages
 a verified Compose kit through `ledgence local`. These distribution features
@@ -116,3 +117,59 @@ parent completion work. Controller-task completion remains separate from workflo
 completion. The store atomically registers parent decisions and new child runs;
 direct-edge cancellation and completion obligations avoid a tree-wide mutable lock.
 The existing worker pool and execution concurrency apply to every activation.
+
+## Instance access in development
+
+The portable `CredentialVerifier` returns a validated principal, installation
+audience and explicit capabilities. The optional access adapter verifies local
+opaque credentials. HTTP ingress applies route policy before command/upload
+dispatch. The production composition binds its authority during instance startup.
+See [instance access](instance-access.md) for activation, client setup and limits.
+
+
+### Verified operator audit
+
+The complete `OperatorAccess` port groups verified decisions, durable response
+observations and scoped queries. Native credential mode resolves this capability
+before binding a listener. PostgreSQL acceptance writes the actor/event linkage,
+original decision and eligible continuation in one transaction. HTTP validates
+and serializes payloads before recording their response observation. The
+read-only client `AuditReader` port delegates to authenticated HTTP ingress.
+Worker paths and pending result polls avoid audit database work.
+[Contract and retention](operator-audit.md).
+
+### Native effect resolution in development
+
+`EffectResolution` accepts verified, revision-bound operator assessments.
+`EffectResolutionStore` also supplies the durable coordinator operation required
+to resume an eligible native wait. `EffectResolutionClient` exposes only the
+remote command, and retained evidence reads use their separate reader port.
+The native composition advertises support only when the complete capability is
+available. PostgreSQL commits an assessment, its audit linkage and eligible work
+obligation atomically, then selects an immutable wake under workflow ordering.
+Wait records have their own namespace and release the existing worker reservation.
+The selected assessment remains separate from journal confirmation and retained
+worker observations. [Contract and operating guide](effect-evidence.md).
+
+### Provider operation recovery in development
+
+The complete `ProviderOperationStore` adds immutable business/provider bindings,
+the shared dispatch permission, retained typed reports, bounded due-work
+maintenance and provider-aware workflow coordination. `ProviderOperations`
+receives verified worker identity out of band; the remote
+`ProviderOperationClient` carries commands without inventing trusted principals.
+The existing Effects reader projects the retained evidence. No provider SDK is
+part of these portable ports.
+
+Dispatch and reconciliation use different registered callables in the workflow's
+already-pinned package. A dedicated trusted probe extension carries the frozen
+binding to a normal worker task. Its invocation budget is shorter than its parent
+attempt budget, leaving time for immutable report delivery. Typed host failures
+travel through an optional settlement field that is rejected on ordinary tasks;
+application error strings cannot claim host authority. Durable terminal-work
+processing waits for task finalization and cleanup before the next check. The
+coordinator does not keep a worker process parked or scan every active task.
+
+Provider waits have their own namespace and select one immutable wake. Provider
+knowledge, operator assessments, task completion and journal confirmation remain
+distinct. Earlier A/B observations are not reinterpreted as typed provider facts.

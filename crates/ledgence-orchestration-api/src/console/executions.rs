@@ -69,6 +69,8 @@ pub struct ConsoleExecutionSummary {
     pub parent_workflow_id: Option<String>,
     /// Present for children; absent on root submissions.
     pub root_workflow_id: Option<String>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub provider_probe: Option<ConsoleProviderProbeAssignment>,
 }
 impl ConsoleRecord for ConsoleExecutionSummary {
     fn position(&self) -> ConsolePosition {
@@ -82,6 +84,14 @@ impl ConsoleRecord for ConsoleExecutionSummary {
         validate_text(&self.id, 128)?;
         validate_text(&self.queue, 128)?;
         self.descriptor.validate()?;
+        if let Some(probe) = &self.provider_probe {
+            probe.clone().into_core().validate()?;
+            if self.kind != ConsoleExecutionKind::Task
+                || self.parent_workflow_id.as_ref() != Some(&probe.occurrence.workflow_id)
+            {
+                return Err(invalid("inconsistent provider probe execution"));
+            }
+        }
         timestamp(self.submitted_at)?;
         if let Some(at) = self.terminal_at {
             timestamp(at)?;

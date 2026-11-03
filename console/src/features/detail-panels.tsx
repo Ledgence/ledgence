@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { useLocation, useSearchParams } from "react-router";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, FileText, GitFork, ListTree } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { readExplorerState, saveExplorerState } from "../app/navigation-state";
 import {
@@ -73,7 +73,14 @@ export function DetailPanels({
         /* Storage can be disabled. */
       }
     }
-    setParams(detailDestination(params, nextTab, nextSection), {
+    // Navigate to the complete destination so a later normalization effect
+    // cannot replace a newer tab selection with this one.
+    const destination = resolveDetailNavigation(
+      kind,
+      detailDestination(params, nextTab, nextSection),
+      preferredView,
+    ).canonical;
+    setParams(destination, {
       preventScrollReset: true,
       state: { ...location.state, restoreNavigationKey: location.key },
     });
@@ -91,6 +98,13 @@ export function DetailPanels({
             aria-current={value === tab ? "page" : undefined}
             onClick={() => change(value)}
           >
+            {value === "Graph" ? (
+              <GitFork aria-hidden="true" />
+            ) : value === "Trace" ? (
+              <ListTree aria-hidden="true" />
+            ) : (
+              <FileText aria-hidden="true" />
+            )}
             {value}
           </Button>
         ))}

@@ -11,7 +11,7 @@ import {
 } from "../interaction-checks";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,7 +24,7 @@ function fixture(name: string): unknown {
 }
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "5",
+  "Ledgence-Console-Contract": "7",
   "Ledgence-Instance-Id": "instance_demo",
   "Request-Id": "request-contract-test",
 };
@@ -52,12 +52,28 @@ async function mount(page: Page, result = "pending_result") {
     "workers/inspect": "worker_detail",
   };
   await page.route("**/v1/console/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/v1/console/access") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Ledgence-Console-Contract": "7",
+          "Ledgence-Instance-Id": "instance_demo",
+        },
+        body: JSON.stringify({ mode: "operator_trusted" }),
+      });
+      return;
+    }
+
     const name = new URL(route.request().url()).pathname.replace(
       "/v1/console/",
       "",
     );
     requests.push(name);
-    if (name === "approvals/inbox") {
+    if (
+      name === "approvals/inbox" ||
+      name === "workflows/approved-effects/inbox"
+    ) {
       await route.fulfill({
         status: 200,
         headers,
@@ -104,6 +120,7 @@ async function mount(page: Page, result = "pending_result") {
             correlation_key: task.correlation_key,
             parent_workflow_id: task.workflow_id,
             root_workflow_id: null,
+            provider_probe: task.provider_probe,
           })),
         }),
       });
@@ -175,6 +192,7 @@ test("header Back preserves the filtered list after reloading a detail", async (
     .getByRole("button", { name: "Back", exact: true })
     .click();
   await expect(page).toHaveURL(new URL(list, page.url()).href);
+  await expect(page.locator(".shell-header")).toBeHidden();
   await expect(
     page.getByRole("combobox", { name: "Status", exact: true }),
   ).toHaveValue("active");
@@ -201,7 +219,7 @@ for (const width of [320, 390, 1280]) {
       await page.goto(
         `/console/${kind === "task" ? "executions" : "workflows"}/${id}?tab=General`,
       );
-      const header = page.locator(".shell-header");
+      const header = page.getByRole("main").locator(".shell-header");
       const heading = header.getByRole("heading", {
         level: 1,
         name: title,
@@ -212,9 +230,12 @@ for (const width of [320, 390, 1280]) {
       });
       await expect(heading).toBeVisible();
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(header.locator(".instance-header-name")).toHaveText(
-        instanceName,
-      );
+      const sidebar = page.getByRole("complementary", {
+        name: "Console sidebar",
+      });
+      await expect(
+        page.getByTitle(instanceName, { exact: true }),
+      ).toBeVisible();
       await expect(
         ancestry.getByRole("link", { name: "Executions", exact: true }),
       ).toBeVisible();
@@ -222,7 +243,7 @@ for (const width of [320, 390, 1280]) {
         header.getByRole("button", { name: "Back", exact: true }),
       ).toBeVisible();
       await expect(
-        header.getByRole("combobox", { name: "Appearance" }),
+        sidebar.getByRole("combobox", { name: "Appearance" }),
       ).toBeVisible();
       await expect(
         page.getByRole("button", { name: "General", exact: true }),
@@ -283,29 +304,17 @@ for (const width of [320, 390, 1280]) {
           parseFloat(getComputedStyle(element).fontSize),
         ),
       ).toBeGreaterThanOrEqual(15);
-      if (width >= 768) {
-        const instanceBox = (await header
-          .locator(".instance-header-name")
-          .boundingBox())!;
-        const ancestryBox = (await ancestry.boundingBox())!;
-        expect(
-          Math.abs(
-            instanceBox.y +
-              instanceBox.height / 2 -
-              titleBox.y -
-              titleBox.height / 2,
-          ),
-        ).toBeLessThanOrEqual(2);
-        expect(instanceBox.x + instanceBox.width).toBeLessThan(ancestryBox.x);
-        expect(headerBox.height).toBeLessThanOrEqual(80);
-      } else {
-        expect(headerBox.height).toBeLessThanOrEqual(120);
-        expect(
-          (await header
-            .getByRole("button", { name: "Back", exact: true })
-            .boundingBox())!.height,
-        ).toBeGreaterThanOrEqual(44);
-      }
+      const backBox = (await header
+        .getByRole("button", { name: "Back", exact: true })
+        .boundingBox())!;
+      expect(
+        Math.abs(
+          backBox.y + backBox.height / 2 - titleBox.y - titleBox.height / 2,
+        ),
+      ).toBeLessThanOrEqual(2);
+      expect(backBox.x + backBox.width).toBeLessThanOrEqual(titleBox.x);
+      expect(headerBox.height).toBeLessThanOrEqual(80);
+      if (width <= 768) expect(backBox.height).toBeGreaterThanOrEqual(44);
       if (
         testInfo.project.name === "chromium" &&
         (width === 390 || width === 1280)
@@ -419,6 +428,41 @@ test("workflow relationships use recorded creation IDs", async ({ page }) => {
     "task_controller_1",
   );
   await expect(page.locator(".activation-group")).toContainText("task_child_1");
+});
+test("execution history follows system appearance until an operator overrides it", async ({
+  page,
+}) => {
+  await mount(page);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/console/executions");
+  const appearance = page.getByRole("combobox", { name: "Appearance" });
+  const header = page.getByRole("columnheader", {
+    name: "Execution",
+    exact: true,
+  });
+  const textStyle = () =>
+    header.evaluate((element) => {
+      const { color, fontSize } = getComputedStyle(element);
+      return { color, fontSize };
+    });
+
+  await expect(appearance).toHaveValue("system");
+  const light = await textStyle();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(header).not.toHaveCSS("color", light.color);
+  await expect(header).not.toHaveCSS("font-size", light.fontSize);
+  const dark = await textStyle();
+
+  await appearance.selectOption("light");
+  await expect.poll(textStyle).toEqual(light);
+  await page.reload();
+  await expect(appearance).toHaveValue("light");
+  await expect.poll(textStyle).toEqual(light);
+
+  await appearance.selectOption("system");
+  await expect.poll(textStyle).toEqual(dark);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(textStyle).toEqual(light);
 });
 for (const width of [320, 375, 768, 1280])
   for (const theme of ["light", "dark"]) {
@@ -619,6 +663,7 @@ test("workflow status labels remain intact at desktop width", async ({
           correlation_key: workflow.correlation_key,
           parent_workflow_id: workflow.parent_workflow_id,
           root_workflow_id: workflow.root_workflow_id,
+          provider_probe: null,
         })),
       }),
     }),

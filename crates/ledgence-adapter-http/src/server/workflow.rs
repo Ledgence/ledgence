@@ -5,6 +5,7 @@ pub(super) async fn get(
     path: &str,
     scope: Scope,
     id: String,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     server.require_scope(&scope)?;
     validate_text(&id, 128)?;
@@ -20,7 +21,8 @@ pub(super) async fn get(
         "/v1/workflows/result" => {
             let reply = service.workflow_result(&scope, &id).await?;
             check_identity(&reply.workflow, &scope, &id)?;
-            server
+            let pending = reply.outcome.is_none();
+            let bytes = server
                 .blocking(move || {
                     reply
                         .validate()
@@ -28,7 +30,13 @@ pub(super) async fn get(
                     record_workflow(&reply.workflow);
                     encode_bounded(&reply, RESPONSE_MAX_BYTES)
                 })
-                .await
+                .await?;
+            if pending {
+                context.pending_result()?;
+            } else {
+                context.sensitive(AuditResource::Workflow { workflow_id: id })?;
+            }
+            Ok(bytes)
         }
         _ => Err(invalid("unsupported workflow lookup").into()),
     }
@@ -39,9 +47,19 @@ pub(super) async fn post(
     path: &str,
     bytes: Vec<u8>,
     maximum: usize,
+    context: &audit::RequestContext,
 ) -> std::result::Result<Vec<u8>, Failure> {
     if path.starts_with("/v1/workflows/approvals/") {
-        return super::approvals::post(server, path, bytes, None).await;
+        return super::approvals::post(server, path, bytes, None, context).await;
+    }
+    if path == "/v1/workflows/approved-effects/resolve" {
+        return super::effect_resolution::post(server, bytes, None, context).await;
+    }
+    if path.starts_with("/v1/workflows/approved-effects/v2/")
+        || path.ends_with("/approved-effects/inbox")
+        || path.ends_with("/approved-effects/inspect")
+    {
+        return super::evidence::post(server, path, bytes, None, context).await;
     }
     let service = service(server)?;
     match path {
@@ -123,21 +141,61 @@ pub(super) async fn post(
             server.require_scope(&owner.scope)?;
             log_owner(&owner)?;
             let reply = service.activation_context(&owner).await?;
-            if reply.activation_id != owner.task_id
-                || matches!(&reply.wake, Some(WorkflowWake::Approval { approval }) if approval.scope != owner.scope)
-            {
-                return Err(
-                    unavailable("activation response identity disagrees with request").into(),
-                );
-            }
             server
                 .blocking(move || {
                     reply
-                        .validate()
+                        .validate_for_owner(&owner)
                         .map_err(|_| unavailable("invalid workflow service response"))?;
                     tracing::Span::current().record("ledgence.workflow.id", &reply.workflow_id);
                     tracing::Span::current().record("ledgence.activation.id", &reply.activation_id);
                     encode_bounded(&reply, WORKFLOW_CONTEXT_MAX_BYTES)
+                })
+                .await
+        }
+        "/v1/workflows/approved-effects/claim" => {
+            let command = server
+                .blocking(move || {
+                    let command: ApprovedEffectClaimCommand =
+                        decode_unique_json(&bytes, maximum)
+                            .map_err(|_| invalid("malformed approved effect claim"))?;
+                    command.validate()?;
+                    Ok(command)
+                })
+                .await?;
+            server.require_scope(&command.owner.scope)?;
+            log_owner(&command.owner)?;
+            tracing::Span::current().record("ledgence.workflow.id", &command.workflow_id);
+            let reply = service
+                .approved_effects()?
+                .claim_approved_effect(&command)
+                .await?;
+            server
+                .blocking(move || {
+                    check_approved_effect_receipt(reply.matches(&command))?;
+                    encode_bounded(&reply, APPROVAL_SNAPSHOT_MAX_BYTES)
+                })
+                .await
+        }
+        "/v1/workflows/approved-effects/confirm" => {
+            let command = server
+                .blocking(move || {
+                    let command: ApprovedEffectConfirmCommand = decode_unique_json(&bytes, maximum)
+                        .map_err(|_| invalid("malformed approved effect confirmation"))?;
+                    command.validate()?;
+                    Ok(command)
+                })
+                .await?;
+            server.require_scope(&command.owner.scope)?;
+            log_owner(&command.owner)?;
+            tracing::Span::current().record("ledgence.workflow.id", &command.workflow_id);
+            let reply = service
+                .approved_effects()?
+                .confirm_approved_effect(&command)
+                .await?;
+            server
+                .blocking(move || {
+                    check_approved_effect_receipt(reply.matches(&command))?;
+                    encode_bounded(&reply, TASK_STATUS_MAX_BYTES)
                 })
                 .await
         }

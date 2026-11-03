@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import contextmanager
 import json
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -23,12 +24,14 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
         otel.enable_context()
         self.received = []
         self.reply_override = None
-        self.reply_delay = 0
+        self.reply_gate = None
         async def handle(request):
             command = await request.json()
             self.received.append((command, dict(request.headers)))
-            if self.reply_delay:
-                await asyncio.sleep(self.reply_delay)
+            if self.reply_gate is not None:
+                entered, release = self.reply_gate
+                entered.set()
+                await asyncio.wait_for(release.wait(), 5)
             if self.reply_override is not None:
                 return self.reply_override()
             return response(submitted(command))
@@ -130,7 +133,7 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.tasks.submit(**self.args())).id, "task")
 
     async def test_failed_exchange_spans_have_bounded_error_status(self):
-        from ledgence.client import SubmissionUncertain
+        from ledgence.client import RequestTimeout, SubmissionUncertain
         class Span:
             def __init__(self): self.attributes = {}; self.status = None
             def set_attribute(self, key, value): self.attributes[key] = value
@@ -141,17 +144,65 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
             def start_as_current_span(self, name, **kwargs):
                 span.attributes.update(kwargs["attributes"])
                 yield span
+        def assert_error(kind):
+            self.assertEqual(span.attributes["error.type"], kind)
+            self.assertEqual(span.status.status_code, trace.StatusCode.ERROR)
+            self.assertNotIn("private", json.dumps(span.attributes))
+
         cases = [
-            (lambda: response({"code": "unavailable", "message": "private-diagnostic"}, code=503), 0, "http_503"),
-            (lambda: web.Response(body=b'not json', headers={"Content-Type": "application/json"}), 0, "protocol"),
-            (None, .1, "timeout"),
+            (lambda: response({"code": "unavailable", "message": "private-diagnostic"}, code=503), "http_503"),
+            (lambda: web.Response(body=b'not json', headers={"Content-Type": "application/json"}), "protocol"),
         ]
-        async with AsyncClient(self.client.base_url, tenant="tenant", namespace="tests", request_timeout=.025) as client:
-            with patch.object(trace, "get_tracer", return_value=Tracer()), self.active("a"):
-                for reply, delay, kind in cases:
-                    span = Span()
-                    self.reply_override = reply; self.reply_delay = delay
-                    with self.assertRaises(SubmissionUncertain): await client.tasks.submit(**self.args())
-                    self.assertEqual(span.attributes["error.type"], kind)
-                    self.assertEqual(span.status.status_code, trace.StatusCode.ERROR)
-                    self.assertNotIn("private", json.dumps(span.attributes))
+        with patch.object(trace, "get_tracer", return_value=Tracer()), self.active("a"):
+            for reply, kind in cases:
+                span = Span()
+                self.reply_override = reply
+                with self.assertRaises(SubmissionUncertain):
+                    await asyncio.wait_for(self.client.tasks.submit(**self.args()), 5)
+                assert_error(kind)
+
+            entered = asyncio.Event()
+            release = asyncio.Event()
+            self.reply_override = None
+            self.reply_gate = (entered, release)
+            transport = self.client._require_transport()
+            loop = asyncio.get_running_loop()
+            original_timeout = asyncio.timeout_at
+            timeouts = []
+            trace_time = None
+            clock = SimpleNamespace(time=lambda: loop.time() if trace_time is None else trace_time)
+            trace_asyncio = SimpleNamespace(get_running_loop=lambda: clock,
+                                            CancelledError=asyncio.CancelledError)
+
+            def controlled_timeout(deadline):
+                if asyncio.current_task() not in transport._operations:
+                    return original_timeout(deadline)
+                timeout = original_timeout(None)
+                timeouts.append((timeout, deadline))
+                return timeout
+
+            span = Span()
+            with patch("ledgence.client.transport.asyncio.timeout_at", controlled_timeout), \
+                    patch.object(otel, "asyncio", trace_asyncio):
+                pending = asyncio.create_task(self.client.tasks.submit(**self.args()))
+                try:
+                    await asyncio.wait_for(entered.wait(), 5)
+                    self.assertEqual(len(self.received), 3)
+                    self.assertEqual(len(timeouts), 1)
+                    timeout, deadline = timeouts[0]
+                    # Advance only OTel's deadline observation. The event loop
+                    # still performs real timeout cancellation after HTTP entry.
+                    trace_time = deadline
+                    timeout.reschedule(loop.time())
+                    with self.assertRaises(SubmissionUncertain) as raised:
+                        await asyncio.wait_for(pending, 5)
+                    self.assertIsInstance(raised.exception.cause, RequestTimeout)
+                    self.assertTrue(raised.exception.cause.dispatched)
+                    self.assertFalse(transport._operations)
+                    assert_error("timeout")
+                finally:
+                    release.set()
+                    if not pending.done():
+                        pending.cancel()
+                    await asyncio.wait_for(asyncio.gather(pending, return_exceptions=True), 5)
+            self.assertEqual(len(self.received), 3)

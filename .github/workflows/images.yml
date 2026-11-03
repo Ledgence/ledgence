@@ -12,6 +12,7 @@ on:
       - 'crates/**'
       - 'console/**'
       - 'sdk/python/**'
+      - 'sdk/python-client/tests/fixtures/console-effect-resolution.json'
       - 'examples/checkpoint-workflow/**'
       - 'examples/program-publication/**'
       - 'legal/**'

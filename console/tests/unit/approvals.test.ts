@@ -14,6 +14,22 @@ import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { approvalFixture } from "../approval-fixture";
 
 describe("approval contracts", () => {
+  it("preserves absent protection and only accepts the explicit external-effect tag", () => {
+    const legacy = approvalFixture();
+    expect(approval(legacy)).not.toHaveProperty("protection");
+    expect(stringifyUserJson(approval(legacy))).toBe(stringifyUserJson(legacy));
+    const protectedValue = { ...legacy, protection: "external_effect" };
+    expect(approval(protectedValue).protection).toBe("external_effect");
+    expect(
+      approvalPage({
+        items: [legacy, protectedValue],
+        next_cursor: null,
+      }).items.map((item) => item.protection),
+    ).toEqual([undefined, "external_effect"]);
+    for (const protection of [null, "unspecified", "local", true, {}, []]) {
+      expect(() => approval({ ...legacy, protection })).toThrow();
+    }
+  });
   it("checks workflow and traversal using UTF-8 order for Unicode keys", () => {
     const value = approvalFixture();
     const bmp = { ...value, key: "\ue000" };
@@ -159,11 +175,26 @@ describe("approval contracts", () => {
     expect(
       decode({ approval: value, already_accepted: true }).already_accepted,
     ).toBe(true);
+    const protectedExpected: ApprovalDecision = {
+      ...expected,
+      protection: "external_effect",
+    };
+    const protectedDecode = decisionReceipt(protectedExpected);
+    expect(
+      protectedDecode({
+        approval: { ...value, protection: "external_effect" },
+        already_accepted: false,
+      }).approval.protection,
+    ).toBe("external_effect");
+    expect(() =>
+      protectedDecode({ approval: value, already_accepted: true }),
+    ).toThrow();
     for (const patch of [
       { workflow_id: "other" },
       { key: "other" },
       { activation_id: "other" },
       { revision: "2" },
+      { protection: "external_effect" },
       { action: { ...value.action, version: "changed" } },
       { action: { ...value.action, arguments: { destination: "changed" } } },
       { decision: { ...value.decision, reviewer: "someone else" } },

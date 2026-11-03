@@ -51,6 +51,17 @@ impl ResponseValue for TaskSnapshot {
         if let Some(trace) = &self.origin_trace {
             trace.validate()?;
         }
+        if let Some(probe) = &self.provider_probe {
+            probe.validate()?;
+            if probe.occurrence.scope != self.scope()
+                || self.workflow_id.as_ref() != Some(&probe.occurrence.workflow_id)
+                || self.workflow_activation_id.is_some()
+            {
+                return Err(ContractError::Unavailable(
+                    "inconsistent provider probe identity".into(),
+                ));
+            }
+        }
         if self.descriptor.program != self.input.program
             || self
                 .workflow_activation_id
@@ -163,6 +174,20 @@ impl ResponseValue for LocalResultReceipt {
     const MAX_BYTES: usize = 1024;
     fn validate_values(&self) -> Result<()> {
         validate_text(&self.key, 128)
+    }
+}
+
+impl ResponseValue for ApprovedEffectClaimReceipt {
+    const MAX_BYTES: usize = APPROVAL_SNAPSHOT_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
+
+impl ResponseValue for ApprovedEffectConfirmReceipt {
+    const MAX_BYTES: usize = TASK_STATUS_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
     }
 }
 

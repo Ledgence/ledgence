@@ -92,6 +92,135 @@ fn extension() -> RuntimeExtension {
         payload: json!({"checkpoint": 7}),
     }
 }
+
+struct BudgetedHandler {
+    inner: Arc<Handler>,
+    timeout: Duration,
+    reserve: Duration,
+}
+impl RuntimeRequestHandler for BudgetedHandler {
+    fn invocation_timeout(&self) -> Option<Duration> {
+        Some(self.timeout)
+    }
+    fn completion_reserve(&self) -> Duration {
+        self.reserve
+    }
+    fn handle<'a>(
+        &'a self,
+        request: RuntimeRequest,
+        control: RunControl,
+    ) -> PortFuture<'a, RuntimeReply> {
+        self.inner.handle(request, control)
+    }
+}
+
+#[tokio::test]
+async fn shorter_invocation_deadline_retires_process_and_preserves_parent_report_budget() {
+    let (worker, counts) = configured(true).await;
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let parent = RunControl::new(Duration::from_secs(5));
+    let handler = Handler::new(false);
+    let report = tokio::time::timeout(
+        Duration::from_secs(3),
+        reservation.execute_interactive(
+            request(1, 1, 0),
+            parent.clone(),
+            extension(),
+            Arc::new(BudgetedHandler {
+                inner: handler.clone(),
+                timeout: Duration::from_millis(50),
+                reserve: Duration::from_secs(1),
+            }),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(report.error.kind, ErrorKind::TimedOut);
+    assert_eq!(report.phase, Phase::Execution);
+    assert!(parent.check().is_ok());
+    assert_eq!(handler.observations.lock().await.len(), 1);
+    assert!(reservation.is_quiescent());
+    assert_eq!(worker.stats().await.warm_processes, 0);
+    assert_eq!(counts.live.load(Ordering::SeqCst), 0);
+    reservation.release();
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn inadequate_completion_reserve_retires_before_invocation() {
+    let (worker, _) = configured(true).await;
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let handler = Handler::new(true);
+    let report = reservation
+        .execute_interactive(
+            request(1, 1, 0),
+            RunControl::new(Duration::from_secs(2)),
+            extension(),
+            Arc::new(BudgetedHandler {
+                inner: handler.clone(),
+                timeout: Duration::from_secs(1),
+                reserve: Duration::from_secs(3),
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(report.error.kind, ErrorKind::TimedOut);
+    assert_eq!(report.phase, Phase::Startup);
+    assert!(!report.execution_may_have_started);
+    assert!(handler.observations.lock().await.is_empty());
+    assert!(reservation.is_quiescent());
+    reservation.release();
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn restricted_invocation_observes_parent_cancellation() {
+    let (worker, _) = configured(true).await;
+    let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+    let parent = RunControl::new(Duration::from_secs(10));
+    let handler = Handler::new(false);
+    let run_control = parent.clone();
+    let run_handler = handler.clone();
+    let run = tokio::spawn(async move {
+        let report = reservation
+            .execute_interactive(
+                request(1, 1, 0),
+                run_control,
+                extension(),
+                Arc::new(BudgetedHandler {
+                    inner: run_handler,
+                    timeout: Duration::from_secs(5),
+                    reserve: Duration::from_secs(1),
+                }),
+            )
+            .await;
+        (reservation, report)
+    });
+    tokio::time::timeout(Duration::from_secs(2), handler.entered.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    parent.cancel();
+    let (reservation, report) = tokio::time::timeout(Duration::from_secs(2), run)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(report.unwrap_err().error.kind, ErrorKind::Cancelled);
+    assert!(reservation.is_quiescent());
+    reservation.release();
+    worker
+        .shutdown(Duration::ZERO, Duration::from_secs(1))
+        .await
+        .unwrap();
+}
 async fn configured(interactive_runtime: bool) -> (Worker, Arc<Counts>) {
     let counts = Arc::new(Counts::default());
     let cache = Arc::new(Cache::default());

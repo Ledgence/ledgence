@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { request } from "../../src/api/client";
 import { object, string } from "../../src/api/schema";
 import { freezeCommand } from "../../src/api/commands";
@@ -8,16 +8,17 @@ function reply(body: string, extra: HeadersInit = {}) {
   return new Response(body, {
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "5",
+      "Ledgence-Console-Contract": "7",
       "Ledgence-Instance-Id": "instance_demo",
       "Request-Id": "req-test",
       ...extra,
     },
   });
 }
+beforeEach(() => vi.stubGlobal("location", { origin: "http://console.test" }));
 afterEach(() => vi.unstubAllGlobals());
 describe("Console transport boundaries", () => {
-  it.each(["2", "3", "4"])(
+  it.each(["2", "3", "4", "5"])(
     "rejects a C%s response explicitly before decoding its body",
     async (version) => {
       vi.stubGlobal(
@@ -126,17 +127,41 @@ describe("Console transport boundaries", () => {
       ),
     ).rejects.toThrow("Expected a JSON");
   });
-  it("propagates cancellation to the underlying request", async () => {
+  it("does not dispatch a request that is already cancelled", async () => {
     const c = new AbortController();
     c.abort();
-    const mock = vi.fn((_path: unknown, init: RequestInit) => {
-      expect(init.signal?.aborted).toBe(true);
-      return Promise.reject(new DOMException("Aborted", "AbortError"));
-    });
+    const mock = vi.fn();
     vi.stubGlobal("fetch", mock);
     await expect(
       request("/v1/console/tasks", decode, c.signal, "instance_demo"),
-    ).rejects.toThrow("Aborted");
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mock).not.toHaveBeenCalled();
+  });
+  it("propagates cancellation to an in-flight underlying request", async () => {
+    const c = new AbortController();
+    const mock = vi.fn(
+      (_path: unknown, init: RequestInit) =>
+        new Promise<Response>((_, reject) => {
+          init.signal!.addEventListener(
+            "abort",
+            () => reject(init.signal!.reason),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", mock);
+    const pending = request(
+      "/v1/console/tasks",
+      decode,
+      c.signal,
+      "instance_demo",
+    );
+    const rejected = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.waitFor(() => expect(mock).toHaveBeenCalledOnce());
+    c.abort();
+    await rejected;
   });
   it("freezes exact lossless request bytes for retry", () => {
     const command = freezeCommand(
@@ -163,7 +188,7 @@ it("treats invalid UTF-8 as a permanent protocol failure with request ID", async
       new Response(new Uint8Array([0xc3, 0x28]), {
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "5",
+          "Ledgence-Console-Contract": "7",
           "Ledgence-Instance-Id": "instance_demo",
           "Request-Id": "req-encoding",
         },

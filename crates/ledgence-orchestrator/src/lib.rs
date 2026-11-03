@@ -1,5 +1,6 @@
 //! Network orchestration composition, including supervised expiry recovery.
 
+mod access;
 mod application;
 mod command;
 mod completion;
@@ -7,6 +8,7 @@ mod console;
 mod health;
 mod instance;
 mod logging;
+mod provider;
 #[cfg(feature = "sqs")]
 mod publication;
 mod recovery;
@@ -244,6 +246,9 @@ async fn dispatch(
                 delivery_config,
                 completion_config,
                 instance_config,
+                access_config,
+                provider_config,
+                allow_insecure_console_access,
                 console_dir,
                 allow_program_publication,
             } => {
@@ -258,6 +263,9 @@ async fn dispatch(
                         delivery_config,
                         completion_config,
                         instance_config,
+                        access_config,
+                        provider_config,
+                        allow_insecure_console_access,
                         console_dir,
                         allow_program_publication,
                     },
@@ -277,6 +285,9 @@ struct ServePaths {
     delivery_config: Option<std::path::PathBuf>,
     completion_config: Option<std::path::PathBuf>,
     instance_config: Option<std::path::PathBuf>,
+    access_config: Option<std::path::PathBuf>,
+    provider_config: Option<std::path::PathBuf>,
+    allow_insecure_console_access: bool,
     console_dir: Option<std::path::PathBuf>,
     allow_program_publication: bool,
 }
@@ -294,6 +305,9 @@ async fn prepare_and_serve(
         delivery_config,
         completion_config,
         instance_config: instance_config_path,
+        access_config,
+        provider_config,
+        allow_insecure_console_access,
         console_dir,
         allow_program_publication,
     } = paths;
@@ -306,12 +320,32 @@ async fn prepare_and_serve(
         .await
         .map_err(|error| error.to_string())?;
     let instance_config = instance::load_optional(instance_config_path).await?;
+    let verifier = access::load_optional(
+        access_config,
+        instance_config.as_ref(),
+        bind,
+        allow_insecure_console_access,
+    )
+    .await?;
+    let provider_config = provider::load_optional(
+        provider_config,
+        verifier.as_ref().map(|verifier| verifier.audience()),
+    )
+    .await?;
     // Headless starts perform the same durable binding check. Never start an
     // unbound coordinator on a previously bound database by omitting a flag.
     let instance_context = store
-        .initialize_instance(instance_config.as_ref())
+        .initialize_instance_with_access(
+            instance_config.as_ref(),
+            verifier.as_ref().map(|verifier| verifier.audience()),
+        )
         .await
         .map_err(|error| error.to_string())?;
+    if let Some(config) = &provider_config {
+        store
+            .configure_provider_operations(config)
+            .map_err(|error| error.to_string())?;
+    }
     let console_assets = match console_dir {
         Some(directory) => {
             if instance_config.is_none() {
@@ -432,13 +466,6 @@ async fn prepare_and_serve(
     if *stopped.borrow() {
         return Ok(());
     }
-    let listener = tokio::net::TcpListener::bind(bind)
-        .await
-        .map_err(|error| format!("could not bind HTTP listener: {error}"))?;
-    let address = listener.local_addr().map_err(|error| error.to_string())?;
-    let config = recovery::RecoveryConfig::default();
-    let health = Health::new(config.freshness());
-    health.prerequisites_ready();
     let store = Arc::new(store);
     let service = ApplicationService::new(store.clone(), programs.clone())
         .with_workflows(store.clone())
@@ -451,8 +478,40 @@ async fn prepare_and_serve(
         service
     };
     let service = Arc::new(service);
+    // Credential mode is indivisible: resolve the entire verified-decision,
+    // response-audit and audit-query port before opening any API listener.
+    if verifier.is_some() {
+        ledgence_orchestration_api::WorkflowService::operator_access(service.as_ref())
+            .map_err(|error| error.to_string())?;
+        ledgence_orchestration_api::WorkflowService::approved_effect_evidence(service.as_ref())
+            .map_err(|error| error.to_string())?;
+        ledgence_orchestration_api::WorkflowService::effect_evidence_reader(service.as_ref())
+            .map_err(|error| error.to_string())?;
+        ledgence_orchestration_api::WorkflowService::effect_resolution(service.as_ref())
+            .map_err(|error| error.to_string())?;
+    }
+    if provider_config.is_some() {
+        ledgence_orchestration_api::WorkflowService::provider_operations(service.as_ref())
+            .map_err(|error| error.to_string())?;
+    }
+    let listener = tokio::net::TcpListener::bind(bind)
+        .await
+        .map_err(|error| format!("could not bind HTTP listener: {error}"))?;
+    let address = listener.local_addr().map_err(|error| error.to_string())?;
+    let config = recovery::RecoveryConfig::default();
+    let health = Health::new(config.freshness());
+    health.prerequisites_ready();
     let console_services = instance_config
         .map(|config| console::services(store.clone(), programs, config, address))
+        .transpose()?;
+    let console_services = console_services
+        .map(|console| match verifier {
+            Some(verifier) => console
+                .with_access(verifier, allow_insecure_console_access)
+                .and_then(|console| console.with_operator_audit())
+                .map_err(|error| error.to_string()),
+            None => Ok(console),
+        })
         .transpose()?;
     let console_services = console_services.map(|console| match &artifact_publication {
         Some(publication) => console.with_publication(publication.clone()),
@@ -577,6 +636,17 @@ async fn prepare_and_serve(
             recovery::run(store, health.clone(), recovery_stopped, config)
                 .with_current_subscriber(),
         );
+        let provider_task = provider_config.as_ref().map(|_| {
+            health.require_providers();
+            let (stop, stopped) = watch::channel(false);
+            BackgroundTask {
+                task: tokio::spawn(
+                    provider::run(service.clone(), health.clone(), stopped)
+                        .with_current_subscriber(),
+                ),
+                stop,
+            }
+        });
         tracing::info!(%address, "orchestration HTTP listener started");
         let acquisition_service = service.clone();
         supervise(
@@ -586,6 +656,7 @@ async fn prepare_and_serve(
                 publisher,
                 workflow: workflow_task,
                 completion: completion_task,
+                provider: provider_task,
             },
             health,
             stopped,
@@ -637,6 +708,7 @@ struct BackgroundTasks {
     publisher: Option<BackgroundTask>,
     workflow: Option<BackgroundTask>,
     completion: Option<BackgroundTask>,
+    provider: Option<BackgroundTask>,
 }
 
 async fn supervise(
@@ -653,14 +725,25 @@ async fn supervise(
         mut publisher,
         mut workflow,
         mut completion,
+        mut provider,
     } = background;
     let mut http_finished = false;
     let mut scanner_finished = false;
     let mut publisher_finished = false;
     let mut workflow_finished = false;
     let mut completion_finished = false;
+    let mut provider_finished = false;
     let mut failure = tokio::select! {
         _ = stop_requested(stopped) => None,
+        finished = async {
+            match &mut provider {
+                Some(coordinator) => (&mut coordinator.task).await,
+                None => std::future::pending().await,
+            }
+        } => {
+            provider_finished = true;
+            Some(format!("provider recovery stopped unexpectedly: {finished:?}"))
+        }
         finished = &mut http => {
             http_finished = true;
             Some(format!("HTTP server stopped unexpectedly: {finished:?}"))
@@ -714,6 +797,9 @@ async fn supervise(
     if let Some(dispatcher) = &completion {
         let _ = dispatcher.stop.send(true);
     }
+    if let Some(coordinator) = &provider {
+        let _ = coordinator.stop.send(true);
+    }
     if let Some(coordinator) = &workflow {
         let _ = coordinator.stop.send(true);
     }
@@ -755,6 +841,17 @@ async fn supervise(
             Ok(Ok(())) => {}
             result => {
                 failure.get_or_insert_with(|| format!("completion drain failed: {result:?}"));
+            }
+        }
+    }
+    if let Some(coordinator) = &mut provider
+        && !provider_finished
+    {
+        match observe_drain(&mut coordinator.task, "provider recovery").await {
+            Ok(Ok(())) => {}
+            result => {
+                failure
+                    .get_or_insert_with(|| format!("provider recovery drain failed: {result:?}"));
             }
         }
     }
@@ -834,6 +931,7 @@ mod tests {
             BackgroundTasks {
                 workflow: None,
                 completion: None,
+                provider: None,
                 scanner,
                 publisher: None,
             },
@@ -887,6 +985,7 @@ mod tests {
             BackgroundTasks {
                 workflow: None,
                 completion: None,
+                provider: None,
                 scanner,
                 publisher: None,
             },
@@ -957,6 +1056,7 @@ mod publication_supervision_tests {
                 publisher,
                 workflow: None,
                 completion: None,
+                provider: None,
             },
             health,
             stopped,
@@ -1011,6 +1111,7 @@ mod publication_supervision_tests {
                     publisher,
                     workflow: None,
                     completion: None,
+                    provider: None,
                 },
                 health,
                 stopped,
@@ -1064,6 +1165,7 @@ mod completion_supervision_tests {
                         Ok(())
                     }),
                 }),
+                provider: None,
             },
             health,
             stopped,
@@ -1117,6 +1219,7 @@ mod completion_supervision_tests {
                             ))
                         }),
                     }),
+                    provider: None,
                 },
                 health,
                 stopped,
@@ -1129,6 +1232,119 @@ mod completion_supervision_tests {
                 result
                     .unwrap_err()
                     .contains("completion supervisor stopped unexpectedly")
+            );
+            assert!(observed.stopping.load(std::sync::atomic::Ordering::Acquire));
+        }
+    }
+}
+
+#[cfg(test)]
+mod provider_supervision_tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    #[tokio::test(start_paused = true)]
+    async fn provider_maintenance_retains_ownership_through_http_and_database_drain() {
+        let health = Health::new(Duration::from_secs(40));
+        let (stop, stopped) = watch::channel(false);
+        let (http_stop, mut http_stopped) = watch::channel(false);
+        let (recovery_stop, recovery_stopped) = watch::channel(false);
+        let (provider_stop, mut provider_stopped) = watch::channel(false);
+        let (finish_http, pending_http) = oneshot::channel();
+        let (finish_provider, pending_provider) = oneshot::channel();
+        let http = tokio::spawn(async move {
+            pending_http.await.unwrap();
+            Ok(())
+        });
+        let scanner = tokio::spawn(async move {
+            stop_requested(recovery_stopped).await;
+            Ok(())
+        });
+        let supervisor = tokio::spawn(supervise(
+            http,
+            BackgroundTasks {
+                scanner,
+                publisher: None,
+                workflow: None,
+                completion: None,
+                provider: Some(BackgroundTask {
+                    stop: provider_stop,
+                    task: tokio::spawn(async move {
+                        pending_provider.await.unwrap();
+                        Ok(())
+                    }),
+                }),
+            },
+            health,
+            stopped,
+            http_stop,
+            recovery_stop,
+            || {},
+        ));
+        stop.send(true).unwrap();
+        http_stopped.changed().await.unwrap();
+        assert!(!*provider_stopped.borrow());
+        finish_http.send(()).unwrap();
+        provider_stopped.changed().await.unwrap();
+        assert!(*provider_stopped.borrow());
+        tokio::time::advance(Duration::from_secs(36)).await;
+        assert!(
+            !supervisor.is_finished(),
+            "observation deadline must not abandon a database operation"
+        );
+        finish_provider.send(()).unwrap();
+        supervisor.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn provider_failure_or_panic_drains_http_and_reports_failure() {
+        for panic in [false, true] {
+            let health = Health::new(Duration::from_secs(40));
+            let observed = health.clone();
+            let (_stop, stopped) = watch::channel(false);
+            let (http_stop, http_stopped) = watch::channel(false);
+            let (recovery_stop, recovery_stopped) = watch::channel(false);
+            let (provider_stop, _provider_stopped) = watch::channel(false);
+            let http = tokio::spawn(async move {
+                stop_requested(http_stopped).await;
+                Ok(())
+            });
+            let scanner = tokio::spawn(async move {
+                stop_requested(recovery_stopped).await;
+                Ok(())
+            });
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                supervise(
+                    http,
+                    BackgroundTasks {
+                        scanner,
+                        publisher: None,
+                        workflow: None,
+                        completion: None,
+                        provider: Some(BackgroundTask {
+                            stop: provider_stop,
+                            task: tokio::spawn(async move {
+                                assert!(!panic, "controlled provider failure");
+                                Err(ledgence_orchestration_api::ContractError::InvalidInput(
+                                    "controlled provider failure".into(),
+                                ))
+                            }),
+                        }),
+                    },
+                    health,
+                    stopped,
+                    http_stop,
+                    recovery_stop,
+                    || {},
+                ),
+            )
+            .await
+            .unwrap();
+            assert!(
+                result
+                    .unwrap_err()
+                    .contains("provider recovery stopped unexpectedly")
             );
             assert!(observed.stopping.load(std::sync::atomic::Ordering::Acquire));
         }
