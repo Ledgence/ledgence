@@ -66,6 +66,8 @@ requires the Rust/Python CI and Console's dependency, component, browser and
 live-backend checks to pass on the same source. Independently on each architecture it:
 
 1. Builds an OCI archive with pinned BuildKit, SBOM generator and base images.
+   The Console build stage includes its shared SDK command fixture for type
+   checking. Only the built static assets enter the runtime image.
 2. Verifies blobs, descriptors, source/version/platform, SBOM and provenance.
 3. Copies the complete archive into an owned loopback registry without changing
    digests, then pulls that exact reference.

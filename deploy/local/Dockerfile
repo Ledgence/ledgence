@@ -7,6 +7,8 @@ COPY console/package.json console/pnpm-lock.yaml console/pnpm-workspace.yaml ./
 COPY console/patches ./patches
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY console ./
+# Type checking includes the cross-language saved-command fixture.
+COPY sdk/python-client/tests/fixtures/console-effect-resolution.json /src/sdk/python-client/tests/fixtures/console-effect-resolution.json
 COPY LICENSE /src/LICENSE
 # The full copy can give unchanged patches newer timestamps than the cached
 # install. Revalidate the final files without downloading or changing the lockfile.
