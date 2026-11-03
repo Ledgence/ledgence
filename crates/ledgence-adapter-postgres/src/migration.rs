@@ -1,4 +1,4 @@
-use crate::{MIGRATOR, PostgresStore, database_error};
+use crate::{MIGRATOR, PostgresStore, database_error, migration_effects};
 use ledgence_orchestration_api::{ContractError, Result};
 use sqlx::migrate::Migrator;
 use std::time::Duration;
@@ -83,6 +83,16 @@ impl PostgresStore {
                     tracing::error!(error = %error, "PostgreSQL migration failed");
                     ContractError::Unavailable("PostgreSQL migration failed".into())
                 });
+            let result = match result {
+                Ok(())
+                    if migrator
+                        .iter()
+                        .any(|m| m.version == migration_effects::VERSION) =>
+                {
+                    migration_effects::backfill(&mut connection).await
+                }
+                other => other,
+            };
             let closed = connection.close().await.map_err(database_error);
             result.and(closed)
         };

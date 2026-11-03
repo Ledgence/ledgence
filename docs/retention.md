@@ -110,6 +110,22 @@ execution returns `NotFound` and conveys no execution or acknowledgment authorit
 Keep broker delivery/reconciliation lifetimes within execution retention and use
 its operational dead-letter handling for records retained beyond that boundary.
 
+## Unresolved approved writes
+
+Development builds retain a workflow with an unresolved `approved_effect`
+after it becomes eligible by age. For example, cancelling a refund workflow
+after dispatch leaves its approval, attempts and journal available for
+investigation. The hold starts in the transaction that grants dispatch. A
+successful lookup and confirmation can close it on a later attempt. A generic
+workflow event cannot close it. The same policy covers an approved action
+first adopted for protected lookup after an offline upgrade.
+
+The normal terminal retention clock still runs while the hold is open. Once
+the result is durably confirmed, an already-old workflow can be collected on
+a subsequent maintenance run, subject to its other references. An unresolved
+hold can persist indefinitely. A historical approval by itself does not put
+every previously approved workflow on hold. [Upgrade procedure](postgres.md#upgrade-from-070-to-development-source)
+
 ## Storage and operations
 
 Cleanup uses identity-prefixed indexes, keyset scans, a small per-scope coordination

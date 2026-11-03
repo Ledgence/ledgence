@@ -234,5 +234,6 @@ Application JSON supports at most 64 nested containers, finite numbers, and stri
 **Development source only:** [`ctx.approved_effect(dispatch, version=..., lookup=...)`](/how-to/require-approval#protect-an-approved-write-in-development)
 binds an external write to the approved action. Once the orchestrator commits
 the dispatch grant, later attempts can only look up a receipt or replay a saved
-result. If no grant committed, a retry can still receive the first grant. Published 0.7.0
+result. Ledgence retains unresolved evidence until a callback confirms a
+receipt. If no grant committed, a retry can still receive the first grant. Published 0.7.0
 provides `approved_local` and does not implement this dispatch protection.

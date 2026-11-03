@@ -150,7 +150,7 @@ async fn require_visible(
     codec::visible(&row)?;
     Ok(())
 }
-fn decode(row: &PgRow) -> StoreResult<ApprovalSnapshot> {
+pub(super) fn decode(row: &PgRow) -> StoreResult<ApprovalSnapshot> {
     let approval: ApprovalSnapshot = codec::decode(&row.try_get::<Vec<u8>, _>("snapshot_bytes")?)?;
     approval
         .validate()

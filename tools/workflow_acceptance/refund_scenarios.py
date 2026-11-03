@@ -26,10 +26,11 @@ def parked_state(d, workflow_id, previous_key=None):
     return None
 
 
-def dispatch_grant(d, workflow_id):
+def effect_evidence(d, workflow_id):
     return json.loads(d.sql(
         "SELECT json_build_object('claimed', effect_dispatch_claimed, "
-        "'attempt_id', effect_dispatch_attempt_id) FROM workflow_approvals "
+        "'attempt_id', effect_dispatch_attempt_id, 'state', effect_evidence_state, "
+        "'confirmed_attempt_id', effect_confirmed_attempt_id) FROM workflow_approvals "
         "WHERE wait_key='refund' AND workflow_id=" + quote(workflow_id)))
 
 
@@ -83,7 +84,9 @@ async def run(d, record, records, snapshot):
                 proposal = await handles[key].approval("refund")
                 assert proposal.status == ApprovalStatus.APPROVED
                 assert proposal.resumed_activation_id == first["activation"]
-                assert dispatch_grant(d, handles[key].id) == {"claimed": True, "attempt_id": first["attempt_id"]}
+                assert effect_evidence(d, handles[key].id) == {
+                    "claimed": True, "attempt_id": first["attempt_id"], "state": "open", "confirmed_attempt_id": None,
+                }
                 assert journal(d, first["activation"]) == []
                 assert provider.census()["refunds"][0]["arguments"] == ARGUMENTS
             # Only kill our unreaped Popen child. Release the held provider replies
@@ -97,8 +100,16 @@ async def run(d, record, records, snapshot):
             await asyncio.to_thread(eventually,
                 lambda: all(not runtime_alive(row["pid"], session) for row in first_attempts.values()),
                 timeout=20, description="orphaned refund runtimes exited after the worker died")
-            replacement = d.start_worker(concurrency=2, cache="refund-replacement-cache")
+            proxy = d.proxy()
+            confirm_path = "/v1/workflows/approved-effects/confirm"
+            lost_confirmation = proxy.lose_once(confirm_path)
+            replacement = d.start_worker(server=proxy.url, concurrency=2, cache="refund-replacement-cache")
             result = await handles["refund-lookup"].result(timeout=160)
+            assert lost_confirmation.is_set(), "the first successful confirmation reply must be lost"
+            accepted, replay = proxy.commands(confirm_path)
+            assert accepted["status"] == replay["status"] == 200 and accepted["json"] == replay["json"]
+            assert json.loads(accepted["response"])["already_accepted"] is False
+            assert json.loads(replay["response"])["already_accepted"] is True
             opaque = handles["refund-opaque"]
             parked = await asyncio.to_thread(eventually, lambda: parked_state(d, opaque.id),
                                              timeout=160, description="opaque provider leaves refund pending")
@@ -119,8 +130,12 @@ async def run(d, record, records, snapshot):
                 assert first == first_attempts[key] and first["activation"] == second["activation"]
                 assert [first["attempt"], second["attempt"]] == [1, 2]
                 assert first["attempt_id"] != second["attempt_id"]
-                grant = dispatch_grant(d, handles[key].id)
-                assert grant == {"claimed": True, "attempt_id": first["attempt_id"]}, grant
+                grant = effect_evidence(d, handles[key].id)
+                assert grant == {
+                    "claimed": True, "attempt_id": first["attempt_id"],
+                    "state": "confirmed" if key == "refund-lookup" else "open",
+                    "confirmed_attempt_id": second["attempt_id"] if key == "refund-lookup" else None,
+                }, grant
                 initial = d.attempt(first["activation"], first["attempt_id"])
                 recovered = d.attempt(second["activation"], second["attempt_id"])
                 sessions = [attempt["lease"]["owner"]["worker_session_id"] for attempt in (initial, recovered)]

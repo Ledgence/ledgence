@@ -41,6 +41,7 @@ use tokio::{
 
 #[derive(Default)]
 struct Mock {
+    protected_writes_disabled: AtomicBool,
     calls: Mutex<Vec<(&'static str, Value)>>,
     replies: Mutex<HashMap<&'static str, Result<Value>>>,
     acquisition_options: Mutex<Vec<AcquireOptions>>,

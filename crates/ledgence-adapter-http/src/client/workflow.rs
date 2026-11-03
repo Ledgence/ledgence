@@ -1,6 +1,48 @@
 use super::*;
 
+impl ApprovedEffects for HttpTaskService {
+    fn claim_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectClaimCommand,
+    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let expected = command.clone();
+            self.post_validated(
+                "v1/workflows/approved-effects/claim",
+                command,
+                APPROVAL_SNAPSHOT_MAX_BYTES,
+                move |reply: &ApprovedEffectClaimReceipt| {
+                    check_approved_effect_receipt(reply.matches(&expected))
+                },
+            )
+            .await
+        })
+    }
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(async move {
+            command.validate()?;
+            let expected = command.clone();
+            self.post_validated(
+                "v1/workflows/approved-effects/confirm",
+                command,
+                APPROVED_EFFECT_CONFIRM_MAX_BYTES,
+                move |reply: &ApprovedEffectConfirmReceipt| {
+                    check_approved_effect_receipt(reply.matches(&expected))
+                },
+            )
+            .await
+        })
+    }
+}
+
 impl WorkflowService for HttpTaskService {
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        Ok(self)
+    }
     fn approval<'a>(
         &'a self,
         scope: &'a Scope,
@@ -254,22 +296,6 @@ impl WorkflowService for HttpTaskService {
                     }
                     Ok(())
                 },
-            )
-            .await
-        })
-    }
-    fn claim_approved_effect<'a>(
-        &'a self,
-        command: &'a ApprovedEffectClaimCommand,
-    ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
-        Box::pin(async move {
-            command.validate()?;
-            let expected = command.clone();
-            self.post_validated(
-                "v1/workflows/approved-effects/claim",
-                command,
-                APPROVAL_SNAPSHOT_MAX_BYTES,
-                move |reply| check_approved_effect_receipt(reply, &expected),
             )
             .await
         })

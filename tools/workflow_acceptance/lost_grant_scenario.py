@@ -4,7 +4,7 @@ import json
 
 from http_acceptance.harness import eventually
 from .refund_provider import RefundProvider
-from .refund_scenarios import ARGUMENTS, parked_state
+from .refund_scenarios import ARGUMENTS, effect_evidence, parked_state
 
 SCENARIO = "agent-refund-lost-grant"
 CLAIM = "/v1/workflows/approved-effects/claim"
@@ -45,6 +45,9 @@ async def run(d, record, snapshot):
         recovery = json.loads(retried["response"])
         assert recovery["disposition"] == "lookup_only" and recovery["workflow_id"] == handle.id, recovery
         assert recovery["activation_id"] == permit["activation_id"] and recovery["attempt_id"] != permit["attempt_id"]
+        assert effect_evidence(d, handle.id) == {
+            "claimed": True, "attempt_id": permit["attempt_id"], "state": "open", "confirmed_attempt_id": None,
+        }
         assert parked["checkpoint"] == {"state": "unknown", "effect_key": key}, parked
         census = provider.census()
         assert census == {"post_requests": 0, "lookup_requests": 1, "refunds": []}, census

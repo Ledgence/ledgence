@@ -57,7 +57,8 @@ the arguments, accepted result and worker attempt that recorded it.
 
 On `develop`, workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write):
 after a worker crash, a replacement can look up a refund without issuing it a
-second time. This requires matching development components and a database
+second time. Ledgence retains the workflow evidence while that refund remains
+unconfirmed. This requires matching development components and a database
 migration; it is not included in the 0.7.0 packages.
 
 ### Install and start Ledgence

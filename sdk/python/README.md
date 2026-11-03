@@ -193,8 +193,9 @@ mutation must not be repeated by the helper, use
 Only the first committed orchestrator grant permits the dispatch callback. If
 an attempt dies before the grant commits, a retry can still receive that first
 grant. After it commits, a retry without a saved result can only query the
-destination. Both callbacks
-receive the frozen approved arguments. Return a validated JSON receipt, or
+destination. Both callbacks receive the frozen approved arguments. Ledgence
+retains unresolved evidence even if the workflow ends. It saves the returned
+receipt and closes that retention hold together. Return a validated JSON receipt, or
 raise `EffectOutcomeUnknown` (from `ledgence.worker.workflow`) if the outcome
 is inconclusive. Disable write retries inside your own adapter and never fall back
 to `approved_local` for the same external write. See

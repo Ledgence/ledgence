@@ -2,7 +2,7 @@ use super::*;
 use sqlx::migrate::Migrator;
 
 // Each fixture has its own queue so the actor acquiring a new activation is explicit.
-async fn request(store: &PostgresStore, queue: &str) -> ApprovalDecisionCommand {
+pub(super) async fn request(store: &PostgresStore, queue: &str) -> ApprovalDecisionCommand {
     let mut submission = command();
     submission.input.queue = queue.into();
     submission.idempotency_key = queue.into();
@@ -23,7 +23,7 @@ async fn request(store: &PostgresStore, queue: &str) -> ApprovalDecisionCommand 
     decision
 }
 
-async fn resume(
+pub(super) async fn resume(
     store: &PostgresStore,
     queue: &str,
     decision: &ApprovalDecisionCommand,
@@ -32,7 +32,7 @@ async fn resume(
     activate(store, queue, decision).await
 }
 
-async fn activate(
+pub(super) async fn activate(
     store: &PostgresStore,
     queue: &str,
     decision: &ApprovalDecisionCommand,
@@ -44,6 +44,7 @@ async fn activate(
         workflow_id: decision.workflow_id.clone(),
         approval_key: decision.key.clone(),
         action: decision.action.clone(),
+        lookup: "app:lookup_send".into(),
     };
     (assignment, claim)
 }
@@ -292,3 +293,6 @@ async fn cancellation_and_lease_expiry_fence_even_the_first_claim() {
     assert_eq!(consumed, 0);
     db.finish().await;
 }
+
+#[path = "approved_effect_confirm_tests.rs"]
+mod confirmations;

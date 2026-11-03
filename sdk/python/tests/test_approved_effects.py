@@ -43,11 +43,18 @@ class EffectTests(unittest.IsolatedAsyncioTestCase):
         self.claimed = False
 
     async def authority(self, operation, request):
-        if operation == "local_step.commit":
-            self.commits.append(deepcopy(request))
+        if operation == "approved_effect.confirm":
+            self.assertEqual(set(request), {"approval_key", "lookup", "record"})
+            self.assertEqual(request["approval_key"], "refund")
+            self.assertEqual(request["lookup"], self.claims[-1]["lookup"])
+            self.assertEqual(request["record"]["input"]["lookup"], request["lookup"])
+            self.commits.append(deepcopy(request["record"]))
             return {"committed": True}
         self.assertEqual(operation, "approved_effect.claim")
-        self.assertEqual(request, {"approval_key": "refund", "action": self.approval["action"]})
+        self.assertEqual(set(request), {"approval_key", "action", "lookup"})
+        self.assertEqual(request["approval_key"], "refund")
+        self.assertEqual(request["action"], self.approval["action"])
+        self.assertNotEqual(request["lookup"], request["action"]["name"])
         self.claims.append(deepcopy(request))
         disposition = "lookup_only" if self.claimed else "dispatch"
         self.claimed = True
@@ -82,8 +89,36 @@ class EffectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.provider.posts, [(50, "USD")])
         self.assertEqual(self.provider.lookups, [])
 
+    async def test_replay_accepts_other_json_encoders_and_rejects_changed_actions(self):
+        await self.effect(self.activation())
+        saved = self.commits[0]["input"]
+        action = self.approval["action"]
+        reordered = json.dumps({key: action[key] for key in ("name", "version", "arguments")}, indent=2)
+        self.assertNotEqual(saved["action_json"], reordered)
+        saved["action_json"] = reordered
+        self.assertEqual(await self.effect(self.activation(replay=True)), {"receipt": "r1"})
+        for text in (reordered.replace('"amount": 50', '"amount": 50.0'),
+                     reordered.replace('"amount": 50', '"amount": 70, "amount": 50')):
+            saved["action_json"] = text
+            with self.assertRaises(WorkflowError):
+                await self.effect(self.activation(replay=True))
+        self.assertEqual((len(self.provider.posts), len(self.provider.lookups), len(self.claims)), (1, 0, 1))
+
+    async def test_replayed_negative_zero_preserves_its_sign(self):
+        action = ApprovalAction.for_callable(self.provider.issue, version="1", arguments={"amount": -0.0})
+        self.approval = snapshot(action=action.to_dict())
+        await self.effect(self.activation())
+        saved = self.commits[0]["input"]
+        canonical = saved["action_json"]
+        self.assertIn('"amount":-0.0', canonical)
+        saved["action_json"] = canonical.replace('"amount":-0.0', '"amount":-0')
+        self.assertEqual(await self.effect(self.activation(replay=True)), {"receipt": "r1"})
+        saved["action_json"] = canonical.replace('"amount":-0.0', '"amount":0.0')
+        with self.assertRaises(WorkflowError):
+            await self.effect(self.activation(replay=True))
+
     async def test_lost_grant_or_result_ack_never_dispatches_twice(self):
-        for lost in ("approved_effect.claim", "local_step.commit"):
+        for lost in ("approved_effect.claim", "approved_effect.confirm"):
             with self.subTest(lost=lost):
                 self.setup_authority()
                 async def lose_reply(operation, request):
@@ -135,12 +170,14 @@ class EffectTests(unittest.IsolatedAsyncioTestCase):
         altered["arguments"]["amount"] = 50.0
         for field, value in (("workflow_id", "other"), ("activation_id", "other"), ("approval_key", "other"),
                              ("disposition", True), ("disposition", "grant"), ("action", altered),
-                             ("extra", False), ("missing", None)):
+                             ("lookup", "other"), ("extra", False), ("missing", None), ("old_backend", None)):
             with self.subTest(field=field):
                 async def invalid(operation, request):
                     response = await self.authority(operation, request)
                     if field == "missing":
                         del response["action"]
+                    elif field == "old_backend":
+                        del response["lookup"]
                     else:
                         response[field] = value
                     return response
