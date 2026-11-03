@@ -1,7 +1,7 @@
 # Retained external-effect evidence
 
-This capability is available in matching development components. The published
-0.7.0 packages retain their existing execution contract.
+Available in Ledgence 0.8.0 with matching components and the required database
+migrations. Existing ordinary programs retain their execution contract.
 
 An approved external write can outlive its worker, workflow or execution-history
 retention period. Ledgence keeps the approved occurrence, its program binding,
@@ -12,7 +12,7 @@ results were reported.
 ## Enable authenticated evidence
 
 Stop the old workers and API replicas, back up PostgreSQL and run `ledgence
-orchestrator migrate` using the configured database. Start matching development
+orchestrator migrate` using the configured database. Start matching 0.8.0
 components with [instance access](instance-access.md) configured. The native
 server requires the complete evidence, reader and operator-audit capabilities.
 
@@ -200,7 +200,7 @@ be semantically contradicted by interpreting arbitrary report contents.
 
 ## Park without occupying a worker
 
-A matching development workflow returns
+A matching 0.8.0 workflow returns
 `ctx.wait_effect_resolution(key, resume=Entry.REVIEW, state=...)` after catching
 `EffectOutcomeUnknown`. It checkpoints the state and drains owned calls through
 the normal runtime lifecycle. Once parked, no worker process or open request
@@ -297,7 +297,9 @@ python3.13 tools/check-effect-resolution.py \
 ```
 
 
-## Typed provider evidence in development
+<span id="typed-provider-evidence-in-development"></span>
+
+## Typed provider evidence
 
 Provider-protected operations share this Effects inbox, sensitive inspection,
 operator assessment and audit contract. Their optional `provider` summary adds

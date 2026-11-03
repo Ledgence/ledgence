@@ -3,7 +3,7 @@ title: Connect an MCP client
 description: Discover programs, submit work, and inspect durable executions through the optional Ledgence MCP server.
 ---
 
-Ledgence 0.7.0 includes the optional MCP server in its native bundles and default
+Ledgence 0.8.0 includes the optional MCP server in its native bundles and default
 CLI build. The server connects to your existing Ledgence HTTP API; it does not
 start infrastructure or require an AI framework.
 
@@ -77,28 +77,33 @@ human approval interface or CLI; the MCP server cannot approve its own work.
 Tool outputs are bounded to 2 MiB without truncation; larger results remain
 available through the HTTP API. This version provides stdio tools, not Streamable
 HTTP, model sampling, prompts/resources, package uploads, or MCP Tasks-extension
-state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/mcp.md)
+state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/mcp.md)
 for limits, error semantics, verification and architecture.
 
-Ledgence 0.7.0 exposes `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
+Ledgence 0.8.0 exposes `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
 
-## Instance access in development
+<span id="instance-access-in-development"></span>
 
-Use scoped credentials with matching development components. The
+## Instance access
+
+Use scoped credentials with matching 0.8.0 components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
 
 
-## Operator audit in development
+<span id="operator-audit-in-development"></span>
+
+## Operator audit
 
 Matching builds add `ledgence_audit_query` as a read-only tool. It uses the fixed instance scope and service credential, requiring `metadata_read` with native credential mode.
 [Setup, queries and operating limits](/how-to/audit-operators).
 
-## Retained effect tools in development
+<span id="retained-effect-tools-in-development"></span>
 
-Matching development components add two read-only tools, bringing the native
-catalog with audit configured to 19 tools. These additions are not in published
-0.7.0. Both are available with `--read-only`; the startup scope and credential
+## Retained effect tools
+
+Matching 0.8.0 components add two read-only tools, bringing the native
+catalog with audit configured to 19 tools. Both are available with `--read-only`; the startup scope and credential
 remain fixed. Tool arguments cannot override scope, identity or credentials.
 
 | Tool | Arguments and access |
@@ -119,7 +124,9 @@ cannot approve, resolve or dispatch an action. See the [effect evidence
 contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md) for retention and evidence interpretation.
 
 
-## Operator effect resolution in development
+<span id="operator-effect-resolution-in-development"></span>
+
+## Operator effect resolution
 
 Enable the mutation tool explicitly when starting the native server:
 
@@ -129,9 +136,9 @@ ledgence mcp serve --server http://127.0.0.1:8080 \
   --allow-effect-resolution
 ```
 
-`--read-only` and `--allow-effect-resolution` cannot be combined. Matching development
+`--read-only` and `--allow-effect-resolution` cannot be combined. Matching 0.8.0
 builds expose 19 tools by default with audit configured, 14 in read-only mode, or
-20 with resolution enabled. Published 0.7.0 does not include these effect tools.
+20 with resolution enabled.
 The added `ledgence_effect_resolve` also requires the credential's dedicated
 `effect_resolve` capability. Fixed scope and credentials cannot be supplied or
 overridden through tool arguments. Worker credentials cannot resolve effects.
@@ -168,7 +175,7 @@ empty response means absence; denied or unavailable reads remain errors.
 
 ## Inspect provider recovery
 
-Matching development MCP and API builds reuse `ledgence_effect_inbox` and
+Matching 0.8.0 MCP and API builds reuse `ledgence_effect_inbox` and
 `ledgence_effect_inspect`. Set `provider_filter` to `needs_review` to find
 operations needing review; leave ordinary `filter` as `all` or omit it. Other
 provider filters are `all`, `pending`, `succeeded`, `failed`, `cancelled` and
@@ -178,5 +185,4 @@ Inspection requires `sensitive_read` and durable audit. Provider reports and
 check scheduling are typed evidence, not a promise that task success equals
 external success. Platform u64 fields, including probe generations and program
 sizes, are decimal strings; application JSON remains unchanged. The tool count
-and explicit effect-resolution opt-in are unchanged. Published 0.7.0 does not
-include these additions. [Recover provider operations](/how-to/recover-provider-operations).
+and explicit effect-resolution opt-in are unchanged. [Recover provider operations](/how-to/recover-provider-operations).

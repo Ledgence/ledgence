@@ -9,14 +9,15 @@ success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
-## Upgrade from 0.7.0 to development source
+<span id="upgrade-from-070-to-development-source"></span>
 
-The [0.8.0 candidate upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-8.md)
-provides the maintenance sequence. Public release availability remains 0.7.0
-until the candidate and its distributions are verified.
+## Upgrade from 0.7.0 to 0.8.0
+
+The [0.8.0 upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-8.md)
+provides the maintenance sequence for the verified release.
 
 Stop all writers, back up the database and program store, run
-`ledgence orchestrator migrate`, and start matching development server and
+`ledgence orchestrator migrate`, and start matching 0.8.0 server and
 worker builds. Migration `20261102020000_approved_effect_claim.sql` marks
 previously approved actions as **lookup-only**: an older worker may have
 issued the write without recording a grant. An approval still pending at
@@ -81,7 +82,7 @@ workflow, migration identifies the affected workflow and stops. Restore a
 backup from before retirement to recover that evidence. Previously deleted
 records cannot be reconstructed by migration.
 
-From the candidate’s development checkout, set `LEDGENCE_POSTGRES_URL` to a
+From the 0.8.0 source checkout, set `LEDGENCE_POSTGRES_URL` to a
 disposable PostgreSQL 18 server where the test can create and drop a database.
 Build the candidate CLI and Console assets first. Use a new evidence directory:
 

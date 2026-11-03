@@ -20,8 +20,8 @@ pnpm --dir console contracts:check
 All `/v1/console/*` responses identify the fixed instance with
 `Ledgence-Instance-Id` and `Ledgence-Console-Contract: 7`. The browser rejects
 responses that disagree with the configuration used for its query keys.
-Queries and commands reject unknown and duplicate fields. The internal binding
-is never selected by a Console request or exposed in its response DTOs.
+Queries and commands reject unknown and duplicate fields. The server binds requests to its configured instance and scope. Responses
+include authoritative identity where their contract requires it.
 
 New revisions, sequences and unsigned metadata counters are canonical decimal
 strings. Timestamps are UTC epoch milliseconds within the existing four-digit
@@ -47,7 +47,7 @@ strings and argument JSON is preserved losslessly. Graph wait kinds include
 approval database migration before starting matching components. See
 [the approval contract](../../../docs/workflow-approvals.md).
 
-Ledgence 0.7.0 includes the additive `POST /v1/console/approvals/inbox`
+Since Ledgence 0.7.0, Console includes the additive `POST /v1/console/approvals/inbox`
 read route. It accepts an optional status, exact program ID and cursor, plus a
 page limit. The fixed instance scope governs which workflows are visible.
 Summary rows omit application arguments. Their workflow ID and key identify
@@ -60,7 +60,9 @@ Matching components also support an optional exclusive `due_before`
 `GET /v1/console/workflows/local-steps/inspect` detail read. Both are additive.
 [Local-step response and errors](../../../docs/console-query-model.md#inspect-one-local-step).
 
-## Native effect resolution in development
+<span id="native-effect-resolution-in-development"></span>
+
+## Native effect resolution
 
 C6 introduced native effect waits, which use their parking
 activation identity, with explicit registration and resumption edges. The
@@ -68,7 +70,7 @@ original effect activation remains a navigation reference. Assessment outcomes
 include recorded success, recorded failure, closed unknown and disputed. Sensitive
 results and reasons are available through audited effect inspection.
 
-The current development contract is C7. It adds required, nullable `provider_wait`
+Ledgence 0.8.0 uses Console contract C7. It adds required, nullable `provider_wait`
 to workflow detail and wait records, and `provider_probe` to task detail/status
 and execution-history rows (null for workflows).
 Provider wait nodes link their parking entrypoint to the one actually scheduled

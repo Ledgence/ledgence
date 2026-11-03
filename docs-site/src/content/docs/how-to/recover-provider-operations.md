@@ -3,8 +3,8 @@ title: Recover an asynchronous provider operation
 description: Approve a frozen provider request, dispatch once and release the worker between bounded status checks.
 ---
 
-Available in matching development components. Published 0.7.0 packages retain
-their existing contract.
+Available in Ledgence 0.8.0 with matching components, credentials and an explicit
+provider policy.
 
 An export service might accept a request immediately and produce its file minutes
 later. If the response is lost, sending the request again may create another

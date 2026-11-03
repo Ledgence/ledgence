@@ -3,8 +3,7 @@ title: Inspect and resolve external effects
 description: Inspect approved writes, review retained evidence and resume a parked workflow from an operator assessment.
 ---
 
-Available in matching development components. The published 0.7.0 packages keep
-their existing execution contract.
+Available in Ledgence 0.8.0 with matching components and the required migrations.
 
 When a worker disappears during an external write, start with its retained
 evidence. The inbox identifies the approved occurrence. Inspection shows the
@@ -74,7 +73,7 @@ access checks. Metadata inbox queries also work in operator-trusted deployments.
 Sensitive inspection requires credential mode and durable audit.
 [Python client](/reference/python-client) · [MCP setup](/how-to/connect-mcp).
 
-The evidence ledger has no automatic expiry in this development capability.
+The evidence ledger has no automatic expiry in this capability.
 Include it in storage planning and database backups. See the source contract
 for migration and callback details.
 [Retained evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).

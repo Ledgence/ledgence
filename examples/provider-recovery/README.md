@@ -9,8 +9,8 @@ There is no model, API key, cloud account, or external provider call. The servic
 writes a CSV artifact and a separate append-only request/effect log, so its side
 effects can be compared with Ledgence's retained evidence.
 
-Use matching development CLI, API, worker and Python packages
-from this checkout. Published 0.7.0 does not support provider operations.
+Use matching Ledgence 0.8.0 CLI, API, worker and Python packages. Run the
+source example from the corresponding `v0.8.0` checkout.
 
 ```mermaid
 sequenceDiagram
@@ -122,7 +122,7 @@ See [Amazon SQS delivery semantics](https://docs.aws.amazon.com/AWSSimpleQueueSe
 
 ## Submit from your own client
 
-For an existing development installation, enable its explicit provider policy
+For an existing installation, enable its explicit provider policy
 and configure a dedicated check queue with matching workers. See the
 [provider recovery guide](../../docs-site/src/content/docs/how-to/recover-provider-operations.md).
 Prepare and publish this workflow for the worker's actual platform using

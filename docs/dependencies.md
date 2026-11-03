@@ -88,7 +88,7 @@ The policy checks all workspace roots, enabled features, and normal, build, deve
 
 ### Runtime and cryptographic maintenance
 
-The development lockfile selects `ctutils 0.4.4` and `tokio 1.53.3` to address
+The 0.8.0 lockfile selects `ctutils 0.4.4` and `tokio 1.53.3` to address
 [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385.html) and
 [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html).
 `ctutils` reaches the platform through the existing RustCrypto digest graph used
