@@ -307,3 +307,192 @@ async fn ordinary_approved_local_result_excludes_a_later_protected_dispatch() {
     assert_eq!(state(&db, &claim).await, (None, None, 1));
     db.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn typed_protection_rejects_downgrade_and_plain_journal_before_a_grant() {
+    let db = TestDb::new().await;
+    let decision = request_with_protection(
+        &db.store,
+        "typed-effect",
+        "approve-send",
+        ApprovalProtection::ExternalEffect,
+    )
+    .await;
+    let mut downgraded = decision.clone();
+    downgraded.protection = ApprovalProtection::Unspecified;
+    assert!(matches!(
+        db.store.decide_approval(&downgraded).await,
+        Err(ContractError::Conflict)
+    ));
+    let pending = db
+        .store
+        .approval(&scope(), &decision.workflow_id, &decision.key)
+        .await
+        .unwrap();
+    assert_eq!(pending.protection, ApprovalProtection::ExternalEffect);
+    assert_eq!(pending.status, ApprovalStatus::Pending);
+    assert!(pending.resumed_activation_id.is_none());
+
+    let (worker, claim) = resume(&db.store, "typed-effect", &decision).await;
+    dispatched(&db.store, &worker).await;
+    let confirmation = confirmation(&claim);
+    // approved_local sends the approved arguments without any protected marker.
+    // The stored request must reject that record even before dispatch is claimed.
+    let mut plain = generic(&confirmation);
+    plain.record.input = decision.action.arguments.clone();
+    assert!(plain.record.input.get("action_json").is_none());
+    assert!(matches!(
+        db.store.record_local_result(&plain).await,
+        Err(ContractError::Conflict)
+    ));
+    assert_eq!(state(&db, &claim).await, (None, None, 0));
+    // The protection applies to this approved occurrence; ordinary internal
+    // work in the same activation still uses its normal journal contract.
+    let internal = local(&worker, "prepare-audit-note");
+    assert!(
+        !db.store
+            .record_local_result(&internal)
+            .await
+            .unwrap()
+            .already_accepted
+    );
+
+    assert_eq!(
+        db.store
+            .claim_approved_effect(&claim)
+            .await
+            .unwrap()
+            .disposition,
+        ApprovedEffectDisposition::Dispatch
+    );
+    assert!(
+        !db.store
+            .confirm_approved_effect(&confirmation)
+            .await
+            .unwrap()
+            .already_accepted
+    );
+    assert!(
+        db.store
+            .confirm_approved_effect(&confirmation)
+            .await
+            .unwrap()
+            .already_accepted
+    );
+    assert_eq!(
+        state(&db, &claim).await,
+        (
+            Some("confirmed".into()),
+            Some(claim.owner.attempt_id.clone()),
+            1
+        )
+    );
+    let context = db.store.activation_context(&claim.owner).await.unwrap();
+    let Some(WorkflowWake::Approval { approval }) = context.wake else {
+        panic!("protected approval wake expected");
+    };
+    assert_eq!(approval.protection, ApprovalProtection::ExternalEffect);
+    assert!(
+        context
+            .local_steps
+            .iter()
+            .any(|record| record.matches(&confirmation.record).unwrap())
+    );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn decision_cannot_reclassify_an_existing_generic_approval() {
+    let db = TestDb::new().await;
+    let decision = request(&db.store, "generic-existing").await;
+    let mut changed = decision.clone();
+    changed.protection = ApprovalProtection::ExternalEffect;
+    assert!(matches!(
+        db.store.decide_approval(&changed).await,
+        Err(ContractError::Conflict)
+    ));
+    let accepted = db.store.decide_approval(&decision).await.unwrap();
+    assert_eq!(
+        accepted.approval.protection,
+        ApprovalProtection::Unspecified
+    );
+    assert!(!accepted.already_accepted);
+    assert!(
+        db.store
+            .decide_approval(&decision)
+            .await
+            .unwrap()
+            .already_accepted
+    );
+    let (stored,): (Vec<u8>,) = sqlx::query_as(
+        "SELECT decision_bytes FROM workflow_approvals WHERE workflow_id=$1 AND wait_key=$2",
+    )
+    .bind(&decision.workflow_id)
+    .bind(&decision.key)
+    .fetch_one(&db.store.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, codec::encode(&decision).unwrap());
+    assert!(
+        !serde_json::from_slice::<Value>(&stored)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("protection")
+    );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn protected_occurrence_keeps_literal_unicode_escape_text_in_its_key() {
+    let db = TestDb::new().await;
+    let decision = request_with_protection(
+        &db.store,
+        "literal-key",
+        r"approve\u0000send",
+        ApprovalProtection::ExternalEffect,
+    )
+    .await;
+    let (worker, _) = resume(&db.store, "literal-key", &decision).await;
+    dispatched(&db.store, &worker).await;
+    let context_bytes: Vec<u8> =
+        sqlx::query_scalar("SELECT context_bytes FROM workflow_activations WHERE activation_id=$1")
+            .bind(&worker.lease.owner.task_id)
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    let saved: Value = serde_json::from_slice(&context_bytes).unwrap();
+    assert_eq!(
+        saved["wake"]["approval"]["key"],
+        json!(r"approve\u0000send")
+    );
+    assert_eq!(
+        saved["wake"]["approval"]["action"]["arguments"]["note"],
+        json!("a\u{0000}b")
+    );
+    let record = LocalResultCommand {
+        owner: worker.lease.owner.clone(),
+        record: LocalStepRecord {
+            key: "_approval:28d9fc6d9913005b31de9e24b7277b302edf3565834c93c5a30604bb57962cfd"
+                .into(),
+            callable: decision.action.name.clone(),
+            input: decision.action.arguments,
+            output: json!({"receipt": "unprotected"}),
+        },
+    };
+    assert!(matches!(
+        db.store.record_local_result(&record).await,
+        Err(ContractError::Conflict)
+    ));
+    let after: Vec<u8> =
+        sqlx::query_scalar("SELECT context_bytes FROM workflow_activations WHERE activation_id=$1")
+            .bind(&worker.lease.owner.task_id)
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(after, context_bytes);
+    db.finish().await;
+}

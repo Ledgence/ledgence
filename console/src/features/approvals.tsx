@@ -122,6 +122,9 @@ function ActionDetails({ approval }: { approval: Approval }) {
       <Fields>
         <Field label="Tool / action">{approval.action.name}</Field>
         <Field label="Version">{approval.action.version}</Field>
+        {approval.protection === "external_effect" && (
+          <Field label="Execution">Protected external write</Field>
+        )}
       </Fields>
       <h4>Effective arguments</h4>
       <JsonView
@@ -210,6 +213,7 @@ export function ApprovalCard({
       activation_id: current.activation_id,
       revision: current.revision,
       action: current.action,
+      ...(current.protection ? { protection: current.protection } : {}),
       decision_id: crypto.randomUUID(),
       decision: choice,
       reviewer: attribution,

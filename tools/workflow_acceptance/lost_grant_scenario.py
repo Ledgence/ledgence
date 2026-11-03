@@ -11,7 +11,7 @@ CLAIM = "/v1/workflows/approved-effects/claim"
 
 
 async def run(d, record, snapshot):
-    from ledgence.client import AsyncClient, RetryPolicy
+    from ledgence.client import AsyncClient, ApprovalProtection, RetryPolicy
 
     key = "refund-lost-grant"
     with RefundProvider(d.directory / (key + "-provider.jsonl"), cooperative=True) as provider:
@@ -30,6 +30,7 @@ async def run(d, record, snapshot):
             await asyncio.to_thread(eventually, lambda: snapshot(d, handle.id)["state"] == "waiting",
                                     timeout=130, description="refund waits for approval")
             proposal = await handle.approval("refund")
+            assert proposal.protection == ApprovalProtection.EXTERNAL_EFFECT
             await handle.decide_approval(handle.prepare_approval_decision(
                 proposal, decision_id="approve-" + key, decision="approve", reviewer="fixture-operator",
             ))

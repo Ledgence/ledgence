@@ -483,6 +483,15 @@ status between discovery and inspection.
 `approval.proposed_arguments` for optional original input. These views return
 independent JSON copies and expose typed `ApprovalStatus` values.
 
+On the development branch, requests created with the worker's
+`ctx.request_effect_approval(...)` expose
+`approval.protection is ApprovalProtection.EXTERNAL_EFFECT`. The prepared
+decision preserves this protection, and receipt validation rejects a changed
+or missing marker. Import `ApprovalProtection` from `ledgence.client`. Generic
+and historical requests have `protection is None`, and their saved commands
+omit the field. Use matching client, CLI and worker versions for protected
+requests. The 0.7.0 client predates this optional response field.
+
 ```python
 from ledgence.client import ApprovalStatus, ApprovalDecisionUncertain
 
@@ -497,7 +506,8 @@ if approval.status is ApprovalStatus.PENDING:
 ```
 
 Choose `approve` or `reject` only after reviewing the exact stored action. The
-command binds its scope, workflow, request activation/revision, and full action.
+command binds its scope, workflow, request activation/revision, full action,
+and any requested external-effect protection.
 `reviewer` is claimed attribution; deployment authentication and authorization
 must establish the actual approver. No pending request is created by deciding.
 

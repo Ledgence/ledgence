@@ -11,6 +11,7 @@ fn proposal() -> ApprovalSnapshot {
             version: "1".into(),
             arguments: json!({"amount": 50, "values": [1,1.0,-0.0,18446744073709551615u64]}),
         },
+        protection: ApprovalProtection::Unspecified,
         proposed_arguments: Some(json!({"amount":100})),
         created_at: 10,
         deadline: 1000,
@@ -28,6 +29,7 @@ fn command() -> ApprovalDecisionCommand {
         activation_id: p.activation_id,
         revision: p.revision,
         action: p.action,
+        protection: p.protection,
         decision_id: "decision:1".into(),
         decision: ApprovalDecision::Approve,
         reviewer: "operator".into(),
@@ -114,6 +116,7 @@ async fn altered_receipts_are_uncertain_on_server_and_client_boundaries() {
         "activation",
         "revision",
         "action",
+        "protection",
         "decision",
         "reviewer",
         "reason",
@@ -126,6 +129,7 @@ async fn altered_receipts_are_uncertain_on_server_and_client_boundaries() {
             "activation" => wrong.approval.activation_id = "other".into(),
             "revision" => wrong.approval.revision = 1,
             "action" => wrong.approval.action.arguments["amount"] = json!(50.0),
+            "protection" => wrong.approval.protection = ApprovalProtection::ExternalEffect,
             "decision" => wrong.approval.decision.as_mut().unwrap().decision_id = "other".into(),
             "reviewer" => wrong.approval.decision.as_mut().unwrap().reviewer = "other".into(),
             _ => wrong.approval.decision.as_mut().unwrap().reason = None,
@@ -160,7 +164,7 @@ async fn altered_receipts_are_uncertain_on_server_and_client_boundaries() {
             "{field}"
         );
     }
-    assert_eq!(mock.calls.lock().unwrap().len(), 9);
+    assert_eq!(mock.calls.lock().unwrap().len(), 10);
 }
 #[tokio::test]
 async fn reads_reject_wrong_identity_and_pagination() {
@@ -451,4 +455,110 @@ async fn approval_inbox_roundtrips_compact_metadata_and_rejects_invalid_adapter_
         .unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
     assert_eq!(mock.calls.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn protected_approval_reads_and_decisions_preserve_marker_on_both_routes() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(super::super::console::Queries::default());
+    let running = super::super::console::setup(&mock, &queries).await;
+    let client = reqwest::Client::new();
+    for protection in [
+        ApprovalProtection::Unspecified,
+        ApprovalProtection::ExternalEffect,
+    ] {
+        let mut approval = proposal();
+        approval.protection = protection;
+        let mut accepted = receipt();
+        accepted.approval.protection = protection;
+        mock.set("approval", Ok(approval.clone()));
+        mock.set(
+            "approvals",
+            Ok(ApprovalPage {
+                items: vec![approval],
+                next_cursor: None,
+            }),
+        );
+        mock.set("decide_approval", Ok(accepted));
+        let mut decision = command();
+        decision.protection = protection;
+        let expected = serde_json::to_value(&decision).unwrap();
+        for console in [false, true] {
+            let route = if console { "console" } else { "workflows" };
+            let mut reference =
+                json!({"scope":scope(),"workflow_id":proposal().workflow_id,"key":proposal().key});
+            if console {
+                reference.as_object_mut().unwrap().remove("scope");
+            }
+            let mut listing = reference.clone();
+            listing.as_object_mut().unwrap().remove("key");
+            listing["after_key"] = Value::Null;
+            listing["limit"] = json!(1);
+            let mut body = expected.clone();
+            if console {
+                body.as_object_mut().unwrap().remove("scope");
+                body["revision"] = json!(u64::MAX.to_string());
+            }
+            for (operation, request) in
+                [("inspect", reference), ("list", listing), ("decide", body)]
+            {
+                let response = client
+                    .post(format!("{}/v1/{route}/approvals/{operation}", running.url))
+                    .header("content-type", "application/json")
+                    .body(request.to_string())
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), 200, "{route}/{operation}");
+                let result: Value =
+                    serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+                let snapshot = match operation {
+                    "list" => &result["items"][0],
+                    "decide" => &result["approval"],
+                    _ => &result,
+                };
+                assert_eq!(
+                    snapshot.get("protection"),
+                    expected.get("protection"),
+                    "{route}/{operation}"
+                );
+                if operation == "decide" {
+                    assert_eq!(mock.calls.lock().unwrap().last().unwrap().1, expected);
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn invalid_protection_is_rejected_before_service_on_both_routes() {
+    let mock = Arc::new(Mock::default());
+    let queries = Arc::new(super::super::console::Queries::default());
+    let running = super::super::console::setup(&mock, &queries).await;
+    let client = reqwest::Client::new();
+    for console in [false, true] {
+        for protection in [
+            Value::Null,
+            json!("unspecified"),
+            json!("local"),
+            json!(true),
+        ] {
+            let mut body = serde_json::to_value(command()).unwrap();
+            body["protection"] = protection;
+            if console {
+                body.as_object_mut().unwrap().remove("scope");
+                body["revision"] = json!(u64::MAX.to_string());
+            }
+            let route = if console { "console" } else { "workflows" };
+            let response = client
+                .post(format!("{}/v1/{route}/approvals/decide", running.url))
+                .header("content-type", "application/json")
+                .body(body.to_string())
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 400, "{route}");
+        }
+    }
+    assert!(mock.calls.lock().unwrap().is_empty());
 }

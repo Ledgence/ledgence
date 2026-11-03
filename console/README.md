@@ -264,6 +264,12 @@ waits deep in a long workflow. Select **View workflow from start** to see the
 original first page. The inbox uses the instance's existing access boundary and
 decision contract.
 
+On the development branch, approval details label requests created through
+`request_effect_approval` as **Protected external write**. The submitted
+decision and any retry preserve this requirement. Receipt validation rejects
+a changed protection marker. Use Console assets from the same build as the
+orchestrator for this extended contract.
+
 ### Inspect a durable operation
 
 In a workflow's **Graph** or **Trace**, select a local step with an accepted

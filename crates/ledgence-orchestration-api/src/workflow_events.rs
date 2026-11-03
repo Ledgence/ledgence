@@ -119,6 +119,8 @@ pub enum WorkflowWait {
     Approval {
         key: String,
         action: ApprovalAction,
+        #[serde(default, skip_serializing_if = "ApprovalProtection::is_unspecified")]
+        protection: ApprovalProtection,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         proposed_arguments: Option<Value>,
         timeout_ms: u64,

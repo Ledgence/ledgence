@@ -231,7 +231,11 @@ Application JSON supports at most 64 nested containers, finite numbers, and stri
 
 **Additional contracts:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.7.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.7.0/sdk/python/ledgence/worker/workflow.py)
 
-**Development source only:** [`ctx.approved_effect(dispatch, version=..., lookup=...)`](/how-to/require-approval#protect-an-approved-write-in-development)
+**Development source only.** `ctx.request_effect_approval` accepts the same
+parameters as `request_approval` and records a protected execution contract.
+Its saved `ApprovalProtection.EXTERNAL_EFFECT` rejects `approved_local` before
+execution or cached replay. The backend enforces it for generic journal writes.
+Use [`ctx.approved_effect(dispatch, version=..., lookup=...)`](/how-to/require-approval#protect-an-approved-write-in-development)
 binds an external write to the approved action. Once the orchestrator commits
 the dispatch grant, later attempts can only look up a receipt or replay a saved
 result. Ledgence retains unresolved evidence until a callback confirms a

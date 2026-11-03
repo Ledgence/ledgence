@@ -235,6 +235,7 @@ mod tests {
             continuation: "after_review".into(),
             commands: vec![],
             wait: WorkflowWait::Approval {
+                protection: ApprovalProtection::Unspecified,
                 key: "send".into(),
                 action: ApprovalAction {
                     name: "app:send".into(),

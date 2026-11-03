@@ -303,6 +303,7 @@ async fn populated_020_upgrade_preserves_state_resumes_waits_and_enables_approva
             wait: WorkflowWait::Approval {
                 key: "review".into(),
                 action: action.clone(),
+                protection: ApprovalProtection::Unspecified,
                 proposed_arguments: None,
                 timeout_ms: 60_000,
             },
@@ -323,6 +324,7 @@ async fn populated_020_upgrade_preserves_state_resumes_waits_and_enables_approva
         activation_id: resumed.lease.owner.task_id.clone(),
         revision: 1,
         action,
+        protection: ApprovalProtection::Unspecified,
         decision_id: "upgrade-review".into(),
         decision: ApprovalDecision::Approve,
         reviewer: "release-test".into(),

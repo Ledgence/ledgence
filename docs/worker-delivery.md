@@ -109,6 +109,11 @@ user data cannot choose that authority. Lost acknowledgments retry the identical
 record while authority remains live. A returned controller decision uses the
 existing settlement and cleanup path.
 
+Development workflows can declare `protection: "external_effect"` in their
+approval request. The helper rejects `approved_local` for that saved request,
+and the store checks the persisted wake before accepting any reserved ordinary
+local-result commit. This check applies before the first dispatch grant.
+
 Development workers also handle `approved_effect.claim` for an approved
 workflow continuation. Unlike a local-result commit, the worker sends a claim
 once; replaying a previously committed grant would permit a second write. It

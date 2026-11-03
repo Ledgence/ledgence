@@ -187,9 +187,15 @@ for its behavior and external authorization. Approval does not make an external
 effect exactly once: an effect can succeed before its durable local result is
 acknowledged, so use external idempotency keys or reconciliation as needed.
 
-**Development source: approved external writes.** For an approved action whose
-mutation must not be repeated by the helper, use
+**Development source.** Request a protected external write with
+`ctx.request_effect_approval`, using the same parameters as `request_approval`.
+In its approved continuation, execute
 `await ctx.approved_effect(dispatch, version="1", lookup=read_receipt)`.
+The saved `protection: "external_effect"` contract rejects `approved_local`
+before execution or cached replay and rejects generic journal commits for that
+occurrence. `ctx.approval.protection` exposes
+`ApprovalProtection.EXTERNAL_EFFECT`. Untagged existing requests keep their
+original behavior. Use matching development components to review the new request.
 Only the first committed orchestrator grant permits the dispatch callback. If
 an attempt dies before the grant commits, a retry can still receive that first
 grant. After it commits, a retry without a saved result can only query the

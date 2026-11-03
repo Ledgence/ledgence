@@ -501,9 +501,19 @@ fn approval_command() -> Value {
 }
 #[tokio::test]
 async fn approval_decision_file_is_sent_once_and_can_be_replayed_after_lost_response() {
+    assert_approval_decision_file_retry(approval_command()).await;
+}
+
+#[tokio::test]
+async fn protected_approval_decision_file_keeps_protection_after_lost_response() {
+    let mut command = approval_command();
+    command["protection"] = json!("external_effect");
+    assert_approval_decision_file_retry(command).await;
+}
+
+async fn assert_approval_decision_file_retry(command: Value) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("decision.json");
-    let command = approval_command();
     std::fs::write(&path, serde_json::to_vec(&command).unwrap()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let server = format!("http://{}", listener.local_addr().unwrap());
@@ -563,6 +573,11 @@ async fn approval_decision_file_is_sent_once_and_can_be_replayed_after_lost_resp
     assert_eq!(
         serde_json::from_slice::<Value>(&replay.stdout).unwrap()["already_accepted"],
         true
+    );
+    let result: Value = serde_json::from_slice(&replay.stdout).unwrap();
+    assert_eq!(
+        result["approval"].get("protection"),
+        command.get("protection")
     );
     exchange.await.unwrap();
 }

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import test_workflows
 from ledgence.client import (
     ApprovalDecisionCommand, ApprovalDecisionReceipt, ApprovalDecisionUncertain, ApprovalInboxItem, ApprovalInboxPage,
-    ApprovalStatus, AsyncClient, Conflict, InputError, ProtocolError, RequestTimeout,
+    ApprovalProtection, ApprovalStatus, AsyncClient, Conflict, InputError, ProtocolError, RequestTimeout,
     ServiceError,
 )
 from ledgence.client.approval_models import parse_approval
@@ -27,6 +27,8 @@ def receipt(body, *, duplicate=False):
     command = json.loads(body)
     approval = snapshot(**{name: command[name] for name in (
         "scope", "workflow_id", "key", "activation_id", "revision", "action")})
+    if "protection" in command:
+        approval["protection"] = command["protection"]
     approval["status"] = "approved" if command["decision"] == "approve" else "rejected"
     approval["decision"] = {name: command[name] for name in ("decision_id", "decision", "reviewer", "reason")}
     approval["decision"]["decided_at"] = 11
@@ -64,6 +66,79 @@ class ApprovalClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requests[0][:3], ("POST", "/v1/workflows/approvals/inspect", {}))
         self.assertEqual(json.loads(self.requests[0][3]), {"scope": SCOPE, "workflow_id": "workflow", "key": "refund"})
         self.assertEqual(json.loads(self.requests[1][3]), {"scope": SCOPE, "workflow_id": "workflow", "after_key": "a", "limit": 1})
+
+    async def test_protected_approval_is_immutable_and_survives_saved_decision_retry(self):
+        bodies = []
+
+        async def serve(request, body):
+            if request.path.endswith("/inspect"):
+                return response(snapshot(protection="external_effect"))
+            bodies.append(body)
+            if len(bodies) == 1:
+                return response({"code": "unavailable"}, code=503)
+            return response(receipt(body, duplicate=True))
+
+        self.callback = serve
+        handle = self.client.workflows.handle("workflow")
+        approval = await handle.approval("refund")
+        self.assertIs(approval.protection, ApprovalProtection.EXTERNAL_EFFECT)
+        self.assertEqual(approval.to_dict()["protection"], "external_effect")
+        with self.assertRaises(AttributeError):
+            approval.protection = None
+        command = self.command(approval)
+        self.assertEqual(command.to_dict()["protection"], "external_effect")
+        restored = handle.restore_approval_decision(json.loads(json.dumps(command.to_dict())))
+        self.assertEqual(restored._body, command._body)
+        reordered = handle.restore_approval_decision(json.loads(json.dumps(command.to_dict(), sort_keys=True)))
+        self.assertEqual(reordered.to_dict(), command.to_dict())
+        self.assertEqual(reordered.to_dict()["protection"], "external_effect")
+        with self.assertRaises(ApprovalDecisionUncertain):
+            await handle.decide_approval(command)
+        result = await handle.decide_approval(restored)
+        self.assertIs(result.approval.protection, ApprovalProtection.EXTERNAL_EFFECT)
+        self.assertTrue(result.already_accepted)
+        self.assertEqual(bodies, [command._body, command._body])
+
+    async def test_omitted_protection_keeps_legacy_snapshot_and_command_bytes(self):
+        approval = self.approval()
+        self.assertIsNone(approval.protection)
+        self.assertEqual(approval.to_dict(), snapshot())
+        command = self.command(approval)
+        expected = {name: snapshot()[name] for name in (
+            "scope", "workflow_id", "key", "activation_id", "revision", "action")}
+        expected.update(decision_id="review-1", decision="approve", reviewer="alice", reason="Reviewed")
+        self.assertEqual(command.to_dict(), expected)
+        restored = self.client.workflows.handle("workflow").restore_approval_decision(expected)
+        self.assertEqual(command._body, restored._body)
+
+    async def test_unknown_or_null_protection_is_rejected_for_reads_and_restored_decisions(self):
+        handle = self.client.workflows.handle("workflow")
+        legacy = self.command().to_dict()
+        for value in (None, "unspecified", "local", True, {}, []):
+            with self.subTest(protection=value):
+                with self.assertRaises(ProtocolError):
+                    self.approval(protection=value)
+                with self.assertRaises(InputError):
+                    handle.restore_approval_decision(legacy | {"protection": value})
+        self.assertEqual(self.requests, [])
+
+    async def test_changed_protection_in_accepted_receipt_remains_uncertain(self):
+        handle = self.client.workflows.handle("workflow")
+        for protected in (False, True):
+            command = self.command(self.approval(**({"protection": "external_effect"} if protected else {})))
+
+            async def serve(request, body):
+                value = receipt(body)
+                if protected:
+                    value["approval"].pop("protection")
+                else:
+                    value["approval"]["protection"] = "external_effect"
+                return response(value)
+
+            self.callback = serve
+            with self.assertRaises(ApprovalDecisionUncertain) as raised:
+                await handle.decide_approval(command)
+            self.assertIsInstance(raised.exception.cause, ProtocolError)
 
     async def test_scope_inbox_discovers_a_workflow_and_opens_its_immutable_action(self):
         summary = {"workflow_id": "workflow", "key": "refund", "activation_id": "requested",

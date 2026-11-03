@@ -122,6 +122,23 @@ For CLI commands, HTTP endpoints, limits, and retention semantics, see the [sour
 
 ## Protect an approved write in development
 
+Use `ctx.request_effect_approval` with the same parameters as
+`request_approval` to declare the execution contract before reviewing the
+action.
+
+```python
+return ctx.request_effect_approval(
+    "refund", action=action, resume=Entry.APPLY, state=None,
+    timeout_ms=86_400_000,
+)
+```
+
+The saved request carries `protection: "external_effect"`. The client echoes it
+when preparing the decision. `approved_local` rejects this occurrence before
+calling the function, even with a cached result. The backend rejects an ordinary
+journal commit for the same occurrence. Existing untagged requests retain their
+behavior. Use matching development clients and Console to review typed requests.
+
 Suppose a payment provider accepts a refund just before the worker dies. A
 retry of `approved_local` could send it again. In development builds,
 `await ctx.approved_effect(issue_refund, version="1", lookup=find_refund)`
@@ -139,8 +156,8 @@ matches the approved action. If the outcome is uncertain, raise
 `EffectOutcomeUnknown` and have the workflow stop or wait for investigation.
 A lost grant may mean no refund was sent; a missing receipt is not permission
 to try again. Disable automatic write retries inside the provider client and
-keep the same protected helper on every attempt. A fallback to `approved_local`
-or a direct call to the writer bypasses this protection.
+keep the same protected helper on every attempt. Trusted application code
+remains responsible for its own direct provider calls.
 
 This method requires an offline migration and matching development components.
 The [source contract and example](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)

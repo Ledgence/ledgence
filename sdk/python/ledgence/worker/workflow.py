@@ -51,6 +51,11 @@ class OperationKind(StrEnum):
     TOOL = "tool"
 
 
+class ApprovalProtection(StrEnum):
+    """Execution contract declared when the workflow requests approval."""
+    EXTERNAL_EFFECT = "external_effect"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -159,10 +164,16 @@ class ApprovalDecision:
     decided_at: int
 
 
+def _validate_approval_protection(value):
+    if "protection" in value and value["protection"] != ApprovalProtection.EXTERNAL_EFFECT:
+        raise WorkflowError("invalid approval protection")
+
+
 def _validate_approval(value):
     _fields(value, {"scope", "workflow_id", "key", "activation_id", "revision", "action",
                     "proposed_arguments", "created_at", "deadline", "status", "decision",
-                    "resumed_activation_id"})
+                    "resumed_activation_id"}, {"protection"})
+    _validate_approval_protection(value)
     _fields(value["scope"], {"tenant_id", "namespace"})
     for name in ("tenant_id", "namespace"):
         _text(value["scope"][name], name)
@@ -210,6 +221,11 @@ class Approval:
 
     @property
     def status(self): return ApprovalStatus(self.to_dict()["status"])
+
+    @property
+    def protection(self):
+        value = self.to_dict().get("protection")
+        return None if value is None else ApprovalProtection(value)
 
     @property
     def action(self): return ApprovalAction._accepted(self.to_dict()["action"])
@@ -842,7 +858,8 @@ class WorkflowContext:
             raise WorkflowError("invalid workflow wait")
         kind = wait.get("kind")
         if kind == "approval":
-            _fields(wait, {"kind", "key", "action", "timeout_ms"}, {"proposed_arguments"})
+            _fields(wait, {"kind", "key", "action", "timeout_ms"}, {"proposed_arguments", "protection"})
+            _validate_approval_protection(wait)
             _validate_action(wait["action"])
             _validate_proposed_arguments(wait.get("proposed_arguments"))
             _integer(wait["timeout_ms"], "timeout_ms", maximum=MAX_WAIT_MS)
@@ -934,6 +951,8 @@ class WorkflowContext:
         Operator-trusted callable code remains responsible for its own effects.
         """
         key, approval = self._approved_action(fn, version)
+        if approval.get("protection") == ApprovalProtection.EXTERNAL_EFFECT:
+            raise WorkflowError("this approval requires approved_effect with a separate lookup callback")
         return self._local(key, fn, approval["action"]["arguments"])
 
     def approved_effect(self, fn, *, lookup, version):
@@ -1334,6 +1353,25 @@ class WorkflowContext:
         this decision from the workflow controller. Every request has a finite
         server-owned deadline, including an immediate expiry when timeout is 0.
         """
+        return self._request_approval(key, action=action, state=state, timeout_ms=timeout_ms,
+                                      continuation=continuation, resume=resume,
+                                      proposed_arguments=proposed_arguments, protection=None)
+
+    def request_effect_approval(self, key, *, action, state, timeout_ms,
+                                continuation=None, resume=None, proposed_arguments=None):
+        """Request an action that must execute through approved_effect.
+
+        The saved execution contract rejects approved_local and generic journal
+        writes for this occurrence. The separate lookup callback reconciles an
+        uncertain provider result after the first dispatch grant.
+        """
+        return self._request_approval(key, action=action, state=state, timeout_ms=timeout_ms,
+                                      continuation=continuation, resume=resume,
+                                      proposed_arguments=proposed_arguments,
+                                      protection=ApprovalProtection.EXTERNAL_EFFECT)
+
+    def _request_approval(self, key, *, action, state, timeout_ms, continuation,
+                          resume, proposed_arguments, protection):
         self._active()
         if (continuation is None) == (resume is None):
             raise WorkflowError("supply exactly one continuation or resume entrypoint")
@@ -1343,6 +1381,8 @@ class WorkflowContext:
                 "timeout_ms": timeout_ms}
         if proposed_arguments is not None:
             wait["proposed_arguments"] = proposed_arguments
+        if protection is not None:
+            wait["protection"] = protection.value
         self._validate_wait(wait)
         return self._decision("wait", continuation=self._target(target),
                               state=_freeze(state, MAX_STATE_BYTES),

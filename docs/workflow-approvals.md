@@ -82,12 +82,36 @@ server, worker and Python helper. An approval that was already granted before
 the migration is lookup-only: the old runtime may already have sent the write.
 
 Use this method when repeating a write, such as issuing a refund, would be
-worse than leaving its outcome unknown. Request approval with
-`ApprovalAction.for_callable(issue_refund, ...)` and include a stable
-destination account and a unique reference for this particular refund in the
-effective arguments. Keep that reference across retries; use a new one for a
-separately authorized refund, even if its amount and currency are identical.
-In the approved continuation:
+worse than leaving its outcome unknown. Build the effective action with
+`ApprovalAction.for_callable(issue_refund, ...)` and request its approval using
+`ctx.request_effect_approval`. Include a stable destination account and a unique
+reference for this particular refund in the effective arguments. Keep that
+reference across retries. Use a new one for a separately authorized refund,
+even if its amount and currency are identical.
+The request records its execution contract before any worker receives a grant.
+
+```python
+return ctx.request_effect_approval(
+    "refund", action=action, resume=Entry.APPLY, state=None,
+    timeout_ms=86_400_000,
+)
+```
+
+This helper accepts the same arguments as `request_approval`. Its persisted
+`protection: "external_effect"` tag is included in the approval and echoed by the
+decision. Changing or removing it conflicts with the reviewed request.
+`ctx.approval.protection` exposes `ApprovalProtection.EXTERNAL_EFFECT`. For this
+occurrence, `approved_local` rejects execution before calling the function,
+including cached replay. The backend also rejects an ordinary local-result
+commit before any dispatch grant has been issued. Use matching development
+clients to inspect and decide this newly typed request.
+
+Existing `request_approval` requests retain their untagged representation and
+execution behavior. Old pinned programs can keep using them after an upgrade.
+All callbacks execute trusted application code. Approval identity and access
+control remain governed by the deployment's application boundary.
+
+In the approved continuation, execute the frozen action through its protected helper.
 
 ```python
 from ledgence.worker.workflow import EffectOutcomeUnknown
@@ -234,9 +258,10 @@ ledgence approval decide --server http://localhost:8080 --file decision.json
 
 The decision file above is also accepted by the CLI. It contains `scope`,
 `workflow_id`, `key`, `activation_id`, `revision`, `action`, `decision_id`,
-`decision`, `reviewer`, and nullable `reason`. The CLI sends once; repeat the
-identical file to reconcile an uncertain response. Pass a list response's
-`next_cursor` as `--after-key` for the next page.
+`decision`, `reviewer`, and nullable `reason`. A protected request also requires
+the unchanged `protection: "external_effect"` field from its inspection. The CLI
+sends once. Repeat the identical file to reconcile an uncertain response. Pass a
+list response's `next_cursor` as `--after-key` for the next page.
 
 All three endpoints are POST with JSON bodies:
 

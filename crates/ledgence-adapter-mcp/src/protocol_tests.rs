@@ -11,15 +11,14 @@ struct Client {
 }
 impl Client {
     fn new(read_only: bool) -> Self {
+        Self::with_dispatcher(operations::test_dispatcher(read_only))
+    }
+
+    fn with_dispatcher(dispatcher: ToolDispatcher) -> Self {
         let (client, server) = tokio::io::duplex(256 * 1024);
         let (input, output) = tokio::io::split(server);
         let stop = CancellationToken::new();
-        let task = tokio::spawn(serve(
-            operations::test_dispatcher(read_only),
-            input,
-            output,
-            stop.clone(),
-        ));
+        let task = tokio::spawn(serve(dispatcher, input, output, stop.clone()));
         Self {
             stream: BufReader::new(client),
             stop,
@@ -265,5 +264,117 @@ async fn malformed_tool_parameters_do_not_bypass_modern_metadata_or_version_chec
         .send(json!({"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":meta()}}))
         .await;
     assert!(client.read().await["result"]["tools"].is_array());
+    client.finish().await;
+}
+
+#[tokio::test]
+async fn approval_inspection_preserves_protection_through_mcp_and_http() {
+    use ledgence_adapter_http::{HttpProgramCatalogService, HttpTaskService};
+    use ledgence_orchestration_api::Scope;
+    use tokio::{io::AsyncReadExt, net::TcpListener};
+
+    let scope = Scope {
+        tenant_id: "acme".into(),
+        namespace: "billing".into(),
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let http = HttpTaskService::new(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let catalog = HttpProgramCatalogService::new(http.clone(), scope.clone()).unwrap();
+    let dispatcher = ToolDispatcher::new(
+        Arc::new(http.clone()),
+        Arc::new(http),
+        Arc::new(catalog),
+        scope.clone(),
+        true,
+    )
+    .unwrap();
+    let mut approval = json!({
+        "scope": scope, "workflow_id":"wf", "key":"refund", "activation_id":"activation",
+        "revision":0, "action":{"name":"app:refund","version":"1","arguments":{"amount":50}},
+        "proposed_arguments":null, "created_at":10, "deadline":1000, "status":"pending",
+        "decision":null, "resumed_activation_id":null
+    });
+    let backend = tokio::spawn(async move {
+        for protected in [false, true] {
+            if protected {
+                approval["protection"] = json!("external_effect");
+            }
+            for operation in ["inspect", "list"] {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut stream = BufReader::new(stream);
+                let mut request_line = String::new();
+                stream.read_line(&mut request_line).await.unwrap();
+                assert!(
+                    request_line.starts_with(&format!("POST /v1/workflows/approvals/{operation} "))
+                );
+                let mut content_length = None;
+                loop {
+                    let mut line = String::new();
+                    assert!(stream.read_line(&mut line).await.unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(length) = line.to_ascii_lowercase().strip_prefix("content-length:")
+                    {
+                        content_length = Some(length.trim().parse::<usize>().unwrap());
+                    }
+                }
+                let mut request_body = vec![0; content_length.unwrap()];
+                stream.read_exact(&mut request_body).await.unwrap();
+                let request: Value = serde_json::from_slice(&request_body).unwrap();
+                assert_eq!(request["scope"], approval["scope"]);
+                assert_eq!(request["workflow_id"], "wf");
+                let body = if operation == "list" {
+                    json!({"items":[approval.clone()],"next_cursor":null})
+                } else {
+                    approval.clone()
+                }
+                .to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .get_mut()
+                    .write_all(response.as_bytes())
+                    .await
+                    .unwrap();
+            }
+        }
+    });
+    let mut client = Client::with_dispatcher(dispatcher);
+    client.initialize("2025-11-25").await;
+    let mut id = 2;
+    for protected in [false, true] {
+        for operation in ["inspect", "list"] {
+            let args = if operation == "list" {
+                json!({"workflow_id":"wf"})
+            } else {
+                json!({"workflow_id":"wf","key":"refund"})
+            };
+            client
+                .send(
+                    json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{
+                        "name":format!("ledgence_approval_{operation}"),"arguments":args
+                    }}),
+                )
+                .await;
+            let response = client.read().await;
+            assert_ne!(response["result"]["isError"], true, "{response}");
+            let content = &response["result"]["structuredContent"];
+            let snapshot = if operation == "list" {
+                &content["items"][0]
+            } else {
+                content
+            };
+            assert_eq!(snapshot["workflow_id"], "wf");
+            assert_eq!(
+                snapshot.get("protection"),
+                protected.then(|| json!("external_effect")).as_ref()
+            );
+            id += 1;
+        }
+    }
+    backend.await.unwrap();
     client.finish().await;
 }

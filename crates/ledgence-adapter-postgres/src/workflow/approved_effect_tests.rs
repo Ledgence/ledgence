@@ -3,6 +3,21 @@ use sqlx::migrate::Migrator;
 
 // Each fixture has its own queue so the actor acquiring a new activation is explicit.
 pub(super) async fn request(store: &PostgresStore, queue: &str) -> ApprovalDecisionCommand {
+    request_with_protection(
+        store,
+        queue,
+        "approve-send",
+        ApprovalProtection::Unspecified,
+    )
+    .await
+}
+
+async fn request_with_protection(
+    store: &PostgresStore,
+    queue: &str,
+    key: &str,
+    protection: ApprovalProtection,
+) -> ApprovalDecisionCommand {
     let mut submission = command();
     submission.input.queue = queue.into();
     submission.idempotency_key = queue.into();
@@ -11,15 +26,20 @@ pub(super) async fn request(store: &PostgresStore, queue: &str) -> ApprovalDecis
         .await
         .unwrap();
     let initial = acquire(store, queue).await;
-    let decision = approvals::decide(&workflow, &initial, "approve-send");
-    apply_decision(
-        store,
-        &initial,
-        0,
-        approvals::wait(&decision.key, 180_000),
-        &[],
-    )
-    .await;
+    let mut decision = approvals::decide(&workflow, &initial, key);
+    decision.protection = protection;
+    let mut waiting = approvals::wait(&decision.key, 180_000);
+    if let WorkflowAction::Wait {
+        wait: WorkflowWait::Approval {
+            protection: selected,
+            ..
+        },
+        ..
+    } = &mut waiting
+    {
+        *selected = protection;
+    }
+    apply_decision(store, &initial, 0, waiting, &[]).await;
     decision
 }
 

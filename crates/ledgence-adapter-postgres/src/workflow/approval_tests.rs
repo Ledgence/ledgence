@@ -18,6 +18,7 @@ pub(super) fn wait(key: &str, timeout_ms: u64) -> WorkflowAction {
         wait: WorkflowWait::Approval {
             key: key.into(),
             action: action(),
+            protection: ApprovalProtection::Unspecified,
             proposed_arguments: Some(json!({"count":3})),
             timeout_ms,
         },
@@ -35,6 +36,7 @@ pub(super) fn decide(
         activation_id: activation.lease.owner.task_id.clone(),
         revision: 0,
         action: action(),
+        protection: ApprovalProtection::Unspecified,
         decision_id: format!("review_{key}"),
         decision: ApprovalDecision::Approve,
         reviewer: "operator@example.test".into(),
