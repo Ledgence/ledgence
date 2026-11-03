@@ -114,7 +114,11 @@ workflow continuation. Unlike a local-result commit, the worker sends a claim
 once; replaying a previously committed grant would permit a second write. It
 checks the receipt against the live owner, approval and action before passing
 the disposition to Python. A retry with no accepted result must claim again
-and can only look up the outcome if permission was already consumed. See
+and can only look up the outcome if permission was already consumed. The
+claim binds the lookup callback before dispatch. The worker confirms the
+returned record through `approved_effect.confirm`. It may retry that exact
+confirmation after losing a reply. A valid reply identifies the scope,
+workflow, activation, attempt, approval and journal key. See
 [approved external writes](workflow-approvals.md#protect-an-approved-external-write).
 
 Standalone tasks do not fetch a workflow context or use local-result RPCs.

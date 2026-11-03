@@ -117,7 +117,7 @@ also serves these documented surfaces:
 | --- | --- |
 | Workflow submission, status, results, cancellation, activation context, local results, and forks | [Workflows](workflows.md) and [typed entrypoints](workflow-entrypoints.md) |
 | External workflow events and timers | [Workflow events](workflow-events.md) |
-| Persisted approval inspection and bound decisions | [Workflow approvals](workflow-approvals.md) |
+| Persisted approval inspection, bound decisions, and development worker routes `POST /v1/workflows/approved-effects/claim` and `POST /v1/workflows/approved-effects/confirm` | [Workflow approvals](workflow-approvals.md) |
 | Completion subscriptions, status, and explicit redelivery | [Completion notifications](completion-notifications.md) |
 | Installation catalog, execution discovery, graph metadata, and worker observations | [Console query model](console-query-model.md) and [instance binding](self-hosted-instance.md) |
 | Opt-in immutable program uploads and publication capabilities | [Program publication](program-publication.md#binary-api-and-bounds) |

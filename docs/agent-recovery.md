@@ -185,7 +185,11 @@ destinations. Each destination records a refund and withholds its reply. The
 harness kills the original Rust worker, replaces it, and compares the destination
 ledger with the workflow journal. The approved amount, original and recovery
 worker sessions, mutation and lookup counts, and completed continuations are in
-the scenario evidence. The third scenario discards a committed grant reply
+the scenario evidence. The replacement worker loses the first successful
+confirmation reply and resubmits the same record. The store reports a replay,
+the destination still counts one refund, and the original dispatch and later
+confirmation remain distinguishable by attempt ID. The opaque provider keeps
+an open retention hold. The third scenario discards a committed grant reply
 before the worker can send. A normal activation retry performs one read, sends
 no mutation and parks; the destination records one lookup and zero refunds.
 

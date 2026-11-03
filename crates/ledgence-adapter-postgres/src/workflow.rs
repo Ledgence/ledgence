@@ -2,7 +2,7 @@
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
 mod approval_inbox;
 mod approvals;
-mod approved_effects;
+pub(crate) mod approved_effects;
 mod data;
 mod execution;
 pub(crate) mod explorer;
@@ -21,13 +21,26 @@ use serde_json::Value;
 use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::collections::BTreeMap;
 
-impl WorkflowStore for PostgresStore {
+impl ApprovedEffects for PostgresStore {
     fn claim_approved_effect<'a>(
         &'a self,
         command: &'a ApprovedEffectClaimCommand,
     ) -> ContractFuture<'a, ApprovedEffectClaimReceipt> {
         Box::pin(self.run(move || self.claim_approved_effect_once(command)))
     }
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(self.run(move || self.confirm_approved_effect_once(command)))
+    }
+}
+
+impl WorkflowStore for PostgresStore {
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        Ok(self)
+    }
+
     fn approval<'a>(
         &'a self,
         scope: &'a Scope,

@@ -254,4 +254,14 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn legacy_store_and_service_cannot_grant_a_dispatch_without_confirmation_support() {
+        for capability in [
+            WorkflowStore::approved_effects(&LegacyAdapter),
+            WorkflowService::approved_effects(&LegacyAdapter),
+        ] {
+            assert!(matches!(capability, Err(ContractError::InvalidInput(_))));
+        }
+    }
 }

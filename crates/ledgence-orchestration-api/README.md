@@ -31,6 +31,16 @@ acknowledging an operation. This crate provides no database, HTTP service, broke
 or worker implementation; those components remain in the Ledgence source
 repository and release bundles.
 
+In development, `WorkflowStore::approved_effects` and
+`WorkflowService::approved_effects` expose the optional `ApprovedEffects` port.
+An adapter must implement both `claim_approved_effect` and
+`confirm_approved_effect` to enable protected external writes.
+Bind the one-use dispatch grant to the saved action and its read-only lookup
+callback. Confirm the matching journal entry and the effect outcome in one
+transaction. An exact retry of a confirmation can acknowledge the existing
+result. An unresolved grant keeps the associated workflow evidence available
+during retention. [Protected external writes](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
+
 A workflow adapter can implement `WorkflowStore::approval_inbox` to list scoped
 approval summaries across workflows. Console adapters can implement
 `ConsoleQueryStore::explore_approval` to start a graph page at its recorded

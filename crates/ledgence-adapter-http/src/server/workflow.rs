@@ -154,11 +154,37 @@ pub(super) async fn post(
             server.require_scope(&command.owner.scope)?;
             log_owner(&command.owner)?;
             tracing::Span::current().record("ledgence.workflow.id", &command.workflow_id);
-            let reply = service.claim_approved_effect(&command).await?;
+            let reply = service
+                .approved_effects()?
+                .claim_approved_effect(&command)
+                .await?;
             server
                 .blocking(move || {
-                    check_approved_effect_receipt(&reply, &command)?;
+                    check_approved_effect_receipt(reply.matches(&command))?;
                     encode_bounded(&reply, APPROVAL_SNAPSHOT_MAX_BYTES)
+                })
+                .await
+        }
+        "/v1/workflows/approved-effects/confirm" => {
+            let command = server
+                .blocking(move || {
+                    let command: ApprovedEffectConfirmCommand = decode_unique_json(&bytes, maximum)
+                        .map_err(|_| invalid("malformed approved effect confirmation"))?;
+                    command.validate()?;
+                    Ok(command)
+                })
+                .await?;
+            server.require_scope(&command.owner.scope)?;
+            log_owner(&command.owner)?;
+            tracing::Span::current().record("ledgence.workflow.id", &command.workflow_id);
+            let reply = service
+                .approved_effects()?
+                .confirm_approved_effect(&command)
+                .await?;
+            server
+                .blocking(move || {
+                    check_approved_effect_receipt(reply.matches(&command))?;
+                    encode_bounded(&reply, TASK_STATUS_MAX_BYTES)
                 })
                 .await
         }

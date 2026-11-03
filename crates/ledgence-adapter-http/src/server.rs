@@ -208,6 +208,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("/v1/workflows/approvals/decide", "POST"),
     ("/v1/workflows/activations/context", "POST"),
     ("/v1/workflows/approved-effects/claim", "POST"),
+    ("/v1/workflows/approved-effects/confirm", "POST"),
     ("/v1/workflows/local-results", "POST"),
     ("/v1/workflows/forks", "POST"),
     ("/v1/tasks", "GET, POST"),
@@ -731,6 +732,7 @@ async fn dispatch(
     }
     let maximum = match path {
         "/v1/workflows/approved-effects/claim" => APPROVAL_SNAPSHOT_MAX_BYTES,
+        "/v1/workflows/approved-effects/confirm" => APPROVED_EFFECT_CONFIRM_MAX_BYTES,
         path if path.starts_with("/v1/workflows/approvals/") => APPROVAL_SNAPSHOT_MAX_BYTES,
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,

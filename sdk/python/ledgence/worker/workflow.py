@@ -269,6 +269,22 @@ def _integer(value, name, minimum=0, maximum=(1 << 64) - 1):
     return value
 
 
+def _replayed_action_json(text):
+    def unique_fields(pairs):
+        fields = dict(pairs)
+        if len(fields) != len(pairs):
+            raise WorkflowError("duplicate field in stored approved effect action")
+        return fields
+
+    try:
+        # serde_json preserves a negative zero token as -0.0.
+        action = json.loads(text, object_pairs_hook=unique_fields,
+                            parse_int=lambda token: -0.0 if token == "-0" else int(token))
+    except (ValueError, RecursionError) as exc:
+        raise WorkflowError("invalid stored approved effect action") from exc
+    return _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=True).decode("utf-8")
+
+
 def _fields(value, required, optional=()):
     if type(value) is not dict or not required <= value.keys() or value.keys() - required - set(optional):
         raise WorkflowError("invalid workflow object fields")
@@ -940,7 +956,7 @@ class WorkflowContext:
         self._approval_lookup = lookup
 
         async def invoke(**saved):
-            mode = await self._claim_approved_effect(approval["key"], action)
+            mode = await self._claim_approved_effect(approval["key"], action, lookup_name)
             result = (fn if mode == "dispatch" else lookup)(**saved)
             return await result if inspect.isawaitable(result) else result
 
@@ -950,19 +966,30 @@ class WorkflowContext:
         # in another JSON object would exceed the journal's 64-level input
         # limit for a valid 64-level approval, after the mutation had run.
         action_json = _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=True).decode("utf-8")
+        previous = self._records.get(key)
+        if previous is not None and type(previous["input"]) is dict:
+            saved_json = previous["input"].get("action_json")
+            if isinstance(saved_json, str) and saved_json != action_json:
+                # Other workers may serialize the approved action in a different
+                # field order. Replay its original bytes only after strict comparison.
+                if _replayed_action_json(saved_json) != action_json:
+                    raise WorkflowError("approved effect action differs from its stored binding")
+                action_json = saved_json
         binding = {"v": 1, "action_json": action_json, "lookup": lookup_name}
-        return self._bound_local(key, invoke, action["name"], binding, action["arguments"])
+        return self._bound_local(key, invoke, action["name"], binding, action["arguments"],
+                                 approval_key=approval["key"])
 
-    async def _claim_approved_effect(self, approval_key, action):
-        request = {"approval_key": approval_key, "action": action}
+    async def _claim_approved_effect(self, approval_key, action, lookup):
+        request = {"approval_key": approval_key, "action": action, "lookup": lookup}
         async with self._commit_lock:
             if self._fatal is not None:
                 raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
             try:
                 reply = await self._rpc("approved_effect.claim", request)
-                _fields(reply, {"workflow_id", "activation_id", "approval_key", "action", "disposition"})
+                _fields(reply, {"workflow_id", "activation_id", "approval_key", "action", "lookup", "disposition"})
                 if (reply["workflow_id"] != self.workflow_id or reply["activation_id"] != self.activation_id
-                        or reply["approval_key"] != approval_key or reply["disposition"] not in ("dispatch", "lookup_only")
+                        or reply["approval_key"] != approval_key or reply["lookup"] != lookup
+                        or reply["disposition"] not in ("dispatch", "lookup_only")
                         or _encode(reply["action"], MAX_APPROVAL_BYTES, 96, authoritative=True)
                         != _encode(action, MAX_APPROVAL_BYTES, 96, authoritative=True)):
                     raise WorkflowError("invalid approved effect claim acknowledgement")
@@ -1011,7 +1038,7 @@ class WorkflowContext:
         return self._bound_local(key, fn, _text(module + ":" + name, "local callable", 512),
                                  arguments, arguments)
 
-    def _bound_local(self, key, fn, name, persisted_input, arguments):
+    def _bound_local(self, key, fn, name, persisted_input, arguments, *, approval_key=None):
         previous = self._records.get(key)
         # Exact replay may copy an accepted Rust-size-boundary binding whose
         # Python float text is longer. A new binding never receives this slack.
@@ -1028,11 +1055,11 @@ class WorkflowContext:
             return _LocalResult(task, self._observed_failures)
         if len(set(self._records) | set(self._pending)) >= MAX_STEPS and previous is None:
             raise WorkflowError("too many local steps in one activation")
-        task = asyncio.create_task(self._run_local(binding, fn, arguments, previous))
+        task = asyncio.create_task(self._run_local(binding, fn, arguments, previous, approval_key))
         self._pending[key] = (binding_bytes, task)
         return _LocalResult(task, self._observed_failures)
 
-    async def _run_local(self, binding, fn, arguments, previous):
+    async def _run_local(self, binding, fn, arguments, previous, approval_key):
         from ledgence.worker._observations import begin_local, finish_local
         observation = begin_local(binding, replayed=previous is not None)
         if previous is not None:
@@ -1058,7 +1085,12 @@ class WorkflowContext:
         async with self._commit_lock:
             _encode([*self._records.values(), record], MAX_RECORDS_BYTES, 96)
             try:
-                result = await self._rpc("local_step.commit", record)
+                if approval_key is None:
+                    result = await self._rpc("local_step.commit", record)
+                else:
+                    result = await self._rpc("approved_effect.confirm", {
+                        "approval_key": approval_key, "lookup": binding["input"]["lookup"], "record": record,
+                    })
                 if type(result) is not dict or result != {"committed": True} or type(result["committed"]) is not bool:
                     raise WorkflowError("invalid local step commit acknowledgement")
             except BaseException as exc:

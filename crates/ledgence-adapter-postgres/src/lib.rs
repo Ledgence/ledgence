@@ -17,6 +17,7 @@ mod instance;
 #[cfg(test)]
 mod instance_db_tests;
 mod migration;
+mod migration_effects;
 mod notifications;
 mod persistence;
 mod retention;
@@ -168,7 +169,7 @@ impl PostgresStore {
                     "database schema does not match this orchestrator's migrations".into(),
                 ));
             }
-            Ok(())
+            migration_effects::verify_backfill(&self.pool).await
         };
         tokio::time::timeout(self.operation_timeout, work)
             .await

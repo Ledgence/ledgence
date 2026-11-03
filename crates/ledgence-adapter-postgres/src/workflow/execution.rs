@@ -44,8 +44,12 @@ impl PostgresStore {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let (workflow, authority) = lock_activation(&mut tx, owner).await?;
-        let prior: Option<(Vec<u8>, String)> = sqlx::query_as("SELECT record_bytes,attempt_id FROM workflow_local_results WHERE activation_id=$1 AND step_key=$2")
-            .bind(&owner.task_id).bind(&command.record.key).fetch_optional(&mut *tx).await?;
+        let prior = if command.record.key.starts_with("_approval:") {
+            reserved_local_prior(&mut tx, &workflow, owner, &command.record).await?
+        } else {
+            sqlx::query_as("SELECT record_bytes,attempt_id FROM workflow_local_results WHERE activation_id=$1 AND step_key=$2")
+                .bind(&owner.task_id).bind(&command.record.key).fetch_optional(&mut *tx).await?
+        };
         if let Some((bytes, accepting_attempt)) = prior {
             let record: LocalStepRecord = codec::decode(&bytes)?;
             if !record.matches(&command.record)? {
@@ -64,26 +68,94 @@ impl PostgresStore {
         }
         let now = db::now(&mut tx).await?;
         check_live(&workflow, &authority, owner, now, true)?;
-        let bytes = codec::encode(&command.record)?;
-        let (count, total): (i64, i64) = sqlx::query_as("SELECT count(*)::bigint,coalesce(sum(octet_length(record_bytes)),0)::bigint FROM workflow_local_results WHERE activation_id=$1")
-            .bind(&owner.task_id).fetch_one(&mut *tx).await?;
-        // Canonical array encoding adds two brackets and one comma per existing
-        // element. The workflow lock serializes this bound with concurrent steps.
-        if count >= WORKFLOW_MAX_LOCAL_STEPS as i64
-            || total + bytes.len() as i64 + count + 2 > WORKFLOW_LOCAL_LEDGER_MAX_BYTES as i64
-        {
-            return Err(invalid("local step ledger exceeds supported limit").into());
-        }
-        sqlx::query("INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable) VALUES($1,$2,$3,$4,$5,$6)")
-            .bind(&owner.task_id).bind(&command.record.key).bind(bytes).bind(&owner.attempt_id).bind(codec::ms(now)?).bind(&command.record.callable)
-            .execute(&mut *tx).await?;
-        explorer::local(&mut tx, command, now).await?;
+        append_local(&mut tx, owner, &command.record, now, None).await?;
         tx.commit().await?;
         Ok(LocalResultReceipt {
             key: command.record.key.clone(),
             already_accepted: false,
         })
     }
+}
+
+/// Generic commits must never manufacture a protected journal record, including
+/// before a worker has claimed the occurrence. Non-reserved local steps use
+/// their original single indexed journal lookup.
+async fn reserved_local_prior(
+    connection: &mut PgConnection,
+    workflow: &WorkflowSnapshot,
+    owner: &LeaseOwner,
+    record: &LocalStepRecord,
+) -> StoreResult<Option<(Vec<u8>, String)>> {
+    let row = sqlx::query(
+        "SELECT j.record_bytes,j.attempt_id,
+                EXISTS(SELECT 1 FROM workflow_approvals WHERE workflow_id=$3 AND effect_step_key=$2) AS protected,
+                CASE WHEN $4 THEN a.context_bytes END AS context_bytes
+         FROM workflow_activations a
+         LEFT JOIN workflow_local_results j ON j.activation_id=a.activation_id AND j.step_key=$2
+         WHERE a.activation_id=$1",
+    )
+    .bind(&owner.task_id).bind(&record.key).bind(&workflow.workflow_id)
+    .bind(record.input.get("action_json").is_some()).fetch_one(connection).await?;
+    if row.try_get::<bool, _>("protected")? {
+        return Err(ContractError::Conflict.into());
+    }
+    if let Some(bytes) = row.try_get::<Option<Vec<u8>>, _>("context_bytes")? {
+        let ctx: WorkflowActivationContext = codec::decode(&bytes)?;
+        if let Some(WorkflowWake::Approval { approval }) = ctx.wake
+            && approved_effects::confirmed_lookup(record, &record.key, &approval.action).is_ok()
+        {
+            return Err(ContractError::Conflict.into());
+        }
+    }
+    let bytes: Option<Vec<u8>> = row.try_get("record_bytes")?;
+    Ok(bytes.zip(row.try_get("attempt_id")?))
+}
+
+/// Insert the bounded local journal, graph discovery row and (only for a typed
+/// confirmation) close its retention obligation in the caller's transaction.
+pub(super) async fn append_local(
+    connection: &mut PgConnection,
+    owner: &LeaseOwner,
+    record: &LocalStepRecord,
+    now: u64,
+    effect: Option<(&str, &str)>,
+) -> StoreResult<()> {
+    let bytes = codec::encode(record)?;
+    let (count, total): (i64, i64) = sqlx::query_as("SELECT count(*)::bigint,coalesce(sum(octet_length(record_bytes)),0)::bigint FROM workflow_local_results WHERE activation_id=$1")
+        .bind(&owner.task_id).fetch_one(&mut *connection).await?;
+    // Canonical array encoding adds two brackets and one comma per existing
+    // element. The workflow lock serializes this bound with concurrent steps.
+    if count >= WORKFLOW_MAX_LOCAL_STEPS as i64
+        || total + bytes.len() as i64 + count + 2 > WORKFLOW_LOCAL_LEDGER_MAX_BYTES as i64
+    {
+        return Err(invalid("local step ledger exceeds supported limit").into());
+    }
+    let sql = if effect.is_some() {
+        "WITH accepted AS (
+            INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable)
+            VALUES($1,$2,$3,$4,$5,$6) RETURNING attempt_id)
+         UPDATE workflow_approvals SET effect_evidence_state='confirmed',
+                effect_confirmed_attempt_id=accepted.attempt_id FROM accepted
+         WHERE workflow_id=$7 AND wait_key=$8 AND effect_evidence_state='open'"
+    } else {
+        "INSERT INTO workflow_local_results(activation_id,step_key,record_bytes,attempt_id,accepted_at_ms,callable)
+         VALUES($1,$2,$3,$4,$5,$6)"
+    };
+    let mut query = sqlx::query(sql)
+        .bind(&owner.task_id)
+        .bind(&record.key)
+        .bind(bytes)
+        .bind(&owner.attempt_id)
+        .bind(codec::ms(now)?)
+        .bind(&record.callable);
+    if let Some((workflow, approval)) = effect {
+        query = query.bind(workflow).bind(approval);
+    }
+    if query.execute(&mut *connection).await?.rows_affected() != 1 {
+        return Err(ContractError::Conflict.into());
+    }
+    explorer::local(connection, owner, record, now).await?;
+    Ok(())
 }
 
 /// The first membership lookup is immutable and unlocked. All mutable checks

@@ -334,3 +334,12 @@ async fn healthy_distinct_programs_make_bounded_progress_across_resolution_windo
         item.resolved_children = resolved;
     }
 }
+
+#[tokio::test]
+async fn protected_effect_capability_is_unavailable_without_a_configured_workflow_store() {
+    let fixture = Fixture::new();
+    assert!(matches!(
+        fixture.service.approved_effects(),
+        Err(ContractError::InvalidInput(_))
+    ));
+}

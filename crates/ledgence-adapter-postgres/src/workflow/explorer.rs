@@ -70,20 +70,21 @@ pub(super) async fn child(
 
 pub(super) async fn local(
     connection: &mut PgConnection,
-    command: &LocalResultCommand,
+    owner: &LeaseOwner,
+    record: &LocalStepRecord,
     now: u64,
 ) -> StoreResult<()> {
     let data = ConsoleExplorerData::Local {
-        key: command.record.key.clone(),
-        callable: command.record.callable.clone(),
+        key: record.key.clone(),
+        callable: record.callable.clone(),
         accepted_at: Some(now),
-        accepting_attempt_id: Some(command.owner.attempt_id.clone()),
+        accepting_attempt_id: Some(owner.attempt_id.clone()),
         observation: None,
     };
     // Only metadata identifiers and timestamps enter this JSON merge. Application
     // input/output remain exclusively in the accepted-result journal.
     sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT workflow_id,revision,'local',$2,activation_id,entrypoint,$3 FROM workflow_explorer_records WHERE activation_id=$1 AND kind='entrypoint' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=convert_to((convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb || jsonb_build_object('observation',CASE WHEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable'=convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable' THEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->'observation' ELSE NULL END))::text,'UTF8')")
-        .bind(&command.owner.task_id).bind(&command.record.key).bind(codec::encode(&data)?).execute(connection).await?;
+        .bind(&owner.task_id).bind(&record.key).bind(codec::encode(&data)?).execute(connection).await?;
     Ok(())
 }
 

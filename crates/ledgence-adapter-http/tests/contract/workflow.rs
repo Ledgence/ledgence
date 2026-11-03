@@ -1,5 +1,5 @@
 use super::*;
-impl WorkflowService for Mock {
+impl ApprovedEffects for Mock {
     fn claim_approved_effect<'a>(
         &'a self,
         command: &'a ApprovedEffectClaimCommand,
@@ -7,6 +7,24 @@ impl WorkflowService for Mock {
         Box::pin(async move { self.reply("effect_claim", command) })
     }
 
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(async move { self.reply("effect_confirm", command) })
+    }
+}
+
+impl WorkflowService for Mock {
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        if self.protected_writes_disabled.load(Ordering::SeqCst) {
+            Err(ContractError::InvalidInput(
+                "protected writes unavailable".into(),
+            ))
+        } else {
+            Ok(self)
+        }
+    }
     fn approval<'a>(
         &'a self,
         scope: &'a Scope,
@@ -373,6 +391,9 @@ mod forks;
 
 #[path = "workflow_approved_effect.rs"]
 mod approved_effect;
+
+#[path = "workflow_effect_confirmation.rs"]
+mod effect_confirmation;
 
 #[path = "workflow_approvals.rs"]
 mod approvals;

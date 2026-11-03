@@ -125,6 +125,9 @@ impl RuntimeRequestHandler for WorkflowOperations {
                 "approved_effect.claim" => {
                     return self.claim_approved_effect(request, control).await;
                 }
+                "approved_effect.confirm" => {
+                    return self.confirm_approved_effect(request, control).await;
+                }
                 "workflow.fork" => return self.fork(request, control).await,
                 "local_step.commit" => {}
                 _ => {
@@ -185,13 +188,15 @@ impl WorkflowOperations {
             workflow_id: self.workflow_id.clone(),
             approval_key: claim.approval_key,
             action: claim.action,
+            lookup: claim.lookup,
         };
         command.validate().map_err(runtime_error)?;
         control.check()?;
         // A lost grant may already have consumed the only dispatch. Only a
         // fresh, verified reply may reach the subprocess.
+        let effects = self.service.approved_effects().map_err(runtime_error)?;
         let result = controlled(&control, self.request_timeout, || {
-            self.service.claim_approved_effect(&command)
+            effects.claim_approved_effect(&command)
         })
         .await;
         control.check()?;
@@ -213,9 +218,57 @@ impl WorkflowOperations {
                 "activation_id": receipt.activation_id,
                 "approval_key": receipt.approval_key,
                 "action": receipt.action,
+                "lookup": receipt.lookup,
                 "disposition": receipt.disposition,
             }),
         })
+    }
+
+    async fn confirm_approved_effect(
+        &self,
+        request: RuntimeRequest,
+        control: RunControl,
+    ) -> ledgence_worker_api::Result<RuntimeReply> {
+        let confirm: ApprovedEffectConfirmRequest = serde_json::from_value(request.payload)
+            .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
+        let command = ApprovedEffectConfirmCommand {
+            owner: self.owner.clone(),
+            workflow_id: self.workflow_id.clone(),
+            approval_key: confirm.approval_key,
+            lookup: confirm.lookup,
+            record: confirm.record,
+        };
+        command.validate().map_err(runtime_error)?;
+        let effects = self.service.approved_effects().map_err(runtime_error)?;
+        // Retrying confirmation sends only the same frozen evidence to Ledgence.
+        // The provider call has already returned and cannot run in this loop.
+        loop {
+            control.check()?;
+            match controlled(&control, self.request_timeout, || {
+                effects.confirm_approved_effect(&command)
+            })
+            .await
+            {
+                Ok(receipt) => {
+                    control.check()?;
+                    if !matches!(receipt.matches(&command), Ok(true)) {
+                        return Err(Error::new(
+                            ErrorKind::Protocol,
+                            "approved effect confirmation identity mismatch",
+                        ));
+                    }
+                    return Ok(RuntimeReply {
+                        id: request.id,
+                        result: json!({"committed": true}),
+                    });
+                }
+                Err(error) if retryable(&error) => pause(&control, self.retry_delay).await?,
+                Err(error) => {
+                    control.check()?;
+                    return Err(runtime_error(error));
+                }
+            }
+        }
     }
 
     async fn fork(

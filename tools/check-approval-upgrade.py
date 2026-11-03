@@ -11,6 +11,7 @@ import uuid
 
 from console_acceptance.harness import ConsoleDeployment
 from http_acceptance.harness import eventually
+from workflow_acceptance.owned_scenarios import quote
 from postgres_fixture import create_owned_database, owned_database_url
 
 
@@ -112,7 +113,7 @@ def exercise_effects(d, old_bundle, binaries, new_console, new_runner):
     d.server.stop()
     d.binaries, d.console_dist = binaries, new_console
     migrate(d)
-    assert d.sql("SELECT count(*) FROM _sqlx_migrations WHERE version=20261102020000 AND success") == "1"
+    assert d.sql("SELECT count(*) FROM _sqlx_migrations WHERE version IN (20261102020000,20261103000000) AND success") == "2"
     d.server, _ = d.start_server()
     d.start_worker(runner=new_runner)
     assert not d.api("POST", "approvals/decide", requests["pending-approval"][2])["already_accepted"]
@@ -121,7 +122,14 @@ def exercise_effects(d, old_bundle, binaries, new_console, new_runner):
         workflow, marker, _ = requests[key]
         assert d.workflow_result(workflow)["outcome"]["output"] == expected
         assert marker.read_text().splitlines() == [expected]
-        evidence[key] = {"workflow_id": workflow, "callback": expected}
+        # A pre-upgrade fence grants no new send, even when its later lookup
+        # finds a receipt. Preserve the distinction after durable confirmation.
+        binding = json.loads(d.sql(
+            "SELECT json_build_object('state',effect_evidence_state,'dispatched',"
+            "effect_dispatch_attempt_id IS NOT NULL,'confirmed',effect_confirmed_attempt_id IS NOT NULL) "
+            "FROM workflow_approvals WHERE workflow_id=" + quote(workflow)))
+        assert binding == {"state": "confirmed", "dispatched": expected == "dispatch", "confirmed": True}, binding
+        evidence[key] = {"workflow_id": workflow, "callback": expected, "evidence": binding}
     return evidence
 
 

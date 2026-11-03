@@ -72,7 +72,8 @@ scope. Console, CLI, Python and MCP share the same deadline-ordered listing.
 ## In development: approved external writes
 
 A workflow using the development helper can ask Ledgence to authorize one
-dispatch of an approved action and restrict later attempts to receipt lookup.
+dispatch of an approved action, restrict later attempts to receipt lookup and
+keep unresolved evidence past the ordinary retention period.
 [Protect an approved write](/how-to/require-approval#protect-an-approved-write-in-development).
 The published 0.7.0 packages do not include this helper.
 

@@ -20,13 +20,33 @@ type EffectClaim = (
     oneshot::Sender<Result<ApprovedEffectClaimReceipt>>,
 );
 
+type EffectConfirm = (
+    ApprovedEffectConfirmCommand,
+    oneshot::Sender<Result<ApprovedEffectConfirmReceipt>>,
+);
+
 struct Mock {
     contexts: mpsc::UnboundedSender<ContextRequest>,
     commits: mpsc::UnboundedSender<CommitRequest>,
     forks: Option<mpsc::UnboundedSender<ForkRequest>>,
     effect_claims: Option<mpsc::UnboundedSender<EffectClaim>>,
+    effect_confirms: Option<mpsc::UnboundedSender<EffectConfirm>>,
 }
-impl WorkflowService for Mock {
+impl ApprovedEffects for Mock {
+    fn confirm_approved_effect<'a>(
+        &'a self,
+        command: &'a ApprovedEffectConfirmCommand,
+    ) -> ContractFuture<'a, ApprovedEffectConfirmReceipt> {
+        Box::pin(async move {
+            let (reply, receiver) = oneshot::channel();
+            self.effect_confirms
+                .as_ref()
+                .expect("unexpected approved effect confirmation")
+                .send((command.clone(), reply))
+                .unwrap();
+            receiver.await.unwrap()
+        })
+    }
     fn claim_approved_effect<'a>(
         &'a self,
         command: &'a ApprovedEffectClaimCommand,
@@ -41,6 +61,18 @@ impl WorkflowService for Mock {
             receiver.await.unwrap()
         })
     }
+}
+
+impl WorkflowService for Mock {
+    fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
+        if self.effect_claims.is_none() && self.effect_confirms.is_none() {
+            return Err(ContractError::InvalidInput(
+                "protected effects unsupported".into(),
+            ));
+        }
+        Ok(self)
+    }
+
     fn fork_workflow<'a>(
         &'a self,
         command: &'a WorkflowForkCommand,
@@ -119,6 +151,7 @@ fn fixture() -> (
             commits,
             forks: None,
             effect_claims: None,
+            effect_confirms: None,
         }),
         context_requests,
         commit_requests,

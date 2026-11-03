@@ -116,14 +116,25 @@ the writer directly bypasses the grant, even when both use the same approval.
 Before the first send, PostgreSQL consumes the dispatch permission for this
 workflow and approval key under the live activation lease. A later claim,
 including one from the same attempt, is lookup-only. A lost grant response
-can therefore result in **zero** sends. The local journal binds the full
-canonical action JSON and lookup identity; the approval snapshot retains the
-structured arguments. A saved, confirmed result replays
-without contacting the destination. This does not provide cross-workflow
-deduplication, retract an already granted send on cancellation, or enforce the
-behavior of application-owned callbacks. Keep the provider's own idempotency
-protection where available. Operator resolution and retention of unresolved
-evidence beyond normal retention are not provided by this method.
+can therefore result in **zero** sends.
+
+The grant also places a retention hold on the workflow. The worker confirms
+the callback's returned receipt against the same approval, canonical action
+and lookup. PostgreSQL commits the result to the activation journal and closes
+the hold in one transaction. If the confirmation reply is lost, the worker
+can submit the same receipt again. Replay of an accepted result requires
+neither callback. A later attempt can confirm a receipt found by lookup.
+
+An unresolved effect keeps its workflow evidence available past the usual
+terminal retention period, including after cancellation or a failed final
+attempt. A completed confirmation allows ordinary retention to apply. Keep
+the destination's idempotency protection for separate workflows acting on the
+same business request. Cancellation cannot retract an issued grant. The
+callback is responsible for validating the provider's receipt. The stored
+attempt IDs identify who obtained dispatch permission and who confirmed the
+result. The IDs alone cannot establish which callback produced a receipt. Operator
+resolution of an outcome that stays unknown is still in development.
+[Retention and upgrade behavior](retention.md#unresolved-approved-writes)
 
 ## Review with the client or Console
 

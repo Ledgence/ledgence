@@ -20,6 +20,21 @@ migration can authorize its first dispatch after approval. Allow maintenance
 time for the update of retained approved rows. Do not mix old writers into
 the upgraded installation.
 
+The next migration, `20261103000000_approved_effect_evidence.sql`, also
+handles grants recorded by the earlier development worker. It checks each
+grant against the journal of the activation that resumed after approval.
+A matching protected result preserves the original accepting attempt, which
+may differ from the dispatch attempt. A grant without a matching result
+opens a retention hold. Ordinary historical approvals keep their existing
+retention policy.
+
+If migration times out, run `ledgence orchestrator migrate` again before
+starting workers. The server checks for unfinished evidence recovery at
+startup. If an earlier cleanup already started deleting an unresolved
+workflow, migration identifies the affected workflow and stops. Restore a
+backup from before retirement to recover that evidence. Previously deleted
+records cannot be reconstructed by migration.
+
 From the candidate’s development checkout, set `LEDGENCE_POSTGRES_URL` to a
 disposable PostgreSQL 18 server where the test can create and drop a database.
 Build the candidate CLI and Console assets first. Use a new evidence directory:

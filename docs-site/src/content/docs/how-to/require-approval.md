@@ -129,7 +129,10 @@ asks the orchestrator for permission before making a write. Only one claim
 can permit the send. If no grant committed before the original attempt died,
 a retry can still get that first grant. After the grant commits, recovery uses
 `find_refund` with the exact approved arguments; a saved receipt replays
-without either function running.
+without either function running. If the refund remains uncertain, Ledgence
+keeps its workflow evidence even after cancellation and past the normal
+retention period. When a callback confirms the receipt, Ledgence saves the
+result and lifts that hold together.
 
 Keep `find_refund` read-only. Both callbacks should validate that the receipt
 matches the approved action. If the outcome is uncertain, raise
