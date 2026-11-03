@@ -445,6 +445,7 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
         "retention_turn",
         "console_programs",
         "console_program_versions",
+        "operator_audit_events",
     ] {
         sqlx::query(AssertSqlSafe(format!("CREATE TEMP TABLE {table}(tenant_id text COLLATE \"C\" NOT NULL,namespace text COLLATE \"C\" NOT NULL)")))
             .execute(&mut *connection).await.unwrap();
@@ -482,9 +483,9 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
     .await
     .unwrap()
     .join("\n");
-    println!("Instance indexed scope audit, 100k rows in each of ten tables:\n{plan}");
+    println!("Instance indexed scope audit, 100k rows in each of eleven tables:\n{plan}");
     assert!(!plan.contains("Seq Scan"));
-    assert_eq!(plan.matches("Index Only Scan").count(), 20);
+    assert_eq!(plan.matches("Index Only Scan").count(), 22);
     for table in [
         "tasks",
         "workflow_runs",
@@ -496,6 +497,7 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
         "retention_turn",
         "console_programs",
         "console_program_versions",
+        "operator_audit_events",
     ] {
         for (tenant, namespace) in [
             ("a", "billing"),

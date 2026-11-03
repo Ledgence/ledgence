@@ -201,8 +201,9 @@ decisions, reviewers, reasons, request bindings or arguments conflict.
 `reviewer` is caller-supplied attribution. Published 0.7.0 requires the
 installation's authenticated application boundary to protect inspection and
 decisions. Development builds support [instance credentials](instance-access.md)
-and separate capabilities for sensitive reads and approval decisions. Durable
-verified decision attribution remains subsequent development work.
+and separate capabilities for sensitive reads and approval decisions. Native credential
+mode records a verified acceptance event atomically with each new decision and
+keeps historical decisions unverified. [Operator audit](operator-audit.md).
 
 ## Approval inbox
 

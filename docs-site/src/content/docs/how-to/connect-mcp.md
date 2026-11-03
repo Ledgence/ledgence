@@ -87,3 +87,9 @@ Ledgence 0.7.0 exposes `ledgence_approval_inbox` in read-only mode. Optionally s
 Use scoped credentials with matching development components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
+
+
+## Operator audit in development
+
+Matching builds add `ledgence_audit_query` as a read-only tool. It uses the fixed instance scope and service credential, requiring `metadata_read` with native credential mode.
+[Setup, queries and operating limits](/how-to/audit-operators).

@@ -11,12 +11,13 @@ publish = false
 default = []
 client = ["dep:reqwest", "dep:sha2", "dep:rustix"]
 completion = ["dep:reqwest"]
-server = ["dep:axum", "dep:http-body-util", "dep:sha2"]
+server = ["dep:axum", "dep:http-body-util", "dep:sha2", "dep:getrandom"]
 
 [dependencies]
 ledgence-orchestration-api.workspace = true
 ledgence-worker-api.workspace = true
 sha2 = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

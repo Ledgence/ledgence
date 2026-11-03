@@ -62,6 +62,7 @@ pub struct ToolDispatcher {
     tasks: Arc<dyn TaskService>,
     workflows: Arc<dyn WorkflowService>,
     catalog: Arc<dyn ProgramCatalogService>,
+    audit: Option<Arc<dyn AuditReader>>,
     scope: Scope,
     read_only: bool,
     tools: Arc<Vec<crate::schemas::ToolDefinition>>,
@@ -79,9 +80,21 @@ impl ToolDispatcher {
             tasks,
             workflows,
             catalog,
+            audit: None,
             scope,
             read_only,
             tools: Arc::new(tool_definitions(false)),
+        })
+    }
+    /// Add the scope-bound remote audit reader. Without it the audit tool is absent.
+    pub fn with_audit_reader(mut self, audit: Arc<dyn AuditReader>) -> Self {
+        self.audit = Some(audit);
+        self
+    }
+    pub(crate) fn definitions(&self) -> impl Iterator<Item = &crate::schemas::ToolDefinition> {
+        self.tools.iter().filter(|tool| {
+            (!self.read_only || tool.read_only)
+                && (tool.name != "ledgence_audit_query" || self.audit.is_some())
         })
     }
     pub fn read_only(&self) -> bool {
@@ -113,6 +126,26 @@ impl ToolDispatcher {
             });
         }
         let value = match name {
+            "ledgence_audit_query" => {
+                let args: AuditArguments = parse(arguments)?;
+                let query = AuditQuery {
+                    scope: self.scope.clone(),
+                    filter: args.filter,
+                    cursor: args.cursor,
+                    limit: args.limit,
+                };
+                query.validate().map_err(ToolError::arguments)?;
+                let reader = self.audit.as_ref().ok_or_else(|| {
+                    ToolError::backend(
+                        ContractError::Unavailable("audit reader is not configured".into()),
+                        false,
+                    )
+                })?;
+                let page = remote(reader.query_audit(&query).await, false)?;
+                page.validate_for_query(&query)
+                    .map_err(|_| invalid_reply(false))?;
+                encode(page, false)?
+            }
             "ledgence_program_list" => {
                 let args: ProgramList = parse(arguments)?;
                 let query = ProgramCatalogQuery::Catalog {
@@ -410,6 +443,19 @@ fn check_workflow(
     }
     Ok(())
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditArguments {
+    #[serde(default = "all_audit_events")]
+    filter: AuditFilter,
+    cursor: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: u32,
+}
+fn all_audit_events() -> AuditFilter {
+    AuditFilter::All
+}
+
 fn default_limit() -> u32 {
     50
 }
@@ -548,12 +594,13 @@ pub(crate) fn test_dispatcher(read_only: bool) -> ToolDispatcher {
         ledgence_adapter_http::HttpProgramCatalogService::new(http.clone(), scope.clone()).unwrap();
     ToolDispatcher::new(
         Arc::new(http.clone()),
-        Arc::new(http),
+        Arc::new(http.clone()),
         Arc::new(catalog),
         scope,
         read_only,
     )
     .unwrap()
+    .with_audit_reader(Arc::new(http))
 }
 
 #[cfg(test)]
@@ -852,5 +899,114 @@ mod tests {
         let error = encode("x".repeat(TOOL_OUTPUT_MAX_BYTES), false).unwrap_err();
         assert_eq!(error.code, "response_too_large");
         assert!(!error.outcome_unknown);
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct Reader {
+        queries: Mutex<Vec<AuditQuery>>,
+        page: AuditPage,
+    }
+    impl AuditReader for Reader {
+        fn query_audit<'a>(&'a self, query: &'a AuditQuery) -> ContractFuture<'a, AuditPage> {
+            Box::pin(async move {
+                self.queries.lock().unwrap().push(query.clone());
+                Ok(self.page.clone())
+            })
+        }
+    }
+    fn reader(page: Value) -> Arc<Reader> {
+        Arc::new(Reader {
+            queries: Mutex::new(Vec::new()),
+            page: serde_json::from_value(page).unwrap(),
+        })
+    }
+
+    #[tokio::test]
+    async fn audit_tool_is_scoped_read_only_and_keeps_exact_occurrence() {
+        let reader = reader(json!({"items":[],"next_cursor":null}));
+        let dispatcher = test_dispatcher(true).with_audit_reader(reader.clone());
+        let filter = json!({"kind":"approval_acceptance","workflow_id":"workflow","key":"review",
+            "activation_id":"activation","revision":18446744073709551615_u64,"decision_id":"decision"});
+        let response = dispatcher
+            .call("ledgence_audit_query", &json!({"filter":filter,"limit":2}))
+            .await
+            .unwrap();
+        assert_eq!(response, json!({"items":[],"next_cursor":null}));
+        let queries = reader.queries.lock().unwrap();
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0].scope, dispatcher.scope);
+        assert_eq!(serde_json::to_value(&queries[0].filter).unwrap(), filter);
+        assert_eq!(queries[0].cursor, None);
+        assert_eq!(queries[0].limit, 2);
+    }
+
+    #[tokio::test]
+    async fn audit_rejects_scope_identity_overrides_and_invalid_filters_before_dispatch() {
+        let reader = reader(json!({"items":[],"next_cursor":null}));
+        let dispatcher = test_dispatcher(true).with_audit_reader(reader.clone());
+        for args in [
+            json!({"scope":{"tenant_id":"other","namespace":"other"}}),
+            json!({"actor":{"subject":"pretend"}}),
+            json!({"limit":101}),
+            json!({"cursor":"invented"}),
+            json!({"filter":{"kind":"resource","resource_kind":"workflow","resource_id":""}}),
+            json!({"filter":{"kind":"approval_acceptance","workflow_id":"wf","key":"review",
+                "activation_id":"activation","revision":0,"decision_id":"decision"}}),
+        ] {
+            let error = dispatcher
+                .call("ledgence_audit_query", &args)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "invalid_arguments", "{args}");
+            assert!(!error.outcome_unknown);
+        }
+        assert!(reader.queries.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn audit_invalid_response_cannot_become_absence_or_verified_attribution() {
+        let event = json!({"event_id":"audit_1","recorded_at":100,
+            "audience":{"authority_id":"authority","instance_id":"instance","scope":{"tenant_id":"acme","namespace":"billing"}},
+            "actor":{"issuer":"issuer","subject":"service","class":"service","credential_id":"original"},
+            "operation":{"kind":"approval_accepted","workflow_id":"wf","key":"review","activation_id":"activation",
+                "revision":0,"decision_id":"decision","decision":"approve"}});
+        let mut wrong_scope = event.clone();
+        wrong_scope["audience"]["scope"]["namespace"] = json!("other");
+        for page in [
+            json!({"items":[event.clone(),event],"next_cursor":null}),
+            json!({"items":[wrong_scope],"next_cursor":null}),
+            json!({"items":[],"next_cursor":"invented"}),
+        ] {
+            let dispatcher = test_dispatcher(true).with_audit_reader(reader(page));
+            let args = json!({"filter":{"kind":"approval_acceptance","workflow_id":"wf","key":"review",
+                "activation_id":"activation","revision":0,"decision_id":"decision"},"limit":2});
+            let error = dispatcher
+                .call("ledgence_audit_query", &args)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "unavailable");
+            assert!(!error.outcome_unknown);
+        }
+    }
+
+    #[test]
+    fn audit_tool_is_discoverable_only_with_its_reader() {
+        let mut dispatcher = test_dispatcher(true);
+        assert!(
+            dispatcher
+                .definitions()
+                .any(|tool| tool.name == "ledgence_audit_query")
+        );
+        dispatcher.audit = None;
+        assert!(
+            !dispatcher
+                .definitions()
+                .any(|tool| tool.name == "ledgence_audit_query")
+        );
     }
 }

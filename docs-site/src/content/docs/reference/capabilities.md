@@ -45,7 +45,7 @@ building, publishing and execution remain explicit operations.
 | Browse Programs, Executions, Approvals and Workers in the self-hosted Console. | [Explore Console](/tutorials/use-console) |
 | Inspect a workflow's recorded graph or trace view, and navigate into child executions. | [Console reference](/reference/console) |
 | Inspect and decide persisted approvals in Console, through the client or with the CLI. | [Require approval](/how-to/require-approval) |
-| Connect an MCP host through 15 stdio tools, with an optional read-only mode. | [Connect an MCP client](/how-to/connect-mcp) |
+| Connect an MCP host through 16 stdio tools, with an optional read-only mode. | [Connect an MCP client](/how-to/connect-mcp) |
 | Export optional OTLP HTTP/protobuf traces and metrics, and write correlated Python logs. | [Configure observability](/how-to/configure-observability) |
 | Use integrated HTTP acquisition or the optional SQS Standard / ElasticMQ adapter. | [Queue delivery](/concepts/queue-delivery) |
 | Implement custom Rust ports and adapters without exposing provider SDK types in core contracts. | [Rust API packages](/reference/releases#rust-adapter-contracts) |
@@ -132,3 +132,9 @@ cost-based worker placement, Kafka/Kinesis/RabbitMQ adapters, hostile-code
 isolation, and checkpointing a provider's partial token stream are not built-in
 capabilities in this release. Capacity depends on the deployed workload and must
 be measured; these features do not establish a production throughput guarantee.
+
+
+## Operator audit in development
+
+Matching development components add verified approval acceptance and durable sensitive-response observations, exposed through API, CLI, Python, MCP and Console. Pending result polling creates no observation rows.
+[Setup, queries and operating limits](/how-to/audit-operators).

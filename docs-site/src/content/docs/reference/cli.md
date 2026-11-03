@@ -345,3 +345,9 @@ Earlier 0.2.0 binaries do not include this command.
 Use scoped credentials with matching development components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
+
+
+## Operator audit in development
+
+Use `ledgence audit list` for bounded scoped pages or `ledgence audit approval` for one exact approval occurrence. Both use the configured credential file.
+[Setup, queries and operating limits](/how-to/audit-operators).

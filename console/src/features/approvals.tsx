@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { ApprovalAttribution } from "./approval-attribution";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -151,9 +152,11 @@ function ActionDetails({ approval }: { approval: Approval }) {
 export function ApprovalCard({
   approval,
   unavailable = false,
+  showAttribution = false,
 }: {
   approval: Approval;
   unavailable?: boolean;
+  showAttribution?: boolean;
 }) {
   const client = useQueryClient();
   const config = useInstance();
@@ -282,7 +285,9 @@ export function ApprovalCard({
       </Fields>
       {current.decision && (
         <Fields>
-          <Field label="Reviewer">{current.decision.reviewer}</Field>
+          <Field label="Reviewer label (caller supplied)">
+            {current.decision.reviewer}
+          </Field>
           <Field label="Decision">{current.decision.decision}</Field>
           <Field label="Decided">
             <When value={current.decision.decided_at} />
@@ -295,6 +300,16 @@ export function ApprovalCard({
           </Field>
         </Fields>
       )}
+      {current.decision &&
+        (showAttribution ? (
+          <ApprovalAttribution approval={current} />
+        ) : (
+          <Link
+            to={`/approvals/review?${new URLSearchParams({ workflow: current.workflow_id, key: current.key })}`}
+          >
+            View recorded attribution
+          </Link>
+        ))}
       {!canDecide && (
         <p className="notice">
           Your credential allows inspection, but does not permit approval
@@ -367,6 +382,9 @@ export function ApprovalCard({
             and version. The recorded action cannot be edited here.
           </DialogDescription>
           <ActionDetails approval={current} />
+          {current.decision && open && (
+            <ApprovalAttribution approval={current} />
+          )}
           {command.mutation.data ? (
             <p className="notice" role="status">
               {command.mutation.data.already_accepted
@@ -403,7 +421,8 @@ export function ApprovalCard({
                 />
               </label>
               <p className="muted">
-                Reviewer is the name you supply for the audit record.
+                Reviewer is a caller-supplied label, separate from the identity
+                verified by Ledgence.
               </p>
               <label>
                 Reason (optional)

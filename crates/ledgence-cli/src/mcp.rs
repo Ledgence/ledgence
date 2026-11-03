@@ -30,10 +30,11 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
         Ok(catalog) => Arc::new(catalog),
         Err(error) => return super::diagnose(error, None),
     };
-    let dispatcher = match ToolDispatcher::new(client.clone(), client, catalog, scope, read_only) {
-        Ok(dispatcher) => dispatcher,
-        Err(error) => return super::diagnose(error, None),
-    };
+    let dispatcher =
+        match ToolDispatcher::new(client.clone(), client.clone(), catalog, scope, read_only) {
+            Ok(dispatcher) => dispatcher.with_audit_reader(client),
+            Err(error) => return super::diagnose(error, None),
+        };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

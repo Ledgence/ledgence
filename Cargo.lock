@@ -1545,6 +1545,7 @@ name = "ledgence-adapter-http"
 version = "0.7.0"
 dependencies = [
  "axum",
+ "getrandom 0.4.3",
  "http-body-util",
  "ledgence-orchestration-api",
  "ledgence-worker-api",

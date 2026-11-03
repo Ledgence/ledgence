@@ -14,7 +14,7 @@ function checked(result: { value: Access; headers: Headers }) {
     instanceId: s.id(result.headers.get("Ledgence-Instance-Id")),
   };
 }
-const credentials = s.object({
+const credentialShape = {
   mode: s.enumeration("credentials"),
   actor_key: s.id,
   issuer: s.id,
@@ -35,6 +35,11 @@ const credentials = s.object({
     7,
   ),
   expires_at_ms: s.timestamp,
+};
+const credentials = s.object(credentialShape);
+const auditedCredentials = s.object({
+  ...credentialShape,
+  operator_audit: s.boolean,
 });
 export function decodeAccess(value: unknown): Access {
   if (
@@ -46,7 +51,10 @@ export function decodeAccess(value: unknown): Access {
     record(value, ["mode"]);
     return { mode: "operator_trusted" };
   }
-  const result = credentials(value);
+  const result =
+    value && typeof value === "object" && "operator_audit" in value
+      ? auditedCredentials(value)
+      : credentials(value);
   if (
     new Set(result.capabilities).size !== result.capabilities.length ||
     result.capabilities.includes("worker_execute")

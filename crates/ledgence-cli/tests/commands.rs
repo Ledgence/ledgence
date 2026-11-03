@@ -741,3 +741,92 @@ async fn approval_inbox_rejects_ambiguous_or_out_of_range_deadlines_before_conne
         );
     }
 }
+
+#[tokio::test]
+async fn audit_query_validates_scope_and_exact_acceptance_without_retry() {
+    let event = json!({
+        "event_id":"audit_1", "recorded_at":100,
+        "audience":{"authority_id":"authority", "instance_id":"instance", "scope":{"tenant_id":"tenant","namespace":"billing"}},
+        "actor":{"issuer":"urn:ledgence:authority:authority", "subject":"alice", "class":"operator", "credential_id":"original"},
+        "operation":{"kind":"approval_accepted", "workflow_id":"wf", "key":"refund", "activation_id":"activation",
+                     "revision":18446744073709551615_u64, "decision_id":"decision", "decision":"approve"}
+    });
+    let mut wrong_scope = event.clone();
+    wrong_scope["audience"]["scope"]["namespace"] = json!("other");
+    let mut wrong_occurrence = event.clone();
+    wrong_occurrence["operation"]["activation_id"] = json!("other");
+    for (body, accepted) in [
+        (json!({"items":[],"next_cursor":null}), true),
+        (json!({"items":[event.clone()],"next_cursor":null}), true),
+        (
+            json!({"items":[event.clone(),event.clone()],"next_cursor":null}),
+            false,
+        ),
+        (json!({"items":[wrong_scope],"next_cursor":null}), false),
+        (
+            json!({"items":[wrong_occurrence],"next_cursor":null}),
+            false,
+        ),
+        (json!({"items":[event],"next_cursor":"invented"}), false),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = format!("http://{}", listener.local_addr().unwrap());
+        let response = body.clone();
+        let exchange = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (header, body) = request(&mut socket).await;
+            assert!(header.starts_with("POST /v1/audit/events HTTP/1.1\r\n"));
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({
+                    "scope":{"tenant_id":"tenant","namespace":"billing"},
+                    "filter":{"kind":"approval_acceptance","workflow_id":"wf","key":"refund","activation_id":"activation",
+                              "revision":18446744073709551615_u64,"decision_id":"decision"},
+                    "cursor":null,"limit":2
+                })
+            );
+            respond(&mut socket, "200 OK", &response.to_string()).await;
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                    .await
+                    .is_err()
+            );
+        });
+        let output = invoke(&[
+            "audit",
+            "approval",
+            "--server",
+            &server,
+            "--tenant",
+            "tenant",
+            "--namespace",
+            "billing",
+            "--workflow",
+            "wf",
+            "--key",
+            "refund",
+            "--activation",
+            "activation",
+            "--revision",
+            "18446744073709551615",
+            "--decision",
+            "decision",
+        ])
+        .await;
+        assert_eq!(output.status.success(), accepted, "{output:?}");
+        if accepted {
+            assert_eq!(
+                serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+                body
+            );
+        } else {
+            assert!(output.stdout.is_empty());
+            assert!(
+                String::from_utf8(output.stderr)
+                    .unwrap()
+                    .contains("unavailable")
+            );
+        }
+        exchange.await.unwrap();
+    }
+}

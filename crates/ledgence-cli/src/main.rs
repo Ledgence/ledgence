@@ -17,7 +17,7 @@ mod telemetry;
 
 use args::{Command, Operation};
 use ledgence_adapter_http::HttpTaskService;
-use ledgence_orchestration_api::{ContractError, Result, TaskService};
+use ledgence_orchestration_api::{AuditReader, ContractError, Result, TaskService};
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -75,6 +75,7 @@ fn run_admin(mut arguments: Vec<String>) -> ExitCode {
         Err(error) => return diagnose(error, None),
     };
     let (server, operation) = match command {
+        Command::Audit { server, query } => (server, RunOperation::Audit(query)),
         Command::Approval { server, operation } => (server, RunOperation::Approval(operation)),
         Command::Task { server, operation } => (server, RunOperation::Task(operation)),
         Command::Program {
@@ -128,6 +129,7 @@ fn run_admin(mut arguments: Vec<String>) -> ExitCode {
 }
 
 enum RunOperation {
+    Audit(ledgence_orchestration_api::AuditQuery),
     Approval(args::ApprovalOperation),
     Task(Operation),
     Program(ledgence_orchestration_api::console::RegisterProgram),
@@ -163,6 +165,7 @@ fn run_task(
     };
     let result = runtime.block_on(async {
         match operation {
+            RunOperation::Audit(query) => encode(client.query_audit(&query).await?),
             RunOperation::Approval(operation) => approvals::execute(&client, operation).await,
             RunOperation::Task(operation) => execute(&client, operation).await,
             RunOperation::Program(command) => encode(client.register_program(&command).await?),

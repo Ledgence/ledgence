@@ -309,6 +309,10 @@ impl ApprovedEffects for ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         self.workflows()?.approved_effects()?;
         Ok(self)
@@ -551,4 +555,67 @@ pub(super) fn validate_activation_context_reply(
         return Err(ContractError::Conflict);
     }
     Ok(context)
+}
+
+/// Validate every receipt before allowing a transport to expose user payloads.
+impl OperatorAccess for ApplicationService {
+    fn decide_verified<'a>(
+        &'a self,
+        principal: &'a VerifiedPrincipal,
+        command: &'a ApprovalDecisionCommand,
+        request: &'a OperatorRequest,
+    ) -> ContractFuture<'a, AuditedDecision> {
+        Box::pin(async move {
+            command.validate()?;
+            principal.require(AccessCapability::ApprovalDecide)?;
+            principal.require(AccessCapability::SensitiveRead)?;
+            if command.scope != principal.audience().scope {
+                return Err(ContractError::Forbidden);
+            }
+            let result = self
+                .workflows()?
+                .operator_access()?
+                .decide_verified(principal, command, request)
+                .await?;
+            result.validate_for(principal, command)?;
+            Ok(result)
+        })
+    }
+    fn record_sensitive_response<'a>(
+        &'a self,
+        principal: &'a VerifiedPrincipal,
+        observation: &'a SensitiveObservation,
+    ) -> ContractFuture<'a, AuditReceipt> {
+        Box::pin(async move {
+            observation.validate()?;
+            principal.require(AccessCapability::SensitiveRead)?;
+            let receipt = self
+                .workflows()?
+                .operator_access()?
+                .record_sensitive_response(principal, observation)
+                .await?;
+            receipt.validate_for(principal, observation)?;
+            Ok(receipt)
+        })
+    }
+    fn query_audit<'a>(
+        &'a self,
+        principal: &'a VerifiedPrincipal,
+        query: &'a AuditQuery,
+    ) -> ContractFuture<'a, AuditPage> {
+        Box::pin(async move {
+            query.validate()?;
+            principal.require(AccessCapability::MetadataRead)?;
+            if query.scope != principal.audience().scope {
+                return Err(ContractError::Forbidden);
+            }
+            let page = self
+                .workflows()?
+                .operator_access()?
+                .query_audit(principal, query)
+                .await?;
+            page.validate_for(query, principal.audience())?;
+            Ok(page)
+        })
+    }
 }

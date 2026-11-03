@@ -451,13 +451,6 @@ async fn prepare_and_serve(
     if *stopped.borrow() {
         return Ok(());
     }
-    let listener = tokio::net::TcpListener::bind(bind)
-        .await
-        .map_err(|error| format!("could not bind HTTP listener: {error}"))?;
-    let address = listener.local_addr().map_err(|error| error.to_string())?;
-    let config = recovery::RecoveryConfig::default();
-    let health = Health::new(config.freshness());
-    health.prerequisites_ready();
     let store = Arc::new(store);
     let service = ApplicationService::new(store.clone(), programs.clone())
         .with_workflows(store.clone())
@@ -470,6 +463,19 @@ async fn prepare_and_serve(
         service
     };
     let service = Arc::new(service);
+    // Credential mode is indivisible: resolve the entire verified-decision,
+    // response-audit and audit-query port before opening any API listener.
+    if verifier.is_some() {
+        ledgence_orchestration_api::WorkflowService::operator_access(service.as_ref())
+            .map_err(|error| error.to_string())?;
+    }
+    let listener = tokio::net::TcpListener::bind(bind)
+        .await
+        .map_err(|error| format!("could not bind HTTP listener: {error}"))?;
+    let address = listener.local_addr().map_err(|error| error.to_string())?;
+    let config = recovery::RecoveryConfig::default();
+    let health = Health::new(config.freshness());
+    health.prerequisites_ready();
     let console_services = instance_config
         .map(|config| console::services(store.clone(), programs, config, address))
         .transpose()?;
@@ -477,6 +483,7 @@ async fn prepare_and_serve(
         .map(|console| match verifier {
             Some(verifier) => console
                 .with_access(verifier, allow_insecure_console_access)
+                .and_then(|console| console.with_operator_audit())
                 .map_err(|error| error.to_string()),
             None => Ok(console),
         })

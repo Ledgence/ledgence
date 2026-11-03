@@ -390,3 +390,7 @@ comparison. Access and HTTP credential-file readers use the existing `rustix 1.1
 include these dependencies. Core orchestration contracts expose a verifier port
 and validated principal. The implementation performs bounded in-memory checks
 on requests and loads policy at startup. [Access contract](instance-access.md).
+
+The development HTTP server also uses the reviewed `getrandom 0.4.3` dependency
+for independent response-observation identities. Its server-only feature keeps
+that implementation behind the transport adapter. [Operator audit](operator-audit.md).

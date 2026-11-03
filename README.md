@@ -65,6 +65,8 @@ migration; it is not included in the 0.7.0 packages.
 
 On `develop`, [instance access](docs/instance-access.md) adds scoped operator,
 service and worker credentials across the API, CLI, Python, MCP and Console.
+Native credential mode adds [verified decision attribution and operator audit](docs/operator-audit.md),
+with a payload-free feed available through the API, CLI, Python, MCP and Console.
 
 ### Install and start Ledgence
 

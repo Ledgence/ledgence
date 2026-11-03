@@ -125,3 +125,15 @@ audience and explicit capabilities. The optional access adapter verifies local
 opaque credentials. HTTP ingress applies route policy before command/upload
 dispatch. The production composition binds its authority during instance startup.
 See [instance access](instance-access.md) for activation, client setup and limits.
+
+
+### Verified operator audit
+
+The complete `OperatorAccess` port groups verified decisions, durable response
+observations and scoped queries. Native credential mode resolves this capability
+before binding a listener. PostgreSQL acceptance writes the actor/event linkage,
+original decision and eligible continuation in one transaction. HTTP validates
+and serializes payloads before recording their response observation. The
+read-only client `AuditReader` port delegates to authenticated HTTP ingress.
+Worker paths and pending result polls avoid audit database work.
+[Contract and retention](operator-audit.md).

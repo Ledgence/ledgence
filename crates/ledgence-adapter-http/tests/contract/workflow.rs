@@ -16,6 +16,12 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        self.operator_access
+            .get()
+            .map(Arc::as_ref)
+            .ok_or_else(|| ContractError::Unavailable("operator access unsupported".into()))
+    }
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         if self.protected_writes_disabled.load(Ordering::SeqCst) {
             Err(ContractError::InvalidInput(
@@ -106,7 +112,7 @@ impl WorkflowService for Mock {
         Box::pin(async move { self.reply("wf_cancel", json!([s, id])) })
     }
 }
-fn snapshot() -> WorkflowSnapshot {
+pub(super) fn snapshot() -> WorkflowSnapshot {
     WorkflowSnapshot {
         workflow_id: "workflow +%/é".into(),
         parent_workflow_id: None,

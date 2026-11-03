@@ -219,8 +219,11 @@ pub(super) async fn record_history(
 ) -> StoreResult<()> {
     let sequence: String = sqlx::query_scalar("UPDATE workflow_runs SET history_sequence=history_sequence+1 WHERE workflow_id=$1 RETURNING trunc(history_sequence)::text")
         .bind(id).fetch_one(&mut *connection).await?;
-    sqlx::query("INSERT INTO workflow_history(workflow_id,sequence,activation_id,at_ms,reason) VALUES($1,($2::text)::ldg_u64,$3,$4,$5)")
-        .bind(id).bind(sequence).bind(activation).bind(codec::ms(now)?).bind(reason).execute(connection).await?;
+    let affected=sqlx::query("INSERT INTO workflow_history(workflow_id,sequence,activation_id,at_ms,reason) VALUES($1,($2::text)::ldg_u64,$3,$4,$5)")
+        .bind(id).bind(sequence).bind(activation).bind(codec::ms(now)?).bind(reason).execute(connection).await?.rows_affected();
+    if affected != 1 {
+        return Err(corrupt("workflow history was not persisted").into());
+    }
     Ok(())
 }
 

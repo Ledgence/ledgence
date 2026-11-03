@@ -70,8 +70,8 @@ permissions,
 **Try again** deliberately resends the same bytes and decision ID. Explicit
 sign-out or switching actors discards that pending request. A full browser
 reload can inspect a persisted server decision, but cannot restore an unsaved
-local command. The existing reviewer field remains claimed attribution; this
-access increment does not yet add transactional verified-decision audit records.
+local command. The reviewer field remains a caller-supplied label; verified
+acceptance attribution is shown separately when the instance supports audit.
 
 Instances without credential configuration retain their explicit
 operator-trusted deployment mode and do not invent an authenticated actor.
@@ -319,6 +319,33 @@ On the development branch, approval details label requests created through
 decision and any retry preserve this requirement. Receipt validation rejects
 a changed protection marker. Use Console assets from the same build as the
 orchestrator for this extended contract.
+
+### Verified approval attribution (development)
+
+On credential-enabled native instances, an accepted approval's review page and
+submitted-decision dialog show **Accepted by**, the identity issuer, actor type
+and acceptance event ID. This is the original verified operator or service,
+which may differ from the current viewer or the **Reviewer label (caller
+supplied)**. The original acceptance time remains the decision time; later
+inspection does not replace it.
+
+The Console makes one exact lookup for that approval occurrence and decision.
+It displays **No verified actor recorded** only after a successful empty query,
+for example for a historical decision accepted before audit was enabled.
+Unsupported audit, denied access, failed or inconsistent responses remain
+unavailable. **Retry attribution** retries only the metadata read. It never
+resubmits a decision. Reading attribution requires `metadata_read`; the approval
+payload retains its `sensitive_read` requirement.
+
+Accepted evidence is cached in memory within the current instance and access
+view. Workflow approval lists link to detail without fetching every card's audit
+history. Actor, instance, permission or audit-capability changes discard the
+view; late responses cannot repopulate it. Credential rotation for the same actor
+preserves a pending command only under the same instance and permissions and
+still requires a deliberate identical retry. Operator-trusted deployments do not
+invent verified identities. These additions preserve Console contract 5 and the
+existing approval/decision representation; use matching development assets and
+server builds.
 
 ### Inspect a durable operation
 

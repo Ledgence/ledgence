@@ -285,7 +285,12 @@ fn authorize_control(
     Ok(Some(actor))
 }
 
-fn snapshot(actor: Option<&VerifiedPrincipal>) -> serde_json::Value {
+pub(super) fn recheck(server: &Server, actor: &VerifiedPrincipal, policy: Policy) -> Result<()> {
+    let control = control(server).ok_or(ContractError::Unauthenticated)?;
+    actor.require_at(control.verifier.audience(), wall_clock()?)?;
+    policy.require(actor)
+}
+fn snapshot(actor: Option<&VerifiedPrincipal>, operator_audit: bool) -> serde_json::Value {
     let Some(actor) = actor else {
         return serde_json::json!({"mode":"operator_trusted"});
     };
@@ -295,6 +300,7 @@ fn snapshot(actor: Option<&VerifiedPrincipal>) -> serde_json::Value {
         "class":actor.class(), "instance_id":actor.audience().instance_id,
         "scope":actor.audience().scope, "capabilities":actor.capabilities(),
         "expires_at_ms":actor.expires_at_ms(),
+        "operator_audit":operator_audit,
     })
 }
 #[derive(Deserialize)]
@@ -322,7 +328,12 @@ pub(super) async fn dispatch(
         to_bytes(request.into_body(), 0)
             .await
             .map_err(|_| invalid("access lookup does not accept a body"))?;
-        return Ok((server.encode(snapshot(principal.as_ref())).await?, None));
+        return Ok((
+            server
+                .encode(snapshot(principal.as_ref(), audit::enabled(server)))
+                .await?,
+            None,
+        ));
     }
     let control = control(server).ok_or(ContractError::NotFound)?;
     console::check_content_type(request.headers())?;
@@ -341,7 +352,12 @@ pub(super) async fn dispatch(
                 return Err(ContractError::Forbidden.into());
             }
             let cookie = control.set_cookie(Some((&login.credential, actor.expires_at_ms())))?;
-            Ok((server.encode(snapshot(Some(&actor))).await?, Some(cookie)))
+            Ok((
+                server
+                    .encode(snapshot(Some(&actor), audit::enabled(server)))
+                    .await?,
+                Some(cookie),
+            ))
         }
         Policy::Logout => {
             let _: Logout = decode_unique_json(&raw, LOGIN_MAX_BYTES)

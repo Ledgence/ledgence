@@ -1167,6 +1167,8 @@ mod approved_effects;
 mod effect_migration;
 #[path = "event_tests.rs"]
 mod events;
+#[path = "operator_audit_tests.rs"]
+mod operator_audit;
 
 fn task_input_id(input: &WorkflowChildResult) -> &str {
     match input {

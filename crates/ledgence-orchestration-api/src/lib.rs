@@ -10,6 +10,8 @@
 
 pub use ledgence_worker_api::TraceContext;
 
+mod operator_audit;
+pub use operator_audit::*;
 mod access;
 pub use access::*;
 mod acquisition;

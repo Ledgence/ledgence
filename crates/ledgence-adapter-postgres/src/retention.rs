@@ -27,8 +27,10 @@ impl RetentionStore for PostgresStore {
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(i64::from(policy.batch_size)).fetch_all(&mut *tx).await?;
             let expired_session_candidates=sqlx::query_scalar("SELECT session_id FROM worker_sessions WHERE tenant_id=$1 AND namespace=$2 AND expires_at_ms<=$3 ORDER BY expires_at_ms,session_id LIMIT $4")
                 .bind(&scope.tenant_id).bind(&scope.namespace).bind(codec::ms(now)?).bind(i64::from(policy.batch_size)).fetch_all(&mut *tx).await?;
+            let audit_observation_candidates=sqlx::query_scalar("SELECT event_id FROM operator_audit_events WHERE tenant_id=$1 AND namespace=$2 AND event_kind='sensitive_response' AND recorded_at_ms<=$3 ORDER BY recorded_at_ms,event_id LIMIT $4")
+                .bind(&scope.tenant_id).bind(&scope.namespace).bind(cutoff).bind(i64::from(policy.batch_size)).fetch_all(&mut *tx).await?;
             tx.commit().await?;
-            Ok(RetentionPreview {task_candidates,workflow_candidates,retiring_tasks,retiring_workflows,expired_session_candidates})
+            Ok(RetentionPreview {task_candidates,workflow_candidates,retiring_tasks,retiring_workflows,expired_session_candidates,audit_observation_candidates})
         }))
     }
 
@@ -58,11 +60,21 @@ impl PostgresStore {
         sqlx::query("UPDATE retention_turn SET lane=$3 WHERE tenant_id=$1 AND namespace=$2")
             .bind(&scope.tenant_id)
             .bind(&scope.namespace)
-            .bind((lane + 1) % 3)
+            .bind((lane + 1) % 4)
             .execute(&mut *tx)
             .await?;
         let now = db::now(&mut tx).await?;
         let cutoff = now.saturating_sub(policy.retain_for_ms);
+        if lane == 3 {
+            let deleted=sqlx::query("DELETE FROM operator_audit_events WHERE event_id IN (SELECT event_id FROM operator_audit_events WHERE tenant_id=$1 AND namespace=$2 AND event_kind='sensitive_response' AND recorded_at_ms<=$3 ORDER BY recorded_at_ms,event_id LIMIT $4 FOR UPDATE SKIP LOCKED)")
+                .bind(&scope.tenant_id).bind(&scope.namespace).bind(retention_cutoff(now,policy.retain_for_ms)).bind(i64::from(policy.batch_size)).execute(&mut *tx).await?.rows_affected();
+            tx.commit().await?;
+            return Ok(RetentionProgress {
+                examined: deleted as u32,
+                deleted_rows: deleted as u32,
+                ..Default::default()
+            });
+        }
         let kind = match lane {
             0 => "task",
             1 => "workflow",

@@ -484,6 +484,12 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    /// Complete verified decision and response-audit capability; no partial fallback.
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        Err(ContractError::Unavailable(
+            "operator audit is unsupported by this adapter".into(),
+        ))
+    }
     /// Expose the complete protected-write protocol, or reject it before dispatch.
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         Err(ContractError::InvalidInput(
@@ -630,6 +636,12 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    /// Complete verified decision and response-audit capability; no partial fallback.
+    fn operator_access(&self) -> Result<&dyn OperatorAccess> {
+        Err(ContractError::Unavailable(
+            "operator audit is unsupported by this adapter".into(),
+        ))
+    }
     /// Expose the complete protected-write protocol, or reject it before dispatch.
     fn approved_effects(&self) -> Result<&dyn ApprovedEffects> {
         Err(ContractError::InvalidInput(

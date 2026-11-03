@@ -19,6 +19,7 @@ mod instance_db_tests;
 mod migration;
 mod migration_effects;
 mod notifications;
+mod operator_audit;
 mod persistence;
 mod retention;
 mod storage;
@@ -65,6 +66,7 @@ impl Default for PostgresOptions {
 pub struct PostgresStore {
     pool: PgPool,
     instance_scope: Arc<std::sync::OnceLock<Scope>>,
+    instance_access: Arc<std::sync::OnceLock<AccessAudience>>,
     operation_timeout: Duration,
     trace_bridge: Arc<dyn TraceBridge>,
     acquisition_wake: Arc<notifications::WakeDispatch>,
@@ -108,6 +110,7 @@ impl PostgresStore {
         let store = Self {
             pool,
             instance_scope: Arc::new(std::sync::OnceLock::new()),
+            instance_access: Arc::new(std::sync::OnceLock::new()),
             operation_timeout: options.operation_timeout,
             trace_bridge: Arc::new(NoopTraceBridge),
             acquisition_wake: Arc::new(notifications::WakeDispatch::default()),

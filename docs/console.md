@@ -287,3 +287,13 @@ API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
 Verified ingress identity and durable approval attribution have separate scope.
+
+
+### Verified approval attribution
+
+Development credential mode exposes `operator_audit` in access discovery.
+Approval review and decision dialogs load an exact acceptance event separately
+from the caller-supplied reviewer label. Loading, verified actor, successful
+historical absence and unavailable attribution are distinct states. Changed
+identity or capabilities clear cached attribution. The separate audit routes
+preserve Console C5 and existing approval payloads. [Operator audit](operator-audit.md).

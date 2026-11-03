@@ -357,4 +357,15 @@ Matching development components support optional installation credentials across
 API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
-Verified ingress identity and durable approval attribution have separate scope.
+Native credential mode requires transactional verified approval attribution and
+audit before sensitive payload responses. [Operator audit](operator-audit.md).
+
+
+### Inspect operator audit
+
+Development builds add `ledgence audit list` with an optional `--task` or
+`--workflow` resource filter, `--limit` and `--cursor`. `ledgence audit approval`
+queries exact acceptance with `--workflow`, `--key`, `--activation`, `--revision`
+and `--decision`. Both take `--server`, `--tenant`, `--namespace` and the configured
+`--credentials-file`. Commands make one read exchange. [Copyable examples and
+interpretation](operator-audit.md#query-audit-events).

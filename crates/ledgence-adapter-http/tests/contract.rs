@@ -3,6 +3,9 @@
 #[path = "contract/access.rs"]
 mod access;
 
+#[path = "contract/operator_audit.rs"]
+mod operator_audit;
+
 #[path = "contract/publication.rs"]
 mod publication;
 
@@ -44,6 +47,7 @@ use tokio::{
 
 #[derive(Default)]
 struct Mock {
+    operator_access: std::sync::OnceLock<Arc<dyn OperatorAccess>>,
     protected_writes_disabled: AtomicBool,
     calls: Mutex<Vec<(&'static str, Value)>>,
     replies: Mutex<HashMap<&'static str, Result<Value>>>,

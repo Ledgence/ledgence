@@ -497,7 +497,10 @@ async fn fork_lost_ack_reconciles_from_new_attempt_then_owned_cancellation_and_r
         .execute(&db.store.pool)
         .await
         .unwrap();
-    for _ in 0..300 {
+    // Preserve the original 100 turns per lane for the two-row collection
+    // pages. Audit observations add a fourth lane alongside tasks, workflows
+    // and sessions; 300 total calls would now give each lane only 75 turns.
+    for _ in 0..(100 * 4) {
         let progress = db
             .store
             .retain_batch(
