@@ -303,6 +303,7 @@ fn context(wake: WorkflowWake) -> WorkflowActivationContext {
         state: json!(null),
         inputs: Default::default(),
         local_steps: vec![],
+        admission_result: None,
         wake: Some(wake),
     }
 }

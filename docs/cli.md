@@ -489,3 +489,19 @@ All API replicas must agree on this policy. Run matching workers on the dedicate
 probe queue named in each immutable binding. There is no additional worker flag
 and no scheduler that redirects such work to an eligible older worker.
 [Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).
+
+## Resource administration in development
+
+The development checkout adds `resource list|inspect|put` and
+`admission inspect|release`, plus `orchestrator serve --admission-config FILE`.
+Use scoped credentials and retain a destination-bound command file for mutations.
+`mcp serve --allow-resource-control` explicitly enables resource policy/release
+tools; it conflicts with read-only mode. These commands are not in 0.8.0.
+
+`ledgence audit list --resource NAME` reads audit events for a named resource
+policy. `--resource`, `--task` and `--workflow` are mutually exclusive; the
+existing scope, credential, limit and cursor options apply. Admission release
+and inspection events belong to the original workflow, so use `--workflow` for
+those records.
+See [resource admission](resource-admission.md#http-cli-python-and-mcp) for the
+command envelope, authority requirements and uncertain-outcome handling.

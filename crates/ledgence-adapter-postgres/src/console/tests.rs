@@ -718,6 +718,7 @@ async fn console_query_migration_backfills_existing_metadata_without_rewriting_p
         state: Value::Null,
         inputs: Default::default(),
         local_steps: vec![],
+        admission_result: None,
         wake: None,
     };
     context.validate().unwrap();

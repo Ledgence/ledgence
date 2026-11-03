@@ -62,12 +62,14 @@ from .audit import (
     AuditAcceptance, AuditEffectResolved, AuditActor, AuditActorClass, AuditApproval, AuditApprovalPage,
     AuditAudience, AuditEffect, AuditEvent, AuditFilter, AuditLocalStep, AuditPage, AuditReadKind,
     AuditResourceKind, AuditSensitiveResponse, AuditTask, AuditWorkflow,
+    AuditResourcePolicy, AuditAdmission, AuditResourcePolicyAccepted, AuditAdmissionReleased,
 )
 
 __all__ += [
     "AuditAcceptance", "AuditEffectResolved", "AuditActor", "AuditActorClass", "AuditApproval", "AuditApprovalPage",
     "AuditAudience", "AuditEffect", "AuditEvent", "AuditFilter", "AuditLocalStep", "AuditPage", "AuditReadKind",
     "AuditResourceKind", "AuditSensitiveResponse", "AuditTask", "AuditWorkflow",
+    "AuditResourcePolicy", "AuditAdmission", "AuditResourcePolicyAccepted", "AuditAdmissionReleased",
 ]
 
 from .effect_models import (
@@ -124,3 +126,9 @@ __all__ += [
     "ProviderProbeReported", "ProviderProbeUnreported", "ProviderProbeCompletion", "ProviderProbeFinishedEntry",
     "ProviderRecoveryStoppedEntry", "ProviderEvidenceEntry", "ProviderEffectDetail",
 ]
+
+from .admission_models import (AdmissionOccurrence, AdmissionState, AdmissionSnapshot,
+    AdmissionReleaseReceipt, ResourceRate, ResourcePolicy, ResourceRecord, ResourceSnapshot,
+    ResourcePutReceipt, ResourcePage)
+__all__ += ["AdmissionOccurrence", "AdmissionState", "AdmissionSnapshot", "AdmissionReleaseReceipt",
+    "ResourceRate", "ResourcePolicy", "ResourceRecord", "ResourceSnapshot", "ResourcePutReceipt", "ResourcePage"]

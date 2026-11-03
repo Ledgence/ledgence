@@ -13,6 +13,10 @@ use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug)]
 pub enum Command {
+    Admission {
+        server: String,
+        operation: crate::admission::Operation,
+    },
     Effect {
         server: String,
         operation: EffectOperation,
@@ -82,6 +86,9 @@ impl Command {
                 return Err(invalid("unexpected arguments after help"));
             }
             return Ok(Self::Help);
+        }
+        if matches!(command.as_str(), "resource" | "admission") {
+            return crate::admission::parse(&command, args);
         }
         if command == "effect" {
             return parse_effect(args);
@@ -567,17 +574,25 @@ fn parse_audit(mut args: impl Iterator<Item = String>) -> Result<Command> {
         namespace: required(&mut options, "--namespace")?,
     };
     let filter = match operation.as_str() {
-        "list" => match (options.remove("--task"), options.remove("--workflow")) {
-            (None, None) => AuditFilter::All,
-            (Some(resource_id), None) => AuditFilter::Resource {
+        "list" => match (
+            options.remove("--task"),
+            options.remove("--workflow"),
+            options.remove("--resource"),
+        ) {
+            (None, None, None) => AuditFilter::All,
+            (Some(resource_id), None, None) => AuditFilter::Resource {
                 resource_kind: AuditResourceKind::Task,
                 resource_id,
             },
-            (None, Some(resource_id)) => AuditFilter::Resource {
+            (None, Some(resource_id), None) => AuditFilter::Resource {
                 resource_kind: AuditResourceKind::Workflow,
                 resource_id,
             },
-            (Some(_), Some(_)) => return Err(invalid("choose one task or workflow resource")),
+            (None, None, Some(resource_id)) => AuditFilter::Resource {
+                resource_kind: AuditResourceKind::Resource,
+                resource_id,
+            },
+            _ => return Err(invalid("choose one task, workflow or resource filter")),
         },
         "approval" => AuditFilter::ApprovalAcceptance {
             workflow_id: required(&mut options, "--workflow")?,
@@ -640,6 +655,7 @@ mod audit_tests {
         for (flag, kind) in [
             ("--task", AuditResourceKind::Task),
             ("--workflow", AuditResourceKind::Workflow),
+            ("--resource", AuditResourceKind::Resource),
         ] {
             let Command::Audit { query, .. } =
                 parse("list", &[flag, "execution", "--limit", "1"]).unwrap()
@@ -692,6 +708,11 @@ mod audit_tests {
             vec!["--limit", "-1"],
             vec!["--limit", "1", "--limit", "2"],
             vec!["--task", "a", "--workflow", "b"],
+            vec!["--task", "a", "--resource", "model"],
+            vec!["--workflow", "b", "--resource", "model"],
+            vec!["--task", "a", "--workflow", "b", "--resource", "model"],
+            vec!["--resource", ""],
+            vec!["--resource", "a", "--resource", "b"],
             vec!["--cursor", "invented"],
             vec!["--task", ""],
             vec!["--actor", "pretend"],

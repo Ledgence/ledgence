@@ -13,6 +13,8 @@ pub(super) struct RunRecord {
     pub native_wait_activation: Option<String>,
     pub provider_wait_activation: Option<String>,
     pub has_provider_operations: bool,
+    pub admission_wait_activation: Option<String>,
+    pub has_admissions: bool,
     pub outcome: Option<WorkflowOutcome>,
 }
 impl RunRecord {
@@ -143,6 +145,8 @@ pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
         native_wait_activation: row.try_get("native_wait_activation_id")?,
         provider_wait_activation: row.try_get("provider_wait_activation_id")?,
         has_provider_operations: row.try_get("has_provider_operations")?,
+        admission_wait_activation: row.try_get("admission_wait_activation_id")?,
+        has_admissions: row.try_get("has_admissions")?,
         wait_keys: row
             .try_get::<Option<Vec<u8>>, _>("wait_keys_bytes")?
             .map(|b| codec::decode(&b))
@@ -198,10 +202,10 @@ pub(super) async fn save_run(connection: &mut PgConnection, run: &RunRecord) -> 
         .as_ref()
         .map(|_| codec::encode(&run.wait_keys))
         .transpose()?;
-    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10,external_wait_key=$11,native_wait_activation_id=$12,provider_wait_activation_id=$13,has_provider_operations=$14 WHERE workflow_id=$1 RETURNING workflow_id=$1 AND state=$2 AND revision=($3::text)::ldg_u64 AND continuation=$4 AND checkpoint_bytes=$5 AND current_activation_id IS NOT DISTINCT FROM $6 AND wait_activation_id IS NOT DISTINCT FROM $7 AND wait_keys_bytes IS NOT DISTINCT FROM $8 AND outcome_bytes IS NOT DISTINCT FROM $9 AND terminal_at_ms IS NOT DISTINCT FROM $10 AND external_wait_key IS NOT DISTINCT FROM $11 AND native_wait_activation_id IS NOT DISTINCT FROM $12 AND provider_wait_activation_id IS NOT DISTINCT FROM $13 AND has_provider_operations=$14")
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10,external_wait_key=$11,native_wait_activation_id=$12,provider_wait_activation_id=$13,has_provider_operations=$14,admission_wait_activation_id=$15,has_admissions=$16 WHERE workflow_id=$1 RETURNING workflow_id=$1 AND state=$2 AND revision=($3::text)::ldg_u64 AND continuation=$4 AND checkpoint_bytes=$5 AND current_activation_id IS NOT DISTINCT FROM $6 AND wait_activation_id IS NOT DISTINCT FROM $7 AND wait_keys_bytes IS NOT DISTINCT FROM $8 AND outcome_bytes IS NOT DISTINCT FROM $9 AND terminal_at_ms IS NOT DISTINCT FROM $10 AND external_wait_key IS NOT DISTINCT FROM $11 AND native_wait_activation_id IS NOT DISTINCT FROM $12 AND provider_wait_activation_id IS NOT DISTINCT FROM $13 AND has_provider_operations=$14 AND admission_wait_activation_id IS NOT DISTINCT FROM $15 AND has_admissions=$16")
         .bind(&run.snapshot.workflow_id).bind(codec::label(&run.snapshot.state)?).bind(run.snapshot.revision.to_string())
         .bind(&run.continuation).bind(codec::encode(&run.checkpoint)?).bind(&run.snapshot.activation_id).bind(&run.wait_activation)
-        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key).bind(&run.native_wait_activation).bind(&run.provider_wait_activation).bind(run.has_provider_operations)
+        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key).bind(&run.native_wait_activation).bind(&run.provider_wait_activation).bind(run.has_provider_operations).bind(&run.admission_wait_activation).bind(run.has_admissions)
         .fetch_optional(&mut *connection).await?;
     if valid != Some(true) {
         return Err(corrupt("workflow checkpoint suppressed or changed").into());
@@ -303,6 +307,7 @@ pub(super) async fn schedule_activation_with_id(
         inputs,
         wake,
         local_steps: Vec::new(),
+        admission_result: None,
     };
     context.validate()?;
     let mut command = run.submission.clone();
@@ -340,6 +345,7 @@ pub(super) async fn schedule_activation_with_id(
     run.external_wait_key = None;
     run.native_wait_activation = None;
     run.provider_wait_activation = None;
+    run.admission_wait_activation = None;
     save_run(connection, run).await?;
     Ok(task)
 }

@@ -127,7 +127,7 @@ def public_surfaces(d, occurrence, interpreter):
     )
     d.sessions.append(session)
     catalog = session.request("tools/list", {})["result"]["tools"]
-    assert len(catalog) == 14 and "ledgence_approval_decide" not in {
+    assert len(catalog) == 17 and "ledgence_approval_decide" not in {
         item["name"] for item in catalog
     }
     view = session.tool("ledgence_effect_inspect", identity)

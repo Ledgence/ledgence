@@ -34,6 +34,18 @@ type EffectConfirmV2 = (
 );
 
 struct Mock {
+    admission_starts: Option<
+        mpsc::UnboundedSender<(
+            AdmissionStartCommand,
+            oneshot::Sender<Result<AdmissionStartReceipt>>,
+        )>,
+    >,
+    admission_finishes: Option<
+        mpsc::UnboundedSender<(
+            AdmissionFinishCommand,
+            oneshot::Sender<Result<AdmissionFinishReceipt>>,
+        )>,
+    >,
     provider_claims: Option<
         mpsc::UnboundedSender<(
             ProviderClaimCommand,
@@ -122,6 +134,9 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn admission_client(&self) -> Result<&dyn AdmissionClient> {
+        Ok(self)
+    }
     fn provider_operation_client(&self) -> Result<&dyn ProviderOperationClient> {
         Ok(self)
     }
@@ -211,6 +226,8 @@ fn fixture() -> (
     let (commits, commit_requests) = mpsc::unbounded_channel();
     (
         Arc::new(Mock {
+            admission_starts: None,
+            admission_finishes: None,
             provider_claims: None,
             provider_reports: None,
             contexts,
@@ -247,6 +264,7 @@ fn config() -> DeliveryConfig {
 }
 fn context() -> WorkflowActivationContext {
     WorkflowActivationContext {
+        admission_result: None,
         parent_workflow_id: None,
         root_workflow_id: None,
         v: 1,
@@ -272,6 +290,8 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
     WorkflowOperations {
         service,
         effect_access: None,
+        runtime_binding: None,
+        admission_wake: None,
         runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
         owner: owner(),
         workflow_id: context().workflow_id,
@@ -281,6 +301,8 @@ fn journal(service: Arc<Mock>) -> WorkflowOperations {
     }
 }
 
+#[path = "admission_tests.rs"]
+mod admission_tests;
 #[path = "approved_effect_tests.rs"]
 mod approved_effect;
 #[path = "evidence_tests.rs"]

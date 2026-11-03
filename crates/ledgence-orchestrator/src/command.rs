@@ -2,7 +2,7 @@ use ledgence_adapter_postgres::MigrationOptions;
 use ledgence_orchestration_api::{RetentionPolicy, Scope};
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, time::Duration};
 
-pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--access-config FILE] [--provider-config FILE] [--allow-insecure-console-access] [--console-dir DIR] [--allow-program-publication]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nCredential mode requires --instance-config and one configured HTTPS Console origin; --allow-insecure-console-access permits local loopback HTTP only.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
+pub const HELP: &str = "Ledgence orchestrator\n\nCommands:\n  ledgence orchestrator migrate [--timeout-ms 600000]\n  ledgence orchestrator retain --tenant TENANT --namespace NAMESPACE [--retain-days 90] [--batch-size 128] [--batches 100] [--apply]\n  ledgence orchestrator serve --store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--access-config FILE] [--provider-config FILE] [--admission-config FILE] [--allow-insecure-console-access] [--console-dir DIR] [--allow-program-publication]\n\nRetention defaults to a bounded read-only preview. --apply irreversibly retires eligible records in the explicit tenant and namespace. Minimum retention is 90 days.\nDATABASE_URL is required. Migrations are explicit; serve verifies the schema.\nMigration timeout is 1..2147483647 ms after connection (default: ten minutes).\nInterrupted migrations may have committed earlier steps; rerun ledgence orchestrator migrate to reconcile.\nCredential mode requires --instance-config and one configured HTTPS Console origin; --allow-insecure-console-access permits local loopback HTTP only.\nThe listener uses HTTP/1.1; an external proxy can provide HTTPS.\nFirst SIGINT/SIGTERM drains operations; a second signal forces a nonzero exit.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -24,6 +24,7 @@ pub enum Command {
         instance_config: Option<PathBuf>,
         access_config: Option<PathBuf>,
         provider_config: Option<PathBuf>,
+        admission_config: Option<PathBuf>,
         allow_insecure_console_access: bool,
         console_dir: Option<PathBuf>,
         allow_program_publication: bool,
@@ -136,11 +137,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         let instance_config = options.remove("--instance-config").map(PathBuf::from);
         let access_config = options.remove("--access-config").map(PathBuf::from);
         let provider_config = options.remove("--provider-config").map(PathBuf::from);
+        let admission_config = options.remove("--admission-config").map(PathBuf::from);
         if access_config.is_some() && instance_config.is_none() {
             return Err("--access-config requires --instance-config".into());
         }
         if provider_config.is_some() && access_config.is_none() {
             return Err("--provider-config requires --access-config and --instance-config".into());
+        }
+        if admission_config.is_some() && access_config.is_none() {
+            return Err("--admission-config requires --access-config and --instance-config".into());
         }
         if allow_insecure_console_access && (access_config.is_none() || !bind.ip().is_loopback()) {
             return Err(
@@ -174,6 +179,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             instance_config,
             access_config,
             provider_config,
+            admission_config,
             allow_insecure_console_access,
             console_dir,
             allow_program_publication,
@@ -365,6 +371,32 @@ mod tests {
     }
 
     #[test]
+    fn admission_requires_authenticated_instance_without_provider_dependency() {
+        let base = [
+            "serve",
+            "--store",
+            "programs",
+            "--admission-config",
+            "admission.json",
+        ];
+        assert!(arguments(&base).is_err());
+        let mut args = base.to_vec();
+        args.extend(["--access-config", "access.json"]);
+        assert!(arguments(&args).is_err());
+        args.extend(["--instance-config", "instance.json"]);
+        assert!(matches!(
+            arguments(&args).unwrap(),
+            Command::Serve {
+                admission_config: Some(_),
+                provider_config: None,
+                ..
+            }
+        ));
+        args.extend(["--admission-config", "duplicate.json"]);
+        assert!(arguments(&args).is_err());
+    }
+
+    #[test]
     fn retention_requires_explicit_scope_and_defaults_to_read_only() {
         assert!(arguments(&["retain"]).is_err());
         assert!(arguments(&["retain", "--tenant", "acme"]).is_err());
@@ -424,6 +456,7 @@ mod tests {
                 instance_config: None,
                 access_config: None,
                 provider_config: None,
+                admission_config: None,
                 allow_insecure_console_access: false,
                 console_dir: None,
                 allow_program_publication: false,

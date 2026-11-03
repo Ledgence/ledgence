@@ -168,6 +168,7 @@ fn explorer(
             external_wait_key: None,
             native_effect_wait: None,
             provider_wait: None,
+            admission_wait: None,
             observed_at: OBSERVED,
         },
         page: ConsolePage {
@@ -853,6 +854,151 @@ fn provider_wait_case(
         });
     }
     result
+}
+
+pub fn admission_cases() -> Value {
+    let id = "wf_admission";
+    let occurrence = AdmissionOccurrence {
+        scope: scope(),
+        workflow_id: id.into(),
+        origin_activation_id: activation(id, 0),
+        key: "summary:0".into(),
+    };
+    let wait = |selection, closed| ConsoleExplorerData::AdmissionWait {
+        key: "admit:0".into(),
+        occurrence: occurrence.clone(),
+        resource: "models.shared".into(),
+        deadline: AT + 60_000,
+        registered_at: AT + 100,
+        closed_at: closed,
+        selection_kind: selection,
+        resumed_activation_id: selection.map(|_| activation(id, 1)),
+    };
+    let mut pending = explorer(
+        id,
+        WorkflowState::Waiting,
+        "call_model",
+        vec![
+            entrypoint(id, 0, "start", ConsoleDecisionKind::Wait, None),
+            node(id, 0, "start", wait(None, None)),
+        ],
+    );
+    pending.workflow.admission_wait = Some(ConsoleAdmissionWait {
+        parking_activation_id: activation(id, 0),
+        key: "admit:0".into(),
+        occurrence: occurrence.clone(),
+        resource: "models.shared".into(),
+    });
+    let mut accepted = explorer(
+        id,
+        WorkflowState::Succeeded,
+        "call_model",
+        vec![
+            entrypoint(id, 0, "start", ConsoleDecisionKind::Wait, None),
+            node(
+                id,
+                0,
+                "start",
+                wait(
+                    Some(ConsoleAdmissionSelectionKind::Offered),
+                    Some(AT + 1000),
+                ),
+            ),
+            entrypoint(id, 1, "call_model", ConsoleDecisionKind::Complete, None),
+        ],
+    );
+    let binding = AdmissionBinding {
+        resource: "models.shared".into(),
+        program: ledgence_worker_api::ProgramDescriptor {
+            program: program(true),
+            digest: Digest(format!("sha256:{}", "b".repeat(64))),
+            size: 4096,
+        },
+        operation: AdmissionOperation {
+            callable: "app:summarize".into(),
+            kind: AdmissionOperationKind::Model,
+            version: "1".into(),
+            arguments: json!({"item":u64::MAX,"temperature":1.0}),
+        },
+    };
+    let source = AdmissionSource {
+        occurrence: occurrence.clone(),
+        source_id: "src_model_1".into(),
+        start_id: "start_1".into(),
+        finish_id: "finish_1".into(),
+        generation: 1,
+        binding_digest: binding.digest().unwrap(),
+        owner: LeaseOwner {
+            scope: scope(),
+            task_id: activation(id, 1),
+            attempt_id: "att_model_1".into(),
+            lease_id: "lease_model_1".into(),
+            generation: 1,
+            worker_session_id: "worker_1".into(),
+            consumer_id: 0,
+        },
+        worker: AdmissionWorkerIdentity {
+            audience: AccessAudience {
+                authority_id: "authority_demo".into(),
+                instance_id: "instance_demo".into(),
+                scope: scope(),
+            },
+            issuer: "local".into(),
+            subject: "worker_1".into(),
+            credential_id: "cred_worker_1".into(),
+        },
+        accepted_at: AT + 1010,
+        start_deadline_at: AT + 2010,
+    };
+    let finish = AdmissionFinishReceipt {
+        source: source.clone(),
+        output: json!({"summary":"accepted","score":-0.0}),
+        accepted_at: AT + 1050,
+        already_accepted: false,
+    };
+    let snapshot = AdmissionSnapshot {
+        occurrence: occurrence.clone(),
+        binding,
+        state: AdmissionState::Finished,
+        revision: 3,
+        created_at: AT + 100,
+        updated_at: finish.accepted_at,
+        deadline_at: AT + 60_000,
+        offer: None,
+        source: Some(source.clone()),
+        finish: Some(finish.clone()),
+    };
+    snapshot.validate().unwrap();
+    let mut operation = node(
+        id,
+        1,
+        "call_model",
+        ConsoleExplorerData::AdmissionOperation {
+            occurrence: occurrence.clone(),
+            resource: snapshot.binding.resource.clone(),
+            callable: snapshot.binding.operation.callable.clone(),
+            operation_kind: AdmissionOperationKind::Model,
+            operation_version: "1".into(),
+            binding_digest: source.binding_digest.clone(),
+            source_id: source.source_id.clone(),
+            accepting_attempt_id: source.owner.attempt_id.clone(),
+            accepted_at: finish.accepted_at,
+        },
+    );
+    operation.relations = operation.derive_relations(id).unwrap();
+    operation.validate().unwrap();
+    accepted.page.items.push(operation);
+    accepted.page.items.sort_by_key(ConsoleRecord::position);
+    let closed = explorer(
+        id,
+        WorkflowState::Cancelled,
+        "call_model",
+        vec![
+            entrypoint(id, 0, "start", ConsoleDecisionKind::Wait, None),
+            node(id, 0, "start", wait(None, Some(AT + 500))),
+        ],
+    );
+    json!({"pending":pending,"accepted":accepted,"closed":closed,"snapshot":snapshot})
 }
 
 pub fn fixtures() -> Value {

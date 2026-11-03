@@ -4,6 +4,8 @@ use ledgence_orchestration_api::console::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CANARY: &str = "private-payload-must-not-leak";
+#[path = "admission.rs"]
+mod admission;
 #[path = "effect_evidence.rs"]
 mod effect_evidence;
 #[path = "effect_resolution.rs"]
@@ -25,6 +27,7 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::ApprovalDecide,
             ],
             "reader" => vec![AccessCapability::MetadataRead],
+            "resource-operator" => vec![AccessCapability::ResourceControl],
             "resolver" => vec![AccessCapability::EffectResolve],
             "worker" => vec![AccessCapability::WorkerExecute],
             "expiring" => vec![

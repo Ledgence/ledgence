@@ -271,6 +271,7 @@ pub fn fixtures() -> Value {
         external_wait_key: None,
         native_effect_wait: None,
         provider_wait: None,
+        admission_wait: None,
         observed_at: at,
     };
     let activations = ConsolePage {
@@ -394,6 +395,7 @@ pub fn fixtures() -> Value {
         .as_object_mut()
         .unwrap()
         .extend(explorer::fixtures().as_object().unwrap().clone());
+    result["admission"] = explorer::admission_cases();
     result["provider_probe_status"] = serde_json::to_value(ConsoleObservedTaskStatus {
         task: probe_status,
         observed_at: at,

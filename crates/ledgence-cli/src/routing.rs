@@ -4,7 +4,7 @@
 use crate::args::invalid;
 use ledgence_orchestration_api::Result;
 
-pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
+pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  resource      Configure shared resource capacity\n  admission     Inspect and release retained resource usage\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
@@ -30,6 +30,36 @@ struct Leaf {
 
 const COMMANDS: &[Leaf] = &[
     Leaf {
+        group: "resource",
+        name: "list",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME [--after NAME] [--limit 1..100]",
+        description: "List resource policies and occupied capacity. Requires metadata_read. Follow next with the same scope.",
+    },
+    Leaf {
+        group: "resource",
+        name: "inspect",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --name NAME",
+        description: "Read a resource policy and occupancy counters. Unknown usage remains occupied until a completed report or explicit operator release.",
+    },
+    Leaf {
+        group: "resource",
+        name: "put",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --file COMMAND.json",
+        description: "Apply a destination-bound saved resource policy command. Requires resource_control. Include a stable request_id and expected_revision (null for creation). Retry only the identical saved file after an uncertain response.",
+    },
+    Leaf {
+        group: "admission",
+        name: "inspect",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --workflow ID --activation ID --key KEY",
+        description: "Inspect one original admission occurrence, including frozen arguments and retained output. Requires sensitive_read and durable audit. Use the originating activation, not the latest continuation.",
+    },
+    Leaf {
+        group: "admission",
+        name: "release",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --file COMMAND.json",
+        description: "Explicitly release uncertain capacity using a destination-bound saved command and inspected source_id/revision. Requires resource_control. This does not stop remote work or report business success. Replay an uncertain response using the identical file.",
+    },
+    Leaf {
         group: "effect",
         name: "inbox",
         options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--filter all|unconfirmed|confirmed|discrepant|disputed] [--provider-filter all|pending|needs_review|succeeded|failed|cancelled|disputed] [--workflow ID] [--cursor CURSOR] [--limit 1..100]",
@@ -50,8 +80,8 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "audit",
         name: "list",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--task ID | --workflow ID] [--cursor CURSOR] [--limit 1..100]",
-        description: "Read one bounded page of payload-free audit events. Requires metadata_read in credential mode. Resource filtering covers the named execution. Preserve filters with next_cursor. Pages are ordered observations, not a snapshot across concurrent commits.",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--task ID | --workflow ID | --resource NAME] [--cursor CURSOR] [--limit 1..100]",
+        description: "Read one bounded page of audit events without task/workflow inputs or outputs. Resource policy and admission release events include retained operator reasons. Requires metadata_read in credential mode. Filtering covers the named execution or resource policy. Preserve filters with next_cursor. Pages are ordered observations, not a snapshot across concurrent commits.",
     },
     Leaf {
         group: "audit",
@@ -69,7 +99,7 @@ const COMMANDS: &[Leaf] = &[
         group: "access",
         name: "issue",
         options: "--config FILE --server URL --directory NEW_DIR --subject NAME --class operator|service|worker --capabilities COMMA_SEPARATED --expires-at RFC3339",
-        description: "Create a new private credential and a complete replacement access.json containing existing credentials plus the new one. Deploy the replacement configuration to every API replica. Reuse the subject and authority for credential rotation. Supported capabilities: metadata_read,sensitive_read,execution_submit,execution_control,program_publish,approval_decide,effect_resolve,worker_execute. The worker class accepts only worker_execute.",
+        description: "Create a new private credential and a complete replacement access.json containing existing credentials plus the new one. Deploy the replacement configuration to every API replica. Reuse the subject and authority for credential rotation. Supported capabilities: metadata_read,sensitive_read,execution_submit,execution_control,program_publish,approval_decide,effect_resolve,resource_control,worker_execute. The worker class accepts only worker_execute.",
     },
     Leaf {
         group: "local",
@@ -98,7 +128,7 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "mcp",
         name: "serve",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--read-only | --allow-effect-resolution]",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--read-only | --allow-effect-resolution | --allow-resource-control]",
         description: "Serve MCP over stdio using the configured Ledgence HTTP API. Requires the mcp build feature (enabled by default). Scope is fixed for the session. Submissions require caller-supplied idempotency keys and return immediately; inspect status/results separately. --read-only excludes mutations. Stdout is reserved for MCP; no database or worker starts in this process.",
     },
     Leaf {
@@ -164,7 +194,7 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "orchestrator",
         name: "serve",
-        options: "--store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR] [--allow-program-publication] [--access-config FILE] [--provider-config FILE] [--allow-insecure-console-access]",
+        options: "--store DIR_OR_URL [--bind 127.0.0.1:8080] [--delivery-config FILE] [--completion-config FILE] [--instance-config FILE] [--console-dir DIR] [--allow-program-publication] [--access-config FILE] [--provider-config FILE] [--admission-config FILE] [--allow-insecure-console-access]",
         description: "Serve HTTP orchestration and supervise recovery. DATABASE_URL is required; the schema is verified, never migrated automatically. Console requires explicit instance configuration; with --instance-config, the installed Console is used when available unless --console-dir overrides it. Provider operations require --provider-config plus access and instance configurations; the bound file explicitly enables dispatch or declared-restore quarantine. An external proxy can provide HTTPS. First SIGINT/SIGTERM drains; a second forces a nonzero exit. SQS delivery requires the sqs build feature.",
     },
     Leaf {

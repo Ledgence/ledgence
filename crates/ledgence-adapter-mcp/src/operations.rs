@@ -1,4 +1,5 @@
 //! Scope-bound tool dispatch over portable service ports, without a framework SDK.
+mod admission;
 use crate::schemas::tool_definitions;
 use ledgence_orchestration_api::{console::*, *};
 use ledgence_worker_api::ProgramRef;
@@ -66,6 +67,7 @@ pub struct ToolDispatcher {
     scope: Scope,
     read_only: bool,
     allow_effect_resolution: bool,
+    allow_resource_control: bool,
     tools: Arc<Vec<crate::schemas::ToolDefinition>>,
 }
 impl ToolDispatcher {
@@ -85,6 +87,7 @@ impl ToolDispatcher {
             scope,
             read_only,
             allow_effect_resolution: false,
+            allow_resource_control: false,
             tools: Arc::new(tool_definitions(false)),
         })
     }
@@ -103,11 +106,22 @@ impl ToolDispatcher {
         self.allow_effect_resolution = true;
         Ok(self)
     }
+    /// Explicit opt-in for policy changes and release of uncertain capacity.
+    pub fn with_resource_control(mut self) -> ledgence_orchestration_api::Result<Self> {
+        if self.read_only {
+            return Err(ContractError::InvalidInput(
+                "resource control conflicts with read-only MCP mode".into(),
+            ));
+        }
+        self.allow_resource_control = true;
+        Ok(self)
+    }
     pub(crate) fn definitions(&self) -> impl Iterator<Item = &crate::schemas::ToolDefinition> {
         self.tools.iter().filter(|tool| {
             (!self.read_only || tool.read_only)
                 && (tool.name != "ledgence_audit_query" || self.audit.is_some())
                 && (tool.name != "ledgence_effect_resolve" || self.allow_effect_resolution)
+                && (!admission::is_mutation(tool.name) || self.allow_resource_control)
         })
     }
     pub fn read_only(&self) -> bool {
@@ -138,12 +152,22 @@ impl ToolDispatcher {
                 outcome_unknown: false,
             });
         }
+        if admission::is_mutation(name) && !self.allow_resource_control {
+            return Err(ToolError {
+                code: "unknown_tool",
+                message: "Resource control requires explicit server opt-in".into(),
+                outcome_unknown: false,
+            });
+        }
         if self.read_only && !definition.read_only {
             return Err(ToolError {
                 code: "read_only",
                 message: "This MCP server only exposes read operations".into(),
                 outcome_unknown: false,
             });
+        }
+        if admission::is_tool(name) {
+            return self.call_admission(name, arguments).await;
         }
         let value = match name {
             "ledgence_audit_query" => {
@@ -836,10 +860,11 @@ mod tests {
             "unknown_tool"
         );
         let readonly = test_dispatcher(true);
-        for definition in tool_definitions(false)
-            .into_iter()
-            .filter(|tool| !tool.read_only && tool.name != "ledgence_effect_resolve")
-        {
+        for definition in tool_definitions(false).into_iter().filter(|tool| {
+            !tool.read_only
+                && tool.name != "ledgence_effect_resolve"
+                && !admission::is_mutation(tool.name)
+        }) {
             let error = readonly
                 .call(definition.name, &json!({}))
                 .await

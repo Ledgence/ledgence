@@ -157,6 +157,9 @@ def _load_handler(root, module_name, function_name, allow_async=False):
     if getattr(handler, "_ledgence_providers", None):
         from ledgence.worker.providers import _validate_artifact_registry
         _validate_artifact_registry(handler, root)
+    if getattr(handler, "_ledgence_operations", None):
+        from ledgence.worker.admission import validate_artifact_registry
+        validate_artifact_registry(handler, root)
     return handler
 
 
@@ -194,7 +197,7 @@ def _runtime_features(value):
 
 def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
             extension=None, rpc=None, observe=False, effect_evidence_v2=False, native_effect_resolution=False,
-            provider_operation=False):
+            provider_operation=False, resource_admission=False):
     from ledgence.worker import InvocationContext, _invocation
     from ledgence.worker.otel import _activate
 
@@ -231,7 +234,7 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
             if version >= 3:
                 import asyncio
                 response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc,
-                                                    effect_evidence_v2, native_effect_resolution, provider_operation))
+                                                    effect_evidence_v2, native_effect_resolution, provider_operation, resource_admission))
             else:
                 response = _invoke_output(handler, event, envelope, limit)
         if observation is not None:
@@ -268,7 +271,7 @@ def _invoke_output(handler, event, envelope, limit):
 
 
 async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2=False,
-                        native_effect_resolution=False, provider_operation=False):
+                        native_effect_resolution=False, provider_operation=False, resource_admission=False):
     import asyncio
     from ledgence.worker.workflow import SCHEMA, WorkflowContext, _workflow
 
@@ -293,7 +296,7 @@ async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_
                 raise ProtocolError("unsupported runtime extension")
             context = WorkflowContext(extension["payload"], rpc, effect_evidence_v2=effect_evidence_v2,
                                       native_effect_resolution=native_effect_resolution,
-                                      provider_operation=provider_operation)
+                                      provider_operation=provider_operation, resource_admission=resource_admission)
             if (context.activation_id != event.get("ldgtaskid")
                     or context.activation_id != event.get("ldgactivationid")
                     or context.workflow_id != event.get("ldgworkflowid")
@@ -513,6 +516,7 @@ def main():
                     if "runtime_features" in message else frozenset())
         native_effect_resolution = "native_effect_resolution.v1" in features
         provider_operation = "provider_operation.v1" in features
+        resource_admission = "resource_admission.v1" in features
         if provider_operation and not native_effect_resolution:
             raise ProtocolError("provider operation requires native effect resolution")
         if native_effect_resolution and not effect_evidence_v2:
@@ -524,7 +528,7 @@ def main():
         response = contextvars.Context().run(
             _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
             args.protocol_version, processing, extension, rpc, message.get("observe") is True,
-            effect_evidence_v2, native_effect_resolution, provider_operation
+            effect_evidence_v2, native_effect_resolution, provider_operation, resource_admission
         )
         write(response)
 

@@ -69,6 +69,8 @@ pub struct PostgresStore {
     instance_scope: Arc<std::sync::OnceLock<Scope>>,
     instance_access: Arc<std::sync::OnceLock<AccessAudience>>,
     provider_config: Arc<std::sync::OnceLock<ProviderOperationConfig>>,
+    admission_config: Arc<std::sync::OnceLock<AdmissionConfig>>,
+    admission_scan_cursor: Arc<std::sync::Mutex<Option<(u64, String)>>>,
     operation_timeout: Duration,
     trace_bridge: Arc<dyn TraceBridge>,
     acquisition_wake: Arc<notifications::WakeDispatch>,
@@ -114,6 +116,8 @@ impl PostgresStore {
             instance_scope: Arc::new(std::sync::OnceLock::new()),
             instance_access: Arc::new(std::sync::OnceLock::new()),
             provider_config: Arc::new(std::sync::OnceLock::new()),
+            admission_config: Arc::new(std::sync::OnceLock::new()),
+            admission_scan_cursor: Arc::new(std::sync::Mutex::new(None)),
             operation_timeout: options.operation_timeout,
             trace_bridge: Arc::new(NoopTraceBridge),
             acquisition_wake: Arc::new(notifications::WakeDispatch::default()),
@@ -138,6 +142,21 @@ impl PostgresStore {
     }
     pub fn provider_operation_config(&self) -> Option<&ProviderOperationConfig> {
         self.provider_config.get()
+    }
+
+    /// Explicit deployment authority for governed calls. Restore quarantine is
+    /// outside the restored database and applies to every new Start.
+    pub fn configure_admissions(&self, config: &AdmissionConfig) -> Result<()> {
+        config.validate_for(self.audit_audience()?)?;
+        if self.admission_config.set(config.clone()).is_err()
+            && self.admission_config.get() != Some(config)
+        {
+            return Err(ContractError::Conflict);
+        }
+        Ok(())
+    }
+    pub fn admission_config(&self) -> Option<&AdmissionConfig> {
+        self.admission_config.get()
     }
 
     /// Instrument genuinely new invocation allocations. Durable replays retain

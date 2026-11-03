@@ -320,6 +320,15 @@ receipts to 16 KiB. Invalid receipts after a possible commit report uncertainty.
 
 Existing Effects inbox/inspect routes include typed provider evidence and an
 optional `provider_filter`. Inspection remains sensitive and audited. Matching
-Console components use C7; earlier C6 assets must be upgraded together with the
-server. Worker feature discovery remains opt-in through
+Console components in published 0.8.0 use C7; earlier C6 assets must be upgraded
+together with the server. Worker feature discovery remains opt-in through
 `Ledgence-Worker-Features: 1`; the header-absent response retains the earlier shape.
+
+## Resource admission in development
+
+The development server exposes bounded, authenticated `/v1/resources/*` and
+`/v1/admissions/*` routes through an optional portable admission port. Worker
+feature negotiation advertises `resource_admission.v1` independently of effect
+evidence. Start is one-shot; Finish records the result and capacity release
+atomically. Development Console assets and server both require C8; published
+0.8.0 remains C7. [Routes, permissions and recovery contract](resource-admission.md).

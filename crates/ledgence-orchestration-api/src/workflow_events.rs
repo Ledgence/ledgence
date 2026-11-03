@@ -116,6 +116,11 @@ impl WorkflowEventReceipt {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWait {
+    ResourceAdmission {
+        key: String,
+        request: AdmissionWaitRequest,
+        timeout_ms: u64,
+    },
     ProviderOperation {
         key: String,
         occurrence: EffectOccurrence,
@@ -160,7 +165,8 @@ impl WorkflowWait {
             | Self::Timer { key, .. }
             | Self::Approval { key, .. }
             | Self::EffectResolution { key, .. }
-            | Self::ProviderOperation { key, .. } => key,
+            | Self::ProviderOperation { key, .. }
+            | Self::ResourceAdmission { key, .. } => key,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -216,11 +222,16 @@ impl WorkflowWait {
             }
             .validate()?;
         }
+        if let Self::ResourceAdmission { request, .. } = self {
+            request.validate()?;
+        }
         let duration = match self {
             Self::EffectResolution { .. } | Self::ProviderOperation { .. } => None,
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
-            Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
+            Self::Approval { timeout_ms, .. } | Self::ResourceAdmission { timeout_ms, .. } => {
+                Some(*timeout_ms)
+            }
         };
         if duration.is_some_and(|duration| duration > WORKFLOW_MAX_DELAY_MS) {
             return Err(invalid("workflow wait duration exceeds 365 days"));
@@ -236,7 +247,9 @@ impl WorkflowWait {
             Self::EffectResolution { .. } | Self::ProviderOperation { .. } => None,
             Self::Event { timeout_ms, .. } => *timeout_ms,
             Self::Timer { delay_ms, .. } => Some(*delay_ms),
-            Self::Approval { timeout_ms, .. } => Some(*timeout_ms),
+            Self::Approval { timeout_ms, .. } | Self::ResourceAdmission { timeout_ms, .. } => {
+                Some(*timeout_ms)
+            }
         };
         duration
             .map(|duration| {
@@ -255,6 +268,7 @@ impl WorkflowWait {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowWake {
+    ResourceAdmission(Box<AdmissionWake>),
     ProviderOperation(Box<ProviderWake>),
     EffectResolution(Box<EffectResolutionWake>),
     Approval {
@@ -281,6 +295,7 @@ impl WorkflowWake {
             Self::Approval { approval } => &approval.key,
             Self::EffectResolution(wake) => &wake.key,
             Self::ProviderOperation(wake) => &wake.key,
+            Self::ResourceAdmission(wake) => &wake.key,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -288,6 +303,7 @@ impl WorkflowWake {
         match self {
             Self::EffectResolution(wake) => wake.validate(),
             Self::ProviderOperation(wake) => wake.validate(),
+            Self::ResourceAdmission(wake) => wake.validate(),
             Self::Approval { approval } => {
                 approval.validate()?;
                 if approval.status == ApprovalStatus::Pending {

@@ -40,7 +40,8 @@ READ_TOOLS = {"ledgence_program_list", "ledgence_program_versions", "ledgence_pr
               "ledgence_task_list", "ledgence_task_status", "ledgence_task_result",
               "ledgence_workflow_status", "ledgence_workflow_result", "ledgence_approval_list",
               "ledgence_approval_inspect", "ledgence_approval_inbox", "ledgence_audit_query",
-              "ledgence_effect_inbox", "ledgence_effect_inspect"}
+              "ledgence_effect_inbox", "ledgence_effect_inspect", "ledgence_resource_list",
+              "ledgence_resource_inspect", "ledgence_admission_inspect"}
 
 
 def task_arguments(d, key, **data):

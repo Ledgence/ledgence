@@ -725,6 +725,12 @@ class Workflow:
         self._defaults = []
         self._built = None
         self._provider_adapters = tuple(providers)
+        self._operations = {}
+
+    def operation(self, *, kind: OperationKind, version: str):
+        """Register an artifact-owned callback for durable resource admission."""
+        from .admission import register
+        return register(self, kind, version)
 
     def entrypoint(self, entry, *, default=False):
         if self._built is not None:
@@ -760,6 +766,8 @@ class Workflow:
             raise WorkflowError("the start entrypoint must be the default")
         from .providers import _registry
         providers = _registry(self._provider_adapters)
+        from .admission import registry
+        operations = registry(self._operations)
         handlers = MappingProxyType(dict(self._handlers))
         entries = self._entries
 
@@ -773,6 +781,7 @@ class Workflow:
                 raise WorkflowError("unknown workflow entrypoint: " + selected)
             ctx._entry_registry = handlers
             ctx._providers = providers
+            ctx._operations = operations
             ctx._entry_enum = entries
             ctx._entrypoint = entries(selected)
             result = handlers[selected](event, ctx)
@@ -781,6 +790,7 @@ class Workflow:
             return result
 
         handle._ledgence_providers = providers
+        handle._ledgence_operations = operations
         self._built = handle
         return handle
 
@@ -837,7 +847,7 @@ class WorkflowContext:
     """One explicit activation. Constructed by the worker, not application code."""
 
     def __init__(self, payload, rpc, *, effect_evidence_v2=False, native_effect_resolution=False,
-                 provider_operation=False):
+                 provider_operation=False, resource_admission=False):
         if type(effect_evidence_v2) is not bool:
             raise WorkflowError("effect evidence capability must be a boolean")
         if type(native_effect_resolution) is not bool:
@@ -846,13 +856,16 @@ class WorkflowContext:
             raise WorkflowError("provider operation capability must be a boolean")
         if provider_operation and not (native_effect_resolution and effect_evidence_v2):
             raise WorkflowError("provider operation requires native effect resolution and evidence v2")
+        if type(resource_admission) is not bool:
+            raise WorkflowError("resource admission capability must be a boolean")
+        self._resource_admission = resource_admission
         self._provider_operation = provider_operation
         self._native_effect_resolution = native_effect_resolution
         self._effect_evidence_v2 = effect_evidence_v2
         payload = _freeze(payload, MAX_CONTEXT_BYTES, 96, authoritative=True)
         _fields(payload, {"v", "workflow_id", "activation_id", "revision", "continuation",
                           "state", "inputs", "local_steps"},
-                {"wake", "parent_workflow_id", "root_workflow_id"})
+                {"wake", "parent_workflow_id", "root_workflow_id", "admission_result"})
         if type(payload["v"]) is not int or payload["v"] != 1:
             raise WorkflowError("unsupported workflow activation version")
         self.workflow_id = _text(payload["workflow_id"], "workflow_id")
@@ -908,6 +921,21 @@ class WorkflowContext:
                     or self._wake["resumed_revision"] != self.revision):
                 raise WorkflowError("provider wake belongs to another workflow activation")
             self._provider_result = result
+        self._admission_wake = None
+        self._admission_result = payload.get("admission_result")
+        if self._wake is not None and self._wake["kind"] == "resource_admission":
+            if not resource_admission:
+                raise WorkflowError("resource admission is unavailable")
+            if (self._wake["occurrence"]["workflow_id"] != self.workflow_id
+                    or self._wake["resumed_activation_id"] != self.activation_id
+                    or self._wake["resumed_revision"] != self.revision):
+                raise WorkflowError("admission wake belongs to another workflow activation")
+            self._admission_wake = self._wake
+        if self._admission_result is not None:
+            from .admission import _matches_finish
+            if self._admission_wake is None or self._admission_wake["selection"]["kind"] == "closed":
+                raise WorkflowError("unexpected admission result")
+            _matches_finish(self._admission_wake, self._admission_result)
         if (self._approval is not None and self.approval.protection == ApprovalProtection.PROVIDER_OPERATION
                 and not self._provider_operation):
             raise WorkflowError("provider operations are unavailable")
@@ -932,7 +960,9 @@ class WorkflowContext:
         self._commit_lock = asyncio.Lock()
         self._pending = {}
         self._providers = {}
+        self._operations = {}
         self._provider_pending = None
+        self._admission_pending = None
         self._forks = {}
         self._fork_branch_keys = {}
         self._entry_registry = None
@@ -1078,6 +1108,10 @@ class WorkflowContext:
         if type(wake) is not dict:
             raise WorkflowError("invalid workflow wake")
         kind = wake.get("kind")
+        if kind == "resource_admission":
+            from .admission import validate_wake
+            validate_wake(wake)
+            return
         if kind == "provider_operation":
             from .providers import ProviderOperationResult
             ProviderOperationResult.from_dict(wake)
@@ -1107,6 +1141,10 @@ class WorkflowContext:
         if type(wait) is not dict:
             raise WorkflowError("invalid workflow wait")
         kind = wait.get("kind")
+        if kind == "resource_admission":
+            from .admission import validate_wait
+            validate_wait(wait)
+            return
         if kind == "provider_operation":
             _fields(wait, {"kind", "key", "occurrence", "after_effect_revision"})
             EffectOccurrence.from_dict(wait["occurrence"])
@@ -1157,6 +1195,26 @@ class WorkflowContext:
         _encode(record["input"], MAX_RECORD_BYTES, authoritative=authoritative)
         _encode(record["output"], MAX_RECORD_BYTES, authoritative=authoritative)
         _encode(record, MAX_RECORD_BYTES, 96, authoritative=authoritative)
+
+    def request_admission(self, key, *, resource, operation, resume, state, timeout_ms):
+        """Park a registered operation without occupying this worker process."""
+        from .admission import request_admission
+        return request_admission(self, key, resource=resource, operation=operation,
+                                 resume=resume, state=state, timeout_ms=timeout_ms)
+
+    def admitted_operation(self, operation):
+        """Run one authorized callback, or recover its retained completed result."""
+        from .admission import admitted_operation
+        return admitted_operation(self, operation)
+
+    def wait_admission(self, *, resume, state, timeout_ms, key=None):
+        """Park the same occurrence; never extend its pre-Start admission deadline.
+
+        Once started, timeout_ms bounds a separate wait for completed evidence;
+        expiry does not release occupied capacity or authorize another callback.
+        """
+        from .admission import wait_admission
+        return wait_admission(self, resume=resume, state=state, timeout_ms=timeout_ms, key=key)
 
     def local(self, key, fn, **kwargs):
         """Start a local step; await its durably acknowledged JSON result.
@@ -1897,6 +1955,12 @@ class WorkflowContext:
         if kind == "wait":
             self._validate_wait(decision["wait"])
             wait = decision["wait"]
+            if wait["kind"] == "resource_admission":
+                if not self._resource_admission:
+                    raise WorkflowError("resource admission is unavailable")
+                request = wait["request"]
+                if request["kind"] == "existing" and request["occurrence"]["workflow_id"] != self.workflow_id:
+                    raise WorkflowError("admission occurrence belongs to another workflow")
             if (wait["kind"] == "provider_operation"
                     or wait.get("protection") == ApprovalProtection.PROVIDER_OPERATION):
                 if not self._provider_operation:
@@ -1914,6 +1978,8 @@ class WorkflowContext:
         tasks = [task for _, task in (*self._pending.values(), *self._forks.values())]
         if self._provider_pending is not None:
             tasks.append(self._provider_pending)
+        if self._admission_pending is not None:
+            tasks.append(self._admission_pending)
         return tasks
 
     async def _drain(self):

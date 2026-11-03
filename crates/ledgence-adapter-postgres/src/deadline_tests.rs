@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 fn store() -> PostgresStore {
     // These tests exercise the operation wrapper without contacting a database.
     PostgresStore {
+        admission_config: Arc::new(std::sync::OnceLock::new()),
+        admission_scan_cursor: Arc::new(std::sync::Mutex::new(None)),
         provider_config: Arc::new(std::sync::OnceLock::new()),
         pool: PgPoolOptions::new()
             .connect_lazy("postgres://postgres@127.0.0.1:1/deadline_test")

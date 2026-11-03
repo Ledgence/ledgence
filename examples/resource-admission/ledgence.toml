@@ -1,0 +1,23 @@
+schema_version = 1
+
+[program]
+id = "resource-admission"
+version = "1.0.0"
+handler = "program:handle"
+kind = "workflow"
+display_name = "Shared model capacity"
+description = "Wait durably, invoke one registered model call, and retain its result."
+
+[source]
+root = "."
+include = ["program.py"]
+
+[dependencies]
+requirements = "requirements.txt"
+
+[target]
+# Select the architecture, CPython version and pinned image of your workers.
+platform = "linux/arm64"
+python = "3.14"
+protocol = 3
+image = "REPLACE_WITH_WORKER_IMAGE_DIGEST"

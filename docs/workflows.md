@@ -296,3 +296,11 @@ exact assessment binding, cancellation and retention behavior.
 Use [durable model and tool calls](agent-recovery.md) for typed, versioned
 operation bindings within an agent loop. They reuse the local journal and
 explicit checkpoints, with no provider dependency or new queue delivery.
+
+## Resource waits in development
+
+A registered model/tool callback can request capacity through a native
+`resource_admission` checkpoint. Each wait episode belongs to its parking
+entrypoint while the original operation identity survives rewaits and retries.
+Finish uses its own occurrence journal, not a second `ctx.local()` commit.
+See [durable resource admission](resource-admission.md) and its runnable example.

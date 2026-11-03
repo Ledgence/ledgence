@@ -12,6 +12,7 @@ pub(super) enum Policy {
     Publish,
     Approval,
     EffectResolution,
+    ResourceControl,
     Worker,
     Access,
     Login,
@@ -40,6 +41,7 @@ impl Policy {
                 ApprovalDecide
             }
             Self::EffectResolution => EffectResolve,
+            Self::ResourceControl => ResourceControl,
             Self::Worker => WorkerExecute,
             Self::Access | Self::Login | Self::Logout => unreachable!(),
         };
@@ -139,10 +141,10 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 91);
+        assert_eq!(routes.len(), 99);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
-            91
+            99
         );
         let mut methods = 0;
         let mut audited = 0;
@@ -166,8 +168,8 @@ mod tests {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 94);
-        assert_eq!(audited, 16);
+        assert_eq!(methods, 102);
+        assert_eq!(audited, 18);
     }
     #[test]
     fn payload_worker_and_mixed_method_policies_are_explicit() {

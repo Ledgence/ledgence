@@ -15,7 +15,7 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
     let actual = serde_json::to_string_pretty(&fixture::fixtures()).unwrap() + "\n";
     assert_eq!(
         actual,
-        include_str!("fixtures/console-v7.json"),
+        include_str!("fixtures/console-v8.json"),
         "regenerate with cargo run -p ledgence-orchestration-api --example console-fixtures -- --write"
     );
     let data = fixture::fixtures();
@@ -37,7 +37,7 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
 fn historical_console_five_is_preserved_but_not_current() {
     let old: Value = serde_json::from_str(include_str!("fixtures/console-v5.json")).unwrap();
     assert_eq!(old["contract_version"], 5);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 7);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 8);
     assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
 }
 
@@ -45,7 +45,7 @@ fn historical_console_five_is_preserved_but_not_current() {
 fn historical_console_six_lacks_provider_provenance() {
     let old: Value = serde_json::from_str(include_str!("fixtures/console-v6.json")).unwrap();
     assert_eq!(old["contract_version"], 6);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 7);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 8);
     assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
     assert!(
         serde_json::from_value::<ConsolePage<ConsoleTaskSummary>>(old["tasks"].clone()).is_err()
@@ -78,7 +78,7 @@ fn historical_console_two_is_explicitly_incompatible() {
         serde_json::from_str(include_str!("fixtures/historical/console-v2.json")).unwrap();
     assert_eq!(historical["contract_version"], 2);
     assert_eq!(historical["config"]["contract_version"], 2);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 7);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 8);
     assert_ne!(
         historical["contract_version"],
         json!(CONSOLE_CONTRACT_VERSION)
@@ -482,5 +482,107 @@ fn short_pages_continue_from_last_item_but_empty_or_mismatched_cursors_are_rejec
     assert!(
         reply.validate(&resumed, &binding).is_err(),
         "continuation must advance past the previous page"
+    );
+}
+
+#[test]
+fn admission_wait_and_acceptance_project_distinct_durable_relationships() {
+    let f = fixture::fixtures();
+    for name in ["pending", "accepted", "closed"] {
+        let e: ConsoleWorkflowExplorer =
+            serde_json::from_value(f["admission"][name].clone()).unwrap();
+        ConsoleQueryReply::Explorer(e.clone())
+            .validate(
+                &scope(),
+                &ConsoleQuery::Explorer {
+                    workflow_id: "wf_admission".into(),
+                    page: ConsolePagination {
+                        limit: 100,
+                        cursor: None,
+                    },
+                },
+            )
+            .unwrap();
+        let wait = e
+            .page
+            .items
+            .iter()
+            .find(|n| matches!(n.data, ConsoleExplorerData::AdmissionWait { .. }))
+            .unwrap();
+        assert_eq!(
+            wait.relations
+                .iter()
+                .filter(|r| r.kind == ConsoleExplorerRelationKind::Resumes)
+                .count(),
+            usize::from(name == "accepted")
+        );
+        assert!(
+            !wait
+                .relations
+                .iter()
+                .any(|r| r.kind == ConsoleExplorerRelationKind::Invokes)
+        );
+    }
+    let mut accepted: ConsoleWorkflowExplorer =
+        serde_json::from_value(f["admission"]["accepted"].clone()).unwrap();
+    let op = accepted
+        .page
+        .items
+        .iter_mut()
+        .find(|n| matches!(n.data, ConsoleExplorerData::AdmissionOperation { .. }))
+        .unwrap();
+    assert_eq!(op.relations.len(), 1);
+    assert_eq!(op.relations[0].kind, ConsoleExplorerRelationKind::Invokes);
+    assert_eq!(
+        op.relations[0].source,
+        ConsoleExplorerReference::Entrypoint {
+            activation_id: op.activation_id.clone()
+        }
+    );
+    let encoded = serde_json::to_string(&op).unwrap();
+    assert!(!encoded.contains("arguments"));
+    assert!(!encoded.contains("summary\":\"accepted"));
+    if let ConsoleExplorerData::AdmissionOperation { occurrence, .. } = &mut op.data {
+        occurrence.scope.namespace = "foreign".into();
+    }
+    assert!(
+        ConsoleQueryReply::Explorer(accepted)
+            .validate(
+                &scope(),
+                &ConsoleQuery::Explorer {
+                    workflow_id: "wf_admission".into(),
+                    page: ConsolePagination {
+                        limit: 100,
+                        cursor: None
+                    }
+                }
+            )
+            .is_err()
+    );
+}
+#[test]
+fn c8_requires_admission_wait_field_and_rejects_conflicting_current_waits() {
+    let f = fixture::fixtures();
+    let old: Value = serde_json::from_str(include_str!("fixtures/console-v7.json")).unwrap();
+    assert_eq!(old["contract_version"], 7);
+    assert!(
+        serde_json::from_value::<ConsoleWorkflowDetail>(old["workflow_detail"].clone()).is_err()
+    );
+    let mut pending: ConsoleWorkflowExplorer =
+        serde_json::from_value(f["admission"]["pending"].clone()).unwrap();
+    pending.workflow.external_wait_key = Some("ordinary-event".into());
+    assert!(
+        ConsoleQueryReply::Explorer(pending)
+            .validate(
+                &scope(),
+                &ConsoleQuery::Explorer {
+                    workflow_id: "wf_admission".into(),
+                    page: ConsolePagination {
+                        limit: 100,
+                        cursor: None
+                    }
+                }
+            )
+            .is_err()
     );
 }

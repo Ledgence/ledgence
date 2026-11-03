@@ -59,6 +59,7 @@ import {
   taskState,
   workflowDetail,
   effectOccurrence,
+  admissionOccurrence,
 } from "./resources";
 const identity = s.object({ kind: executionKind, id: s.id });
 const availability = s.enumeration("available", "unavailable");
@@ -80,6 +81,15 @@ export const explorerReference = s.variant({
     activation_id: s.id,
   }),
   external_wait: s.object({ kind: s.enumeration("external_wait"), key: s.id }),
+  admission_wait: s.object({
+    kind: s.enumeration("admission_wait"),
+    parking_activation_id: s.id,
+  }),
+  admission_operation: s.object({
+    kind: s.enumeration("admission_operation"),
+    origin_activation_id: s.id,
+    key: s.id,
+  }),
   provider_wait: s.object({
     kind: s.enumeration("provider_wait"),
     parking_activation_id: s.id,
@@ -190,6 +200,37 @@ const rawExplorerNode = s.variant({
     ),
     resumed_activation_id: s.nullable(s.id),
   }),
+  admission_wait: s.object({
+    ...base,
+    kind: s.enumeration("admission_wait"),
+    key: s.id,
+    occurrence: admissionOccurrence,
+    resource: s.id,
+    deadline: s.timestamp,
+    registered_at: s.timestamp,
+    closed_at: s.nullable(s.timestamp),
+    selection_kind: s.nullable(
+      s.enumeration("offered", "finished", "closed", "needs_review"),
+    ),
+    resumed_activation_id: s.nullable(s.id),
+  }),
+  admission_operation: s.object({
+    ...base,
+    kind: s.enumeration("admission_operation"),
+    occurrence: admissionOccurrence,
+    resource: s.id,
+    callable: s.string,
+    operation_kind: s.enumeration("model", "tool"),
+    operation_version: s.id,
+    binding_digest: s.refine(
+      s.string,
+      (v) => /^sha256:[0-9a-f]{64}$/.test(v),
+      "Invalid admission digest.",
+    ),
+    source_id: s.id,
+    accepting_attempt_id: s.id,
+    accepted_at: s.timestamp,
+  }),
   provider_wait: s.object({
     ...base,
     kind: s.enumeration("provider_wait"),
@@ -254,6 +295,14 @@ export const explorerNode = s.refine(
       return new Set(node.branch_keys).size === node.branch_keys.length;
     if (node.kind === "child_wait")
       return new Set(node.member_keys).size === node.member_keys.length;
+    if (node.kind === "admission_wait")
+      return (
+        node.deadline >= node.registered_at &&
+        (node.selection_kind === null) ===
+          (node.resumed_activation_id === null) &&
+        (node.selection_kind === null || node.closed_at !== null) &&
+        (node.closed_at === null || node.closed_at >= node.registered_at)
+      );
     if (node.kind === "provider_wait")
       return (
         (node.selected_effect_revision === null) ===
@@ -307,7 +356,10 @@ export const workflowExplorer = s.refine(
     const records = new Map<string, string>();
     for (const node of page.items) {
       if (
-        (node.kind === "native_effect_wait" || node.kind === "provider_wait") &&
+        (node.kind === "native_effect_wait" ||
+          node.kind === "provider_wait" ||
+          node.kind === "admission_wait" ||
+          node.kind === "admission_operation") &&
         node.occurrence.workflow_id !== workflow.summary.workflow.workflow_id
       )
         return false;

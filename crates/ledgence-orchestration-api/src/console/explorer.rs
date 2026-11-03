@@ -114,6 +114,28 @@ pub enum ConsoleExplorerData {
         outcome_kind: Option<ConsoleEffectOutcomeKind>,
         resumed_activation_id: Option<String>,
     },
+    AdmissionWait {
+        key: String,
+        occurrence: AdmissionOccurrence,
+        resource: String,
+        deadline: Timestamp,
+        registered_at: Timestamp,
+        closed_at: Option<Timestamp>,
+        selection_kind: Option<ConsoleAdmissionSelectionKind>,
+        resumed_activation_id: Option<String>,
+    },
+    /// Exists only after the original source durably accepts its result.
+    AdmissionOperation {
+        occurrence: AdmissionOccurrence,
+        resource: String,
+        callable: String,
+        operation_kind: AdmissionOperationKind,
+        operation_version: String,
+        binding_digest: Digest,
+        source_id: String,
+        accepting_attempt_id: String,
+        accepted_at: Timestamp,
+    },
     ProviderWait {
         key: String,
         occurrence: EffectOccurrence,
@@ -126,6 +148,24 @@ pub enum ConsoleExplorerData {
     },
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsoleAdmissionSelectionKind {
+    Offered,
+    Finished,
+    Closed,
+    NeedsReview,
+}
+impl From<&AdmissionSelection> for ConsoleAdmissionSelectionKind {
+    fn from(value: &AdmissionSelection) -> Self {
+        match value {
+            AdmissionSelection::Offered { .. } => Self::Offered,
+            AdmissionSelection::Finished { .. } => Self::Finished,
+            AdmissionSelection::Closed { .. } => Self::Closed,
+            AdmissionSelection::NeedsReview { .. } => Self::NeedsReview,
+        }
+    }
+}
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsoleProviderSelectionKind {
@@ -173,6 +213,8 @@ impl ConsoleExplorerData {
             Self::ExternalWait { .. } => "external_wait",
             Self::NativeEffectWait { .. } => "native_effect_wait",
             Self::ProviderWait { .. } => "provider_wait",
+            Self::AdmissionWait { .. } => "admission_wait",
+            Self::AdmissionOperation { .. } => "admission_operation",
         }
     }
     pub fn key(&self) -> &str {
@@ -183,7 +225,9 @@ impl ConsoleExplorerData {
             | Self::Local { key, .. }
             | Self::ExternalWait { key, .. }
             | Self::NativeEffectWait { key, .. }
-            | Self::ProviderWait { key, .. } => key,
+            | Self::ProviderWait { key, .. }
+            | Self::AdmissionWait { key, .. } => key,
+            Self::AdmissionOperation { source_id, .. } => source_id,
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -348,7 +392,9 @@ impl ConsoleExplorerData {
                                 | ConsoleWakeReason::Expired
                         )
                     ),
-                    ConsoleWaitKind::EffectResolution | ConsoleWaitKind::ProviderOperation => false,
+                    ConsoleWaitKind::EffectResolution
+                    | ConsoleWaitKind::ProviderOperation
+                    | ConsoleWaitKind::ResourceAdmission => false,
                 };
                 if !compatible
                     || (matches!(
@@ -384,6 +430,56 @@ impl ConsoleExplorerData {
                 {
                     return Err(invalid("native wake requires one scheduled activation"));
                 }
+            }
+            Self::AdmissionWait {
+                key,
+                occurrence,
+                resource,
+                deadline,
+                registered_at,
+                closed_at,
+                selection_kind,
+                resumed_activation_id,
+            } => {
+                validate_text(key, 128)?;
+                occurrence.validate()?;
+                crate::admission::name(resource)?;
+                timestamp(*deadline)?;
+                timestamp(*registered_at)?;
+                time(*closed_at)?;
+                optional_id(resumed_activation_id)?;
+                if *deadline < *registered_at
+                    || selection_kind.is_some() != resumed_activation_id.is_some()
+                    || (selection_kind.is_some() && closed_at.is_none())
+                    || closed_at.is_some_and(|at| at < *registered_at)
+                {
+                    return Err(invalid("admission wake requires one scheduled activation"));
+                }
+            }
+            Self::AdmissionOperation {
+                occurrence,
+                resource,
+                callable,
+                operation_kind,
+                operation_version,
+                binding_digest,
+                source_id,
+                accepting_attempt_id,
+                accepted_at,
+            } => {
+                occurrence.validate()?;
+                crate::admission::name(resource)?;
+                AdmissionOperation {
+                    callable: callable.clone(),
+                    kind: *operation_kind,
+                    version: operation_version.clone(),
+                    arguments: serde_json::json!({}),
+                }
+                .validate()?;
+                binding_digest.validate()?;
+                validate_text(source_id, 128)?;
+                validate_text(accepting_attempt_id, 128)?;
+                timestamp(*accepted_at)?;
             }
             Self::ProviderWait {
                 key,
@@ -468,6 +564,12 @@ impl ConsoleRecord for ConsoleExplorerNode {
         {
             return Err(invalid("native explorer wait belongs to another workflow"));
         }
+        if let ConsoleExplorerData::AdmissionWait { occurrence, .. }
+        | ConsoleExplorerData::AdmissionOperation { occurrence, .. } = &self.data
+            && occurrence.workflow_id != workflow_id
+        {
+            return Err(invalid("admission evidence belongs to another workflow"));
+        }
         if kind != self.data.kind()
             || activation_id != self.activation_id
             || key != self.data.key()
@@ -507,6 +609,7 @@ impl ConsoleWorkflowExplorer {
             + usize::from(self.workflow.external_wait_key.is_some())
             + usize::from(self.workflow.native_effect_wait.is_some())
             + usize::from(self.workflow.provider_wait.is_some())
+            + usize::from(self.workflow.admission_wait.is_some())
             > 1
         {
             return Err(invalid("conflicting current workflow waits"));
@@ -517,7 +620,19 @@ impl ConsoleWorkflowExplorer {
                 return Err(invalid("native wait scope mismatch"));
             }
         }
+        if let Some(wait) = &self.workflow.admission_wait {
+            wait.validate(workflow_id)?;
+            if wait.occurrence.scope != binding.scope {
+                return Err(invalid("admission wait scope mismatch"));
+            }
+        }
         for node in &self.page.items {
+            if let ConsoleExplorerData::AdmissionWait { occurrence, .. }
+            | ConsoleExplorerData::AdmissionOperation { occurrence, .. } = &node.data
+                && occurrence.scope != binding.scope
+            {
+                return Err(invalid("admission evidence scope mismatch"));
+            }
             if let ConsoleExplorerData::NativeEffectWait { occurrence, .. }
             | ConsoleExplorerData::ProviderWait { occurrence, .. } = &node.data
                 && occurrence.scope != binding.scope

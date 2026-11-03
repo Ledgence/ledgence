@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { expect, it } from "vitest";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { workflowExplorer } from "../../src/api/explorer";
 import { evidenceEdges } from "../../src/features/explorer-model";

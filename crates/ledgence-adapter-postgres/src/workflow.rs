@@ -1,5 +1,6 @@
 //! Workflow mutations use workflow -> work/task row ordering. Ordinary task
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
+mod admission;
 mod approval_inbox;
 mod approvals;
 pub(crate) mod approved_effects;
@@ -43,6 +44,11 @@ impl ApprovedEffects for PostgresStore {
 }
 
 impl WorkflowStore for PostgresStore {
+    fn admissions(&self) -> Result<&dyn AdmissionStore> {
+        self.admission_configured()?;
+        Ok(self)
+    }
+
     fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
         self.provider_configured()?;
         Ok(self)

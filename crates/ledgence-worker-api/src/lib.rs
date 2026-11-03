@@ -25,8 +25,9 @@ pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
 mod execution;
 pub use execution::{
     ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult,
-    NATIVE_EFFECT_RESOLUTION_FEATURE, PROVIDER_OPERATION_FEATURE, Phase, RuntimeCapabilities,
-    RuntimeExtension, RuntimeFeatures, RuntimeInvocation, RuntimeReply, RuntimeRequest,
+    NATIVE_EFFECT_RESOLUTION_FEATURE, PROVIDER_OPERATION_FEATURE, Phase,
+    RESOURCE_ADMISSION_FEATURE, RuntimeCapabilities, RuntimeExtension, RuntimeFeatures,
+    RuntimeInvocation, RuntimeReply, RuntimeRequest,
 };
 mod invocation;
 mod observation;

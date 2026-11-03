@@ -149,6 +149,9 @@ impl PostgresStore {
         ) {
             self.provider_configured()?;
         }
+        if matches!(work.source, WorkflowWorkSource::AdmissionWait) {
+            self.admission_configured()?;
+        }
         if matches!(work.source, WorkflowWorkSource::EffectResolutionWait) {
             self.audit_audience()?;
         }
@@ -179,6 +182,20 @@ impl PostgresStore {
             )
             .await?;
             provider::finalize(&mut tx, &run, &row.task_id, now).await?;
+            finish_work(&mut tx, &work.id, now).await?;
+        } else if row.kind == "admission_wait" {
+            let mut run = load_run(
+                &mut tx,
+                &snapshot.scope,
+                Some(&snapshot.workflow_id),
+                None,
+                false,
+            )
+            .await?;
+            if let Some(task) = admission::apply_wait(&mut tx, &mut run, &row.task_id, now).await? {
+                wakes.push(task);
+                progress.activations_scheduled += 1;
+            }
             finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "provider_wait" {
             let mut run = load_run(
@@ -288,6 +305,15 @@ impl PostgresStore {
                         if matches!(
                             &decision.action,
                             WorkflowAction::Wait {
+                                wait: WorkflowWait::ResourceAdmission { .. },
+                                ..
+                            }
+                        ) {
+                            self.admission_configured()?;
+                        }
+                        if matches!(
+                            &decision.action,
+                            WorkflowAction::Wait {
                                 wait: WorkflowWait::ProviderOperation { .. }
                                     | WorkflowWait::Approval {
                                         protection: ApprovalProtection::ProviderOperation,
@@ -363,7 +389,7 @@ impl PostgresStore {
                 }
             } else if snapshot.state == WorkflowState::Waiting {
                 let bytes: Option<Vec<u8>> = sqlx::query_scalar(
-                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL AND native_wait_activation_id IS NULL AND provider_wait_activation_id IS NULL",
+                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL AND native_wait_activation_id IS NULL AND provider_wait_activation_id IS NULL AND admission_wait_activation_id IS NULL",
                 )
                 .bind(&snapshot.workflow_id)
                 .fetch_optional(&mut *tx)
@@ -838,6 +864,9 @@ pub(super) async fn apply_decision(
                     .into());
                 }
             }
+            // A completed workflow cannot prove a remote callback stopped.
+            // Mark a bounded batch unknown; indexed maintenance closes the rest.
+            admission::drain(connection, run, applied_at).await?;
             // Owned children can finish after the coordinator's initial time
             // sample without locking this parent. Timestamp the observed join.
             applied_at = db::now(connection).await?;
@@ -851,6 +880,7 @@ pub(super) async fn apply_decision(
             run.external_wait_key = None;
             run.native_wait_activation = None;
             run.provider_wait_activation = None;
+            run.admission_wait_activation = None;
             save_run(connection, run).await?;
         }
         core::WorkflowDisposition::Fail { error } => fail_run(connection, run, &error, now).await?,
@@ -991,8 +1021,10 @@ async fn drain(
     }
     owned::enqueue_cancellations(connection, &run.snapshot.workflow_id, remaining, now).await?;
     let provider_pending = provider::drain(connection, run, now).await?;
-    let unfinished =
-        owned::unfinished(connection, &run.snapshot.workflow_id).await? || provider_pending;
+    let admission_pending = admission::drain(connection, run, now).await?;
+    let unfinished = owned::unfinished(connection, &run.snapshot.workflow_id).await?
+        || provider_pending
+        || admission_pending;
     if unfinished {
         sqlx::query("UPDATE workflow_work SET available_at_ms=$2,lease_token=NULL,lease_until_ms=NULL WHERE id=$1")
             .bind(work_id).bind(codec::ms(now + 1_000)?).execute(connection).await?;
@@ -1012,6 +1044,7 @@ async fn drain(
         run.external_wait_key = None;
         run.native_wait_activation = None;
         run.provider_wait_activation = None;
+        run.admission_wait_activation = None;
         save_run(connection, run).await?;
         record_history(
             connection,
@@ -1054,6 +1087,7 @@ async fn work_source(
         "wait" => WorkflowWorkSource::Wait,
         "effect_wait" => WorkflowWorkSource::EffectResolutionWait,
         "provider_wait" => WorkflowWorkSource::ProviderWait,
+        "admission_wait" => WorkflowWorkSource::AdmissionWait,
         "provider_probe_terminal" => {
             let task_id: String = row.try_get("task_id")?;
             let marker: Vec<u8> = sqlx::query_scalar(

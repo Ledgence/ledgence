@@ -322,7 +322,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [http, sqs, api, provider, provider-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
+        suite: [http, sqs, api, provider, provider-sqs, admission, admission-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
     services:
       elasticmq:
         # An empty image disables this service in suites using integrated delivery.
@@ -421,7 +421,7 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
       - name: Build and install the Python client wheel for end-to-end acceptance
-        if: matrix.suite == 'api' || startsWith(matrix.suite, 'provider') || startsWith(matrix.suite, 'workflows-')
+        if: matrix.suite == 'api' || startsWith(matrix.suite, 'provider') || startsWith(matrix.suite, 'admission') || startsWith(matrix.suite, 'workflows-')
         run: |
           python tools/check-python-client.py \
             --venv-dir "$RUNNER_TEMP/ledgence-client-e2e-env" \
@@ -453,6 +453,21 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-provider-sqs-evidence"
+      - name: Check durable admission with real processes and synthetic HTTP calls
+        if: matrix.suite == 'admission'
+        run: |
+          python tools/check-resource-admission.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-admission-evidence"
+      - name: Check the same admission recovery through ElasticMQ
+        if: matrix.suite == 'admission-sqs'
+        run: |
+          python tools/check-resource-admission.py --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-admission-sqs-evidence"
       - name: Check instance credentials across real clients, publication and workers
         if: matrix.suite == 'api'
         run: |

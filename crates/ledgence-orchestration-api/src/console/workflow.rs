@@ -126,6 +126,26 @@ impl ConsoleProviderWait {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ConsoleAdmissionWait {
+    pub parking_activation_id: String,
+    pub key: String,
+    pub occurrence: AdmissionOccurrence,
+    pub resource: String,
+}
+impl ConsoleAdmissionWait {
+    pub fn validate(&self, workflow_id: &str) -> Result<()> {
+        validate_text(&self.parking_activation_id, 128)?;
+        validate_text(&self.key, 128)?;
+        self.occurrence.validate()?;
+        crate::admission::name(&self.resource)?;
+        if self.occurrence.workflow_id != workflow_id {
+            return Err(invalid("admission wait belongs to another workflow"));
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConsoleWorkflowDetail {
     pub summary: ConsoleWorkflowSummary,
     pub continuation: String,
@@ -135,6 +155,8 @@ pub struct ConsoleWorkflowDetail {
     pub native_effect_wait: Option<ConsoleNativeEffectWait>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub provider_wait: Option<ConsoleProviderWait>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub admission_wait: Option<ConsoleAdmissionWait>,
     pub observed_at: Timestamp,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +308,7 @@ pub enum ConsoleWaitKind {
     Approval,
     EffectResolution,
     ProviderOperation,
+    ResourceAdmission,
 }
 impl ConsoleWaitKind {
     pub fn as_str(self) -> &'static str {
@@ -295,6 +318,7 @@ impl ConsoleWaitKind {
             Self::Approval => "approval",
             Self::EffectResolution => "effect_resolution",
             Self::ProviderOperation => "provider_operation",
+            Self::ResourceAdmission => "resource_admission",
         }
     }
 }
@@ -312,6 +336,8 @@ pub struct ConsoleWorkflowWait {
     pub native_effect_wait: Option<ConsoleNativeEffectWait>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub provider_wait: Option<ConsoleProviderWait>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub admission_wait: Option<ConsoleAdmissionWait>,
 }
 impl ConsoleRecord for ConsoleWorkflowWait {
     fn position(&self) -> ConsolePosition {
@@ -337,6 +363,18 @@ impl ConsoleRecord for ConsoleWorkflowWait {
         }
         if (self.kind == ConsoleWaitKind::ProviderOperation) != self.provider_wait.is_some() {
             return Err(invalid("inconsistent provider wait metadata"));
+        }
+        if (self.kind == ConsoleWaitKind::ResourceAdmission) != self.admission_wait.is_some() {
+            return Err(invalid("inconsistent admission wait metadata"));
+        }
+        if let Some(wait) = &self.admission_wait {
+            wait.validate(&self.workflow_id)?;
+            if wait.key != self.wait_key
+                || wait.parking_activation_id != self.activation_id
+                || self.deadline.is_none()
+            {
+                return Err(invalid("inconsistent admission wait identity"));
+            }
         }
         if let Some(wait) = &self.provider_wait {
             wait.validate(&self.workflow_id)?;

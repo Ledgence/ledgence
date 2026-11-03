@@ -750,3 +750,89 @@ never interpreted as a workflow decision, even when it contains a `kind` field.
 
 See [`docs/workflows.md`](../../docs/workflows.md) for the workflow contract,
 checkpoint limits, cancellation, and recovery semantics.
+
+## Durable resource admission (development source)
+
+The development source adds provider-neutral admission for registered workflow
+callbacks. It requires a credentialed worker/server connection advertising
+`resource_admission.v1`, plus an operator-created resource policy. Admission is
+independent of protected-effect evidence. It is not available merely because a
+helper package is installed; see the release reference before choosing a
+published version.
+
+Register a module-level callback on the workflow, freeze its effective JSON
+arguments before the checkpoint, and consume the typed outcome after resumption:
+
+```python
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow, OperationKind
+from ledgence.worker.admission import AdmissionOutcomeKind
+
+class Entry(StrEnum):
+    START = "start"
+    CALL = "call"
+
+workflow = Workflow(Entry)
+
+@workflow.operation(kind=OperationKind.TOOL, version="1")
+async def format_reply(message, suffix="!"):
+    # A synthetic callback; replace its body with your own awaited adapter.
+    # Initialize credentials/clients inside the callback, outside JSON arguments.
+    return {"reply": message.strip() + suffix}
+
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    return ctx.request_admission(
+        "reply:1", resource="reply-service",
+        operation=format_reply.bind(message=event["data"]["message"]),
+        resume=Entry.CALL, state=None, timeout_ms=60_000,
+    )
+
+@workflow.entrypoint(Entry.CALL)
+async def call(event, ctx):
+    outcome = await ctx.admitted_operation(format_reply)
+    if outcome.kind == AdmissionOutcomeKind.SUCCEEDED:
+        return ctx.complete(outcome.result)
+    if outcome.kind == AdmissionOutcomeKind.WAIT_REQUIRED:
+        return ctx.wait_admission(resume=Entry.CALL, state=None, timeout_ms=60_000)
+    if outcome.kind == AdmissionOutcomeKind.NEEDS_REVIEW:
+        return ctx.fail("admission_unknown", "Review the original operation's evidence")
+    return ctx.fail("admission_closed", "Admission closed before this callback could run")
+
+handle = workflow.build()
+```
+
+The first wait parks the workflow and frees the runtime process. An offer reserves
+capacity; only the first accepted Start reply authorizes the callback. Its exact
+callable, version, default-expanded arguments, resource and program artifact stay
+bound to the original occurrence. `wait_admission` preserves that occurrence and
+cannot extend its original deadline for admission or authorize a later Start.
+After Start, a new bounded wait episode may wait for Finish or operator release
+beyond that deadline. Its timeout yields `NEEDS_REVIEW` without releasing unknown
+occupancy or granting another callback. A retry is not a new logical operation.
+
+A completed callback reports its bounded JSON result through Finish. Accepted
+results replay without Start or callback execution. This result is separate from
+`ctx.local` records. Finish retries retain identical source and output; an uncertain
+Start is never retried to obtain execution permission. Malformed or uncertain
+runtime acknowledgements prevent the controller from committing a decision.
+
+Exceptions, cancellation, worker loss and invalid outputs do not prove external
+completion and do not release occupancy. Even if your controller explicitly
+catches a callback exception, its source remains unresolved; completing the
+workflow does not silently release it. Review evidence before an operator release.
+A release is an audited capacity override, not proof of business success.
+
+Registration freezes at `workflow.build()`. Lambdas, closures, bound instance
+methods, replacement callbacks and callbacks outside the prepared artifact are
+rejected. Pass only effective JSON parameters to `.bind`; do not serialize client
+objects, credentials or live sessions. One authorization covers one bounded
+callback, not every hidden HTTP request or SDK retry inside it. Configure those
+retries explicitly or use an adapter with matching accounting. Async callbacks
+should await their work; wrap blocking I/O appropriately. Callback code cannot
+stage nested workflow operations through the Ledgence context.
+
+This increment supports one unit of one named resource per admission. It does
+not compose with protected provider dispatch, guarantee fairness, implement
+budgets, or govern ordinary tasks/callbacks automatically. Existing ungoverned
+execution paths do not add admission RPCs.

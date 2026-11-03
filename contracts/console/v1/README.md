@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v7.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json).
+[`console-v8.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v8.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -18,7 +18,7 @@ pnpm --dir console contracts:check
 ```
 
 All `/v1/console/*` responses identify the fixed instance with
-`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 7`. The browser rejects
+`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 8`. The browser rejects
 responses that disagree with the configuration used for its query keys.
 Queries and commands reject unknown and duplicate fields. The server binds requests to its configured instance and scope. Responses
 include authoritative identity where their contract requires it.
@@ -33,7 +33,7 @@ instance scope, parent and filters. A page is internally consistent; consecutive
 pages can observe later committed changes. The worker slot cursor uses the
 stable slot position, not a changing snapshot sequence.
 
-The HTTP namespace remains `/v1/console`; the Console contract version is 7.
+The HTTP namespace remains `/v1/console`; the Console contract version is 8.
 Explorer nodes carry backend-projected typed relations with references to existing
 workflow-scoped or activation-scoped identities. Relations remain present when an
 endpoint is outside the current page. See the [query model](../../../docs/console-query-model.md)
@@ -84,3 +84,21 @@ Its wait cursor distinguishes native and legacy waits even when their logical
 keys and timestamps match. Apply the native effect-resolution migration and use
 matching server and Console assets. Historical C5 fixtures remain unchanged.
 Ledgence 0.7.0 uses C5.
+
+## Durable resource admission (development)
+
+C8 adds required, nullable `admission_wait` to workflow detail and wait history.
+A native admission wait is keyed by its parking activation and carries its
+original logical occurrence and resource. Its registration and actual scheduled
+resumption establish graph relationships. An offer reserves capacity; it does
+not prove that the callback ran.
+
+An `admission_operation` node exists only after the original worker source
+accepts a result. Its invocation edge belongs to that source's activation;
+its reference keeps the original occurrence across rewaits and result replay.
+The timeline shows result acceptance as a milestone, without inventing a callback
+interval. Metadata omits effective arguments and output. Expanding the operation
+uses audited, scope-free `POST /v1/console/admissions/inspect` and validates the
+returned source against the selected node. Cancellation and administrative
+release do not fabricate accepted-operation nodes. Historical C7 fixtures remain
+unchanged and are rejected by a C8 browser.

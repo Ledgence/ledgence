@@ -94,11 +94,7 @@ impl Context {
                     match self
                         .workflow_runtime(
                             monitor.owner(),
-                            request.event.value()["ldgworkflowid"]
-                                .as_str()
-                                .expect("validated workflow assignment"),
-                            request.event.value()["ldgparentworkflowid"].as_str(),
-                            request.event.value()["ldgrootworkflowid"].as_str(),
+                            &request,
                             processing_trace.clone(),
                             &control,
                         )

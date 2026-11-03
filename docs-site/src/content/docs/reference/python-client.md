@@ -291,3 +291,11 @@ whose task success does not itself establish external success.
 See the
 [provider recovery guide](/how-to/recover-provider-operations) and the
 [complete SDK models and example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#typed-provider-operations-development).
+
+## Resource administration in development
+
+The development client adds `client.resources.put/get/list`, typed `ResourcePolicy`
+and `ResourceRate`, and `client.admissions.inspect/release`. Resource metadata
+requires metadata access; arguments/results require audited sensitive access;
+mutations require operator `resource_control`. Preserve command identity after
+a lost response. [Guide](/how-to/control-resource-capacity).

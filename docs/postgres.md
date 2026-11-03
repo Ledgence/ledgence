@@ -295,3 +295,12 @@ session's latest [worker observation](worker-observations.md). These metadata
 views are distinct from optional OpenTelemetry exports. Apply the complete
 migration set for the selected executable; the migrations named above explain
 features and are not a subset to install independently.
+
+## Resource authority in development
+
+The new admission migration adds scoped policies, durable operation occurrences
+and wait episodes. Apply it explicitly with `ledgence orchestrator migrate` before
+starting matching source-built services. Resource policy, offers, Start, retained
+Finish and release accounting commit transactionally; no lock spans a callback.
+A restored deployment must start with external admission quarantine before
+reconciliation. See [resource admission](resource-admission.md#restore-and-operate).

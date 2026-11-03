@@ -237,6 +237,18 @@ export const providerWait = s.object({
     s.refine(s.decimal, (v) => BigInt(v) > 0n, "Invalid effect revision."),
   ),
 });
+export const admissionOccurrence = s.object({
+  scope: s.object({ tenant_id: s.id, namespace: s.id }),
+  workflow_id: s.id,
+  origin_activation_id: s.id,
+  key: s.id,
+});
+export const admissionWait = s.object({
+  parking_activation_id: s.id,
+  key: s.id,
+  occurrence: admissionOccurrence,
+  resource: s.id,
+});
 export const workflowDetail = s.refine(
   s.object({
     summary: workflowSummary,
@@ -245,6 +257,7 @@ export const workflowDetail = s.refine(
     external_wait_key: s.nullable(s.string),
     native_effect_wait: s.nullable(nativeEffectWait),
     provider_wait: s.nullable(providerWait),
+    admission_wait: s.nullable(admissionWait),
     observed_at: s.timestamp,
   }),
   (value) =>
@@ -253,12 +266,16 @@ export const workflowDetail = s.refine(
       value.external_wait_key,
       value.native_effect_wait,
       value.provider_wait,
+      value.admission_wait,
     ].filter((v) => v !== null).length <= 1 &&
     (!value.native_effect_wait ||
       value.native_effect_wait.occurrence.workflow_id ===
         value.summary.workflow.workflow_id) &&
     (!value.provider_wait ||
       value.provider_wait.occurrence.workflow_id ===
+        value.summary.workflow.workflow_id) &&
+    (!value.admission_wait ||
+      value.admission_wait.occurrence.workflow_id ===
         value.summary.workflow.workflow_id),
   "Inconsistent current workflow wait.",
 );
@@ -316,14 +333,22 @@ export const wait = s.refine(
       "approval",
       "effect_resolution",
       "provider_operation",
+      "resource_admission",
     ),
     deadline: s.nullable(s.timestamp),
     registered_at: s.timestamp,
     closed_at: s.nullable(s.timestamp),
     native_effect_wait: s.nullable(nativeEffectWait),
     provider_wait: s.nullable(providerWait),
+    admission_wait: s.nullable(admissionWait),
   }),
   (value) =>
+    (value.kind === "resource_admission") === (value.admission_wait !== null) &&
+    (!value.admission_wait ||
+      (value.deadline !== null &&
+        value.admission_wait.occurrence.workflow_id === value.workflow_id &&
+        value.admission_wait.parking_activation_id === value.activation_id &&
+        value.admission_wait.key === value.wait_key)) &&
     (value.kind === "provider_operation") === (value.provider_wait !== null) &&
     (!value.provider_wait ||
       (value.deadline === null &&
