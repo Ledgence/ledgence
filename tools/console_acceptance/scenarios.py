@@ -77,7 +77,10 @@ def static_and_contract(d, record):
     # execution remain available; optional governance must not be advertised.
     assert config["capabilities"] == {
         "executions": True, "workflows": True, "programs": True,
-        "workers": True, "task_admission": False, "queue_policies": False, "resource_fair_sharing": False, "run_budgets": False, "task_run_budgets": False,
+        "workers": True,
+        "task_admission": False, "queue_policies": False,
+        "resource_policies": False, "resource_sources": False, "resource_fair_sharing": False,
+        "run_budgets": False, "task_run_budgets": False,
     }, config
     assert "scope" not in config and "tenant_id" not in config and "namespace" not in config
     for path in ("config?tenant_id=other", "tasks?limit=1&limit=2", "tasks?tenant_id=other",

@@ -148,7 +148,7 @@ impl PostgresStore {
         // Retain the workflow/task/resource/request locks if capacity expires.
         // All tentative provider authority, recovery and accounting are inside
         // this savepoint; an expiry returns an observation, never another grant.
-        sqlx::query("SAVEPOINT provider_admission_grant")
+        sqlx::query("SAVEPOINT admission_grant")
             .execute(&mut *tx)
             .await?;
         let provider = self
@@ -187,9 +187,11 @@ impl PostgresStore {
                 return Ok(receipt);
             }
             Err(claim::ClaimRefusal::Expired { observed_at }) => {
-                let receipt = self
-                    .recover_expired_provider_admission(&mut tx, p, command, &name, observed_at)
+                let snapshot = self
+                    .recover_expired_admission(&mut tx, p, c, &name, observed_at)
                     .await?;
+                let receipt = existing(p, snapshot);
+                receipt.validate_for(p, command)?;
                 tx.commit().await?;
                 return Ok(receipt);
             }
@@ -302,65 +304,24 @@ impl PostgresStore {
             .into());
         }
         if final_now >= capacity_deadline {
-            let receipt = self
-                .recover_expired_provider_admission(&mut tx, p, command, &name, final_now)
+            let snapshot = self
+                .recover_expired_admission(&mut tx, p, c, &name, final_now)
                 .await?;
+            let receipt = existing(p, snapshot);
+            receipt.validate_for(p, command)?;
             tx.commit().await?;
             return Ok(receipt);
         }
         self.admission_worker(p, &c.occurrence.scope, final_now)?;
         self.require_effect_worker(p, &c.occurrence.scope, final_now)?;
         execution::check_live(&workflow, &authority, &c.owner, final_now, true)?;
+        if let ProviderAdmissionStartReceipt::Granted { source } = &receipt
+            && final_now >= source.admission.start_deadline_at
+        {
+            return Err(ContractError::OwnershipLost.into());
+        }
         receipt.validate_for(p, command)?;
         tx.commit().await?;
-        Ok(receipt)
-    }
-
-    /// Cancel a tentative dispatch without dropping the locks that serialize
-    /// this owner and resource. The savepoint also removes claim/source/recovery
-    /// writes and any notifications; only invalidating the old offer commits.
-    async fn recover_expired_provider_admission(
-        &self,
-        tx: &mut PgConnection,
-        p: &VerifiedPrincipal,
-        command: &ProviderAdmissionStartCommand,
-        name: &str,
-        observed_at: u64,
-    ) -> StoreResult<ProviderAdmissionStartReceipt> {
-        sqlx::query("ROLLBACK TO SAVEPOINT provider_admission_grant")
-            .execute(&mut *tx)
-            .await?;
-        let c = &command.admission;
-        let (workflow, authority) = execution::lock_activation(tx, &c.owner).await?;
-        let mut r = capacity::resource(tx, &c.occurrence.scope, name, true).await?;
-        let mut a = capacity::request(tx, &c.occurrence).await?;
-        let now = db::now(tx).await?;
-        if now < observed_at || now < r.high_water || now < a.snapshot.updated_at {
-            return Err(ContractError::Unavailable(
-                "provider admission clock moved backwards".into(),
-            )
-            .into());
-        }
-        self.admission_worker(p, &c.occurrence.scope, now)?;
-        self.require_effect_worker(p, &c.occurrence.scope, now)?;
-        execution::check_live(&workflow, &authority, &c.owner, now, true)?;
-        if !capacity::invalidate_offer(&mut a, &mut r, now)? {
-            return Err(corrupt("expired provider admission retained a live offer").into());
-        }
-        capacity::save_request(tx, &a).await?;
-        capacity::save_resource(tx, &r).await?;
-        let final_now = db::now(tx).await?;
-        if final_now < now {
-            return Err(ContractError::Unavailable(
-                "provider admission clock moved backwards".into(),
-            )
-            .into());
-        }
-        self.admission_worker(p, &c.occurrence.scope, final_now)?;
-        self.require_effect_worker(p, &c.occurrence.scope, final_now)?;
-        execution::check_live(&workflow, &authority, &c.owner, final_now, true)?;
-        let receipt = existing(p, a.snapshot);
-        receipt.validate_for(p, command)?;
         Ok(receipt)
     }
 

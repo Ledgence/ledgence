@@ -124,6 +124,8 @@ that reply can leave occupied capacity even if no call happened. Finish saves
 the result and releases capacity together. A retried workflow can reuse that
 result without calling the model again.
 
+If PostgreSQL is slow while a new Start is being written, Ledgence checks the offer and the send deadline again before returning a grant. A rejected tentative grant does not spend the call allowance or the approval. If the grant was already accepted and its reply arrives too late, the worker skips the call and the source remains recorded. Inspect that source before deciding whether it is safe to release the slot.
+
 A timeout, exception or worker loss does not prove remote completion. Unknown
 usage stays occupied until completion evidence or an explicit operator release.
 Before Start, rewaiting cannot extend the original admission deadline. After

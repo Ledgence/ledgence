@@ -49,6 +49,13 @@ fn fork(owner: &Assignment, key: &str, queues: &[&str]) -> WorkflowForkCommand {
     }
 }
 async fn child_wait(store: &PostgresStore, queue: &str) -> AdmissionOccurrence {
+    child_wait_for(store, queue, 60_000).await
+}
+async fn child_wait_for(
+    store: &PostgresStore,
+    queue: &str,
+    timeout_ms: u64,
+) -> AdmissionOccurrence {
     let a = acquire(store, queue).await;
     let workflow_id = store
         .activation_context(&a.lease.owner)
@@ -75,7 +82,7 @@ async fn child_wait(store: &PostgresStore, queue: &str) -> AdmissionOccurrence {
             wait: WorkflowWait::ResourceAdmission {
                 key: "ask".into(),
                 request,
-                timeout_ms: 60000,
+                timeout_ms,
             },
         },
         &[],
@@ -410,18 +417,31 @@ async fn named(
     store: &PostgresStore,
     p: RunBudgetPolicy,
 ) -> (WorkflowSnapshot, AdmissionOccurrence, AdmissionStartCommand) {
+    let (w, o, _, c) = named_with_wait(store, Some(p), 60_000).await;
+    (w, o, c)
+}
+async fn named_with_wait(
+    store: &PostgresStore,
+    p: Option<RunBudgetPolicy>,
+    wait_ms: u64,
+) -> (
+    WorkflowSnapshot,
+    AdmissionOccurrence,
+    Assignment,
+    AdmissionStartCommand,
+) {
     let mut submit = command();
     submit.idempotency_key = "named".into();
     submit.input.queue = "named".into();
-    submit.input.budget = Some(p);
+    submit.input.budget = p;
     let w = store
         .accept_resolved_workflow(&submit, &descriptor())
         .await
         .unwrap();
-    let o = child_wait(store, "named").await;
+    let o = child_wait_for(store, "named", wait_ms).await;
     assert_eq!(advance(store).await.offered, 1);
-    let (_, c) = claim(store, "named", &o).await;
-    (w, o, c)
+    let (a, c) = claim(store, "named", &o).await;
+    (w, o, a, c)
 }
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
@@ -476,6 +496,174 @@ async fn run_budget_slow_final_write_cannot_issue_an_expired_callback_permit() {
         db.store.start_admission(&worker(), &c).await.unwrap(),
         AdmissionStartReceipt::Granted { .. }
     ));
+    db.finish().await;
+}
+#[derive(Clone, Copy, Debug)]
+enum CallbackExpiry {
+    Send,
+    Offer,
+    Wait,
+    Lease,
+    Budget,
+}
+async fn callback_start_window(budgeted: bool, cutoff: CallbackExpiry) {
+    let mut config = policy(1);
+    config.start_timeout_ms = if matches!(cutoff, CallbackExpiry::Send) {
+        100
+    } else {
+        10_000
+    };
+    config.offer_timeout_ms = if matches!(cutoff, CallbackExpiry::Offer) {
+        1_000
+    } else {
+        30_000
+    };
+    config.rate = Some(ResourceRate {
+        numerator: 1,
+        period_ms: 60_000,
+        burst: 1,
+    });
+    let db = fixture(config).await;
+    let store = &db.store;
+    let mut tx = store.pool.begin().await.unwrap();
+    let deadline =
+        matches!(cutoff, CallbackExpiry::Budget).then_some(db::now(&mut tx).await.unwrap() + 2_000);
+    tx.rollback().await.unwrap();
+    let budget = budgeted.then_some(RunBudgetPolicy {
+        deadline_at_ms: deadline,
+        ..limits(1, 0)
+    });
+    let wait_ms = if matches!(cutoff, CallbackExpiry::Wait) {
+        1_000
+    } else {
+        60_000
+    };
+    let (w, o, attempt, c) = named_with_wait(store, budget, wait_ms).await;
+    let original = inspect(store, &o).await;
+    let barrier = final_write_barrier(store).await;
+    let expiry = match cutoff {
+        CallbackExpiry::Send => StartExpiry::AfterLock(105),
+        CallbackExpiry::Offer => {
+            StartExpiry::At(original.offer.as_ref().unwrap().expires_at as i64)
+        }
+        CallbackExpiry::Wait => {
+            assert_eq!(
+                original.offer.as_ref().unwrap().expires_at,
+                original.deadline_at
+            );
+            StartExpiry::At(original.deadline_at as i64)
+        }
+        CallbackExpiry::Budget => StartExpiry::At(deadline.unwrap() as i64),
+        CallbackExpiry::Lease => {
+            let at:i64=sqlx::query_scalar("UPDATE attempts SET expires_at_ms=floor(extract(epoch FROM clock_timestamp())*1000)::bigint+1000 WHERE attempt_id=$1 RETURNING expires_at_ms").bind(&c.owner.attempt_id).fetch_one(&store.pool).await.unwrap();
+            StartExpiry::At(at)
+        }
+    };
+    let p = worker();
+    let result = expire_during_start(store, store.start_admission(&p, &c), expiry, barrier).await;
+    let offered = if matches!(cutoff, CallbackExpiry::Offer | CallbackExpiry::Wait) {
+        assert!(
+            matches!(result, Ok(AdmissionStartReceipt::Existing { ref snapshot }) if snapshot.state==AdmissionState::AwaitingRewait),
+            "{result:?}"
+        );
+        assert!(
+            matches!(store.start_admission(&p,&c).await.unwrap(), AdmissionStartReceipt::Existing { snapshot } if snapshot.state==AdmissionState::AwaitingRewait)
+        );
+        0
+    } else {
+        assert!(
+            matches!(result, Err(ContractError::OwnershipLost)),
+            "{result:?}"
+        );
+        assert_eq!(inspect(store, &o).await, original);
+        1
+    };
+    let state = inspect(store, &o).await;
+    assert!(state.source.is_none() && state.finish.is_none() && state.budget_denial.is_none());
+    let counters:(i64,i64,i64,i64)=sqlx::query_as("SELECT offered,started,unknown,credit FROM admission_resources WHERE resource_name='model'").fetch_one(&store.pool).await.unwrap();
+    assert_eq!(counters, (offered, 0, 0, 60_000));
+    if budgeted {
+        assert_eq!(snap(store, workflow(&w.workflow_id)).await.calls, 0);
+        assert!(entries(store, workflow(&w.workflow_id)).await.is_empty());
+    }
+    match cutoff {
+        CallbackExpiry::Send => {
+            settle_rejected_start(store, &attempt).await;
+            let (_, mut fresh) = claim(store, "named", &o).await;
+            assert_ne!(c.owner.attempt_id, fresh.owner.attempt_id);
+            assert_eq!(c.offer_generation, fresh.offer_generation);
+            fresh.start_id = "start:next".into();
+            fresh.finish_id = "finish:next".into();
+            assert!(matches!(
+                store.start_admission(&p, &c).await,
+                Err(ContractError::OwnershipLost)
+            ));
+            let AdmissionStartReceipt::Granted { source } =
+                store.start_admission(&p, &fresh).await.unwrap()
+            else {
+                panic!("live offer did not grant");
+            };
+            assert!(
+                matches!(store.start_admission(&p,&fresh).await.unwrap(), AdmissionStartReceipt::Existing { snapshot } if snapshot.source.as_ref()==Some(&*source))
+            );
+            if budgeted {
+                assert_eq!(snap(store, workflow(&w.workflow_id)).await.calls, 1);
+                assert_eq!(entries(store, workflow(&w.workflow_id)).await.len(), 1);
+            }
+        }
+        CallbackExpiry::Budget => {
+            for _ in 0..2 {
+                assert!(
+                    matches!(store.start_admission(&p,&c).await.unwrap(), AdmissionStartReceipt::Existing { snapshot } if snapshot.budget_denial==Some(RunBudgetDenial::DeadlineExceeded))
+                );
+            }
+            assert_eq!(snap(store, workflow(&w.workflow_id)).await.calls, 0);
+            let rows = entries(store, workflow(&w.workflow_id)).await;
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].reason, Some(RunBudgetDenial::DeadlineExceeded));
+        }
+        CallbackExpiry::Offer | CallbackExpiry::Wait | CallbackExpiry::Lease => {}
+    }
+    db.finish().await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn callback_start_window_final_write_rejects_expired_send_authority() {
+    for budgeted in [false, true] {
+        callback_start_window(budgeted, CallbackExpiry::Send).await;
+    }
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn callback_start_window_final_write_recovers_expired_offer() {
+    for budgeted in [false, true] {
+        callback_start_window(budgeted, CallbackExpiry::Offer).await;
+        callback_start_window(budgeted, CallbackExpiry::Wait).await;
+    }
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn callback_start_window_final_write_fences_lost_lease_and_root_deadline() {
+    for budgeted in [false, true] {
+        callback_start_window(budgeted, CallbackExpiry::Lease).await;
+    }
+    callback_start_window(true, CallbackExpiry::Budget).await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn callback_start_window_keeps_the_send_interval_after_a_valid_grant() {
+    let mut config = policy(1);
+    config.offer_timeout_ms = 1_000;
+    config.start_timeout_ms = 10_000;
+    let db = fixture(config).await;
+    let (_, o, _, cmd) = named_with_wait(&db.store, None, 60_000).await;
+    let expires_at = inspect(&db.store, &o).await.offer.unwrap().expires_at;
+    let AdmissionStartReceipt::Granted { source } =
+        db.store.start_admission(&worker(), &cmd).await.unwrap()
+    else {
+        panic!("live offer did not grant");
+    };
+    assert!(source.accepted_at < expires_at && source.start_deadline_at > expires_at);
     db.finish().await;
 }
 #[tokio::test]

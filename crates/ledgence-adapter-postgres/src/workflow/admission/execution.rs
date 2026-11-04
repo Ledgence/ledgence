@@ -71,6 +71,17 @@ impl PostgresStore {
             });
         }
         super::super::execution::check_live(&workflow, &authority, &c.owner, now, true)?;
+        let capacity_deadline = a
+            .snapshot
+            .offer
+            .as_ref()
+            .ok_or_else(|| corrupt("missing admission offer"))?
+            .expires_at
+            .min(a.snapshot.deadline_at);
+        // Retain the owner and resource locks when discarding late tentative writes.
+        sqlx::query("SAVEPOINT admission_grant")
+            .execute(&mut *tx)
+            .await?;
         let source_id = db::id(&mut tx, "admsrc").await?;
         let member = crate::run_budget::workflow(&c.occurrence.workflow_id);
         let budget_deadline = if authority.has_run_budget {
@@ -109,12 +120,18 @@ impl PostgresStore {
         };
         self.admission_worker(p, &c.occurrence.scope, now)?;
         super::super::execution::check_live(&workflow, &authority, &c.owner, now, true)?;
-        if a.snapshot
-            .offer
-            .as_ref()
-            .is_none_or(|offer| now >= offer.expires_at)
-            || now >= a.snapshot.deadline_at
-        {
+        if now >= capacity_deadline {
+            let snapshot = self
+                .recover_expired_admission(&mut tx, p, c, &name, now)
+                .await?;
+            let receipt = AdmissionStartReceipt::Existing {
+                snapshot: Box::new(snapshot),
+            };
+            receipt.validate_for(p, c)?;
+            tx.commit().await?;
+            return Ok(receipt);
+        }
+        if budget_deadline.is_some_and(|deadline| now >= deadline) {
             return Err(ContractError::OwnershipLost.into());
         }
         // Refill after lock and spend once. Offers reserve shadow credit, never rate tokens.
@@ -162,21 +179,74 @@ impl PostgresStore {
         r.wake(now);
         save_request(&mut tx, &a).await?;
         save_resource(&mut tx, &r).await?;
-        if authority.has_run_budget {
-            let at = db::now(&mut tx).await?;
-            self.admission_worker(p, &c.occurrence.scope, at)?;
-            super::super::execution::check_live(&workflow, &authority, &c.owner, at, true)?;
+        let at = db::now(&mut tx).await?;
+        self.admission_worker(p, &c.occurrence.scope, at)?;
+        super::super::execution::check_live(&workflow, &authority, &c.owner, at, true)?;
+        let receipt = if at >= capacity_deadline {
+            let snapshot = self
+                .recover_expired_admission(&mut tx, p, c, &name, at)
+                .await?;
+            AdmissionStartReceipt::Existing {
+                snapshot: Box::new(snapshot),
+            }
+        } else {
             if at < source.accepted_at || at >= source.start_deadline_at {
                 return Err(ContractError::OwnershipLost.into());
             }
-        }
-        let receipt = AdmissionStartReceipt::Granted {
-            source: Box::new(source),
+            AdmissionStartReceipt::Granted {
+                source: Box::new(source),
+            }
         };
         receipt.validate_for(p, c)?;
         tx.commit().await?;
         Ok(receipt)
     }
+    /// Preserve the owner and resource locks, discard every tentative grant and
+    /// debit, and commit only the expired offer’s transition to AwaitingRewait.
+    pub(in crate::workflow) async fn recover_expired_admission(
+        &self,
+        tx: &mut PgConnection,
+        p: &VerifiedPrincipal,
+        c: &AdmissionStartCommand,
+        name: &str,
+        observed_at: u64,
+    ) -> StoreResult<AdmissionSnapshot> {
+        sqlx::query("ROLLBACK TO SAVEPOINT admission_grant")
+            .execute(&mut *tx)
+            .await?;
+        let (workflow, authority) = super::super::execution::lock_activation(tx, &c.owner).await?;
+        let mut r = resource(tx, &c.occurrence.scope, name, true).await?;
+        let mut a = request(tx, &c.occurrence).await?;
+        let now = db::now(tx).await?;
+        if now < observed_at || now < r.high_water || now < a.snapshot.updated_at {
+            return Err(
+                ContractError::Unavailable("admission clock moved backwards".into()).into(),
+            );
+        }
+        let protected = a.snapshot.binding.provider().is_some();
+        let check_authority = |at| -> StoreResult<()> {
+            self.admission_worker(p, &c.occurrence.scope, at)?;
+            if protected {
+                self.require_effect_worker(p, &c.occurrence.scope, at)?;
+            }
+            super::super::execution::check_live(&workflow, &authority, &c.owner, at, true)
+        };
+        check_authority(now)?;
+        if !invalidate_offer(&mut a, &mut r, now)? {
+            return Err(corrupt("expired admission retained a live offer").into());
+        }
+        save_request(tx, &a).await?;
+        save_resource(tx, &r).await?;
+        let final_now = db::now(tx).await?;
+        if final_now < now {
+            return Err(
+                ContractError::Unavailable("admission clock moved backwards".into()).into(),
+            );
+        }
+        check_authority(final_now)?;
+        Ok(a.snapshot)
+    }
+
     pub(super) async fn finish_admission_once(
         &self,
         p: &VerifiedPrincipal,
