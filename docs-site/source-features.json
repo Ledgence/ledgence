@@ -107,5 +107,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/share-worker-polls"
+  },
+  "queueConcurrency": {
+    "title": "Cluster-wide queue limits, source-bound cleanup and audited recovery",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/limit-queue-concurrency"
   }
 }

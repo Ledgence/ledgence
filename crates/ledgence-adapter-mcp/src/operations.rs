@@ -1,5 +1,6 @@
 //! Scope-bound tool dispatch over portable service ports, without a framework SDK.
 mod admission;
+mod queue_policies;
 use crate::schemas::tool_definitions;
 use ledgence_orchestration_api::{console::*, *};
 use ledgence_worker_api::ProgramRef;
@@ -121,7 +122,8 @@ impl ToolDispatcher {
             (!self.read_only || tool.read_only)
                 && (tool.name != "ledgence_audit_query" || self.audit.is_some())
                 && (tool.name != "ledgence_effect_resolve" || self.allow_effect_resolution)
-                && (!admission::is_mutation(tool.name) || self.allow_resource_control)
+                && (!(admission::is_mutation(tool.name) || queue_policies::is_mutation(tool.name))
+                    || self.allow_resource_control)
         })
     }
     pub fn read_only(&self) -> bool {
@@ -152,7 +154,9 @@ impl ToolDispatcher {
                 outcome_unknown: false,
             });
         }
-        if admission::is_mutation(name) && !self.allow_resource_control {
+        if (admission::is_mutation(name) || queue_policies::is_mutation(name))
+            && !self.allow_resource_control
+        {
             return Err(ToolError {
                 code: "unknown_tool",
                 message: "Resource control requires explicit server opt-in".into(),
@@ -165,6 +169,9 @@ impl ToolDispatcher {
                 message: "This MCP server only exposes read operations".into(),
                 outcome_unknown: false,
             });
+        }
+        if queue_policies::is_tool(name) {
+            return self.call_queue_policy(name, arguments).await;
         }
         if admission::is_tool(name) {
             return self.call_admission(name, arguments).await;
@@ -873,16 +880,25 @@ mod tests {
             "unknown_tool"
         );
         let readonly = test_dispatcher(true);
-        for definition in tool_definitions(false).into_iter().filter(|tool| {
-            !tool.read_only
-                && tool.name != "ledgence_effect_resolve"
-                && !admission::is_mutation(tool.name)
-        }) {
+        for definition in tool_definitions(false)
+            .into_iter()
+            .filter(|tool| !tool.read_only)
+        {
             let error = readonly
                 .call(definition.name, &json!({}))
                 .await
                 .unwrap_err();
-            assert_eq!(error.code, "read_only");
+            let requires_opt_in = definition.name == "ledgence_effect_resolve"
+                || admission::is_mutation(definition.name)
+                || queue_policies::is_mutation(definition.name);
+            assert_eq!(
+                error.code,
+                if requires_opt_in {
+                    "unknown_tool"
+                } else {
+                    "read_only"
+                }
+            );
             assert!(!error.outcome_unknown);
         }
     }

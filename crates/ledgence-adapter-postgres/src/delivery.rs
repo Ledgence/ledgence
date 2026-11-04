@@ -40,7 +40,7 @@ impl PostgresStore {
         let before = db::now(&mut tx).await?;
         // Validate sequence and prior ownership before selecting any candidate.
         // This proposed Empty is not persisted unless the final scan is empty.
-        let checked = core::acquire(
+        let mut checked = core::acquire(
             core::Acquisition {
                 session: Some(&session),
                 cursor: cursor.as_ref(),
@@ -57,6 +57,7 @@ impl PostgresStore {
             if targeted {
                 return Err(ContractError::Conflict.into());
             }
+            crate::queue_concurrency::replay(&mut tx, &mut checked.reply).await?;
             tx.commit().await?;
             return Ok(AcquisitionProbe::Completed {
                 reply: checked.reply,
@@ -95,6 +96,16 @@ impl PostgresStore {
                 false
             };
         if invalidated {
+            candidate = None;
+        }
+        // Governed work locks its task, resource and request before the queue
+        // policy, matching targeted delivery and the ready-to-invoke controller.
+        let gate = if candidate.is_some() {
+            crate::queue_concurrency::gate(&mut tx, &command.scope, &command.queue).await?
+        } else {
+            None
+        };
+        if gate.as_ref().is_some_and(|g| g.full) {
             candidate = None;
         }
         if candidate.is_none() && !finish_empty && !invalidated {
@@ -167,6 +178,7 @@ impl PostgresStore {
                 command,
                 claimed_at,
             )?;
+            crate::queue_concurrency::prepare(&mut tx, &mut transition, gate.as_ref(), claimed_at).await?;
             crate::task_admission::prepare_assignment(&mut tx,&mut transition,&session).await?;
             if let Some(changes) = &transition.changes {
                 let attempt = changes.attempt.as_ref().ok_or_else(|| {
@@ -379,6 +391,7 @@ impl RecoveryStore for PostgresStore {
                         "expiry batch limit must be 1..=100".into(),
                     ));
                 }
+                self.advance_queue_timeouts(limit).await?;
                 // Each operation is bounded independently. Already committed tasks
                 // remain recovered if a later candidate encounters an unavailable DB.
                 let ids = self

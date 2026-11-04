@@ -311,3 +311,7 @@ In matching development builds, `TaskAdmission(resource="support-model")` is an
 optional `client.tasks.submit` / `prepare` argument. Use
 `client.task_admissions.inspect(task.id, generation=1)` for audited evidence.
 [Control shared resource capacity](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
+
+## Queue concurrency in development
+
+Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).

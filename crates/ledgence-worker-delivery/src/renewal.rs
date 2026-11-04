@@ -475,6 +475,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            queue_concurrency: false,
             task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,

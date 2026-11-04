@@ -13,6 +13,7 @@ mod effect_evidence;
 mod effect_resolution;
 mod provider_admission;
 mod provider_operation;
+mod queue_policies;
 mod task_admission;
 pub mod worker_observations;
 mod workflow;
@@ -140,6 +141,10 @@ impl ApplicationService {
 }
 
 impl TaskService for ApplicationService {
+    fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
+        self.store.queue_policies()?;
+        Ok(self)
+    }
     fn task_admissions(&self) -> Result<&dyn TaskAdmissionOperations> {
         // The shared coordinator must be available along with the task ledger.
         self.workflows()?.admissions()?;

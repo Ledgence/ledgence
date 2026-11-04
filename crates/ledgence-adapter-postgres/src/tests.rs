@@ -73,12 +73,27 @@ impl TestDb {
     /// If seeding panics, TestDb::drop removes this unique DB on its own bounded
     /// runtime; no modified legacy fixture is left behind.
     pub(crate) async fn begin_legacy_task_seed(&self) {
+        // The current fixture seeds ungoverned attempts only. Supply empty lookup
+        // relations until the historical rows have been written, then remove
+        // them so the real migration receives precisely the old schema.
+        sqlx::raw_sql(
+            "CREATE TABLE queue_concurrency_policies(tenant_id text,namespace text,queue text,maximum bigint,occupied bigint,timeout_ms bigint);
+             CREATE TABLE queue_concurrency_holds(tenant_id text,namespace text,queue text,task_id text,attempt_id text,state text,deadline_ms bigint,stop_requested_at_ms bigint,force_at_ms bigint,released_at_ms bigint);
+             CREATE FUNCTION ldg_queue_lock_key(text,text,text) RETURNS bigint LANGUAGE SQL AS 'SELECT 1::bigint'",
+        ).execute(&self.store.pool).await.unwrap();
         sqlx::raw_sql("ALTER TABLE tasks ADD COLUMN admission_resource text, ADD COLUMN admission_deferrals bigint NOT NULL DEFAULT 0, ADD COLUMN admission_ready boolean NOT NULL DEFAULT true; ALTER TABLE attempts ADD COLUMN task_admission_bytes bytea; ALTER TABLE worker_sessions ADD COLUMN features_bytes bytea, ADD COLUMN admission_worker_bytes bytea").execute(&self.store.pool).await.unwrap();
     }
     pub(crate) async fn finish_legacy_task_seed(&self) {
         let mut tx = self.store.pool.begin().await.unwrap();
         let used:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tasks WHERE admission_resource IS NOT NULL OR admission_deferrals<>0 OR NOT admission_ready) OR EXISTS(SELECT 1 FROM attempts WHERE task_admission_bytes IS NOT NULL) OR EXISTS(SELECT 1 FROM worker_sessions WHERE features_bytes IS NOT NULL OR admission_worker_bytes IS NOT NULL)").fetch_one(&mut *tx).await.unwrap();
         assert!(!used, "historical fixture may not exercise task admission");
+        let used: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM queue_concurrency_policies) OR EXISTS(SELECT 1 FROM queue_concurrency_holds)")
+            .fetch_one(&mut *tx).await.unwrap();
+        assert!(
+            !used,
+            "historical fixture may not exercise queue concurrency"
+        );
+        sqlx::raw_sql("DROP TABLE queue_concurrency_holds,queue_concurrency_policies; DROP FUNCTION ldg_queue_lock_key(text,text,text)").execute(&mut *tx).await.unwrap();
         sqlx::raw_sql("ALTER TABLE tasks DROP COLUMN admission_resource,DROP COLUMN admission_deferrals,DROP COLUMN admission_ready; ALTER TABLE attempts DROP COLUMN task_admission_bytes; ALTER TABLE worker_sessions DROP COLUMN features_bytes,DROP COLUMN admission_worker_bytes").execute(&mut *tx).await.unwrap();
         tx.commit().await.unwrap();
     }

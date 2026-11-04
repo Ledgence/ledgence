@@ -827,7 +827,7 @@ impl Context {
                         .as_ref()
                         .filter(|_| command.queue == self.config.queue)
                         .map(|links| links.track(&assignment.lease.owner));
-                    self.attempt(reservation, *assignment).await
+                    self.attempt(reservation, *assignment, &command.queue).await
                 }
                 SourceReply::Idle | SourceReply::Completed(AcquireReply::Empty { .. }) => {
                     drop(reservation);

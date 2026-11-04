@@ -8,6 +8,7 @@ import {
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import * as dto from "../../src/api/resources";
 import { decodeConfig } from "../../src/api/codecs";
+import { consoleContractVersion } from "../../src/api/contracts";
 import { approval as decodeApproval } from "../../src/api/approvals";
 import { executionPage } from "../../src/api/explorer";
 import {
@@ -255,7 +256,9 @@ test("real durable approval audit renders its effective action and resumed activ
     data: { workflow_id: workflow.id, key: "refund" },
   });
   expect(response.ok()).toBe(true);
-  expect(response.headers()["ledgence-console-contract"]).toBe("10");
+  expect(response.headers()["ledgence-console-contract"]).toBe(
+    String(consoleContractVersion),
+  );
   const approval = decodeApproval(
     parseUserJson(await response.text(), 96 * 1024),
   );

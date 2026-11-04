@@ -64,3 +64,7 @@ A secondary task still occupies a slot, which appears as `unknown` in the
 primary session's slot details. Open **Executions** to see that task's history.
 To see individual poll choices, start the worker with
 `RUST_LOG=info,ledgence_worker_delivery::polls=debug`.
+
+## Queue concurrency in development
+
+Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).

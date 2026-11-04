@@ -1,5 +1,6 @@
 //! Framework-neutral MCP tool descriptions. Execution remains in Ledgence services.
 mod admission;
+mod queue_policies;
 use ledgence_orchestration_api::APPROVAL_PAGE_MAX_ITEMS;
 use serde_json::{Value, json};
 
@@ -223,6 +224,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
         ),
     ];
     tools.extend(admission::definitions());
+    tools.extend(queue_policies::definitions());
     if read_only {
         tools.retain(|tool| tool.read_only);
     }
@@ -234,7 +236,7 @@ fn audit_filter() -> Value {
         object(json!({"kind":{"const":"event"},"event_id":identifier()}), &["kind","event_id"]),
         object(json!({"kind":{"const":"all"}}), &["kind"]),
         object(json!({"kind":{"const":"resource"},
-            "resource_kind":{"enum":["task","workflow","resource"]}, "resource_id":identifier()}),
+            "resource_kind":{"enum":["task","workflow","resource","queue"]}, "resource_id":identifier()}),
             &["kind","resource_kind","resource_id"]),
         object(json!({"kind":{"const":"approval_acceptance"},
             "workflow_id":identifier(), "key":identifier(), "activation_id":identifier(),
@@ -344,6 +346,7 @@ mod tests {
             AuditResourceKind::Task,
             AuditResourceKind::Workflow,
             AuditResourceKind::Resource,
+            AuditResourceKind::Queue,
         ] {
             let filter = AuditFilter::Resource {
                 resource_kind,
@@ -363,8 +366,8 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 27);
-        assert_eq!(tool_definitions(true).len(), 18);
+        assert_eq!(all.len(), 32);
+        assert_eq!(tool_definitions(true).len(), 21);
         for name in [
             "ledgence_resource_list",
             "ledgence_resource_inspect",

@@ -136,3 +136,13 @@ call completion from business knowledge, so a pending asynchronous operation can
 outlive its original call's occupancy. Read-only probes are outside that resource
 policy. These contracts are not in the published 0.8.0 crate.
 [Admission contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
+
+The development source exposes `QueuePolicyClient` for authenticated management of
+queue concurrency. A policy can set a shared maximum, pause new assignments with
+zero or explicitly remove the maximum. Inspecting a hold shows the policy revision
+and timeout schedule that applied to its original attempt. `QueuePolicyOperations`
+binds each request to a verified principal, and `QueuePolicyStore` implements the
+transactional authority. Existing adapters can explicitly omit this capability.
+A close receipt is bound to the full worker source, including the original lease,
+without exposing that lease in operator inspection. Mutation retries reuse the
+same request ID, expected revision and arguments.

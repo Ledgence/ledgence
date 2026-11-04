@@ -320,7 +320,7 @@ fn invalid(message: &str) -> ContractError {
 fn bound<T: Serialize>(value: &T, bytes: usize) -> Result<()> {
     crate::submission::check_encoded_size(value, bytes, "admission value").map_err(Into::into)
 }
-fn digest<T: Serialize>(value: &T) -> Result<Digest> {
+pub(crate) fn digest<T: Serialize>(value: &T) -> Result<Digest> {
     let json = serde_json::to_value(value).map_err(|_| invalid("admission encoding"))?;
     Ok(Digest(format!(
         "sha256:{:x}",

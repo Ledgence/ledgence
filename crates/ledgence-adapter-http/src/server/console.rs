@@ -62,6 +62,7 @@ impl ConsoleServices {
                 programs: catalog.is_some(),
                 workers: observations.is_some(),
                 task_admission: false,
+                queue_policies: false,
             },
             suggested_queues: instance.suggested_queues.clone(),
             limits: ConsoleLimits::default(),
@@ -132,6 +133,17 @@ impl ConsoleServices {
     }
 }
 pub(super) const ROUTES: &[Route] = &[
+    Route::post("/v1/console/queue-policies/put", Policy::ResourceControl),
+    Route::post("/v1/console/queue-policies/inspect", Policy::Metadata),
+    Route::post("/v1/console/queue-policies/list", Policy::Metadata),
+    Route::sensitive_post(
+        "/v1/console/queue-policies/holds",
+        AuditReadKind::QueueHolds,
+    ),
+    Route::post(
+        "/v1/console/queue-policies/release",
+        Policy::ResourceControl,
+    ),
     Route::get("/v1/console/access", Policy::Access),
     Route::post("/v1/console/access/login", Policy::Login),
     Route::post("/v1/console/access/logout", Policy::Logout),
@@ -244,6 +256,7 @@ pub(super) async fn dispatch(
         let fields = fields(parts.uri.query().unwrap_or(""), path)?;
         if path == "/v1/console/config" {
             let mut config = console.config.clone();
+            config.capabilities.queue_policies = super::queue_policies::available(server);
             config.capabilities.task_admission = super::task_admission::available(server);
             return server.encode(config).await;
         }
@@ -518,6 +531,8 @@ pub(super) async fn dispatch(
         "/v1/console/admissions/inspect" | "/v1/console/task-admissions/inspect"
     ) {
         4096
+    } else if path.starts_with("/v1/console/queue-policies/") {
+        QUEUE_POLICY_COMMAND_MAX_BYTES
     } else if path == "/v1/console/workflows/approved-effects/resolve" {
         EFFECT_RESOLUTION_COMMAND_MAX_BYTES
     } else if path.starts_with("/v1/console/workflows/approved-effects/") {
@@ -538,6 +553,9 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if let Some(operation) = path.strip_prefix("/v1/console/queue-policies/") {
+        return super::queue_policies::post(server, operation, bytes, Some(scope), context).await;
+    }
     if path == "/v1/console/task-admissions/inspect" {
         return super::task_admission::console_inspect(server, bytes, scope, context).await;
     }

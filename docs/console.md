@@ -393,13 +393,13 @@ the assessment's reason and references. Retained evidence survives execution
 history collection and has no automatic expiry in this capability.
 See [retained effect evidence and native waits](effect-evidence.md).
 
-## Resource admission in development (C10)
+## Resource admission in development (C11)
 
 Console C8 adds native admission waits and accepted-operation nodes. Each wait
 retains its parking entrypoint and original occurrence; accepted callbacks have
 an audited occurrence inspector rather than reading a current-activation local
 journal. Offer/Start alone is readiness/authorization, not evidence of execution.
-The browser and backend must both use C10; published 0.8.0 remains C7.
+The browser and backend must both use C11; published 0.8.0 remains C7.
 See [resource admission](resource-admission.md).
 
 
@@ -409,7 +409,7 @@ C9 adds a required `subject` to admission wait metadata: `operation` for an
 ordinary registered call, or `provider` with the immutable original provider
 ticket. The wait preserves the approval's original activation even when capacity
 is granted to a later activation. Historical persisted C8 waits are projected as
-ordinary operations; use matching C10 server and browser assets.
+ordinary operations; use matching C11 server and browser assets.
 
 Open an admission wait and choose **Inspect admission record** to load its
 approved arguments and linked dispatch/report evidence through the audited
@@ -423,9 +423,9 @@ does not authorize another dispatch.
 Provider admission does not add a successful local-operation node. The ordinary
 accepted-operation node remains reserved for a committed generic callback
 result; recording a provider Start alone does not prove that its callback ran.
-Published Ledgence 0.8.0 continues to use C7; C10 is the current development contract.
+Published Ledgence 0.8.0 continues to use C7; C11 is the current development contract.
 
-### Standalone task admission (development C10)
+### Standalone task admission (development C11)
 
 When the installation enables task admission, **New execution** offers an optional
 named resource for a task. **Run again** preserves the requirement. In the task's
@@ -435,3 +435,7 @@ task ID, source ID, revision and deferral count remain available without inferri
 work from timestamps. Sensitive evidence is loaded on demand. Expired ownership
 alone does not release an uncertain source. A worker's local quiescence does not
 certify completion of external work.
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C11 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

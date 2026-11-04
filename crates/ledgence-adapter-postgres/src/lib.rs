@@ -22,6 +22,7 @@ mod migration_effects;
 mod notifications;
 mod operator_audit;
 mod persistence;
+mod queue_concurrency;
 mod retention;
 mod storage;
 mod task_admission;
@@ -72,6 +73,7 @@ pub struct PostgresStore {
     provider_config: Arc<std::sync::OnceLock<ProviderOperationConfig>>,
     admission_config: Arc<std::sync::OnceLock<AdmissionConfig>>,
     admission_scan_cursor: Arc<std::sync::Mutex<Option<(u64, String)>>>,
+    queue_timeout_cursor: Arc<std::sync::Mutex<(i64, String)>>,
     operation_timeout: Duration,
     trace_bridge: Arc<dyn TraceBridge>,
     acquisition_wake: Arc<notifications::WakeDispatch>,
@@ -119,6 +121,7 @@ impl PostgresStore {
             provider_config: Arc::new(std::sync::OnceLock::new()),
             admission_config: Arc::new(std::sync::OnceLock::new()),
             admission_scan_cursor: Arc::new(std::sync::Mutex::new(None)),
+            queue_timeout_cursor: Arc::default(),
             operation_timeout: options.operation_timeout,
             trace_bridge: Arc::new(NoopTraceBridge),
             acquisition_wake: Arc::new(notifications::WakeDispatch::default()),

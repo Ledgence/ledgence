@@ -9,6 +9,7 @@ use serde::Deserialize;
 use std::{collections::BTreeMap, path::PathBuf};
 #[derive(Debug)]
 pub enum Operation {
+    Queue(crate::queue_policy::Operation),
     List(ResourceListQuery),
     Resource(ResourceQuery),
     Inspect(AdmissionQuery),
@@ -19,7 +20,7 @@ pub enum Operation {
 pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Command> {
     let verb = args
         .next()
-        .ok_or_else(|| invalid("missing resource/admission operation"))?;
+        .ok_or_else(|| invalid(format!("missing {group} operation")))?;
     let mut options = BTreeMap::new();
     while let Some(key) = args.next() {
         if !key.starts_with("--") {
@@ -45,6 +46,7 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
     };
     scope.validate()?;
     let operation = match (group, verb.as_str()) {
+        ("queue", verb) => Operation::Queue(crate::queue_policy::parse(verb, scope, &mut options)?),
         ("resource", "put") => Operation::Put {
             scope,
             file: take("--file")?.into(),
@@ -99,10 +101,10 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
             q.validate()?;
             Operation::List(q)
         }
-        _ => return Err(invalid("unknown resource/admission operation")),
+        _ => return Err(invalid(format!("unknown {group} operation"))),
     };
     if !options.is_empty() {
-        return Err(invalid("unknown resource/admission option"));
+        return Err(invalid(format!("unknown {group} option")));
     }
     Ok(Command::Admission { server, operation })
 }
@@ -113,29 +115,34 @@ struct SavedCommand {
     base_url: String,
     body: String,
 }
-fn restore(bytes: &[u8], endpoint: &str) -> Result<String> {
+fn restore(bytes: &[u8], endpoint: &str, format: &str) -> Result<String> {
     let saved: SavedCommand = decode_unique_json(bytes, ADMISSION_COMMAND_MAX_BYTES * 2)?;
-    if saved.format != "ledgence.admission.command.v1" || saved.base_url != endpoint {
+    if saved.format != format || saved.base_url != endpoint {
         return Err(invalid(
-            "saved admission command format or destination does not match this client",
+            "saved command format or destination does not match this client",
         ));
     }
     Ok(saved.body)
 }
-async fn read(file: PathBuf, endpoint: String) -> Result<String> {
+pub(super) async fn read_saved(
+    file: PathBuf,
+    endpoint: String,
+    format: &'static str,
+) -> Result<String> {
     tokio::task::spawn_blocking(move || {
         let bytes = submission::read_bytes(
             &file,
             ADMISSION_COMMAND_MAX_BYTES * 2,
-            "saved admission command",
+            "saved operator command",
         )?;
-        restore(&bytes, &endpoint)
+        restore(&bytes, &endpoint, format)
     })
     .await
-    .map_err(|_| ContractError::Unavailable("admission command preparation failed".into()))?
+    .map_err(|_| ContractError::Unavailable("saved operator command preparation failed".into()))?
 }
 pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<Vec<u8>> {
     match operation {
+        Operation::Queue(op) => crate::queue_policy::execute(client, op).await,
         Operation::List(q) => encode(AdmissionClient::list_resources(client, &q).await?),
         Operation::Resource(q) => encode(AdmissionClient::resource(client, &q).await?),
         Operation::Inspect(q) => encode(AdmissionClient::inspect_admission(client, &q).await?),
@@ -143,7 +150,12 @@ pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<V
             encode(TaskAdmissionClient::inspect_task_admission(client, &q).await?)
         }
         Operation::Put { scope, file } => {
-            let body = read(file, client.base_url().to_owned()).await?;
+            let body = read_saved(
+                file,
+                client.base_url().to_owned(),
+                "ledgence.admission.command.v1",
+            )
+            .await?;
             let c: ResourcePutCommand =
                 decode_unique_json(body.as_bytes(), ADMISSION_COMMAND_MAX_BYTES)?;
             c.validate()?;
@@ -153,7 +165,12 @@ pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<V
             encode(AdmissionClient::put_resource(client, &c).await?)
         }
         Operation::Release { scope, file } => {
-            let body = read(file, client.base_url().to_owned()).await?;
+            let body = read_saved(
+                file,
+                client.base_url().to_owned(),
+                "ledgence.admission.command.v1",
+            )
+            .await?;
             #[derive(Deserialize)]
             #[serde(untagged)]
             enum Release {
@@ -186,9 +203,31 @@ mod tests {
     fn saved_command_cannot_rebind_endpoint_or_omit_envelope_fields() {
         let original = " { \"request_id\": \"same-id\" } ";
         let bytes=serde_json::to_vec(&serde_json::json!({"format":"ledgence.admission.command.v1","base_url":"http://localhost:8080","body":original})).unwrap();
-        assert_eq!(restore(&bytes, "http://localhost:8080").unwrap(), original);
-        assert!(restore(&bytes, "http://localhost:8080/").is_err());
-        assert!(restore(b"{}", "http://localhost:8080").is_err());
+        assert_eq!(
+            restore(
+                &bytes,
+                "http://localhost:8080",
+                "ledgence.admission.command.v1"
+            )
+            .unwrap(),
+            original
+        );
+        assert!(
+            restore(
+                &bytes,
+                "http://localhost:8080/",
+                "ledgence.admission.command.v1"
+            )
+            .is_err()
+        );
+        assert!(
+            restore(
+                b"{}",
+                "http://localhost:8080",
+                "ledgence.admission.command.v1"
+            )
+            .is_err()
+        );
     }
     #[test]
     fn parser_preserves_origin_and_rejects_ambiguous_scope_or_options() {

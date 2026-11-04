@@ -458,3 +458,7 @@ command accepts a source-bound saved task release. [Task resource admission](/ho
 `ledgence worker connect --poll-plan FILE` selects among integrated HTTP queues
 with weighted Stride or lottery. Supply it instead of `--queue`; use a matching
 development build. [Configuration and live reload](/how-to/share-worker-polls).
+
+## Queue concurrency in development
+
+Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).

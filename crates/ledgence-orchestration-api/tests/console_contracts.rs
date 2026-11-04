@@ -15,7 +15,7 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
     let actual = serde_json::to_string_pretty(&fixture::fixtures()).unwrap() + "\n";
     assert_eq!(
         actual,
-        include_str!("fixtures/console-v10.json"),
+        include_str!("fixtures/console-v11.json"),
         "regenerate with cargo run -p ledgence-orchestration-api --example console-fixtures -- --write"
     );
     let data = fixture::fixtures();
@@ -48,10 +48,21 @@ fn historical_console_nine_lacks_task_admission_projections() {
 }
 
 #[test]
+fn historical_console_ten_does_not_advertise_queue_policy_support() {
+    let old: Value = serde_json::from_str(include_str!("fixtures/console-v10.json")).unwrap();
+    assert_eq!(old["contract_version"], 10);
+    assert!(serde_json::from_value::<ConsoleConfig>(old["config"].clone()).is_err());
+    assert_eq!(
+        fixture::fixtures()["config"]["capabilities"]["queue_policies"],
+        true
+    );
+}
+
+#[test]
 fn historical_console_five_is_preserved_but_not_current() {
     let old: Value = serde_json::from_str(include_str!("fixtures/console-v5.json")).unwrap();
     assert_eq!(old["contract_version"], 5);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 10);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 11);
     assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
 }
 
@@ -59,7 +70,7 @@ fn historical_console_five_is_preserved_but_not_current() {
 fn historical_console_six_lacks_provider_provenance() {
     let old: Value = serde_json::from_str(include_str!("fixtures/console-v6.json")).unwrap();
     assert_eq!(old["contract_version"], 6);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 10);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 11);
     assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
     assert!(
         serde_json::from_value::<ConsolePage<ConsoleTaskSummary>>(old["tasks"].clone()).is_err()
@@ -92,7 +103,7 @@ fn historical_console_two_is_explicitly_incompatible() {
         serde_json::from_str(include_str!("fixtures/historical/console-v2.json")).unwrap();
     assert_eq!(historical["contract_version"], 2);
     assert_eq!(historical["config"]["contract_version"], 2);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 10);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 11);
     assert_ne!(
         historical["contract_version"],
         json!(CONSOLE_CONTRACT_VERSION)

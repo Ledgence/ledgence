@@ -87,7 +87,7 @@ impl Command {
             }
             return Ok(Self::Help);
         }
-        if matches!(command.as_str(), "resource" | "admission") {
+        if matches!(command.as_str(), "queue" | "resource" | "admission") {
             return crate::admission::parse(&command, args);
         }
         if command == "effect" {
@@ -578,21 +578,30 @@ fn parse_audit(mut args: impl Iterator<Item = String>) -> Result<Command> {
             options.remove("--task"),
             options.remove("--workflow"),
             options.remove("--resource"),
+            options.remove("--queue"),
         ) {
-            (None, None, None) => AuditFilter::All,
-            (Some(resource_id), None, None) => AuditFilter::Resource {
+            (None, None, None, None) => AuditFilter::All,
+            (Some(resource_id), None, None, None) => AuditFilter::Resource {
                 resource_kind: AuditResourceKind::Task,
                 resource_id,
             },
-            (None, Some(resource_id), None) => AuditFilter::Resource {
+            (None, Some(resource_id), None, None) => AuditFilter::Resource {
                 resource_kind: AuditResourceKind::Workflow,
                 resource_id,
             },
-            (None, None, Some(resource_id)) => AuditFilter::Resource {
+            (None, None, Some(resource_id), None) => AuditFilter::Resource {
                 resource_kind: AuditResourceKind::Resource,
                 resource_id,
             },
-            _ => return Err(invalid("choose one task, workflow or resource filter")),
+            (None, None, None, Some(resource_id)) => AuditFilter::Resource {
+                resource_kind: AuditResourceKind::Queue,
+                resource_id,
+            },
+            _ => {
+                return Err(invalid(
+                    "choose one task, workflow, resource or queue filter",
+                ));
+            }
         },
         "approval" => AuditFilter::ApprovalAcceptance {
             workflow_id: required(&mut options, "--workflow")?,
@@ -656,6 +665,7 @@ mod audit_tests {
             ("--task", AuditResourceKind::Task),
             ("--workflow", AuditResourceKind::Workflow),
             ("--resource", AuditResourceKind::Resource),
+            ("--queue", AuditResourceKind::Queue),
         ] {
             let Command::Audit { query, .. } =
                 parse("list", &[flag, "execution", "--limit", "1"]).unwrap()

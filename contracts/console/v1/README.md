@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v10.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v10.json).
+[`console-v11.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v11.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -18,7 +18,7 @@ pnpm --dir console contracts:check
 ```
 
 All `/v1/console/*` responses identify the fixed instance with
-`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 8`. The browser rejects
+`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 11`. The browser rejects
 responses that disagree with the configuration used for its query keys.
 Queries and commands reject unknown and duplicate fields. The server binds requests to its configured instance and scope. Responses
 include authoritative identity where their contract requires it.
@@ -33,7 +33,7 @@ instance scope, parent and filters. A page is internally consistent; consecutive
 pages can observe later committed changes. The worker slot cursor uses the
 stable slot position, not a changing snapshot sequence.
 
-The HTTP namespace remains `/v1/console`; the Console contract version is 10.
+The HTTP namespace remains `/v1/console`; the Console contract version is 11.
 Explorer nodes carry backend-projected typed relations with references to existing
 workflow-scoped or activation-scoped identities. Relations remain present when an
 endpoint is outside the current page. See the [query model](../../../docs/console-query-model.md)
@@ -125,3 +125,5 @@ occurrence, resource and program before returning an inspected ledger. Console
 validates the response shape, instance, generation, resource and cleanup evidence;
 it displays the server-validated digest and does not independently hash the binding
 in the browser. The inspection is read-only and cannot authorize a handler.
+
+C11 adds the `queue_policies` capability and scoped queue policy, occupancy and hold projections. Policy and hold revisions and counters are decimal strings. Queue policy pages resume after a queue name and hold pages after an attempt ID. Mutation bodies bind the inspected revision and request ID. The Console server binds the instance scope and authenticated actor. The C10 fixture is retained for compatibility tests.

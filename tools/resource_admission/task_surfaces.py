@@ -141,13 +141,13 @@ def public_surfaces(d, _):
     )
     assert cli == snapshot
     config = d.checked("GET", "/v1/console/config", credentials=d.operator)
-    assert config["contract_version"] == 10 and config["capabilities"]["task_admission"]
+    assert config["contract_version"] == 11 and config["capabilities"]["task_admission"]
     address = {"task_id": task, "generation": 1}
     status, headers, inspected = d.request(
         "POST", "/v1/console/task-admissions/inspect", address, credentials=d.operator
     )
     assert status == 200 and inspected == snapshot
-    assert {key.lower(): value for key, value in headers.items()}["ledgence-console-contract"] == "10"
+    assert {key.lower(): value for key, value in headers.items()}["ledgence-console-contract"] == "11"
     d.checked("POST", "/v1/console/task-admissions/inspect",
               {**address, "scope": d.scope}, credentials=d.operator, expected=400)
 

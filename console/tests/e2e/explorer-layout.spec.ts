@@ -49,7 +49,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v10.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v11.json",
     import.meta.url,
   ),
   "utf8",
@@ -76,7 +76,7 @@ const parentUrl = `/console/workflows/${encodeURIComponent(parentId)}`;
 const config = decodeConfig(field("config"));
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "10",
+  "Ledgence-Console-Contract": "11",
   "Ledgence-Instance-Id": config.instance_id,
 };
 
@@ -100,7 +100,7 @@ async function mount(
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "10",
+          "Ledgence-Console-Contract": "11",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),

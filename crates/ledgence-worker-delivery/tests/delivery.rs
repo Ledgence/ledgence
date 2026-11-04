@@ -334,6 +334,7 @@ struct ServiceState {
 
 struct Service {
     task_admission: task_admission::Fixture,
+    queue: queue_concurrency::Fixture,
     broker_commands: Mutex<Vec<ClaimCommand>>,
     broker_disposition: Mutex<Option<ClaimDisposition>>,
     malformed_claim: AtomicBool,
@@ -367,6 +368,7 @@ impl Service {
     fn new(task_count: usize) -> Arc<Self> {
         Arc::new(Self {
             task_admission: task_admission::Fixture::default(),
+            queue: queue_concurrency::Fixture::default(),
             broker_commands: Mutex::new(Vec::new()),
             broker_disposition: Mutex::new(None),
             malformed_claim: AtomicBool::new(false),
@@ -398,14 +400,15 @@ impl Service {
     }
 
     fn authority(&self, owner: &LeaseOwner, sequence: u64, dispatch: bool) -> Authority {
+        let stopped = self.queue.stop_requested.load(Ordering::SeqCst);
         Authority {
             owner: owner.clone(),
             expires_at: 1_000_000,
             remaining_ms: self.lease_ms.load(Ordering::SeqCst),
-            execution_remaining_ms: 300_000,
+            execution_remaining_ms: if stopped { 0 } else { 300_000 },
             renew_sequence: sequence,
-            cancel_requested: false,
-            dispatch_allowed: dispatch,
+            cancel_requested: stopped,
+            dispatch_allowed: dispatch && !stopped,
         }
     }
 
@@ -425,6 +428,9 @@ fn unavailable() -> ContractError {
 }
 
 impl TaskService for Service {
+    fn queue_policy_client(&self) -> ledgence_orchestration_api::Result<&dyn QueuePolicyClient> {
+        Ok(&self.queue)
+    }
     fn task_admission_client(
         &self,
     ) -> ledgence_orchestration_api::Result<&dyn TaskAdmissionClient> {
@@ -598,6 +604,7 @@ impl TaskService for Service {
                         AcquireReply::Assigned {
                             sequence: command.sequence,
                             assignment: Box::new(Assignment {
+                                queue_concurrency: self.queue.enabled.load(Ordering::SeqCst),
                                 task_admission: governed.then(|| TaskAdmissionAssignment {
                                     offer_generation: 1,
                                     resource: "invoice".into(),
@@ -702,6 +709,9 @@ impl TaskService for Service {
 
     fn settle<'a>(&'a self, command: &'a SettleCommand) -> ContractFuture<'a, SettleReply> {
         Box::pin(async move {
+            if self.queue.settlement_fenced.load(Ordering::SeqCst) {
+                return Err(ContractError::OwnershipLost);
+            }
             let already_accepted = {
                 let mut state = self.state.lock().unwrap();
                 state.settlements.push(command.clone());
@@ -1998,6 +2008,8 @@ mod sqs;
 #[path = "delivery/runtime_features.rs"]
 mod runtime_features;
 
+#[path = "delivery/queue_concurrency.rs"]
+mod queue_concurrency;
 #[path = "delivery/task_admission.rs"]
 mod task_admission;
 

@@ -5,6 +5,7 @@ mod audit;
 mod evidence;
 mod provider;
 mod provider_admission;
+mod queue_policies;
 mod task_admission;
 pub use access::{
     WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess, WorkerRuntimeBinding,
@@ -492,6 +493,9 @@ fn query(scope: &Scope, task_id: &str) -> Vec<(&'static str, String)> {
 }
 
 impl TaskService for HttpTaskService {
+    fn queue_policy_client(&self) -> Result<&dyn QueuePolicyClient> {
+        Ok(self)
+    }
     fn task_admission_client(&self) -> Result<&dyn TaskAdmissionClient> {
         Ok(self)
     }
@@ -837,6 +841,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            queue_concurrency:false,
             task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },

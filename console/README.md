@@ -267,7 +267,7 @@ and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-This development branch uses Console contract **10** for native admission waits
+This development branch uses Console contract **11** for native admission waits
 and accepted-operation inspection; deploy matching server and assets together.
 Published Ledgence 0.8.0 remains on contract **7**.
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
@@ -378,7 +378,7 @@ was observed, the node has no durable result to inspect.
 C9 additionally identifies protected provider subjects in admission waits. The
 on-demand admission inspector separates capacity settlement from provider
 business completion and displays the original provider ticket. Provider grants
-are not rendered as successful local-operation nodes. Use matching C10 assets
+are not rendered as successful local-operation nodes. Use matching C11 assets
 and backend; the published 0.8.0 contract remains C7.
 
 C10 adds standalone task resource admission. Task details show the resource,
@@ -386,3 +386,27 @@ charged retries and admission deferrals; open **Resource admission** to inspect
 one generation's offer, worker source and cleanup evidence. This is an audited,
 read-only view. A task can already have a result while its resource remains
 occupied. [Contract and limitations](../docs/resource-admission.md#standalone-task-admission).
+
+C11 adds **Queues** for credential-backed instances with queue concurrency
+policies enabled. The page lists configured limits, occupied capacity and
+uncertain holds. `metadata_read` grants policy inspection; `resource_control`
+grants policy edits. Inspecting the attempts behind holds is an explicit audited
+`sensitive_read` operation. An operator with both permissions can release an
+uncertain hold with its exact task, attempt, revision and a reason.
+
+Set a limit, pause new attempts, or select unlimited. A stop timeout waits for
+closure by default. Forced release after an explicitly configured grace period
+can let another task start while the original still runs. The page distinguishes
+the time the stop was requested from the release time and reason. Lowering a
+limit lets existing holds drain. A lost response can be reconciled in the
+current browser session by retrying the original request ID, revision and exact
+body; inspect the current policy before creating a new command.
+
+To run the credential-backed queue-policy browser acceptance, point
+`LEDGENCE_CONSOLE_URL` at an explicitly disposable loopback Console served by
+the backend, set `LEDGENCE_QUEUE_OPERATOR_FILE` and `LEDGENCE_QUEUE_READER_FILE`
+to current same-origin operator/metadata-reader credential files, then run
+`LEDGENCE_CONSOLE_LIVE_SUITE=queue-policies pnpm --dir console test:live`.
+The test creates a uniquely named policy, pauses and edits it, verifies
+metadata-only access, and leaves it unlimited for database teardown. This
+suite disables retained browser traces and uses separate output directories.

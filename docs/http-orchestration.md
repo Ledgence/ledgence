@@ -335,7 +335,7 @@ when protected dispatch and admission are jointly available. Its worker-only
 `/v1/provider-admissions/start` and `/v1/provider-admissions/report` routes commit
 provider permission with capacity, and provider evidence with justified release,
 respectively. Governing a provider binding requires version 2; older version-1
-bindings are unchanged. Development Console assets and server both require C10;
+bindings are unchanged. Development Console assets and server both require C11;
 published 0.8.0 remains C7. [Routes, permissions and recovery contract](resource-admission.md).
 
 Standalone task admission adds authenticated `/v1/task-admissions/sessions`,
@@ -343,3 +343,7 @@ Standalone task admission adds authenticated `/v1/task-admissions/sessions`,
 Start is executable. `POST /v1/tasks` accepts one optional `input.admission`
 resource requirement; the ordinary worker Dispatch route cannot authorize a
 governed task. See [standalone task admission](resource-admission.md#standalone-task-admission).
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C11 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

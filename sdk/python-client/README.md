@@ -968,3 +968,7 @@ with `await client.task_admissions.inspect(task.id, generation=1)`; release only
 a reviewed source with `client.task_admissions.release(inspected, request_id=...,
 reason=...)`. No automatic retry of a mutation. See the [task admission
 contract](../../docs/resource-admission.md#standalone-task-admission).
+
+### Queue concurrency in development
+
+Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching development server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](../../docs/queue-concurrency.md).

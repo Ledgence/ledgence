@@ -33,6 +33,7 @@ const config: ConsoleConfig = {
     programs: true,
     workers: true,
     task_admission: false,
+    queue_policies: false,
   },
   suggested_queues: [],
   limits: {

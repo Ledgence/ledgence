@@ -26,6 +26,7 @@ const actor = s.object({
   credential_id: id,
 });
 const resource = s.variant({
+  queue: s.object({ kind: s.enumeration("queue"), queue: id }),
   resource: s.object({ kind: s.enumeration("resource"), name: id }),
   task_admission: s.object({
     kind: s.enumeration("task_admission"),
@@ -86,6 +87,7 @@ const responseRead = s.refine(
       "effect_inspect",
       "admission_inspect",
       "task_admission_inspect",
+      "queue_holds",
       "approval_list",
       "approval_decision",
     ),
@@ -102,6 +104,7 @@ const responseRead = s.refine(
       effect_inspect: "effect",
       admission_inspect: "admission",
       task_admission_inspect: "task_admission",
+      queue_holds: "queue",
       approval_list: "approval_page",
       approval_decision: "approval",
     })[value.read] === value.resource.kind,
@@ -114,6 +117,23 @@ export const auditEvent = s.refine(
     audience,
     actor,
     operation: s.variant({
+      queue_policy_accepted: s.object({
+        kind: s.enumeration("queue_policy_accepted"),
+        queue: id,
+        request_id: id,
+        revision: s.decimal,
+        policy_digest: s.string,
+        reason: s.string,
+      }),
+      queue_hold_released: s.object({
+        kind: s.enumeration("queue_hold_released"),
+        queue: id,
+        task_id: id,
+        attempt_id: id,
+        request_id: id,
+        revision: s.decimal,
+        reason: s.string,
+      }),
       resource_policy_accepted: s.object({
         kind: s.enumeration("resource_policy_accepted"),
         name: id,

@@ -1212,3 +1212,108 @@ async fn task_admission_acquisition_returns_version_observed_by_winning_head_loc
     );
     db.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn queue_close_binds_registered_actor_and_fences_resource_start_before_invocation() {
+    let db = fixture(policy(1)).await;
+    let s = &db.store;
+    s.put_queue_policy(
+        &operator(),
+        &QueuePolicyPut {
+            scope: scope(),
+            queue: "python".into(),
+            request_id: "capacity".into(),
+            expected_revision: None,
+            policy: QueueConcurrencyPolicy {
+                max_concurrency: Some(1),
+                timeout: Some(QueueHoldTimeout {
+                    after_ms: 8000,
+                    release: QueueTimeoutRelease::Confirm,
+                }),
+            },
+            reason: "protect service".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let (t, a, c) = prepare(s, "two-authorities").await;
+    let preparing = ledger(s, occurrence(&t, 1)).await;
+    assert_eq!(preparing.offer.unwrap().expires_at, a.attempt_deadline);
+    assert!(a.queue_concurrency);
+    let close = QueueHoldClose {
+        queue: "python".into(),
+        owner: a.lease.owner.clone(),
+    };
+    assert!(matches!(
+        s.close_queue_hold(&principal("different", PrincipalClass::Worker), &close)
+            .await,
+        Err(ContractError::Forbidden)
+    ));
+    assert!(
+        !s.close_queue_hold(&worker(), &close)
+            .await
+            .unwrap()
+            .already_closed
+    );
+    assert!(s.start_task_admission(&worker(), &c).await.is_err());
+    let started: bool =
+        sqlx::query_scalar("SELECT execution_may_have_started FROM attempts WHERE attempt_id=$1")
+            .bind(&c.owner.attempt_id)
+            .fetch_one(&s.pool)
+            .await
+            .unwrap();
+    assert!(!started);
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn busy_admission_resource_does_not_lock_queue_capacity_for_ordinary_work() {
+    let db = fixture(policy(1)).await;
+    let s = &db.store;
+    s.put_queue_policy(
+        &operator(),
+        &QueuePolicyPut {
+            scope: scope(),
+            queue: "python".into(),
+            request_id: "capacity".into(),
+            expected_revision: None,
+            policy: QueueConcurrencyPolicy {
+                max_concurrency: Some(2),
+                timeout: None,
+            },
+            reason: "limit pool".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let protected = submit(s, "contended").await;
+    assert_eq!(advance(s).await.task_offered, 1);
+    let c = acquire_command(&session(s).await, 0, 1);
+    let mut barrier = s.pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT resource_name FROM admission_resources WHERE resource_name='model' FOR UPDATE",
+    )
+    .execute(&mut *barrier)
+    .await
+    .unwrap();
+    let mut contender = s.acquire(&c);
+    tokio::select! {
+        r=&mut contender=>panic!("protected candidate crossed a locked resource: {r:?}"),
+        _=crate::tests::wait_for_lock_waiter(s)=>{}
+    }
+    let ordinary = s
+        .accept_resolved_submission(&command(), &descriptor())
+        .await
+        .unwrap();
+    let legacy = s.open_session(&scope(), "python", 1).await.unwrap();
+    let granted = assignment(s.acquire(&acquire_command(&legacy, 0, 1)).await.unwrap());
+    assert_eq!(granted.lease.owner.task_id, ordinary.task_id);
+    barrier.commit().await.unwrap();
+    assert_eq!(
+        assignment(contender.await.unwrap()).lease.owner.task_id,
+        protected.task_id
+    );
+    db.finish().await;
+}

@@ -407,6 +407,18 @@ jobs:
           python tools/check-worker-poll-plan.py --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
             --evidence "$RUNNER_TEMP/ledgence-worker-poll-plan-evidence"
+      - name: Exercise cluster-wide queue limits and managed stop through real HTTP workers
+        if: matrix.suite == 'http'
+        run: |
+          python tools/check-queue-concurrency.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
+            --evidence "$RUNNER_TEMP/ledgence-queue-limits-evidence"
+      - name: Exercise full-queue deferral, recovery and concurrency through ElasticMQ
+        if: matrix.suite == 'sqs'
+        run: |
+          python tools/check-queue-concurrency.py --scenario workers --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --evidence "$RUNNER_TEMP/ledgence-queue-limits-sqs-evidence"
       - name: Check SQS delivery with production long-poll and lease timings
         if: matrix.suite == 'sqs'
         run: |
@@ -493,6 +505,12 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-task-admission-sqs-evidence"
+      - name: Exercise queue policies from the installed Python wheel
+        if: matrix.suite == 'api'
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-queue-concurrency.py --scenario sdk \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --evidence "$RUNNER_TEMP/ledgence-queue-limits-client-evidence"
       - name: Check instance credentials across real clients, publication and workers
         if: matrix.suite == 'api'
         run: |

@@ -314,6 +314,21 @@ struct ConsoleEvent {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ConsoleOperation {
+    QueuePolicyAccepted {
+        queue: String,
+        request_id: String,
+        revision: ConsoleU64,
+        policy_digest: ledgence_worker_api::Digest,
+        reason: String,
+    },
+    QueueHoldReleased {
+        queue: String,
+        task_id: String,
+        attempt_id: String,
+        request_id: String,
+        revision: ConsoleU64,
+        reason: String,
+    },
     ResourcePolicyAccepted {
         name: String,
         request_id: String,
@@ -359,6 +374,34 @@ enum ConsoleOperation {
 impl From<AuditEvent> for ConsoleEvent {
     fn from(event: AuditEvent) -> Self {
         let operation = match event.operation {
+            AuditOperation::QueuePolicyAccepted {
+                queue,
+                request_id,
+                revision,
+                policy_digest,
+                reason,
+            } => ConsoleOperation::QueuePolicyAccepted {
+                queue,
+                request_id,
+                revision: ConsoleU64(revision),
+                policy_digest,
+                reason,
+            },
+            AuditOperation::QueueHoldReleased {
+                queue,
+                task_id,
+                attempt_id,
+                request_id,
+                revision,
+                reason,
+            } => ConsoleOperation::QueueHoldReleased {
+                queue,
+                task_id,
+                attempt_id,
+                request_id,
+                revision: ConsoleU64(revision),
+                reason,
+            },
             AuditOperation::ResourcePolicyAccepted {
                 name,
                 request_id,

@@ -10,6 +10,7 @@ mod evidence;
 mod provider;
 mod provider_admission;
 mod provider_console;
+mod queue_policies;
 mod routes;
 mod task_admission;
 use routes::{Policy, Route};
@@ -209,6 +210,12 @@ fn build_router(
 
 const ROUTES: &[Route] = &[
     Route::get("/v1/access", Policy::Access),
+    Route::post("/v1/queue-policies/put", Policy::ResourceControl),
+    Route::post("/v1/queue-policies/inspect", Policy::Metadata),
+    Route::post("/v1/queue-policies/list", Policy::Metadata),
+    Route::sensitive_post("/v1/queue-policies/holds", AuditReadKind::QueueHolds),
+    Route::post("/v1/queue-policies/release", Policy::ResourceControl),
+    Route::post("/v1/queue-policies/close", Policy::Worker),
     Route::post("/v1/resources/put", Policy::ResourceControl),
     Route::post("/v1/resources/query", Policy::Metadata),
     Route::post("/v1/resources/list", Policy::Metadata),
@@ -871,6 +878,7 @@ async fn dispatch(
             EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
         }
         path if path.starts_with("/v1/workflows/approvals/") => APPROVAL_SNAPSHOT_MAX_BYTES,
+        path if path.starts_with("/v1/queue-policies/") => QUEUE_POLICY_COMMAND_MAX_BYTES,
         "/v1/settlements" => SETTLEMENT_MAX_BYTES,
         "/v1/dispatch/claim" => DISPATCH_MAX_BYTES,
         "/v1/workflows/events" => WORKFLOW_EVENT_COMMAND_MAX_BYTES,
@@ -897,6 +905,9 @@ async fn dispatch(
             }
         })?
         .to_vec();
+    if let Some(operation) = path.strip_prefix("/v1/queue-policies/") {
+        return queue_policies::post(server, operation, bytes, None, context).await;
+    }
     if path.starts_with("/v1/task-admissions/") {
         return task_admission::post(server, path, bytes, context).await;
     }

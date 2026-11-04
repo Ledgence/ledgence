@@ -13,6 +13,7 @@ mod mcp;
 mod program_build;
 mod program_new;
 mod program_publish;
+mod queue_policy;
 mod routing;
 mod submission;
 mod telemetry;

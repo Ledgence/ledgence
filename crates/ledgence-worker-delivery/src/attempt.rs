@@ -6,10 +6,41 @@ use ledgence_worker_core::ConsumerReservation;
 use renewal::Monitor;
 
 impl Context {
+    // Only this exact local execution can attest quiescence. Neither lease loss
+    // nor a policy timeout attests it. A matching late receipt never revives a task.
+    async fn confirm_queue_hold(&self, command: Option<&QueueHoldClose>) {
+        let Some(command) = command else { return };
+        loop {
+            let result = exchange(self.config.request_timeout, || async {
+                self.service
+                    .queue_policy_client()?
+                    .close_queue_hold(command)
+                    .await
+            })
+            .await;
+            match result {
+                Ok(reply) if reply.validate_for(command).is_ok() => return,
+                Ok(_) => {
+                    self.shared
+                        .fatal(protocol("queue cleanup receipt changed attempt or queue"));
+                    return;
+                }
+                Err(error) if retryable(&error) => self.shared.error(error),
+                Err(error) => {
+                    // Preserve the durable hold for operators on a definitive rejection.
+                    self.shared.fatal(error);
+                    return;
+                }
+            }
+            tokio::time::sleep(self.config.retry_delay).await;
+        }
+    }
+
     pub(super) async fn attempt(
         self: &Arc<Self>,
         reservation: ConsumerReservation,
         assignment: Assignment,
+        queue: &str,
     ) {
         let started = Instant::now();
         let event = &assignment.event;
@@ -38,7 +69,7 @@ impl Context {
         // Capture exactly once before dispatch. Settlement normalization and every
         // subsequent transport retry retain this value, including unsampled IDs.
         let processing_trace = bridge.context(&span);
-        self.process(reservation, assignment, processing_trace)
+        self.process(reservation, assignment, processing_trace, queue)
             .instrument(span.clone())
             .await;
         span.record(
@@ -52,6 +83,7 @@ impl Context {
         mut reservation: ConsumerReservation,
         assignment: Assignment,
         processing_trace: Option<TraceContext>,
+        queue: &str,
     ) {
         let request = ExecutionRequest {
             descriptor: assignment.descriptor.clone(),
@@ -65,6 +97,10 @@ impl Context {
                     (None, Some(error))
                 }
             };
+        let queue_close = assignment.queue_concurrency.then(|| QueueHoldClose {
+            queue: queue.to_owned(),
+            owner: assignment.lease.owner.clone(),
+        });
         let workflow_activation_id = assignment.workflow_activation_id.clone();
         let provider_probe = assignment.provider_probe.clone();
         let mut provider_probe_failure = None;
@@ -182,11 +218,13 @@ impl Context {
                 while !reservation.is_quiescent() {
                     tokio::time::sleep(TICK).await;
                 }
-                let receipt = task_admission
+                let admission = task_admission
                     .as_ref()
-                    .expect("only admitted execution may defer")
-                    .close(self, TaskAdmissionCloseOutcome::NotInvoked)
-                    .await;
+                    .expect("only admitted execution may defer");
+                let (receipt, ()) = tokio::join!(
+                    admission.close(self, TaskAdmissionCloseOutcome::NotInvoked),
+                    self.confirm_queue_hold(queue_close.as_ref())
+                );
                 tracing::Span::current().record(
                     "ledgence.outcome",
                     match receipt {
@@ -305,19 +343,26 @@ impl Context {
         // Settlement and source-bound quiescence are independent facts. A lost
         // ordinary result/confirmation must not prevent a live worker from
         // returning capacity once its actual retained cleanup has finished.
-        let accepted = if let Some(admission) = &task_admission {
-            let late_close = async {
-                while !reservation.is_quiescent() {
-                    tokio::time::sleep(TICK).await;
+        let close_sources = async {
+            if task_admission.is_none() && queue_close.is_none() {
+                return;
+            }
+            while !reservation.is_quiescent() {
+                tokio::time::sleep(TICK).await;
+            }
+            let resource_close = async {
+                if let Some(admission) = &task_admission {
+                    admission
+                        .close(self, TaskAdmissionCloseOutcome::Quiescent)
+                        .await;
                 }
-                admission
-                    .close(self, TaskAdmissionCloseOutcome::Quiescent)
-                    .await;
             };
-            tokio::join!(settle, late_close).0
-        } else {
-            settle.await
+            tokio::join!(
+                resource_close,
+                self.confirm_queue_hold(queue_close.as_ref())
+            );
         };
+        let (accepted, ()) = tokio::join!(settle, close_sources);
         settlement_span.record(
             "ledgence.outcome",
             if accepted {

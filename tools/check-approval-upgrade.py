@@ -117,7 +117,7 @@ def exercise_effects(d, old_bundle, binaries, new_console, new_runner):
     d.server.stop()
     d.binaries, d.console_dist = binaries, new_console
     migrate(d)
-    assert d.sql("SELECT count(*) FROM _sqlx_migrations WHERE version IN (20261102020000,20261103000000,20261103020000) AND success") == "3"
+    assert d.sql("SELECT count(*) FROM _sqlx_migrations WHERE version IN (20261102020000,20261103000000,20261103020000,20261103100000) AND success") == "4"
     bundle = provision_upgrade_access(d)
     d.server, _ = d.start_server(access_config=bundle / "access.json")
     d.credentials_file = bundle / "operator.json"

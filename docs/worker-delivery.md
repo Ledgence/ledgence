@@ -280,3 +280,7 @@ This mode supports integrated HTTP. Existing SQS/ElasticMQ delivery uses
 `--queue` with `--delivery-config` and one external route. Poll weights are
 local to one worker. Durable resource admission remains a separate limit on
 whether governed work can start; see [resource admission](resource-admission.md).
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C11 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

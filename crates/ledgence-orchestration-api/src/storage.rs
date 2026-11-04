@@ -15,6 +15,12 @@ use ledgence_worker_api::ProgramDescriptor;
 /// the required locks, and atomically persist its complete transition. These
 /// operations must not perform external program resolution inside transactions.
 pub trait TaskStore: Send + Sync {
+    fn queue_policies(&self) -> Result<&dyn QueuePolicyStore> {
+        Err(ContractError::Unavailable(
+            "queue policy operations unavailable".into(),
+        ))
+    }
+
     fn task_admissions(&self) -> Result<&dyn TaskAdmissionStore> {
         Err(ContractError::Unavailable(
             "task admission is unavailable".into(),
