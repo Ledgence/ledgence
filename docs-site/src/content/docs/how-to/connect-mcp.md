@@ -199,3 +199,7 @@ Matching development builds add `ledgence_task_admission_inspect` for a task ID
 and generation. `ledgence_task_submit` accepts one optional named resource.
 `ledgence_task_admission_release` requires the explicit resource-control opt-in,
 source, inspected revision, request ID and operator reason. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
+
+## Weighted resource offers in development
+
+Use `ledgence_resource_decisions` with a resource `name` to inspect each committed weighted offer. Pass `next` back as `before` for older decisions. The tool requires `metadata_read`. Configure queue groups through `ledgence_resource_put` with the resource-control opt-in. [Share capacity across queue groups](/how-to/share-resource-offers).

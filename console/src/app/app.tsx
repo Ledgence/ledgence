@@ -29,6 +29,7 @@ import {
   ApprovalReviewPage,
 } from "../features/approval-inbox";
 
+import { ResourcesPage } from "../features/resources/page";
 import { QueuesPage } from "../features/queues/page";
 import { EffectsPage, EffectReviewPage } from "../features/effects";
 
@@ -42,6 +43,9 @@ function Console() {
     <AppShell
       instanceName={config.data?.instance_name ?? "Ledgence"}
       serverVersion={config.data?.server_version}
+      resourceSharingEnabled={
+        config.data?.capabilities.resource_fair_sharing ?? false
+      }
       queuePoliciesEnabled={config.data?.capabilities.queue_policies ?? false}
     >
       {config.isPending ? (
@@ -93,6 +97,7 @@ function Console() {
               path="agents/:programId/versions/:version"
               element={<ProgramVersionPage />}
             />
+            <Route path="resources" element={<ResourcesPage />} />
             <Route path="queues" element={<QueuesPage />} />
             <Route path="workers" element={<WorkersPage />} />
             <Route

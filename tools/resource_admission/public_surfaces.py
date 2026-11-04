@@ -310,7 +310,7 @@ def _console(d, expected):
     status, headers, graph = d.request("GET", "/v1/console/workflows/explorer?" + query,
                                        credentials=d.operator)
     assert status == 200
-    assert {name.lower(): value for name, value in headers.items()}["ledgence-console-contract"] == "11"
+    assert {name.lower(): value for name, value in headers.items()}["ledgence-console-contract"] == "12"
     assert graph["page"]["next_cursor"] is None
     nodes = graph["page"]["items"]
     waits = [node for node in nodes if node["kind"] == "admission_wait"]

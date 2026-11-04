@@ -61,6 +61,12 @@ const COMMANDS: &[Leaf] = &[
     },
     Leaf {
         group: "resource",
+        name: "decisions",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --name NAME [--before SEQUENCE] [--limit 1..100]",
+        description: "Read weighted offer decisions newest first. Follow next with --before. Requires metadata_read.",
+    },
+    Leaf {
+        group: "resource",
         name: "list",
         options: "--credentials-file FILE --server URL --tenant ID --namespace NAME [--after NAME] [--limit 1..100]",
         description: "List resource policies and occupied capacity. Requires metadata_read. Follow next with the same scope.",

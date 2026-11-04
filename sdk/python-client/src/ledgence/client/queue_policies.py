@@ -2,7 +2,6 @@
 
 from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
-import re
 
 from . import codec
 from .admission_models import boolean, timestamp
@@ -12,12 +11,6 @@ from .models import Scope, _scope
 
 U64 = (1 << 64) - 1
 MAX_DURATION = (1 << 31) - 1
-
-
-def _decimal(value, label, minimum=0):
-    if type(value) is not str or re.fullmatch(r"(?:0|[1-9][0-9]{0,19})", value) is None:
-        raise InputError(f"{label} is not a canonical decimal string")
-    return codec.integer(int(value), label, minimum, U64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +152,7 @@ def _record(raw, scope):
     return QueuePolicyRecord(
         scope,
         codec.text(raw["queue"], "queue"),
-        _decimal(raw["revision"], "revision", 1),
+        codec.decimal_u64(raw["revision"], "revision", 1),
         _policy(raw["policy"]),
         timestamp(raw["updated_at"]),
     )
@@ -169,8 +162,8 @@ def _snapshot(raw, scope):
     codec.fields(raw, {"record", "occupied", "uncertain"})
     result = QueuePolicySnapshot(
         _record(raw["record"], scope),
-        _decimal(raw["occupied"], "occupied"),
-        _decimal(raw["uncertain"], "uncertain"),
+        codec.decimal_u64(raw["occupied"], "occupied"),
+        codec.decimal_u64(raw["uncertain"], "uncertain"),
     )
     if result.uncertain > result.occupied:
         raise InputError("uncertain count exceeds occupancy")
@@ -212,7 +205,7 @@ def _hold(raw, client, queue):
         None if raw[k] is None else timestamp(raw[k])
         for k in ("deadline", "stop_requested_at", "released_at")
     )
-    policy_revision = _decimal(raw["policy_revision"], "policy_revision", 1)
+    policy_revision = codec.decimal_u64(raw["policy_revision"], "policy_revision", 1)
     grace = raw["grace_ms"]
     if grace is not None:
         codec.integer(grace, "grace_ms", 1, MAX_DURATION)
@@ -242,7 +235,7 @@ def _hold(raw, client, queue):
         codec.text(raw["attempt_id"], "attempt_id"),
         codec.text(raw["worker_session_id"], "worker_session_id"),
         codec.integer(raw["consumer_id"], "consumer_id", 0, (1 << 32) - 1),
-        _decimal(raw["revision"], "revision", 1),
+        codec.decimal_u64(raw["revision"], "revision", 1),
         policy_revision,
         grace,
         force_at,

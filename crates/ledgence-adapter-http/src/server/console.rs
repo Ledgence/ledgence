@@ -62,6 +62,7 @@ impl ConsoleServices {
                 programs: catalog.is_some(),
                 workers: observations.is_some(),
                 task_admission: false,
+                resource_fair_sharing: false,
                 queue_policies: false,
             },
             suggested_queues: instance.suggested_queues.clone(),
@@ -133,6 +134,9 @@ impl ConsoleServices {
     }
 }
 pub(super) const ROUTES: &[Route] = &[
+    Route::post("/v1/console/resources/list", Policy::Metadata),
+    Route::post("/v1/console/resources/inspect", Policy::Metadata),
+    Route::post("/v1/console/resources/decisions", Policy::Metadata),
     Route::post("/v1/console/queue-policies/put", Policy::ResourceControl),
     Route::post("/v1/console/queue-policies/inspect", Policy::Metadata),
     Route::post("/v1/console/queue-policies/list", Policy::Metadata),
@@ -257,6 +261,8 @@ pub(super) async fn dispatch(
         if path == "/v1/console/config" {
             let mut config = console.config.clone();
             config.capabilities.queue_policies = super::queue_policies::available(server);
+            config.capabilities.resource_fair_sharing =
+                super::admission::fair_sharing_available(server);
             config.capabilities.task_admission = super::task_admission::available(server);
             return server.encode(config).await;
         }
@@ -529,7 +535,8 @@ pub(super) async fn dispatch(
     let maximum = if matches!(
         path,
         "/v1/console/admissions/inspect" | "/v1/console/task-admissions/inspect"
-    ) {
+    ) || path.starts_with("/v1/console/resources/")
+    {
         4096
     } else if path.starts_with("/v1/console/queue-policies/") {
         QUEUE_POLICY_COMMAND_MAX_BYTES
@@ -553,6 +560,9 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if let Some(operation) = path.strip_prefix("/v1/console/resources/") {
+        return super::admission::console_resources(server, operation, bytes, scope, context).await;
+    }
     if let Some(operation) = path.strip_prefix("/v1/console/queue-policies/") {
         return super::queue_policies::post(server, operation, bytes, Some(scope), context).await;
     }

@@ -299,8 +299,8 @@ business result. [Try the approved export example](examples/provider-admission/R
 Standalone tasks can use the same named resource: a queued task waits without a
 worker subprocess, and only a runtime-ready Start authorizes its handler.
 [Submit a governed task](docs/resource-admission.md#standalone-task-admission).
-Read-only recovery probes remain outside the limit; fair sharing and inherited
-budgets remain separate work.
+Operators can assign weights to groups of queues on a shared resource. The orchestrator uses those weights when granting offers across workers. A lone eligible group can use every available slot. Operators can inspect each weighted offer in Console, including the group, queue and reason. [Configure weighted offers](docs/resource-admission.md#weighted-offers).
+Read-only recovery probes remain outside the limit. Inherited workflow budgets are separate work.
 
 ### Poll several queues with one worker (development)
 

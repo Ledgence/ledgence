@@ -315,3 +315,7 @@ optional `client.tasks.submit` / `prepare` argument. Use
 ## Queue concurrency in development
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
+
+### Weighted offers (development)
+
+Use `ResourceFairGroup` and `ResourceFairSharing` from `ledgence.client` to configure `ResourcePolicy.fair_sharing`. Use `client.resources.decisions(name, before=page.next)` to read the next page of offer history when a cursor is present. [Configure queue groups and inspect offers](/how-to/share-resource-offers).

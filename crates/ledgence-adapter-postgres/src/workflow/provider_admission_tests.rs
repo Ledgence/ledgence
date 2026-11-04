@@ -47,6 +47,7 @@ async fn fixture() -> TestDb {
                 request_id: "policy".into(),
                 expected_revision: None,
                 policy: ResourcePolicy {
+                    fair_sharing: None,
                     enabled: true,
                     max_occupancy: 4,
                     rate: Some(ResourceRate {
@@ -1228,5 +1229,76 @@ async fn protected_admission_duplicate_start_and_original_cancel_share_lock_orde
         ProviderAdmissionStartReceipt::Existing { .. }
     ));
     assert_eq!(counters(&db.store).await, (0, 1, 1));
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn fair_admission_protected_provider_keeps_approval_origin_in_decision() {
+    let db = fixture().await;
+    let s = &db.store;
+    let (claim, o) = park(s, "support", governed()).await;
+    let query = ResourceQuery {
+        scope: scope(),
+        name: "provider".into(),
+    };
+    let mut policy = s
+        .resource(&operator(), &query)
+        .await
+        .unwrap()
+        .resource
+        .policy;
+    policy.fair_sharing = Some(ResourceFairSharing {
+        groups: vec![ResourceFairGroup {
+            name: "support".into(),
+            weight: 2,
+            queues: vec![],
+        }],
+        default_group: "support".into(),
+    });
+    s.put_resource(
+        &operator(),
+        &ResourcePutCommand {
+            scope: scope(),
+            name: "provider".into(),
+            request_id: "weighted".into(),
+            expected_revision: Some(1),
+            policy,
+            reason: "group protected calls".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let (_, cmd) = offer(s, "support", &o).await;
+    let query = ResourceDecisionQuery {
+        scope: scope(),
+        name: "provider".into(),
+        before: None,
+        limit: 10,
+    };
+    let history = s
+        .list_resource_decisions(&operator(), &query)
+        .await
+        .unwrap();
+    assert_eq!(history.items.len(), 1);
+    let d = &history.items[0];
+    assert_eq!(d.queue, "support");
+    assert_eq!(d.offer_generation, cmd.admission.offer_generation);
+    assert_eq!(
+        d.subject,
+        ResourceDecisionSubject::Provider {
+            workflow_id: claim.workflow_id,
+            origin_activation_id: o.origin_activation_id,
+            key: o.key
+        }
+    );
+    let r = s.start_provider_admission(&worker(), &cmd).await.unwrap();
+    assert!(matches!(r, ProviderAdmissionStartReceipt::Granted { .. }));
+    assert_eq!(
+        s.list_resource_decisions(&operator(), &query)
+            .await
+            .unwrap(),
+        history
+    );
     db.finish().await;
 }

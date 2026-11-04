@@ -10,8 +10,16 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
         json!({"numerator":integer(1,1_000_000),"period_ms":integer(1,86_400_000),"burst":integer(1,1_000_000)}),
         &["numerator", "period_ms", "burst"],
     );
+    let group = object(
+        json!({"name":name,"weight":integer(1,1000),"queues":{"type":"array","maxItems":64,"uniqueItems":true,"items":name}}),
+        &["name", "weight", "queues"],
+    );
+    let fair = object(
+        json!({"groups":{"type":"array","minItems":1,"maxItems":16,"items":group},"default_group":name}),
+        &["groups", "default_group"],
+    );
     let policy = object(
-        json!({"enabled":{"type":"boolean"},"max_occupancy":integer(1,1_000_000),"rate":{"anyOf":[rate,{"type":"null"}]},"offer_timeout_ms":integer(1000,300000),"start_timeout_ms":integer(100,30000)}),
+        json!({"enabled":{"type":"boolean"},"max_occupancy":integer(1,1_000_000),"rate":{"anyOf":[rate,{"type":"null"}]},"offer_timeout_ms":integer(1000,300000),"start_timeout_ms":integer(100,30000),"fair_sharing":fair}),
         &[
             "enabled",
             "max_occupancy",
@@ -52,6 +60,16 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             "ledgence_resource_list",
             "List configured resource policies and occupancy in this session's fixed scope. Metadata only; unknown usage remains occupied. Follow next using after.",
             object(json!({"after":name,"limit":limit()}), &[]),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_resource_decisions",
+            "Read committed weighted resource offers newest first. Follow next using before with the same resource. Requires metadata_read.",
+            object(
+                json!({"name":name,"before":{"anyOf":[{"type":"string","pattern":"^[1-9][0-9]{0,19}$"},{"type":"null"}]},"limit":limit()}),
+                &["name"],
+            ),
             true,
             false,
         ),

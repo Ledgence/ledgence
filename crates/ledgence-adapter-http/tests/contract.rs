@@ -50,6 +50,7 @@ struct Mock {
     evidence_capabilities: AtomicUsize,
     queue_policies_enabled: AtomicBool,
     admission_enabled: AtomicBool,
+    fair_sharing_enabled: AtomicBool,
     provider_admission_enabled: AtomicBool,
     resolution_mode: AtomicUsize,
     operator_access: std::sync::OnceLock<Arc<dyn OperatorAccess>>,

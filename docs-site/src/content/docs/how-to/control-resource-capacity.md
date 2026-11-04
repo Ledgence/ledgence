@@ -4,7 +4,7 @@ description: Park workflows while a resource is full, then run a registered oper
 ---
 
 **In development.** Use matching components built from this checkout, including
-migrations and Console C11. Published 0.8.0 packages do not contain this capability. On existing databases,
+migrations and Console C12. Published 0.8.0 packages do not contain this capability. On existing databases,
 rehearse the migration on a representative restore: rebuilding the task queue indexes
 can block writes.
 
@@ -251,3 +251,5 @@ using an audited release: freeing capacity cannot stop a remote side effect.
 ## Queue concurrency in development
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
+
+When more than one queue competes for the same resource, you can [give each group a weighted turn](/how-to/share-resource-offers).

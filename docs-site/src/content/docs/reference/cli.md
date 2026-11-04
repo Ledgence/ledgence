@@ -438,7 +438,7 @@ operations. It contains no provider credentials. See the
 
 ## Resource commands in development
 
-The development checkout adds `resource list|inspect|put`,
+The development checkout adds `resource list|inspect|decisions|put`,
 `admission inspect|release` and `orchestrator serve --admission-config FILE`.
 Mutations require `resource_control` and a destination-bound saved command.
 `mcp serve --allow-resource-control` separately opts into policy/release tools.
@@ -462,3 +462,5 @@ development build. For SQS, add `--delivery-config FILE` with exactly the planâ€
 ## Queue concurrency in development
 
 Limit outstanding attempts across worker replicas, independently of each workerâ€™s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
+
+In development, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.

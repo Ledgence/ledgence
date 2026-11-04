@@ -11,6 +11,12 @@ impl ResponseValue for ResourceSnapshot {
         self.validate()
     }
 }
+impl ResponseValue for ResourceDecisionPage {
+    const MAX_BYTES: usize = ADMISSION_PAGE_MAX_BYTES;
+    fn validate_values(&self) -> Result<()> {
+        self.validate()
+    }
+}
 impl ResponseValue for ResourcePage {
     const MAX_BYTES: usize = ADMISSION_RESPONSE_MAX_BYTES;
     fn validate_values(&self) -> Result<()> {
@@ -42,6 +48,22 @@ impl ResponseValue for AdmissionReleaseReceipt {
     }
 }
 impl AdmissionClient for HttpTaskService {
+    fn list_resource_decisions<'a>(
+        &'a self,
+        query: &'a ResourceDecisionQuery,
+    ) -> ContractFuture<'a, ResourceDecisionPage> {
+        Box::pin(async move {
+            query.validate()?;
+            let expected = query.clone();
+            self.post_validated(
+                "v1/resources/decisions",
+                query,
+                ADMISSION_COMMAND_MAX_BYTES,
+                move |reply: &ResourceDecisionPage| reply.validate_for(&expected),
+            )
+            .await
+        })
+    }
     fn put_resource<'a>(
         &'a self,
         command: &'a ResourcePutCommand,

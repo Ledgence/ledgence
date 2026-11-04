@@ -1,5 +1,15 @@
 use super::*;
 impl AdmissionOperations for Mock {
+    fn supports_resource_fair_sharing(&self) -> bool {
+        self.fair_sharing_enabled.load(Ordering::SeqCst)
+    }
+    fn list_resource_decisions<'a>(
+        &'a self,
+        _: &'a VerifiedPrincipal,
+        c: &'a ResourceDecisionQuery,
+    ) -> ContractFuture<'a, ResourceDecisionPage> {
+        Box::pin(async move { self.reply("resource_decisions", c) })
+    }
     fn put_resource<'a>(
         &'a self,
         _: &'a VerifiedPrincipal,
@@ -322,4 +332,120 @@ async fn console_admission_inspection_binds_instance_scope_and_audits_sensitive_
         .unwrap();
     assert_eq!(response.status().as_u16(), 503);
     assert!(!response.text().await.unwrap().contains(CANARY));
+}
+
+#[tokio::test]
+async fn fair_resource_history_requires_capability_metadata_access_and_bound_scope() {
+    let f = setup().await;
+    f.mock.admission_enabled.store(true, Ordering::SeqCst);
+    let config = || request(&f, "/v1/console/config", None, "reader");
+    assert_eq!(
+        config().await.1["capabilities"]["resource_fair_sharing"],
+        false
+    );
+    let console_path = "/v1/console/resources/decisions";
+    let body = json!({"name":"model.requests","before":null,"limit":1});
+    assert_eq!(
+        request(&f, console_path, Some(body.clone()), "reader")
+            .await
+            .0,
+        503
+    );
+    f.mock.fair_sharing_enabled.store(true, Ordering::SeqCst);
+    assert_eq!(
+        config().await.1["capabilities"]["resource_fair_sharing"],
+        true
+    );
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v12.json"
+    ))
+    .unwrap();
+    let mut page: ResourceDecisionPage =
+        serde_json::from_value(fixture["resource_decision_page"].clone()).unwrap();
+    page.items[0].scope = scope();
+    f.mock.set("resource_decisions", Ok(&page));
+    let client = HttpTaskService::new(&f.running.url)
+        .unwrap()
+        .with_bearer_token("reader")
+        .unwrap();
+    let mut q = ResourceDecisionQuery {
+        scope: scope(),
+        name: "model.requests".into(),
+        before: None,
+        limit: 1,
+    };
+    assert_eq!(
+        AdmissionClient::list_resource_decisions(&client, &q)
+            .await
+            .unwrap(),
+        page
+    );
+    let (status, result) = request(&f, console_path, Some(body.clone()), "reader").await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(
+        serde_json::from_value::<ResourceDecisionPage>(result).unwrap(),
+        page
+    );
+    let mut resource: ResourceSnapshot =
+        serde_json::from_value(fixture["fair_resource_snapshot"].clone()).unwrap();
+    resource.resource.scope = scope();
+    let resources = ResourcePage {
+        items: vec![resource.clone()],
+        next: None,
+    };
+    f.mock.set("resource_query", Ok(&resource));
+    f.mock.set("resource_list", Ok(&resources));
+    for (path, body, reply) in [
+        (
+            "/v1/console/resources/inspect",
+            json!({"name":"model.requests"}),
+            json!(&resource),
+        ),
+        (
+            "/v1/console/resources/list",
+            json!({"after":null,"limit":1}),
+            json!(&resources),
+        ),
+    ] {
+        let (status, data) = request(&f, path, Some(body.clone()), "reader").await;
+        assert_eq!(status, 200, "{data}");
+        assert_eq!(data, reply);
+        let mut override_scope = body;
+        override_scope["scope"] = json!(scope());
+        assert_eq!(
+            request(&f, path, Some(override_scope), "reader").await.0,
+            400
+        );
+    }
+    let calls = f.mock.calls.lock().unwrap().len();
+    let mut override_scope = body.clone();
+    override_scope["scope"] = json!(scope());
+    assert_eq!(
+        request(&f, console_path, Some(override_scope), "reader")
+            .await
+            .0,
+        400
+    );
+    assert_eq!(
+        request(&f, console_path, Some(body), "resource-operator")
+            .await
+            .0,
+        403
+    );
+    q.scope.namespace = "foreign".into();
+    assert_eq!(
+        AdmissionClient::list_resource_decisions(&client, &q)
+            .await
+            .unwrap_err(),
+        ContractError::NotFound
+    );
+    assert_eq!(f.mock.calls.lock().unwrap().len(), calls);
+    q.scope = scope();
+    // A misbehaving adapter may not return a decision from a different resource.
+    page.items[0].resource = "elsewhere".into();
+    f.mock.set("resource_decisions", Ok(page));
+    assert!(matches!(
+        AdmissionClient::list_resource_decisions(&client, &q).await,
+        Err(ContractError::Unavailable(_))
+    ));
 }

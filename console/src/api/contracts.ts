@@ -1,5 +1,5 @@
 // Mirrors ConsoleConfig in ledgence-orchestration-api/src/console.rs.
-export const consoleContractVersion = 11;
+export const consoleContractVersion = 12;
 export interface ConsoleConfig {
   contract_version: number;
   server_version: string;
@@ -12,6 +12,7 @@ export interface ConsoleConfig {
     workers: boolean;
     task_admission: boolean;
     queue_policies: boolean;
+    resource_fair_sharing: boolean;
   };
   suggested_queues: string[];
   limits: {

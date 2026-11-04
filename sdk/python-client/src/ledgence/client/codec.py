@@ -50,6 +50,12 @@ def integer(value, name: str, low: int = 0, high: int = (1 << 64) - 1) -> int:
     return value
 
 
+def decimal_u64(value, label, minimum=0):
+    if type(value) is not str or re.fullmatch(r"(?:0|[1-9][0-9]{0,19})", value) is None:
+        raise InputError(f"{label} is not a canonical decimal string")
+    return integer(int(value), label, minimum, (1 << 64) - 1)
+
+
 def duration(value, name: str, maximum: float | None = None) -> float:
     if type(value) not in (int, float):
         raise InputError(f"{name} must be a positive finite number")

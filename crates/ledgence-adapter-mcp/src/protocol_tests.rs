@@ -105,7 +105,7 @@ async fn modern_discover_and_per_request_metadata_use_current_lifecycle() {
         .await;
     let response = client.read().await;
     let tools = response["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 26);
+    assert_eq!(tools.len(), 27);
     let names: std::collections::HashSet<_> = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())

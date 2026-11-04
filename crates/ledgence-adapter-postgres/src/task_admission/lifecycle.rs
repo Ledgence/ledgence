@@ -45,8 +45,8 @@ pub(crate) async fn register(tx: &mut PgConnection, task: &TaskSnapshot) -> Stor
     } else {
         task.available_at
     };
-    let valid:Option<bool>=sqlx::query_scalar("INSERT INTO task_admission_requests(tenant_id,namespace,task_id,generation,resource_name,state,revision,created_at_ms,updated_at_ms,available_at_ms,snapshot_bytes) VALUES($1,$2,$3,$4,$5,'waiting',1,$6,$6,$7,$8) RETURNING snapshot_bytes=$8 AND state='waiting' AND generation=$4 AND available_at_ms=$7")
-        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.task_id).bind(i64::from(number)).bind(&requirement.resource).bind(codec::ms(now)?).bind(codec::ms(available_at)?).bind(codec::encode(&snapshot)?).fetch_optional(&mut *tx).await?;
+    let valid:Option<bool>=sqlx::query_scalar("INSERT INTO task_admission_requests(tenant_id,namespace,task_id,generation,resource_name,state,revision,created_at_ms,updated_at_ms,available_at_ms,snapshot_bytes,origin_queue,fair_group) VALUES($1,$2,$3,$4,$5,'waiting',1,$6,$6,$7,$8,$9,$10) RETURNING snapshot_bytes=$8 AND state='waiting' AND generation=$4 AND available_at_ms=$7 AND origin_queue=$9 AND fair_group IS NOT DISTINCT FROM $10")
+        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.task_id).bind(i64::from(number)).bind(&requirement.resource).bind(codec::ms(now)?).bind(codec::ms(available_at)?).bind(codec::encode(&snapshot)?).bind(&task.input.queue).bind(crate::workflow::admission::fair::group(&r,&task.input.queue)).fetch_optional(&mut *tx).await?;
     proof(valid, "waiting registration")?;
     let projected:Option<bool>=sqlx::query_scalar("UPDATE tasks SET admission_resource=$2,admission_ready=false WHERE task_id=$1 RETURNING admission_resource=$2 AND NOT admission_ready")
         .bind(&o.task_id).bind(&requirement.resource).fetch_optional(&mut *tx).await?;

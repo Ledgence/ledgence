@@ -34,6 +34,7 @@ const config: ConsoleConfig = {
     workers: true,
     task_admission: false,
     queue_policies: false,
+    resource_fair_sharing: false,
   },
   suggested_queues: [],
   limits: {

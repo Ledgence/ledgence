@@ -216,7 +216,7 @@ fn navigation(path: &str) -> bool {
         return false;
     }
     match parts.as_slice() {
-        [] | ["queues"] | ["approvals"] | ["approvals", "review"] => true,
+        [] | ["resources"] | ["queues"] | ["approvals"] | ["approvals", "review"] => true,
         ["executions" | "workflows" | "programs" | "agents" | "workers"] => true,
         [
             "executions" | "workflows" | "programs" | "agents" | "workers",

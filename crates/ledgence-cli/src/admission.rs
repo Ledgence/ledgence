@@ -12,6 +12,7 @@ pub enum Operation {
     Queue(crate::queue_policy::Operation),
     List(ResourceListQuery),
     Resource(ResourceQuery),
+    Decisions(ResourceDecisionQuery),
     Inspect(AdmissionQuery),
     TaskInspect(TaskAdmissionQuery),
     Put { scope: Scope, file: PathBuf },
@@ -62,6 +63,31 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
             };
             q.validate()?;
             Operation::Resource(q)
+        }
+        ("resource", "decisions") => {
+            let name = take("--name")?;
+            let before = options
+                .remove("--before")
+                .map(|v| {
+                    v.parse::<u64>()
+                        .ok()
+                        .filter(|n| n.to_string() == v)
+                        .ok_or_else(|| invalid("expected a canonical decimal cursor"))
+                })
+                .transpose()?;
+            let limit = options
+                .remove("--limit")
+                .map(|v| v.parse().map_err(|_| invalid("invalid page size")))
+                .transpose()?
+                .unwrap_or(50);
+            let query = ResourceDecisionQuery {
+                scope,
+                name,
+                before,
+                limit,
+            };
+            query.validate()?;
+            Operation::Decisions(query)
         }
         ("admission", "inspect") if task_subject => {
             let q = TaskAdmissionQuery {
@@ -144,6 +170,9 @@ pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<V
     match operation {
         Operation::Queue(op) => crate::queue_policy::execute(client, op).await,
         Operation::List(q) => encode(AdmissionClient::list_resources(client, &q).await?),
+        Operation::Decisions(q) => {
+            encode(AdmissionClient::list_resource_decisions(client, &q).await?)
+        }
         Operation::Resource(q) => encode(AdmissionClient::resource(client, &q).await?),
         Operation::Inspect(q) => encode(AdmissionClient::inspect_admission(client, &q).await?),
         Operation::TaskInspect(q) => {
@@ -228,6 +257,45 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn decision_history_preserves_exclusive_cursor_without_float_conversion() {
+        let args = [
+            "decisions",
+            "--server",
+            "http://localhost:8080",
+            "--tenant",
+            "acme",
+            "--namespace",
+            "ops",
+            "--name",
+            "provider",
+            "--before",
+        ];
+        for value in ["0", "01", "+1", "1.0", "18446744073709551616"] {
+            assert!(
+                parse(
+                    "resource",
+                    args.into_iter().chain([value]).map(str::to_owned)
+                )
+                .is_err()
+            );
+        }
+        let Command::Admission {
+            operation: Operation::Decisions(query),
+            ..
+        } = parse(
+            "resource",
+            args.into_iter()
+                .chain(["9007199254740993"])
+                .map(str::to_owned),
+        )
+        .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(query.before, Some(9_007_199_254_740_993));
+        assert_eq!(query.limit, 50);
     }
     #[test]
     fn parser_preserves_origin_and_rejects_ambiguous_scope_or_options() {

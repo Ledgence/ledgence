@@ -27,6 +27,7 @@ from .admission_models import (
     name as resource_name,
 )
 from .errors import InputError
+from .resource_decisions import ResourceDecisionPage, parse_page
 
 
 async def _exchange(client, path, value, parser, *, limit=LIMIT):
@@ -128,6 +129,28 @@ class Resources:
             "/v1/resources/list",
             {"scope": asdict(scope), "after": after, "limit": limit},
             parse,
+        )
+
+    async def decisions(
+        self, name: str, *, before: int | None = None, limit: int = 50
+    ) -> ResourceDecisionPage:
+        """Read committed weighted offers newest first. Pass page.next to continue."""
+
+        resource_name(name)
+        codec.integer(limit, "limit", 1, 100)
+        if before is not None:
+            codec.integer(before, "before", 1, (1 << 64) - 1)
+        scope = self._client.scope
+        return await _exchange(
+            self._client,
+            "/v1/resources/decisions",
+            {
+                "scope": asdict(scope),
+                "name": name,
+                "before": str(before) if before is not None else None,
+                "limit": limit,
+            },
+            lambda raw: parse_page(raw, scope, name, before, limit),
         )
 
 

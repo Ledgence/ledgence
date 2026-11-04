@@ -131,6 +131,7 @@ fn snapshot() -> AdmissionSnapshot {
 }
 fn policy() -> ResourcePolicy {
     ResourcePolicy {
+        fair_sharing: None,
         enabled: true,
         max_occupancy: 2,
         rate: Some(ResourceRate {
@@ -400,4 +401,122 @@ fn operation_binding(binding: &mut AdmissionBinding) -> &mut OperationAdmissionB
         panic!("expected operation")
     };
     value
+}
+
+#[test]
+fn weighted_policy_preserves_fifo_and_distinguishes_absent_from_null() {
+    let fifo = policy();
+    let wire = serde_json::to_string(&fifo).unwrap();
+    assert_eq!(
+        wire,
+        r#"{"enabled":true,"max_occupancy":2,"rate":{"numerator":1,"period_ms":1000,"burst":2},"offer_timeout_ms":1000,"start_timeout_ms":1000}"#
+    );
+    assert_eq!(
+        fifo.digest().unwrap().0,
+        "sha256:c55f3277f7fba932c1dc471858535fa0694a822469fb765c9d266cbdeb7c1489"
+    );
+    assert_eq!(serde_json::from_str::<ResourcePolicy>(&wire).unwrap(), fifo);
+    let mut json = serde_json::to_value(fifo).unwrap();
+    json["fair_sharing"] = Value::Null;
+    assert!(serde_json::from_value::<ResourcePolicy>(json.clone()).is_err());
+    json["fair_sharing"] = json!({"groups":[{"name":"batch","weight":1,"queues":[]},{"name":"support","weight":3,"queues":["support"]}],"default_group":"batch"});
+    let weighted: ResourcePolicy = serde_json::from_value(json.clone()).unwrap();
+    weighted.validate().unwrap();
+    assert_ne!(weighted.digest().unwrap(), policy().digest().unwrap());
+    let groups = weighted.fair_sharing.unwrap();
+    assert_eq!(groups.group_for("support").unwrap().weight, 3);
+    assert_eq!(groups.group_for("backlog").unwrap().name, "batch");
+    for (pointer, value) in [
+        ("/groups/1/name", json!("batch")),
+        ("/groups/0/name", json!("n/1")),
+        ("/groups/0/weight", json!(0)),
+        ("/groups/0/weight", json!(1001)),
+        ("/groups/0/queues", json!(["support"])),
+        ("/groups/0/queues", json!(["", "q"])),
+        ("/default_group", json!("missing")),
+        ("/groups", json!([])),
+    ] {
+        let mut invalid = json["fair_sharing"].clone();
+        *invalid.pointer_mut(pointer).unwrap() = value;
+        assert!(
+            serde_json::from_value::<ResourceFairSharing>(invalid)
+                .unwrap()
+                .validate()
+                .is_err(),
+            "{pointer}"
+        );
+    }
+    let mut big = groups.clone();
+    big.groups[0].queues = (0..65).map(|n| format!("queue-{n}")).collect();
+    assert!(big.validate().is_err());
+    // Escaping in an identifier counts against the byte limit, even below the queue count limit.
+    big.groups[0].queues = (0..60)
+        .map(|n| format!("{}-{n}", r#"""#.repeat(120)))
+        .collect();
+    assert!(big.validate().is_err());
+    big.groups = (0..17)
+        .map(|n| ResourceFairGroup {
+            name: format!("g{n}"),
+            weight: 1,
+            queues: vec![],
+        })
+        .collect();
+    big.default_group = "g0".into();
+    assert!(big.validate().is_err());
+}
+#[test]
+fn offer_decision_pages_bind_scope_cursor_and_subject() {
+    let all: Value = serde_json::from_str(include_str!("fixtures/console-v12.json")).unwrap();
+    let value = &all["resource_decision_page"];
+    let page: ResourceDecisionPage = serde_json::from_value(value.clone()).unwrap();
+    let mut query = ResourceDecisionQuery {
+        scope: scope(),
+        name: "model.requests".into(),
+        before: None,
+        limit: 1,
+    };
+    page.validate_for(&query).unwrap();
+    let seq = page.items[0].sequence;
+    assert_eq!(value["items"][0]["sequence"], json!(seq.to_string()));
+    assert_eq!(value["next"], json!(seq.to_string()));
+    let mut malformed = value.clone();
+    malformed["items"][0]["sequence"] = json!("01");
+    assert!(serde_json::from_value::<ResourceDecisionPage>(malformed).is_err());
+    let mut malformed = value.clone();
+    malformed["items"][0]["subject"]["arguments"] = json!({"secret":1});
+    assert!(serde_json::from_value::<ResourceDecisionPage>(malformed).is_err());
+    for key in ["before", "limit"] {
+        let mut v = serde_json::to_value(&query).unwrap();
+        v.as_object_mut().unwrap().remove(key);
+        assert!(serde_json::from_value::<ResourceDecisionQuery>(v).is_err());
+    }
+    let mut malformed = value.clone();
+    malformed.as_object_mut().unwrap().remove("next");
+    assert!(serde_json::from_value::<ResourceDecisionPage>(malformed).is_err());
+    query.before = Some(seq);
+    assert!(page.validate_for(&query).is_err());
+    query.before = Some(seq + 1);
+    page.validate_for(&query).unwrap();
+    query.scope.namespace = "other".into();
+    assert!(page.validate_for(&query).is_err());
+    let mut wrong = page.clone();
+    wrong.items.push(page.items[0].clone());
+    assert!(wrong.validate().is_err());
+    for (key, v) in [
+        ("cycle_round", json!(0)),
+        ("cycle_round", json!(4)),
+        ("eligible_groups", json!(1)),
+        ("weight", json!(0)),
+        ("offer_generation", json!("0")),
+    ] {
+        let mut invalid = value.clone();
+        invalid["items"][0][key] = v;
+        assert!(
+            serde_json::from_value::<ResourceDecisionPage>(invalid)
+                .unwrap()
+                .validate()
+                .is_err(),
+            "{key}"
+        );
+    }
 }

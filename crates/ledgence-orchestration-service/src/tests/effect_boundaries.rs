@@ -390,8 +390,14 @@ fn provider_context_scope_must_match_current_lease() {
 }
 
 impl AdmissionOperations for Store {
+    fn put_resource<'a>(
+        &'a self,
+        _p: &'a VerifiedPrincipal,
+        _c: &'a ResourcePutCommand,
+    ) -> ContractFuture<'a, ResourcePutReceipt> {
+        self.reached()
+    }
     unused_methods! {
-        fn put_resource(_p: &'a VerifiedPrincipal, _c: &'a ResourcePutCommand) -> ResourcePutReceipt;
         fn resource(_p: &'a VerifiedPrincipal, _q: &'a ResourceQuery) -> ResourceSnapshot;
         fn list_resources(_p: &'a VerifiedPrincipal, _q: &'a ResourceListQuery) -> ResourcePage;
         fn start_admission(_p: &'a VerifiedPrincipal, _c: &'a AdmissionStartCommand) -> AdmissionStartReceipt;
@@ -507,4 +513,59 @@ async fn protected_provider_wait_requires_composed_capability_before_work_applic
             .await
             .unwrap()
     );
+}
+
+#[tokio::test]
+async fn legacy_admission_store_cannot_accept_or_explain_weighted_offers() {
+    let (svc, store) = service(None);
+    let actor = principal(false);
+    let operator = VerifiedPrincipal::new(
+        actor.identity().clone(),
+        actor.audience().clone(),
+        "credential".into(),
+        PrincipalClass::Operator,
+        1000,
+        vec![
+            AccessCapability::MetadataRead,
+            AccessCapability::ResourceControl,
+        ],
+    )
+    .unwrap();
+    assert!(!svc.supports_resource_fair_sharing());
+    let scope = owner().scope;
+    let mut cmd: ResourcePutCommand = serde_json::from_value(serde_json::json!({
+        "scope":scope, "name":"shared", "request_id":"update", "expected_revision":null,
+        "reason":"test", "policy":{"enabled":true,"max_occupancy":1,"rate":null,
+        "offer_timeout_ms":1000,"start_timeout_ms":1000,"fair_sharing":{
+            "groups":[{"name":"batch","weight":1,"queues":[]}],"default_group":"batch"}}
+    }))
+    .unwrap();
+    let query = ResourceDecisionQuery {
+        scope: scope.clone(),
+        name: "shared".into(),
+        before: None,
+        limit: 10,
+    };
+    assert!(matches!(
+        svc.put_resource(&operator, &cmd).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert!(matches!(
+        svc.list_resource_decisions(&operator, &query).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert_eq!(
+        svc.list_resource_decisions(&actor, &query)
+            .await
+            .unwrap_err(),
+        ContractError::Forbidden
+    );
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    cmd.policy.fair_sharing = None;
+    // FIFO still reaches the existing adapter instead of requiring a new capability.
+    assert_eq!(
+        svc.put_resource(&operator, &cmd).await.unwrap_err(),
+        ContractError::NotFound
+    );
+    assert_eq!(store.calls.load(Ordering::SeqCst), 1);
 }
