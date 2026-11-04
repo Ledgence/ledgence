@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 import gzip
 import hashlib
+import io
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -29,10 +31,12 @@ VERSION = re.compile(r"[A-Za-z0-9.+:~\-]+")
 FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+~\-]*")
 
 
-def stream_digest(stream):
+def stream_digest(stream, destination=None):
     checksum = hashlib.sha256()
     while block := stream.read(1024 * 1024):
         checksum.update(block)
+        if destination is not None:
+            destination.write(block)
     return checksum.hexdigest()
 
 
@@ -236,7 +240,36 @@ def archive_tree(root, archive):
                     tar.addfile(entry, stream)
 
 
-def collect(inventory_path, output, *, downloader=None, workers=4, image=None):
+def restore_seed(seed_archive, seed_sha256, image, inventory_bytes, root):
+    """Use a verified archive only for the exact installed inventory. A different
+    valid inventory is a cache miss; a malformed or misbound seed is an error.
+    """
+    require(SHA256.fullmatch(seed_sha256 or ""), "invalid corresponding-source seed SHA-256")
+    require(isinstance(image, dict) and re.fullmatch(r"sha256:[a-f0-9]{64}", image.get("id", "")) and
+            image.get("platform") in ("linux/amd64", "linux/arm64"),
+            "source reuse requires a current immutable image and supported platform")
+    require(seed_archive.is_file() and not seed_archive.is_symlink(), "source seed must be a regular file")
+    with tempfile.TemporaryDirectory(prefix=".seed-", dir=root.parent) as temporary:
+        private = Path(temporary) / "seed.tar.gz"
+        # Parse the same bytes we authenticated, including if the input path is
+        # replaced during collection. No extraction is attempted before the pin matches.
+        with seed_archive.open("rb") as source, private.open("xb") as output:
+            require(stream_digest(source, output) == seed_sha256, "source seed archive checksum mismatch")
+        payloads = Path(temporary) / "payloads"
+        payloads.mkdir()
+        manifest, installed = verify_archive(private, platform=image["platform"], payload_root=payloads)
+        require(re.fullmatch(r"sha256:[a-f0-9]{64}", manifest["image"].get("id", "")),
+                "source seed must identify its qualified image")
+        if installed != inventory_bytes:
+            return None
+        payloads.rename(root)
+        return manifest["debian"]
+
+
+def collect(inventory_path, output, *, downloader=None, workers=4, image=None,
+            seed_archive=None, seed_sha256=None):
+    require((seed_archive is None) == (seed_sha256 is None),
+            "source reuse requires both a local seed archive and its trusted SHA-256")
     require(1 <= workers <= 8, "workers must be between 1 and 8")
     require(not output.exists(), "output directory already exists; choose a new path")
     inventory_bytes = inventory_path.read_bytes()
@@ -246,24 +279,28 @@ def collect(inventory_path, output, *, downloader=None, workers=4, image=None):
     with tempfile.TemporaryDirectory(prefix=".ledgence-sources-", dir=output.parent) as temporary:
         stage = Path(temporary) / "artifact"
         root = stage / "sources"
-        root.mkdir(parents=True)
+        stage.mkdir()
+        sources = (restore_seed(seed_archive, seed_sha256, image, inventory_bytes, root)
+                   if seed_archive is not None else None)
+        root.mkdir(exist_ok=True)
         (root / "runtime-inventory.json").write_bytes(inventory_bytes)
-        identities = sorted({(package["source_name"], package["source_version"])
-                             for package in inventory["packages"]})
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            pending = [executor.submit(collect_debian, *identity, root, downloader) for identity in identities]
-            try:
-                sources = [future.result() for future in pending]
-            except BaseException:
-                for future in pending:
-                    future.cancel()
-                raise
         python = inventory["python"]
         python_path = root / "python" / f"Python-{python['version']}.tar.xz"
-        downloader.fetch(python["source_url"], python_path, sha256=python["sha256"])
         recipe = inventory["base_recipe"]
         recipe_path = root / "python" / "Dockerfile"
-        downloader.fetch(recipe["url"], recipe_path, sha256=recipe["sha256"])
+        if sources is None:
+            identities = sorted({(package["source_name"], package["source_version"])
+                                 for package in inventory["packages"]})
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                pending = [executor.submit(collect_debian, *identity, root, downloader) for identity in identities]
+                try:
+                    sources = [future.result() for future in pending]
+                except BaseException:
+                    for future in pending:
+                        future.cancel()
+                    raise
+            downloader.fetch(python["source_url"], python_path, sha256=python["sha256"])
+            downloader.fetch(recipe["url"], recipe_path, sha256=recipe["sha256"])
         recipe_text = recipe_path.read_text()
         require(f"ENV PYTHON_VERSION {python['version']}\n" in recipe_text and
                 f"ENV PYTHON_SHA256 {python['sha256']}\n" in recipe_text,
@@ -319,7 +356,43 @@ def verify_output(directory, image=None, platform=None):
     require(set(checksums) == names, "incomplete source artifact checksums")
     for name, expected in checksums.items():
         require(digest(directory / name) == expected, "source artifact checksum mismatch")
-    manifest_bytes = (directory / "source-manifest.json").read_bytes()
+    manifest, _ = verify_archive(directory / "corresponding-source.tar.gz", image=image, platform=platform,
+                                 expected_manifest=(directory / "source-manifest.json").read_bytes())
+    return manifest
+
+
+def verify_archive(archive_path, *, image=None, platform=None, expected_manifest=None, payload_root=None):
+    """Verify every regular member and the same manifest/control-file contracts
+    for publication and reuse. Optionally stage payloads under a new private root.
+    """
+    fixed = {"source-manifest.json", "runtime-inventory.json", "README.txt"}
+    observed = {}
+    metadata = {}
+    with tarfile.open(archive_path, "r|gz") as archive:
+        for member in archive:
+            require(member.isfile() and member.name.startswith("corresponding-source/"),
+                    "source archive contains an unsupported member")
+            name = member.name.removeprefix("corresponding-source/")
+            path = PurePosixPath(name)
+            require(path.parts and not path.is_absolute() and ".." not in path.parts and
+                    str(path) == name and "\\" not in name and name not in observed,
+                    "source archive contains an invalid or duplicate member")
+            target = None
+            if payload_root is not None and name not in fixed:
+                target = payload_root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.extractfile(member) as stream:
+                if name in ("runtime-inventory.json", "source-manifest.json") or name.endswith(".dsc"):
+                    require(member.size < 8 * 1024**2, "source archive metadata too large")
+                    metadata[name] = stream.read()
+                    stream_to_hash = io.BytesIO(metadata[name])
+                else:
+                    stream_to_hash = stream
+                with (target.open("xb") if target is not None else nullcontext(None)) as output:
+                    observed[name] = (member.size, stream_digest(stream_to_hash, output))
+    require("source-manifest.json" in metadata, "source archive is incomplete")
+    manifest_bytes = metadata["source-manifest.json"]
+    require(expected_manifest is None or expected_manifest == manifest_bytes, "inner and outer source manifests differ")
     manifest = json.loads(manifest_bytes)
     require(manifest.get("format") == 1 and manifest.get("complete") is True,
             "source collection is not complete")
@@ -338,28 +411,10 @@ def verify_output(directory, image=None, platform=None):
                 name not in records and SHA256.fullmatch(record["sha256"]) and
                 type(record["size"]) is int and record["size"] >= 0, "invalid source manifest file record")
         records[name] = record
-    expected_names = set(records) | {"runtime-inventory.json", "source-manifest.json", "README.txt"}
-    seen = set()
-    metadata = {}
-    with tarfile.open(directory / "corresponding-source.tar.gz", "r:gz") as archive:
-        for member in archive:
-            require(member.isfile() and member.name.startswith("corresponding-source/"),
-                    "source archive contains an unsupported member")
-            name = member.name.removeprefix("corresponding-source/")
-            require(name in expected_names and name not in seen, "source archive inventory mismatch")
-            seen.add(name)
-            with archive.extractfile(member) as stream:
-                if name in records:
-                    expected = records[name]
-                    require(member.size == expected["size"] and
-                            stream_digest(stream) == expected["sha256"],
-                            "source archive payload checksum mismatch")
-                if name in ("runtime-inventory.json", "source-manifest.json") or name.endswith(".dsc"):
-                    require(member.size < 8 * 1024**2, "source archive metadata too large")
-                    stream.seek(0)
-                    metadata[name] = stream.read()
-    require(seen == expected_names, "source archive is incomplete")
-    require(metadata["source-manifest.json"] == manifest_bytes, "inner and outer source manifests differ")
+    require(set(records).isdisjoint(fixed) and set(observed) == set(records) | fixed,
+            "source archive inventory mismatch or incomplete source archive")
+    for name, record in records.items():
+        require(observed[name] == (record["size"], record["sha256"]), "source archive payload checksum mismatch")
     inventory_bytes = metadata["runtime-inventory.json"]
     require(hashlib.sha256(inventory_bytes).hexdigest() == manifest["runtime_inventory_sha256"],
             "source runtime inventory checksum mismatch")
@@ -383,7 +438,7 @@ def verify_output(directory, image=None, platform=None):
             "sha256": record["sha256"], "size": record["size"]}
             for record in source["files"] if record is not dsc[0]}
         require(actual == payloads, "source package control/payload inventory mismatch")
-    return manifest
+    return manifest, inventory_bytes
 
 
 def inventory_from_image(reference, platform, destination):
@@ -415,7 +470,14 @@ def main():
     parser.add_argument("--platform", choices=("linux/amd64", "linux/arm64"))
     parser.add_argument("--output", type=Path)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--seed-archive", type=Path,
+                        help="Local qualified corresponding-source.tar.gz for the current image platform.")
+    parser.add_argument("--seed-sha256",
+                        help="Trusted SHA-256 of the complete seed archive, from a reviewed source.")
     args = parser.parse_args()
+    if args.seed_archive is not None or args.seed_sha256 is not None:
+        require(args.image and args.seed_archive is not None and args.seed_sha256 is not None,
+                "seed reuse requires --image, --seed-archive and --seed-sha256")
     if args.verify:
         require(args.output is None, "--output cannot accompany --verify")
         manifest = verify_output(args.verify, image=args.expected_image, platform=args.platform)
@@ -427,7 +489,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="ledgence-image-inventory-") as temporary:
         inventory = args.inventory or Path(temporary) / "runtime-inventory.json"
         image = inventory_from_image(args.image, args.platform, inventory) if args.image else None
-        manifest = collect(inventory, args.output, workers=args.workers, image=image)
+        manifest = collect(inventory, args.output, workers=args.workers, image=image,
+                           seed_archive=args.seed_archive, seed_sha256=args.seed_sha256)
     print(json.dumps({"output": str(args.output), "complete": manifest["complete"],
                       "source_packages": manifest["source_package_count"]}))
 

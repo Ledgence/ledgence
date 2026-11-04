@@ -83,3 +83,5 @@ Public image releases also provide the matching `corresponding-source.tar.gz`,
 components. Those sources and original notices retain their upstream licenses;
 they are separate from Ledgence's MIT source and from your application programs.
 The image inventory identifies the exact installed binary/source versions.
+
+During image qualification, an unchanged runtime can reuse the corresponding sources from a published release of the same architecture. The workflow pins the archive SHA-256 and the exact runtime inventory. The collector revalidates every source file and rebuilds the manifest for the current image. When the inventory changes or the release asset cannot be downloaded, it collects the exact upstream sources. An archive that fails integrity checks blocks qualification.

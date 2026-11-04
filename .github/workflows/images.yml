@@ -39,6 +39,7 @@ concurrency:
 
 env:
   PYTHONDONTWRITEBYTECODE: '1'
+  SOURCE_SEED_VERSION: 0.8.0
   REGISTRY_IMAGE: registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e
 
 jobs:
@@ -84,8 +85,14 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-24.04
+            inventory_sha256: 8fd83aadce6b7be0a5555d049cb478a6eb116b5af9c3a29ccd4a5150e32bd838
+            source_sha256: ba704f52f5731edcd5fc8e85cdedeff19d4d0e363b29375dc04c096e7ac42bff
+            source_bytes: 320526946
           - arch: arm64
             runner: ubuntu-24.04-arm
+            inventory_sha256: fa31910902a1bbfa8835f4dc76b528229c3219b03d51ec5c31f87176a1f2ce63
+            source_sha256: 315b897b014af52639fd6f6d2593bf366f2dfd9afb81d19a6b62d9ec6ee8cc2b
+            source_bytes: 320526948
     env:
       VERSION: ${{ needs.source.outputs.version }}
       ARCH: ${{ matrix.arch }}
@@ -146,9 +153,36 @@ jobs:
             --directory "$RUNNER_TEMP/local-kit/ledgence-$VERSION-local" \
             --evidence "$RUNNER_TEMP/oci/acceptance" --cli "$RUNNER_TEMP/host-ledgence"
       - name: Retain exact corresponding sources for the runtime components
+        env:
+          SEED_INVENTORY_SHA256: ${{ matrix.inventory_sha256 }}
+          SEED_ARCHIVE_SHA256: ${{ matrix.source_sha256 }}
+          SEED_ARCHIVE_BYTES: ${{ matrix.source_bytes }}
         run: |
+          seed_args=()
+          inventory="$RUNNER_TEMP/source-inventory.json"
+          docker run --rm --network none --read-only --platform "linux/$ARCH" --entrypoint cat \
+            "$QUALIFIED_IMAGE" /opt/ledgence/legal/image-runtime.json > "$inventory"
+          if [[ "$(sha256sum "$inventory" | cut -d' ' -f1)" == "$SEED_INVENTORY_SHA256" ]]; then
+            asset="ledgence-$SOURCE_SEED_VERSION-linux-$ARCH-corresponding-source.tar.gz"
+            url="https://github.com/Ledgence/ledgence/releases/download/v$SOURCE_SEED_VERSION/$asset"
+            file="$RUNNER_TEMP/$asset"
+            status=0
+            curl --proto '=https' --proto-redir '=https' --tlsv1.2 --location --fail --silent --show-error \
+              --connect-timeout 10 --max-time 600 --retry 3 --max-filesize "$SEED_ARCHIVE_BYTES" \
+              --output "$file" "$url" || status=$?
+            case "$status" in
+              0)
+                test "$(stat -c %s "$file")" = "$SEED_ARCHIVE_BYTES"
+                seed_args=(--seed-archive "$file" --seed-sha256 "$SEED_ARCHIVE_SHA256")
+                ;;
+              6|7|18|22|28|52|55|56)
+                echo "::warning::Release source download unavailable; collecting verified upstream sources."
+                ;;
+              *) exit "$status" ;;
+            esac
+          fi
           python deploy/distribution/image_sources.py --image "$QUALIFIED_IMAGE" \
-            --platform "linux/$ARCH" --output "$RUNNER_TEMP/oci/sources"
+            --platform "linux/$ARCH" --output "$RUNNER_TEMP/oci/sources" "${seed_args[@]}"
       - name: Record complete artifact checksums
         working-directory: ${{ runner.temp }}/oci
         run: |

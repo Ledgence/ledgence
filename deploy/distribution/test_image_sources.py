@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Offline tests for corresponding-source collection and release verification."""
 import copy
+from contextlib import redirect_stdout
 import hashlib
 import importlib.util
 import io
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -239,6 +241,171 @@ class SourceTests(unittest.TestCase):
         self.rewrite_artifact(lambda files: files.pop("corresponding-source/python/Dockerfile"))
         with self.assertRaisesRegex(ValueError, "incomplete"):
             sources.verify_output(self.output)
+
+    def previous_source(self):
+        """Build the previous archive through the same collector as an actual release."""
+        self.collect()
+        archive = self.output / "corresponding-source.tar.gz"
+        return archive, sources.digest(archive)
+
+    def current_image(self, **changes):
+        return dict(self.image, id="sha256:" + "e" * 64, requested_reference="ledgence:current",
+                    repository_digests=["ledgence@sha256:" + "d" * 64], **changes)
+
+    def reuse(self, archive, checksum, *, output_name="rebound", image=None):
+        return sources.collect(self.inventory_path, self.directory / output_name,
+                               image=image or self.current_image(), downloader=self.downloader,
+                               seed_archive=archive, seed_sha256=checksum)
+
+    def test_offline_reuse_is_byte_identical_to_fresh_sources_for_current_image(self):
+        archive, checksum = self.previous_source()
+        new_image = self.current_image()
+        cold = self.directory / "cold"
+        cold_manifest = sources.collect(self.inventory_path, cold, downloader=self.downloader, image=new_image)
+        with patch.object(self.downloader, "json", side_effect=AssertionError("unexpected index fetch")), \
+             patch.object(self.downloader, "fetch", side_effect=AssertionError("unexpected source download")):
+            manifest = self.reuse(archive, checksum, image=new_image)
+        rebound = self.directory / "rebound"
+        self.assertEqual(manifest, cold_manifest)
+        self.assertEqual(manifest["image"], new_image)
+        self.assertEqual(sources.verify_output(rebound, new_image["id"], new_image["platform"]), manifest)
+        with self.assertRaisesRegex(ValueError, "image identity"):
+            sources.verify_output(rebound, self.image["id"])
+        for filename in ["corresponding-source.tar.gz", "source-manifest.json", "SHA256SUMS"]:
+            self.assertEqual((cold / filename).read_bytes(), (rebound / filename).read_bytes())
+        self.assertNotEqual(checksum, sources.digest(rebound / "corresponding-source.tar.gz"))
+        self.assertEqual(checksum, sources.digest(archive), "rebind modified the original archive")
+
+    def test_cli_reuses_seed_and_verifies_current_image(self):
+        archive, checksum = self.previous_source()
+        output = self.directory / "cli-artifact"
+        current = self.current_image()
+        def inspect_image(reference, platform, inventory):
+            self.assertEqual((reference, platform), (current["requested_reference"], current["platform"]))
+            inventory.write_bytes(self.inventory_path.read_bytes())
+            return current
+        collect = ["image_sources.py", "--image", current["requested_reference"], "--platform", current["platform"],
+                   "--output", str(output), "--seed-archive", str(archive), "--seed-sha256", checksum]
+        verify = ["image_sources.py", "--verify", str(output), "--platform", current["platform"],
+                  "--expected-image", current["id"]]
+        with patch.object(sources, "inventory_from_image", side_effect=inspect_image) as inspection, \
+             patch.object(sources.Downloader, "json", side_effect=AssertionError("unexpected index fetch")), \
+             patch.object(sources.Downloader, "fetch", side_effect=AssertionError("unexpected source download")), \
+             patch.object(sys, "argv", collect), redirect_stdout(io.StringIO()):
+            sources.main()
+        inspection.assert_called_once()
+        with patch.object(sys, "argv", verify), redirect_stdout(io.StringIO()) as console:
+            sources.main()
+        self.assertTrue(json.loads(console.getvalue())["verified"])
+
+    def test_changed_runtime_inventory_uses_authoritative_source_downloads(self):
+        archive, checksum = self.previous_source()
+        self.inventory["packages"][0]["binary_version"] = "1:2.0-3+b2"
+        self.save_inventory()
+        self.downloader.calls.clear()
+        manifest = self.reuse(archive, checksum)
+        self.assertEqual(len(self.downloader.calls), 5)
+        self.assertEqual(manifest["runtime_inventory_sha256"], sources.digest(self.inventory_path))
+        self.assertEqual(sources.verify_output(self.directory / "rebound", self.current_image()["id"]), manifest)
+        with tarfile.open(self.directory / "rebound" / "corresponding-source.tar.gz") as new:
+            inventory_bytes = new.extractfile("corresponding-source/runtime-inventory.json").read()
+        self.assertEqual(inventory_bytes, self.inventory_path.read_bytes())
+
+    def test_inventory_match_includes_the_exact_bytes(self):
+        archive, checksum = self.previous_source()
+        self.inventory_path.write_text(json.dumps(self.inventory, indent=2) + "\n")
+        self.downloader.calls.clear()
+        manifest = self.reuse(archive, checksum)
+        self.assertEqual(len(self.downloader.calls), 5)
+        self.assertEqual(manifest["runtime_inventory_sha256"], sources.digest(self.inventory_path))
+
+    def test_changed_inventory_with_failed_download_cannot_emit_prior_source(self):
+        archive, checksum = self.previous_source()
+        self.inventory["packages"][0]["binary_version"] = "1:2.0-3+b2"
+        self.save_inventory()
+        self.downloader.content[self.inventory["python"]["source_url"]] = b"changed"
+        with self.assertRaises(ValueError):
+            self.reuse(archive, checksum)
+        self.assertFalse((self.directory / "rebound").exists())
+
+    def test_wrong_seed_platform_cannot_use_identical_architecture_independent_inventory(self):
+        for package in self.inventory["packages"]:
+            package["architecture"] = "all"
+        self.save_inventory()
+        archive, checksum = self.previous_source()
+        with patch.object(self.downloader, "json", side_effect=AssertionError("unexpected fallback")), \
+             patch.object(self.downloader, "fetch", side_effect=AssertionError("unexpected fallback")), \
+             self.assertRaises(ValueError):
+            self.reuse(archive, checksum, image=self.current_image(platform="linux/amd64"))
+        self.assertFalse((self.directory / "rebound").exists())
+
+    def test_unbound_previous_manifest_is_rejected(self):
+        sources.collect(self.inventory_path, self.output, downloader=self.downloader)
+        archive = self.output / "corresponding-source.tar.gz"
+        with self.assertRaises(ValueError):
+            self.reuse(archive, sources.digest(archive))
+        self.assertFalse((self.directory / "rebound").exists())
+
+    def test_seed_checksum_mandatory_and_checked_before_fallback(self):
+        archive, checksum = self.previous_source()
+        self.inventory_path.write_text(json.dumps(self.inventory, indent=2))
+        options = [
+            (archive, None), (None, checksum), (archive, "z" * 64),
+            (archive, "0" * 64), (self.directory / "missing.tar.gz", checksum),
+        ]
+        for candidate, expected in options:
+            with self.subTest(candidate=candidate, expected=expected), \
+                 patch.object(self.downloader, "json", side_effect=AssertionError("unexpected fallback")), \
+                 patch.object(self.downloader, "fetch", side_effect=AssertionError("unexpected fallback")), \
+                 self.assertRaises((ValueError, OSError)):
+                self.reuse(candidate, expected)
+            self.assertFalse((self.directory / "rebound").exists())
+
+    def test_bad_seed_payload_rejected_even_when_current_inventory_has_changed(self):
+        self.previous_source()
+        self.inventory_path.write_text(json.dumps(self.inventory, indent=2))
+        self.rewrite_artifact(lambda files: files.update({"corresponding-source/python/Dockerfile": b"invalid"}))
+        archive = self.output / "corresponding-source.tar.gz"
+        with patch.object(self.downloader, "json", side_effect=AssertionError("unexpected fallback")), \
+             patch.object(self.downloader, "fetch", side_effect=AssertionError("unexpected fallback")), \
+             self.assertRaises(ValueError):
+            self.reuse(archive, sources.digest(archive))
+        self.assertFalse((self.directory / "rebound").exists())
+
+    def test_reuse_rejects_unsafe_or_duplicate_archive_members_without_extracting_them(self):
+        archive, _ = self.previous_source()
+        outside = self.directory / "must-not-be-written"
+        additional = [
+            ("corresponding-source/../../must-not-be-written", tarfile.REGTYPE),
+            (str(outside), tarfile.REGTYPE),
+            ("corresponding-source/source-manifest.json", tarfile.REGTYPE),
+            ("corresponding-source/link", tarfile.SYMTYPE),
+            ("corresponding-source/link", tarfile.LNKTYPE),
+        ]
+        for index, (name, kind) in enumerate(additional):
+            damaged = self.directory / f"unsafe-{index}.tar.gz"
+            with tarfile.open(archive, "r:gz") as old, tarfile.open(damaged, "w:gz") as new:
+                for member in old:
+                    new.addfile(member, old.extractfile(member))
+                extra = tarfile.TarInfo(name)
+                extra.type = kind
+                if kind == tarfile.REGTYPE:
+                    extra.size = len(b"overwrite")
+                    new.addfile(extra, io.BytesIO(b"overwrite"))
+                else:
+                    extra.linkname = str(outside)
+                    new.addfile(extra)
+            with self.subTest(name=name, kind=kind), self.assertRaises(ValueError):
+                self.reuse(damaged, sources.digest(damaged))
+            self.assertFalse((self.directory / "rebound").exists())
+            self.assertFalse(outside.exists())
+
+    def test_non_tar_seed_with_valid_outer_digest_is_rejected(self):
+        archive = self.directory / "damaged.tar.gz"
+        archive.write_bytes(b"not a tar archive")
+        with self.assertRaises((ValueError, tarfile.TarError, OSError)):
+            self.reuse(archive, sources.digest(archive))
+        self.assertFalse((self.directory / "rebound").exists())
 
     def test_image_inventory_uses_immutable_inspected_id(self):
         inspected = {"Id": self.image["id"], "Os": "linux", "Architecture": "arm64", "RepoDigests": []}
