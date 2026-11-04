@@ -23,6 +23,7 @@ AUDIT_CURSOR_LIMIT = 8192
 
 
 class AuditResourceKind(StrEnum):
+    QUEUE = "queue"
     RESOURCE = "resource"
     TASK = "task"
     WORKFLOW = "workflow"
@@ -34,6 +35,7 @@ class AuditActorClass(StrEnum):
 
 
 class AuditReadKind(StrEnum):
+    QUEUE_HOLDS = "queue_holds"
     ADMISSION_INSPECT = "admission_inspect"
     TASK_ADMISSION_INSPECT = "task_admission_inspect"
     TASK_INSPECT = "task_inspect"
@@ -105,6 +107,12 @@ class AuditEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class AuditQueue:
+    queue: str
+    kind: Literal["queue"] = field(default="queue", init=False)
+
+
+@dataclass(frozen=True, slots=True)
 class AuditResourcePolicy:
     name: str
     kind: Literal["resource"] = field(default="resource", init=False)
@@ -146,7 +154,28 @@ class AuditTaskAdmissionReleased:
     reason: str
     kind: Literal["task_admission_released"] = field(default="task_admission_released", init=False)
 
-AuditResource = AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage | AuditEffect | AuditResourcePolicy | AuditAdmission | AuditTaskAdmission
+@dataclass(frozen=True, slots=True)
+class AuditQueuePolicyAccepted:
+    queue: str
+    request_id: str
+    revision: int
+    policy_digest: str
+    reason: str
+    kind: Literal["queue_policy_accepted"] = field(default="queue_policy_accepted", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditQueueHoldReleased:
+    queue: str
+    task_id: str
+    attempt_id: str
+    request_id: str
+    revision: int
+    reason: str
+    kind: Literal["queue_hold_released"] = field(default="queue_hold_released", init=False)
+
+
+AuditResource = AuditQueue | AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage | AuditEffect | AuditResourcePolicy | AuditAdmission | AuditTaskAdmission
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +213,7 @@ class AuditEvent:
     recorded_at: int
     audience: AuditAudience
     actor: AuditActor
-    operation: AuditAcceptance | AuditSensitiveResponse | AuditEffectResolved | AuditResourcePolicyAccepted | AuditAdmissionReleased | AuditTaskAdmissionReleased
+    operation: AuditQueuePolicyAccepted | AuditQueueHoldReleased | AuditAcceptance | AuditSensitiveResponse | AuditEffectResolved | AuditResourcePolicyAccepted | AuditAdmissionReleased | AuditTaskAdmissionReleased
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +286,7 @@ def _resource(raw):
         codec.fields(raw, {"kind", "occurrence"})
         return AuditAdmission(_admission_occurrence(raw["occurrence"]))
     shapes = {
+        "queue": (AuditQueue, ("queue",)),
         "resource": (AuditResourcePolicy, ("name",)),
         "task": (AuditTask, ("task_id",)),
         "workflow": (AuditWorkflow, ("workflow_id",)),
@@ -323,6 +353,21 @@ def _event(raw, scope):
         predecessor = _predecessor(operation["supersedes_resolution_id"], resolution_id)
         operation = AuditEffectResolved(occurrence, resolution_id, accepted, basis, predecessor,
                                         EffectAssessmentKind(operation["assessment_kind"]))
+    elif kind in {"queue_policy_accepted", "queue_hold_released"}:
+        from .admission_models import digest
+        fields = {"kind", "queue", "request_id", "revision", "reason"}
+        fields.update({"policy_digest"} if kind == "queue_policy_accepted" else {"task_id", "attempt_id"})
+        codec.fields(operation, fields)
+        queue = codec.text(operation["queue"], "queue")
+        request_id = codec.text(operation["request_id"], "request_id")
+        revision = codec.integer(operation["revision"], "revision", 1)
+        reason = codec.text(operation["reason"], "reason", 1024)
+        if kind == "queue_policy_accepted":
+            digest(operation["policy_digest"])
+            operation = AuditQueuePolicyAccepted(queue, request_id, revision, operation["policy_digest"], reason)
+        else:
+            operation = AuditQueueHoldReleased(queue, codec.text(operation["task_id"], "task_id"),
+                                               codec.text(operation["attempt_id"], "attempt_id"), request_id, revision, reason)
     elif kind == "resource_policy_accepted":
         from .admission_models import digest, integer
         codec.fields(operation, {"kind", "name", "request_id", "revision", "policy_digest", "reason"})
@@ -354,6 +399,7 @@ def _event(raw, scope):
             AuditReadKind.LOCAL_STEP_INSPECT: AuditLocalStep, AuditReadKind.APPROVAL_INSPECT: AuditApproval,
             AuditReadKind.APPROVAL_LIST: AuditApprovalPage, AuditReadKind.APPROVAL_DECISION: AuditApproval,
             AuditReadKind.EFFECT_INSPECT: AuditEffect,
+            AuditReadKind.QUEUE_HOLDS: AuditQueue,
             AuditReadKind.ADMISSION_INSPECT: AuditAdmission,
             AuditReadKind.TASK_ADMISSION_INSPECT: AuditTaskAdmission,
         }[operation.read]
@@ -374,6 +420,8 @@ def _matches(event, selected):
         return isinstance(operation, AuditAcceptance) and all(
             getattr(operation, name) == selected[name]
             for name in ("workflow_id", "key", "activation_id", "revision", "decision_id"))
+    if isinstance(operation, (AuditQueuePolicyAccepted, AuditQueueHoldReleased)):
+        return selected["resource_kind"] == "queue" and selected["resource_id"] == operation.queue
     if isinstance(operation, AuditResourcePolicyAccepted):
         return selected["resource_kind"] == "resource" and selected["resource_id"] == operation.name
     if isinstance(operation, AuditTaskAdmissionReleased):
@@ -385,6 +433,8 @@ def _matches(event, selected):
         return selected["resource_kind"] == "task" and selected["resource_id"] == resource.occurrence.task_id
     if isinstance(resource, AuditAdmission):
         return selected["resource_kind"] == "workflow" and selected["resource_id"] == resource.occurrence.workflow_id
+    if isinstance(resource, AuditQueue):
+        return selected["resource_kind"] == "queue" and selected["resource_id"] == resource.queue
     if isinstance(resource, AuditResourcePolicy):
         return selected["resource_kind"] == "resource" and selected["resource_id"] == resource.name
     actual_kind = "task" if isinstance(resource, AuditTask) else "workflow"

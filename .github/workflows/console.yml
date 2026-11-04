@@ -69,6 +69,10 @@ jobs:
           python tools/check-console.py --binaries target/debug --console-dist console/dist \
             --evidence "$RUNNER_TEMP/console-native" \
             --browser-command pnpm --dir console test:live
+      - name: Exercise credential-bound queue management in Chromium and WebKit
+        run: |
+          python tools/check-queue-concurrency.py --scenario browser --binaries target/debug --console-dist console/dist \
+            --evidence "$RUNNER_TEMP/console-queue-policy" --browser-command pnpm --dir console test:live
       - name: Preserve failures and exact acceptance evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -76,6 +80,7 @@ jobs:
           name: console-qualification
           if-no-files-found: ignore
           path: |
+            ${{ runner.temp }}/console-queue-policy
             ${{ runner.temp }}/console-native
             console/playwright-report
             console/test-results

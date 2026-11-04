@@ -49,7 +49,11 @@ pub(crate) async fn load_attempt(
         .fetch_optional(connection)
         .await?
         .ok_or(ContractError::NotFound)?;
-    Ok(codec::attempt(&row, task)?)
+    let mut attempt = codec::attempt(&row, task)?;
+    use sqlx::Row;
+    attempt.deadline = u64::try_from(row.try_get::<i64, _>("effective_deadline_ms")?)
+        .map_err(|_| ContractError::Unavailable("invalid effective deadline".into()))?;
+    Ok(attempt)
 }
 
 /// Old cursor context is one MVCC snapshot, never a write source. Column aliases
@@ -112,6 +116,9 @@ pub(crate) async fn apply<R>(
     connection: &mut PgConnection,
     transition: &Transition<R>,
 ) -> StoreResult<()> {
+    // Admission resource/request precede the queue row that an attempt
+    // transition locks. Recovery, cancellation and submission share this order.
+    crate::task_admission::apply_transition(connection, transition).await?;
     if let Some(a) = &transition.attempt {
         let expires = codec::ms(a.lease.expires_at)?;
         let horizon = codec::ms(a.authority_deadline)?;
@@ -126,11 +133,10 @@ pub(crate) async fn apply<R>(
             .transpose()?;
         let updated=sqlx::query!("UPDATE attempts SET expires_at_ms=$2, authority_deadline_ms=$3, state=$4, execution_may_have_started=$5, last_renew_sequence=($6::text)::ldg_u64, last_renew_intent=$7, quiescence=$8, finished_at_ms=$9 WHERE attempt_id=$1",a.lease.owner.attempt_id,expires,horizon,state,a.execution_may_have_started,sequence,intent,quiet,finished)
             .execute(&mut *connection).await?;
-        if a.task_admission.is_some() && updated.rows_affected() != 1 {
-            return Err(ContractError::Unavailable(
-                "governed attempt transition was not persisted".into(),
-            )
-            .into());
+        if updated.rows_affected() != 1 {
+            return Err(
+                ContractError::Unavailable("attempt transition was not persisted".into()).into(),
+            );
         }
         if let Some(accepted) = &a.settlement {
             let bytes = codec::encode(&accepted.command)?;
@@ -166,21 +172,18 @@ pub(crate) async fn apply<R>(
     let count = i64::from(t.attempt_count);
     let binding = sqlx::query!("UPDATE tasks SET state=$2,available_at_ms=$3,terminal_at_ms=$4,current_attempt_id=$5,attempt_count=$6,cancel_requested_at_ms=$7,next_expiry_ms=(SELECT LEAST(expires_at_ms,authority_deadline_ms) FROM attempts WHERE attempt_id=$5 AND task_id=$1) WHERE task_id=$1 RETURNING dispatch_destination",t.task_id,state,available,terminal,t.current_attempt_id,count,cancelled)
         .fetch_one(&mut *connection).await?;
-    if t.input.admission.is_some() {
-        if transition
+    if t.input.admission.is_some()
+        && transition
             .history
             .iter()
             .any(|e| e.reason == TransitionReason::AdmissionDeferred)
-        {
-            let verified:Option<bool>=sqlx::query_scalar("UPDATE tasks SET admission_deferrals=$2 WHERE task_id=$1 RETURNING admission_deferrals=$2 AND attempt_count=$3 AND state=$4 AND current_attempt_id IS NULL").bind(&t.task_id).bind(i64::from(t.admission_deferrals)).bind(count).bind(&state).fetch_optional(&mut *connection).await?;
-            if verified != Some(true) {
-                return Err(ContractError::Unavailable(
-                    "governed deferral was not persisted".into(),
-                )
-                .into());
-            }
+    {
+        let verified:Option<bool>=sqlx::query_scalar("UPDATE tasks SET admission_deferrals=$2 WHERE task_id=$1 RETURNING admission_deferrals=$2 AND attempt_count=$3 AND state=$4 AND current_attempt_id IS NULL").bind(&t.task_id).bind(i64::from(t.admission_deferrals)).bind(count).bind(&state).fetch_optional(&mut *connection).await?;
+        if verified != Some(true) {
+            return Err(
+                ContractError::Unavailable("governed deferral was not persisted".into()).into(),
+            );
         }
-        crate::task_admission::apply_transition(connection, transition).await?;
     }
     history(connection, &transition.history).await?;
     // Submission creates its initial obligation separately in the same task

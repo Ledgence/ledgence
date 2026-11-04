@@ -192,3 +192,46 @@ it("binds effect inspection to one exact workflow occurrence", () => {
     }),
   ).toThrow();
 });
+
+it("binds audited hold reads to a queue and preserves queue write revisions beyond JS precision", () => {
+  const event = acceptanceEvent();
+  const read = {
+    kind: "sensitive_response",
+    read: "queue_holds",
+    resource: { kind: "queue", queue: "bank" },
+  };
+  expect(auditEvent({ ...event, operation: read }).operation).toEqual(read);
+  expect(() =>
+    auditEvent({
+      ...event,
+      operation: { ...read, resource: { kind: "task", task_id: "task_1" } },
+    }),
+  ).toThrow();
+  const common = {
+    queue: "bank",
+    request_id: "request_1",
+    reason: "Change confirmed by operator",
+    revision: "9007199254740993",
+  };
+  for (const operation of [
+    {
+      ...common,
+      kind: "queue_policy_accepted",
+      policy_digest: "sha256:" + "a".repeat(64),
+    },
+    {
+      ...common,
+      kind: "queue_hold_released",
+      task_id: "task_1",
+      attempt_id: "att_1",
+    },
+  ]) {
+    expect(auditEvent({ ...event, operation }).operation).toEqual(operation);
+    expect(() =>
+      auditEvent({
+        ...event,
+        operation: { ...operation, revision: Number(common.revision) },
+      }),
+    ).toThrow();
+  }
+});

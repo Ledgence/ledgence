@@ -323,3 +323,7 @@ A restored deployment must start with external admission quarantine and provider
 `declared_restore_quarantine` before reconciliation. Either fence blocks fresh
 composed grants; late original evidence remains admissible. See
 [resource admission](resource-admission.md#restore-and-operate).
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C11 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

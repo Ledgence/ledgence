@@ -7,7 +7,7 @@ fn main() {
         Some("--write") => std::fs::write(
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/tests/fixtures/console-v10.json"
+                "/tests/fixtures/console-v11.json"
             ),
             output,
         )

@@ -291,7 +291,7 @@ page = await client.audit.list(
 )
 ```
 
-Console C10 renders each wait episode and its resumed entrypoint. An accepted
+Console C11 renders each wait episode and its resumed entrypoint. An accepted
 operation result has its own occurrence-bound inspector. Offer or Start alone
 does not fabricate an executed operation. Graph metadata does not expose arguments
 or results. Protected dispatch has a typed provider record and separate admission and business-result waits; it does not fabricate a generic accepted-operation result. The scope-free `/v1/console/admissions/inspect` wrapper binds the
@@ -380,3 +380,7 @@ the server. Upgrade all consumers on a shared broker destination, or route
 governed work to a queue served only by matching workers, before allowing
 repeated capacity deferrals to exceed this limit. Integrated HTTP acquisition
 excludes governed assignments for older sessions.
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C11 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

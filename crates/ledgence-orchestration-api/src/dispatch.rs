@@ -461,6 +461,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            queue_concurrency: false,
             task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,            descriptor: ProgramDescriptor {
@@ -491,6 +492,27 @@ mod tests {
             },
         }
     }
+    #[test]
+    fn queue_capacity_marker_preserves_existing_assignment_shape_and_rejects_null() {
+        let mut example = assigned();
+        let a = assignment(&mut example);
+        let mut wire = serde_json::to_value(&*a).unwrap();
+        assert!(wire.get("queue_concurrency").is_none());
+        let legacy: Assignment = serde_json::from_value(wire.clone()).unwrap();
+        assert!(!legacy.queue_concurrency);
+        a.queue_concurrency = true;
+        wire = serde_json::to_value(&*a).unwrap();
+        assert_eq!(wire["queue_concurrency"], true);
+        assert!(
+            serde_json::from_value::<Assignment>(wire.clone())
+                .unwrap()
+                .queue_concurrency
+        );
+        wire["queue_concurrency"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<Assignment>(wire).is_err());
+        assert!(a.event.value().get("queue_concurrency").is_none());
+    }
+
     fn assignment(reply: &mut ClaimReply) -> &mut Assignment {
         let ClaimDisposition::Claimed {
             reply: AcquireReply::Assigned { assignment, .. },

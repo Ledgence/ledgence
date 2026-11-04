@@ -125,18 +125,22 @@ pub enum AuditReadKind {
     EffectInspect,
     AdmissionInspect,
     TaskAdmissionInspect,
+    QueueHolds,
 }
 impl AuditReadKind {
     fn matches(self, resource: &AuditResource) -> bool {
         matches!(
             (self, resource),
-            (
-                Self::TaskInspect | Self::TaskResult,
-                AuditResource::Task { .. }
-            ) | (
-                Self::WorkflowResult | Self::WorkflowInput,
-                AuditResource::Workflow { .. }
-            ) | (Self::LocalStepInspect, AuditResource::LocalStep { .. })
+            (Self::QueueHolds, AuditResource::Queue { .. })
+                | (
+                    Self::TaskInspect | Self::TaskResult,
+                    AuditResource::Task { .. }
+                )
+                | (
+                    Self::WorkflowResult | Self::WorkflowInput,
+                    AuditResource::Workflow { .. }
+                )
+                | (Self::LocalStepInspect, AuditResource::LocalStep { .. })
                 | (
                     Self::ApprovalInspect | Self::ApprovalDecision,
                     AuditResource::Approval { .. }
@@ -154,6 +158,7 @@ impl AuditReadKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditResourceKind {
+    Queue,
     Resource,
     Task,
     Workflow,
@@ -161,6 +166,9 @@ pub enum AuditResourceKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditResource {
+    Queue {
+        queue: String,
+    },
     TaskAdmission {
         occurrence: TaskAdmissionOccurrence,
     },
@@ -198,6 +206,7 @@ pub enum AuditResource {
 impl AuditResource {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
+            Self::Queue { queue } => (AuditResourceKind::Queue, queue),
             Self::Task { task_id } => (AuditResourceKind::Task, task_id),
             Self::TaskAdmission { occurrence } => (AuditResourceKind::Task, &occurrence.task_id),
             Self::Resource { name } => (AuditResourceKind::Resource, name),
@@ -254,6 +263,21 @@ impl AuditResource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditOperation {
+    QueuePolicyAccepted {
+        queue: String,
+        request_id: String,
+        revision: u64,
+        policy_digest: ledgence_worker_api::Digest,
+        reason: String,
+    },
+    QueueHoldReleased {
+        queue: String,
+        task_id: String,
+        attempt_id: String,
+        request_id: String,
+        revision: u64,
+        reason: String,
+    },
     TaskAdmissionReleased {
         occurrence: TaskAdmissionOccurrence,
         source_id: String,
@@ -300,6 +324,9 @@ pub enum AuditOperation {
 impl AuditOperation {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
+            Self::QueuePolicyAccepted { queue, .. } | Self::QueueHoldReleased { queue, .. } => {
+                (AuditResourceKind::Queue, queue)
+            }
             Self::ResourcePolicyAccepted { name, .. } => (AuditResourceKind::Resource, name),
             Self::TaskAdmissionReleased { occurrence, .. } => {
                 (AuditResourceKind::Task, &occurrence.task_id)
@@ -318,6 +345,33 @@ impl AuditOperation {
     }
     pub fn validate(&self) -> Result<()> {
         match self {
+            Self::QueuePolicyAccepted {
+                queue,
+                request_id,
+                revision,
+                policy_digest,
+                reason,
+            } => {
+                validate_text(queue, 128)?;
+                validate_text(request_id, 128)?;
+                crate::admission::positive(*revision)?;
+                policy_digest.validate()?;
+                validate_text(reason, 1024)?;
+            }
+            Self::QueueHoldReleased {
+                queue,
+                task_id,
+                attempt_id,
+                request_id,
+                revision,
+                reason,
+            } => {
+                for id in [queue, task_id, attempt_id, request_id] {
+                    validate_text(id, 128)?;
+                }
+                crate::admission::positive(*revision)?;
+                validate_text(reason, 1024)?;
+            }
             Self::TaskAdmissionReleased {
                 occurrence,
                 source_id,

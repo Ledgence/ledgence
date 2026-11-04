@@ -120,6 +120,7 @@ async fn instance_initialization_serializes_competing_first_bindings() {
 async fn instance_binding_rejects_configuration_only_and_expired_foreign_rows() {
     for statement in [
         "INSERT INTO dispatch_routes(tenant_id,namespace,queue) VALUES('other','other','q')",
+        "INSERT INTO queue_concurrency_policies(tenant_id,namespace,queue,revision,updated_at_ms) VALUES('other','other','orphaned-queue',1,1)",
         "INSERT INTO completion_destinations(tenant_id,namespace,destination,binding) VALUES('other','other','d','local')",
         "INSERT INTO retention_turn(tenant_id,namespace,lane) VALUES('other','other',0)",
         "INSERT INTO retention_scans(tenant_id,namespace,lane) VALUES('other','other','task')",
@@ -434,26 +435,7 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
     use sqlx::AssertSqlSafe;
     let db = TestDb::new().await;
     let mut connection = db.store.pool.acquire().await.unwrap();
-    for table in [
-        "tasks",
-        "workflow_runs",
-        "worker_sessions",
-        "dispatch_routes",
-        "completion_destinations",
-        "completion_subscriptions",
-        "retention_scans",
-        "retention_turn",
-        "console_programs",
-        "console_program_versions",
-        "operator_audit_events",
-        "approved_effect_occurrences",
-        "approved_effect_evidence_entries",
-        "provider_operations",
-        "provider_probe_tasks",
-        "provider_invocations",
-        "provider_reports",
-        "provider_terminal_facts",
-    ] {
+    for table in crate::instance::SCOPED_TABLES {
         sqlx::query(AssertSqlSafe(format!("CREATE TEMP TABLE {table}(tenant_id text COLLATE \"C\" NOT NULL,namespace text COLLATE \"C\" NOT NULL)")))
             .execute(&mut *connection).await.unwrap();
         sqlx::query(AssertSqlSafe(format!(
@@ -490,29 +472,13 @@ async fn instance_scope_audit_uses_indexed_extremes_and_detects_both_sides() {
     .await
     .unwrap()
     .join("\n");
-    println!("Instance indexed scope audit, 100k rows in each of eighteen tables:\n{plan}");
+    println!("Instance indexed scope audit, 100k rows per scoped table:\n{plan}");
     assert!(!plan.contains("Seq Scan"));
-    assert_eq!(plan.matches("Index Only Scan").count(), 36);
-    for table in [
-        "tasks",
-        "workflow_runs",
-        "worker_sessions",
-        "dispatch_routes",
-        "completion_destinations",
-        "completion_subscriptions",
-        "retention_scans",
-        "retention_turn",
-        "console_programs",
-        "console_program_versions",
-        "operator_audit_events",
-        "approved_effect_occurrences",
-        "approved_effect_evidence_entries",
-        "provider_operations",
-        "provider_probe_tasks",
-        "provider_invocations",
-        "provider_reports",
-        "provider_terminal_facts",
-    ] {
+    assert_eq!(
+        plan.matches("Index Only Scan").count(),
+        2 * crate::instance::SCOPED_TABLES.len()
+    );
+    for table in crate::instance::SCOPED_TABLES {
         for (tenant, namespace) in [
             ("a", "billing"),
             ("z", "billing"),

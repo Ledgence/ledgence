@@ -16,7 +16,11 @@ if (
   throw new Error(
     "Use an absolute /console/ URL without credentials, query or fragment.",
   );
+// The queue-policy suite exercises a separate credential-bound disposable instance.
+const queueSuite = process.env.LEDGENCE_CONSOLE_LIVE_SUITE === "queue-policies";
 export default defineConfig({
+  testMatch: queueSuite ? ["**/queue-policies.spec.ts"] : ["**/*.spec.ts"],
+  testIgnore: queueSuite ? [] : ["**/queue-policies.spec.ts"],
   testDir: "./tests/live",
   workers: 1,
   fullyParallel: false,
@@ -24,12 +28,23 @@ export default defineConfig({
   retries: 0,
   timeout: 60000,
   expect: { timeout: 10000 },
-  outputDir: "test-results/live",
+  outputDir: queueSuite ? "test-results/queue-live" : "test-results/live",
   reporter: [
     ["list"],
-    ["html", { open: "never", outputFolder: "playwright-report/live" }],
+    [
+      "html",
+      {
+        open: "never",
+        outputFolder: queueSuite
+          ? "playwright-report/queue-live"
+          : "playwright-report/live",
+      },
+    ],
   ],
-  use: { baseURL: url.toString(), trace: "retain-on-failure" },
+  use: {
+    baseURL: url.toString(),
+    trace: queueSuite ? "off" : "retain-on-failure",
+  },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "webkit", use: { ...devices["Desktop Safari"] } },

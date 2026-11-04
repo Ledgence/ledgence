@@ -48,6 +48,7 @@ use tokio::{
 #[derive(Default)]
 struct Mock {
     evidence_capabilities: AtomicUsize,
+    queue_policies_enabled: AtomicBool,
     admission_enabled: AtomicBool,
     provider_admission_enabled: AtomicBool,
     resolution_mode: AtomicUsize,
@@ -95,6 +96,14 @@ impl Mock {
     }
 }
 impl TaskService for Mock {
+    fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
+        if self.queue_policies_enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable("queue policies disabled".into()))
+        }
+    }
+
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move { self.reply("claim", command) })
     }
@@ -383,6 +392,7 @@ async fn all_methods_roundtrip_scoped_opaque_ids_and_lossless_application_values
     }];
     mock.set("history", Ok(history.clone()));
     let assignment = Assignment {
+        queue_concurrency: false,
         task_admission: None,
         provider_probe: None,
         workflow_activation_id: None,
@@ -2216,6 +2226,7 @@ async fn targeted_claim_roundtrips_every_handoff_disposition_and_lossless_payloa
     let assigned = AcquireReply::Assigned {
         sequence: command.acquisition.sequence,
         assignment: Box::new(Assignment {
+            queue_concurrency: false,
             task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,

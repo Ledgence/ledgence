@@ -29,14 +29,14 @@ from .admission_models import (
 from .errors import InputError
 
 
-async def _exchange(client, path, value, parser):
+async def _exchange(client, path, value, parser, *, limit=LIMIT):
     return await client._require_transport().exchange(
         "POST",
         path,
         body=codec.encode(value, 160 * 1024, max_depth=96),
         deadline=asyncio.get_running_loop().time() + client.request_timeout,
         parser=lambda raw: parsed(raw, parser),
-        limit=LIMIT,
+        limit=limit,
     )
 
 

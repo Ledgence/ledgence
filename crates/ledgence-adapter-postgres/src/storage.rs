@@ -3,6 +3,9 @@ use ledgence_orchestration_core as core;
 use ledgence_worker_api::ProgramDescriptor;
 
 impl TaskStore for PostgresStore {
+    fn queue_policies(&self) -> Result<&dyn QueuePolicyStore> {
+        Ok(self)
+    }
     fn task_admissions(&self) -> Result<&dyn TaskAdmissionStore> {
         self.admission_configured()?;
         Ok(self)

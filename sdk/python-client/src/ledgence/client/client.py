@@ -53,6 +53,7 @@ class AsyncClient:
         from .audit import Audit
         from .effects import Effects
         from .admissions import Resources, Admissions
+        from .queue_policies import QueuePolicies
         from .task_admissions import TaskAdmissions
         self._base_url = _endpoint(base_url)
         if token is not None and credentials_file is not None:
@@ -70,6 +71,7 @@ class AsyncClient:
         self.audit = Audit(self)
         self.effects = Effects(self)
         self.resources = Resources(self)
+        self.queue_policies = QueuePolicies(self)
         self.admissions = Admissions(self)
         self.task_admissions = TaskAdmissions(self)
         self._transport: _Transport | None = None

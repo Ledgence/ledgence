@@ -4,7 +4,7 @@
 use crate::args::invalid;
 use ledgence_orchestration_api::Result;
 
-pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  resource      Configure shared resource capacity\n  admission     Inspect and release retained resource usage\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
+pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  resource      Configure shared resource capacity\n  queue         Manage queue concurrency and retained slots\n  admission     Inspect and release retained resource usage\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
@@ -29,6 +29,36 @@ struct Leaf {
 }
 
 const COMMANDS: &[Leaf] = &[
+    Leaf {
+        group: "queue",
+        name: "list",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME [--after QUEUE] [--limit 1..100]",
+        description: "List policies and occupied slots in this instance scope.",
+    },
+    Leaf {
+        group: "queue",
+        name: "inspect",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --queue NAME",
+        description: "Inspect configured capacity, revision and uncertain slots.",
+    },
+    Leaf {
+        group: "queue",
+        name: "holds",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --queue NAME [--after CURSOR] [--limit 1..100] [--include-released true|false]",
+        description: "Inspect exact held attempts. Every successful read is audited and requires sensitive_read.",
+    },
+    Leaf {
+        group: "queue",
+        name: "put",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --file COMMAND.json",
+        description: "Create or update a queue policy from a destination-bound command. Zero pauses new attempts and null removes the ceiling. Forced release after grace may admit work while the original operation is unconfirmed. Requires resource_control. Retry the unchanged file after a lost response.",
+    },
+    Leaf {
+        group: "queue",
+        name: "release",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --file COMMAND.json",
+        description: "Release an uncertain inspected hold. The old operation could still be running. Requires resource_control and an explicit reason. Retry the exact saved command.",
+    },
     Leaf {
         group: "resource",
         name: "list",
@@ -80,7 +110,7 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "audit",
         name: "list",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--task ID | --workflow ID | --resource NAME] [--cursor CURSOR] [--limit 1..100]",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME [--task ID | --workflow ID | --resource NAME | --queue NAME] [--cursor CURSOR] [--limit 1..100]",
         description: "Read one bounded page of audit events without task/workflow inputs or outputs. Resource policy and admission release events include retained operator reasons. Requires metadata_read in credential mode. Filtering covers the named execution or resource policy. Preserve filters with next_cursor. Pages are ordered observations, not a snapshot across concurrent commits.",
     },
     Leaf {

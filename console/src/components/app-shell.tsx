@@ -7,6 +7,7 @@ import {
   BookOpen,
   Inbox,
   ShieldCheck,
+  ListTree,
   FileText,
   Layers2,
   LogOut,
@@ -28,6 +29,7 @@ const sections = [
   { to: "/programs", title: "Programs", icon: Layers2 },
   { to: "/approvals", title: "Approvals", icon: Inbox },
   { to: "/effects", title: "Effects", icon: ShieldCheck },
+  { to: "/queues", title: "Queues", icon: ListTree },
   { to: "/workers", title: "Workers", icon: Server },
 ];
 
@@ -70,10 +72,12 @@ function AccountControls({
 export function AppShell({
   instanceName,
   serverVersion,
+  queuePoliciesEnabled = false,
   children,
 }: {
   instanceName: string;
   serverVersion?: string | undefined;
+  queuePoliciesEnabled?: boolean;
   children: ReactNode;
 }) {
   const { pathname } = useLocation();
@@ -155,18 +159,25 @@ export function AppShell({
             className="navigation shell-navigation"
             aria-label="Main navigation"
           >
-            {sections.map(({ to, title, icon: Icon }) => (
-              <Link
-                key={to}
-                to={to}
-                aria-label={title}
-                title={collapsed ? title : undefined}
-                aria-current={to === `/${activeSection}` ? "page" : undefined}
-              >
-                <Icon aria-hidden="true" />
-                <span className="sidebar-label">{title}</span>
-              </Link>
-            ))}
+            {sections
+              .filter(
+                ({ to }) =>
+                  to !== "/queues" ||
+                  (queuePoliciesEnabled &&
+                    identity?.capabilities.includes("metadata_read")),
+              )
+              .map(({ to, title, icon: Icon }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  aria-label={title}
+                  title={collapsed ? title : undefined}
+                  aria-current={to === `/${activeSection}` ? "page" : undefined}
+                >
+                  <Icon aria-hidden="true" />
+                  <span className="sidebar-label">{title}</span>
+                </Link>
+              ))}
           </nav>
           <div className="sidebar-footer shell-sidebar-footer">
             {identity && <AccountControls {...identity} />}

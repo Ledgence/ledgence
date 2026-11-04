@@ -14,6 +14,8 @@ mod effect_resolution;
 mod provider;
 #[path = "provider_admission.rs"]
 mod provider_admission;
+#[path = "queue_policies.rs"]
+mod queue_policies;
 struct Verifier {
     audience: AccessAudience,
 }

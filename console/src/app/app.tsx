@@ -29,6 +29,7 @@ import {
   ApprovalReviewPage,
 } from "../features/approval-inbox";
 
+import { QueuesPage } from "../features/queues/page";
 import { EffectsPage, EffectReviewPage } from "../features/effects";
 
 function Console() {
@@ -41,6 +42,7 @@ function Console() {
     <AppShell
       instanceName={config.data?.instance_name ?? "Ledgence"}
       serverVersion={config.data?.server_version}
+      queuePoliciesEnabled={config.data?.capabilities.queue_policies ?? false}
     >
       {config.isPending ? (
         <LoadingState label="Connecting to your instance" />
@@ -91,6 +93,7 @@ function Console() {
               path="agents/:programId/versions/:version"
               element={<ProgramVersionPage />}
             />
+            <Route path="queues" element={<QueuesPage />} />
             <Route path="workers" element={<WorkersPage />} />
             <Route
               path="workers/:workerSessionId"

@@ -201,6 +201,9 @@ pub struct Authority {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
+    /// Fresh assignments with queue capacity holds request a source-bound cleanup receipt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub queue_concurrency: bool,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -420,6 +423,17 @@ pub struct RecordedHistoryEvent {
 /// Service boundary implemented by future transport adapters. A successful
 /// mutation reply is permitted only after durable transactional acceptance.
 pub trait TaskService: Send + Sync {
+    fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
+        Err(ContractError::Unavailable(
+            "queue policy operations unavailable".into(),
+        ))
+    }
+    fn queue_policy_client(&self) -> Result<&dyn QueuePolicyClient> {
+        Err(ContractError::Unavailable(
+            "queue policy client unavailable".into(),
+        ))
+    }
+
     fn task_admissions(&self) -> Result<&dyn TaskAdmissionOperations> {
         Err(ContractError::Unavailable(
             "task admission is unavailable".into(),

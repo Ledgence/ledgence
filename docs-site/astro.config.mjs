@@ -54,6 +54,7 @@ export default defineConfig({
         { label: 'Require approval', slug: 'how-to/require-approval' },
         { label: 'Recover model and tool calls', slug: 'how-to/recover-agent-calls' },
         { label: 'Recover provider operations', slug: 'how-to/recover-provider-operations' },
+        { label: 'Limit a queue across workers (development)', slug: 'how-to/limit-queue-concurrency' },
         { label: 'Share one worker across queues (development)', slug: 'how-to/share-worker-polls' },
         { label: 'Share model and tool capacity (development)', slug: 'how-to/control-resource-capacity' },
       ] },

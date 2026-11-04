@@ -91,6 +91,7 @@ pub fn fixtures() -> Value {
         instance_id: "instance_demo".into(),
         instance_name: "Ledgence".into(),
         capabilities: ConsoleCapabilities {
+            queue_policies: true,
             task_admission: false,
             executions: true,
             workflows: true,
@@ -400,6 +401,48 @@ pub fn fixtures() -> Value {
         .as_object_mut()
         .unwrap()
         .extend(explorer::fixtures().as_object().unwrap().clone());
+    let queue_policy = QueuePolicySnapshot {
+        record: QueuePolicyRecord {
+            scope: Scope {
+                tenant_id: "acme".into(),
+                namespace: "billing".into(),
+            },
+            queue: "billing".into(),
+            revision: 9_007_199_254_740_993,
+            updated_at: 100,
+            policy: QueueConcurrencyPolicy {
+                max_concurrency: Some(5),
+                timeout: Some(QueueHoldTimeout {
+                    after_ms: 30_000,
+                    release: QueueTimeoutRelease::AfterGrace { grace_ms: 5000 },
+                }),
+            },
+        },
+        occupied: 1,
+        uncertain: 1,
+    };
+    queue_policy.validate().unwrap();
+    let queue_hold = QueueHoldSnapshot {
+        scope: queue_policy.record.scope.clone(),
+        queue: "billing".into(),
+        task_id: "task_invoice".into(),
+        attempt_id: "attempt_invoice".into(),
+        worker_session_id: "ws_invoice".into(),
+        consumer_id: 0,
+        revision: 4,
+        state: QueueHoldState::Uncertain,
+        acquired_at: 100,
+        policy_revision: queue_policy.record.revision,
+        deadline: Some(30_100),
+        stop_requested_at: Some(30_500),
+        grace_ms: Some(5000),
+        force_at: Some(35_500),
+        released_at: None,
+        release_kind: None,
+    };
+    queue_hold.validate().unwrap();
+    result["queue_policy_snapshot"] = serde_json::to_value(queue_policy).unwrap();
+    result["queue_hold_snapshot"] = serde_json::to_value(queue_hold).unwrap();
     result["admission"] = explorer::admission_cases();
     result["provider_probe_status"] = serde_json::to_value(ConsoleObservedTaskStatus {
         task: probe_status,

@@ -156,14 +156,18 @@ impl AdmissionOperations for ApplicationService {
         })
     }
 }
-fn operator(p: &VerifiedPrincipal, scope: &Scope, capability: AccessCapability) -> Result<()> {
+pub(super) fn operator(
+    p: &VerifiedPrincipal,
+    scope: &Scope,
+    capability: AccessCapability,
+) -> Result<()> {
     p.require(capability)?;
     if p.class() == PrincipalClass::Worker || &p.audience().scope != scope {
         return Err(ContractError::Forbidden);
     }
     Ok(())
 }
-fn worker(p: &VerifiedPrincipal, scope: &Scope) -> Result<()> {
+pub(super) fn worker(p: &VerifiedPrincipal, scope: &Scope) -> Result<()> {
     AdmissionWorkerIdentity::from_principal(p)?;
     if &p.audience().scope != scope {
         return Err(ContractError::Forbidden);

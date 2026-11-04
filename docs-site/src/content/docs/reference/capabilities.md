@@ -187,7 +187,7 @@ Matching development components add shared capacity and token-bucket policies
 for registered workflow callbacks. Workflows park without a worker slot, then
 resume under a one-shot Start permission. Accepted results survive worker loss;
 uncertain usage remains occupied. CLI, Python, HTTP and MCP expose policy and
-inspection operations, and Console C10 renders the durable wait/result. Protected
+inspection operations, and Console C11 renders the durable wait/result. Protected
 provider dispatch can share a resource through a combined one-shot grant; its
 call completion remains separate from the provider's business outcome. Recovery
 probes are outside that resource limit. Standalone tasks can require the same
@@ -198,3 +198,7 @@ resource before handler invocation. Fair sharing and inherited budgets remain de
 [Configure a worker to poll multiple integrated queues](/how-to/share-worker-polls)
 with one concurrency budget. Choose deterministic Stride or weighted lottery,
 then adjust the weights without interrupting active tasks.
+
+## Queue concurrency in development
+
+Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).

@@ -72,6 +72,7 @@ export function decodeConfig(value: unknown): ConsoleConfig {
     "programs",
     "workers",
     "task_admission",
+    "queue_policies",
   ]);
   const l = record(v.limits, [
     "default_page_size",
@@ -104,6 +105,7 @@ export function decodeConfig(value: unknown): ConsoleConfig {
       programs: flag(c.programs),
       workers: flag(c.workers),
       task_admission: flag(c.task_admission),
+      queue_policies: flag(c.queue_policies),
     },
     suggested_queues: v.suggested_queues.map(text),
     limits: {

@@ -164,6 +164,21 @@ impl PostgresStore {
                 },
             });
         }
+        let gate = if matches!(decision, core::DispatchDecision::Ready) {
+            crate::queue_concurrency::gate(&mut tx, &acquire.scope, &acquire.queue).await?
+        } else {
+            None
+        };
+        if gate.as_ref().is_some_and(|g| g.full) {
+            let available_at = crate::queue_concurrency::defer_broker(
+                &mut tx,
+                &task,
+                destination.as_deref().expect("external route validated"),
+                command.dispatch.generation,
+            )
+            .await?;
+            decision = core::DispatchDecision::Handled(ClaimDisposition::Deferred { available_at });
+        }
         let (transition, disposition) = match decision {
             core::DispatchDecision::Handled(disposition) => {
                 // Task-lock contention can outlive the session even when no
@@ -221,6 +236,13 @@ impl PostgresStore {
                     acquire,
                     claimed_at,
                 )?;
+                crate::queue_concurrency::prepare(
+                    &mut tx,
+                    &mut transition,
+                    gate.as_ref(),
+                    claimed_at,
+                )
+                .await?;
                 crate::task_admission::prepare_assignment(&mut tx, &mut transition, &session)
                     .await?;
                 let disposition = ClaimDisposition::Claimed {
@@ -348,9 +370,9 @@ impl PostgresStore {
             acquire,
             db::now(tx).await?,
         )?;
-        saved.disposition = ClaimDisposition::Claimed {
-            reply: transition.reply,
-        };
+        let mut reply = transition.reply;
+        crate::queue_concurrency::replay(tx, &mut reply).await?;
+        saved.disposition = ClaimDisposition::Claimed { reply };
         saved.validate_reply_against(command)?;
         Ok(())
     }
