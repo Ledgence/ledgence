@@ -14,7 +14,7 @@ The new API serializes revision and sequence values as decimal strings. Program 
 
 ## Unified discovery and execution explorer
 
-Ledgence 0.8.0 uses Console contract version 7, with typed native effect/provider
+Ledgence 0.9.0 uses Console contract version 14, with typed native effect/provider
 waits and these discovery and inspection endpoints. The historical 0.7.0 release
 uses version 5.
 
@@ -308,7 +308,7 @@ can move a request out of a filtered view between page reads. [Inbox contract](w
 
 ## Inspect one local step
 
-Ledgence 0.8.0 accepts `GET /v1/console/workflows/local-steps/inspect` with
+Ledgence 0.9.0 accepts `GET /v1/console/workflows/local-steps/inspect` with
 `workflow_id`, `activation_id` and `step_key`. The server obtains the scope from
 the instance. A successful response contains the local-step summary in `step`,
 a `kind` of `local`, `model` or `tool`, a nullable `version`, and `arguments`
@@ -322,7 +322,9 @@ A missing, mismatched or retired identity returns 404. Invalid parameters return
 400. An adapter without the optional read capability returns 503. Requesting the
 detail reads one retained record and has no execution side effects.
 
-## Admission projections (development C14)
+<span id="admission-projections-development-c14"></span>
+
+## Admission projections
 
 `admission_wait` records a native wait episode, and `admission_operation` records
 an accepted result with its original source activation/attempt. Existing
@@ -333,7 +335,9 @@ and key; the server binds scope and records sensitive-read audit before exposing
 the frozen arguments or retained result. See [admission contract](resource-admission.md).
 
 
-### Protected provider admission (development C9)
+<span id="protected-provider-admission-development-c9"></span>
+
+### Protected provider admission
 
 C9 adds a required `subject` to admission wait metadata: `operation` for an
 ordinary registered call, or `provider` with the immutable original provider
@@ -353,9 +357,11 @@ does not authorize another dispatch.
 Provider admission does not add a successful local-operation node. The ordinary
 accepted-operation node remains reserved for a committed generic callback
 result; recording a provider Start alone does not prove that its callback ran.
-Published Ledgence 0.8.0 continues to use C7; C14 is the current development contract.
+Deploy matching C14 server and assets together.
 
-### Standalone task admission (development C14)
+<span id="standalone-task-admission-development-c14"></span>
+
+### Standalone task admission
 
 When the installation enables task admission, **New execution** offers an optional
 named resource for a task. **Run again** preserves the requirement. In the task's
@@ -366,14 +372,20 @@ work from timestamps. Sensitive evidence is loaded on demand. Expired ownership
 alone does not release an uncertain source. A worker's local quiescence does not
 certify completion of external work.
 
-## Cluster-wide queue concurrency (development)
+<span id="cluster-wide-queue-concurrency-development"></span>
+
+## Cluster-wide queue concurrency
 
 A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
-### Resource offers (development C14)
+<span id="resource-offers-development-c14"></span>
+
+### Resource offers
 
 Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.
 
-### Shared run allowances (development C14)
+<span id="shared-run-allowances-development-c14"></span>
+
+### Shared run allowances
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.

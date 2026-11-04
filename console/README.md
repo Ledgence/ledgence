@@ -28,7 +28,7 @@ preserves the browser Origin. You may retain `http://127.0.0.1:8080` too when us
 the directly served Console in that mode. Credential mode requires exactly one
 selected origin. Prefer the built Console served by the orchestrator at the API's
 own origin; choose the Vite origin alone when testing through its development
-proxy. An unlisted Origin causes requests to be rejected. The development server contains no demo API
+proxy. An unlisted Origin causes requests to be rejected. The 0.9.0 server contains no demo API
 or mock data.
 
 <span id="instance-access-development"></span>
@@ -77,7 +77,7 @@ acceptance attribution is shown separately when the instance supports audit.
 
 Instances without credential configuration retain their explicit
 operator-trusted deployment mode and do not invent an authenticated actor.
-These access capabilities are available in Ledgence 0.8.0 packages.
+These access capabilities are available in Ledgence 0.9.0 packages.
 
 ## Brand assets
 
@@ -267,9 +267,9 @@ and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-This development branch uses Console contract **14** for native admission waits,
+Ledgence 0.9.0 uses Console contract **14** for native admission waits,
 accepted operations and weighted resource offers; deploy matching server and assets together.
-Published Ledgence 0.8.0 remains on contract **7**.
+Upgrade server and assets together when migrating from 0.8.0 (C7).
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
 
 Resources shows per-attempt runtime and Python-process CPU where recorded.
@@ -283,7 +283,7 @@ missing reports never become fabricated process slots.
 ## Interface and dependencies
 
 On desktop, **Collapse sidebar** makes room for the content. Select the Ledgence
-mark to expand the sidebar again. In 0.8.0, choose **System**,
+mark to expand the sidebar again. In 0.9.0, choose **System**,
 **Light** or **Dark** from **Appearance** in the sidebar. On small screens, the
 same control appears beside the navigation links. **System** is the default
 and follows changes to the device appearance. The browser remembers the selected
@@ -297,7 +297,7 @@ full screen with Escape to exit, keeps selection and canvas state, and opens its
 inspector only when work is selected. Secondary evidence remains available in an
 expandable work list.
 
-In 0.8.0, the expanded sidebar shows the connected server version.
+In 0.9.0, the expanded sidebar shows the connected server version.
 Execution history groups its filters and results together. Names and states lead each
 row, with technical IDs beneath the names. State badges pair a label with a symbol.
 Program and worker entries group identity, version or capacity, and related actions.
@@ -315,7 +315,7 @@ material. Ledgence-owned Console code is MIT; third-party licenses remain their 
 
 ### Approval inbox
 
-Ledgence 0.8.0 includes **Approvals** in the main navigation. It lists the
+Ledgence 0.9.0 includes **Approvals** in the main navigation. It lists the
 instance's pending requests across workflows, earliest deadline first. Filter
 by status, exact program ID and **Due before (UTC)**. A deadline exactly at the
 chosen instant is excluded. Opening a request
@@ -361,7 +361,7 @@ view; late responses cannot repopulate it. Credential rotation for the same acto
 preserves a pending command only under the same instance and permissions and
 still requires a deliberate identical retry. Operator-trusted deployments do not
 invent verified identities. Verified attribution preserves the existing approval
-and decision representation. Ledgence 0.8.0 uses matching Console contract 7
+and decision representation. Ledgence 0.9.0 uses matching Console contract 14
 assets and server builds.
 
 ### Inspect a durable operation
@@ -379,7 +379,7 @@ C9 additionally identifies protected provider subjects in admission waits. The
 on-demand admission inspector separates capacity settlement from provider
 business completion and displays the original provider ticket. Provider grants
 are not rendered as successful local-operation nodes. Use matching C14 assets
-and backend; the published 0.8.0 contract remains C7.
+and backend.
 
 C10 adds standalone task resource admission. Task details show the resource,
 charged retries and admission deferrals; open **Resource admission** to inspect
@@ -411,7 +411,9 @@ The test creates a uniquely named policy, pauses and edits it, verifies
 metadata-only access, and leaves it unlimited for database teardown. This
 suite disables retained browser traces and uses separate output directories.
 
-### Resource offers (development C14)
+<span id="resource-offers-development-c14"></span>
+
+### Resource offers
 
 Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.
 
@@ -425,6 +427,8 @@ On adapters that support source discovery, **Inspect retained sources** lists ch
 
 A credential with only `sensitive_read` opens **Resources** with a generic instance label and no suggested queues. Enter a known resource name and choose **Inspect retained sources**. Listing configured resource names, reading offer history and viewing occupancy totals each require `metadata_read`. If the adapter supports source discovery without exact task admission inspection, the Console shows the task identity and generation in the source list and explains the unavailable detail.
 
-### Shared run allowances (development C14)
+<span id="shared-run-allowances-development-c14"></span>
+
+### Shared run allowances
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.

@@ -12,10 +12,7 @@ Use a runtime helper matching your worker. The helper is standard-library-only;
 application integrations and their prepared dependencies belong in the program
 package. No agent framework or model provider is required.
 
-This README describes this package source. Check the
-[release reference](https://docs.ledgence.com/reference/releases) for verified
-registry availability. A source checkout may contain capabilities not yet
-published. The APIs below require matching server and worker support.
+Ledgence 0.9.0 is available on PyPI. Use matching server and worker support. [Release reference](https://docs.ledgence.com/reference/releases).
 
 ## Install for local development
 
@@ -750,6 +747,8 @@ never interpreted as a workflow decision, even when it contains a `kind` field.
 
 See [`docs/workflows.md`](../../docs/workflows.md) for the workflow contract,
 checkpoint limits, cancellation, and recovery semantics.
+
+<span id="durable-resource-admission-development-source"></span>
 
 ## Durable resource admission
 

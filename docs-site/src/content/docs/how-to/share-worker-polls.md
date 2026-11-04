@@ -3,8 +3,7 @@ title: Share one worker across queues
 description: Share a worker across HTTP or SQS Standard queues, update live poll weights and choose a receive wait.
 ---
 
-**Development feature.** Build the worker from the matching development source.
-The released 0.8.0 worker connects to one queue.
+**Available in Ledgence 0.9.0.** Use a matching worker and orchestrator.
 
 Suppose you want seven of every ten polling opportunities to go to interactive
 work and three to batch work when both queues are enabled. Save this as
@@ -24,7 +23,7 @@ work and three to batch work when both queues are enabled. Save this as
 
 Start your existing worker with `--poll-plan ./poll-plan.json` in place of
 `--queue NAME`. Keep the same server, storage, Python runner and credentials.
-For example, from a development checkout with the local server running and its
+For example, from the `v0.9.0` checkout with the local server running and its
 program store at `./store`, run:
 
 ```sh
@@ -66,7 +65,7 @@ To see individual poll choices, start the worker with
 
 ## Connect the same worker to two SQS queues
 
-Keep the poll plan above. It says how often to poll `interactive` and `batch`. A second file tells Ledgence where those queues live. Build matching development binaries with SQS support:
+Keep the poll plan above. It says how often to poll `interactive` and `batch`. A second file tells Ledgence where those queues live. Build matching 0.9.0 binaries with SQS support:
 
 ```sh
 cargo build --locked -p ledgence-cli --features sqs
@@ -95,6 +94,8 @@ This creates eight consumers in total. You can change the weights while work is 
 
 **Choose the receive wait for your workload.** With multiple SQS queues the default is one second. Short waits let a free consumer check another queue sooner but usually cause more empty receive requests. A longer wait can be appropriate for a quiet workload. Set `--acquire-wait-ms 4000` for a four-second wait, or `0` for short polling. SQS uses whole seconds and rounds fractional waits down. Dedicated workers remain useful when one queue must respond promptly even if every consumer of another queue is waiting. SQS receive requests target one physical queue at a time. [AWS long-polling guidance](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/best-practices-setting-up-long-polling.html).
 
-## Queue concurrency in development
+<span id="queue-concurrency-in-development"></span>
+
+## Queue concurrency
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).

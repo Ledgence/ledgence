@@ -109,12 +109,12 @@ user data cannot choose that authority. Lost acknowledgments retry the identical
 record while authority remains live. A returned controller decision uses the
 existing settlement and cleanup path.
 
-Ledgence 0.8.0 workflows can declare `protection: "external_effect"` in their
+Ledgence 0.9.0 workflows can declare `protection: "external_effect"` in their
 approval request. The helper rejects `approved_local` for that saved request,
 and the store checks the persisted wake before accepting any reserved ordinary
 local-result commit. This check applies before the first dispatch grant.
 
-Ledgence 0.8.0 workers also handle `approved_effect.claim` for an approved
+Ledgence 0.9.0 workers also handle `approved_effect.claim` for an approved
 workflow continuation. Unlike a local-result commit, the worker sends a claim
 once; replaying a previously committed grant would permit a second write. It
 checks the receipt against the live owner, approval and action before passing
@@ -126,7 +126,7 @@ confirmation after losing a reply. A valid reply identifies the scope,
 workflow, activation, attempt, approval and journal key. See
 [approved external writes](workflow-approvals.md#protect-an-approved-external-write).
 
-Before starting a connected worker, matching 0.8.0 binaries request
+Before starting a connected worker, matching 0.9.0 binaries request
 `GET /v1/access`. A credentialed connection validates the worker class,
 permissions, scope and expiry. When complete v2 support is advertised, the
 connection retains the returned authority, instance and stable worker identity
@@ -152,9 +152,11 @@ accepted wait releases the same invocation reservation and resumes only through
 the durable coordinator's selected assessment. See
 [native operator rendezvous](effect-evidence.md#park-without-occupying-a-worker).
 
-#### Runtime feature discovery for Rust compositions (development)
+<span id="runtime-feature-discovery-for-rust-compositions-development"></span>
 
-On `develop`, `HttpTaskService::discover_worker_runtime()` returns the validated
+#### Runtime feature discovery for Rust compositions
+
+In Ledgence 0.9.0, `HttpTaskService::discover_worker_runtime()` returns the validated
 feature manifest separately from the optional authenticated effect-evidence
 binding. A valid manifest can retain unknown feature names without enabling
 effect evidence. `DeliveryDriver::with_runtime_features()` carries these names
@@ -166,11 +168,7 @@ A feature name is not execution authority. Native effect resolution and provider
 operations still require their existing evidence prerequisites, and an unknown
 name enables neither operation. Credentialed discovery still rejects invalid
 worker identity, scope, expiry or malformed features before starting the worker.
-The exchange uses the existing request, header and response format; no additional
-startup or per-task request is introduced. The production server continues to
-advertise only its implemented capabilities. This change prepares Rust adapter
-composition; it does not implement shared resource limits or run budgets, and is
-not part of the published 0.8.0 release.
+The exchange uses the existing request, header and response format. The production server advertises the capabilities it implements.
 
 Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
@@ -215,14 +213,16 @@ The original mutation callback keeps the normal workflow-attempt budget. A due
 read-only check can overlap it; neither a missing result nor a lookup miss permits
 resending the mutation.
 
-In matching development builds, authenticated workers can negotiate `task_admission.v1`.
+In matching 0.9.0 builds, authenticated workers can negotiate `task_admission.v1`.
 Capacity waiting occurs before assignment. A governed assignment authorizes
 bounded preparation, never ordinary Dispatch. The runtime-ready grant is checked
 again at the subprocess invocation frame. A lost reply does not authorize replay;
 only authenticated source-bound Close or an audited operator release can free a
 started source. [Standalone task admission](resource-admission.md#standalone-task-admission).
 
-## Worker-local poll plans (development)
+<span id="worker-local-poll-plans-development"></span>
+
+## Worker-local poll plans
 
 `ledgence worker connect --poll-plan FILE` gives one physical worker a fixed set
 of queues in its tenant and namespace. Choose integrated HTTP delivery or SQS delivery for that worker. Use it instead of `--queue`.
@@ -282,6 +282,8 @@ A planned worker with more than one SQS route defaults to a one-second receive w
 local to one worker. Durable resource admission remains a separate limit on
 whether governed work can start; see [resource admission](resource-admission.md).
 
-## Cluster-wide queue concurrency (development)
+<span id="cluster-wide-queue-concurrency-development"></span>
+
+## Cluster-wide queue concurrency
 
 A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

@@ -5,11 +5,11 @@ description: Persist an effective action, review its exact arguments, and resume
 
 Use a durable approval when a reviewer must authorize the exact action your workflow will execute. Ledgence stores the request and releases the worker slot while it waits.
 
-**Availability:** introduced in **Ledgence 0.3.1**; this guide uses **0.8.0** with matching worker, orchestrator, runtime helper, Python client and Console contract **7**. Apply migrations with old writers stopped; follow [Upgrade to 0.8.0](/how-to/upgrade-to-0-8).
+**Availability:** introduced in **Ledgence 0.3.1**; this guide uses **0.9.0** with matching worker, orchestrator, runtime helper, Python client and Console contract **14**. Apply migrations with old writers stopped; follow [Upgrade to 0.9.0](/how-to/upgrade-to-0-9).
 
 ## Prepare the workflow
 
-Start with the [durable approval example](https://github.com/Ledgence/ledgence/blob/v0.8.0/examples/durable-approval/README.md), which includes preparation, publication, and submission instructions for a source deployment. Use host CPython 3.11 or newer, with the same Python major/minor when preparing and running the package. The controller uses runtime protocol **3**.
+Start with the [durable approval example](https://github.com/Ledgence/ledgence/blob/v0.9.0/examples/durable-approval/README.md), which includes preparation, publication, and submission instructions for a source deployment. Use host CPython 3.11 or newer, with the same Python major/minor when preparing and running the package. The controller uses runtime protocol **3**.
 
 Validate and normalize arguments **before** requesting approval. This controller pattern proposes a simulated refund of 100 but limits the effective amount to 50:
 
@@ -118,7 +118,7 @@ Approval, rejection, and expiry resume one logical activation. Cancellation clos
 
 `approved_local` accepts no replacement arguments. It checks the saved callable identity and version, uses a private copy of the approved arguments, and reuses an acknowledged local result on activation retry. The callable remains operator-trusted Python code. An external effect can succeed **before** its local result commits; use the external service's idempotency mechanism or reconcile that gap. Durable approval does not guarantee exactly-once external effects.
 
-For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/workflow-approvals.md).
+For CLI commands, HTTP endpoints, limits, and retention semantics, see the [source approval contract](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/workflow-approvals.md).
 
 <span id="protect-an-approved-write-in-development"></span>
 
@@ -139,10 +139,10 @@ The saved request carries `protection: "external_effect"`. The client echoes it
 when preparing the decision. `approved_local` rejects this occurrence before
 calling the function, even with a cached result. The backend rejects an ordinary
 journal commit for the same occurrence. Existing untagged requests retain their
-behavior. Use matching 0.8.0 clients and Console to review typed requests.
+behavior. Use matching 0.9.0 clients and Console to review typed requests.
 
 Suppose a payment provider accepts a refund just before the worker dies. A
-retry of `approved_local` could send it again. In 0.8.0,
+retry of `approved_local` could send it again. In 0.9.0,
 `await ctx.approved_effect(issue_refund, version="1", lookup=find_refund)`
 asks the orchestrator for permission before making a write. Only one claim
 can permit the send. If no grant committed before the original attempt died,
@@ -161,6 +161,6 @@ to try again. Disable automatic write retries inside the provider client and
 keep the same protected helper on every attempt. Trusted application code
 remains responsible for its own direct provider calls.
 
-This method requires an offline migration and matching 0.8.0 components.
+This method requires an offline migration and matching 0.9.0 components.
 The [source contract and example](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
 explain the upgrade and the limits.

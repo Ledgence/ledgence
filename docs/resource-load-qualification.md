@@ -48,3 +48,46 @@ SQL calls, returned/affected rows, statement WAL bytes and execution time are pe
 - **Provider backoff.** A real workflow calls a throttled endpoint, receives HTTP 429 and parks on a durable timer for the provider's one-second Retry-After value. The application allows one further call under a two-call budget. One case succeeds on its second request and another stops on a second 429. The verifier matches every physical request to the persisted workflow activation, attempt, source and charge, checks the single successful external effect (zero effects for persistent 429s), measures actual request spacing and confirms that replaying the identical submission cannot add a third call.
 
 An unavailable or uninstrumented external service, hidden vendor SDK retries, another database topology or a different runtime mix can produce different results. For each release, interpret the raw evidence with the recorded binary hash, source revision, host, runtime and input distribution.
+
+## Measurements for Ledgence 0.9.0
+
+These trials used source `6de107d0727b7164fbb264724b883216190139c3`, executable SHA-256 `00d7f8ddc2ab5f24f7e53a43e5e733ed100c681a4e42485b0cff59ec47fffd0e`, macOS-27.2-arm64-arm-64bit-Mach-O and PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2). The timing worker used one integrated HTTP queue and four slots. The default runs omitted the wait flag, selecting a maximum wait of 20,000 ms per acquisition. The matched short-poll control explicitly set `--acquire-wait-ms 0`. These are worker configurations. Receipt timings do not identify how long any individual poll waited.
+
+Each timing arm offered 96 tasks at 16 per second to the local synthetic provider in each of three repetitions. Each eighth call requested 150 ms of work and the others requested 5 ms. The table shows the range of observed registration-to-terminal and registration-to-first-claim p95 values in each poll configuration.
+
+| Arm | Default completion p95 (ms) | Zero-wait completion p95 (ms) | Default first-claim p95 (ms) | Zero-wait first-claim p95 (ms) |
+| --- | --- | --- | --- | --- |
+| Ordinary | 175–177 | 760–891 | 6–7 | 727–815 |
+| Hot resource | 221–226 | 2239–4152 | 64–68 | 2116–4109 |
+| Eight independent resources | 225–236 | 399–919 | 64–69 | 357–839 |
+| Hot resource with a root budget | 224–228 | 2584–4771 | 65–66 | 2490–4719 |
+
+The hot resource permitted four reservations. Eight independent resources permitted four each, or 32 reservations in aggregate. Both timing configurations ran on the same four worker slots. Each block of eight tasks visited all eight keys, rotating the first key across blocks so that slow requests reached every key. This contrast changes reservation capacity as well as contention and cannot isolate row-lock cost or establish a scaling law.
+
+SQL includes fixture polling and background work in the observed database window; these counters do not isolate trigger-internal work. Throughput includes the offered-arrival interval and final drain. Peak physical overlap comes from the synthetic provider's independent intervals.
+
+| Poll configuration | Arm | Completions/s | SQL calls/task | Statement WAL bytes/task | Peak physical calls |
+| --- | --- | --- | --- | --- | --- |
+| Default | Ordinary | 15.9–15.9 | 95.0–95.6 | 21336.3–22997.7 | 2–2 |
+| Default | Hot resource | 15.9–15.9 | 182.1–182.9 | 43440.3–43808.6 | 2–2 |
+| Default | Eight independent resources | 15.7–15.9 | 186.6–194.1 | 43991.1–46618.0 | 2–2 |
+| Default | Hot resource with a root budget | 15.9–15.9 | 191.1–191.9 | 45476.8–45732.0 | 2–2 |
+| Zero wait | Ordinary | 14.7–15.9 | 75.3–76.6 | 20251.8–21947.2 | 3–4 |
+| Zero wait | Hot resource | 9.5–11.9 | 154.5–161.1 | 44337.4–44700.2 | 2–3 |
+| Zero wait | Eight independent resources | 14.4–15.7 | 156.7–158.4 | 43350.5–43831.9 | 2–4 |
+| Zero wait | Hot resource with a root budget | 8.3–11.1 | 164.5–173.3 | 46261.5–50212.4 | 3–3 |
+
+The default-poll pressure run drained all 512 parked tasks after restart and enablement. It used four worker slots for that phase. The interactive phase added a two-slot support worker, held the shared resource at two reservations, and granted the first support turn at opportunity 1. The two backoff cases each made two physical calls, one ultimately successful and one persistently throttled.
+
+These figures describe this offered workload and topology. They do not establish peak throughput, per-poll causality or third-party provider limits. The ordinary arm in these tables uses the same 0.9.0 binary with admission omitted. The separate version comparison follows.
+
+### Ordinary tasks and workflows compared with 0.8.0
+
+These are separate direct-path trials at 10 arrivals per second, 250 executions per run, four worker slots, a 1 KiB payload and 5 ms of program work. Four balanced pairs compared each version. The workflow case includes a local result. The table gives the observed p95 range across the four runs for each version and the median of the four per-pair differences.
+
+| Workload | 0.8.0 p95 (ms) | 0.9.0 p95 (ms) | Median paired change (ms) |
+| --- | --- | --- | --- |
+| task | 33.00–34.00 | 34.00–34.55 | +0.77 |
+| workflow-local | 96.00–100.00 | 98.00–100.00 | -0.27 |
+
+The SQL census used PostgreSQL 18.6 with `pg_stat_statements.track=top`. It excludes the observer's own queries and includes background processing. It found no top-level statements mentioning the governed tables selected by the driver; this does not count statements executed inside functions or triggers. These repeated observations do not establish zero overhead, a capacity limit, or statistical equivalence.

@@ -9,8 +9,8 @@ There is no model, API key, cloud account, or external provider call. The servic
 writes a CSV artifact and a separate append-only request/effect log, so its side
 effects can be compared with Ledgence's retained evidence.
 
-Use matching Ledgence 0.8.0 CLI, API, worker and Python packages. Run the
-source example from the corresponding `v0.8.0` checkout.
+Use matching Ledgence 0.9.0 CLI, API, worker and Python packages. Run the
+source example from the corresponding `v0.9.0` checkout.
 
 ```mermaid
 sequenceDiagram
@@ -111,7 +111,7 @@ python3 tools/check-provider-operations.py --scenario sqs \
   --evidence /tmp/ledgence-export-sqs
 ```
 
-The 0.8.0 native delivery configuration used by this example binds one logical queue per
+The single-route native delivery configuration used by this example binds one logical queue per
 orchestrator process. This gate starts two processes against the same disposable
 database and authority, with one publisher per queue. Both processes enable the
 same provider policy and access configuration. It checks external destinations,

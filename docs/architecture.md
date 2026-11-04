@@ -180,7 +180,9 @@ Provider waits have their own namespace and select one immutable wake. Provider
 knowledge, operator assessments, task completion and journal confirmation remain
 distinct. Earlier A/B observations are not reinterpreted as typed provider facts.
 
-### Protected provider admission in development
+<span id="protected-provider-admission-in-development"></span>
+
+### Protected provider admission
 
 `ProviderAdmissionStore` is a complete composed capability, not a derived claim
 from separate admission and provider ports. PostgreSQL commits the one-shot
@@ -191,7 +193,9 @@ of the current worker lease. Provider knowledge and call occupancy remain separa
 read-only probes cannot free original dispatch capacity. The public API contains
 no provider SDK types. [Contract and limits](resource-admission.md#compose-admission-with-protected-provider-dispatch).
 
-### Standalone task admission in development
+<span id="standalone-task-admission-in-development"></span>
+
+### Standalone task admission
 
 A standalone task can bind one resource during submission. The application uses
 the same durable resource scheduler as workflow operations, plus the optional
@@ -203,7 +207,7 @@ checks the permit before writing to the subprocess; result settlement and
 source closure can arrive in either order. An adapter offering only part of
 this protocol cannot accept governed submissions. [Task contract and limits](resource-admission.md#standalone-task-admission).
 
-In development, the [worker-local poll planner](worker-delivery.md#worker-local-poll-plans-development)
+In Ledgence 0.9.0, the [worker-local poll planner](worker-delivery.md#worker-local-poll-plans-development)
 selects a registered queue before issuing a fresh poll. An integrated worker uses one HTTP service. An SQS worker binds each session to its own acquisition source and retains the selected route through receive, claim and acknowledgment.
 A single physical worker still owns one concurrency budget; its queue sessions
 carry the backend identities needed for retries. Resource admission is evaluated

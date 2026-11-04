@@ -7,10 +7,10 @@ This reference covers protocol **3** workflow handlers and their worker-supplied
 
 To resolve these imports in your editor and test ordinary business functions,
 see [Develop Python programs](/how-to/develop-python-programs). The worker authoring
-package is published as `ledgence-worker==0.8.0`. Context APIs still require
+package is published as `ledgence-worker==0.9.0`. Context APIs still require
 an active worker invocation; installing the helper does not execute workflows.
 
-**Available since 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.8.0](/how-to/upgrade-to-0-8).
+**Available since 0.2.0:** `Workflow` registration, `ctx.entrypoint`, `branch`, `fork`, and `join` require matching orchestrator and worker versions and all database migrations, including `20260928000000_workflow_forks.sql`. The existing `workflow_context()` interface and string continuations remain supported. See [Upgrade to 0.9.0](/how-to/upgrade-to-0-9).
 
 A handler can obtain the context directly:
 
@@ -227,11 +227,11 @@ Bounds use compact encoded JSON, not Python object memory size. The server's JSO
 
 Application JSON supports at most 64 nested containers, finite numbers, and string object keys. Use application-controlled storage references for payloads larger than the inline limits.
 
-**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.8.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/subworkflows.md)
+**Release contracts:** [Worker helper implementation](https://github.com/Ledgence/ledgence/blob/v0.9.0/sdk/python/ledgence/worker/workflow.py) · [Workflow contract](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/workflows.md) · [Owned subworkflows](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/subworkflows.md)
 
-**Additional contracts:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.8.0/sdk/python/ledgence/worker/workflow.py)
+**Additional contracts:** [Entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/workflow-entrypoints.md) · [Worker helper](https://github.com/Ledgence/ledgence/blob/v0.9.0/sdk/python/ledgence/worker/workflow.py)
 
-**Available in Ledgence 0.8.0.** `ctx.request_effect_approval` accepts the same
+**Available in Ledgence 0.9.0.** `ctx.request_effect_approval` accepts the same
 parameters as `request_approval` and records a protected execution contract.
 Its saved `ApprovalProtection.EXTERNAL_EFFECT` rejects `approved_local` before
 execution or cached replay. The backend enforces it for generic journal writes.
@@ -248,7 +248,7 @@ provides `approved_local` and does not implement this dispatch protection.
 
 ## Native effect resolution
 
-Matching authenticated 0.8.0 workers add
+Matching authenticated 0.9.0 workers add
 `wait_effect_resolution(key, *, resume, state, occurrence=None, after_resolution_id=...)`.
 Return this decision after `EffectOutcomeUnknown` to checkpoint explicit state,
 drain owned calls and release the worker slot while an operator investigates.
@@ -318,13 +318,15 @@ unchanged. A reference to another workflow's operation does not transfer wait
 ownership. Probe callbacks receive no workflow context.
 [Recover provider operations](/how-to/recover-provider-operations).
 
-## Resource admission in development
+<span id="resource-admission-in-development"></span>
+
+## Resource admission
 
 `Workflow.operation` registers an artifact-owned model/tool function.
 `ctx.request_admission(...)` checkpoints its frozen binding;
 `await ctx.admitted_operation(function)` returns a typed outcome or retained
 result. `ctx.wait_admission(...)` reuses the original occurrence. These helpers
-require matching development server, worker and helper, with explicit admission
+require matching 0.9.0 server, worker and helper, with explicit admission
 configuration. [Complete flow and failure semantics](/how-to/control-resource-capacity).
 
 For a provider binding with a reviewed resource, use the distinct

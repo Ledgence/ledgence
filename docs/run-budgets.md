@@ -1,6 +1,6 @@
 # Shared execution budgets
 
-Development source supports a run-wide allowance declared by its root submission. A workflow, its child workflows, and their owned tasks share one PostgreSQL ledger. A standalone task can start its own budget when its handler uses task admission. The program's CloudEvent `data` remains application-owned. An owned task created with `ctx.task` inherits the root identity for inspection and costs one delegation. That helper does not expose standalone task admission, so arbitrary network requests inside the task are outside the governed Start boundary. To charge a physical call made by a child, invoke an owned workflow with a registered admitted operation, as in the example.
+Ledgence 0.9.0 supports a run-wide allowance declared by its root submission. A workflow, its child workflows, and their owned tasks share one PostgreSQL ledger. A standalone task can start its own budget when its handler uses task admission. The program's CloudEvent `data` remains application-owned. An owned task created with `ctx.task` inherits the root identity for inspection and costs one delegation. That helper does not expose standalone task admission, so arbitrary network requests inside the task are outside the governed Start boundary. To charge a physical call made by a child, invoke an owned workflow with a registered admitted operation, as in the example.
 
 ## Declare an allowance
 

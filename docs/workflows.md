@@ -16,7 +16,7 @@ an immutable effective action. [Typed entrypoints and forks](workflow-entrypoint
 same-package branches that run while the parent continues local work.
 [External events and durable timers](workflow-events.md) add
 one-shot callback waits and persisted deadlines to the same checkpoint model.
-Matching 0.8.0 components add [provider operations](provider-operations.md),
+Matching 0.9.0 components add [provider operations](provider-operations.md),
 with explicit business identity, approval-bound intent and finite read-only
 recovery. Provider waits release the worker between independently leased probes.
 
@@ -197,7 +197,7 @@ the core API contains no SQS or PostgreSQL types.
 | `POST /v1/workflows/local-results` | Commit `{owner, record}` for a local step |
 | `POST /v1/workflows/forks` | Commit `{owner, fork, processing_trace?}` without suspending the parent |
 
-Ledgence 0.8.0 workers also use `POST /v1/workflows/approved-effects/claim` to
+Ledgence 0.9.0 workers also use `POST /v1/workflows/approved-effects/claim` to
 claim a dispatch permission with their live lease and exact approved action.
 Lost responses are not replayed as new permission. See
 [approved external writes](workflow-approvals.md#protect-an-approved-external-write).
@@ -297,7 +297,9 @@ Use [durable model and tool calls](agent-recovery.md) for typed, versioned
 operation bindings within an agent loop. They reuse the local journal and
 explicit checkpoints, with no provider dependency or new queue delivery.
 
-## Resource waits in development
+<span id="resource-waits-in-development"></span>
+
+## Resource waits
 
 A registered model/tool callback can request capacity through a native
 `resource_admission` checkpoint. Each wait episode belongs to its parking

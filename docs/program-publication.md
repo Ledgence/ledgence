@@ -1,6 +1,6 @@
 # Build and publish Python programs
 
-Available in **Ledgence 0.8.0** with matching CLI and orchestrator components.
+Available in **Ledgence 0.9.0** with matching CLI and orchestrator components.
 The server writer must be enabled explicitly. Earlier saved local kits keep
 their original image and configuration; a CLI update does not enable uploads
 in those stacks. Existing filesystem publication and separate registration
@@ -34,7 +34,7 @@ already prepared package.
 
 ## Start from a new source project
 
-The 0.8.0 CLI includes `ledgence program new invoice-issuer` and
+The 0.9.0 CLI includes `ledgence program new invoice-issuer` and
 `ledgence program new invoice-flow --kind workflow`. These commands create
 editable Python code, unit tests, development dependency metadata and a build
 configuration in a new directory. The development dependencies include
@@ -48,7 +48,7 @@ prerequisites, generated files and explicit target flags.
 Before `program build`, replace the generated target placeholders with the
 worker's platform, Python version and digest-pinned image, or provide all three
 when creating the project. Keep production dependencies in `requirements.txt`
-with the exact pins and hashes required below; the 0.8.0 helper stays in
+with the exact pins and hashes required below; the 0.9.0 helper stays in
 `pyproject.toml`. Scaffolding does not infer a deployment target.
 
 ## Explicit build configuration
@@ -195,11 +195,11 @@ read-only store remains supported, but cannot enable this filesystem writer.
 The server and worker do not need Docker or a provider account to accept and
 execute an already prepared package.
 
-The 0.8.0 local Compose templates give the orchestrator write access to
+The 0.9.0 local Compose templates give the orchestrator write access to
 `/programs` and leave the worker's mount read-only. Both see the same volume.
 **Existing saved kits are not rewritten or upgraded.** Installing a newer CLI
 cannot enable uploads in an older stack. Use a separate state directory and a
-matching 0.8.0 kit for evaluation, or plan an explicit
+matching 0.9.0 kit for evaluation, or plan an explicit
 operator-managed upgrade with backups. Do not edit a copied kit to bypass its
 checksum checks, silently replace its image, or delete persistent volumes.
 

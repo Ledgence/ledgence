@@ -3,7 +3,7 @@ title: Upgrade a self-hosted installation from 0.8 to 0.9
 description: Preserve existing executions, receipts and external effects while introducing shared resources and run budgets.
 ---
 
-Use a coordinated maintenance window. Keep the 0.8 installation, its verified native bundle and a recoverable copy of its state until you finish the checks below. A fresh local stack is useful for a tutorial; upgrading a production installation requires preserving its database, program artifacts, queues and instance identity.
+Use the [verified 0.9.0 distributions](/reference/releases) and a coordinated maintenance window. Keep the 0.8 installation, its verified native bundle and a recoverable copy of its state until you finish the checks below. A fresh local stack is useful for a tutorial; upgrading a production installation requires preserving its database, program artifacts, queues and instance identity.
 
 ## Prepare the recovery set
 

@@ -8,11 +8,7 @@ monotonic deadlines, reusable execution sessions, runtime requests, metrics and
 tracing. Concrete storage, transport and process implementations live in separate
 adapter crates.
 
-This README describes the current source. Check the
-[registry package guide](https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md)
-for verified published versions; a development checkout can contain contracts
-that are not available from a registry yet. To develop an adapter against this
-checkout:
+Version 0.9.0 is available from crates.io. Pin it in an adapter targeting Ledgence 0.9.0. For a local source build, use the checkout path shown below. [Release reference](https://docs.ledgence.com/reference/releases).
 
 ```toml
 [dependencies]
@@ -71,9 +67,11 @@ This source crate does not bundle third-party dependency sources. Cargo obtains
 those dependencies separately, with their own licenses and redistribution
 notices. This license does not require users to disclose their applications.
 
-### Admission feature negotiation in development
+<span id="admission-feature-negotiation-in-development"></span>
 
-Matching development runtimes can negotiate `resource_admission.v1` for registered
+### Admission feature negotiation
+
+Matching 0.9.0 runtimes can negotiate `resource_admission.v1` for registered
 callbacks and the distinct `provider_admission.v1` for atomic protected provider
 dispatch. The latter requires both resource admission and provider recovery;
 those capabilities alone do not imply composed support. Advertise it only when
@@ -91,4 +89,4 @@ The default is false: its workers can still run ordinary tasks and leave governe
 ones available for capable workers. A prepared session must confirm support
 again before requesting a grant.
 
-These additions are not included in the published 0.8.0 crate.
+Use version 0.9.0 of the worker API crate for these additions.

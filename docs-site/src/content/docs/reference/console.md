@@ -5,14 +5,14 @@ description: Self-hosted Console views, query semantics, command behavior, proce
 
 Console is the operator interface for **one self-hosted Ledgence instance**. The Rust orchestrator serves its static assets at `/console/`, and the browser uses same-origin `/v1/console/*` APIs. A deployed Console needs no Node process, hosted frontend service, or vendor account.
 
-**Availability:** Console is included in Ledgence **0.8.0** source and Console-enabled native bundles. Use matching contract **7** server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.8.0](/how-to/upgrade-to-0-8) covers existing deployments.
+**Availability:** Console is included in Ledgence **0.9.0** source and Console-enabled native bundles. Use matching contract **14** server and assets. [Explore Ledgence Console](/tutorials/use-console) covers setup; [Upgrade to 0.9.0](/how-to/upgrade-to-0-9) covers existing deployments.
 
 **Effects** provides retained evidence and operator assessment review. Graph and
 Trace include native effect-resolution and provider-recovery waits.
 
 **General → Approvals** reviews immutable actions and recorded decisions. See [Require approval before an action](/how-to/require-approval).
 
-In the 0.8.0 Console, the expanded sidebar shows the connected server version.
+In the 0.9.0 Console, the expanded sidebar shows the connected server version.
 Open **Executions** to find a run by name or ID and read its labeled status. On a
 workflow, **Graph** distinguishes fork membership with dashed links. **Trace** adds
 a relative time scale for comparing when the recorded steps ran. For a local step,
@@ -29,13 +29,13 @@ attempt. A later failed or cancelled call can appear alongside an earlier accept
 | Effects | Retained approved actions, worker reports, provider recovery and operator assessments. | Inspect evidence and submit a revision-bound assessment with the required capabilities. |
 | Workers | Worker sessions, configured capacity, observation freshness, process slots, and validated task/attempt links. | Inspect the latest available observation and follow execution links. |
 
-**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs**, **Approvals**, **Effects** and **Workers** are the navigation destinations. Worker inspection does not provide a drain, kill, or scaling command.
+**Programs** includes tasks and workflows, with any-version kind filters and explicit mixed/unspecified kinds. Registration does not execute or upload a package. **Executions**, **Programs**, **Approvals**, **Effects**, **Workers**, **Resources** and **Queues** are the navigation destinations. Worker inspection does not provide a drain, kill, or scaling command.
 
 Workflow **Graph** and **Trace** use the same retained execution records. Graph shows one workflow and its direct children; a subworkflow is an opaque node that opens its own graph. Select work to inspect it; open a child execution to drill in. Back restores the previous navigation entry, Up follows ownership, and breadcrumbs select ancestors. Completed work remains visible. Correlation keys and timestamps do not prove dependencies. The graph does not predict future branches or edit a workflow definition.
 
 Every entrypoint invocation is a node identified by its activation ID. Re-entering the same handler creates a distinct invocation; retrying one activation does not. There are no phase containers. A recorded local step connects to the entrypoint that invoked it; that relation does not imply an execution order between local calls. Only recorded branch members belong to a distributed fork. A separate parent task is not another branch. Joins wait for terminal outcomes, including failure or cancellation. Rejected decisions do not establish applied edges, and a closed wait alone does not prove a successful wake. Partial pages and unavailable references remain explicit. The graph works without exported OpenTelemetry traces.
 
-Edges distinguish invocation, registration, branch membership, waiting for terminal outcomes, and resuming an entrypoint. Dashed lines identify fork branches; other recorded relationships use solid lines. When a complete entrypoint-to-fork-to-child path is loaded, the canvas omits its redundant direct invocation line. The inspector and accessible relationship list retain the underlying evidence. Joins and waits remain their own records. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
+Edges distinguish invocation, registration, branch membership, waiting for terminal outcomes, and resuming an entrypoint. Dashed lines identify fork branches; other recorded relationships use solid lines. When a complete entrypoint-to-fork-to-child path is loaded, the canvas omits its redundant direct invocation line. The inspector and accessible relationship list retain the underlying evidence. Joins and waits remain their own records. See the [relationship evidence matrix](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/console-query-model.md#entrypoint-identity-and-causal-evidence).
 
 ## Navigation and graph controls
 
@@ -118,7 +118,7 @@ After an uncertain reply, retry the retained decision unchanged. Approval record
 permission to proceed; inspect the resumed workflow and its result to establish
 what happened afterward. The reviewer field is claimed attribution.
 Operator-trusted deployments provide their own authentication and authorization boundary.
-Ledgence 0.8.0 supports [instance credentials](/how-to/configure-instance-access).
+Ledgence 0.9.0 supports [instance credentials](/how-to/configure-instance-access).
 Native credential mode records verified acceptance separately from the reviewer
 label. [Inspect operator audit](/how-to/audit-operators).
 
@@ -195,7 +195,7 @@ Resources show available measurements for one attempt. Runtime elapsed excludes 
 
 Memory is labeled **process lifetime peak memory**. Reused processes can retain peaks from earlier invocations; this is not an invocation peak and peaks must not be summed. Unavailable counters are distinct from zero. No provider billing estimate is inferred.
 
-Local start, elapsed, failure and replay observations are delivered with the accepted attempt report. They are not a live stream of running functions. The accepted-result journal remains authoritative: a callable returning does not prove its result was durably committed, and replay does not execute it again. Older workers, interrupted processes and lost reports can leave measurements unavailable. See the [execution observation contract](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/execution-observations.md).
+Local start, elapsed, failure and replay observations are delivered with the accepted attempt report. They are not a live stream of running functions. The accepted-result journal remains authoritative: a callable returning does not prove its result was durably committed, and replay does not execute it again. Older workers, interrupted processes and lost reports can leave measurements unavailable. See the [execution observation contract](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/execution-observations.md).
 
 ## Worker process observations
 
@@ -215,11 +215,11 @@ Slot IDs stay stable within a session. Reuse preserves a process instance identi
 
 Detail pages contain at most 100 slots. Detailed reports support up to **1024** slots and a **2 MiB** snapshot. An embedded worker with greater capacity still reports its real capacity with detailed observation unsupported; unavailable reports never become invented empty slots. Only the latest normalized snapshot is stored, not an unbounded history.
 
-See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/worker-observations.md) for reporter, identity, and retention details.
+See the [worker observation contract](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/worker-observations.md) for reporter, identity, and retention details.
 
 ## Serving Console
 
-All three [local installation paths](/getting-started/installation) serve the published Console. The [Console tutorial](/tutorials/use-console) explores the executions from the task and workflow lessons without rebuilding the platform. The 0.8.0 [native bundles](/how-to/install-native) include a matching `console/` directory, so you do not need to build frontend assets when using those bundles. For a source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.8.0/console/README.md). A regular Cargo build does not run frontend tooling.
+All three [local installation paths](/getting-started/installation) serve the published Console. The [Console tutorial](/tutorials/use-console) explores the executions from the task and workflow lessons without rebuilding the platform. The 0.9.0 [native bundles](/how-to/install-native) include a matching `console/` directory, so you do not need to build frontend assets when using those bundles. For a source deployment, build assets separately using the pinned toolchain and [Console build instructions](https://github.com/Ledgence/ledgence/blob/v0.9.0/console/README.md). A regular Cargo build does not run frontend tooling.
 
 For a manually operated service, create an instance configuration file named `instance.json`:
 
@@ -247,11 +247,11 @@ ledgence orchestrator serve \
 
 Replace the paths with your actual store, saved configuration and Console assets. A source build produces assets in `console/dist`; a complete native bundle can select its bundled assets automatically as described below. On a new database, omitting the compatibility scope chooses `default/default`; legacy CLI, SDK, and worker requests must use that same binding. Existing data needs its original binding explicitly configured. See [One self-hosted instance](/concepts/self-hosted-console).
 
-Keep `--instance-config` on every subsequent startup, including headless operation. In a complete 0.8.0 native bundle, supplying `--instance-config` automatically selects the bundled Console when `--console-dir` is omitted; omission does not disable it. A source build or a bundle packaged with `--headless` can omit `--console-dir` to run without assets while preserving the instance binding. Missing, modified, or incompatible selected assets fail startup before coordinators begin. Distribute the asset manifest and retained legal notices with the built files.
+Keep `--instance-config` on every subsequent startup, including headless operation. In a complete 0.9.0 native bundle, supplying `--instance-config` automatically selects the bundled Console when `--console-dir` is omitted; omission does not disable it. A source build or a bundle packaged with `--headless` can omit `--console-dir` to run without assets while preserving the instance binding. Missing, modified, or incompatible selected assets fail startup before coordinators begin. Distribute the asset manifest and retained legal notices with the built files.
 
 ## Remote access
 
-Operator-trusted deployments protect both `/console/` and `/v1/` with the same access-controlled TLS reverse proxy. Ledgence 0.8.0 can use [instance credentials](/how-to/configure-instance-access) with TLS and an explicit origin. Preserve those paths and serve the UI and API from the same public origin.
+Operator-trusted deployments protect both `/console/` and `/v1/` with the same access-controlled TLS reverse proxy. Ledgence 0.9.0 can use [instance credentials](/how-to/configure-instance-access) with TLS and an explicit origin. Preserve those paths and serve the UI and API from the same public origin.
 
 Configure that exact public origin in the server's `allowed_origins`, for example `["https://ledgence.example.com"]`. The server does not infer it from proxy headers. Requests from the CLI and workers without an Origin remain supported. Operator-trusted loopback listeners infer their local HTTP origins when this list is empty. Credential access requires exactly one explicit Console origin.
 
@@ -259,7 +259,7 @@ Do not rewrite API failures or missing assets into HTML. The orchestrator handle
 
 ## Upgrades
 
-Ledgence 0.8.0 uses Console contract version 7. The historical 0.7.0 explorer
+Ledgence 0.9.0 uses Console contract version 14. The historical 0.7.0 explorer
 uses version 5. Start matching server and assets; incompatible Console
 bundles fail explicitly. Each node carries typed invocation, registration,
 branch-membership, terminal-wait and resumption relations from the backend.
@@ -318,7 +318,7 @@ payloads only when the inspector is opened.
 
 ## Instance access
 
-Use scoped credentials with matching 0.8.0 components. The
+Use scoped credentials with matching 0.9.0 components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
 
@@ -330,16 +330,19 @@ Console identity, client files, capabilities, rotation and operating limits.
 Approval review and decision dialogs load recorded acceptance independently from the caller-supplied reviewer label. Loading, verified acceptance, historical absence and unavailable attribution have distinct displays. Identity changes clear protected cached attribution.
 [Setup, queries and operating limits](/how-to/audit-operators).
 
-## Resource admission in development (C14)
+<span id="resource-admission-in-development-c14"></span>
 
-Matching development assets and server use C14 to show admission wait episodes
+## Resource admission (C14)
+
+Matching 0.9.0 assets and server use C14 to show admission wait episodes
 and accepted callback results. Offer and Start indicate readiness/authorization,
 not evidence that a callback executed. Open an accepted operation for its
-original occurrence's audited arguments/result. The published 0.8.0 Console
-remains C7. [Admission guide](/how-to/control-resource-capacity).
+original occurrence's audited arguments/result. [Admission guide](/how-to/control-resource-capacity).
 
 
-### Protected provider admission (development C9)
+<span id="protected-provider-admission-development-c9"></span>
+
+### Protected provider admission
 
 C9 adds a required `subject` to admission wait metadata: `operation` for an
 ordinary registered call, or `provider` with the immutable original provider
@@ -359,9 +362,11 @@ does not authorize another dispatch.
 Provider admission does not add a successful local-operation node. The ordinary
 accepted-operation node remains reserved for a committed generic callback
 result; recording a provider Start alone does not prove that its callback ran.
-Published Ledgence 0.8.0 continues to use C7; C14 is the current development contract.
+Deploy matching C14 server and assets together.
 
-### Standalone task admission (development C14)
+<span id="standalone-task-admission-development-c14"></span>
+
+### Standalone task admission
 
 When the installation enables task admission, **New execution** offers an optional
 named resource for a task. **Run again** preserves the requirement. In the task's
@@ -372,14 +377,20 @@ work from timestamps. Sensitive evidence is loaded on demand. Expired ownership
 alone does not release an uncertain source. A worker's local quiescence does not
 certify completion of external work.
 
-## Queue concurrency in development
+<span id="queue-concurrency-in-development"></span>
+
+## Queue concurrency
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
 
-### Resource offers (development C14)
+<span id="resource-offers-development-c14"></span>
+
+### Resource offers
 
 Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.
 
-### Shared run allowances (development C14)
+<span id="shared-run-allowances-development-c14"></span>
+
+### Shared run allowances
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.
