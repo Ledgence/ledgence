@@ -1,4 +1,7 @@
 //! Atomic composition, race and recovery tests on real isolated PostgreSQL.
+use super::admissions::{
+    StartExpiry, expire_during_start, final_write_barrier, settle_rejected_start,
+};
 use super::providers::{approved, audience, binding, worker};
 use super::*;
 
@@ -29,6 +32,9 @@ fn governed() -> ProviderBindingRequest {
     binding
 }
 async fn fixture() -> TestDb {
+    fixture_with_start_timeout(1_000).await
+}
+async fn fixture_with_start_timeout(start_timeout_ms: u32) -> TestDb {
     let db = TestDb::new().await;
     providers::bind(&db.store, ProviderDispatchPolicy::Enabled).await;
     db.store
@@ -56,7 +62,7 @@ async fn fixture() -> TestDb {
                         burst: 4,
                     }),
                     offer_timeout_ms: 30_000,
-                    start_timeout_ms: 1000,
+                    start_timeout_ms,
                 },
                 reason: "test admission".into(),
             },
@@ -911,9 +917,9 @@ async fn expiry_barrier<'a>(
     c: &ProviderClaimCommand,
     fence: ExpiryFence,
 ) -> sqlx::Transaction<'a, sqlx::Postgres> {
-    let mut barrier = store.pool.begin().await.unwrap();
     match fence {
         ExpiryFence::ProviderLock => {
+            let mut barrier = store.pool.begin().await.unwrap();
             let business = canonical_json_bytes(
                 &serde_json::to_value((&audience().instance_id, scope(), &c.binding.business))
                     .unwrap(),
@@ -926,19 +932,10 @@ async fn expiry_barrier<'a>(
             .execute(&mut *barrier)
             .await
             .unwrap();
+            barrier
         }
-        ExpiryFence::FinalWrites => {
-            // By this write, the provider grant, source, retained evidence and
-            // admission request are already tentative. Release only after expiry.
-            sqlx::raw_sql("CREATE FUNCTION gate_admission_start() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.started > OLD.started THEN PERFORM pg_advisory_xact_lock(493782); END IF; RETURN NEW; END $$; CREATE TRIGGER gate_admission_start BEFORE UPDATE ON admission_resources FOR EACH ROW EXECUTE FUNCTION gate_admission_start()")
-                .execute(&store.pool).await.unwrap();
-            sqlx::query("SELECT pg_advisory_xact_lock(493782)")
-                .execute(&mut *barrier)
-                .await
-                .unwrap();
-        }
+        ExpiryFence::FinalWrites => final_write_barrier(store).await,
     }
-    barrier
 }
 async fn expire_while_starting(
     store: &PostgresStore,
@@ -947,32 +944,16 @@ async fn expire_while_starting(
     deadline: i64,
     barrier: sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> StoreResult<ProviderAdmissionStartReceipt> {
-    let (result, ()) = crate::tests::bounded(async {
-        // Calling once prevents store retries from hiding an incorrect rollback.
-        tokio::join!(
-            store.start_provider_admission_once(principal, command),
-            async {
-                crate::tests::wait_for_lock_waiter(store).await;
-                loop {
-                    let expired: bool = sqlx::query_scalar(
-                        "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint >= $1",
-                    )
-                    .bind(deadline)
-                    .fetch_one(&store.pool)
-                    .await
-                    .unwrap();
-                    if expired {
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-                barrier.rollback().await.unwrap();
-            }
-        )
-    })
-    .await;
-    result
+    // Call once so database retries cannot hide an incorrect rollback.
+    expire_during_start(
+        store,
+        Box::pin(store.start_provider_admission_once(principal, command)),
+        StartExpiry::At(deadline),
+        barrier,
+    )
+    .await
 }
+
 async fn assert_no_dispatch(store: &PostgresStore, o: &AdmissionOccurrence, credit: i64) {
     let (operations, sources, effects, entries, probes): (i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM provider_operations), (SELECT count(*) FROM provider_invocations), (SELECT count(*) FROM approved_effect_occurrences), (SELECT count(*) FROM approved_effect_evidence_entries), (SELECT count(*) FROM provider_probe_tasks)",
@@ -984,7 +965,11 @@ async fn assert_no_dispatch(store: &PostgresStore, o: &AdmissionOccurrence, cred
     let (claimed, recovered, started): (bool, bool, bool) = sqlx::query_as(
         "SELECT (SELECT effect_dispatch_claimed FROM workflow_approvals WHERE workflow_id=$1), (SELECT has_provider_operations FROM workflow_runs WHERE workflow_id=$1), (SELECT start_command_bytes IS NOT NULL FROM admission_requests WHERE workflow_id=$1)",
     ).bind(&o.workflow_id).fetch_one(&store.pool).await.unwrap();
-    assert_eq!((claimed, recovered, started), (false, false, false));
+    let saved = snapshot(store, o).await;
+    assert_eq!(
+        (claimed, recovered, started),
+        (false, false, saved.budget_denial.is_some())
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT credit FROM admission_resources WHERE resource_name='provider'"
@@ -994,7 +979,6 @@ async fn assert_no_dispatch(store: &PostgresStore, o: &AdmissionOccurrence, cred
         .unwrap(),
         credit
     );
-    let saved = snapshot(store, o).await;
     assert!(saved.source.is_none() && saved.provider.is_none() && saved.finish.is_none());
 }
 async fn rewait(store: &PostgresStore, a: &Assignment, o: &AdmissionOccurrence) {
@@ -1020,7 +1004,7 @@ async fn rewait(store: &PostgresStore, a: &Assignment, o: &AdmissionOccurrence) 
     .await;
 }
 async fn capacity_expiry_recovers(fence: ExpiryFence, absolute: bool) {
-    let db = fixture().await;
+    let db = fixture_with_start_timeout(10_000).await;
     let id = "capacity-expired";
     let (c, o) = park(&db.store, id, governed()).await;
     let (a, command) = offer(&db.store, id, &o).await;
@@ -1094,6 +1078,7 @@ async fn capacity_expiry_recovers(fence: ExpiryFence, absolute: bool) {
         assert_no_dispatch(&db.store, &o, credit).await;
     } else {
         let (_, mut fresh) = offer(&db.store, id, &o).await;
+        let fresh_offer_deadline = shortened_offer(&db.store, &o, false).await;
         fresh.admission.start_id = "start:fresh".into();
         fresh.admission.finish_id = "report:fresh".into();
         assert!(fresh.admission.offer_generation > command.admission.offer_generation);
@@ -1107,6 +1092,7 @@ async fn capacity_expiry_recovers(fence: ExpiryFence, absolute: bool) {
         };
         assert_eq!(source.provider.ticket.occurrence, c.occurrence());
         assert_eq!(source.admission.occurrence, o);
+        assert!(source.admission.start_deadline_at > fresh_offer_deadline as u64);
         assert!(matches!(
             db.store
                 .start_provider_admission(&worker(), &fresh)
@@ -1133,6 +1119,122 @@ async fn capacity_expiry_recovers(fence: ExpiryFence, absolute: bool) {
         );
     }
     db.finish().await;
+}
+async fn protected_start_window(budgeted: bool, absolute: bool) {
+    let db = fixture_with_start_timeout(if absolute { 10_000 } else { 100 }).await;
+    let store = &db.store;
+    let mut tx = store.pool.begin().await.unwrap();
+    let deadline = absolute.then_some(db::now(&mut tx).await.unwrap() + 2_000);
+    tx.rollback().await.unwrap();
+    let policy = budgeted.then_some(RunBudgetPolicy {
+        max_calls: Some(1),
+        max_delegations: None,
+        deadline_at_ms: deadline,
+    });
+    let (claim, o) = park_budget(store, "send-window", governed(), policy).await;
+    let (attempt, cmd) = offer(store, "send-window", &o).await;
+    let original = snapshot(store, &o).await;
+    let credit: i64 =
+        sqlx::query_scalar("SELECT credit FROM admission_resources WHERE resource_name='provider'")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+    let barrier = expiry_barrier(store, &claim, ExpiryFence::FinalWrites).await;
+    let expiry = match deadline {
+        Some(at) => StartExpiry::At(at as i64),
+        None => StartExpiry::AfterLock(105),
+    };
+    let p = worker();
+    let result = expire_during_start(
+        store,
+        Box::pin(store.start_provider_admission_once(&p, &cmd)),
+        expiry,
+        barrier,
+    )
+    .await;
+    assert!(
+        matches!(
+            result,
+            Err(StoreError::Contract(ContractError::OwnershipLost))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(snapshot(store, &o).await, original);
+    assert_eq!(counters(store).await, (1, 0, 0));
+    assert_no_dispatch(store, &o, credit).await;
+    let accounting = || async {
+        sqlx::query_as::<_,(i64,i64)>("SELECT COALESCE((SELECT calls FROM run_budgets),0), (SELECT count(*) FROM run_budget_entries)")
+            .fetch_one(&store.pool).await.unwrap()
+    };
+    assert_eq!(accounting().await, (0, 0));
+    settle_rejected_start(store, &attempt).await;
+    let (_, mut fresh) = offer(store, "send-window", &o).await;
+    assert_ne!(
+        cmd.admission.owner.attempt_id,
+        fresh.admission.owner.attempt_id
+    );
+    assert_eq!(
+        cmd.admission.offer_generation,
+        fresh.admission.offer_generation
+    );
+    fresh.admission.start_id = "start:next".into();
+    fresh.admission.finish_id = "finish:next".into();
+    assert!(matches!(
+        store.start_provider_admission(&p, &cmd).await,
+        Err(ContractError::OwnershipLost)
+    ));
+    if absolute {
+        for _ in 0..2 {
+            let ProviderAdmissionStartReceipt::Existing { snapshot, .. } =
+                store.start_provider_admission(&p, &fresh).await.unwrap()
+            else {
+                panic!("expired root budget granted provider dispatch");
+            };
+            assert_eq!(
+                snapshot.budget_denial,
+                Some(RunBudgetDenial::DeadlineExceeded)
+            );
+            assert!(snapshot.source.is_none() && snapshot.provider.is_none());
+        }
+        assert_eq!(accounting().await, (0, 1));
+        assert_eq!(counters(store).await, (0, 0, 0));
+        assert_no_dispatch(store, &o, credit).await;
+    } else {
+        let ProviderAdmissionStartReceipt::Granted { source } =
+            store.start_provider_admission(&p, &fresh).await.unwrap()
+        else {
+            panic!("live offer did not grant a fresh Start");
+        };
+        let ProviderAdmissionStartReceipt::Existing { snapshot, .. } =
+            store.start_provider_admission(&p, &fresh).await.unwrap()
+        else {
+            panic!("a committed Start granted twice");
+        };
+        assert_eq!(snapshot.source.as_ref(), Some(&source.admission));
+        assert_eq!(counters(store).await, (0, 1, 0));
+        assert_eq!(
+            accounting().await,
+            (i64::from(budgeted), i64::from(budgeted))
+        );
+        let sources: i64 = sqlx::query_scalar("SELECT count(*) FROM provider_invocations")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(sources, 1);
+    }
+    db.finish().await;
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn protected_start_window_final_write_rejects_expired_send_authority() {
+    for budgeted in [false, true] {
+        protected_start_window(budgeted, false).await;
+    }
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn protected_start_window_final_write_cannot_cross_root_deadline() {
+    protected_start_window(true, true).await;
 }
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]

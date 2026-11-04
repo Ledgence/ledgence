@@ -2,7 +2,8 @@
 import json
 
 from http_acceptance.harness import eventually
-from .protected import START, REPORT
+
+from .protected import REPORT, START
 from .protected_surfaces import public_surfaces
 
 
@@ -104,6 +105,92 @@ def lost_start(d, provider):
     return {"occurrence": occurrence, "start_exchanges": 1, "posts": 0, "release_replayed": True}
 
 
+def expired_start_window(d, provider):
+    from workflow_acceptance.owned_scenarios import quote
+
+    key = "protected-expired-send-window"
+    d.policy(capacity=1, offer_ms=30_000, rate={"numerator": 1, "period_ms": 1000, "burst": 1})
+    proxy = d.authenticated_proxy()
+    gate = d.directory / "release-retry-start"
+    d.gates.add(gate)
+    flow = d.worker(proxy=proxy)
+    probe = None
+    try:
+        approval, paths = d.request_approval(key, provider, attempts=2, budget={"max_calls": 1},
+                                              overrides={"retry_start_gate": str(gate)})
+        workflow = quote(approval["workflow_id"])
+        resource = quote(d.resource_name)
+        credit = d.sql("SELECT credit FROM admission_resources WHERE resource_name=" + resource)
+        # PostgreSQL sequences retain the timestamp witnesses even if Start rolls back.
+        # Only the first tentative grant waits, under the normal owner/resource locks.
+        d.sql(f"""
+            CREATE SEQUENCE held_start_deadline;
+            CREATE SEQUENCE held_start_released;
+            CREATE FUNCTION delay_first_start() RETURNS trigger LANGUAGE plpgsql AS $$
+            DECLARE deadline bigint;
+            BEGIN
+                IF NOT (SELECT is_called FROM held_start_deadline) THEN
+                    SELECT (convert_from(snapshot_bytes,'UTF8')::jsonb #>> '{{source,start_deadline_at}}')::bigint
+                      INTO STRICT deadline FROM admission_requests WHERE workflow_id={workflow};
+                    PERFORM setval('held_start_deadline', deadline);
+                    PERFORM pg_sleep(GREATEST(0, (deadline-extract(epoch FROM clock_timestamp())*1000)/1000.0)+0.03);
+                    PERFORM setval('held_start_released', floor(extract(epoch FROM clock_timestamp())*1000)::bigint);
+                END IF;
+                RETURN NEW;
+            END $$;
+            CREATE TRIGGER delay_first_start BEFORE UPDATE ON admission_resources FOR EACH ROW
+                WHEN (NEW.resource_name={resource} AND NEW.started > OLD.started)
+                EXECUTE FUNCTION delay_first_start();
+        """)
+        occurrence = d.approve(approval, key)
+        first = eventually(lambda: proxy.commands(START), timeout=60,
+                           description="original external worker receives the first protected Start reply")[0]
+        assert first["status"] == 409 and json.loads(first["response"])["code"] == "ownership_lost"
+        eventually(gate.with_suffix(".retry").exists, timeout=60, description="replacement activation enters dispatch")
+        assert len(proxy.commands(START)) == 1 and not proxy.commands(REPORT)
+        assert d.provider_census(provider, key)["posts"] == 0
+        snapshot = d.assert_original(occurrence)
+        assert snapshot["state"] == "offered" and snapshot["source"] is None and snapshot.get("provider") is None
+        due = int(d.sql("SELECT last_value FROM held_start_deadline WHERE is_called"))
+        released = int(d.sql("SELECT last_value FROM held_start_released WHERE is_called"))
+        original = first["json"]["admission"]
+        attempt = quote(original["owner"]["attempt_id"])
+        lease = int(d.sql("SELECT least(expires_at_ms, authority_deadline_ms, deadline_ms) FROM attempts WHERE attempt_id=" + attempt))
+        assert due <= released < min(snapshot["offer"]["expires_at"], snapshot["deadline_at"], lease)
+        assert d.resource()["offered"] == d.resource()["occupied"] == 1
+        assert d.sql("SELECT credit FROM admission_resources WHERE resource_name=" + resource) == credit
+        assert d.sql(f"SELECT effect_dispatch_claimed FROM workflow_approvals WHERE workflow_id={workflow}") == "f"
+        assert d.sql(f"SELECT has_provider_operations FROM workflow_runs WHERE workflow_id={workflow}") == "f"
+        for table in ("provider_operations", "provider_invocations", "provider_probe_tasks", "approved_effect_occurrences"):
+            assert d.sql(f"SELECT count(*) FROM {table} WHERE workflow_id={workflow}") == "0"
+        query = {"scope": d.scope, "subject": {"kind": "workflow", "workflow_id": occurrence["workflow_id"]}}
+        assert d.checked("POST", "/v1/budgets/inspect", query)["calls"] == "0"
+        assert not d.checked("POST", "/v1/budgets/entries", {**query, "before": None, "limit": 10})["items"]
+
+        probe = d.worker("crash-replacement", queue=d.probe_queue)
+        gate.touch()
+        finish(d, occurrence, paths)
+        _, accepted = proxy.commands(START)
+        assert accepted["status"] == 200 and json.loads(accepted["response"])["kind"] == "granted"
+        fresh = accepted["json"]["admission"]
+        assert fresh["owner"]["attempt_id"] != original["owner"]["attempt_id"]
+        assert fresh["owner"]["task_id"] == original["owner"]["task_id"]
+        assert fresh["offer_generation"] == original["offer_generation"] and fresh["start_id"] != original["start_id"]
+        assert d.provider_census(provider, key)["posts"] == 1 and d.resource()["occupied"] == 0
+        assert d.checked("POST", "/v1/budgets/inspect", query)["calls"] == "1"
+        return {"occurrence": occurrence, "first_start_status": first["status"], "first_provider_posts": 0,
+                "first_charged_calls": 0, "first_send_deadline_ms": due, "first_final_write_ms": released,
+                "fresh_lease": True, "final_provider_posts": 1, "final_charged_calls": 1}
+    finally:
+        gate.touch()
+        flow.stop()
+        if probe:
+            probe.stop()
+        d.sql("DROP TRIGGER IF EXISTS delay_first_start ON admission_resources;"
+              "DROP FUNCTION IF EXISTS delay_first_start();"
+              "DROP SEQUENCE IF EXISTS held_start_deadline, held_start_released;")
+
+
 def unknown_call_successful_probe(d, provider):
     key = "protected-unknown-call"
     d.policy()
@@ -130,8 +217,8 @@ def duplicate_business(d, provider):
     d.policy(capacity=2, offer_ms=30000)
     first, second = d.worker(), d.worker("crash-replacement")
     probe = d.worker("late-origin", queue=d.probe_queue)
-    one_approval, one_paths = d.request_approval("protected-duplicate-a", provider, business_key=key)
-    two_approval, two_paths = d.request_approval("protected-duplicate-b", provider, business_key=key)
+    one_approval, _ = d.request_approval("protected-duplicate-a", provider, business_key=key)
+    two_approval, _ = d.request_approval("protected-duplicate-b", provider, business_key=key)
     one = d.approve(one_approval, "duplicate-a")
     two = d.approve(two_approval, "duplicate-b")
     for occurrence in (one, two):
@@ -183,14 +270,14 @@ def quarantines(d, provider):
         occurrence, _ = d.begin(key, provider, attempts=1)
         d.admitted(occurrence); flow.stop()
         d.policy(offer_ms=30000)
-        eventually(lambda: d.admission(occurrence["workflow_id"])["state"] == "offered",
+        eventually(lambda occurrence=occurrence: d.admission(occurrence["workflow_id"])["state"] == "offered",
                    description="preexisting protected offer before quarantine")
         d.restart(admission="quarantined" if fence == "admission" else "enabled",
                   provider="declared_restore_quarantine" if fence == "provider" else "enabled")
         proxy = d.authenticated_proxy(); flow = d.worker(proxy=proxy)
-        commands = eventually(lambda: proxy.commands(START), description="combined Start checks " + fence + " quarantine")
+        commands = eventually(lambda proxy=proxy: proxy.commands(START), description="combined Start checks " + fence + " quarantine")
         assert all(command["status"] == 503 for command in commands)
-        eventually(lambda: d.status(occurrence["workflow_id"])["state"] == "failed",
+        eventually(lambda occurrence=occurrence: d.status(occurrence["workflow_id"])["state"] == "failed",
                    description="quarantined protected activation fails closed")
         snapshot = d.assert_original(occurrence)
         assert snapshot["source"] is None and snapshot.get("provider") is None
@@ -201,7 +288,7 @@ def quarantines(d, provider):
     return {"independent_fences": results}
 
 
-CASES = [parked_restart, competing_capacity, lost_report, lost_start,
+CASES = [expired_start_window, parked_restart, competing_capacity, lost_report, lost_start,
          unknown_call_successful_probe, duplicate_business, retained_report, quarantines]
 
 
@@ -211,7 +298,7 @@ def late_report_after_retirement(d, provider):
 
     d.policy()
     retained = d.retained_outcome
-    proxy = d.authenticated_proxy(); flow = d.worker(proxy=proxy)
+    proxy = d.authenticated_proxy(); d.worker(proxy=proxy)
     occurrence, paths = d.begin("protected-late-retained", provider, program="provider-admission-held")
     eventually(retained.exists, description="registered dispatch froze its actual outcome before reporting")
     (start,) = proxy.commands(START)

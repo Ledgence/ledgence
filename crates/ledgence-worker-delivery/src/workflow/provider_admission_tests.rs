@@ -270,6 +270,19 @@ async fn combined_start_binds_original_approval_to_current_owner_and_never_retri
     }
 }
 #[tokio::test]
+async fn provider_admission_start_losing_ownership_stops_without_a_runtime_reply_or_retry() {
+    let (handler, mut starts, mut reports) = fixture();
+    let exchange = handler.handle(request(), RunControl::new(Duration::from_secs(2)));
+    let reject = async {
+        let (_, reply) = starts.recv().await.unwrap();
+        reply.send(Err(ContractError::OwnershipLost)).unwrap();
+    };
+    let (result, ()) = bounded(async { tokio::join!(exchange, reject) }).await;
+    assert_eq!(result.unwrap_err().kind, ErrorKind::Cancelled);
+    assert!(starts.try_recv().is_err());
+    assert!(reports.try_recv().is_err());
+}
+#[tokio::test]
 async fn independent_capabilities_and_generic_admission_never_authorize_governed_callback() {
     let (mut h, mut starts, mut reports) = fixture();
     h.runtime_features

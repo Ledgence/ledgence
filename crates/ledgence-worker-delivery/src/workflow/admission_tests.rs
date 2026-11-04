@@ -168,6 +168,19 @@ async fn start_is_one_shot_and_binds_host_lease_occurrence_and_identity() {
     }
 }
 #[tokio::test]
+async fn admission_start_losing_ownership_stops_without_a_runtime_reply_or_retry() {
+    let (handler, mut starts, mut finishes) = fixture();
+    let exchange = handler.handle(request(), RunControl::new(Duration::from_secs(2)));
+    let reject = async {
+        let (_, reply) = starts.recv().await.unwrap();
+        reply.send(Err(ContractError::OwnershipLost)).unwrap();
+    };
+    let (result, ()) = bounded(async { tokio::join!(exchange, reject) }).await;
+    assert_eq!(result.unwrap_err().kind, ErrorKind::Cancelled);
+    assert!(starts.try_recv().is_err());
+    assert!(finishes.try_recv().is_err());
+}
+#[tokio::test]
 async fn absent_feature_wake_or_untrusted_authority_fields_make_no_start_rpc() {
     for broken in 0..4 {
         let (mut handler, mut starts, _) = fixture();

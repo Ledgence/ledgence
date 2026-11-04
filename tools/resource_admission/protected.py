@@ -1,12 +1,12 @@
 """Native protected dispatch admission; reuse the provider's independent CSV service (MIT)."""
 import ast
 import json
-from pathlib import Path
 import shutil
 
 from http_acceptance.harness import eventually
 from provider_operations.harness import ProviderDeployment
 from provider_operations.sqs import ProviderSqsDeployment
+
 from .common import ResourceControls
 
 START = "/v1/provider-admissions/start"
@@ -23,6 +23,20 @@ def fixture_source(root, *, retained_report=None, release_report=None):
     if event["data"].get("wakes"):
         with Path(event["data"]["wakes"]).open("a") as stream:
             stream.write(json.dumps(outcome.to_dict()) + "\\n")''')
+    # One scenario pauses the replacement attempt before it requests authority,
+    # so the test can inspect the first attempt’s committed database state.
+    anchor = "    admitted = await ctx.admitted_provider_operation()"
+    assert source.count(anchor) == 1
+    source = source.replace(anchor, '''    if gate := event["data"].get("retry_start_gate"):
+        import asyncio
+        marker = Path(gate + ".first")
+        if marker.exists():
+            Path(gate + ".retry").touch()
+            while not Path(gate).exists():
+                await asyncio.sleep(0.02)
+        else:
+            marker.touch()
+''' + anchor)
     # Native tests deliberately hold an HTTP response. This changes only the
     # socket bound, not dispatch/recovery policy or provider classification.
     assert source.count("timeout=2") == 1

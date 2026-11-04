@@ -104,6 +104,8 @@ permission. An identical Start retry returns the existing state or result, never
 another executable grant. A lost Start response can leave occupied capacity even
 when the callback never ran; that is deliberate uncertainty.
 
+For a new callback or protected provider Start, the orchestrator checks the database clock again after the tentative grant writes. If the offer or original admission deadline has elapsed, it rolls back the tentative grant and applies the existing wait or timeout transition. If the worker's authority or the shorter grant-to-send window has expired, the stale Start cannot consume a new source, rate credit, run allowance or one-shot approval. The worker stops on lost send authority. An activation eligible for retry can receive a fresh lease and request Start again. Once a grant is committed, the behavior changes: the response can arrive late, the worker must decline the expired permission, and its recorded source remains available for reconciliation.
+
 After the callback returns a bounded JSON result, Finish commits that result and
 releases capacity in the same transaction. The worker retries an uncertain Finish
 using the identical source and output. A later activation loads the retained

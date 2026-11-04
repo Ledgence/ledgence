@@ -51,12 +51,14 @@ class CandidateWorkflowTests(unittest.TestCase):
         workflow = WORKFLOW.read_text()
         self.assertIn("path: ${{ runner.temp }}/approval-upgrade/evidence/", workflow)
 
-    def exercise(self, *, corrupt=None, failing=None):
+    def exercise(self, *, corrupt=None, failing=None, omitted=None, incomplete=False, wrong_hash=None):
         with tempfile.TemporaryDirectory(prefix="ledgence-candidate-upgrade-") as temporary:
             base = Path(temporary)
             run, fixtures, commands = base / "run", base / "fixtures", base / "commands"
             for directory in (run / "ledgence-candidate", fixtures, commands):
                 directory.mkdir(parents=True)
+            # Match actions/setup-python instead of invoking the host OS interpreter.
+            (commands / "python3").symlink_to(sys.executable)
             archive(run / "ledgence-candidate/candidate.tar.gz", "current")
             script = upgrade_script()
             for version, published in PUBLISHED.items():
@@ -90,11 +92,13 @@ assert sys.argv[1:] == ['--check']
 digest, name = sys.stdin.read().strip().split('  ', 1)
 sys.exit(0 if hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest else 1)
 """)
-            executable("python", """import json, os, sys
+            executable("python", """import hashlib, json, os, sys, tomllib
 from pathlib import Path
 options = dict(zip(sys.argv[2::2], sys.argv[3::2]))
 previous = Path(options['--previous-bundle'])
 version = previous.name.removeprefix('previous-')
+# Docker exec -i based clients drain inherited standard input in the real Linux job.
+sys.stdin.read()
 expected = 'check-resource-upgrade.py' if version == '0.8.0' else 'check-approval-upgrade.py'
 assert sys.argv[1] == f'tools/{expected}'
 assert (previous / 'bin/ledgence').read_text() == f'{version}:bin/ledgence'
@@ -111,12 +115,29 @@ for tool in ('psql','pg_dump','pg_restore'):
 
 with Path(os.environ['CALLS']).open('a') as log:
     log.write(json.dumps(options) + '\\n')
-sys.exit(9 if version == os.environ.get('FAIL_VERSION') else 0)
+if version == os.environ.get('FAIL_VERSION'):
+    sys.exit(9)
+if version != os.environ.get('OMIT_VERSION'):
+    evidence = Path(options['--evidence'])
+    evidence.mkdir(parents=True)
+    old = hashlib.sha256((previous / 'bin/ledgence').read_bytes()).hexdigest()
+    new = hashlib.sha256((Path(options['--binaries']) / 'ledgence').read_bytes()).hexdigest()
+    if version == os.environ.get('WRONG_HASH'):
+        new = '0' * 64
+    release = 'ledgence ' + tomllib.loads(Path('Cargo.toml').read_text())['workspace']['package']['version']
+    if version == '0.8.0':
+        data = dict(passed=True, database_cleanup=True, process_cleanup=True, credential_scan_clean=not os.environ.get('INCOMPLETE'),
+                    provenance=dict(versions=['ledgence 0.8.0', release], new_binary_sha256=new, old_verified_files={'bin/ledgence':old}))
+        (evidence / 'summary.json').write_text(json.dumps(data))
+    else:
+        data = dict(previous_version='ledgence ' + version, candidate_version=release, executable_sha256=dict(previous=old,candidate=new))
+        (evidence / 'results.json').write_text(json.dumps(data))
 """)
             calls = base / "calls.jsonl"
             env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"],
                        RUNNER_TEMP=str(run), FIXTURES=str(fixtures), CALLS=str(calls),
-                       FAIL_VERSION=failing or "")
+                       FAIL_VERSION=failing or "", OMIT_VERSION=omitted or "", INCOMPLETE="1" if incomplete else "",
+                       WRONG_HASH=wrong_hash or "")
             result = subprocess.run(["bash", "-eu", "-o", "pipefail", "-c", script],
                                     cwd=ROOT, env=env, capture_output=True, text=True)
             recorded = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
@@ -129,6 +150,22 @@ sys.exit(9 if version == os.environ.get('FAIL_VERSION') else 0)
         for key in ("--binaries", "--console-dist", "--candidate-runner"):
             self.assertEqual(len({call[key] for call in calls}), 1)
         self.assertEqual(len({call["--previous-bundle"] for call in calls}), len(PUBLISHED))
+
+    def test_missing_successful_or_incomplete_rehearsals_block_qualification(self):
+        for version in PUBLISHED:
+            with self.subTest(version=version):
+                result, calls = self.exercise(omitted=version)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(calls), len(PUBLISHED))
+        result, _ = self.exercise(incomplete=True)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_receipt_from_another_candidate_blocks_qualification(self):
+        for version in PUBLISHED:
+            with self.subTest(version=version):
+                result, calls = self.exercise(wrong_hash=version)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(calls), len(PUBLISHED))
 
     def test_corrupt_last_stable_archive_never_executes_upgrade(self):
         result, calls = self.exercise(corrupt="0.8.0")

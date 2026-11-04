@@ -89,6 +89,82 @@ async fn put(
         .await
         .unwrap()
 }
+// The worker makes one Start RPC. OwnershipLost stops this invocation as Cancelled;
+// only an independently acquired retry may issue a new Start.
+pub(super) async fn settle_rejected_start(store: &PostgresStore, attempt: &Assignment) {
+    let settlement = SettleCommand {
+        owner: attempt.lease.owner.clone(),
+        operation_id: "rejected-start".into(),
+        report: AttemptReport::Failed(ExecutionFailure {
+            observations: None,
+            context: Box::new(ExecutionContext {
+                identity: InvocationIdentity::from(&attempt.event),
+                program: attempt.descriptor.program.clone(),
+                digest: attempt.descriptor.digest.clone(),
+            }),
+            error: Error::new(
+                ErrorKind::Cancelled,
+                ContractError::OwnershipLost.to_string(),
+            ),
+            phase: Phase::Execution,
+            cleanup_error: None,
+            execution_may_have_started: true,
+        }),
+        quiescence: Quiescence::Confirmed,
+        processing_trace: None,
+        provider_probe_failure: None,
+    };
+    assert_eq!(
+        store.settle(&settlement).await.unwrap().task_state,
+        TaskState::Queued
+    );
+}
+
+// Block at the last resource write, after the request and any debit are tentative.
+pub(super) async fn final_write_barrier(
+    store: &PostgresStore,
+) -> sqlx::Transaction<'_, sqlx::Postgres> {
+    sqlx::raw_sql("CREATE FUNCTION gate_admission_start() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(493782); RETURN NEW; END $$; CREATE TRIGGER gate_admission_start BEFORE UPDATE ON admission_resources FOR EACH ROW WHEN (NEW.started > OLD.started) EXECUTE FUNCTION gate_admission_start()")
+        .execute(&store.pool).await.unwrap();
+    let mut barrier = store.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(493782)")
+        .execute(&mut *barrier)
+        .await
+        .unwrap();
+    barrier
+}
+
+pub(super) enum StartExpiry {
+    At(i64),
+    AfterLock(u64),
+}
+pub(super) async fn expire_during_start<F: std::future::Future>(
+    store: &PostgresStore,
+    start: F,
+    expiry: StartExpiry,
+    mut barrier: sqlx::Transaction<'_, sqlx::Postgres>,
+) -> F::Output {
+    crate::tests::bounded(async {
+        let (result, ()) = tokio::join!(start, async {
+            crate::tests::wait_for_lock_waiter(store).await;
+            let deadline = match expiry {
+                StartExpiry::At(at) => at as u64,
+                StartExpiry::AfterLock(ms) => db::now(&mut barrier).await.unwrap() + ms,
+            };
+            loop {
+                let now = db::now(&mut barrier).await.unwrap();
+                if now >= deadline {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(deadline - now)).await;
+            }
+            barrier.rollback().await.unwrap();
+        });
+        result
+    })
+    .await
+}
+
 async fn fixture(p: ResourcePolicy) -> TestDb {
     let db = TestDb::new().await;
     bind(&db.store, AdmissionDispatchPolicy::Enabled).await;
