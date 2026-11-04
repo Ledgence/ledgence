@@ -127,9 +127,16 @@ def public_surfaces(d, occurrence, interpreter):
     )
     d.sessions.append(session)
     catalog = session.request("tools/list", {})["result"]["tools"]
-    assert len(catalog) == 17 and "ledgence_approval_decide" not in {
-        item["name"] for item in catalog
-    }
+    names = {item["name"] for item in catalog}
+    assert {
+        "ledgence_effect_inspect",
+        "ledgence_effect_inbox",
+        "ledgence_approval_inspect",
+        "ledgence_task_status",
+    } <= names, names
+    assert {"ledgence_approval_decide", "ledgence_effect_resolve", "ledgence_task_cancel"}.isdisjoint(names), names
+    assert all(item["annotations"]["readOnlyHint"] is True for item in catalog), catalog
+    session.invalid("ledgence_task_cancel", {"task_id": identity["activation_id"]})
     view = session.tool("ledgence_effect_inspect", identity)
     assert (
         view["provider"]["current_report"]["report"]
