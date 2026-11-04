@@ -228,7 +228,10 @@ async fn dropped_ack_future_refreshes_same_claim_without_repeating_acknowledgmen
     assert!(operation.await.unwrap_err().is_cancelled());
     {
         let mut state = service.state.lock().unwrap();
-        let AcquireReply::Assigned { assignment, .. } = state.replies.get_mut(&(0, 1)).unwrap()
+        let AcquireReply::Assigned { assignment, .. } = state
+            .replies
+            .get_mut(&(command.worker_session_id.clone(), 0, 1))
+            .unwrap()
         else {
             panic!("committed assignment expected");
         };

@@ -192,3 +192,9 @@ provider dispatch can share a resource through a combined one-shot grant; its
 call completion remains separate from the provider's business outcome. Recovery
 probes are outside that resource limit. Standalone tasks can require the same
 resource before handler invocation. Fair sharing and inherited budgets remain deferred. This is not in the 0.8.0 packages. [Guide and limits](/how-to/control-resource-capacity).
+
+## In development: worker poll shares
+
+[Configure a worker to poll multiple integrated queues](/how-to/share-worker-polls)
+with one concurrency budget. Choose deterministic Stride or weighted lottery,
+then adjust the weights without interrupting active tasks.

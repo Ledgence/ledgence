@@ -87,3 +87,8 @@ For a standalone task sharing the same capacity as workflow callbacks, see the
 [Hello Ledgence submission](resource-admission/submit_task.py) and its
 [setup instructions](resource-admission/README.md#apply-the-same-resource-to-a-standalone-task).
 This requires matching development components, not the released 0.8.0 packages.
+
+[Worker poll plan](worker-poll-plan.json) is a development configuration example
+for polling interactive and batch queues in a 70/30 ratio. See the
+[worker delivery guide](../docs/worker-delivery.md#worker-local-poll-plans-development)
+for live updates and how to pause polling.

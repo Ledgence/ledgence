@@ -5,6 +5,7 @@ use crate::{
     composition::WorkerParts,
     finish_shutdown, input, number,
     output::Sink,
+    poll_file::PlanFile,
     required,
     signals::{ShutdownSignals, forced_exit},
 };
@@ -21,6 +22,7 @@ pub struct ConnectOptions {
     credentials: Option<HttpCredentials>,
     scope: Scope,
     queue: String,
+    poll_plan: Option<PlanFile>,
     store: String,
     cache: PathBuf,
     python: PathBuf,
@@ -55,7 +57,25 @@ impl ConnectOptions {
             tenant_id: required(&mut options, "--tenant")?,
             namespace: required(&mut options, "--namespace")?,
         };
-        let queue = required(&mut options, "--queue")?;
+        let (queue, poll_plan) = match (options.remove("--queue"), options.remove("--poll-plan")) {
+            (Some(queue), None) => (queue, None),
+            (None, Some(path)) => {
+                if options.contains_key("--delivery-config") {
+                    return Err(input(
+                        "--poll-plan supports integrated HTTP queues; use --queue with --delivery-config",
+                    ));
+                }
+                let file = PlanFile::load(PathBuf::from(path))?;
+                let queue = file
+                    .planner()
+                    .queues()
+                    .first()
+                    .ok_or_else(|| input("poll plan requires at least one queue"))?
+                    .clone();
+                (queue, Some(file))
+            }
+            _ => return Err(input("specify exactly one of --queue or --poll-plan")),
+        };
         let store = required(&mut options, "--store")?;
         let cache = required(&mut options, "--cache")?.into();
         let python = required(&mut options, "--python")?.into();
@@ -92,6 +112,7 @@ impl ConnectOptions {
             credentials,
             scope,
             queue,
+            poll_plan,
             store,
             cache,
             python,
@@ -186,11 +207,31 @@ pub async fn run(
     driver = driver
         .with_runtime_features(runtime_access.runtime_features)
         .map_err(contract_error)?;
+    let poll_plan = config.poll_plan;
+    if let Some(file) = &poll_plan {
+        driver = driver
+            .with_poll_planner(file.planner().clone())
+            .map_err(contract_error)?;
+    }
     if let Some(source) = broker_source {
         driver = driver.with_acquisition_source(source);
     }
     let mut handle = driver.start();
-    supervise(&mut handle, output, signals, interrupted).await
+    let supervise = supervise(
+        &mut handle,
+        output,
+        signals,
+        interrupted,
+        poll_plan.is_some(),
+    );
+    if let Some(file) = poll_plan {
+        tokio::select! {
+            result = supervise => result,
+            () = file.watch() => unreachable!("poll plan watch runs until supervision ends"),
+        }
+    } else {
+        supervise.await
+    }
 }
 
 async fn prepare_broker(
@@ -259,6 +300,7 @@ async fn supervise(
     output: &Sink,
     signals: &mut ShutdownSignals,
     interrupted: &mut bool,
+    planned: bool,
 ) -> Result<()> {
     let status = loop {
         tokio::select! {
@@ -284,15 +326,16 @@ async fn supervise(
         }
     };
     // Output can itself stall; retain the persistent subscriptions throughout.
-    let report = output.line(
-        json!({"delivery": {
-            "session_id": status.session_id,
-            "finished": status.finished,
-            "settled_attempts": status.settled_attempts,
-            "lost_attempts": status.lost_attempts
-        }})
-        .to_string(),
-    );
+    let mut delivery = json!({
+        "session_id": status.session_id,
+        "finished": status.finished,
+        "settled_attempts": status.settled_attempts,
+        "lost_attempts": status.lost_attempts
+    });
+    if planned {
+        delivery["route_sessions"] = json!(status.route_sessions);
+    }
+    let report = output.line(json!({"delivery":delivery}).to_string());
     tokio::pin!(report);
     loop {
         tokio::select! {
@@ -382,6 +425,46 @@ mod tests {
             assert_eq!(config.acquire_wait, Duration::from_millis(expected));
             assert_eq!(config.concurrency, 4);
         }
+    }
+
+    #[test]
+    fn plan_selects_one_shared_pool_and_is_exclusive_with_single_route_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("plan.json");
+        std::fs::write(&file, r#"{"schema_version":1,"revision":1,"strategy":"lottery","queues":[{"queue":"first","weight":0},{"queue":"second","weight":1}]}"#).unwrap();
+        let mut supplied = options(None);
+        supplied.insert("--poll-plan".into(), file.to_str().unwrap().into());
+        assert!(
+            ConnectOptions::parse(supplied.clone())
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("exactly one")
+        );
+        supplied.remove("--queue");
+        let config = ConnectOptions::parse(supplied.clone()).unwrap();
+        assert_eq!(config.queue, "first");
+        assert_eq!(
+            config.poll_plan.unwrap().planner().queues(),
+            ["first", "second"]
+        );
+        supplied.insert("--delivery-config".into(), "external.json".into());
+        assert!(
+            ConnectOptions::parse(supplied)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("integrated HTTP")
+        );
+        let mut missing = options(None);
+        missing.remove("--queue");
+        assert!(
+            ConnectOptions::parse(missing)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("exactly one")
+        );
     }
 
     #[test]

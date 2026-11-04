@@ -452,3 +452,9 @@ These additions are not in 0.8.0. [Guide](/how-to/control-resource-capacity).
 With development components, `ledgence admission inspect` accepts `--task ID
 --generation N` instead of a workflow occurrence. The same `admission release`
 command accepts a source-bound saved task release. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
+
+## Worker poll plans (development)
+
+`ledgence worker connect --poll-plan FILE` selects among integrated HTTP queues
+with weighted Stride or lottery. Supply it instead of `--queue`; use a matching
+development build. [Configuration and live reload](/how-to/share-worker-polls).

@@ -317,10 +317,12 @@ impl ExecutionSession for Session {
 #[derive(Default)]
 struct ServiceState {
     session: Option<WorkerSession>,
+    sessions: HashMap<String, WorkerSession>,
+    deny_registration: Option<String>,
     next_task: usize,
     acquisitions: Vec<AcquireCommand>,
     acquisition_waits: Vec<Duration>,
-    replies: HashMap<(u32, u64), AcquireReply>,
+    replies: HashMap<(String, u32, u64), AcquireReply>,
     active: HashMap<u32, String>,
     renewals: Vec<RenewCommand>,
     accepted_renewals: HashMap<String, RenewCommand>,
@@ -467,15 +469,20 @@ impl TaskService for Service {
         concurrency: u32,
     ) -> ContractFuture<'a, WorkerSession> {
         Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            if state.deny_registration.as_deref() == Some(queue) {
+                return Err(ContractError::Forbidden);
+            }
             let session = WorkerSession {
                 features: Vec::new(),
-                id: "worker_session_test".into(),
+                id: format!("worker_session_{queue}"),
                 scope: scope.clone(),
                 queue: queue.into(),
                 concurrency,
                 expires_at: u64::MAX,
             };
-            self.state.lock().unwrap().session = Some(session.clone());
+            state.sessions.insert(session.id.clone(), session.clone());
+            state.session = Some(session.clone());
             Ok(session)
         })
     }
@@ -486,8 +493,14 @@ impl TaskService for Service {
             if self.session_expired.load(Ordering::SeqCst) {
                 return Err(ContractError::SessionExpired);
             }
-            let session = self.state.lock().unwrap().session.clone().unwrap();
-            assert_eq!(id, session.id);
+            let session = self
+                .state
+                .lock()
+                .unwrap()
+                .sessions
+                .get(id)
+                .cloned()
+                .unwrap();
             Ok(session)
         })
     }
@@ -502,11 +515,15 @@ impl TaskService for Service {
                 let mut state = self.state.lock().unwrap();
                 state.acquisitions.push(command.clone());
                 state.acquisition_waits.push(options.max_wait);
-                let key = (command.consumer_id, command.sequence);
+                let key = (
+                    command.worker_session_id.clone(),
+                    command.consumer_id,
+                    command.sequence,
+                );
                 if let Some(reply) = state.replies.get(&key) {
                     reply.clone()
                 } else {
-                    let session = state.session.as_ref().unwrap();
+                    let session = state.sessions.get(&command.worker_session_id).unwrap();
                     assert_eq!(command.scope, session.scope);
                     assert_eq!(command.queue, session.queue);
                     assert_eq!(command.worker_session_id, session.id);
@@ -1983,3 +2000,6 @@ mod runtime_features;
 
 #[path = "delivery/task_admission.rs"]
 mod task_admission;
+
+#[path = "delivery/poll_routes.rs"]
+mod poll_routes;
