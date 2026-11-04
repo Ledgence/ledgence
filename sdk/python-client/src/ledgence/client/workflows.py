@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
+from .budgets import RunBudgetPolicy
 from . import codec
 from .cloud_events import EVENT_COMMAND_LIMIT, validate_event
 from .errors import (
@@ -39,13 +40,14 @@ class Workflows:
     def prepare(self, *, program: str, version: str, queue: str, data: Any,
                 idempotency_key: str, correlation_key: str | None = None,
                 retry_policy: RetryPolicy | None = None, attempt_timeout_ms: int | None = None,
+                budget: RunBudgetPolicy | None = None,
                 origin_trace: TraceContext | None | object = _UNSET) -> WorkflowSubmission:
         """Freeze a workflow command, including the original optional trace context."""
         prepared = self._client.tasks.prepare(
             program=program, version=version, queue=queue, data=data,
             idempotency_key=idempotency_key, correlation_key=correlation_key,
             retry_policy=retry_policy, attempt_timeout_ms=attempt_timeout_ms,
-            origin_trace=origin_trace,
+            origin_trace=origin_trace, budget=budget,
         )
         return WorkflowSubmission._create(prepared.base_url, prepared.scope, prepared._body)
 

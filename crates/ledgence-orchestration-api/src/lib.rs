@@ -10,6 +10,8 @@
 
 pub use ledgence_worker_api::TraceContext;
 
+mod run_budget;
+pub use run_budget::*;
 mod queue_policies;
 pub use queue_policies::*;
 mod operator_audit;
@@ -87,6 +89,7 @@ pub enum ContractError {
     /// The verified principal lacks permission. No operation was authorized.
     Forbidden,
     InvalidInput(String),
+    RunBudgetDenied(RunBudgetDenial),
     /// Integrated acquisition rejected because the queue requires external
     /// dispatch. This exact operation granted no authority and committed no
     /// consumer-cursor mutation. Existing completed sequences must replay before

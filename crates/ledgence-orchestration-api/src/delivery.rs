@@ -368,6 +368,12 @@ pub struct SettleReply {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttemptSnapshot {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget_denial: Option<RunBudgetDenial>,
     /// Frozen on acquisition so cursor replay preserves the same preparation requirement.
     #[serde(
         default,
@@ -423,6 +429,10 @@ pub struct RecordedHistoryEvent {
 /// Service boundary implemented by future transport adapters. A successful
 /// mutation reply is permitted only after durable transactional acceptance.
 pub trait TaskService: Send + Sync {
+    /// The implementation persists root task budgets and checks them before invoking the handler.
+    fn supports_task_run_budgets(&self) -> bool {
+        false
+    }
     fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
         Err(ContractError::Unavailable(
             "queue policy operations unavailable".into(),

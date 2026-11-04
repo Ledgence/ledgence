@@ -204,6 +204,7 @@ fn principal(worker: bool) -> VerifiedPrincipal {
 }
 fn claim() -> EffectClaimV2Command {
     EffectClaimV2Command {
+        budget_fence: false,
         owner: owner(),
         workflow_id: "workflow".into(),
         approval_key: "approval".into(),

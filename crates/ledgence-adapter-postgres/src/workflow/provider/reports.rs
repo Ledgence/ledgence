@@ -163,6 +163,16 @@ impl PostgresStore {
         if let Some(owner) = owner {
             check_owner(tx, o, owner, now, true).await?;
         }
+        if matches!(source.source, ProviderSourceReference::Dispatch { .. }) {
+            crate::run_budget::usage(
+                tx,
+                &o.scope,
+                &crate::run_budget::workflow(&o.workflow_id),
+                c.source_id(),
+                c.report().usage.as_ref(),
+            )
+            .await?;
+        }
         let reply = ProviderReportReply::Accepted { receipt };
         reply.validate_for(p, c)?;
         Ok(reply)

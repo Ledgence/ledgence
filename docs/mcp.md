@@ -323,11 +323,11 @@ apply unchanged. These additions require matching 0.8.0 components.
 Matching source builds add five resource read tools: `ledgence_resource_list`,
 `ledgence_resource_inspect`, `ledgence_resource_decisions`, audited `ledgence_admission_inspect` and
 `ledgence_task_admission_inspect`. The native
-catalog with audit has 27 default tools and 22 read-only tools; explicit effect
+catalog with audit has 29 default tools and 24 read-only tools; explicit effect
 resolution adds one. `--allow-resource-control` separately adds
 `ledgence_resource_put`, `ledgence_admission_release`, `ledgence_task_admission_release`,
 `ledgence_queue_policy_put` and `ledgence_queue_hold_release`
-(32 tools, or 33 with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
+(34 tools, or 35 with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
 Session scope is fixed. Policy/release commands require stable caller request
 IDs, inspected revisions and the API's `resource_control` permission. Read-only
 mode rejects either mutation opt-in. Release never asserts remote success.
@@ -340,3 +340,5 @@ stable `request_id` and `reason`. The MCP server fixes scope and never requests
 a worker dispatch grant.
 
 The development catalog includes `ledgence_queue_policy_inspect`, `ledgence_queue_policy_list` and `ledgence_queue_holds` in both default and read-only modes. Exact hold reads require `sensitive_read`; edits and releases require the resource-control opt-in and server permission. [Queue policy contract](queue-concurrency.md).
+
+In development, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.

@@ -13,6 +13,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
+from time import monotonic
 import inspect
 import hashlib
 import json
@@ -444,6 +445,16 @@ def _text(value, name, limit=128):
     return value
 
 
+def _budget_dispatch_deadline(grant, started, *, authorized_at=None):
+    """A monotonic upper bound relative to the start of the entire claim exchange."""
+    _fields(grant, {"authorized_at","expires_at"})
+    issued = _integer(grant["authorized_at"], "budget grant authorization", maximum=MAX_TIMESTAMP)
+    until = _integer(grant["expires_at"], "budget grant expiry", maximum=MAX_TIMESTAMP)
+    if not 0 < until - issued <= 5000 or (authorized_at is not None and issued != authorized_at):
+        raise WorkflowError("invalid budget dispatch grant")
+    return started + (until - issued) / 1000
+
+
 def _integer(value, name, minimum=0, maximum=(1 << 64) - 1):
     if type(value) is not int or not minimum <= value <= maximum:
         raise WorkflowError(f"invalid {name}")
@@ -841,6 +852,7 @@ class _ApprovedEffectInvocation:
     claim_id: str | None = None
     reported_callback: str | None = None
     replay_record: dict | None = None
+    dispatch_deadline: float | None = None
 
 
 class WorkflowContext:
@@ -1325,7 +1337,9 @@ class WorkflowContext:
                     return None
                 effect.reported_callback = "dispatch" if mode == "dispatch" else "lookup"
             else:
-                mode = await self._claim_approved_effect(approval["key"], action, lookup_name)
+                mode = await self._claim_approved_effect(effect, action, lookup_name)
+            if mode == "dispatch" and effect.dispatch_deadline is not None and monotonic() >= effect.dispatch_deadline:
+                raise EffectOutcomeUnknown("the budget grant expired before dispatch")
             result = (fn if mode == "dispatch" else lookup)(**saved)
             return await result if inspect.isawaitable(result) else result
 
@@ -1348,14 +1362,18 @@ class WorkflowContext:
         return self._bound_local(key, invoke, action["name"], binding, action["arguments"],
                                  effect=effect)
 
-    async def _claim_approved_effect(self, approval_key, action, lookup):
+    async def _claim_approved_effect(self, effect, action, lookup):
+        approval_key = effect.approval_key
         request = {"approval_key": approval_key, "action": action, "lookup": lookup}
         async with self._commit_lock:
             if self._fatal is not None:
                 raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
             try:
+                begun = monotonic()
                 reply = await self._rpc("approved_effect.claim", request)
-                _fields(reply, {"workflow_id", "activation_id", "approval_key", "action", "lookup", "disposition"})
+                _fields(reply, {"workflow_id", "activation_id", "approval_key", "action", "lookup", "disposition"}, {"budget_grant"})
+                if "budget_grant" in reply:
+                    effect.dispatch_deadline = _budget_dispatch_deadline(reply["budget_grant"], begun)
                 if (reply["workflow_id"] != self.workflow_id or reply["activation_id"] != self.activation_id
                         or reply["approval_key"] != approval_key or reply["lookup"] != lookup
                         or reply["disposition"] not in ("dispatch", "lookup_only")
@@ -1376,6 +1394,7 @@ class WorkflowContext:
             if self._fatal is not None:
                 raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
             try:
+                begun = monotonic()
                 reply = await self._rpc("approved_effect.claim.v2", request)
                 if type(reply) is not dict:
                     raise WorkflowError("invalid approved effect claim acknowledgement")
@@ -1398,7 +1417,9 @@ class WorkflowContext:
                 _fields(reply, {"kind", "claim"})
                 claim = reply["claim"]
                 _fields(claim, {"workflow_id", "activation_id", "approval_key", "claim_id", "action", "lookup",
-                                "claimed_at", "initial_permission", "recorded_revision", "already_accepted"})
+                                "claimed_at", "initial_permission", "recorded_revision", "already_accepted"}, {"budget_grant"})
+                if "budget_grant" in claim:
+                    effect.dispatch_deadline = _budget_dispatch_deadline(claim["budget_grant"], begun, authorized_at=claim["claimed_at"])
                 self._validate_effect_identity(claim, effect.approval_key)
                 _integer(claim["claimed_at"], "claim timestamp", maximum=MAX_TIMESTAMP)
                 _integer(claim["recorded_revision"], "claim revision", minimum=1)

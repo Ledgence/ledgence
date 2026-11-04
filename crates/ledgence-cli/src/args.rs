@@ -87,7 +87,10 @@ impl Command {
             }
             return Ok(Self::Help);
         }
-        if matches!(command.as_str(), "queue" | "resource" | "admission") {
+        if matches!(
+            command.as_str(),
+            "queue" | "resource" | "admission" | "budget"
+        ) {
             return crate::admission::parse(&command, args);
         }
         if command == "effect" {

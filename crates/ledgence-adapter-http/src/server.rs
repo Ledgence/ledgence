@@ -12,6 +12,7 @@ mod provider_admission;
 mod provider_console;
 mod queue_policies;
 mod routes;
+mod run_budget;
 mod task_admission;
 use routes::{Policy, Route};
 pub mod assets;
@@ -219,6 +220,8 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/resources/put", Policy::ResourceControl),
     Route::post("/v1/resources/query", Policy::Metadata),
     Route::post("/v1/resources/decisions", Policy::Metadata),
+    Route::post("/v1/budgets/inspect", Policy::Metadata),
+    Route::post("/v1/budgets/entries", Policy::Metadata),
     Route::post("/v1/resources/list", Policy::Metadata),
     Route::post("/v1/provider-admissions/start", Policy::Worker),
     Route::post("/v1/provider-admissions/report", Policy::Worker),
@@ -310,6 +313,13 @@ fn invalid(message: &str) -> ContractError {
 }
 
 async fn handle(State(server): State<Server>, request: Request) -> Response {
+    // Unknown or ambiguous values do not advertise a worker capability.
+    let budget_headers = request.headers().get_all("ledgence-run-budget");
+    let budget_fence = budget_headers.iter().count() == 1
+        && budget_headers
+            .iter()
+            .next()
+            .is_some_and(|value| value == "1");
     let metric = ledgence_worker_api::metrics::MetricTimer::start(
         ledgence_worker_api::metrics::Metric::HttpDuration,
     );
@@ -407,13 +417,14 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                     Err(unavailable("orchestrator is shutting down").into())
                 } else {
                     tokio::time::timeout_at(deadline, async {
-                        let context = audit::RequestContext::new(
+                        let mut context = audit::RequestContext::new(
                             &server,
                             admission.ok().flatten(),
                             route,
                             &method,
                             &request_id,
                         )?;
+                        context.budget_fence = budget_fence;
                         let bytes = dispatch(&server, request, deadline, &context)
                             .await
                             .map_err(|error| context.failure(error))?;
@@ -439,7 +450,10 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 };
                 match result {
                     Ok(bytes) => (200, bytes, None),
-                    Err(error) => failure_reply(error),
+                    Err(error) => {
+                        let worker = route.policy(&method) == Some(Policy::Worker);
+                        failure_reply(legacy_budget_denial(error, worker && !budget_fence))
+                    }
                 }
             }
         };
@@ -515,6 +529,14 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
     }
     .instrument(span)
     .await
+}
+
+/// Older worker decoders retry unknown error variants. Preserve permanent rejection for them.
+fn legacy_budget_denial(error: Failure, legacy_worker: bool) -> Failure {
+    if legacy_worker && let ContractError::RunBudgetDenied(reason) = error.error {
+        return ContractError::InvalidInput(reason.code().into()).into();
+    }
+    error
 }
 
 fn failure_reply(Failure { status, mut error }: Failure) -> (u16, Vec<u8>, Option<&'static str>) {
@@ -856,6 +878,7 @@ async fn dispatch(
         });
     }
     let maximum = match path {
+        path if path.starts_with("/v1/budgets/") => 4096,
         path if path.starts_with("/v1/resources/")
             || path.starts_with("/v1/admissions/")
             || path.starts_with("/v1/task-admissions/") =>
@@ -918,6 +941,9 @@ async fn dispatch(
     ) {
         return provider_admission::post(server, path, bytes, context).await;
     }
+    if let Some(operation) = path.strip_prefix("/v1/budgets/") {
+        return run_budget::post(server, operation, bytes, None, context).await;
+    }
     if path.starts_with("/v1/resources/") || path.starts_with("/v1/admissions/") {
         return admission::post(server, path, bytes, context).await;
     }
@@ -944,6 +970,7 @@ async fn dispatch(
                 })
                 .await?;
             server.require_submission_scope(&command)?;
+            run_budget::require_submission(server, &command, true)?;
             let span = tracing::Span::current();
             span.record("ledgence.tenant.id", &command.input.tenant_id);
             span.record("ledgence.namespace", &command.input.namespace);

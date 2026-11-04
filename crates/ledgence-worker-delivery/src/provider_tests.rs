@@ -74,6 +74,7 @@ fn fixture() -> (ProviderProbeReportCommand, EffectAccess, DeliveryConfig) {
         source_id: "source".into(),
         report_id: "report".into(),
         report: ProviderReport {
+            usage: None,
             reported_target: serde_json::from_value(
                 fixture["binding"]["approval"]["provider_binding"]["target"].clone(),
             )

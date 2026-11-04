@@ -13,6 +13,7 @@ enum Exposure {
 /// One request owns both its principal and its exposure annotation. The inner
 /// byte dispatchers cannot turn an unclassified sensitive response into success.
 pub(super) struct RequestContext {
+    pub(super) budget_fence: bool,
     principal: Option<VerifiedPrincipal>,
     request: Option<OperatorRequest>,
     policy: Policy,
@@ -74,6 +75,7 @@ impl RequestContext {
             None
         };
         Ok(Self {
+            budget_fence: false,
             principal,
             request,
             policy,
@@ -214,6 +216,7 @@ mod tests {
 
     fn context(read: AuditReadKind) -> RequestContext {
         RequestContext {
+            budget_fence: false,
             principal: None,
             request: None,
             policy: Policy::Sensitive,

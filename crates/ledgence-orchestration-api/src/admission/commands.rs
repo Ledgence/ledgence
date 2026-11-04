@@ -143,6 +143,12 @@ impl AdmissionStartCommand {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdmissionFinishCommand {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub usage: Option<RunBudgetUsage>,
     pub source: AdmissionSource,
     #[serde(deserialize_with = "crate::observation::required_value")]
     pub output: Value,
@@ -150,6 +156,9 @@ pub struct AdmissionFinishCommand {
 impl AdmissionFinishCommand {
     pub fn validate(&self) -> Result<()> {
         self.source.validate()?;
+        if let Some(usage) = &self.usage {
+            usage.validate()?;
+        }
         validate_wire_value(&self.output)?;
         bound(&self.output, ADMISSION_OUTPUT_MAX_BYTES)?;
         bound(self, ADMISSION_COMMAND_MAX_BYTES)

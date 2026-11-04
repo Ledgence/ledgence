@@ -25,8 +25,9 @@ pub(super) async fn post(
         .ok_or_else(|| unavailable("workflow service unavailable"))?
         .provider_operations()?;
     macro_rules! command {
-        ($ty:ty, $($scope:ident).+, $method:ident, $maximum:expr) => {{
+        ($ty:ty, $($scope:ident).+, $method:ident, $maximum:expr $(, $fence:ident)?) => {{
             let command: $ty = server.decode(bytes, PROVIDER_COMMAND_MAX_BYTES).await?;
+            $(let command={let mut c=command;c.$fence=context.budget_fence;c};)?
             command.validate()?;
             server.require_scope(&command.$($scope).+)?;
             context.recheck(server)?;
@@ -43,7 +44,8 @@ pub(super) async fn post(
             ProviderClaimCommand,
             owner.scope,
             claim_provider,
-            PROVIDER_RECEIPT_MAX_BYTES
+            PROVIDER_RECEIPT_MAX_BYTES,
+            budget_fence
         ),
         "/v1/workflows/provider-operations/report" => command!(
             ProviderDispatchReportCommand,

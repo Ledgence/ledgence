@@ -16,11 +16,18 @@ if (
   throw new Error(
     "Use an absolute /console/ URL without credentials, query or fragment.",
   );
-// The queue-policy suite exercises a separate credential-bound disposable instance.
-const queueSuite = process.env.LEDGENCE_CONSOLE_LIVE_SUITE === "queue-policies";
+// Credential suites use independent disposable deployments and do not retain traces.
+const selected = process.env.LEDGENCE_CONSOLE_LIVE_SUITE;
+const protectedSuite =
+  selected === "queue-policies" || selected === "run-budgets";
+const output = protectedSuite ? selected : "console";
 export default defineConfig({
-  testMatch: queueSuite ? ["**/queue-policies.spec.ts"] : ["**/*.spec.ts"],
-  testIgnore: queueSuite ? [] : ["**/queue-policies.spec.ts"],
+  testMatch: protectedSuite
+    ? ["**/" + selected + ".spec.ts"]
+    : ["**/*.spec.ts"],
+  testIgnore: protectedSuite
+    ? []
+    : ["**/queue-policies.spec.ts", "**/run-budgets.spec.ts"],
   testDir: "./tests/live",
   workers: 1,
   fullyParallel: false,
@@ -28,22 +35,20 @@ export default defineConfig({
   retries: 0,
   timeout: 60000,
   expect: { timeout: 10000 },
-  outputDir: queueSuite ? "test-results/queue-live" : "test-results/live",
+  outputDir: "test-results/" + output + "-live",
   reporter: [
     ["list"],
     [
       "html",
       {
         open: "never",
-        outputFolder: queueSuite
-          ? "playwright-report/queue-live"
-          : "playwright-report/live",
+        outputFolder: "playwright-report/" + output + "-live",
       },
     ],
   ],
   use: {
     baseURL: url.toString(),
-    trace: queueSuite ? "off" : "retain-on-failure",
+    trace: protectedSuite ? "off" : "retain-on-failure",
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },

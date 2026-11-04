@@ -35,9 +35,10 @@ pub(super) async fn post(
         let effects = service.approved_effect_evidence()?;
         match path.rsplit('/').next() {
             Some("claim") => {
-                let command: EffectClaimV2Command = server
+                let mut command: EffectClaimV2Command = server
                     .decode(bytes, EFFECT_EVIDENCE_COMMAND_MAX_BYTES)
                     .await?;
+                command.budget_fence = context.budget_fence;
                 command.validate()?;
                 server.require_scope(&command.owner.scope)?;
                 context.recheck(server)?;

@@ -49,6 +49,12 @@ pub struct SubmitTask {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::effect_resolution::present"
     )]
+    pub budget: Option<crate::RunBudgetPolicy>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
     pub admission: Option<crate::TaskAdmissionRequirement>,
     pub tenant_id: String,
     pub namespace: String,
@@ -104,6 +110,9 @@ impl SubmitTask {
             return Err(invalid(
                 "correlation_key must contain at most 512 UTF-8 bytes and no control characters",
             ));
+        }
+        if let Some(budget) = &self.budget {
+            budget.validate().map_err(|e| invalid(e.to_string()))?;
         }
         if let Some(admission) = &self.admission {
             admission

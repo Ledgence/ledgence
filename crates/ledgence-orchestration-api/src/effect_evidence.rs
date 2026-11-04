@@ -109,6 +109,9 @@ impl EffectWorkerIdentity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectClaimV2Command {
+    /// Transport negotiation is separate from the immutable command identity.
+    #[serde(skip)]
+    pub budget_fence: bool,
     pub owner: LeaseOwner,
     pub workflow_id: String,
     pub approval_key: String,
@@ -119,6 +122,7 @@ pub struct EffectClaimV2Command {
 impl EffectClaimV2Command {
     pub fn legacy(&self) -> ApprovedEffectClaimCommand {
         ApprovedEffectClaimCommand {
+            budget_fence: self.budget_fence,
             owner: self.owner.clone(),
             workflow_id: self.workflow_id.clone(),
             approval_key: self.approval_key.clone(),
@@ -138,6 +142,12 @@ impl EffectClaimV2Command {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectClaimBinding {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget_grant: Option<RunBudgetGrant>,
     pub scope: Scope,
     pub workflow_id: String,
     pub activation_id: String,
@@ -166,7 +176,14 @@ impl EffectClaimBinding {
         validate_text(&self.claim_id, 128)?;
         time(self.claimed_at)?;
         positive(self.recorded_revision)?;
+        if self
+            .budget_grant
+            .is_some_and(|g| g.authorized_at != self.claimed_at)
+        {
+            return Err(invalid());
+        }
         ApprovedEffectClaimReceipt {
+            budget_grant: self.budget_grant,
             scope: self.scope.clone(),
             workflow_id: self.workflow_id.clone(),
             activation_id: self.activation_id.clone(),
@@ -234,6 +251,12 @@ impl EffectClaimV2Receipt {
     pub fn matches(&self, command: &EffectClaimV2Command) -> Result<bool> {
         self.validate()?;
         command.validate()?;
+        if let Self::Dispatch { claim } = self
+            && claim.budget_grant.is_some()
+            && !command.budget_fence
+        {
+            return Ok(false);
+        }
         match self {
             Self::Dispatch { claim } | Self::LookupOnly { claim } => Ok(claim.occurrence()
                 == command.occurrence()

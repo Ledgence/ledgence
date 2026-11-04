@@ -71,6 +71,52 @@ impl PostgresStore {
             });
         }
         super::super::execution::check_live(&workflow, &authority, &c.owner, now, true)?;
+        let source_id = db::id(&mut tx, "admsrc").await?;
+        let member = crate::run_budget::workflow(&c.occurrence.workflow_id);
+        let budget_deadline = if authority.has_run_budget {
+            match crate::run_budget::call(&mut tx, &c.occurrence.scope, &member, &source_id, None)
+                .await?
+            {
+                Ok((_, deadline)) => deadline,
+                Err(reason) => {
+                    let key = crate::run_budget::denial_id(
+                        &mut tx,
+                        &("operation", &c.occurrence, c.offer_generation),
+                    )
+                    .await?;
+                    a.start_bytes = Some(canonical(c)?);
+                    close_budget_offer(&mut tx, &mut a, &mut r, reason, &key).await?;
+                    let receipt = AdmissionStartReceipt::Existing {
+                        snapshot: Box::new(a.snapshot),
+                    };
+                    let final_now = db::now(&mut tx).await?;
+                    self.admission_worker(p, &c.occurrence.scope, final_now)?;
+                    super::super::execution::check_live(
+                        &workflow, &authority, &c.owner, final_now, true,
+                    )?;
+                    receipt.validate_for(p, c)?;
+                    tx.commit().await?;
+                    return Ok(receipt);
+                }
+            }
+        } else {
+            None
+        };
+        let now = if authority.has_run_budget {
+            db::now(&mut tx).await?
+        } else {
+            now
+        };
+        self.admission_worker(p, &c.occurrence.scope, now)?;
+        super::super::execution::check_live(&workflow, &authority, &c.owner, now, true)?;
+        if a.snapshot
+            .offer
+            .as_ref()
+            .is_none_or(|offer| now >= offer.expires_at)
+            || now >= a.snapshot.deadline_at
+        {
+            return Err(ContractError::OwnershipLost.into());
+        }
         // Refill after lock and spend once. Offers reserve shadow credit, never rate tokens.
         r.refill(now)?;
         if let Some(rate) = &r.record.policy.rate {
@@ -90,10 +136,11 @@ impl PostgresStore {
         let start_deadline_at = now
             .checked_add(u64::from(r.record.policy.start_timeout_ms))
             .ok_or_else(|| corrupt("admission start deadline"))?
-            .min(authority.valid_until());
+            .min(authority.valid_until())
+            .min(budget_deadline.unwrap_or(u64::MAX));
         let source = AdmissionSource {
             occurrence: c.occurrence.clone(),
-            source_id: db::id(&mut tx, "admsrc").await?,
+            source_id,
             start_id: c.start_id.clone(),
             finish_id: c.finish_id.clone(),
             generation: c.offer_generation,
@@ -115,10 +162,20 @@ impl PostgresStore {
         r.wake(now);
         save_request(&mut tx, &a).await?;
         save_resource(&mut tx, &r).await?;
-        tx.commit().await?;
-        Ok(AdmissionStartReceipt::Granted {
+        if authority.has_run_budget {
+            let at = db::now(&mut tx).await?;
+            self.admission_worker(p, &c.occurrence.scope, at)?;
+            super::super::execution::check_live(&workflow, &authority, &c.owner, at, true)?;
+            if at < source.accepted_at || at >= source.start_deadline_at {
+                return Err(ContractError::OwnershipLost.into());
+            }
+        }
+        let receipt = AdmissionStartReceipt::Granted {
             source: Box::new(source),
-        })
+        };
+        receipt.validate_for(p, c)?;
+        tx.commit().await?;
+        Ok(receipt)
     }
     pub(super) async fn finish_admission_once(
         &self,
@@ -165,6 +222,7 @@ impl PostgresStore {
         }
         let receipt = AdmissionFinishReceipt {
             source: c.source.clone(),
+            usage: c.usage.clone(),
             output: c.output.clone(),
             accepted_at: now.max(c.source.accepted_at).max(a.snapshot.updated_at),
             already_accepted: false,
@@ -183,6 +241,14 @@ impl PostgresStore {
             }
             a.snapshot.state = AdmissionState::Finished;
         }
+        crate::run_budget::usage(
+            &mut tx,
+            &c.source.occurrence.scope,
+            &crate::run_budget::workflow(&c.source.occurrence.workflow_id),
+            &c.source.source_id,
+            c.usage.as_ref(),
+        )
+        .await?;
         a.snapshot.finish = Some(receipt.clone());
         a.finish_bytes = Some(canonical(c)?);
         a.check_at = None;
@@ -198,6 +264,9 @@ impl PostgresStore {
     }
 }
 fn check_replay(a: &Request, c: &AdmissionStartCommand) -> Result<()> {
+    if a.snapshot.budget_denial.is_some() && a.start_bytes.as_ref() != Some(&canonical(c)?) {
+        return Err(ContractError::Conflict);
+    }
     if let Some(source) = &a.snapshot.source
         && (source.start_id == c.start_id || source.finish_id == c.finish_id)
         && a.start_bytes.as_ref() != Some(&canonical(c)?)
@@ -247,4 +316,39 @@ fn require_operation(a: &Request) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+pub(in crate::workflow) async fn close_budget_offer(
+    tx: &mut PgConnection,
+    a: &mut Request,
+    r: &mut Resource,
+    reason: RunBudgetDenial,
+    key: &str,
+) -> StoreResult<()> {
+    let o = &a.snapshot.occurrence;
+    crate::run_budget::record_denial(
+        tx,
+        &o.scope,
+        &crate::run_budget::workflow(&o.workflow_id),
+        RunBudgetAction::Call,
+        key,
+        reason,
+        a.snapshot.binding.provider().map(|p| &p.ticket.occurrence),
+    )
+    .await?;
+    let now = db::now(tx).await?;
+    r.offered = r
+        .offered
+        .checked_sub(1)
+        .ok_or_else(|| corrupt("missing run-budget offer"))?;
+    a.snapshot.state = AdmissionState::ClosedBeforeStart;
+    a.snapshot.offer = None;
+    a.snapshot.budget_denial = Some(reason);
+    a.check_at = None;
+    a.bump(now)?;
+    r.wake(now);
+    r.refill(now)?;
+    save_request(tx, a).await?;
+    save_resource(tx, r).await?;
+    wait::notify(tx, a, now).await
 }

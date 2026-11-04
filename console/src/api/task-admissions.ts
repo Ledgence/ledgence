@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
+import { budgetDenial } from "./run-budgets";
 import { ContractError } from "./codecs";
 import { stringifyUserJson } from "./json";
 
@@ -78,23 +79,26 @@ const state = s.enumeration(
   "closed_before_start",
   "administratively_released",
 );
-const snapshot = s.object({
-  occurrence: taskAdmissionOccurrence,
-  resource,
-  program: s.object({
-    program: s.object({ id: s.id, version: s.id }),
-    digest,
-    size: positive,
-  }),
-  state,
-  revision: positive,
-  created_at: s.timestamp,
-  updated_at: s.timestamp,
-  offer: s.nullable(offer),
-  owner: s.nullable(owner),
-  source: s.nullable(source),
-  close: s.nullable(close),
-});
+const snapshot = s.withOptional(
+  {
+    occurrence: taskAdmissionOccurrence,
+    resource,
+    program: s.object({
+      program: s.object({ id: s.id, version: s.id }),
+      digest,
+      size: positive,
+    }),
+    state,
+    revision: positive,
+    created_at: s.timestamp,
+    updated_at: s.timestamp,
+    offer: s.nullable(offer),
+    owner: s.nullable(owner),
+    source: s.nullable(source),
+    close: s.nullable(close),
+  },
+  { budget_denial: budgetDenial },
+);
 const same = (a: unknown, b: unknown) =>
   stringifyUserJson(a) === stringifyUserJson(b);
 export function taskAdmissionFor(
@@ -111,6 +115,7 @@ export function taskAdmissionFor(
       );
     };
     if (
+      (v.budget_denial !== undefined && v.state !== "closed_before_start") ||
       v.occurrence.task_id !== taskId ||
       v.occurrence.generation !== attempt ||
       v.resource !== name ||

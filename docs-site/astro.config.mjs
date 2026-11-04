@@ -57,6 +57,7 @@ export default defineConfig({
         { label: 'Share resource offers between queue groups (development)', slug: 'how-to/share-resource-offers' },
         { label: 'Limit a queue across workers (development)', slug: 'how-to/limit-queue-concurrency' },
         { label: 'Share one worker across queues (development)', slug: 'how-to/share-worker-polls' },
+        { label: 'Share a run budget (development)', slug: 'how-to/share-run-budgets' },
         { label: 'Share model and tool capacity (development)', slug: 'how-to/control-resource-capacity' },
       ] },
       { label: 'Integrations and examples', collapsed: true, items: [

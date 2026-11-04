@@ -4,6 +4,7 @@ const PATH: &str = "/v1/workflows/approved-effects/claim";
 
 fn command() -> ApprovedEffectClaimCommand {
     ApprovedEffectClaimCommand {
+        budget_fence: false,
         owner: owner(),
         workflow_id: snapshot().workflow_id,
         approval_key: "approve-payment".into(),
@@ -19,6 +20,7 @@ fn command() -> ApprovedEffectClaimCommand {
 fn receipt(disposition: ApprovedEffectDisposition) -> ApprovedEffectClaimReceipt {
     let command = command();
     ApprovedEffectClaimReceipt {
+        budget_grant: None,
         scope: command.owner.scope,
         attempt_id: command.owner.attempt_id,
         workflow_id: command.workflow_id,

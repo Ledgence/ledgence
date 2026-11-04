@@ -1,0 +1,22 @@
+schema_version = 1
+
+[program]
+id = "shared-run-budget"
+version = "1.0.0"
+handler = "program:handle"
+kind = "workflow"
+display_name = "Budgeted ticket review"
+description = "Give two owned ticket classifiers one shared call allowance."
+
+[source]
+root = "."
+include = ["program.py"]
+
+[dependencies]
+requirements = "requirements.txt"
+
+[target]
+platform = "linux/arm64"
+python = "3.14"
+protocol = 3
+image = "REPLACE_WITH_WORKER_IMAGE_DIGEST"

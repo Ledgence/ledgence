@@ -14,6 +14,26 @@ export function object<S extends Record<string, Decoder<unknown>>>(
     return output as { [K in keyof S]: Decoded<S[K]> };
   };
 }
+/** Decode a closed object whose optional properties must be valid when present. */
+export function withOptional<
+  R extends Record<string, Decoder<unknown>>,
+  O extends Record<string, Decoder<unknown>>,
+>(
+  required: R,
+  optional: O,
+): Decoder<
+  { [K in keyof R]: Decoded<R[K]> } & { [K in keyof O]?: Decoded<O[K]> }
+> {
+  return (value) => {
+    if (!isJsonObject(value)) throw new ContractError("Expected an object.");
+    const present = Object.fromEntries(
+      Object.entries(optional).filter(([key]) => Object.hasOwn(value, key)),
+    );
+    return object({ ...required, ...present })(value) as {
+      [K in keyof R]: Decoded<R[K]>;
+    } & { [K in keyof O]?: Decoded<O[K]> };
+  };
+}
 export function string(value: unknown): string {
   if (typeof value !== "string")
     throw new ContractError("Expected response text.");

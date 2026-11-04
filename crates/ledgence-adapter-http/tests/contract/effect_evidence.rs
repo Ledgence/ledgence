@@ -42,6 +42,7 @@ async fn claim_and_confirm_validate_full_actor_binding_after_possible_commit() {
     let f = setup().await;
     f.mock.evidence_capabilities.store(3, Ordering::SeqCst);
     let command = EffectClaimV2Command {
+        budget_fence: false,
         owner: owner(),
         workflow_id: "workflow".into(),
         approval_key: "approval".into(),
@@ -54,6 +55,7 @@ async fn claim_and_confirm_validate_full_actor_binding_after_possible_commit() {
         claim_id: "claim".into(),
     };
     let claim = EffectClaimBinding {
+        budget_grant: None,
         scope: command.owner.scope.clone(),
         workflow_id: command.workflow_id.clone(),
         activation_id: command.owner.task_id.clone(),

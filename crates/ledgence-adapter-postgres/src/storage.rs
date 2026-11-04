@@ -3,6 +3,9 @@ use ledgence_orchestration_core as core;
 use ledgence_worker_api::ProgramDescriptor;
 
 impl TaskStore for PostgresStore {
+    fn supports_run_budgets(&self) -> bool {
+        self.admission_configured().is_ok()
+    }
     fn queue_policies(&self) -> Result<&dyn QueuePolicyStore> {
         Ok(self)
     }
@@ -54,6 +57,13 @@ impl TaskStore for PostgresStore {
                 .bind(input).bind(descriptor).bind(trace).bind(at).bind(destination.as_deref())
                 .execute(&mut *tx).await?.rows_affected();
             let task = if inserted == 1 {
+                if let Some(policy) = &command.input.budget {
+                    self.admission_configured()?;
+                    if command.input.admission.is_none() {
+                        return Err(ContractError::InvalidInput("budgeted standalone tasks require resource admission".into()).into());
+                    }
+                    crate::run_budget::create(&mut tx, &Scope {tenant_id:t.input.tenant_id.clone(),namespace:t.input.namespace.clone()}, &crate::run_budget::task(&t.task_id), policy).await?;
+                }
                 crate::task_admission::register(&mut tx,t).await?;
                 db::history(&mut tx,&transition.history).await?;
                 if destination.is_some() {
@@ -263,8 +273,15 @@ impl TaskStore for PostgresStore {
                 Some(id) => Some(db::load_attempt(&mut tx, &task, id).await?),
                 None => None,
             };
-            let transition = core::cancel(&task, attempt.as_ref(), db::now(&mut tx).await?)?;
+            let now = db::now(&mut tx).await?;
+            let transition = core::cancel(&task, attempt.as_ref(), now)?;
             db::apply(&mut tx, &transition).await?;
+            if task.input.budget.is_some()
+                && matches!(task.state, TaskState::Active | TaskState::Queued)
+                && task.cancel_requested_at.is_none()
+            {
+                crate::run_budget::stop(&mut tx, scope, &crate::run_budget::task(id), now).await?;
+            }
             tx.commit().await?;
             Ok(transition.reply)
         }))
@@ -276,6 +293,7 @@ fn short(s: &str) -> String {
 fn error_kind(error: &ContractError) -> &'static str {
     match error {
         ContractError::InvalidInput(_) => "invalid_input",
+        ContractError::RunBudgetDenied(reason) => reason.code(),
         ContractError::Conflict => "conflict",
         ContractError::OwnershipLost => "ownership_lost",
         ContractError::NotFound => "not_found",

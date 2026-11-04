@@ -28,11 +28,20 @@ def main():
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--python-client", type=Path, required=True, help="Interpreter containing the installed candidate ledgence-client package")
     parser.add_argument("--endpoint")
+    parser.add_argument("--previous-bundle", type=Path, help="Verified predecessor native bundle for the optional protected dispatch compatibility check")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--provider", action="store_true", help="Qualify composed protected provider dispatch admission")
+    mode.add_argument("--run-budget", action="store_true", help="Qualify root and descendant budgets across restart and replay")
     mode.add_argument("--task", action="store_true", help="Qualify standalone task admission at the subprocess invocation boundary")
     parser.add_argument("--evidence", type=Path)
+    parser.add_argument("--console-dist", type=Path, help="Built Console for budget browser qualification")
+    parser.add_argument("--browser-command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.console_dist or args.browser_command is not None:
+        if not args.run_budget or not args.console_dist or not args.browser_command or not (args.console_dist/"console-manifest.json").is_file():
+            parser.error("budget browser qualification requires --run-budget, --console-dist and --browser-command")
+    if args.previous_bundle and (not args.provider or not all((args.previous_bundle / path).is_file() for path in ("bin/ledgence", "runtime/ledgence/worker/bootstrap.py"))):
+        parser.error("--previous-bundle requires --provider and an extracted native bundle")
     parent = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent:
         parser.error("LEDGENCE_POSTGRES_URL must name an explicitly disposable PostgreSQL server")
@@ -66,6 +75,9 @@ def main():
             from resource_admission.task import TaskAdmissionDeployment
             from resource_admission.task_scenarios import CASES as cases
             deployment_type = TaskAdmissionDeployment
+        elif args.run_budget:
+            from resource_admission.budgets import BudgetDeployment, CASES as cases
+            deployment_type = BudgetDeployment
         elif args.provider:
             from resource_admission.protected import ProtectedAdmissionDeployment
             from resource_admission.protected_scenarios import CASES as cases
@@ -74,12 +86,22 @@ def main():
             deployment_type, cases = AdmissionDeployment, CASES
         deployment = deployment_type(root, directory, binary.parent, os.environ.get("LEDGENCE_PYTHON", sys.executable), url, args.psql)
         deployment.command("ledgence", ["orchestrator", "migrate"])
+        if args.previous_bundle:
+            from resource_admission.legacy_budget import prior_worker
+            deployment.previous_bundle = args.previous_bundle.resolve()
+            cases = [*cases, prior_worker]
         deployment.python_client = str(args.python_client.absolute())
+        if args.console_dist:
+            deployment.console_dist = args.console_dist.resolve()
+            deployment.browser_command = args.browser_command
+            cases = [case for case in cases if case.__name__ == "last_call"]
         deployment.provision()
         if args.endpoint:
             deployment.configure_delivery(args.endpoint)
         deployment.start_server()
         deployment.publish_example()
+        if args.previous_bundle:
+            deployment.publish_reference()
         if args.task:
             from http_acceptance.harness import PROGRAM
             program_source = PROGRAM.encode()
@@ -92,6 +114,16 @@ def main():
             "program_source_sha256": hashlib.sha256(program_source).hexdigest(),
             "artifacts_sha256": deployment.store_hashes(),
         }
+        if args.previous_bundle:
+            old = deployment.previous_bundle / "bin/ledgence"
+            provenance["previous_binary_version"] = subprocess.check_output([old, "--version"], text=True).strip()
+            with old.open("rb") as stream:
+                provenance["previous_binary_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+            previous_helper = deployment.previous_bundle / "runtime/ledgence/worker"
+            provenance["previous_helper_sha256"] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                                                    for path in sorted(previous_helper.glob("*.py"))}
+        if args.run_budget:
+            provenance["budget_example_sha256"] = hashlib.sha256((root / "examples/shared-run-budget/program.py").read_bytes()).hexdigest()
         if args.task:
             provenance["workflow_example_sha256"] = hashlib.sha256((root / "examples/resource-admission/program.py").read_bytes()).hexdigest()
             provenance["hello_task_sha256"] = hashlib.sha256((root / "examples/hello-ledgence/task/program.py").read_bytes()).hexdigest()
@@ -114,6 +146,9 @@ def main():
         assert provenance["helper_sha256"] == {str(path.relative_to(deployment.runner.parent)): hashlib.sha256(path.read_bytes()).hexdigest()
                                               for path in sorted(deployment.runner.parent.rglob("*.py"))}
         assert provenance["artifacts_sha256"] == deployment.store_hashes()
+        if args.previous_bundle:
+            with (deployment.previous_bundle / "bin/ledgence").open("rb") as stream:
+                assert provenance["previous_binary_sha256"] == hashlib.file_digest(stream, "sha256").hexdigest()
         (directory / "delivery-census.json").write_text(json.dumps(deployment.delivery_census(), indent=2) + "\n")
         assert hashlib.sha256(binary.read_bytes()).hexdigest() == binary_digest, "candidate binary changed during acceptance"
         passed = True

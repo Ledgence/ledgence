@@ -4,7 +4,7 @@
 use crate::args::invalid;
 use ledgence_orchestration_api::Result;
 
-pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  resource      Configure shared resource capacity\n  queue         Manage queue concurrency and retained slots\n  admission     Inspect and release retained resource usage\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
+pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  budget        Inspect a shared run budget and its ledger\n  resource      Configure shared resource capacity\n  queue         Manage queue concurrency and retained slots\n  admission     Inspect and release retained resource usage\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
@@ -58,6 +58,18 @@ const COMMANDS: &[Leaf] = &[
         name: "release",
         options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --file COMMAND.json",
         description: "Release an uncertain inspected hold. The old operation could still be running. Requires resource_control and an explicit reason. Retry the exact saved command.",
+    },
+    Leaf {
+        group: "budget",
+        name: "inspect",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME (--task ID | --workflow ID)",
+        description: "Read the shared root budget for this execution. Requires metadata_read.",
+    },
+    Leaf {
+        group: "budget",
+        name: "entries",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME (--task ID | --workflow ID) [--before SEQUENCE] [--limit 1..100]",
+        description: "Read the root budget ledger newest first. Follow next with --before. Requires metadata_read.",
     },
     Leaf {
         group: "resource",

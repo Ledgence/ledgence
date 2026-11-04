@@ -21,7 +21,7 @@ from .workflow import (
     ApprovalAction, ApprovalProtection, ApprovalStatus, EffectOccurrence,
     EffectResolutionOutcome, MAX_APPROVAL_BYTES, MAX_TIMESTAMP, MAX_WAIT_MS,
     WorkflowContext, WorkflowError, _callable_name, _encode, _fields, _freeze,
-    _integer, _local_owner, _text,
+    _integer, _local_owner, _text, _budget_dispatch_deadline,
 )
 
 PROBE_SCHEMA = "ledgence.provider.probe.v1"
@@ -218,7 +218,10 @@ class ProviderReport:
 
     @classmethod
     def from_dict(cls, value):
-        _fields(value, {"reported_target", "provider_reference", "provider_request_id", "knowledge"})
+        _fields(value, {"reported_target", "provider_reference", "provider_request_id", "knowledge"}, {"usage"})
+        if "usage" in value:
+            from .admission import RunBudgetUsage
+            RunBudgetUsage.from_dict(value["usage"])
         _target(value["reported_target"])
         for key in ("provider_reference", "provider_request_id"):
             if value[key] is not None:
@@ -246,9 +249,15 @@ class ProviderReport:
         return cls(_encode(value, REPORT_BYTES, 96))
 
     @classmethod
-    def _make(cls, knowledge, *, target, provider_reference=None, provider_request_id=None):
-        return cls.from_dict({"reported_target": target, "provider_reference": provider_reference,
-                              "provider_request_id": provider_request_id, "knowledge": knowledge})
+    def _make(cls, knowledge, *, target, provider_reference=None, provider_request_id=None, usage=None):
+        value = {"reported_target": target, "provider_reference": provider_reference,
+                 "provider_request_id": provider_request_id, "knowledge": knowledge}
+        if usage is not None:
+            from .admission import RunBudgetUsage
+            if type(usage) is not RunBudgetUsage:
+                raise WorkflowError("provider report expects RunBudgetUsage")
+            value["usage"] = usage.to_dict()
+        return cls.from_dict(value)
 
     @classmethod
     def unknown(cls, reason, **source):
@@ -550,9 +559,13 @@ async def _dispatch(context, approval, dispatch):
     request = {"approval_key": approval["key"], "action": approval["action"],
                "binding": approval["provider_binding"], "claim_id": "claim_" + uuid.uuid4().hex,
                "report_id": "report_" + uuid.uuid4().hex}
+    begun = monotonic()
     reply = await _rpc(context, "provider_operation.claim.v1", request)
     try:
         ticket, source = _claim_reply(context, approval, request, reply)
+        deadline = None
+        if source is not None and "budget_grant" in source:
+            deadline = _budget_dispatch_deadline(source["budget_grant"], begun, authorized_at=source["accepted_at"])
     except BaseException as exc:
         context._fatal = exc
         raise
@@ -563,7 +576,7 @@ async def _dispatch(context, approval, dispatch):
         # A callback exception is neither failure evidence nor authority to
         # dispatch again. The durable recovery obligation already exists.
         try:
-            report = await _call(dispatch, approval["action"], approval["provider_binding"], None)
+            report = await _call(dispatch, approval["action"], approval["provider_binding"], None, dispatch_deadline=deadline)
         except Exception:
             return ticket
     finally:
@@ -593,7 +606,7 @@ def _claim_reply(context, approval, request, reply):
     source = reply.get("source")
     if source is not None:
         _fields(source, {"source_id", "claim_id", "report_id", "ticket", "accepted_at",
-                         "first_possible_dispatch_at", "reconciliation_deadline"})
+                         "first_possible_dispatch_at", "reconciliation_deadline"}, {"budget_grant"})
         _text(source["source_id"], "provider source id")
         if (source["ticket"] != reply["ticket"] or source["claim_id"] != request["claim_id"]
                 or source["report_id"] != request["report_id"]):

@@ -190,6 +190,9 @@ pub enum TaskFailure {
     AttemptLost {},
     /// Admission-only deferrals reached the CloudEvents attempt-number bound.
     AdmissionGenerationExhausted {},
+    BudgetDenied {
+        reason: RunBudgetDenial,
+    },
 }
 
 impl TaskResult {
@@ -235,6 +238,8 @@ impl TaskResult {
                             || self.task.attempt_count != MAX_TASK_ATTEMPT_GENERATION
                             || self.task.admission_deferrals == 0
                             || *execution_may_have_started))
+                    || (matches!(failure, TaskFailure::BudgetDenied { .. })
+                        && (self.task.admission.is_none() || *execution_may_have_started))
                     || (matches!(failure, TaskFailure::Application { .. })
                         && !execution_may_have_started)
                 {

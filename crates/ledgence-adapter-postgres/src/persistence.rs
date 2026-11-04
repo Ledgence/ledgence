@@ -138,6 +138,15 @@ pub(crate) async fn apply<R>(
                 ContractError::Unavailable("attempt transition was not persisted".into()).into(),
             );
         }
+        if let Some(reason) = &a.budget_denial {
+            let saved:Option<bool>=sqlx::query_scalar("UPDATE attempts SET budget_denial_bytes=$2 WHERE attempt_id=$1 AND (budget_denial_bytes IS NULL OR budget_denial_bytes=$2) RETURNING budget_denial_bytes=$2")
+                .bind(&a.lease.owner.attempt_id).bind(codec::encode(reason)?).fetch_optional(&mut *connection).await?;
+            if saved != Some(true) {
+                return Err(
+                    ContractError::Unavailable("budget denial was not persisted".into()).into(),
+                );
+            }
+        }
         if let Some(accepted) = &a.settlement {
             let bytes = codec::encode(&accepted.command)?;
             let at = codec::ms(accepted.receipt.accepted_at)?;

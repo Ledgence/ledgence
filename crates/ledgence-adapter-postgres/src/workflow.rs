@@ -50,6 +50,10 @@ impl WorkflowStore for PostgresStore {
         Ok(self)
     }
 
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        self.admission_configured()?;
+        Ok(self)
+    }
     fn admissions(&self) -> Result<&dyn AdmissionStore> {
         self.admission_configured()?;
         Ok(self)
@@ -167,6 +171,12 @@ impl WorkflowStore for PostgresStore {
             replay_submission(&run, command)?;
             let mut wakes = Vec::new();
             if inserted == 1 {
+                if let Some(policy) = &command.input.budget {
+                    self.admission_configured()?;
+                    crate::run_budget::mark_workflow(&mut tx,&id).await?;
+                    run.has_run_budget=true;
+                    crate::run_budget::create(&mut tx, &command_scope(command), &crate::run_budget::workflow(&id), policy).await?;
+                }
                 wakes.push(schedule_activation(&mut tx, &mut run, BTreeMap::new(), None, now).await?);
                 record_history(&mut tx, &run.snapshot.workflow_id, run.snapshot.activation_id.as_deref(), now, "started").await?;
             }

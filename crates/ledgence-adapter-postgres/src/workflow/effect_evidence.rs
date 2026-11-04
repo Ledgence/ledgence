@@ -99,6 +99,35 @@ impl PostgresStore {
             claim.already_accepted = true;
             EffectClaimV2Receipt::LookupOnly { claim }
         } else {
+            let budget_grant = if !evidence.claimed {
+                match self
+                    .check_effect_budget(
+                        &mut tx,
+                        &workflow,
+                        &authority,
+                        &evidence.approval,
+                        c.budget_fence,
+                        c,
+                    )
+                    .await?
+                {
+                    Ok(grant) => grant,
+                    Err(reason) => {
+                        execution::check_live(
+                            &workflow,
+                            &authority,
+                            &c.owner,
+                            db::now(&mut tx).await?,
+                            true,
+                        )?;
+                        tx.commit().await?;
+                        return Err(ContractError::RunBudgetDenied(reason).into());
+                    }
+                }
+            } else {
+                None
+            };
+            let now = budget_grant.map_or(now, |g| g.authorized_at);
             approved_effects::grant(&mut tx, &c.legacy(), &evidence).await?;
             let permission = if evidence.claimed {
                 ApprovedEffectDisposition::LookupOnly
@@ -115,6 +144,7 @@ impl PostgresStore {
             .await?;
             let (sequence, revision) = r.next(now)?;
             let claim = EffectClaimBinding {
+                budget_grant,
                 scope: c.owner.scope.clone(),
                 workflow_id: c.workflow_id.clone(),
                 activation_id: c.owner.task_id.clone(),
@@ -157,6 +187,9 @@ impl PostgresStore {
         let now = db::now(&mut tx).await?;
         self.require_effect_worker(p, &c.owner.scope, now)?;
         execution::check_live(&workflow, &authority, &c.owner, now, true)?;
+        if let EffectClaimV2Receipt::Dispatch { claim } = &receipt {
+            crate::run_budget::check_grant(claim.budget_grant, now)?;
+        }
         receipt.validate_for(p, c)?;
         tx.commit().await?;
         Ok(receipt)

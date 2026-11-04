@@ -511,6 +511,20 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-task-admission-sqs-evidence"
+      - name: Check shared run budgets with integrated delivery
+        if: matrix.suite == 'admission'
+        run: |
+          python tools/check-resource-admission.py --run-budget --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-budgets-http-evidence"
+      - name: Check shared run budgets with local ElasticMQ delivery
+        if: matrix.suite == 'admission-sqs'
+        run: |
+          python tools/check-resource-admission.py --run-budget --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-budgets-sqs-evidence"
       - name: Compare FIFO and weighted offers with two real coordinators
         if: matrix.suite == 'api'
         run: |

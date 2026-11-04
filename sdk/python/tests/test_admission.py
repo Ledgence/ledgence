@@ -35,6 +35,11 @@ async def model(prompt, temperature=0):
     return {"text": prompt, "temperature": temperature}
 
 
+async def measured_model(*, prompt, temperature=0):
+    from ledgence.worker.admission import AdmittedResult, RunBudgetUsage
+    return AdmittedResult({"text":prompt,"temperature":temperature}, RunBudgetUsage.reported(input_tokens=0,output_tokens=7))
+
+
 class Entry(StrEnum):
     START = "start"
     RUN = "run"
@@ -211,6 +216,31 @@ class AdmissionTests(unittest.IsolatedAsyncioTestCase):
             [op for op, _ in self.calls],
             ["resource_admission.start.v1", "resource_admission.finish.v1"],
         )
+
+    async def test_usage_is_bound_to_finish_and_removed_from_application_output(self):
+        self.workflow, self.operation, self.handler = registered(measured_model)
+        self.wake = wake(self.operation)
+        sent = []
+        async def rpc(op, payload):
+            if op == "resource_admission.start.v1":
+                return {"kind":"granted","source":source(self.wake,payload["start_id"],payload["finish_id"])}
+            sent.append(payload)
+            return {**payload,"accepted_at":2000,"already_accepted":False}
+        result = await self.context(rpc=rpc).admitted_operation(self.operation)
+        self.assertEqual(result.result, sent[0]["output"])
+        self.assertEqual(sent[0]["usage"],{"kind":"reported","input_tokens":0,"output_tokens":7})
+        self.assertNotIn("usage", result.result)
+
+    async def test_budget_closed_wake_never_requests_start(self):
+        from ledgence.worker.admission import AdmissionClosedReason
+        for wire, expected in (("deadline_exceeded", AdmissionClosedReason.DEADLINE_EXCEEDED),
+                               ("budget_cancelled", AdmissionClosedReason.BUDGET_CANCELLED),
+                               ("cancelled", AdmissionClosedReason.CANCELLED)):
+            self.wake["selection"] = {"kind":"closed","reason":wire}
+            result = await self.context().admitted_operation(self.operation)
+            self.assertEqual(result.reason, expected)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(CALLS, [])
 
     async def test_preloaded_finish_replays_without_start_or_callback(self):
         ctx = self.context(receipt=finish(self.wake))

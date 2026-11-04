@@ -11,7 +11,7 @@ import {
 } from "../../src/features/explorer-model";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v12.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v13.json",
     import.meta.url,
   ),
   "utf8",

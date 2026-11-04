@@ -300,6 +300,7 @@ mod tests {
     #[test]
     fn report_projection_stringifies_only_platform_counters() {
         let report = ProviderReport {
+            usage: None,
             reported_target: binding().target,
             provider_reference: None,
             provider_request_id: None,

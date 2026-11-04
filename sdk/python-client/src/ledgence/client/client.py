@@ -52,6 +52,7 @@ class AsyncClient:
         from .completions import Completions
         from .audit import Audit
         from .effects import Effects
+        from .budgets import Budgets
         from .admissions import Resources, Admissions
         from .queue_policies import QueuePolicies
         from .task_admissions import TaskAdmissions
@@ -70,6 +71,7 @@ class AsyncClient:
         self.completions = Completions(self)
         self.audit = Audit(self)
         self.effects = Effects(self)
+        self.budgets = Budgets(self)
         self.resources = Resources(self)
         self.queue_policies = QueuePolicies(self)
         self.admissions = Admissions(self)

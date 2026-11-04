@@ -16,6 +16,13 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        if self.run_budgets_enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable("run budgets disabled".into()))
+        }
+    }
     fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionOperations> {
         if self.provider_admission_enabled.load(Ordering::SeqCst) {
             Ok(self)

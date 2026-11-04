@@ -1,3 +1,4 @@
+import { budgetUsage } from "./run-budgets";
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
 import { ContractError } from "./codecs";
@@ -191,12 +192,15 @@ export const providerKnowledge = s.variant({
   }),
 });
 export const providerReport = s.refine(
-  s.object({
-    reported_target: providerTarget,
-    provider_reference: s.nullable(text(1024)),
-    provider_request_id: s.nullable(text(1024)),
-    knowledge: providerKnowledge,
-  }),
+  s.withOptional(
+    {
+      reported_target: providerTarget,
+      provider_reference: s.nullable(text(1024)),
+      provider_request_id: s.nullable(text(1024)),
+      knowledge: providerKnowledge,
+    },
+    { usage: budgetUsage },
+  ),
   (v) => bytes(v) <= 144 * 1024,
   "Provider report exceeds 144 KiB.",
 );

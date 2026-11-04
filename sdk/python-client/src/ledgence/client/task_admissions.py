@@ -5,6 +5,7 @@ import hashlib
 import json
 
 from . import codec
+from .budgets import RunBudgetDenial
 from .admission_models import LIMIT, SAFE, boolean, digest, integer, name, timestamp
 from .admissions import _exchange
 from .errors import InputError
@@ -49,6 +50,11 @@ class TaskAdmissionSnapshot:
 
     def to_dict(self):
         return json.loads(self._encoded)
+
+    @property
+    def budget_denial(self) -> RunBudgetDenial | None:
+        reason = self.to_dict().get("budget_denial")
+        return None if reason is None else RunBudgetDenial(reason)
 
     @property
     def source(self):
@@ -115,10 +121,14 @@ def _source(raw, expected, resource):
 
 def snapshot(raw, expected, *, base_url=None):
     codec.fields(raw, {"occurrence", "resource", "program", "state", "revision", "created_at",
-                       "updated_at", "offer", "owner", "source", "close"})
+                       "updated_at", "offer", "owner", "source", "close"}, {"budget_denial"})
     occurrence(raw["occurrence"], expected)
     resource = name(raw["resource"])
     state = TaskAdmissionState(raw["state"])
+    if "budget_denial" in raw:
+        RunBudgetDenial(raw["budget_denial"])
+        if state is not TaskAdmissionState.CLOSED_BEFORE_START:
+            raise InputError("budget denied a started task")
     revision = integer(raw["revision"], 1)
     created = timestamp(raw["created_at"])
     updated = timestamp(raw["updated_at"])

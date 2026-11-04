@@ -1,0 +1,14 @@
+[project]
+name = "ledgence-shared-run-budget-example"
+version = "1.0.0"
+description = "Give two support reviews one shared call allowance"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["ledgence-client", "ledgence-worker"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+ledgence-client = { path = "../../sdk/python-client" }
+ledgence-worker = { path = "../../sdk/python" }

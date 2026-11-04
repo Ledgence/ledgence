@@ -150,6 +150,12 @@ pub struct ConsoleSubmitTask {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::effect_resolution::present"
     )]
+    pub budget: Option<RunBudgetPolicy>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
     pub admission: Option<TaskAdmissionRequirement>,
     pub program: ProgramRef,
     pub queue: String,
@@ -168,6 +174,7 @@ const fn attempt_timeout() -> u64 {
 impl ConsoleSubmitTask {
     pub fn into_submission(self, scope: &Scope) -> Result<SubmitTask> {
         let value = SubmitTask {
+            budget: self.budget,
             admission: self.admission,
             tenant_id: scope.tenant_id.clone(),
             namespace: scope.namespace.clone(),
@@ -193,6 +200,12 @@ impl From<SubmitTask> for ConsoleSubmitTask {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleTaskInput {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget: Option<RunBudgetPolicy>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub admission: Option<TaskAdmissionRequirement>,
     pub program: ProgramRef,
@@ -206,6 +219,7 @@ pub struct ConsoleTaskInput {
 impl From<SubmitTask> for ConsoleTaskInput {
     fn from(value: SubmitTask) -> Self {
         Self {
+            budget: value.budget,
             admission: value.admission,
             program: value.program,
             queue: value.queue,
@@ -219,6 +233,7 @@ impl From<SubmitTask> for ConsoleTaskInput {
 impl From<ConsoleTaskInput> for ConsoleSubmitTask {
     fn from(value: ConsoleTaskInput) -> Self {
         Self {
+            budget: value.budget,
             admission: value.admission,
             program: value.program,
             queue: value.queue,

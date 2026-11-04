@@ -319,3 +319,7 @@ Limit outstanding attempts across worker replicas, independently of each workerâ
 ### Weighted offers (development)
 
 Use `ResourceFairGroup` and `ResourceFairSharing` from `ledgence.client` to configure `ResourcePolicy.fair_sharing`. Use `client.resources.decisions(name, before=page.next)` to read the next page of offer history when a cursor is present. [Configure queue groups and inspect offers](/how-to/share-resource-offers).
+
+### Shared run budgets (development)
+
+Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).

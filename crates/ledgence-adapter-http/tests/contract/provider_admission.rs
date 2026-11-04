@@ -30,6 +30,7 @@ fn start() -> ProviderAdmissionStartCommand {
 fn source() -> ProviderAdmissionSource {
     let admission = admission::source();
     let provider = ProviderDispatchSource {
+        budget_grant: None,
         source_id: "provider-source".into(),
         claim_id: admission.start_id.clone(),
         report_id: admission.finish_id.clone(),

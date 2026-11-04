@@ -62,7 +62,7 @@ occupancy above the new limit; it does not terminate running callbacks.
 
 The implementation uses integer credit and PostgreSQL time sampled after locking
 the resource. Backward clock movement cannot create additional refill credit;
-a forward jump can refill to the configured burst. Each resource offers capacity using FIFO by default or [weighted queue groups](#weighted-offers) when configured. Inherited monetary/token budgets and ordering across resources remain outside this contract.
+a forward jump can refill to the configured burst. Each resource offers capacity using FIFO by default or [weighted queue groups](#weighted-offers) when configured. A [run budget](run-budgets.md) can also bound governed calls, delegation and their deadline across a root and its children. Monetary ceilings and ordering across resources are outside this contract.
 
 ## Write a workflow
 
@@ -292,7 +292,7 @@ page = await client.audit.list(
 )
 ```
 
-Console C12 renders each wait episode and its resumed entrypoint. An accepted
+Console C13 renders each wait episode and its resumed entrypoint. An accepted
 operation result has its own occurrence-bound inspector. Offer or Start alone
 does not fabricate an executed operation. Graph metadata does not expose arguments
 or results. Protected dispatch has a typed provider record and separate admission and business-result waits; it does not fabricate a generic accepted-operation result. The scope-free `/v1/console/admissions/inspect` wrapper binds the
@@ -384,7 +384,7 @@ excludes governed assignments for older sessions.
 
 ## Cluster-wide queue concurrency (development)
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C12 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C13 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 ## Weighted offers
 

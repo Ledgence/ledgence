@@ -111,7 +111,9 @@ impl ConnectOptions {
         }
         // Reuse the adapter's URL validation before runtime/telemetry startup.
         // The constructor does not connect; retain the client for execution.
-        let mut client = HttpTaskService::new(&server).map_err(contract_error)?;
+        let mut client = HttpTaskService::new(&server)
+            .map_err(contract_error)?
+            .with_budget_dispatch_fence();
         if let Some(credentials) = &credentials {
             client = client
                 .with_credentials(credentials.clone())

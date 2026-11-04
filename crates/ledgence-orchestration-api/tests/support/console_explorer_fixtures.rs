@@ -953,12 +953,14 @@ pub fn admission_cases() -> Value {
         start_deadline_at: AT + 2010,
     };
     let finish = AdmissionFinishReceipt {
+        usage: None,
         source: source.clone(),
         output: json!({"summary":"accepted","score":-0.0}),
         accepted_at: AT + 1050,
         already_accepted: false,
     };
     let snapshot = AdmissionSnapshot {
+        budget_denial: None,
         occurrence: occurrence.clone(),
         binding,
         state: AdmissionState::Finished,
@@ -1235,6 +1237,7 @@ fn provider_admission_cases(base: &Value) -> Value {
     };
     let source = ProviderAdmissionSource {
         provider: ProviderDispatchSource {
+            budget_grant: None,
             source_id: "provider_source_1".into(),
             claim_id: admission.start_id.clone(),
             report_id: admission.finish_id.clone(),
@@ -1247,6 +1250,7 @@ fn provider_admission_cases(base: &Value) -> Value {
         admission: admission.clone(),
     };
     let report = ProviderReport {
+        usage: None,
         reported_target: target,
         provider_reference: Some("export-1042".into()),
         provider_request_id: None,

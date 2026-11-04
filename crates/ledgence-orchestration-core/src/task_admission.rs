@@ -47,6 +47,79 @@ pub fn start_task_admission(
     })
 }
 
+/// A permanent budget refusal before Start is terminal, independently of retry policy.
+pub fn deny_task_admission(
+    task: &TaskSnapshot,
+    attempt: &AttemptSnapshot,
+    owner: &LeaseOwner,
+    reason: RunBudgetDenial,
+    now: Timestamp,
+) -> Result<Transition<TaskState>> {
+    check_owner(task, attempt, owner)?;
+    timestamp(now)?;
+    if task.input.admission.is_none()
+        || !live(task, attempt, now)
+        || task.current_attempt_id.as_deref() != Some(&owner.attempt_id)
+        || task.cancel_requested_at.is_some()
+        || now >= attempt.deadline
+        || attempt.execution_may_have_started
+        || attempt.settlement.is_some()
+    {
+        return Err(ContractError::OwnershipLost);
+    }
+    let mut next = attempt.clone();
+    next.state = AttemptState::Failed;
+    next.budget_denial = Some(reason);
+    next.quiescence = Quiescence::Unconfirmed;
+    next.finished_at = Some(now);
+    let mut updated = task.clone();
+    updated.state = TaskState::Failed;
+    updated.current_attempt_id = None;
+    updated.terminal_at = Some(now);
+    let event = history(task, Some(&next), now, TransitionReason::Failed);
+    Ok(Transition {
+        task: updated,
+        attempt: Some(next),
+        history: vec![event],
+        reply: TaskState::Failed,
+    })
+}
+
+/// Only an authenticated close by the original worker proves local cleanup after refusal.
+pub fn confirm_denied_task_quiescence(
+    task: &TaskSnapshot,
+    attempt: &AttemptSnapshot,
+    owner: &LeaseOwner,
+    now: Timestamp,
+) -> Result<Transition<TaskState>> {
+    check_owner(task, attempt, owner)?;
+    timestamp(now)?;
+    if attempt.budget_denial.is_none()
+        || task.state != TaskState::Failed
+        || attempt.state != AttemptState::Failed
+        || task.current_attempt_id.is_some()
+        || attempt.execution_may_have_started
+        || attempt.settlement.is_some()
+        || attempt
+            .finished_at
+            .is_none_or(|finished| finished > now || Some(finished) != task.terminal_at)
+    {
+        return Err(ContractError::Conflict);
+    }
+    if attempt.quiescence == Quiescence::Confirmed {
+        return Ok(unchanged(task, Some(attempt), task.state));
+    }
+    let mut next = attempt.clone();
+    next.quiescence = Quiescence::Confirmed;
+    let event = history(task, Some(&next), now, TransitionReason::CleanupConfirmed);
+    Ok(Transition {
+        task: task.clone(),
+        attempt: Some(next),
+        history: vec![event],
+        reply: task.state,
+    })
+}
+
 /// The retained tombstone proves this attempt can never acquire a Start. This
 /// can also close an expired preparation lease without claiming process cleanup.
 pub fn defer_task_admission(

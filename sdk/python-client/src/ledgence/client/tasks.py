@@ -8,6 +8,7 @@ import re
 from typing import Any, TYPE_CHECKING
 
 from .admission_models import TaskAdmission
+from .budgets import RunBudgetPolicy, _policy
 from . import codec, otel
 from .discovery import _TaskQuery
 from .errors import (
@@ -61,7 +62,11 @@ def _submission_reply(raw, submission: Submission) -> tuple[str, str]:
         expected = submission.to_dict()
         actual = raw["input"]
         codec.fields(actual, {"tenant_id", "namespace", "queue", "program", "data",
-                              "retry_policy", "attempt_timeout_ms"}, {"correlation_key", "admission"})
+                              "retry_policy", "attempt_timeout_ms"}, {"correlation_key", "admission", "budget"})
+        if "budget" in actual:
+            _policy(actual["budget"])
+        if not _same(actual.get("budget"), expected["input"].get("budget")):
+            raise InputError("submission reply changed run budget")
         if "admission" in actual:
             codec.fields(actual["admission"], {"resource"})
             TaskAdmission(**actual["admission"])
@@ -129,7 +134,7 @@ class Tasks:
     def prepare(self, *, program: str, version: str, queue: str, data: Any,
                 idempotency_key: str, correlation_key: str | None = None,
                 retry_policy: RetryPolicy | None = None, attempt_timeout_ms: int | None = None,
-                admission: TaskAdmission | None = None,
+                admission: TaskAdmission | None = None, budget: RunBudgetPolicy | None = None,
                 origin_trace: TraceContext | None | object = _UNSET) -> Submission:
         """Freeze a local command before transmission, including context absence."""
         codec.text(idempotency_key, "idempotency_key", 255)
@@ -139,6 +144,10 @@ class Tasks:
         payload = {"tenant_id": self._client.scope.tenant_id,
                    "namespace": self._client.scope.namespace, "queue": queue,
                    "program": _program(program, version), "data": data}
+        if budget is not None:
+            if type(budget) is not RunBudgetPolicy:
+                raise InputError("budget must be a RunBudgetPolicy")
+            payload["budget"] = budget.to_dict()
         if admission is not None:
             if type(admission) is not TaskAdmission:
                 raise InputError("admission must be a TaskAdmission")

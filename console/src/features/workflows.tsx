@@ -37,6 +37,7 @@ import { CommandFeedback } from "../components/command-feedback";
 import { ExecutionHeading } from "../components/execution-heading";
 import { WorkflowExplorer, WorkflowInput } from "./workflow-explorer";
 import { WorkflowResources } from "./execution-resources";
+import { RunBudgetPanel } from "./run-budget";
 import { DetailPanels, DetailSections } from "./detail-panels";
 export function WorkflowDetailPage() {
   const { workflowId = "" } = useParams();
@@ -221,6 +222,24 @@ export function WorkflowDetailPage() {
                           </section>
                         ),
                       },
+                      ...(config.capabilities.run_budgets
+                        ? [
+                            {
+                              id: "budget",
+                              title: "Run budget",
+                              description:
+                                "Shared allowances and decisions for this workflow tree.",
+                              content: (
+                                <RunBudgetPanel
+                                  subject={{
+                                    kind: "workflow",
+                                    workflow_id: workflowId,
+                                  }}
+                                />
+                              ),
+                            },
+                          ]
+                        : []),
                       {
                         id: "input",
                         title: "Input",

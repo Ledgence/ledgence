@@ -267,7 +267,7 @@ and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-This development branch uses Console contract **12** for native admission waits,
+This development branch uses Console contract **13** for native admission waits,
 accepted operations and weighted resource offers; deploy matching server and assets together.
 Published Ledgence 0.8.0 remains on contract **7**.
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
@@ -378,7 +378,7 @@ was observed, the node has no durable result to inspect.
 C9 additionally identifies protected provider subjects in admission waits. The
 on-demand admission inspector separates capacity settlement from provider
 business completion and displays the original provider ticket. Provider grants
-are not rendered as successful local-operation nodes. Use matching C12 assets
+are not rendered as successful local-operation nodes. Use matching C13 assets
 and backend; the published 0.8.0 contract remains C7.
 
 C10 adds standalone task resource admission. Task details show the resource,
@@ -411,6 +411,10 @@ The test creates a uniquely named policy, pauses and edits it, verifies
 metadata-only access, and leaves it unlimited for database teardown. This
 suite disables retained browser traces and uses separate output directories.
 
-### Resource offers (development C12)
+### Resource offers (development C13)
 
 Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.
+
+### Shared run allowances (development C13)
+
+On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.

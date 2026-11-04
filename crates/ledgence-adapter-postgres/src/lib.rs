@@ -24,6 +24,7 @@ mod operator_audit;
 mod persistence;
 mod queue_concurrency;
 mod retention;
+mod run_budget;
 mod storage;
 mod task_admission;
 mod transaction;

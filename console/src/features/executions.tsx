@@ -35,6 +35,7 @@ import { ExecutionHeading } from "../components/execution-heading";
 import { TaskResources, AttemptResources } from "./execution-resources";
 import { effectDetailPath } from "../api/effects";
 import { DetailPanels, DetailSections } from "./detail-panels";
+import { RunBudgetPanel } from "./run-budget";
 import { TaskAdmissionPanel } from "./task-admission";
 export function ExecutionDetailPage() {
   const { taskId = "" } = useParams();
@@ -147,6 +148,21 @@ export function ExecutionDetailPage() {
                         },
                       ]
                     : [
+                        ...(config.capabilities.run_budgets
+                          ? [
+                              {
+                                id: "budget",
+                                title: "Run budget",
+                                description:
+                                  "Shared allowances and decisions for this execution tree.",
+                                content: (
+                                  <RunBudgetPanel
+                                    subject={{ kind: "task", task_id: taskId }}
+                                  />
+                                ),
+                              },
+                            ]
+                          : []),
                         ...(task.admission
                           ? [
                               {

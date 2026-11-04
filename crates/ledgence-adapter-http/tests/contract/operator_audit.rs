@@ -31,6 +31,7 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::ApprovalDecide,
             ],
             "reader" => vec![AccessCapability::MetadataRead],
+            "submitter" => vec![AccessCapability::ExecutionSubmit],
             "resource-operator" => vec![AccessCapability::ResourceControl],
             "resolver" => vec![AccessCapability::EffectResolve],
             "worker" => vec![AccessCapability::WorkerExecute],

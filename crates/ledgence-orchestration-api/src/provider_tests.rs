@@ -49,6 +49,7 @@ fn worker() -> EffectWorkerIdentity {
 }
 fn report() -> ProviderReport {
     ProviderReport {
+        usage: None,
         reported_target: request().target,
         provider_reference: Some("export-1042".into()),
         provider_request_id: None,
@@ -456,6 +457,7 @@ fn governed_source(binding: &AdmissionBinding) -> ProviderAdmissionSource {
     ProviderAdmissionSource {
         admission,
         provider: ProviderDispatchSource {
+            budget_grant: None,
             source_id: "provider-source".into(),
             claim_id: "claim".into(),
             report_id: "report".into(),
@@ -536,6 +538,7 @@ fn composed_reports_bind_completion_separately_and_replay_cannot_become_permissi
         report: Some(receipt),
     };
     let snapshot = AdmissionSnapshot {
+        budget_denial: None,
         occurrence: source.admission.occurrence.clone(),
         binding: binding.clone(),
         state: AdmissionState::UnknownOccupied,

@@ -96,6 +96,7 @@ fn offer() -> AdmissionOffer {
 }
 fn receipt() -> AdmissionFinishReceipt {
     AdmissionFinishReceipt {
+        usage: None,
         source: source(),
         output: json!({"answer":"yes"}),
         accepted_at: 11,
@@ -116,6 +117,7 @@ fn wake() -> AdmissionWake {
 }
 fn snapshot() -> AdmissionSnapshot {
     AdmissionSnapshot {
+        budget_denial: None,
         occurrence: occurrence(),
         binding: binding(),
         state: AdmissionState::Finished,
@@ -250,6 +252,7 @@ fn start_permission_and_finish_receipts_bind_worker_source_and_exact_facts() {
         .unwrap();
     assert!(!matches!(existing, AdmissionStartReceipt::Granted { .. }));
     let command = AdmissionFinishCommand {
+        usage: None,
         source: source(),
         output: receipt().output,
     };

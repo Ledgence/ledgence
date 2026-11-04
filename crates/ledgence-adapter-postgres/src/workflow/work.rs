@@ -6,6 +6,7 @@ const APPLICATION_DEADLINE_MS: u64 = 24 * 60 * 60 * 1_000;
 const DRAIN_BATCH: i64 = 16;
 
 struct WorkRow {
+    valid_until: u64,
     kind: String,
     task_id: String,
     failures: u32,
@@ -170,6 +171,8 @@ impl PostgresStore {
             ..WorkflowProgress::default()
         };
         let mut wakes = Vec::new();
+        let mut budgeted_decision = false;
+        let mut delegation_deadline = None;
         if snapshot.state.is_terminal() {
             finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "provider_probe_terminal" {
@@ -360,6 +363,13 @@ impl PostgresStore {
                             )
                             .into());
                         }
+                        let budgeted = run.has_run_budget && !decision.commands().is_empty();
+                        budgeted_decision = budgeted;
+                        if budgeted {
+                            sqlx::query("SAVEPOINT budget_decision")
+                                .execute(&mut *tx)
+                                .await?;
+                        }
                         let applied = apply_decision(
                             &mut tx,
                             &mut run,
@@ -370,8 +380,35 @@ impl PostgresStore {
                             &mut progress,
                         )
                         .await?;
-                        wakes.extend(applied.wakes);
                         now = applied.at;
+                        let authorized = if applied.delegates.is_empty() {
+                            Ok(None)
+                        } else {
+                            crate::run_budget::delegate(
+                                &mut tx,
+                                &run.snapshot.scope,
+                                &run.snapshot.workflow_id,
+                                &applied.delegates,
+                            )
+                            .await?
+                        };
+                        match authorized {
+                            Ok(deadline) => {
+                                delegation_deadline = deadline;
+                                wakes.extend(applied.wakes);
+                            }
+                            Err(reason) => {
+                                now = reject_budget_decision(
+                                    &mut tx,
+                                    &snapshot,
+                                    &row.task_id,
+                                    reason,
+                                )
+                                .await?;
+                                progress.children_scheduled = 0;
+                                progress.activations_scheduled = 0;
+                            }
+                        }
                         sqlx::query("UPDATE workflow_activations SET applied_at_ms=$2 WHERE activation_id=$1")
                             .bind(&row.task_id).bind(codec::ms(now)?).execute(&mut *tx).await?;
                     }
@@ -437,6 +474,29 @@ impl PostgresStore {
                 }
             }
             finish_work(&mut tx, &work.id, now).await?;
+        }
+        if let Some(deadline) = delegation_deadline
+            && db::now(&mut tx).await? >= deadline
+        {
+            now = reject_budget_decision(
+                &mut tx,
+                &snapshot,
+                &row.task_id,
+                RunBudgetDenial::DeadlineExceeded,
+            )
+            .await?;
+            sqlx::query("UPDATE workflow_activations SET applied_at_ms=$2 WHERE activation_id=$1")
+                .bind(&row.task_id)
+                .bind(codec::ms(now)?)
+                .execute(&mut *tx)
+                .await?;
+            finish_work(&mut tx, &work.id, now).await?;
+            progress.children_scheduled = 0;
+            progress.activations_scheduled = 0;
+            wakes.clear();
+        }
+        if budgeted_decision && db::now(&mut tx).await? >= row.valid_until {
+            return Err(ContractError::OwnershipLost.into());
         }
         tx.commit().await?;
         self.workflow_wakes(&wakes);
@@ -629,6 +689,7 @@ async fn lock_work(
         return Err(ContractError::OwnershipLost.into());
     }
     Ok(Some(WorkRow {
+        valid_until: codec::timestamp(until.ok_or_else(|| corrupt("missing coordinator lease"))?)?,
         resolution_bytes: load_resolution(connection, &row).await?,
         kind: row.try_get("kind")?,
         task_id: row.try_get("task_id")?,
@@ -646,9 +707,55 @@ async fn finish_work(connection: &mut PgConnection, id: &str, now: u64) -> Store
     }
     Ok(())
 }
+/// Discard every child, counter, outbox and checkpoint created by this decision
+/// before recording a refusal against the original owner and activation.
+async fn reject_budget_decision(
+    tx: &mut PgConnection,
+    snapshot: &WorkflowSnapshot,
+    activation: &str,
+    reason: RunBudgetDenial,
+) -> StoreResult<u64> {
+    sqlx::query("ROLLBACK TO SAVEPOINT budget_decision")
+        .execute(&mut *tx)
+        .await?;
+    let mut run = load_run(
+        tx,
+        &snapshot.scope,
+        Some(&snapshot.workflow_id),
+        None,
+        false,
+    )
+    .await?;
+    let key =
+        crate::run_budget::denial_id(tx, &("decision", &snapshot.workflow_id, activation)).await?;
+    crate::run_budget::record_denial(
+        tx,
+        &snapshot.scope,
+        &crate::run_budget::workflow(&snapshot.workflow_id),
+        RunBudgetAction::Delegation,
+        &key,
+        reason,
+        None,
+    )
+    .await?;
+    let now = db::now(tx).await?;
+    fail_run(
+        tx,
+        &mut run,
+        &ApplicationError {
+            kind: reason.code().into(),
+            message: "execution budget refused new delegation".into(),
+        },
+        now,
+    )
+    .await?;
+    Ok(now)
+}
+
 pub(super) struct AppliedDecision {
     pub wakes: Vec<TaskSnapshot>,
     pub at: u64,
+    delegates: Vec<RunBudgetSubject>,
 }
 
 pub(super) async fn apply_decision(
@@ -661,6 +768,7 @@ pub(super) async fn apply_decision(
     progress: &mut WorkflowProgress,
 ) -> StoreResult<AppliedDecision> {
     let mut wakes = Vec::new();
+    let mut delegates = Vec::new();
     let unfinished = if matches!(decision.action, WorkflowAction::Complete { .. }) {
         owned::unfinished(connection, &run.snapshot.workflow_id).await?
     } else {
@@ -780,6 +888,26 @@ pub(super) async fn apply_decision(
             explorer::child(connection, &decision.activation_id, command, &id, None, now).await?;
             task
         };
+        if run.has_run_budget {
+            let member = if command.kind == WorkflowChildKind::Workflow {
+                crate::run_budget::workflow(
+                    task.workflow_id
+                        .as_ref()
+                        .ok_or_else(|| corrupt("missing child workflow"))?,
+                )
+            } else {
+                let member = crate::run_budget::task(&task.task_id);
+                crate::run_budget::inherit(
+                    connection,
+                    &run.snapshot.scope,
+                    &crate::run_budget::workflow(&run.snapshot.workflow_id),
+                    &member,
+                )
+                .await?;
+                member
+            };
+            delegates.push(member);
+        }
         wakes.push(task);
         progress.children_scheduled += 1;
     }
@@ -913,6 +1041,7 @@ pub(super) async fn apply_decision(
     };
     explorer::decision(connection, decision, applied_at, resumed).await?;
     Ok(AppliedDecision {
+        delegates,
         wakes,
         at: applied_at,
     })

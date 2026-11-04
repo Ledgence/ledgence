@@ -30,6 +30,9 @@ pub struct ApprovedEffectClaimRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovedEffectClaimCommand {
+    /// Transport negotiation is separate from the immutable command identity.
+    #[serde(skip)]
+    pub budget_fence: bool,
     pub owner: LeaseOwner,
     pub workflow_id: String,
     pub approval_key: String,
@@ -59,6 +62,12 @@ pub enum ApprovedEffectDisposition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovedEffectClaimReceipt {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget_grant: Option<RunBudgetGrant>,
     pub scope: Scope,
     pub workflow_id: String,
     pub activation_id: String,
@@ -72,6 +81,9 @@ pub struct ApprovedEffectClaimReceipt {
 
 impl ApprovedEffectClaimReceipt {
     pub fn validate(&self) -> Result<()> {
+        if let Some(grant) = self.budget_grant {
+            grant.validate()?;
+        }
         self.scope.validate()?;
         for id in [
             &self.workflow_id,
@@ -88,7 +100,10 @@ impl ApprovedEffectClaimReceipt {
     pub fn matches(&self, command: &ApprovedEffectClaimCommand) -> Result<bool> {
         self.validate()?;
         command.validate()?;
-        Ok(self.scope == command.owner.scope
+        Ok((self.disposition != ApprovedEffectDisposition::Dispatch
+            || self.budget_grant.is_none()
+            || command.budget_fence)
+            && self.scope == command.owner.scope
             && self.workflow_id == command.workflow_id
             && self.activation_id == command.owner.task_id
             && self.attempt_id == command.owner.attempt_id

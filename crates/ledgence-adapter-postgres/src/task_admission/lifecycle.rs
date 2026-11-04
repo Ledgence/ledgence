@@ -27,6 +27,7 @@ pub(crate) async fn register(tx: &mut PgConnection, task: &TaskSnapshot) -> Stor
     let mut r = capacity::resource(tx, &o.scope, &requirement.resource, true).await?;
     let now = db::now(tx).await?;
     let snapshot = TaskAdmissionSnapshot {
+        budget_denial: None,
         occurrence: o.clone(),
         resource: requirement.resource.clone(),
         program: task.descriptor.clone(),

@@ -148,3 +148,5 @@ transactional authority. Existing adapters can explicitly omit this capability.
 A close receipt is bound to the full worker source, including the original lease,
 without exposing that lease in operator inspection. Mutation retries reuse the
 same request ID, expected revision and arguments.
+
+Run budget support is an explicit adapter capability. A capable store must derive root membership from ownership and commit each delegation or call decision with the state change it authorizes. The `WorkflowStore::budgets()` and `TaskStore::supports_run_budgets()` defaults leave this capability unavailable. `RunBudgetClient` exposes scope-bound metadata. A custom worker may opt into fresh native grants with `HttpTaskService::with_budget_dispatch_fence` only when it enforces the returned send window at callback invocation. An adapter without the capability must reject budgeted submissions. [Contract and limitations](https://github.com/Ledgence/ledgence/blob/develop/docs/run-budgets.md).

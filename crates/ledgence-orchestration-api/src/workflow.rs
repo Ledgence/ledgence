@@ -256,6 +256,7 @@ pub type WorkflowTaskCommand = WorkflowChildCommand;
 impl WorkflowChildCommand {
     pub fn submission(&self, scope: &Scope, correlation_key: Option<String>) -> SubmitTask {
         SubmitTask {
+            budget: None,
             admission: None,
             tenant_id: scope.tenant_id.clone(),
             namespace: scope.namespace.clone(),
@@ -558,6 +559,11 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        Err(ContractError::Unavailable(
+            "run budgets are not supported".into(),
+        ))
+    }
     fn admissions(&self) -> Result<&dyn AdmissionStore> {
         Err(ContractError::Unavailable(
             "resource admission is unavailable".into(),
@@ -742,6 +748,16 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        Err(ContractError::Unavailable(
+            "run budgets are not supported".into(),
+        ))
+    }
+    fn budget_client(&self) -> Result<&dyn RunBudgetClient> {
+        Err(ContractError::Unavailable(
+            "run budgets are not supported".into(),
+        ))
+    }
     fn admissions(&self) -> Result<&dyn AdmissionOperations> {
         Err(ContractError::Unavailable(
             "resource admission is unavailable".into(),

@@ -326,6 +326,6 @@ composed grants; late original evidence remains admissible. See
 
 ## Cluster-wide queue concurrency (development)
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C12 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C13 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 Weighted resource admission stores the group cursor on the resource row. Each successful reservation appends a row to `admission_offer_decisions` in the same transaction. The per-resource journal grows with weighted offers. Group mapping edits reclassify the live backlog under that lock. Rehearse migrations and large policy edits on a representative restore. See [weighted offers](resource-admission.md#weighted-offers).
