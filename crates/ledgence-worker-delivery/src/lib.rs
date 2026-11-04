@@ -148,6 +148,18 @@ impl Shared {
     }
 }
 
+enum AcquisitionSources {
+    Integrated,
+    Single(Arc<dyn AcquisitionSource>),
+    Routed(BTreeMap<String, Arc<dyn AcquisitionSource>>),
+}
+
+/// Pair the adapter with the exact session it registered, through final drain.
+struct RegisteredRoute {
+    session: WorkerSession,
+    source: Arc<dyn AcquisitionSource>,
+}
+
 pub struct DeliveryDriver {
     worker: Worker,
     service: Arc<dyn TaskService>,
@@ -155,7 +167,7 @@ pub struct DeliveryDriver {
     effect_access: Option<Arc<EffectAccess>>,
     runtime_binding: Option<Arc<EffectAccess>>,
     runtime_features: ledgence_worker_api::RuntimeFeatures,
-    source: Option<Arc<dyn AcquisitionSource>>,
+    sources: AcquisitionSources,
     planner: Option<poll_plan::PollPlanner>,
     config: DeliveryConfig,
     observations: Option<observations::ObservationReporting>,
@@ -172,7 +184,7 @@ impl DeliveryDriver {
         })?;
         Ok(Self {
             worker,
-            source: None,
+            sources: AcquisitionSources::Integrated,
             planner: None,
             service,
             workflows: None,
@@ -320,23 +332,65 @@ impl DeliveryDriver {
 
     /// Use a pluggable source with the same N consumers and attempt lifecycle.
     pub fn with_acquisition_source(mut self, source: Arc<dyn AcquisitionSource>) -> Self {
-        self.source = Some(source);
+        self.sources = AcquisitionSources::Single(source);
         self
     }
 
     /// Poll the planner's fixed integrated HTTP routes with one shared set of N
     /// consumers. Keep a clone to install revised weights on the live worker.
     pub fn with_poll_planner(mut self, planner: poll_plan::PollPlanner) -> Result<Self> {
-        if self.source.is_some() {
-            return Err(protocol("planned polling requires integrated acquisition"));
+        if !matches!(self.sources, AcquisitionSources::Integrated) {
+            return Err(protocol(
+                "use with_planned_sources to bind custom sources by queue",
+            ));
         }
+        self.validate_primary(&planner)?;
+        self.planner = Some(planner);
+        Ok(self)
+    }
+
+    /// Apply one poll planner across an explicit source per logical queue.
+    /// Sources and their sessions stay fixed when weights change. Each worker
+    /// consumer holds at most one bound receive, claim or active attempt.
+    pub fn with_planned_sources(
+        mut self,
+        planner: poll_plan::PollPlanner,
+        sources: BTreeMap<String, Arc<dyn AcquisitionSource>>,
+    ) -> Result<Self> {
+        self.validate_primary(&planner)?;
+        if !matches!(self.sources, AcquisitionSources::Integrated) {
+            return Err(protocol("acquisition sources have already been configured"));
+        }
+        if sources.len() != planner.queues().len()
+            || planner.queues().iter().any(|q| !sources.contains_key(q))
+        {
+            return Err(protocol(
+                "acquisition sources must match the poll plan queues exactly",
+            ));
+        }
+        // A broker source owns a registry and can bind only one service session.
+        // Reject accidental sharing before opening any remote registration.
+        let mut distinct = std::collections::HashSet::new();
+        if sources
+            .values()
+            .any(|s| !distinct.insert(Arc::as_ptr(s).cast::<()>()))
+        {
+            return Err(protocol(
+                "each planned queue requires a distinct acquisition source",
+            ));
+        }
+        self.sources = AcquisitionSources::Routed(sources);
+        self.planner = Some(planner);
+        Ok(self)
+    }
+
+    fn validate_primary(&self, planner: &poll_plan::PollPlanner) -> Result<()> {
         if !planner.queues().contains(&self.config.queue) {
             return Err(protocol(
                 "the primary worker queue must be present in the poll plan",
             ));
         }
-        self.planner = Some(planner);
-        Ok(self)
+        Ok(())
     }
 
     /// Start one non-resumable service session per route and N supervised consumers total.
@@ -372,15 +426,15 @@ impl DeliveryDriver {
             || std::slice::from_ref(&self.config.queue),
             |plan| plan.queues(),
         );
-        // The legacy builder accepts a source without returning Result. Check
-        // both builder orders before opening any remote session or polling.
-        if self.planner.is_some() && self.source.is_some() {
-            shared.fatal(protocol("planned polling requires integrated acquisition"));
+        // The legacy single-source builder cannot return an error. Reject its
+        // combination with a planner before opening any remote session.
+        if self.planner.is_some() && matches!(self.sources, AcquisitionSources::Single(_)) {
+            shared.fatal(protocol(
+                "use with_planned_sources to bind custom sources by queue",
+            ));
         }
-        let source = self.source.clone().unwrap_or_else(|| {
-            Arc::new(source::ServiceAcquisitionSource {
-                service: self.service.clone(),
-            })
+        let integrated: Arc<dyn AcquisitionSource> = Arc::new(source::ServiceAcquisitionSource {
+            service: self.service.clone(),
         });
         let context = Arc::new(Context {
             worker: self.worker.clone(),
@@ -389,11 +443,10 @@ impl DeliveryDriver {
             effect_access: self.effect_access.clone(),
             runtime_binding: self.runtime_binding.clone(),
             runtime_features: self.runtime_features.clone(),
-            source: source.clone(),
             config: self.config.clone(),
             shared: shared.clone(),
         });
-        let mut sessions = Vec::with_capacity(queues.len());
+        let mut routes = Vec::with_capacity(queues.len());
         let mut consumers = Vec::new();
         let (maintenance_done, done) = watch::channel(());
         let mut maintenance = Vec::new();
@@ -401,15 +454,20 @@ impl DeliveryDriver {
             let Some(session) = self.open(queue, &shared).await else {
                 break;
             };
-            if sessions
+            if routes
                 .iter()
-                .any(|other: &WorkerSession| other.id == session.id)
+                .any(|other: &RegisteredRoute| other.session.id == session.id)
             {
                 shared.fatal(protocol(
                     "registration reused a session identity across queues",
                 ));
                 break;
             }
+            let source = match &self.sources {
+                AcquisitionSources::Integrated => integrated.clone(),
+                AcquisitionSources::Single(source) => source.clone(),
+                AcquisitionSources::Routed(sources) => sources[queue].clone(),
+            };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 source.start_session(&session)
             }))
@@ -418,30 +476,35 @@ impl DeliveryDriver {
                     "acquisition source panicked during session setup".into(),
                 ))
             });
+            // Also unwind a source whose initialization failed after allocating
+            // local state. No consumer starts unless every route is ready.
+            routes.push(RegisteredRoute {
+                session: session.clone(),
+                source,
+            });
             if let Err(error) = result {
                 shared.fatal(error);
                 break;
             }
             // Earlier registrations stay alive even if a later route retries.
             let current = context.clone();
-            let registered = session.clone();
             let done = done.clone();
             maintenance.push(tokio::spawn(
-                async move { current.maintain_session(registered, done).await }
+                async move { current.maintain_session(session, done).await }
                     .with_current_subscriber(),
             ));
-            sessions.push(session);
         }
-        let sessions: Arc<[WorkerSession]> = sessions.into();
+        let routes: Arc<[RegisteredRoute]> = routes.into();
         let mut reporting = None;
-        if !shared.stopping() && sessions.len() == queues.len() {
-            let primary = sessions
+        if !shared.stopping() && routes.len() == queues.len() {
+            let primary = routes
                 .iter()
+                .map(|route| &route.session)
                 .find(|s| s.queue == self.config.queue)
                 .expect("the validated route set includes the primary queue");
             // The sessions represent logical routes of one process; publishing
             // the physical pool N times would falsely multiply observed capacity.
-            let primary_links = (sessions.len() > 1 && self.observations.is_some())
+            let primary_links = (routes.len() > 1 && self.observations.is_some())
                 .then(observations::PrimaryLinks::default);
             if let Some(observations) = self.observations {
                 reporting = Some(observations.start(
@@ -453,14 +516,14 @@ impl DeliveryDriver {
             {
                 let mut status = shared.status.lock().unwrap_or_else(|p| p.into_inner());
                 status.session_id = Some(primary.id.clone());
-                status.route_sessions = sessions
+                status.route_sessions = routes
                     .iter()
-                    .map(|s| (s.queue.clone(), s.id.clone()))
+                    .map(|route| (route.session.queue.clone(), route.session.id.clone()))
                     .collect();
             }
             for consumer in 0..primary.concurrency {
                 let current = context.clone();
-                let routes = sessions.clone();
+                let routes = routes.clone();
                 let planner = self.planner.clone();
                 let primary_links = primary_links.clone();
                 consumers.push(tokio::spawn(
@@ -501,9 +564,9 @@ impl DeliveryDriver {
                 _ = tokio::time::sleep(TICK) => {},
             }
         }
-        for session in sessions.iter() {
+        for route in routes.iter() {
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                source.finish_session(&session.id);
+                route.source.finish_session(&route.session.id);
             }))
             .is_err()
             {
@@ -679,7 +742,6 @@ struct Context {
     effect_access: Option<Arc<EffectAccess>>,
     runtime_binding: Option<Arc<EffectAccess>>,
     runtime_features: ledgence_worker_api::RuntimeFeatures,
-    source: Arc<dyn AcquisitionSource>,
     config: DeliveryConfig,
     shared: Arc<Shared>,
 }
@@ -725,25 +787,25 @@ impl Context {
     }
     #[tracing::instrument(name = "delivery_consumer", skip_all, fields(
         tenant_id = %self.config.scope.tenant_id, namespace = %self.config.scope.namespace,
-        queue = (sessions.len() == 1).then(|| sessions[0].queue.as_str()),
-        worker_session_id = (sessions.len() == 1).then(|| sessions[0].id.as_str()),
+        queue = (routes.len() == 1).then(|| routes[0].session.queue.as_str()),
+        worker_session_id = (routes.len() == 1).then(|| routes[0].session.id.as_str()),
         consumer_id = consumer
     ))]
     async fn consume(
         self: Arc<Self>,
-        sessions: Arc<[WorkerSession]>,
+        routes: Arc<[RegisteredRoute]>,
         consumer: u32,
         planner: Option<poll_plan::PollPlanner>,
         primary_links: Option<observations::PrimaryLinks>,
     ) {
         // Each durable acquisition cursor belongs to one (session, consumer),
         // even while the same physical consumer moves between queues.
-        let mut commands: Vec<_> = sessions
+        let mut commands: Vec<_> = routes
             .iter()
-            .map(|session| AcquireCommand {
-                scope: session.scope.clone(),
-                queue: session.queue.clone(),
-                worker_session_id: session.id.clone(),
+            .map(|route| AcquireCommand {
+                scope: route.session.scope.clone(),
+                queue: route.session.queue.clone(),
+                worker_session_id: route.session.id.clone(),
                 consumer_id: consumer,
                 sequence: 1,
             })
@@ -775,51 +837,21 @@ impl Context {
                     return;
                 }
             };
-            if self.shared.stopping() {
-                return;
-            }
-            let (route, revision) = if let Some(planner) = &planner {
-                let Some(binding) = planner.issue_with_revision() else {
-                    // An idle plan may have been installed during reservation.
-                    // Release physical capacity before waiting for the next plan.
-                    drop(reservation);
-                    continue;
-                };
-                (binding.route, Some(binding.revision))
-            } else {
-                (0, None)
-            };
-            let command = &mut commands[route];
             let cycle_started = Instant::now();
-            if let Some(revision) = revision {
-                binding::trace_poll(command, revision, "worker.poll.issued", None);
-            }
-            let span = tracing::debug_span!("acquire_bound", queue = %command.queue,
-                worker_session_id = %command.worker_session_id, consumer_id = consumer,
-                sequence = command.sequence, plan_revision = revision);
-            let Some(reply) = binding::acquire(
-                self.source.as_ref(),
+            let Some((route, reply)) = binding::acquire(
+                &routes,
+                &commands,
+                planner.as_ref(),
                 &self.config,
                 &self.shared,
-                command,
-                revision.is_some(),
             )
-            .instrument(span)
             .await
             else {
-                return;
+                // A stop or paused revision before handoff leaves no binding
+                // to reconcile and releases this physical reservation.
+                continue;
             };
-            if let Some(revision) = revision {
-                let outcome = match &reply {
-                    SourceReply::Completed(AcquireReply::Empty { .. }) => "empty",
-                    SourceReply::Completed(AcquireReply::Assigned { .. }) => "assigned",
-                    SourceReply::Completed(AcquireReply::OwnershipLost { .. }) => "ownership_lost",
-                    SourceReply::Idle => "idle",
-                    SourceReply::Discarded { .. } => "discarded",
-                    SourceReply::Stopped { .. } => "stopped",
-                };
-                binding::trace_poll(command, revision, "worker.poll.resolved", Some(outcome));
-            }
+            let command = &mut commands[route];
             let idle = matches!(reply, SourceReply::Idle);
             match reply {
                 SourceReply::Completed(AcquireReply::Assigned { assignment, .. }) => {

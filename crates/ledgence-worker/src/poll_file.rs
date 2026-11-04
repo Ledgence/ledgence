@@ -1,4 +1,4 @@
-//! Startup selection and bounded live reload for integrated queue polling.
+//! Startup selection and bounded live reload for multi-queue polling.
 use crate::{input, read_bounded};
 use ledgence_orchestration_api::decode_unique_json;
 use ledgence_worker_api::Result;

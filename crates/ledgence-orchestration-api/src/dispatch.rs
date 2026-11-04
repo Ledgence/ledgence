@@ -14,6 +14,8 @@ pub const DISPATCH_MAX_BYTES: usize = 16 * 1024;
 pub const CLAIM_REPLY_MAX_BYTES: usize = 16 * 1024 * 1024;
 /// Maximum records leased or completed in one maintenance operation.
 pub const MAX_PUBLICATION_BATCH: u32 = 100;
+/// Maximum number of external routes an executable can activate as one set.
+pub const MAX_DISPATCH_ROUTES: usize = 64;
 
 /// One readiness generation. Retransmission preserves this identity; a retry
 /// made eligible by the lifecycle advances the generation.

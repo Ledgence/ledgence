@@ -304,10 +304,10 @@ budgets remain separate work.
 
 ### Poll several queues with one worker (development)
 
-A worker can share its existing concurrency across integrated HTTP queues. Give
+A worker can share its existing concurrency across integrated HTTP queues or across SQS Standard queues. Give
 `ledgence worker connect` a [poll plan](examples/worker-poll-plan.json) to choose
 weighted Stride or a weighted lottery. An empty poll uses a turn; a transport
-retry keeps the original queue. [Configuration and live updates](docs/worker-delivery.md#worker-local-poll-plans-development).
+retry keeps the original queue. For SQS, pair the plan with a [delivery configuration](examples/delivery-sqs-multi-local.json) mapping each logical queue to its own broker queue. [Configuration and live updates](docs/worker-delivery.md#worker-local-poll-plans-development).
 
 ### Limit concurrency per queue (development)
 

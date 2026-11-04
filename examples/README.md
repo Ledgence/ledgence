@@ -89,6 +89,6 @@ For a standalone task sharing the same capacity as workflow callbacks, see the
 This requires matching development components, not the released 0.8.0 packages.
 
 [Worker poll plan](worker-poll-plan.json) is a development configuration example
-for polling interactive and batch queues in a 70/30 ratio. See the
+for polling interactive and batch queues in a 70/30 ratio. For SQS, use the matching [local delivery configuration](delivery-sqs-multi-local.json) after creating both Standard queues. See the
 [worker delivery guide](../docs/worker-delivery.md#worker-local-poll-plans-development)
 for live updates and how to pause polling.

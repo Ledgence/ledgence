@@ -527,9 +527,6 @@ mod tests {
             runtime_binding: None,
             runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
             worker,
-            source: Arc::new(source::ServiceAcquisitionSource {
-                service: service.clone(),
-            }),
             service,
             config,
             shared,

@@ -134,7 +134,7 @@ fn store(
 }
 fn health() -> Health {
     let health = Health::new(Duration::from_secs(40));
-    health.require_publication();
+    health.require_publication(&route().destination);
     health.prerequisites_ready();
     health.recovery_success();
     health
@@ -351,4 +351,64 @@ async fn send_timeout_retains_lease_and_closed_stop_channel_exits() {
     assert!(store.completed.lock().unwrap().is_empty());
     drop(stop);
     task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn every_route_must_be_healthy_and_fresh_before_ready() {
+    let health = health();
+    let first = route().destination;
+    health.require_publication("second");
+    health.publication_success(&first);
+    assert_eq!(
+        health.readiness().1["reasons"],
+        serde_json::json!(["publication_pending"])
+    );
+    health.publication_success("second");
+    assert_eq!(health.readiness().0, axum::http::StatusCode::OK);
+    health.publication_failure("second", "publication_unavailable");
+    health.publication_success(&first);
+    assert_eq!(
+        health.readiness().1["reasons"],
+        serde_json::json!(["publication_unavailable"])
+    );
+    health.publication_success("second");
+    tokio::time::advance(Duration::from_secs(41)).await;
+    health.recovery_success();
+    health.publication_success(&first);
+    assert_eq!(
+        health.readiness().1["reasons"],
+        serde_json::json!(["publication_stale"])
+    );
+    health.publication_success("second");
+    assert_eq!(health.readiness().0, axum::http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn fatal_route_retains_sibling_until_its_in_flight_batch_finishes() {
+    for panic in [false, true] {
+        let (stop, mut stopped) = watch::channel(false);
+        let mut routes = JoinSet::new();
+        let (saw_stop, saw_stop_rx) = tokio::sync::oneshot::channel();
+        let (finish, finished) = tokio::sync::oneshot::channel();
+        routes.spawn(async move {
+            stopped.wait_for(|value| *value).await.unwrap();
+            saw_stop.send(()).unwrap();
+            finished.await.unwrap();
+            Ok(())
+        });
+        routes.spawn(async move {
+            if panic {
+                panic!("injected publisher panic");
+            }
+            Err(ContractError::InvalidInput("invalid publisher".into()))
+        });
+        let task = tokio::spawn(drain_routes(routes, stop));
+        tokio::time::timeout(Duration::from_secs(5), saw_stop_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!task.is_finished());
+        finish.send(()).unwrap();
+        assert!(task.await.unwrap().is_err());
+    }
 }

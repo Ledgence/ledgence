@@ -954,3 +954,6 @@ async fn a_durable_admission_wait_is_acknowledged_only_for_the_exact_dispatched_
     );
     assert!(service.state.lock().unwrap().active.is_empty());
 }
+
+#[path = "broker/planned.rs"]
+mod planned;

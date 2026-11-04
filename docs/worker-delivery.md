@@ -225,7 +225,7 @@ started source. [Standalone task admission](resource-admission.md#standalone-tas
 ## Worker-local poll plans (development)
 
 `ledgence worker connect --poll-plan FILE` gives one physical worker a fixed set
-of integrated queues in its tenant and namespace. Use it instead of `--queue`.
+of queues in its tenant and namespace. Choose integrated HTTP delivery or SQS delivery for that worker. Use it instead of `--queue`.
 There are still N consumers and at most N subprocesses across all routes. The
 orchestrator registers one existing queue-bound session per route, each able
 to identify the same N consumer indexes. The per-session concurrency values
@@ -274,10 +274,11 @@ To inspect individual planned polls, set
 A `worker.poll.issued` event records a fresh binding with queue, plan revision,
 session, consumer and sequence. Retries keep that identity. A `worker.poll.resolved`
 event reports the reconciled disposition. These local diagnostics are optional
-and do not measure task duration or replace server receipts.
+and do not measure task duration or replace server receipts. They count logical handoffs. Use broker observations to count physical receives and genuine empty responses. A stop after handoff or a transport retry does not create a second turn.
 
-This mode supports integrated HTTP. Existing SQS/ElasticMQ delivery uses
-`--queue` with `--delivery-config` and one external route. Poll weights are
+For SQS, pass a [delivery configuration](dispatch-delivery.md#multiple-sqs-routes-in-development) with one dedicated Standard queue per plan entry. Each consumer issues at most one receive at a time. An empty broker response consumes a turn but leaves its durable claim sequence unchanged. A lost claim response is reconciled against the same queue, session, consumer and message. A new revision changes future polls. An outstanding receive, claim or running handler retains its original binding. A disrupted route can keep a consumer occupied until that exchange is resolved. A malformed or foreign dispatch stops the affected worker and leaves the message unacknowledged for operator investigation. Only a confirmed empty receive or settled handoff makes it available for another choice.
+
+A planned worker with more than one SQS route defaults to a one-second receive wait. Integrated workers and single-queue SQS workers retain the 20-second default. Use `--acquire-wait-ms` to override it. The SQS wire protocol accepts whole seconds, rounding down and allowing time for the response. Poll weights are
 local to one worker. Durable resource admission remains a separate limit on
 whether governed work can start; see [resource admission](resource-admission.md).
 

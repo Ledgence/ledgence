@@ -342,6 +342,34 @@ async fn prepare_and_serve(
         verifier.as_ref().map(|verifier| verifier.audience()),
     )
     .await?;
+    #[cfg(feature = "sqs")]
+    let brokers = match delivery_config {
+        Some(path) => {
+            let config = tokio::task::spawn_blocking(move || {
+                ledgence_adapter_sqs::deployment::DeliveryRoutes::load(&path)
+            })
+            .await
+            .map_err(|_| "delivery configuration loading failed".to_owned())?
+            .map_err(|error| error.to_string())?;
+            if let Some(instance) = &instance_config
+                && config.scope() != &instance.scope
+            {
+                return Err("SQS routes must match the configured instance scope".into());
+            }
+            // Provider preflight is read-only; no durable route or session
+            // exists until all queues and their distinct identities are verified.
+            tokio::select! {
+                biased;
+                () = stop_requested(stopped.clone()) => return Ok(()),
+                result = config.connect() => result.map_err(|error| error.to_string())?,
+            }
+        }
+        None => Vec::new(),
+    };
+    #[cfg(not(feature = "sqs"))]
+    if delivery_config.is_some() {
+        return Err("--delivery-config requires a binary built with the sqs feature".into());
+    }
     // Headless starts perform the same durable binding check. Never start an
     // unbound coordinator on a previously bound database by omitting a flag.
     let instance_context = store
@@ -406,40 +434,6 @@ async fn prepare_and_serve(
         }
         None => Vec::new(),
     };
-    #[cfg(feature = "sqs")]
-    let broker = match delivery_config {
-        Some(path) => {
-            let config = tokio::task::spawn_blocking(move || {
-                ledgence_adapter_sqs::deployment::DeliveryConfig::load(&path)
-            })
-            .await
-            .map_err(|_| "delivery configuration loading failed".to_owned())?
-            .map_err(|error| error.to_string())?;
-            if *stopped.borrow() {
-                return Ok(());
-            }
-            if let Some(context) = &instance_context {
-                context
-                    .require_scope(&config.route.scope)
-                    .map_err(|error| error.to_string())?;
-            }
-            // Validate external capabilities without changing durable routing.
-            let queue = Arc::new(
-                ledgence_adapter_sqs::SqsQueue::connect(config.sqs)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            );
-            if *stopped.borrow() {
-                return Ok(());
-            }
-            Some((queue, config.route))
-        }
-        None => None,
-    };
-    #[cfg(not(feature = "sqs"))]
-    if delivery_config.is_some() {
-        return Err("--delivery-config requires a binary built with the sqs feature".into());
-    }
     let artifact_publication = if allow_program_publication {
         if instance_config.is_none()
             || location.starts_with("http://")
@@ -569,10 +563,10 @@ async fn prepare_and_serve(
                 .map_err(|error| error.to_string())?;
         }
         #[cfg(feature = "sqs")]
-        if let Some((_, route)) = &broker {
-            use ledgence_orchestration_api::DispatchIntentStore;
+        if !brokers.is_empty() {
+            let routes: Vec<_> = brokers.iter().map(|(route, _)| route.clone()).collect();
             store
-                .configure_route(route)
+                .configure_routes(&routes)
                 .await
                 .map_err(|error| error.to_string())?;
         }
@@ -605,6 +599,10 @@ async fn prepare_and_serve(
         } else {
             router
         };
+        #[cfg(feature = "sqs")]
+        let publisher = publication::start(store.clone(), brokers, health.clone());
+        #[cfg(not(feature = "sqs"))]
+        let publisher = None;
         let (http_stop, http_stopped) = watch::channel(false);
         let (recovery_stop, recovery_stopped) = watch::channel(false);
         let http = tokio::spawn(
@@ -613,23 +611,6 @@ async fn prepare_and_serve(
                 .into_future()
                 .with_current_subscriber(),
         );
-        #[cfg(feature = "sqs")]
-        let publisher = broker.map(|(queue, route)| {
-            health.require_publication();
-            let checked_queue = queue.clone();
-            let probe: publication::ConfigurationProbe = Arc::new(move || {
-                let queue = checked_queue.clone();
-                Box::pin(async move { queue.check_configuration().await })
-            });
-            let (stop, stopped) = watch::channel(false);
-            let task = tokio::spawn(
-                publication::run(store.clone(), queue, route, probe, health.clone(), stopped)
-                    .with_current_subscriber(),
-            );
-            BackgroundTask { task, stop }
-        });
-        #[cfg(not(feature = "sqs"))]
-        let publisher = None;
         let completion_task = if completion_destinations.is_empty() {
             None
         } else {

@@ -111,7 +111,7 @@ python3 tools/check-provider-operations.py --scenario sqs \
   --evidence /tmp/ledgence-export-sqs
 ```
 
-The existing native delivery configuration binds one logical queue per
+The 0.8.0 native delivery configuration used by this example binds one logical queue per
 orchestrator process. This gate starts two processes against the same disposable
 database and authority, with one publisher per queue. Both processes enable the
 same provider policy and access configuration. It checks external destinations,
