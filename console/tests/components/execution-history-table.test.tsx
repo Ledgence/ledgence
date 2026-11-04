@@ -32,6 +32,7 @@ const config: ConsoleConfig = {
     workflows: true,
     programs: true,
     workers: true,
+    task_admission: false,
   },
   suggested_queues: [],
   limits: {

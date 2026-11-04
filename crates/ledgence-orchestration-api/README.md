@@ -58,6 +58,15 @@ Returned model and tool records use the versioned durable operation binding.
 Existing adapters return `ContractError::Unavailable` for these optional reads
 until they implement them.
 
+In the development checkout, standalone task admission uses the grouped
+`TaskAdmissionStore` and `TaskAdmissionClient` ports. An adapter must bind
+the authenticated worker to its session, grant at most one executable Start,
+retain uncertain occupancy, and accept source-bound cleanup independently
+of ordinary result settlement. It must implement the corresponding transactional
+submission, acquisition, maintenance, cancellation, retention and recovery paths
+before advertising this capability. Generic acquire/renew replies never grant
+permission for a governed invocation. [Standalone task contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#standalone-task-admission)
+
 Requires Rust 1.98 or newer. The pre-1.0 API may change between minor versions.
 See the [published API documentation](https://docs.rs/ledgence-orchestration-api),
 [delivery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/delivery-contract.md)

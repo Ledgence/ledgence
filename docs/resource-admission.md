@@ -126,7 +126,7 @@ an arbitrary SDK. Disable or separately account for SDK retries, redirects,
 nested requests and background tasks. Rate is measured at authorization time,
 not provider arrival time. A callback's returned result is not independent proof
 that an asynchronous provider business operation completed. Protected provider
-composition uses the separate path below. Standalone task admission remains deferred.
+composition and standalone tasks use the separate paths below.
 
 ## Compose admission with protected provider dispatch
 
@@ -275,8 +275,8 @@ ledgence audit list --resource support-model \
 ```
 
 Choose only one of `--resource`, `--task` or `--workflow`. The resource filter
-selects policy events; admission release and sensitive-inspection events belong
-to the original workflow and use `--workflow WORKFLOW_ID`. Queries require
+selects policy events. Workflow release and inspection records use
+`--workflow WORKFLOW_ID`; standalone task records use `--task TASK_ID`. Queries require
 `metadata_read` in credential mode. Preserve the filter when following a cursor.
 
 MCP's `ledgence_audit_query` accepts
@@ -291,7 +291,7 @@ page = await client.audit.list(
 )
 ```
 
-Console C9 renders each wait episode and its resumed entrypoint. An accepted
+Console C10 renders each wait episode and its resumed entrypoint. An accepted
 operation result has its own occurrence-bound inspector. Offer or Start alone
 does not fabricate an executed operation. Graph metadata does not expose arguments
 or results. Protected dispatch has a typed provider record and separate admission and business-result waits; it does not fabricate a generic accepted-operation result. The scope-free `/v1/console/admissions/inspect` wrapper binds the
@@ -307,4 +307,76 @@ through an owned loopback ElasticMQ queue. No provider account or model key is u
 The gate covers parking/restart, ordinary work during a wait, competing capacity,
 lost Start/Finish replies, offer expiry, result replay after worker loss and restore
 quarantine. PostgreSQL tests cover transactional races, policy changes and late reports.
-`--provider` runs the composed export cases, including approval identity across parking, unknown occupancy despite successful probes, duplicate business tickets and original reports after execution retirement. Both delivery modes use the same production paths. These checks do not establish a production throughput benchmark or real AWS SQS qualification.
+`--provider` runs the composed export cases, including approval identity across parking, unknown occupancy despite successful probes, duplicate business tickets and original reports after execution retirement. `--task` runs standalone tasks through cold preparation, shared task/workflow capacity,
+unused deferral, worker loss, uncertain Start, broker compatibility and late closure.
+Each run needs a new evidence directory. These checks do not establish a production
+throughput benchmark or real AWS SQS qualification.
+
+## Standalone task admission
+
+A root task can require **one existing resource in its own scope**. This is an
+optional part of the immutable submission, outside CloudEvent `data`. Omitting it
+preserves ordinary delivery. Reusing an idempotency key with a different resource
+conflicts, even if the application data is identical. Governed workflow submissions,
+child tasks, controller activations and recovery probes are outside this contract.
+
+```python
+from ledgence.client import TaskAdmission
+
+task = await client.tasks.submit(
+    program="hello-ledgence", version="0.1.0", queue="demo",
+    data={"name": "Ada"}, idempotency_key="hello:ada:1",
+    admission=TaskAdmission(resource="support-model"),
+)
+```
+
+Publish the task and create the named resource first. See the [complete submission
+file](../examples/resource-admission/submit_task.py). The CLI `task submit` file
+uses `input.admission: {"resource":"support-model"}`; the MCP task submission tool
+accepts the same `admission` object. Workers negotiate `task_admission.v1` in an
+authenticated session. A worker or adapter without this capability cannot silently
+run governed work through ordinary dispatch.
+
+| Stage | What happens |
+| --- | --- |
+| Waiting | Task state is `queued`. It owns no attempt or worker process while waiting for its first offer. The wait has no separate admission deadline; cancel it if it is no longer wanted. |
+| Offered / preparing | An offer reserves shared capacity. Acquisition binds it to one attempt and permits bounded artifact/process preparation. It does not authorize the handler. |
+| Start | Once the runtime is ready, only the first committed grant can invoke the handler. Start charges rate once. A duplicate or lost response never grants another invocation. |
+| Deferral before Start | A definitive closure fences the old attempt and requeues it with backoff. `attempt_count` preserves assigned generations; `admission_deferrals` counts unused deferrals. Retry use is their difference. Actual preparation failures and accepted Starts still consume retry budget. |
+| Close / uncertainty | Authenticated confirmation from the original worker can release the exact source after local invocation quiescence. Task result, lease expiry, cancellation or worker disappearance alone do not establish this. An uncertain source can block later attempts until reconciled or explicitly released. |
+
+The governed unit is **entrypoint invocation**, not module import or external
+side effects. Put governed work inside the handler: Python imports application
+modules before the runtime reports ready. A healthy process can remain warm after
+a handler completes. Quiescence does not prove a detached thread, remote API
+request or external business effect stopped. This is not exactly-once execution.
+Under repeated policy changes unused attempts retain history. Generation uses the
+positive CloudEvents integer range (through 2,147,483,647); exhausting it closes
+the task explicitly instead of recycling an old identity.
+
+Inspect `(scope, task_id, generation)`; the initial queued generation is 1.
+`client.task_admissions.inspect(task.id, generation=1)`, `ledgence admission
+inspect --task ID --generation N` (with the usual server, scope and credential
+flags), `ledgence_task_admission_inspect`, and Console's **Resource admission**
+view expose the ledger. `POST /v1/task-admissions/inspect` requires audited
+`sensitive_read`. Workers use the private-authority `sessions`, `start` and
+`close` endpoints under `/v1/task-admissions/`; these are not submission APIs.
+
+Results and source closure are persisted independently: a Close outage does not
+prevent an otherwise valid result from being recorded. An occupied source keeps
+the owning task discoverable even if its ordinary retention period has elapsed.
+
+After inspecting the exact source, an operator can explicitly accept the risk
+of freeing capacity via `client.task_admissions.release(inspected,
+request_id=..., reason=...)`, `ledgence admission release --file FILE`, or MCP's
+opt-in `ledgence_task_admission_release`. `POST /v1/task-admissions/release`
+checks source, inspected revision, request ID and reason. Preserve the original
+command for uncertain acknowledgement. Release does not stop remote work, change
+the task result, or refund the rate charge.
+
+For mixed-version broker fleets, pre-A3 workers can read dispatch generations
+1 through 1,000. They stop consuming on larger generations before contacting
+the server. Upgrade all consumers on a shared broker destination, or route
+governed work to a queue served only by matching workers, before allowing
+repeated capacity deferrals to exceed this limit. Integrated HTTP acquisition
+excludes governed assignments for older sessions.

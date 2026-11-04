@@ -10,12 +10,12 @@ use tokio::sync::oneshot;
 
 /// The result can be delivered before an operation finishes. Its supervisor,
 /// consumer permit and registration remain alive independently of this channel.
-pub(super) struct Completion(Option<oneshot::Sender<ExecutionResult>>);
+pub(super) struct Completion(Option<oneshot::Sender<InvocationResult>>);
 impl Completion {
-    pub fn new(sender: oneshot::Sender<ExecutionResult>) -> Self {
+    pub fn new(sender: oneshot::Sender<InvocationResult>) -> Self {
         Self(Some(sender))
     }
-    pub fn send(&mut self, result: ExecutionResult) {
+    pub fn send(&mut self, result: InvocationResult) {
         if let Some(sender) = self.0.take() {
             if let Err(failure) = &result {
                 trace_failure(failure);

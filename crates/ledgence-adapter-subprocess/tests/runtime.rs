@@ -8,6 +8,9 @@ use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
 
+#[path = "runtime/admission.rs"]
+mod admission;
+
 #[path = "runtime/delivery.rs"]
 mod delivery;
 #[path = "runtime/interactive.rs"]

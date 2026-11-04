@@ -24,6 +24,7 @@ mod operator_audit;
 mod persistence;
 mod retention;
 mod storage;
+mod task_admission;
 mod transaction;
 mod worker_observations;
 mod workflow;

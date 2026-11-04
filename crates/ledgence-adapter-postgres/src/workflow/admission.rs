@@ -1,9 +1,9 @@
 //! Durable resource authority: workflow -> task -> resource -> occurrence locks.
 //! A committed Start is one-shot authority; its lost reply is never another grant.
 pub(super) mod execution;
-mod policy;
-mod scheduler;
-pub(super) mod state;
+pub(crate) mod policy;
+pub(crate) mod scheduler;
+pub(crate) mod state;
 pub(super) mod wait;
 use super::*;
 pub(super) use scheduler::drain;
@@ -79,14 +79,14 @@ impl AdmissionStore for PostgresStore {
     }
 }
 impl PostgresStore {
-    pub(super) fn admission_configured(&self) -> Result<&AdmissionConfig> {
+    pub(crate) fn admission_configured(&self) -> Result<&AdmissionConfig> {
         let c = self.admission_config().ok_or_else(|| {
             ContractError::Unavailable("resource admission is not configured".into())
         })?;
         c.validate_for(self.audit_audience()?)?;
         Ok(c)
     }
-    pub(in crate::workflow) fn admission_worker(
+    pub(crate) fn admission_worker(
         &self,
         p: &VerifiedPrincipal,
         scope: &Scope,

@@ -15,6 +15,19 @@ TIMESTAMP = 253402300799999
 
 
 @dataclass(frozen=True)
+class TaskAdmission:
+    """One named resource required before a standalone task invokes its handler."""
+
+    resource: str
+
+    def __post_init__(self):
+        name(self.resource)
+
+    def to_dict(self):
+        return {"resource": self.resource}
+
+
+@dataclass(frozen=True)
 class ResourceRate:
     numerator: int
     period_ms: int

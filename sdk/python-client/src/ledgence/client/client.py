@@ -53,6 +53,7 @@ class AsyncClient:
         from .audit import Audit
         from .effects import Effects
         from .admissions import Resources, Admissions
+        from .task_admissions import TaskAdmissions
         self._base_url = _endpoint(base_url)
         if token is not None and credentials_file is not None:
             raise InputError("use token or credentials_file, never both")
@@ -70,6 +71,7 @@ class AsyncClient:
         self.effects = Effects(self)
         self.resources = Resources(self)
         self.admissions = Admissions(self)
+        self.task_admissions = TaskAdmissions(self)
         self._transport: _Transport | None = None
         self._closed = False
 

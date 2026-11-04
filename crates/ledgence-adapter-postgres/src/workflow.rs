@@ -1,6 +1,6 @@
 //! Workflow mutations use workflow -> work/task row ordering. Ordinary task
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
-mod admission;
+pub(crate) mod admission;
 mod approval_inbox;
 mod approvals;
 pub(crate) mod approved_effects;
@@ -152,6 +152,7 @@ impl WorkflowStore for PostgresStore {
         Box::pin(self.run(move || async move {
             core::validate_submission(command)?;
             self.require_submission_scope(command)?;
+            if command.input.admission.is_some() { return Err(ContractError::InvalidInput("task admission requires a standalone task".into()).into()); }
             controller.validate().map_err(ContractError::from)?;
             if controller.program != command.input.program { return Err(ContractError::Conflict.into()); }
             let mut connection = self.transaction_connection().await?;

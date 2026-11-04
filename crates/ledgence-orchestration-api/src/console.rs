@@ -30,10 +30,10 @@ use crate::*;
 use ledgence_worker_api::{Digest, ProgramDescriptor, ProgramRef};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Version 8 adds durable admission waits and accepted operation evidence.
+/// Version 10 adds standalone task admission and preparation deferral observations.
 /// Sensitive inspection and mutations use separate scope-free endpoints.
 /// Static assets and server must advertise the same contract version.
-pub const CONSOLE_CONTRACT_VERSION: u32 = 9;
+pub const CONSOLE_CONTRACT_VERSION: u32 = 10;
 pub const CONSOLE_QUERY_MAX_BYTES: usize = 16 * 1024;
 pub const CONSOLE_METADATA_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const CONSOLE_MAX_TIMESTAMP: Timestamp = 253_402_300_799_999;
@@ -105,6 +105,7 @@ pub struct ConsoleConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleCapabilities {
+    pub task_admission: bool,
     pub executions: bool,
     pub workflows: bool,
     pub programs: bool,

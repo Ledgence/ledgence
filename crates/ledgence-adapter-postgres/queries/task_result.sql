@@ -9,6 +9,7 @@ SELECT
     a.event_source AS a_event_source,
     a.event_id AS a_event_id,
     a.event_bytes AS a_event_bytes,
+    a.task_admission_bytes AS a_task_admission_bytes,
     a.expires_at_ms AS a_expires_at_ms,
     a.deadline_ms AS a_deadline_ms,
     a.authority_deadline_ms AS a_authority_deadline_ms,

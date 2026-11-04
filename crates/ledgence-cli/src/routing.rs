@@ -50,8 +50,8 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "admission",
         name: "inspect",
-        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --workflow ID --activation ID --key KEY",
-        description: "Inspect one original admission occurrence, including frozen arguments and retained output. Requires sensitive_read and durable audit. Use the originating activation, not the latest continuation.",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME (--workflow ID --activation ID --key KEY | --task ID --generation N)",
+        description: "Inspect the original workflow operation (frozen arguments and retained output), or a standalone task generation (resource, worker and closure evidence). Task program output is available through task result. Requires sensitive_read and durable audit.",
     },
     Leaf {
         group: "admission",

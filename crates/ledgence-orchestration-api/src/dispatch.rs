@@ -30,8 +30,8 @@ impl DispatchRef {
         self.scope.validate()?;
         validate_text(&self.queue, 128)?;
         validate_text(&self.task_id, 128)?;
-        if !(1..=1_000).contains(&self.generation) {
-            return Err(invalid("dispatch generation must be between 1 and 1000"));
+        if self.generation == 0 || self.generation > MAX_TASK_ATTEMPT_GENERATION {
+            return Err(invalid("dispatch generation must be positive"));
         }
         Ok(())
     }
@@ -98,6 +98,8 @@ impl ClaimCommand {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClaimDisposition {
+    /// A durable resource wait owns the future wake; no timed broker retry is implied.
+    AdmissionDeferred { occurrence: TaskAdmissionOccurrence },
     /// New assignment or the same claimant's replay. OwnershipLost is a durable
     /// replay of its former handoff; Empty is never a valid claimed disposition.
     Claimed { reply: AcquireReply },
@@ -190,6 +192,16 @@ impl ClaimReply {
                 validate_attempt_ref(attempt, &expected.dispatch)
             }
             ClaimDisposition::TerminalOrSuperseded => Ok(()),
+            ClaimDisposition::AdmissionDeferred { occurrence } => {
+                occurrence.validate()?;
+                if occurrence.scope != expected.dispatch.scope
+                    || occurrence.task_id != expected.dispatch.task_id
+                    || occurrence.generation != expected.dispatch.generation
+                {
+                    return Err(invalid("admission deferral references another dispatch"));
+                }
+                Ok(())
+            }
             ClaimDisposition::Deferred { available_at } => {
                 if *available_at > i64::MAX as u64 {
                     return Err(invalid("deferred timestamp exceeds supported range"));
@@ -449,6 +461,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,            descriptor: ProgramDescriptor {
                 program: ProgramRef { id: "invoice".into(), version: "1".into() },
@@ -597,7 +610,7 @@ mod tests {
             |c: &mut ClaimCommand| c.acquisition.queue = "other".into(),
             |c: &mut ClaimCommand| c.acquisition.sequence = 0,
             |c: &mut ClaimCommand| c.dispatch.generation = 0,
-            |c: &mut ClaimCommand| c.dispatch.generation = 1001,
+            |c: &mut ClaimCommand| c.dispatch.generation = MAX_TASK_ATTEMPT_GENERATION + 1,
             |c: &mut ClaimCommand| c.dispatch.task_id = "x".repeat(129),
             |c: &mut ClaimCommand| c.acquisition.worker_session_id = "bad\nvalue".into(),
         ] {
@@ -695,6 +708,13 @@ mod tests {
                 attempt: reference.clone(),
             },
             ClaimDisposition::TerminalOrSuperseded,
+            ClaimDisposition::AdmissionDeferred {
+                occurrence: TaskAdmissionOccurrence {
+                    scope: dispatch().scope,
+                    task_id: dispatch().task_id,
+                    generation: dispatch().generation,
+                },
+            },
             ClaimDisposition::Deferred {
                 available_at: 90_000,
             },
@@ -731,6 +751,13 @@ mod tests {
                         task_id: "task_1042".into(),
                         attempt_id: "attempt_1".into(),
                     },
+                },
+            },
+            ClaimDisposition::AdmissionDeferred {
+                occurrence: TaskAdmissionOccurrence {
+                    scope: dispatch().scope,
+                    task_id: dispatch().task_id,
+                    generation: dispatch().generation + 1,
                 },
             },
             ClaimDisposition::Deferred {

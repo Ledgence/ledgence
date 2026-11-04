@@ -52,6 +52,15 @@ P is created only for a new invocation, after acquisition replay has been exclud
 
 W starts before dispatch/preparation and remains open through settlement and required cleanup. Its context is captured once into `SettleCommand.processing_trace`, including report normalization and every transport retry. The separate `RuntimeInvocation.processing_context` carries E into Python. E ends when the local execution result is known, before report reconciliation. Healthy warm processes do not extend a completed invocation's execution span.
 
+For a standalone task with resource admission, a producer span represents an
+assigned attempt. Its processing and program spans can start before the runtime
+writes the first byte to the handler. A revoked or expired permit can therefore
+leave spans without an invocation; a pre-Start deferral can close without a
+normal result settlement. Use the [admission ledger](resource-admission.md#standalone-task-admission)
+to distinguish an unused offer, an accepted Start and confirmed cleanup. Even
+an accepted Start alone does not prove that the handler received the invocation.
+The maintenance log's `task_offered` counts offers, not executions.
+
 The CloudEvent source, event ID, envelope, and user-owned `data` are unchanged on redelivery. Processing context is never placed inside user data or substituted for the event's creation context. Existing persisted events remain valid, including events that predate producer instrumentation.
 
 | Orchestrator tracing | Worker tracing | Event and processing context |

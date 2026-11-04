@@ -9,6 +9,16 @@ pub fn renew(
     command: &RenewCommand,
     now: Timestamp,
 ) -> Result<Transition<Authority>> {
+    if task.input.admission.is_some() && command.intent == RenewIntent::Dispatch {
+        return Err(invalid(
+            "governed tasks require atomic ready-to-invoke Start",
+        ));
+    }
+    if task.input.admission.is_none() && command.intent == RenewIntent::Prepare {
+        return Err(invalid(
+            "ordinary task cannot request admission preparation",
+        ));
+    }
     let session = session.ok_or(ContractError::UnknownSession)?;
     check_session(session, now)?;
     check_owner(task, attempt, &command.owner)?;
@@ -79,6 +89,15 @@ pub fn settle(
 ) -> Result<Transition<SettleReply>> {
     check_owner(task, attempt, &command.owner)?;
     validate_report(attempt, command)?;
+    if task.input.admission.is_some() && !attempt.execution_may_have_started {
+        let claims_execution = match &command.report {
+            AttemptReport::Completed(_) => true,
+            AttemptReport::Failed(report) => report.execution_may_have_started,
+        };
+        if claims_execution {
+            return Err(invalid("governed task report has no accepted Start"));
+        }
+    }
     if let Some(failure) = command.provider_probe_failure {
         if task.provider_probe.is_none() {
             return Err(invalid("provider probe failure on an ordinary task"));
@@ -313,7 +332,7 @@ pub fn validate_report(attempt: &AttemptSnapshot, command: &SettleCommand) -> Re
     Ok(())
 }
 
-fn finish(
+pub(super) fn finish(
     task: &mut TaskSnapshot,
     attempt: &mut AttemptSnapshot,
     now: Timestamp,
@@ -344,7 +363,10 @@ fn finish(
             None => (AttemptState::Lost, true),
         }
     };
-    let retry_at = if retryable && task.attempt_count < task.input.retry_policy.max_attempts {
+    let retry_at = if retryable
+        && task.attempt_count < MAX_TASK_ATTEMPT_GENERATION
+        && charged_attempts(task)? < task.input.retry_policy.max_attempts
+    {
         Some(add_time(now, task.input.retry_policy.retry_delay_ms)?)
     } else {
         None

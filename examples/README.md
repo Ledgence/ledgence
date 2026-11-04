@@ -82,3 +82,8 @@ remote lakehouse.
 | --- | --- | --- |
 | [Installed Python client](local-compose-client.py) | Task and workflow submission, warm-process reuse, and persisted completion callbacks through an installed client wheel. | Start and publish the [local Compose stack](../docs/local-deployment.md#run-the-installed-python-client-example), install the client in a host environment, and keep worker concurrency at one for its reuse assertion. |
 | [Local SQS delivery configuration](delivery-sqs-local.json) | Route dispatch references through a local SQS-compatible queue while PostgreSQL retains task authority. | Follow [SQS configuration](../docs/dispatch-delivery.md#executable-sqs-configuration): build with optional `sqs` support and create a dedicated Standard queue on the local broker. The file uses the HTTP quickstart's `tenant_example/demo/python-demo` binding; match the worker and adjust the queue URL. |
+
+For a standalone task sharing the same capacity as workflow callbacks, see the
+[Hello Ledgence submission](resource-admission/submit_task.py) and its
+[setup instructions](resource-admission/README.md#apply-the-same-resource-to-a-standalone-task).
+This requires matching development components, not the released 0.8.0 packages.

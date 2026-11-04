@@ -22,6 +22,33 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
     );
     vec![
         tool(
+            "ledgence_task_admission_inspect",
+            "Inspect resource admission for an exact standalone task generation, including preparation, retained source and quiescence. Initial queued generation is 1; this does not grant execution permission. Requires sensitive_read.",
+            object(
+                json!({"task_id":identifier(),"generation":integer(1,2_147_483_647)}),
+                &["task_id", "generation"],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_task_admission_release",
+            "Explicitly release occupied task capacity after operator review. This does not stop remote work or prove its outcome. Requires resource-control opt-in and resource_control. Preserve inspected source/revision, request_id and all arguments when reconciling uncertainty.",
+            object(
+                json!({"task_id":identifier(),"generation":integer(1,2_147_483_647),"source_id":identifier(),"expected_revision":revision,"request_id":identifier(),"reason":reason}),
+                &[
+                    "task_id",
+                    "generation",
+                    "source_id",
+                    "expected_revision",
+                    "request_id",
+                    "reason",
+                ],
+            ),
+            false,
+            true,
+        ),
+        tool(
             "ledgence_resource_list",
             "List configured resource policies and occupancy in this session's fixed scope. Metadata only; unknown usage remains occupied. Follow next using after.",
             object(json!({"after":name,"limit":limit()}), &[]),

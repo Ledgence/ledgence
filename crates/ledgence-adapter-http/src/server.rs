@@ -11,6 +11,7 @@ mod provider;
 mod provider_admission;
 mod provider_console;
 mod routes;
+mod task_admission;
 use routes::{Policy, Route};
 pub mod assets;
 mod completion;
@@ -213,6 +214,14 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/resources/list", Policy::Metadata),
     Route::post("/v1/provider-admissions/start", Policy::Worker),
     Route::post("/v1/provider-admissions/report", Policy::Worker),
+    Route::post("/v1/task-admissions/sessions", Policy::Worker),
+    Route::post("/v1/task-admissions/start", Policy::Worker),
+    Route::post("/v1/task-admissions/close", Policy::Worker),
+    Route::sensitive_post(
+        "/v1/task-admissions/inspect",
+        AuditReadKind::TaskAdmissionInspect,
+    ),
+    Route::post("/v1/task-admissions/release", Policy::ResourceControl),
     Route::post("/v1/admissions/start", Policy::Worker),
     Route::post("/v1/admissions/finish", Policy::Worker),
     Route::sensitive_post("/v1/admissions/inspect", AuditReadKind::AdmissionInspect),
@@ -839,7 +848,10 @@ async fn dispatch(
         });
     }
     let maximum = match path {
-        path if path.starts_with("/v1/resources/") || path.starts_with("/v1/admissions/") => {
+        path if path.starts_with("/v1/resources/")
+            || path.starts_with("/v1/admissions/")
+            || path.starts_with("/v1/task-admissions/") =>
+        {
             ADMISSION_COMMAND_MAX_BYTES
         }
         path if path.starts_with("/v1/workflows/provider-operations/")
@@ -885,6 +897,9 @@ async fn dispatch(
             }
         })?
         .to_vec();
+    if path.starts_with("/v1/task-admissions/") {
+        return task_admission::post(server, path, bytes, context).await;
+    }
     if matches!(
         path,
         "/v1/provider-admissions/start" | "/v1/provider-admissions/report"

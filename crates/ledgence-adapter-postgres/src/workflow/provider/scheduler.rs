@@ -162,6 +162,7 @@ impl PostgresStore {
         };
         let command = SubmitCommand {
             input: SubmitTask {
+                admission: None,
                 tenant_id: o.scope.tenant_id.clone(),
                 namespace: o.scope.namespace.clone(),
                 queue: b.reconciliation.queue.clone(),

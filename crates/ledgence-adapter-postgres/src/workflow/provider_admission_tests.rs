@@ -690,6 +690,7 @@ async fn protected_admission_upgrade_preserves_ungoverned_v1_authority_bytes() {
             .collect(),
     );
     prior.run(&db.store.pool).await.unwrap();
+    db.begin_legacy_task_seed().await;
     providers::bind(&db.store, ProviderDispatchPolicy::Enabled).await;
     let (_, command) = approved(&db.store, "upgrade-v1", binding()).await;
     let ProviderClaimReceipt::Dispatch { source, .. } =
@@ -698,6 +699,7 @@ async fn protected_admission_upgrade_preserves_ungoverned_v1_authority_bytes() {
         panic!("missing v1 grant")
     };
     let bytes: (Vec<u8>,Vec<u8>,Vec<u8>) = sqlx::query_as("SELECT a.snapshot_bytes,p.state_bytes,i.source_bytes FROM workflow_approvals a JOIN provider_operations p ON p.workflow_id=a.workflow_id JOIN provider_invocations i ON i.workflow_id=a.workflow_id").fetch_one(&db.store.pool).await.unwrap();
+    db.finish_legacy_task_seed().await;
     db.store.migrate().await.unwrap();
     let upgraded: (Vec<u8>,Vec<u8>,Vec<u8>) = sqlx::query_as("SELECT a.snapshot_bytes,p.state_bytes,i.source_bytes FROM workflow_approvals a JOIN provider_operations p ON p.workflow_id=a.workflow_id JOIN provider_invocations i ON i.workflow_id=a.workflow_id").fetch_one(&db.store.pool).await.unwrap();
     assert_eq!(bytes, upgraded);
@@ -709,13 +711,19 @@ async fn protected_admission_upgrade_preserves_ungoverned_v1_authority_bytes() {
             .unwrap(),
         0
     );
-    db.store
+    // A real upgrade starts the new server with a fresh prepared-statement cache.
+    let reopened = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
+    providers::bind(&reopened, ProviderDispatchPolicy::Enabled).await;
+    reopened
         .report_dispatch(
             &worker(),
             &providers::reported(&command, &source, ProviderKnowledge::Pending),
         )
         .await
         .unwrap();
+    reopened.close().await;
     db.finish().await;
 }
 #[tokio::test]

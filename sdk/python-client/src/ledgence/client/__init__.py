@@ -135,3 +135,17 @@ __all__ += ["AdmissionOccurrence", "AdmissionState", "AdmissionSnapshot", "Admis
 
 from .provider_admission_models import ProviderAdmissionRecord, ProviderCallCompletion
 __all__ += ["ProviderAdmissionRecord", "ProviderCallCompletion"]
+
+from .admission_models import TaskAdmission
+__all__ += ["TaskAdmission"]
+
+from .task_admissions import (TaskAdmissionOccurrence, TaskAdmissionState, TaskAdmissionSnapshot,
+    TaskAdmissionReleaseReceipt)
+__all__ += ["TaskAdmissionOccurrence", "TaskAdmissionState", "TaskAdmissionSnapshot",
+    "TaskAdmissionReleaseReceipt"]
+
+from .audit import AuditTaskAdmission, AuditTaskAdmissionReleased
+__all__ += ["AuditTaskAdmission", "AuditTaskAdmissionReleased"]
+
+from .models import AdmissionGenerationExhausted
+__all__ += ["AdmissionGenerationExhausted"]

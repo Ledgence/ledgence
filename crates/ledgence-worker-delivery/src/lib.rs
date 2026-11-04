@@ -10,6 +10,7 @@ mod observations;
 mod provider;
 mod renewal;
 mod source;
+mod task_admission;
 mod workflow;
 pub use source::{AcquisitionSource, BrokerAcquisitionSource, SourceReply};
 
@@ -241,7 +242,7 @@ impl DeliveryDriver {
     /// require an effect binding attached before this call.
     pub fn with_runtime_features(
         mut self,
-        features: ledgence_worker_api::RuntimeFeatures,
+        mut features: ledgence_worker_api::RuntimeFeatures,
     ) -> Result<Self> {
         features
             .validate()
@@ -285,6 +286,27 @@ impl DeliveryDriver {
                     )
                 })?
                 .provider_admission_client()?;
+        }
+        if features.task_admission()
+            && !self
+                .worker
+                .supports_admitted_invocation()
+                .map_err(|error| ContractError::Unavailable(error.to_string()))?
+        {
+            // Discovery says what the service supports. A worker with a legacy
+            // runtime must open an ordinary session; otherwise it would claim
+            // governed work and charge a retry without being able to execute.
+            features
+                .supported
+                .retain(|name| name != TASK_ADMISSION_FEATURE);
+        }
+        if features.task_admission() {
+            if self.runtime_binding.is_none() {
+                return Err(ContractError::Unavailable(
+                    "task admission requires authenticated runtime binding".into(),
+                ));
+            }
+            self.service.task_admission_client()?;
         }
         self.runtime_features = features;
         Ok(self)
@@ -447,12 +469,25 @@ impl DeliveryDriver {
                 shared.stop();
                 return None;
             }
-            let future = exchange(self.config.request_timeout, || {
-                self.service.open_session(
-                    &self.config.scope,
-                    &self.config.queue,
-                    self.worker.concurrency() as u32,
-                )
+            let future = exchange(self.config.request_timeout, || async {
+                if self.runtime_features.task_admission() {
+                    self.service
+                        .task_admission_client()?
+                        .open_task_admission_session(&TaskAdmissionSessionCommand {
+                            scope: self.config.scope.clone(),
+                            queue: self.config.queue.clone(),
+                            concurrency: self.worker.concurrency() as u32,
+                        })
+                        .await
+                } else {
+                    self.service
+                        .open_session(
+                            &self.config.scope,
+                            &self.config.queue,
+                            self.worker.concurrency() as u32,
+                        )
+                        .await
+                }
             });
             tokio::pin!(future);
             let result = loop {
@@ -466,7 +501,12 @@ impl DeliveryDriver {
                     if session.scope == self.config.scope
                         && session.queue == self.config.queue
                         && session.concurrency == self.worker.concurrency() as u32
-                        && validate_text(&session.id, 128).is_ok() =>
+                        && validate_text(&session.id, 128).is_ok()
+                        && session
+                            .features
+                            .iter()
+                            .any(|feature| feature == TASK_ADMISSION_FEATURE)
+                            == self.runtime_features.task_admission() =>
                 {
                     return Some(session);
                 }
@@ -606,7 +646,8 @@ impl Context {
                     if reply.id == session.id
                         && reply.scope == session.scope
                         && reply.queue == session.queue
-                        && reply.concurrency == session.concurrency =>
+                        && reply.concurrency == session.concurrency
+                        && reply.features == session.features =>
                 {
                     next = Instant::now() + self.config.session_extend_interval
                 }

@@ -190,3 +190,15 @@ activation. Its linked source accepts one frozen completion envelope independent
 of the current worker lease. Provider knowledge and call occupancy remain separate;
 read-only probes cannot free original dispatch capacity. The public API contains
 no provider SDK types. [Contract and limits](resource-admission.md#compose-admission-with-protected-provider-dispatch).
+
+### Standalone task admission in development
+
+A standalone task can bind one resource during submission. The application uses
+the same durable resource scheduler as workflow operations, plus the optional
+`TaskAdmissionStore` for authenticated task session, Start, Close and operator
+operations. The store commits the wait with task creation and grants a short
+invocation window only to the first Start for the prepared attempt. Ordinary
+acquire and renew replies never grant governed dispatch. The worker adapter
+checks the permit before writing to the subprocess; result settlement and
+source closure can arrive in either order. An adapter offering only part of
+this protocol cannot accept governed submissions. [Task contract and limits](resource-admission.md#standalone-task-admission).

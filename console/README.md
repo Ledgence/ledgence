@@ -114,7 +114,11 @@ if port 5173 is occupied, set `LEDGENCE_CONSOLE_TEST_PORT` to an unused port. It
 unchanged. CI uses the same checked `dist/` for the subsequent native acceptance
 gate. These controlled transport tests complement the repository's real server,
 database and worker acceptance gate; they do not establish end-to-end
-orchestration behavior.
+orchestration behavior. To open the browser reports from the repository root, use
+`pnpm --dir console exec playwright show-report playwright-report/e2e` for the
+fixture suite or `pnpm --dir console exec playwright show-report playwright-report/live`
+for the native suite. Their test artifacts use separate directories so running
+one suite does not erase the other suite's traces.
 
 Production output is `dist/`, including legal notices, the inventory of packages
 actually included in browser chunks and `console-manifest.json`. The manifest
@@ -263,7 +267,7 @@ and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-This development branch uses Console contract **9** for native admission waits
+This development branch uses Console contract **10** for native admission waits
 and accepted-operation inspection; deploy matching server and assets together.
 Published Ledgence 0.8.0 remains on contract **7**.
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
@@ -374,5 +378,11 @@ was observed, the node has no durable result to inspect.
 C9 additionally identifies protected provider subjects in admission waits. The
 on-demand admission inspector separates capacity settlement from provider
 business completion and displays the original provider ticket. Provider grants
-are not rendered as successful local-operation nodes. Use matching C9 assets
+are not rendered as successful local-operation nodes. Use matching C10 assets
 and backend; the published 0.8.0 contract remains C7.
+
+C10 adds standalone task resource admission. Task details show the resource,
+charged retries and admission deferrals; open **Resource admission** to inspect
+one generation's offer, worker source and cleanup evidence. This is an audited,
+read-only view. A task can already have a result while its resource remains
+occupied. [Contract and limitations](../docs/resource-admission.md#standalone-task-admission).

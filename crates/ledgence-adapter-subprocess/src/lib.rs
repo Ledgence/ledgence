@@ -5,8 +5,8 @@
 
 use ledgence_worker_api::{
     DEFAULT_RUNTIME_FRAME_MAX_BYTES, Error, ErrorKind, ExecutionRuntime, ExecutionSession,
-    PortFuture, PreparedArtifact, ProgramOutcome, RUNTIME_REQUEST_MAX_BYTES, Result, RunControl,
-    RuntimeInvocation, RuntimeRequest, RuntimeRequestHandler, StartOutcome,
+    InvocationPermit, PortFuture, PreparedArtifact, ProgramOutcome, RUNTIME_REQUEST_MAX_BYTES,
+    Result, RunControl, RuntimeInvocation, RuntimeRequest, RuntimeRequestHandler, StartOutcome,
     validate_runtime_payload, validate_wire_value,
 };
 #[cfg(test)]
@@ -113,6 +113,10 @@ impl SubprocessRuntime {
 }
 
 impl ExecutionRuntime for SubprocessRuntime {
+    fn supports_admitted_invocation(&self) -> bool {
+        true
+    }
+
     fn start<'a>(
         &'a self,
         artifact: PreparedArtifact,
@@ -273,6 +277,7 @@ enum SessionCommand {
         invocation: RuntimeInvocation,
         control: RunControl,
         handler: Option<Arc<dyn RuntimeRequestHandler>>,
+        permit: Option<InvocationPermit>,
         reply: oneshot::Sender<Result<ProgramOutcome>>,
     },
     Close,
@@ -290,7 +295,7 @@ impl ExecutionSession for Session {
         invocation: RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome> {
-        self.dispatch(invocation, control, None)
+        self.dispatch(invocation, control, None, None)
     }
     fn execute_with_requests<'a>(
         &'a mut self,
@@ -298,7 +303,18 @@ impl ExecutionSession for Session {
         control: RunControl,
         handler: Arc<dyn RuntimeRequestHandler>,
     ) -> PortFuture<'a, ProgramOutcome> {
-        self.dispatch(invocation, control, Some(handler))
+        self.dispatch(invocation, control, Some(handler), None)
+    }
+    fn supports_admitted_invocation(&self) -> bool {
+        true
+    }
+    fn execute_admitted<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        permit: InvocationPermit,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        self.dispatch(invocation, control, None, Some(permit))
     }
     fn close(&mut self) -> PortFuture<'_, ()> {
         Box::pin(async move {
@@ -338,6 +354,7 @@ impl Session {
         invocation: RuntimeInvocation,
         control: RunControl,
         handler: Option<Arc<dyn RuntimeRequestHandler>>,
+        permit: Option<InvocationPermit>,
     ) -> PortFuture<'a, ProgramOutcome> {
         Box::pin(async move {
             if let Ok(mut observations) = self.observations.lock() {
@@ -351,6 +368,7 @@ impl Session {
                     invocation,
                     control,
                     handler,
+                    permit,
                     reply,
                 })
                 .await
@@ -469,6 +487,7 @@ async fn supervise(
                 invocation,
                 control,
                 handler,
+                permit,
                 mut reply,
             }) => {
                 budget.store(config.max_log_bytes, Ordering::Release);
@@ -483,6 +502,7 @@ async fn supervise(
                         RequestDispatch {
                             handler: handler.as_deref(),
                             control: &control,
+                            permit: permit.as_ref(),
                             observations: &observations,
                         },
                     ),
@@ -607,6 +627,7 @@ struct Ready {
 struct RequestDispatch<'a> {
     handler: Option<&'a dyn RuntimeRequestHandler>,
     control: &'a RunControl,
+    permit: Option<&'a InvocationPermit>,
     observations: &'a std::sync::Mutex<Option<ledgence_worker_api::InvocationObservations>>,
 }
 
@@ -684,7 +705,13 @@ async fn invoke(
         request["extension"] = serde_json::to_value(extension)
             .map_err(|error| protocol(format!("cannot encode runtime extension: {error}")))?;
     }
-    write_frame(stdin, &request, limit).await?;
+    write_frame_checked(
+        stdin,
+        &request,
+        limit,
+        Some((dispatch.control, dispatch.permit)),
+    )
+    .await?;
     let mut expected_id = 1_u64;
     let response = loop {
         let response = next_control(frames, version, logs).await?;
@@ -829,6 +856,15 @@ async fn next_control(
 }
 
 async fn write_frame(stdin: &mut ChildStdin, value: &Value, limit: usize) -> Result<()> {
+    write_frame_checked(stdin, value, limit, None).await
+}
+
+async fn write_frame_checked(
+    stdin: &mut (impl tokio::io::AsyncWrite + Unpin),
+    value: &Value,
+    limit: usize,
+    authority: Option<(&RunControl, Option<&InvocationPermit>)>,
+) -> Result<()> {
     let mut bytes = serde_json::to_vec(value)
         .map_err(|e| protocol(format!("cannot encode protocol frame: {e}")))?;
     if bytes.len() >= limit {
@@ -838,14 +874,56 @@ async fn write_frame(stdin: &mut ChildStdin, value: &Value, limit: usize) -> Res
         ));
     }
     bytes.push(b'\n');
-    stdin.write_all(&bytes).await.map_err(|e| {
-        Error::new(
-            ErrorKind::Runtime,
-            format!("subprocess dispatch failed; execution may have started: {e}"),
-        )
-    })?;
+    // Serialize first: actor queueing and encoding cannot extend one-shot
+    // permission. The ordinary invocation still uses its parent control only.
+    let sent = match authority {
+        Some((control, Some(permit))) => {
+            // A full pipe may initially return Pending without writing anything.
+            // Recheck authority on every first-byte poll, and wake at expiry even
+            // if the child never begins reading. After a partial write the frame
+            // may already have reached the child; do not retry the invocation.
+            let first_write = std::future::poll_fn(|cx| {
+                control.check()?;
+                permit.check()?;
+                std::pin::Pin::new(&mut *stdin)
+                    .poll_write(cx, &bytes)
+                    .map_err(dispatch_error)
+            });
+            let count = tokio::time::timeout_at(permit.start_before.into(), first_write)
+                .await
+                .map_err(|_| {
+                    Error::new(
+                        ErrorKind::TimedOut,
+                        "invocation permission expired before dispatch",
+                    )
+                })??;
+            if count == 0 {
+                return Err(Error::new(
+                    ErrorKind::Runtime,
+                    "subprocess pipe accepted no invocation bytes",
+                ));
+            }
+            count
+        }
+        Some((control, None)) => {
+            control.check()?;
+            0
+        }
+        None => 0,
+    };
+    stdin
+        .write_all(&bytes[sent..])
+        .await
+        .map_err(dispatch_error)?;
     stdin.flush().await?;
     Ok(())
+}
+
+fn dispatch_error(error: std::io::Error) -> Error {
+    Error::new(
+        ErrorKind::Runtime,
+        format!("subprocess dispatch failed; execution may have started: {error}"),
+    )
 }
 
 struct FrameReader {

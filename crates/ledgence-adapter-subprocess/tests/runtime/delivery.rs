@@ -53,6 +53,7 @@ fn submission(artifact: &PreparedArtifact, data: Value) -> SubmitCommand {
     SubmitCommand {
         idempotency_key: "\"".repeat(255),
         input: SubmitTask {
+            admission: None,
             tenant_id: maximum_text(0),
             namespace: maximum_text(1),
             queue: maximum_text(2),

@@ -188,6 +188,9 @@ pub(crate) async fn insert_event(
         AuditOperation::ResourcePolicyAccepted { request_id, .. } => {
             ("resource_policy_accepted", Some(request_id.as_str()))
         }
+        AuditOperation::TaskAdmissionReleased { request_id, .. } => {
+            ("task_admission_released", Some(request_id.as_str()))
+        }
         AuditOperation::AdmissionReleased { request_id, .. } => {
             ("admission_released", Some(request_id.as_str()))
         }
@@ -227,6 +230,7 @@ pub(crate) async fn load_acceptance(
         AuditOperation::ApprovalAccepted { .. }
             | AuditOperation::EffectResolved { .. }
             | AuditOperation::ResourcePolicyAccepted { .. }
+            | AuditOperation::TaskAdmissionReleased { .. }
             | AuditOperation::AdmissionReleased { .. }
     ) {
         return Err(corrupt("approval audit event kind").into());
@@ -249,6 +253,9 @@ fn decode_event(row: &PgRow) -> StoreResult<AuditEvent> {
         AuditOperation::SensitiveResponse { .. } => ("sensitive_response", None),
         AuditOperation::ResourcePolicyAccepted { request_id, .. } => {
             ("resource_policy_accepted", Some(request_id.as_str()))
+        }
+        AuditOperation::TaskAdmissionReleased { request_id, .. } => {
+            ("task_admission_released", Some(request_id.as_str()))
         }
         AuditOperation::AdmissionReleased { request_id, .. } => {
             ("admission_released", Some(request_id.as_str()))

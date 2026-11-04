@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v9.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v9.json).
+[`console-v10.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v10.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -33,7 +33,7 @@ instance scope, parent and filters. A page is internally consistent; consecutive
 pages can observe later committed changes. The worker slot cursor uses the
 stable slot position, not a changing snapshot sequence.
 
-The HTTP namespace remains `/v1/console`; the Console contract version is 9.
+The HTTP namespace remains `/v1/console`; the Console contract version is 10.
 Explorer nodes carry backend-projected typed relations with references to existing
 workflow-scoped or activation-scoped identities. Relations remain present when an
 endpoint is outside the current page. See the [query model](../../../docs/console-query-model.md)
@@ -111,3 +111,17 @@ Provider subjects retain the original approval occurrence. The selection kind
 success. The on-demand native admission inspector accepts the strict disjoint
 provider binding and linked provider evidence, keeping report receipts separate
 from generic `finish` results. C8 fixtures remain historical and unchanged.
+
+C10 adds a `task_admission` installation capability, the nullable task requirement,
+admission deferral counts, `deferred` attempts and a scoped, audited task admission
+inspector. C10 task read projections include `admission`/`admission_deferrals`
+where applicable; ungoverned values are null/zero. Both Console and portable
+task submission commands omit an unused requirement; explicit null is invalid. [`task-admission-v1.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/task-admission-v1.json)
+is the shared Rust ledger fixture used by Python and Console tests. C9 remains a
+historical fixture; released Ledgence 0.8.0 remains C7.
+
+The application service recomputes the source binding digest from the immutable
+occurrence, resource and program before returning an inspected ledger. Console
+validates the response shape, instance, generation, resource and cleanup evidence;
+it displays the server-validated digest and does not independently hash the binding
+in the browser. The inspection is read-only and cannot authorize a handler.

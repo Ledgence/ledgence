@@ -12,6 +12,7 @@ import {
   observedWorkflow,
   programDetail,
   submission,
+  submissionCommand,
 } from "../api/resources";
 import { variant, object, enumeration, type Decoded } from "../api/schema";
 import {
@@ -95,6 +96,7 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
   const [queue, setQueue] = useState(
     initial?.queue ?? config.suggested_queues[0] ?? "",
   );
+  const [resource, setResource] = useState(initial?.admission?.resource ?? "");
   const [correlation, setCorrelation] = useState(
     initial?.correlation_key ?? "",
   );
@@ -175,7 +177,18 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
       if (hasCorrelation && new TextEncoder().encode(correlation).length > 512)
         throw new Error("Correlation key must be at most 512 UTF-8 bytes.");
       const data = parseUserJson(input, config.limits.input_max_bytes);
-      const body = submission({
+      if (
+        actualIntent === "task" &&
+        resource &&
+        !config.capabilities.task_admission
+      )
+        throw new Error(
+          "This instance cannot enforce the original task resource requirement.",
+        );
+      const body = submissionCommand({
+        ...(actualIntent === "task" && resource
+          ? { admission: { resource } }
+          : {}),
         program: { id: program, version },
         queue,
         correlation_key: hasCorrelation ? correlation : null,
@@ -335,6 +348,23 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
               ))}
             </datalist>
           </label>
+          {actualIntent === "task" &&
+            (config.capabilities.task_admission || resource) && (
+              <label>
+                Required resource (optional)
+                <input
+                  value={resource}
+                  onChange={(e) => setResource(e.target.value)}
+                  maxLength={128}
+                  aria-describedby="task-resource-help"
+                  placeholder="e.g. model.requests"
+                />
+                <span className="muted" id="task-resource-help">
+                  The task waits for this named resource before its handler
+                  runs.
+                </span>
+              </label>
+            )}
           <div>
             <label>
               Correlation key

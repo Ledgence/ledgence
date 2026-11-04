@@ -444,6 +444,11 @@ Mutations require `resource_control` and a destination-bound saved command.
 `mcp serve --allow-resource-control` separately opts into policy/release tools.
 `ledgence audit list --resource NAME` selects audit events for that resource's
 policy; choose only one of `--resource`, `--task` or `--workflow`. Admission
-release and inspection events use the original workflow's `--workflow` filter.
+release and inspection events use `--workflow WORKFLOW_ID` for workflow operations
+or `--task TASK_ID` for standalone tasks.
 The existing credential, scope, limit and cursor options apply.
 These additions are not in 0.8.0. [Guide](/how-to/control-resource-capacity).
+
+With development components, `ledgence admission inspect` accepts `--task ID
+--generation N` instead of a workflow occurrence. The same `admission release`
+command accepts a source-bound saved task release. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).

@@ -8,6 +8,7 @@ from typing import Any, Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .provider_models import ProviderProbeAssignment
+    from .admission_models import TaskAdmission
 
 from . import codec
 from .errors import InputError, ProtocolError
@@ -138,6 +139,13 @@ class TaskStatus:
     workflow_id: str | None = None
     workflow_activation_id: str | None = None
     provider_probe: ProviderProbeAssignment | None = None
+    admission: TaskAdmission | None = None
+    admission_deferrals: int = 0
+
+    @property
+    def retry_attempts_used(self) -> int:
+        """Allocated attempts except proven, never-started admission deferrals."""
+        return self.attempt_count - self.admission_deferrals
 
 
 @dataclass(frozen=True)
@@ -168,6 +176,11 @@ class ExecutionFailure:
 
 
 @dataclass(frozen=True)
+class AdmissionGenerationExhausted:
+    kind: Literal["admission_generation_exhausted"] = field(default="admission_generation_exhausted", init=False)
+
+
+@dataclass(frozen=True)
 class AttemptLost:
     kind: Literal["attempt_lost"] = field(default="attempt_lost", init=False)
 
@@ -186,7 +199,7 @@ class Failed:
     attempt_id: str
     quiescence: Quiescence
     execution_may_have_started: bool
-    failure: ApplicationFailure | ExecutionFailure | AttemptLost
+    failure: ApplicationFailure | ExecutionFailure | AttemptLost | AdmissionGenerationExhausted
     kind: Literal["failed"] = field(default="failed", init=False)
 
 
@@ -215,13 +228,23 @@ def _optional_time(raw, name):
 
 
 def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
-    workflow_fields = {"workflow_id", "workflow_activation_id", "provider_probe"}
+    workflow_fields = {"workflow_id", "workflow_activation_id", "provider_probe",
+                       "admission", "admission_deferrals"}
     codec.fields(raw, set(TaskStatus.__dataclass_fields__) - workflow_fields, workflow_fields)
     actual_scope = _scope(raw["scope"])
     if actual_scope != scope or raw["task_id"] != task_id:
         raise InputError("task identity does not match the request")
     state = TaskState(raw["state"])
-    count = codec.integer(raw["attempt_count"], "attempt_count", 0, 1000)
+    from .admission_models import TaskAdmission
+    admission = None
+    if "admission" in raw:
+        codec.fields(raw["admission"], {"resource"})
+        admission = TaskAdmission(**raw["admission"])
+    count = codec.integer(raw["attempt_count"], "attempt_count", 0,
+                          (1 << 31) - 1 if admission else 1000)
+    deferrals = codec.integer(raw.get("admission_deferrals", 0), "admission_deferrals", 0, count)
+    if (admission is None and deferrals) or count - deferrals > 1000:
+        raise InputError("inconsistent admission retry accounting")
     current = _optional_text(raw["current_attempt_id"], "current_attempt_id")
     latest = _optional_text(raw["latest_attempt_id"], "latest_attempt_id")
     terminal = _optional_time(raw["terminal_at"], "terminal_at")
@@ -240,6 +263,9 @@ def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
         raise InputError("inconsistent cancellation metadata")
     workflow_id = _optional_text(raw.get("workflow_id"), "workflow_id")
     activation_id = _optional_text(raw.get("workflow_activation_id"), "workflow_activation_id")
+    if admission is not None and (workflow_id is not None or activation_id is not None
+                                  or raw.get("provider_probe") is not None):
+        raise InputError("task admission requires a standalone task")
     if activation_id is not None and (workflow_id is None or activation_id != task_id):
         raise InputError("inconsistent workflow controller identity")
     probe = None
@@ -258,6 +284,7 @@ def _status(raw, scope: Scope, task_id: str) -> TaskStatus:
         available_at=codec.integer(raw["available_at"], "available_at", 0, codec.MAX_TIMESTAMP),
         terminal_at=terminal, cancel_requested_at=cancelled_at,
         workflow_id=workflow_id, workflow_activation_id=activation_id, provider_probe=probe,
+        admission=admission, admission_deferrals=deferrals,
     )
 
 
@@ -294,6 +321,9 @@ def _failure(raw):
             return ExecutionFailure(_error(raw["error"], worker=True), raw["phase"],
                                     None if raw["cleanup_error"] is None else
                                     _error(raw["cleanup_error"], worker=True))
+        case "admission_generation_exhausted":
+            codec.fields(raw, {"kind"})
+            return AdmissionGenerationExhausted()
         case "attempt_lost":
             codec.fields(raw, {"kind"})
             return AttemptLost()
@@ -339,8 +369,13 @@ def parse_result(raw, scope: Scope, task_id: str) -> TaskResult:
             failure = _failure(outcome["failure"])
             if isinstance(failure, ApplicationFailure) and not started:
                 raise InputError("application failure requires execution-start evidence")
-            if isinstance(failure, AttemptLost) and quiescence != Quiescence.UNCONFIRMED:
+            if isinstance(failure, AttemptLost) and task.admission is None and quiescence != Quiescence.UNCONFIRMED:
                 raise InputError("lost attempt cannot claim confirmed quiescence")
+            if isinstance(failure, AdmissionGenerationExhausted) and (
+                task.admission is None or task.attempt_count != (1 << 31) - 1
+                or task.admission_deferrals == 0 or started
+            ):
+                raise InputError("inconsistent task admission generation exhaustion")
             value = Failed(outcome["attempt_id"], quiescence, started, failure)
         return TaskResult(task, value)
     except (ValueError, TypeError, KeyError) as exc:

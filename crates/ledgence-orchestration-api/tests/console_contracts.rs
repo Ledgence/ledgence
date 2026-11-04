@@ -15,7 +15,7 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
     let actual = serde_json::to_string_pretty(&fixture::fixtures()).unwrap() + "\n";
     assert_eq!(
         actual,
-        include_str!("fixtures/console-v9.json"),
+        include_str!("fixtures/console-v10.json"),
         "regenerate with cargo run -p ledgence-orchestration-api --example console-fixtures -- --write"
     );
     let data = fixture::fixtures();
@@ -34,10 +34,24 @@ fn committed_fixtures_are_serialized_from_rust_contracts() {
 }
 
 #[test]
+fn historical_console_nine_lacks_task_admission_projections() {
+    let old: Value = serde_json::from_str(include_str!("fixtures/console-v9.json")).unwrap();
+    assert_eq!(old["contract_version"], 9);
+    assert!(serde_json::from_value::<ConsoleTaskDetail>(old["task_detail"].clone()).is_err());
+    assert!(serde_json::from_value::<ConsoleConfig>(old["config"].clone()).is_err());
+    let current = fixture::fixtures();
+    let detail: ConsoleTaskDetail =
+        serde_json::from_value(current["admitted_task_detail"].clone()).unwrap();
+    detail.validate().unwrap();
+    assert_eq!(detail.attempt_count - detail.admission_deferrals, 1);
+    assert_eq!(detail.input.admission.unwrap().resource, "model.requests");
+}
+
+#[test]
 fn historical_console_five_is_preserved_but_not_current() {
     let old: Value = serde_json::from_str(include_str!("fixtures/console-v5.json")).unwrap();
     assert_eq!(old["contract_version"], 5);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 9);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 10);
     assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
 }
 
@@ -45,7 +59,7 @@ fn historical_console_five_is_preserved_but_not_current() {
 fn historical_console_six_lacks_provider_provenance() {
     let old: Value = serde_json::from_str(include_str!("fixtures/console-v6.json")).unwrap();
     assert_eq!(old["contract_version"], 6);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 9);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 10);
     assert!(serde_json::from_value::<ConsoleWorkflowExplorer>(old["explorer"].clone()).is_err());
     assert!(
         serde_json::from_value::<ConsolePage<ConsoleTaskSummary>>(old["tasks"].clone()).is_err()
@@ -78,7 +92,7 @@ fn historical_console_two_is_explicitly_incompatible() {
         serde_json::from_str(include_str!("fixtures/historical/console-v2.json")).unwrap();
     assert_eq!(historical["contract_version"], 2);
     assert_eq!(historical["config"]["contract_version"], 2);
-    assert_eq!(CONSOLE_CONTRACT_VERSION, 9);
+    assert_eq!(CONSOLE_CONTRACT_VERSION, 10);
     assert_ne!(
         historical["contract_version"],
         json!(CONSOLE_CONTRACT_VERSION)
@@ -331,6 +345,59 @@ fn invalid_adapter_order_filter_parent_and_variant_are_rejected() {
             .is_err()
     );
 }
+#[test]
+fn admission_is_optional_only_for_submission_and_nullable_only_for_observation() {
+    let body = json!({"program":{"id":"invoice-issuer","version":"release-a"},
+                      "queue":"billing","data":{}});
+    let command: ConsoleSubmitTask = serde_json::from_value(body.clone()).unwrap();
+    assert!(
+        serde_json::to_value(command)
+            .unwrap()
+            .get("admission")
+            .is_none()
+    );
+    let mut null = body.clone();
+    null["admission"] = Value::Null;
+    assert!(serde_json::from_value::<ConsoleSubmitTask>(null).is_err());
+    let mut governed = body;
+    governed["admission"] = json!({"resource":"model.requests"});
+    let command: ConsoleSubmitTask = serde_json::from_value(governed).unwrap();
+    assert_eq!(
+        command
+            .into_submission(&scope())
+            .unwrap()
+            .admission
+            .unwrap()
+            .resource,
+        "model.requests"
+    );
+
+    let detail = fixture::fixtures()["task_detail"].clone();
+    let observed: ConsoleTaskDetail = serde_json::from_value(detail.clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(observed).unwrap()["input"]["admission"],
+        Value::Null
+    );
+    let mut missing = detail;
+    missing["input"]
+        .as_object_mut()
+        .unwrap()
+        .remove("admission");
+    assert!(serde_json::from_value::<ConsoleTaskDetail>(missing).is_err());
+}
+
+#[test]
+fn task_attempt_pages_accept_deferred_generations_up_to_the_cloudevents_integer_limit() {
+    let mut attempt: ConsoleAttemptSummary =
+        serde_json::from_value(fixture::fixtures()["attempt_detail"]["attempt"].clone()).unwrap();
+    for generation in [1001, MAX_TASK_ATTEMPT_GENERATION] {
+        attempt.generation = generation;
+        attempt.validate().unwrap();
+    }
+    attempt.generation = MAX_TASK_ATTEMPT_GENERATION + 1;
+    assert!(attempt.validate().is_err());
+}
+
 #[test]
 fn submission_rejects_browser_binding_and_preserves_numeric_categories() {
     let data = fixture::fixtures()["numeric_payload"].clone();

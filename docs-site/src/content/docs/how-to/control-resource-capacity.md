@@ -4,7 +4,9 @@ description: Park workflows while a resource is full, then run a registered oper
 ---
 
 **In development.** Use matching components built from this checkout, including
-migrations and Console C9. Published 0.8.0 packages do not contain this capability.
+migrations and Console C10. Published 0.8.0 packages do not contain this capability. On existing databases,
+rehearse the migration on a representative restore: rebuilding the task queue indexes
+can block writes.
 
 Suppose many workflows call the same model endpoint, but you want at most four
 calls authorized at once. A resource policy coordinates those workflows across
@@ -132,7 +134,7 @@ This limits registered callback authorizations. If your SDK automatically retrie
 follows redirects or starts background requests, those physical requests need
 separate accounting. Disable hidden retries or use an adapter that counts each
 attempt. Protected provider dispatch uses the separate path below. Inherited
-monetary/token budgets and standalone task admission remain deferred.
+monetary/token budgets remain deferred.
 
 ## Share capacity for an approved provider operation
 
@@ -211,3 +213,37 @@ releasing capacity does not delete the evidence. Plan storage for their continue
 growth.
 
 [Full contract, routes and failure semantics](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
+
+## Apply the resource to a single task
+
+If you have published `hello-ledgence@0.1.0` from [your first task](/tutorials/first-task),
+keep its handler unchanged. In the submission file, import `TaskAdmission` and add
+one argument to the task submission:
+
+```python
+from ledgence.client import TaskAdmission
+
+task = await client.tasks.submit(
+    program="hello-ledgence", version="0.1.0", queue="demo",
+    data={"name": "Ada"}, idempotency_key="hello:ada:1",
+    admission=TaskAdmission(resource="support-model"),
+)
+```
+
+Use a matching development worker and already configured named resource. While
+waiting for capacity the task stays queued without occupying a process. The worker
+prepares the program before requesting permission to invoke its handler. Put the
+work you want controlled **inside the handler**, not at module import time.
+The requirement is part of submission identity; changing it needs a new key.
+
+In Console open the task, then **Resource admission**. Inspect generation 1 first.
+The record distinguishes a reservation, an authorized invocation and uncertain
+occupancy. A deferral before Start preserves attempt history without spending an
+execution retry. An expired worker lease alone cannot free capacity that may
+still be in use. Cancelling a queued task is separate from timing out a client
+wait. This feature applies to standalone tasks, not workflow children.
+
+A successful result can coexist with uncertain occupancy if the worker could
+report the result but could not confirm cleanup. The task remains visible in
+execution history while its source holds capacity. Inspect that generation before
+using an audited release: freeing capacity cannot stop a remote side effect.

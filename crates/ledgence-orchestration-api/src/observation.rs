@@ -17,6 +17,14 @@ pub struct TaskStatus {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::effect_resolution::present"
     )]
+    pub admission: Option<TaskAdmissionRequirement>,
+    #[serde(default, skip_serializing_if = "crate::task_admission::is_zero")]
+    pub admission_deferrals: u32,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
     pub provider_probe: Option<ProviderProbeAssignment>,
     pub scope: Scope,
     pub task_id: String,
@@ -82,7 +90,22 @@ impl TaskStatus {
         {
             validate_text(value, 128).map_err(|_| invalid())?;
         }
-        if self.attempt_count > 1000
+        if let Some(admission) = &self.admission {
+            admission.validate().map_err(|_| invalid())?;
+            if self.workflow_id.is_some()
+                || self.workflow_activation_id.is_some()
+                || self.provider_probe.is_some()
+            {
+                return Err(invalid());
+            }
+        }
+        let charged = task_retry_attempts(
+            self.attempt_count,
+            self.admission_deferrals,
+            self.admission.is_some(),
+        )
+        .map_err(|_| invalid())?;
+        if charged > 1000
             || (self.attempt_count == 0) != self.latest_attempt_id.is_none()
             || (self.state == TaskState::Active) != self.current_attempt_id.is_some()
             || (self.state == TaskState::Active
@@ -165,6 +188,8 @@ pub enum TaskFailure {
         cleanup_error: Option<Error>,
     },
     AttemptLost {},
+    /// Admission-only deferrals reached the CloudEvents attempt-number bound.
+    AdmissionGenerationExhausted {},
 }
 
 impl TaskResult {
@@ -203,7 +228,13 @@ impl TaskResult {
             ) => {
                 if self.task.latest_attempt_id.as_ref() != Some(attempt_id)
                     || (matches!(failure, TaskFailure::AttemptLost {})
-                        && *quiescence != Quiescence::Unconfirmed)
+                        && *quiescence != Quiescence::Unconfirmed
+                        && self.task.admission.is_none())
+                    || (matches!(failure, TaskFailure::AdmissionGenerationExhausted {})
+                        && (self.task.admission.is_none()
+                            || self.task.attempt_count != MAX_TASK_ATTEMPT_GENERATION
+                            || self.task.admission_deferrals == 0
+                            || *execution_may_have_started))
                     || (matches!(failure, TaskFailure::Application { .. })
                         && !execution_may_have_started)
                 {

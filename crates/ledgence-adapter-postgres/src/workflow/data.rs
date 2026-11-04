@@ -257,6 +257,12 @@ pub(super) async fn insert_task(
     transition.task.parent_workflow_id = workflow.parent_workflow_id.clone();
     transition.task.root_workflow_id = workflow.root_workflow_id.clone();
     let task = &transition.task;
+    if task.input.admission.is_some() {
+        return Err(ContractError::InvalidInput(
+            "task admission requires a standalone task".into(),
+        )
+        .into());
+    }
     sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count,dispatch_destination,workflow_activation_id,workflow_id,parent_workflow_id,root_workflow_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$11,0,$12,$13,$14,$15,$16)")
         .bind(&task.task_id).bind(&task.run_id).bind(&task.input.tenant_id).bind(&task.input.namespace).bind(&task.input.queue)
         .bind(&task.idempotency_key).bind(&task.input.correlation_key).bind(codec::encode(&task.input)?).bind(codec::encode(&task.descriptor)?)

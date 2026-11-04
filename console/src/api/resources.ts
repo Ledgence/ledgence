@@ -24,6 +24,7 @@ export const attemptState = s.enumeration(
   "failed",
   "cancelled",
   "lost",
+  "deferred",
 );
 export const quiescence = s.enumeration("confirmed", "unconfirmed");
 export const effectOccurrence = s.object({
@@ -41,6 +42,26 @@ export const providerProbe = s.object({
     "Invalid probe generation.",
   ),
 });
+export const taskAdmissionRequirement = s.object({
+  resource: s.refine(
+    s.id,
+    (v) => /^[A-Za-z0-9_.:-]{1,128}$/.test(v),
+    "Invalid task resource name.",
+  ),
+});
+function validRetryCount(
+  count: number,
+  deferrals: number,
+  governed: boolean,
+  maximum: number,
+) {
+  return (
+    count <= 2147483647 &&
+    deferrals <= count &&
+    (governed || deferrals === 0) &&
+    count - deferrals <= maximum
+  );
+}
 export const taskStatus = s.refine(
   s.object({
     task_id: s.id,
@@ -51,7 +72,9 @@ export const taskStatus = s.refine(
     queue: s.id,
     correlation_key: s.nullable(s.string),
     state: taskState,
-    attempt_count: s.integer(),
+    admission: s.nullable(taskAdmissionRequirement),
+    admission_deferrals: s.integer(0, 2147483647),
+    attempt_count: s.integer(0, 2147483647),
     current_attempt_id: s.nullable(s.id),
     latest_attempt_id: s.nullable(s.id),
     submitted_at: s.timestamp,
@@ -60,9 +83,19 @@ export const taskStatus = s.refine(
     cancel_requested_at: s.nullable(s.timestamp),
   }),
   (value) =>
-    !value.provider_probe ||
-    (value.workflow_activation_id === null &&
-      value.workflow_id === value.provider_probe.occurrence.workflow_id),
+    validRetryCount(
+      value.attempt_count,
+      value.admission_deferrals,
+      value.admission !== null,
+      1000,
+    ) &&
+    (!value.admission ||
+      (!value.workflow_id &&
+        !value.workflow_activation_id &&
+        !value.provider_probe)) &&
+    (!value.provider_probe ||
+      (value.workflow_activation_id === null &&
+        value.workflow_id === value.provider_probe.occurrence.workflow_id)),
   "Inconsistent provider check task identity.",
 );
 export const taskSummary = s.object({ task: taskStatus, descriptor });
@@ -71,14 +104,27 @@ export const retryPolicy = s.object({
   max_attempts: s.integer(1, 1000),
   retry_delay_ms: s.integer(0, 86400000),
 });
-export const submission = s.object({
+const submissionFields = {
   program,
   queue: s.id,
   correlation_key: s.nullable(s.string),
   data: s.payload,
   retry_policy: retryPolicy,
   attempt_timeout_ms: s.integer(1, 86400000),
+};
+export const submission = s.object({
+  ...submissionFields,
+  admission: s.nullable(taskAdmissionRequirement),
 });
+// Detail responses explicitly represent an absent binding with null. Submission
+// commands omit it so that a malformed requirement cannot silently run ungoverned.
+export function submissionCommand(value: unknown) {
+  return value && typeof value === "object" && "admission" in value
+    ? s.object({ ...submissionFields, admission: taskAdmissionRequirement })(
+        value,
+      )
+    : s.object(submissionFields)(value);
+}
 export const trace: s.Decoder<{
   traceparent: string;
   tracestate: string | null;
@@ -103,7 +149,8 @@ export const taskDetail = s.refine(
     idempotency_key: s.id,
     origin_trace: s.nullable(trace),
     state: taskState,
-    attempt_count: s.integer(),
+    admission_deferrals: s.integer(0, 2147483647),
+    attempt_count: s.integer(0, 2147483647),
     current_attempt_id: s.nullable(s.id),
     submitted_at: s.timestamp,
     available_at: s.timestamp,
@@ -112,9 +159,19 @@ export const taskDetail = s.refine(
     observed_at: s.timestamp,
   }),
   (value) =>
-    !value.provider_probe ||
-    (value.workflow_activation_id === null &&
-      value.workflow_id === value.provider_probe.occurrence.workflow_id),
+    validRetryCount(
+      value.attempt_count,
+      value.admission_deferrals,
+      value.input.admission !== null,
+      value.input.retry_policy.max_attempts,
+    ) &&
+    (!value.input.admission ||
+      (!value.workflow_id &&
+        !value.workflow_activation_id &&
+        !value.provider_probe)) &&
+    (!value.provider_probe ||
+      (value.workflow_activation_id === null &&
+        value.workflow_id === value.provider_probe.occurrence.workflow_id)),
   "Inconsistent provider check task identity.",
 );
 export const applicationError = s.object({ kind: s.string, message: s.string });
@@ -131,6 +188,9 @@ export const failure = s.variant({
     cleanup_error: s.nullable(executionError),
   }),
   attempt_lost: s.object({ kind: s.enumeration("attempt_lost") }),
+  admission_generation_exhausted: s.object({
+    kind: s.enumeration("admission_generation_exhausted"),
+  }),
 });
 export const taskOutcome = s.variant({
   succeeded: s.object({
@@ -170,7 +230,7 @@ export const observedTask = s.object({
 export const attempt = s.object({
   task_id: s.id,
   attempt_id: s.id,
-  generation: s.integer(1, 1000),
+  generation: s.integer(1, 2147483647),
   worker_session_id: s.id,
   consumer_id: s.integer(),
   state: attemptState,

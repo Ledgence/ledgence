@@ -956,3 +956,15 @@ operation. Continue inspecting the protected provider operation for its business
 outcome. A ticket grants no authority to invoke the provider again. These models
 are available in development source and are not part of the published 0.8.0
 client package.
+
+### Standalone task admission (development source)
+
+Use `from ledgence.client import TaskAdmission` and pass
+`admission=TaskAdmission(resource="support-model")` to `client.tasks.prepare` or
+`submit`. The optional requirement is frozen with the submission; it never changes
+CloudEvent `data`. `TaskStatus.admission_deferrals` preserves the difference
+between total assignment generations and retry budget consumed. Inspect a source
+with `await client.task_admissions.inspect(task.id, generation=1)`; release only
+a reviewed source with `client.task_admissions.release(inspected, request_id=...,
+reason=...)`. No automatic retry of a mutation. See the [task admission
+contract](../../docs/resource-admission.md#standalone-task-admission).

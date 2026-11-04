@@ -186,7 +186,10 @@ Python uses `AuditFilter.resource(AuditResourceKind.RESOURCE, "NAME")`. All reta
 the existing `metadata_read` requirement and fixed scope.
 
 Release events and `admission_inspect` sensitive-response observations belong to
-the original workflow; use its `--workflow` filter. Policy/release acceptance
+the original workflow; use its `--workflow` filter. For a standalone task, use
+`--task ID` to find its `task_admission_inspect` and `task_admission_released`
+records. These identify the task and generation; they do not contain the task input
+or output. Policy/release acceptance
 events and command receipts have no automatic expiry after execution retirement.
 Sensitive-response observations use the existing retention lane.
 [Admission setup and retained-record limits](/how-to/control-resource-capacity).

@@ -97,7 +97,7 @@
     "verifiedOn": "2026-11-03"
   },
   "resourceAdmission": {
-    "title": "Checkpointed capacity for registered callbacks and approved provider dispatch",
+    "title": "Shared capacity for standalone tasks, registered callbacks and approved provider dispatch",
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/control-resource-capacity"

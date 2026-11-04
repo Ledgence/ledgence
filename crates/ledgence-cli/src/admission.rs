@@ -12,6 +12,7 @@ pub enum Operation {
     List(ResourceListQuery),
     Resource(ResourceQuery),
     Inspect(AdmissionQuery),
+    TaskInspect(TaskAdmissionQuery),
     Put { scope: Scope, file: PathBuf },
     Release { scope: Scope, file: PathBuf },
 }
@@ -31,6 +32,7 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
             return Err(invalid("missing value or duplicate option"));
         }
     }
+    let task_subject = options.contains_key("--task");
     let mut take = |key: &str| {
         options
             .remove(key)
@@ -58,6 +60,19 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
             };
             q.validate()?;
             Operation::Resource(q)
+        }
+        ("admission", "inspect") if task_subject => {
+            let q = TaskAdmissionQuery {
+                occurrence: TaskAdmissionOccurrence {
+                    scope,
+                    task_id: take("--task")?,
+                    generation: take("--generation")?
+                        .parse()
+                        .map_err(|_| invalid("invalid task admission generation"))?,
+                },
+            };
+            q.validate()?;
+            Operation::TaskInspect(q)
         }
         ("admission", "inspect") => {
             let q = AdmissionQuery {
@@ -124,6 +139,9 @@ pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<V
         Operation::List(q) => encode(AdmissionClient::list_resources(client, &q).await?),
         Operation::Resource(q) => encode(AdmissionClient::resource(client, &q).await?),
         Operation::Inspect(q) => encode(AdmissionClient::inspect_admission(client, &q).await?),
+        Operation::TaskInspect(q) => {
+            encode(TaskAdmissionClient::inspect_task_admission(client, &q).await?)
+        }
         Operation::Put { scope, file } => {
             let body = read(file, client.base_url().to_owned()).await?;
             let c: ResourcePutCommand =
@@ -136,13 +154,28 @@ pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<V
         }
         Operation::Release { scope, file } => {
             let body = read(file, client.base_url().to_owned()).await?;
-            let c: AdmissionReleaseCommand =
-                decode_unique_json(body.as_bytes(), ADMISSION_COMMAND_MAX_BYTES)?;
-            c.validate()?;
-            if c.occurrence.scope != scope {
-                return Err(invalid("saved admission command belongs to another scope"));
+            #[derive(Deserialize)]
+            #[serde(untagged)]
+            enum Release {
+                Task(TaskAdmissionReleaseCommand),
+                Workflow(AdmissionReleaseCommand),
             }
-            encode(AdmissionClient::release_admission(client, &c).await?)
+            match decode_unique_json(body.as_bytes(), ADMISSION_COMMAND_MAX_BYTES)? {
+                Release::Task(c) => {
+                    c.validate()?;
+                    if c.occurrence.scope != scope {
+                        return Err(invalid("saved admission command belongs to another scope"));
+                    }
+                    encode(TaskAdmissionClient::release_task_admission(client, &c).await?)
+                }
+                Release::Workflow(c) => {
+                    c.validate()?;
+                    if c.occurrence.scope != scope {
+                        return Err(invalid("saved admission command belongs to another scope"));
+                    }
+                    encode(AdmissionClient::release_admission(client, &c).await?)
+                }
+            }
         }
     }
 }

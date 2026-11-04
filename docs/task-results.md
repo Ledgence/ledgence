@@ -69,3 +69,9 @@ Tasks owned by a workflow expose optional `workflow_id` and
 field, and it equals their task ID. Their task output is a versioned workflow
 decision; use `client.workflows.handle(id).result()` for the overall workflow's
 application result. Ordinary child task outputs keep their existing meaning.
+
+Governed standalone tasks preserve every allocated attempt generation; subtract
+`admission_deferrals` from `attempt_count` for retry use. An unused preparation
+can finish as `deferred` without invoking the program. `admission_generation_exhausted`
+is a platform outcome at the CloudEvents positive integer limit, not a program
+error. Task outcome and capacity release are separate facts. See [task admission](resource-admission.md#standalone-task-admission).

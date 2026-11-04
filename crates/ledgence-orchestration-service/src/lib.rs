@@ -13,6 +13,7 @@ mod effect_evidence;
 mod effect_resolution;
 mod provider_admission;
 mod provider_operation;
+mod task_admission;
 pub mod worker_observations;
 mod workflow;
 pub use acquisition::AcquisitionStatistics;
@@ -139,6 +140,12 @@ impl ApplicationService {
 }
 
 impl TaskService for ApplicationService {
+    fn task_admissions(&self) -> Result<&dyn TaskAdmissionOperations> {
+        // The shared coordinator must be available along with the task ledger.
+        self.workflows()?.admissions()?;
+        self.store.task_admissions()?;
+        Ok(self)
+    }
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move {
             command.validate()?;
@@ -194,6 +201,9 @@ impl TaskService for ApplicationService {
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
+            if command.input.admission.is_some() {
+                self.task_admissions()?;
+            }
             self.require_catalog_scope(command)?;
             let span = tracing::info_span!(
                 "ledgence.task.submit",

@@ -176,8 +176,8 @@ and durable read observation through generic and Console aliases.
 
 ## Resource admission audit in development
 
-Matching development builds add `resource_policy_accepted` and
-`admission_released`; these operations are not in published 0.8.0. Policy events
+Matching development builds add `resource_policy_accepted`, `admission_released`
+and `task_admission_released`; these operations are not in published 0.8.0. Policy events
 record the resource name, request ID, accepted revision, policy digest and
 operator reason. Release events record the original admission occurrence,
 source ID, request ID, accepted revision and operator reason. The reason is
@@ -190,11 +190,15 @@ MCP use `filter={"kind":"resource","resource_kind":"resource","resource_id":"NAM
 Python exposes `AuditFilter.resource(AuditResourceKind.RESOURCE, "NAME")`.
 Queries retain their existing `metadata_read` requirement and fixed scope.
 
-Admission release events and audited sensitive inspections are attached to the
+Workflow admission release events and audited sensitive inspections are attached to the
 original workflow; query its `--workflow` filter for those records. An inspection
 uses read kind `admission_inspect` and an `admission` resource containing the
 original occurrence. It requires `sensitive_read` and a committed observation
 before returning arguments or results through either the generic or Console route.
+
+Standalone task release and inspection records are attached to the owning task.
+Use `--task TASK_ID` for `task_admission_released` and sensitive read kind
+`task_admission_inspect`. The scoped link includes the immutable attempt generation.
 
 Policy and release acceptance events and command receipts have no automatic
 expiry, including after execution retirement. Sensitive-response observations

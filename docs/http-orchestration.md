@@ -335,5 +335,11 @@ when protected dispatch and admission are jointly available. Its worker-only
 `/v1/provider-admissions/start` and `/v1/provider-admissions/report` routes commit
 provider permission with capacity, and provider evidence with justified release,
 respectively. Governing a provider binding requires version 2; older version-1
-bindings are unchanged. Development Console assets and server both require C9;
+bindings are unchanged. Development Console assets and server both require C10;
 published 0.8.0 remains C7. [Routes, permissions and recovery contract](resource-admission.md).
+
+Standalone task admission adds authenticated `/v1/task-admissions/sessions`,
+`start`, `close`, `inspect` and `release` operations. Only the first runtime-ready
+Start is executable. `POST /v1/tasks` accepts one optional `input.admission`
+resource requirement; the ordinary worker Dispatch route cannot authorize a
+governed task. See [standalone task admission](resource-admission.md#standalone-task-admission).

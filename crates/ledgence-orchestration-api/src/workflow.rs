@@ -256,6 +256,7 @@ pub type WorkflowTaskCommand = WorkflowChildCommand;
 impl WorkflowChildCommand {
     pub fn submission(&self, scope: &Scope, correlation_key: Option<String>) -> SubmitTask {
         SubmitTask {
+            admission: None,
             tenant_id: scope.tenant_id.clone(),
             namespace: scope.namespace.clone(),
             queue: self.queue.clone(),
