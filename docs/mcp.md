@@ -320,14 +320,14 @@ apply unchanged. These additions require matching 0.8.0 components.
 
 ## Resource admission in development
 
-Matching source builds add four read tools: `ledgence_resource_list`,
-`ledgence_resource_inspect`, audited `ledgence_admission_inspect` and
+Matching source builds add five resource read tools: `ledgence_resource_list`,
+`ledgence_resource_inspect`, `ledgence_resource_decisions`, audited `ledgence_admission_inspect` and
 `ledgence_task_admission_inspect`. The native
-catalog with audit has 26 default tools and 21 read-only tools; explicit effect
+catalog with audit has 27 default tools and 22 read-only tools; explicit effect
 resolution adds one. `--allow-resource-control` separately adds
 `ledgence_resource_put`, `ledgence_admission_release`, `ledgence_task_admission_release`,
 `ledgence_queue_policy_put` and `ledgence_queue_hold_release`
-(31 tools, or 32 with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
+(32 tools, or 33 with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
 Session scope is fixed. Policy/release commands require stable caller request
 IDs, inspected revisions and the API's `resource_control` permission. Read-only
 mode rejects either mutation opt-in. Release never asserts remote success.

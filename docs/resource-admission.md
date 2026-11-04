@@ -39,8 +39,8 @@ arguments/results require `sensitive_read` and a committed response-audit record
 
 ## Policies and accounting
 
-A policy has `enabled`, `max_occupancy`, optional `rate`, `offer_timeout_ms` and
-`start_timeout_ms`. `rate` is a token bucket `{numerator, period_ms, burst}`:
+A policy has `enabled`, `max_occupancy`, optional `rate`, `offer_timeout_ms`,
+`start_timeout_ms` and optional [`fair_sharing`](#weighted-offers). `rate` is a token bucket `{numerator, period_ms, burst}`:
 `numerator` authorizations per `period_ms`, capped at `burst` stored tokens.
 A token bucket permits bursts; it is not a rolling-window ceiling.
 
@@ -62,9 +62,7 @@ occupancy above the new limit; it does not terminate running callbacks.
 
 The implementation uses integer credit and PostgreSQL time sampled after locking
 the resource. Backward clock movement cannot create additional refill credit;
-a forward jump can refill to the configured burst. FIFO selection is resource-local.
-This version does not implement weighted fairness, inherited monetary/token
-budgets or global ordering across resources.
+a forward jump can refill to the configured burst. Each resource offers capacity using FIFO by default or [weighted queue groups](#weighted-offers) when configured. Inherited monetary/token budgets and ordering across resources remain outside this contract.
 
 ## Write a workflow
 
@@ -243,6 +241,7 @@ All HTTP operations are POST with strict bounded JSON:
 | `/v1/resources/put` | `resource_control` | `ResourcePutCommand` → `ResourcePutReceipt` |
 | `/v1/resources/query` | `metadata_read` | `ResourceQuery` → `ResourceSnapshot` |
 | `/v1/resources/list` | `metadata_read` | `ResourceListQuery` → `ResourcePage` |
+| `/v1/resources/decisions` | `metadata_read` | `ResourceDecisionQuery` → `ResourceDecisionPage` |
 | `/v1/admissions/start` | Worker | `AdmissionStartCommand` → `AdmissionStartReceipt` |
 | `/v1/admissions/finish` | Original worker actor | `AdmissionFinishCommand` → `AdmissionFinishReceipt` |
 | `/v1/provider-admissions/start` | Worker with live lease | `ProviderAdmissionStartCommand` → `ProviderAdmissionStartReceipt` |
@@ -250,7 +249,9 @@ All HTTP operations are POST with strict bounded JSON:
 | `/v1/admissions/inspect` | Audited `sensitive_read` | `AdmissionQuery` → `AdmissionSnapshot` |
 | `/v1/admissions/release` | `resource_control` | `AdmissionReleaseCommand` → `AdmissionReleaseReceipt` |
 
-CLI groups are `resource list|inspect|put` and `admission inspect|release`.
+Resource lists are capped at 256 KiB. A response can contain fewer than the requested number of records and still have another page. Follow `next` until it is null.
+
+CLI groups are `resource list|inspect|decisions|put` and `admission inspect|release`.
 Mutations take a saved file with format `ledgence.admission.command.v1`, exact
 `base_url`, and `body` containing the command as a JSON string. Retain the same
 file after a lost reply; do not regenerate its request ID. Endpoint and scope
@@ -260,7 +261,7 @@ Python exposes `client.resources.put/get/list` and `client.admissions.inspect/re
 with typed `ResourcePolicy`, `ResourceRate` and `AdmissionOccurrence` values.
 Resource/list metadata contain no callback arguments or results.
 
-MCP adds `ledgence_resource_list`, `ledgence_resource_inspect` and
+MCP adds `ledgence_resource_list`, `ledgence_resource_inspect`, `ledgence_resource_decisions` and
 `ledgence_admission_inspect`. `--allow-resource-control` explicitly exposes
 `ledgence_resource_put` and `ledgence_admission_release`; it conflicts with
 `--read-only`. Worker Start/Finish and composed provider Start/Report are not MCP tools. API credentials remain the
@@ -291,7 +292,7 @@ page = await client.audit.list(
 )
 ```
 
-Console C11 renders each wait episode and its resumed entrypoint. An accepted
+Console C12 renders each wait episode and its resumed entrypoint. An accepted
 operation result has its own occurrence-bound inspector. Offer or Start alone
 does not fabricate an executed operation. Graph metadata does not expose arguments
 or results. Protected dispatch has a typed provider record and separate admission and business-result waits; it does not fabricate a generic accepted-operation result. The scope-free `/v1/console/admissions/inspect` wrapper binds the
@@ -383,4 +384,22 @@ excludes governed assignments for older sessions.
 
 ## Cluster-wide queue concurrency (development)
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C11 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C12 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+
+## Weighted offers
+
+**Development capability.** A resource may optionally assign queue groups weighted turns when choosing the next reservation. FIFO remains the default when `fair_sharing` is omitted. Explicit JSON null is invalid. Old FIFO policies preserve their wire representation and request digest.
+
+```json
+{"enabled":true,"max_occupancy":5,"rate":null,"offer_timeout_ms":30000,"start_timeout_ms":5000,"fair_sharing":{"groups":[{"name":"support","weight":3,"queues":["support"]},{"name":"batch","weight":1,"queues":[]}],"default_group":"batch"}}
+```
+
+A task's submission queue or an operation's owning workflow queue selects a group. Every unmapped queue goes to the same configured default. A policy supports 1–16 named groups, weights 1–1000, at most 64 distinct queue mappings in total and a 12 KiB encoded fair-sharing configuration. Ledgence divides all configured weights by their greatest common divisor, so 300:100 has the same cycle as 3:1 even while a group is idle. Group order breaks ties. Each round visits eligible groups in configured order whose normalized weight reaches that round. Empty groups are skipped, and each group serves its oldest eligible request. With two continuously eligible groups at 3:1, each complete cycle grants three offers to the first and one to the second. A sole eligible group can use the entire resource.
+
+A committed offer advances the durable cursor in the same PostgreSQL transaction that reserves capacity and appends the decision. Failed or rolled-back reservations do not advance it. An expired, previously committed offer remains in history. Start still controls dispatch and rate debit. Shares count offers. Running work is never preempted, and unequal operation durations can produce unequal occupancy time. Worker poll plans independently govern which queues each free consumer polls.
+
+Capacity and rate edits preserve the rotation. Scaling all weights proportionally or reordering queues within a group also preserves the cursor. A change to the effective weights, group order or queue assignments starts a new rotation and reclassifies pending work under the resource lock. Previously granted work keeps its evidence. Removing `fair_sharing` returns to FIFO and retains prior decisions. Apply the migration and upgrade all orchestrator replicas before enabling weights. Creating the group indexes and changing membership on a large live backlog can delay admissions; rehearse these operations against a representative restore.
+
+Read decisions with `POST /v1/resources/decisions` using `{scope,name,before,limit}`. Start with `before: null`, then pass the returned `next` to read older offers, newest first. A sequence is scoped to one resource and serializes as a positive decimal string. Each row records the policy revision, source queue, subject, grant generation, selected group and its configured weight, eligible-group count, normalized round, reason and offer time. This journal is retained with its resource and grows with committed weighted offers. Include its storage in capacity planning. Console **Resources**, `ledgence resource decisions`, Python `client.resources.decisions` and MCP `ledgence_resource_decisions` expose this metadata to `metadata_read` operators.
+
+To reproduce the FIFO comparison, run `python tools/check-resource-fairness.py` from the source checkout with a newly built native binary directory, the installed development Python client interpreter, a disposable PostgreSQL configuration and an unused evidence directory. See `--help` for arguments. Its evidence separates admission wait, observed parallelism and completion throughput across a two-coordinator restart.

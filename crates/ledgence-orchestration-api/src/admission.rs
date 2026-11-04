@@ -5,9 +5,11 @@ use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
 mod commands;
+mod fairness;
 mod lifecycle;
 mod ports;
 pub use commands::*;
+pub use fairness::*;
 pub use lifecycle::*;
 pub use ports::*;
 
@@ -71,6 +73,13 @@ pub struct ResourcePolicy {
     pub rate: Option<ResourceRate>,
     pub offer_timeout_ms: u32,
     pub start_timeout_ms: u32,
+    /// Omission selects the original FIFO offer order and preserves its wire identity.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "fairness::present_policy"
+    )]
+    pub fair_sharing: Option<ResourceFairSharing>,
 }
 impl ResourcePolicy {
     pub fn validate(&self) -> Result<()> {
@@ -79,6 +88,9 @@ impl ResourcePolicy {
             || !(100..=30_000).contains(&self.start_timeout_ms)
         {
             return Err(invalid("resource policy exceeds supported bounds"));
+        }
+        if let Some(fair_sharing) = &self.fair_sharing {
+            fair_sharing.validate()?;
         }
         if let Some(rate) = &self.rate {
             rate.validate()?;
@@ -105,7 +117,8 @@ impl ResourceRecord {
         name(&self.name)?;
         positive(self.revision)?;
         self.policy.validate()?;
-        time(self.updated_at)
+        time(self.updated_at)?;
+        bound(self, 16 * 1024)
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

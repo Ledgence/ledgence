@@ -3,7 +3,7 @@ title: Limit a queue across workers
 description: Set, inspect and recover a cluster-wide concurrency limit for one logical queue.
 ---
 
-**Development feature.** Use matching development builds of the orchestrator, workers and Console (contract C11), run the database migrations and configure instance credentials. The released 0.8.0 stack does not expose queue policies.
+**Development feature.** Use matching development builds of the orchestrator, workers and Console (contract C12), run the database migrations and configure instance credentials. The released 0.8.0 stack does not expose queue policies.
 
 Suppose the payment gateway can serve five requests concurrently. Put gateway tasks on the `payments` queue and set its limit to five. Three workers with four consumers each can then have at most five outstanding attempts on that queue between them. A queue such as `email` keeps its own policy. Workers can continue to poll it while `payments` is full.
 

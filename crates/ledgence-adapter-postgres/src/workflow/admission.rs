@@ -1,6 +1,7 @@
 //! Durable resource authority: workflow -> task -> resource -> occurrence locks.
 //! A committed Start is one-shot authority; its lost reply is never another grant.
 pub(super) mod execution;
+pub(crate) mod fair;
 pub(crate) mod policy;
 pub(crate) mod scheduler;
 pub(crate) mod state;
@@ -10,6 +11,16 @@ pub(super) use scheduler::drain;
 use state::*;
 pub(super) use wait::{apply_wait, close_wait, install_wait};
 impl AdmissionOperations for PostgresStore {
+    fn supports_resource_fair_sharing(&self) -> bool {
+        true
+    }
+    fn list_resource_decisions<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceDecisionQuery,
+    ) -> ContractFuture<'a, ResourceDecisionPage> {
+        Box::pin(self.run(move || self.resource_decisions_once(p, q)))
+    }
     fn put_resource<'a>(
         &'a self,
         p: &'a VerifiedPrincipal,

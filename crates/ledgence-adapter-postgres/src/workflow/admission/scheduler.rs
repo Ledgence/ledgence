@@ -66,14 +66,28 @@ impl PostgresStore {
         name: &str,
         dispatch: bool,
     ) -> StoreResult<(Option<TaskSnapshot>, bool, bool)> {
-        // Pick a bounded candidate before locking. Recheck FIFO and all authority
+        // Pick a bounded candidate before locking. Recheck the scheduling decision and all authority
         // after acquiring workflow -> resource; a hot resource never blocks others.
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
         let observed = resource(&mut tx, scope, name, false).await?;
         let sampled = db::now(&mut tx).await?;
-        let workflow = choose(&mut tx, &observed, sampled, dispatch).await?;
-        let task = crate::task_admission::candidate(&mut tx, &observed, sampled, dispatch).await?;
+        let mut workflow = choose(&mut tx, &observed, sampled, dispatch).await?;
+        let mut task =
+            crate::task_admission::candidate(&mut tx, &observed, sampled, dispatch).await?;
+        if task.is_none()
+            && workflow.is_none()
+            && dispatch
+            && observed.record.policy.enabled
+            && observed.record.policy.fair_sharing.is_some()
+            && observed.started + observed.offered < u64::from(observed.record.policy.max_occupancy)
+            && let Some(head) = fair::head(&mut tx, &observed, None).await?
+        {
+            match head.owner {
+                fair::Owner::Task(o) => task = Some((4, head.sequence, o)),
+                fair::Owner::Workflow(o) => workflow = Some((4, head.sequence, o)),
+            }
+        }
         if let Some((priority, sequence, occurrence)) = task
             && workflow
                 .as_ref()
@@ -165,9 +179,8 @@ impl PostgresStore {
                     );
                     expired = true;
                 } else if dispatch && r.capacity()? > 0 {
-                    let first = crate::task_admission::first_ready(&mut tx, &r).await?;
                     let sequence:i64=sqlx::query_scalar("SELECT request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND origin_activation_id=$4 AND logical_key=$5").bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.origin_activation_id).bind(&o.key).fetch_one(&mut *tx).await?;
-                    if first == Some(sequence) {
+                    if let Some(winner) = fair::winner(&mut tx, &r, sequence, now).await? {
                         let task_id = db::id(&mut tx, "task").await?;
                         a.generation = a
                             .generation
@@ -187,6 +200,15 @@ impl PostgresStore {
                         offer.validate()?;
                         a.snapshot.state = AdmissionState::Offered;
                         a.snapshot.offer = Some(offer.clone());
+                        winner
+                            .record(
+                                &mut tx,
+                                &mut r,
+                                a.snapshot.binding.provider().is_some(),
+                                a.generation,
+                                now,
+                            )
+                            .await?;
                         r.offered += 1;
                         task = Some(
                             wait::select(
@@ -223,8 +245,8 @@ async fn choose(
     let scope = &r.record.scope;
     let name = &r.record.name;
     // Each UNION arm uses its own resource-local partial index and LIMIT 1.
-    let row=sqlx::query("SELECT workflow_id,origin_activation_id,logical_key,priority,request_seq FROM ((SELECT workflow_id,origin_activation_id,logical_key,0 AS priority,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' AND offer_policy_revision<$4 ORDER BY offer_policy_revision,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,1,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' AND offer_expires_at_ms<=$5 ORDER BY offer_expires_at_ms,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,2,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='possibly_dispatched' AND check_at_ms<=$5 ORDER BY check_at_ms,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,3,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' AND deadline_at_ms<=$5 ORDER BY deadline_at_ms,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,4,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' AND $6 ORDER BY request_seq LIMIT 1)) candidates ORDER BY priority,request_seq LIMIT 1")
-        .bind(&scope.tenant_id).bind(&scope.namespace).bind(name).bind(r.record.revision as i64).bind(codec::ms(now)?).bind(dispatch&&r.record.policy.enabled&&r.started+r.offered<u64::from(r.record.policy.max_occupancy)).fetch_optional(&mut *tx).await?;
+    let row=sqlx::query("SELECT workflow_id,origin_activation_id,logical_key,priority,request_seq FROM ((SELECT workflow_id,origin_activation_id,logical_key,0 AS priority,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' AND offer_policy_revision<$4 ORDER BY offer_policy_revision,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,1,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' AND offer_expires_at_ms<=$5 ORDER BY offer_expires_at_ms,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,2,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='possibly_dispatched' AND check_at_ms<=$5 ORDER BY check_at_ms,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,3,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' AND deadline_at_ms<=$5 ORDER BY deadline_at_ms,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,3,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' AND $7 AND short_episode_deadline_ms<=$5 ORDER BY short_episode_deadline_ms,request_seq LIMIT 1) UNION ALL (SELECT workflow_id,origin_activation_id,logical_key,4,request_seq FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' AND $6 ORDER BY request_seq LIMIT 1)) candidates ORDER BY priority,request_seq LIMIT 1")
+        .bind(&scope.tenant_id).bind(&scope.namespace).bind(name).bind(r.record.revision as i64).bind(codec::ms(now)?).bind(dispatch&&r.record.policy.enabled&&r.record.policy.fair_sharing.is_none()&&r.started+r.offered<u64::from(r.record.policy.max_occupancy)).bind(r.record.policy.fair_sharing.is_some()).fetch_optional(&mut *tx).await?;
     row.map(|row| {
         Ok((
             row.try_get("priority")?,
@@ -246,8 +268,8 @@ pub(crate) async fn refresh_due(
 ) -> StoreResult<()> {
     let scope = &r.record.scope;
     let name = &r.record.name;
-    let due:Option<i64>=sqlx::query_scalar("SELECT min(due) FROM ((SELECT $5::bigint AS due FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' AND offer_policy_revision<$4 ORDER BY offer_policy_revision,request_seq LIMIT 1) UNION ALL (SELECT offer_expires_at_ms FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' ORDER BY offer_expires_at_ms,request_seq LIMIT 1) UNION ALL (SELECT check_at_ms FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='possibly_dispatched' ORDER BY check_at_ms,request_seq LIMIT 1) UNION ALL (SELECT deadline_at_ms FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' ORDER BY deadline_at_ms,request_seq LIMIT 1)) deadlines")
-        .bind(&scope.tenant_id).bind(&scope.namespace).bind(name).bind(r.record.revision as i64).bind(codec::ms(now)?).fetch_one(&mut *tx).await?;
+    let due:Option<i64>=sqlx::query_scalar("SELECT min(due) FROM ((SELECT $5::bigint AS due FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' AND offer_policy_revision<$4 ORDER BY offer_policy_revision,request_seq LIMIT 1) UNION ALL (SELECT offer_expires_at_ms FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='offered' ORDER BY offer_expires_at_ms,request_seq LIMIT 1) UNION ALL (SELECT check_at_ms FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='possibly_dispatched' ORDER BY check_at_ms,request_seq LIMIT 1) UNION ALL (SELECT deadline_at_ms FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' ORDER BY deadline_at_ms,request_seq LIMIT 1) UNION ALL (SELECT short_episode_deadline_ms FROM admission_requests WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 AND state='waiting' AND $6 AND short_episode_deadline_ms IS NOT NULL ORDER BY short_episode_deadline_ms,request_seq LIMIT 1)) deadlines")
+        .bind(&scope.tenant_id).bind(&scope.namespace).bind(name).bind(r.record.revision as i64).bind(codec::ms(now)?).bind(r.record.policy.fair_sharing.is_some()).fetch_one(&mut *tx).await?;
     let (task_due, task_waiting) = crate::task_admission::due(tx, r, now).await?;
     r.quarantined_due = due.map(|v| v as u64).into_iter().chain(task_due).min();
     r.due = r.quarantined_due;

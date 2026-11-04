@@ -92,6 +92,7 @@ pub fn fixtures() -> Value {
         instance_name: "Ledgence".into(),
         capabilities: ConsoleCapabilities {
             queue_policies: true,
+            resource_fair_sharing: true,
             task_admission: false,
             executions: true,
             workflows: true,
@@ -441,6 +442,65 @@ pub fn fixtures() -> Value {
         release_kind: None,
     };
     queue_hold.validate().unwrap();
+    let fair_resource = ResourceSnapshot {
+        resource: ResourceRecord {
+            scope: queue_policy.record.scope.clone(),
+            name: "model.requests".into(),
+            revision: 3,
+            updated_at: at,
+            policy: ResourcePolicy {
+                enabled: true,
+                max_occupancy: 5,
+                rate: None,
+                offer_timeout_ms: 30_000,
+                start_timeout_ms: 1_000,
+                fair_sharing: Some(ResourceFairSharing {
+                    groups: vec![
+                        ResourceFairGroup {
+                            name: "support".into(),
+                            weight: 3,
+                            queues: vec!["support".into()],
+                        },
+                        ResourceFairGroup {
+                            name: "batch".into(),
+                            weight: 1,
+                            queues: vec![],
+                        },
+                    ],
+                    default_group: "batch".into(),
+                }),
+            },
+        },
+        offered: 1,
+        occupied: 2,
+        unknown: 0,
+        quarantined: false,
+    };
+    fair_resource.validate().unwrap();
+    let decisions = ResourceDecisionPage {
+        items: vec![ResourceOfferDecision {
+            scope: fair_resource.resource.scope.clone(),
+            resource: fair_resource.resource.name.clone(),
+            sequence: 9_007_199_254_740_993,
+            policy_revision: 3,
+            group: "support".into(),
+            weight: 3,
+            eligible_groups: 2,
+            cycle_round: 2,
+            reason: ResourceDecisionReason::Weighted,
+            queue: "support".into(),
+            subject: ResourceDecisionSubject::Task {
+                task_id: "task_support".into(),
+                generation: 1,
+            },
+            offer_generation: 1,
+            offered_at: at,
+        }],
+        next: Some(9_007_199_254_740_993),
+    };
+    decisions.validate().unwrap();
+    result["fair_resource_snapshot"] = serde_json::to_value(fair_resource).unwrap();
+    result["resource_decision_page"] = serde_json::to_value(decisions).unwrap();
     result["queue_policy_snapshot"] = serde_json::to_value(queue_policy).unwrap();
     result["queue_hold_snapshot"] = serde_json::to_value(queue_hold).unwrap();
     result["admission"] = explorer::admission_cases();

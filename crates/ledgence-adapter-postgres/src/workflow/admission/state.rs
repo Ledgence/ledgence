@@ -1,6 +1,9 @@
 use super::*;
 pub(crate) struct Resource {
     pub record: ResourceRecord,
+    pub fair_round: u32,
+    pub fair_index: i32,
+    pub fair_sequence: u64,
     pub credit: Option<u64>,
     pub high_water: u64,
     pub offered: u64,
@@ -68,6 +71,9 @@ pub(crate) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
     }
     let r = Resource {
         record,
+        fair_round: row.try_get::<i32, _>("fair_round")? as u32,
+        fair_index: row.try_get("fair_group_index")?,
+        fair_sequence: row.try_get::<i64, _>("fair_sequence")? as u64,
         credit: row.try_get::<Option<i64>, _>("credit")?.map(|v| v as u64),
         high_water: row.try_get::<i64, _>("high_water_at_ms")? as u64,
         offered: row.try_get::<i64, _>("offered")? as u64,
@@ -82,6 +88,15 @@ pub(crate) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
     };
     if r.credit.is_some() != r.record.policy.rate.is_some() {
         return Err(corrupt("resource bucket mode").into());
+    }
+    if r.fair_round > 0
+        && !r.record.policy.fair_sharing.as_ref().is_some_and(|p| {
+            p.groups
+                .get(r.fair_index as usize)
+                .is_some_and(|g| r.fair_round <= g.weight / fair::divisor(p))
+        })
+    {
+        return Err(corrupt("fair cursor disagrees with policy").into());
     }
     r.snapshot(false).validate()?;
     Ok(r)
@@ -108,13 +123,14 @@ pub(crate) async fn resource(
 }
 pub(crate) async fn save_resource(tx: &mut PgConnection, r: &Resource) -> StoreResult<()> {
     r.snapshot(false).validate()?;
-    let valid:Option<bool>=sqlx::query_scalar("UPDATE admission_resources SET revision=$4,record_bytes=$5,credit=$6,high_water_at_ms=$7,offered=$8,started=$9,unknown=$10,next_due_ms=$11,quarantined_due_ms=$12 WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 RETURNING revision=$4 AND record_bytes=$5 AND credit IS NOT DISTINCT FROM $6 AND high_water_at_ms=$7 AND offered=$8 AND started=$9 AND unknown=$10 AND next_due_ms IS NOT DISTINCT FROM $11 AND quarantined_due_ms IS NOT DISTINCT FROM $12")
-        .bind(&r.record.scope.tenant_id).bind(&r.record.scope.namespace).bind(&r.record.name).bind(r.record.revision as i64).bind(codec::encode(&r.record)?).bind(r.credit.map(|v|v as i64)).bind(codec::ms(r.high_water)?).bind(r.offered as i64).bind(r.started as i64).bind(r.unknown as i64).bind(r.due.map(codec::ms).transpose()?).bind(r.quarantined_due.map(codec::ms).transpose()?).fetch_optional(&mut *tx).await?;
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE admission_resources SET revision=$4,record_bytes=$5,credit=$6,high_water_at_ms=$7,offered=$8,started=$9,unknown=$10,next_due_ms=$11,quarantined_due_ms=$12,fair_round=$13,fair_group_index=$14,fair_sequence=$15 WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 RETURNING revision=$4 AND record_bytes=$5 AND credit IS NOT DISTINCT FROM $6 AND high_water_at_ms=$7 AND offered=$8 AND started=$9 AND unknown=$10 AND next_due_ms IS NOT DISTINCT FROM $11 AND quarantined_due_ms IS NOT DISTINCT FROM $12 AND fair_round=$13 AND fair_group_index=$14 AND fair_sequence=$15")
+        .bind(&r.record.scope.tenant_id).bind(&r.record.scope.namespace).bind(&r.record.name).bind(r.record.revision as i64).bind(codec::encode(&r.record)?).bind(r.credit.map(|v|v as i64)).bind(codec::ms(r.high_water)?).bind(r.offered as i64).bind(r.started as i64).bind(r.unknown as i64).bind(r.due.map(codec::ms).transpose()?).bind(r.quarantined_due.map(codec::ms).transpose()?).bind(r.fair_round as i32).bind(r.fair_index).bind(r.fair_sequence as i64).fetch_optional(&mut *tx).await?;
     proof(valid, "resource mutation suppressed or changed")
 }
 pub(in crate::workflow) struct Request {
     pub snapshot: AdmissionSnapshot,
     pub parking: Option<String>,
+    pub short_episode_deadline: Option<u64>,
     pub generation: u64,
     pub check_at: Option<u64>,
     pub start_bytes: Option<Vec<u8>>,
@@ -156,6 +172,10 @@ pub(in crate::workflow) fn request_row(row: &PgRow) -> StoreResult<Request> {
     Ok(Request {
         snapshot: s,
         parking: row.try_get("parking_activation_id")?,
+        short_episode_deadline: row
+            .try_get::<Option<i64>, _>("short_episode_deadline_ms")?
+            .map(codec::timestamp)
+            .transpose()?,
         generation: row.try_get::<i64, _>("offer_generation")? as u64,
         check_at: row
             .try_get::<Option<i64>, _>("check_at_ms")?
@@ -184,8 +204,8 @@ pub(in crate::workflow) async fn save_request(
     let s = &r.snapshot;
     s.validate()?;
     let o = &s.occurrence;
-    let valid:Option<bool>=sqlx::query_scalar("UPDATE admission_requests SET state=$6,revision=$7,updated_at_ms=$8,parking_activation_id=$9,offer_generation=$10,offer_policy_revision=$11,offer_expires_at_ms=$12,check_at_ms=$13,snapshot_bytes=$14,start_command_bytes=$15,finish_command_bytes=$16 WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND origin_activation_id=$4 AND logical_key=$5 RETURNING state=$6 AND revision=$7 AND updated_at_ms=$8 AND parking_activation_id IS NOT DISTINCT FROM $9 AND offer_generation=$10 AND offer_policy_revision IS NOT DISTINCT FROM $11 AND offer_expires_at_ms IS NOT DISTINCT FROM $12 AND check_at_ms IS NOT DISTINCT FROM $13 AND snapshot_bytes=$14 AND start_command_bytes IS NOT DISTINCT FROM $15 AND finish_command_bytes IS NOT DISTINCT FROM $16")
-        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.origin_activation_id).bind(&o.key).bind(codec::label(&s.state)?).bind(s.revision as i64).bind(codec::ms(s.updated_at)?).bind(&r.parking).bind(r.generation as i64).bind(s.offer.as_ref().map(|v|v.policy_revision as i64)).bind(s.offer.as_ref().map(|v|v.expires_at as i64)).bind(r.check_at.map(codec::ms).transpose()?).bind(codec::encode(s)?).bind(&r.start_bytes).bind(&r.finish_bytes).fetch_optional(&mut *tx).await?;
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE admission_requests SET state=$6,revision=$7,updated_at_ms=$8,parking_activation_id=$9,offer_generation=$10,offer_policy_revision=$11,offer_expires_at_ms=$12,check_at_ms=$13,snapshot_bytes=$14,start_command_bytes=$15,finish_command_bytes=$16,short_episode_deadline_ms=$17 WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 AND origin_activation_id=$4 AND logical_key=$5 RETURNING state=$6 AND revision=$7 AND updated_at_ms=$8 AND parking_activation_id IS NOT DISTINCT FROM $9 AND offer_generation=$10 AND offer_policy_revision IS NOT DISTINCT FROM $11 AND offer_expires_at_ms IS NOT DISTINCT FROM $12 AND check_at_ms IS NOT DISTINCT FROM $13 AND snapshot_bytes=$14 AND start_command_bytes IS NOT DISTINCT FROM $15 AND finish_command_bytes IS NOT DISTINCT FROM $16 AND short_episode_deadline_ms IS NOT DISTINCT FROM $17")
+        .bind(&o.scope.tenant_id).bind(&o.scope.namespace).bind(&o.workflow_id).bind(&o.origin_activation_id).bind(&o.key).bind(codec::label(&s.state)?).bind(s.revision as i64).bind(codec::ms(s.updated_at)?).bind(&r.parking).bind(r.generation as i64).bind(s.offer.as_ref().map(|v|v.policy_revision as i64)).bind(s.offer.as_ref().map(|v|v.expires_at as i64)).bind(r.check_at.map(codec::ms).transpose()?).bind(codec::encode(s)?).bind(&r.start_bytes).bind(&r.finish_bytes).bind(r.short_episode_deadline.map(codec::ms).transpose()?).fetch_optional(&mut *tx).await?;
     proof(valid, "admission mutation suppressed or changed")
 }
 /// Epoch invalidation cancels old shadow reservations without touching started debt.

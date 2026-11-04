@@ -972,3 +972,7 @@ contract](../../docs/resource-admission.md#standalone-task-admission).
 ### Queue concurrency in development
 
 Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching development server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](../../docs/queue-concurrency.md).
+
+## Weighted resource offers in development
+
+Pass `ResourceFairSharing` and its `ResourceFairGroup` values to `ResourcePolicy(fair_sharing=...)` to weight offers between queues. Read a page with `await client.resources.decisions("support-model", limit=20)`, then pass `before=page.next` for older offers when `page.next` is present. [Policy, example and compatibility](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).

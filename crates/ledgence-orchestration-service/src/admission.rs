@@ -29,6 +29,33 @@ impl ApplicationService {
     }
 }
 impl AdmissionOperations for ApplicationService {
+    fn supports_resource_fair_sharing(&self) -> bool {
+        self.workflows().is_ok_and(|w| {
+            w.operator_access().is_ok()
+                && w.admissions()
+                    .is_ok_and(|store| store.supports_resource_fair_sharing())
+        })
+    }
+    fn list_resource_decisions<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceDecisionQuery,
+    ) -> ContractFuture<'a, ResourceDecisionPage> {
+        Box::pin(async move {
+            self.admissions()?;
+            q.validate()?;
+            operator(p, &q.scope, AccessCapability::MetadataRead)?;
+            let store = self.workflows()?.admissions()?;
+            if !store.supports_resource_fair_sharing() {
+                return Err(ContractError::Unavailable(
+                    "resource fair sharing unavailable".into(),
+                ));
+            }
+            let page = store.list_resource_decisions(p, q).await?;
+            page.validate_for(q).map_err(|_| invalid_reply())?;
+            Ok(page)
+        })
+    }
     fn put_resource<'a>(
         &'a self,
         p: &'a VerifiedPrincipal,
@@ -38,7 +65,13 @@ impl AdmissionOperations for ApplicationService {
             self.admissions()?;
             c.validate()?;
             operator(p, &c.scope, AccessCapability::ResourceControl)?;
-            let r = self.workflows()?.admissions()?.put_resource(p, c).await?;
+            let store = self.workflows()?.admissions()?;
+            if c.policy.fair_sharing.is_some() && !store.supports_resource_fair_sharing() {
+                return Err(ContractError::Unavailable(
+                    "resource fair sharing unavailable".into(),
+                ));
+            }
+            let r = store.put_resource(p, c).await?;
             r.validate().map_err(|_| invalid_reply())?;
             if !r.matches(c) {
                 return Err(invalid_reply());

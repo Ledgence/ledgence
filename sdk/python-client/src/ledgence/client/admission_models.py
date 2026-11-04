@@ -40,12 +40,75 @@ class ResourceRate:
 
 
 @dataclass(frozen=True)
+class ResourceFairGroup:
+    name: str
+    weight: int
+    queues: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        name(self.name)
+        codec.integer(self.weight, "weight", 1, 1000)
+        if not isinstance(self.queues, (list, tuple)) or len(self.queues) > 64:
+            raise InputError("queues must contain at most 64 queue names")
+        object.__setattr__(
+            self, "queues", tuple(codec.text(q, "queue") for q in self.queues)
+        )
+        if len(set(self.queues)) != len(self.queues):
+            raise InputError("duplicate queue in resource group")
+
+    def to_dict(self):
+        return {"name": self.name, "weight": self.weight, "queues": list(self.queues)}
+
+
+@dataclass(frozen=True)
+class ResourceFairSharing:
+    groups: tuple[ResourceFairGroup, ...]
+    default_group: str
+
+    def __post_init__(self):
+        name(self.default_group)
+        if (
+            not isinstance(self.groups, (list, tuple))
+            or not 1 <= len(self.groups) <= 16
+        ):
+            raise InputError("configure between one and 16 resource groups")
+        object.__setattr__(self, "groups", tuple(self.groups))
+        if any(type(group) is not ResourceFairGroup for group in self.groups):
+            raise InputError("groups must contain ResourceFairGroup values")
+        names = {group.name for group in self.groups}
+        queues = [q for group in self.groups for q in group.queues]
+        if len(names) != len(self.groups) or self.default_group not in names:
+            raise InputError("group names must be unique and contain the default group")
+        if len(queues) > 64 or len(set(queues)) != len(queues):
+            raise InputError("queue mappings must be distinct and bounded to 64")
+        codec.encode(self.to_dict(), 12 * 1024)
+
+    def to_dict(self):
+        return {
+            "groups": [g.to_dict() for g in self.groups],
+            "default_group": self.default_group,
+        }
+
+
+def _fair_sharing(raw):
+    codec.fields(raw, {"groups", "default_group"})
+    if type(raw["groups"]) is not list:
+        raise InputError("invalid resource groups")
+    groups = []
+    for item in raw["groups"]:
+        codec.fields(item, {"name", "weight", "queues"})
+        groups.append(ResourceFairGroup(**item))
+    return ResourceFairSharing(tuple(groups), raw["default_group"])
+
+
+@dataclass(frozen=True)
 class ResourcePolicy:
     max_occupancy: int
     enabled: bool = True
     rate: ResourceRate | None = None
     offer_timeout_ms: int = 30_000
     start_timeout_ms: int = 5_000
+    fair_sharing: ResourceFairSharing | None = None
 
     def __post_init__(self):
         codec.integer(self.max_occupancy, "max_occupancy", 1, 1_000_000)
@@ -58,8 +121,18 @@ class ResourcePolicy:
         codec.integer(self.offer_timeout_ms, "offer_timeout_ms", 1_000, 300_000)
         codec.integer(self.start_timeout_ms, "start_timeout_ms", 100, 30_000)
 
+        if (
+            self.fair_sharing is not None
+            and type(self.fair_sharing) is not ResourceFairSharing
+        ):
+            raise InputError("fair_sharing must be a ResourceFairSharing policy")
+
     def to_dict(self):
-        return asdict(self)
+        value = asdict(self)
+        value.pop("fair_sharing")
+        if self.fair_sharing is not None:
+            value["fair_sharing"] = self.fair_sharing.to_dict()
+        return value
 
 
 @dataclass(frozen=True)
@@ -151,6 +224,7 @@ class AdmissionSnapshot:
         if raw is None:
             return None
         from .provider_admission_models import ProviderAdmissionRecord
+
         return ProviderAdmissionRecord(codec.encode(raw, LIMIT, max_depth=96))
 
 
@@ -197,7 +271,10 @@ def _record(raw, scope):
     codec.fields(
         policy,
         {"enabled", "max_occupancy", "rate", "offer_timeout_ms", "start_timeout_ms"},
+        {"fair_sharing"},
     )
+    if "fair_sharing" in policy:
+        policy = dict(policy, fair_sharing=_fair_sharing(policy["fair_sharing"]))
     rate = policy["rate"]
     if rate is not None:
         codec.fields(rate, {"numerator", "period_ms", "burst"})
@@ -316,7 +393,9 @@ def _snapshot(raw, occurrence):
     integer(raw["revision"], 1)
     binding = raw["binding"]
     is_provider = "provider" in binding
-    codec.fields(binding, {"resource", "program", "provider" if is_provider else "operation"})
+    codec.fields(
+        binding, {"resource", "program", "provider" if is_provider else "operation"}
+    )
     name(binding["resource"])
     program = binding["program"]
     codec.fields(program, {"program", "digest", "size"})
@@ -327,13 +406,17 @@ def _snapshot(raw, occurrence):
         codec.text(program["program"][key], key)
     if is_provider:
         from .provider_admission_models import validate_subject
+
         validate_subject(binding, occurrence)
     else:
         operation = binding["operation"]
         codec.fields(operation, {"callable", "kind", "version", "arguments"})
         codec.text(operation["callable"], "callable", 512)
         codec.text(operation["version"], "version")
-        if operation["kind"] not in ("model", "tool") or type(operation["arguments"]) is not dict:
+        if (
+            operation["kind"] not in ("model", "tool")
+            or type(operation["arguments"]) is not dict
+        ):
             raise InputError("invalid admission operation")
         codec.validate_authoritative(operation["arguments"], 64 * 1024)
     created, updated, deadline = (
@@ -383,6 +466,7 @@ def _snapshot(raw, occurrence):
         raise InputError("null provider admission record")
     if is_provider:
         from .provider_admission_models import validate_record
+
         if finish is not None:
             raise InputError("provider admission cannot contain generic result")
         if record is not None:
@@ -391,7 +475,11 @@ def _snapshot(raw, occurrence):
             raise InputError("missing linked provider source")
     elif record is not None:
         raise InputError("unexpected provider evidence")
-    completed = record is not None and record["report"] is not None and record["report"]["call_completion"] == "completed"
+    completed = (
+        record is not None
+        and record["report"] is not None
+        and record["report"]["call_completion"] == "completed"
+    )
     shape = (offer is not None, source is not None, finish is not None or completed)
     allowed = {
         AdmissionState.WAITING: (False, False, False),

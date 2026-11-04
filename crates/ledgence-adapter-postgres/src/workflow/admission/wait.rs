@@ -161,8 +161,8 @@ pub(in crate::workflow) async fn install_wait(
                 provider: None,
             };
             snapshot.validate()?;
-            let valid:Option<bool>=sqlx::query_scalar("INSERT INTO admission_requests(tenant_id,namespace,workflow_id,origin_activation_id,logical_key,resource_name,state,revision,created_at_ms,updated_at_ms,deadline_at_ms,parking_activation_id,snapshot_bytes) VALUES($1,$2,$3,$4,$5,$6,'waiting',1,$7,$7,$8,$9,$10) RETURNING snapshot_bytes=$10 AND parking_activation_id=$9 AND state='waiting'")
-                .bind(&occurrence.scope.tenant_id).bind(&occurrence.scope.namespace).bind(&occurrence.workflow_id).bind(&occurrence.origin_activation_id).bind(&occurrence.key).bind(&name).bind(codec::ms(now)?).bind(codec::ms(until)?).bind(parking).bind(codec::encode(&snapshot)?).fetch_optional(&mut *tx).await?;
+            let valid:Option<bool>=sqlx::query_scalar("INSERT INTO admission_requests(tenant_id,namespace,workflow_id,origin_activation_id,logical_key,resource_name,state,revision,created_at_ms,updated_at_ms,deadline_at_ms,parking_activation_id,snapshot_bytes,origin_queue,fair_group) VALUES($1,$2,$3,$4,$5,$6,'waiting',1,$7,$7,$8,$9,$10,$11,$12) RETURNING snapshot_bytes=$10 AND parking_activation_id=$9 AND state='waiting' AND origin_queue=$11 AND fair_group IS NOT DISTINCT FROM $12")
+                .bind(&occurrence.scope.tenant_id).bind(&occurrence.scope.namespace).bind(&occurrence.workflow_id).bind(&occurrence.origin_activation_id).bind(&occurrence.key).bind(&name).bind(codec::ms(now)?).bind(codec::ms(until)?).bind(parking).bind(codec::encode(&snapshot)?).bind(&run.submission.input.queue).bind(fair::group(&r,&run.submission.input.queue)).fetch_optional(&mut *tx).await?;
             proof(valid, "admission registration")?;
             if let Some(subject) = snapshot.binding.provider() {
                 let o = &subject.ticket.occurrence;
@@ -176,6 +176,7 @@ pub(in crate::workflow) async fn install_wait(
             Request {
                 snapshot,
                 parking: Some(parking.into()),
+                short_episode_deadline: None,
                 generation: 0,
                 check_at: None,
                 start_bytes: None,
@@ -211,6 +212,12 @@ pub(in crate::workflow) async fn install_wait(
     } else {
         until.min(a.snapshot.deadline_at).max(now)
     };
+    // FIFO retains its original workflow-work timer, including throughout
+    // rolling upgrades. Enabling weights backfills the actual open episode.
+    a.short_episode_deadline = (r.record.policy.fair_sharing.is_some()
+        && a.snapshot.state == AdmissionState::Waiting
+        && deadline_at < a.snapshot.deadline_at)
+        .then_some(deadline_at);
     let episode = Episode {
         key: key.clone(),
         occurrence: occurrence.clone(),

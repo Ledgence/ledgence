@@ -754,6 +754,9 @@ async fn task_admission_upgrade_from_populated_pre_task_admission_schema() {
             .collect(),
     );
     prior.run(&db.store.pool).await.unwrap();
+    // The current helper writes the newer projections even for FIFO. Drop
+    // them before migration so the actual upgrade sees the historical schema.
+    sqlx::raw_sql("ALTER TABLE admission_resources ADD COLUMN fair_round integer NOT NULL DEFAULT 0,ADD COLUMN fair_group_index integer NOT NULL DEFAULT -1,ADD COLUMN fair_sequence bigint NOT NULL DEFAULT 0; ALTER TABLE admission_requests ADD COLUMN origin_queue text,ADD COLUMN fair_group text,ADD COLUMN short_episode_deadline_ms bigint").execute(&db.store.pool).await.unwrap();
     db.begin_legacy_task_seed().await;
     bind(&db.store, AdmissionDispatchPolicy::Enabled).await;
     put(&db.store, "model", policy(1), None, "create").await;
@@ -772,6 +775,7 @@ async fn task_admission_upgrade_from_populated_pre_task_admission_schema() {
     );
     let saved:(Vec<u8>,Vec<u8>)=sqlx::query_as("SELECT t.input_bytes,a.event_bytes FROM tasks t JOIN attempts a ON a.task_id=t.task_id WHERE t.task_id=$1").bind(&t.task_id).fetch_one(&db.store.pool).await.unwrap();
     db.finish_legacy_task_seed().await;
+    sqlx::raw_sql("ALTER TABLE admission_resources DROP COLUMN fair_round,DROP COLUMN fair_group_index,DROP COLUMN fair_sequence; ALTER TABLE admission_requests DROP COLUMN origin_queue,DROP COLUMN fair_group,DROP COLUMN short_episode_deadline_ms").execute(&db.store.pool).await.unwrap();
     db.store.migrate().await.unwrap();
     let s = PostgresStore::connect(&db.url, PostgresOptions::default())
         .await

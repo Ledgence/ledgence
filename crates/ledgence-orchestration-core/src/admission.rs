@@ -193,6 +193,7 @@ mod tests {
     }
     fn policy() -> ResourcePolicy {
         ResourcePolicy {
+            fair_sharing: None,
             enabled: true,
             max_occupancy: 5,
             rate: Some(rate()),

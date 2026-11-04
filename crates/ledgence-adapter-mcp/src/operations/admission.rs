@@ -11,6 +11,7 @@ pub(super) fn is_tool(name: &str) -> bool {
         || matches!(
             name,
             "ledgence_resource_list"
+                | "ledgence_resource_decisions"
                 | "ledgence_resource_inspect"
                 | "ledgence_admission_inspect"
                 | "ledgence_task_admission_inspect"
@@ -20,6 +21,14 @@ pub(super) fn is_tool(name: &str) -> bool {
 #[serde(deny_unknown_fields)]
 struct List {
     after: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: u32,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Decisions {
+    name: String,
+    before: Option<String>,
     #[serde(default = "default_limit")]
     limit: u32,
 }
@@ -94,6 +103,16 @@ impl ToolDispatcher {
                 };
                 q.validate().map_err(ToolError::arguments)?;
                 let r = remote(client.list_resources(&q).await, false)?;
+                r.validate_for(&q).map_err(|_| invalid_reply(false))?;
+                encode(r, false)
+            }
+            "ledgence_resource_decisions" => {
+                let a: Decisions = parse(arguments)?;
+                let q: ResourceDecisionQuery = parse(
+                    &json!({"scope":self.scope,"name":a.name,"before":a.before,"limit":a.limit}),
+                )?;
+                q.validate().map_err(ToolError::arguments)?;
+                let r = remote(client.list_resource_decisions(&q).await, false)?;
                 r.validate_for(&q).map_err(|_| invalid_reply(false))?;
                 encode(r, false)
             }

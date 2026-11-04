@@ -8,6 +8,7 @@ import {
   Inbox,
   ShieldCheck,
   ListTree,
+  Gauge,
   FileText,
   Layers2,
   LogOut,
@@ -30,6 +31,7 @@ const sections = [
   { to: "/approvals", title: "Approvals", icon: Inbox },
   { to: "/effects", title: "Effects", icon: ShieldCheck },
   { to: "/queues", title: "Queues", icon: ListTree },
+  { to: "/resources", title: "Resources", icon: Gauge },
   { to: "/workers", title: "Workers", icon: Server },
 ];
 
@@ -73,11 +75,13 @@ export function AppShell({
   instanceName,
   serverVersion,
   queuePoliciesEnabled = false,
+  resourceSharingEnabled = false,
   children,
 }: {
   instanceName: string;
   serverVersion?: string | undefined;
   queuePoliciesEnabled?: boolean;
+  resourceSharingEnabled?: boolean;
   children: ReactNode;
 }) {
   const { pathname } = useLocation();
@@ -160,12 +164,16 @@ export function AppShell({
             aria-label="Main navigation"
           >
             {sections
-              .filter(
-                ({ to }) =>
-                  to !== "/queues" ||
-                  (queuePoliciesEnabled &&
-                    identity?.capabilities.includes("metadata_read")),
-              )
+              .filter(({ to }) => {
+                if (to !== "/resources" && to !== "/queues") return true;
+                const enabled =
+                  to === "/resources"
+                    ? resourceSharingEnabled
+                    : queuePoliciesEnabled;
+                return (
+                  enabled && identity?.capabilities.includes("metadata_read")
+                );
+              })
               .map(({ to, title, icon: Icon }) => (
                 <Link
                   key={to}
@@ -183,7 +191,7 @@ export function AppShell({
             {identity && <AccountControls {...identity} />}
 
             <span className="shell-caption sidebar-label" aria-hidden="true">
-              Resources
+              Links
             </span>
             <a
               href="https://docs.ledgence.com/"

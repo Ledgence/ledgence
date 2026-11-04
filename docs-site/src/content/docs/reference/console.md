@@ -330,9 +330,9 @@ Console identity, client files, capabilities, rotation and operating limits.
 Approval review and decision dialogs load recorded acceptance independently from the caller-supplied reviewer label. Loading, verified acceptance, historical absence and unavailable attribution have distinct displays. Identity changes clear protected cached attribution.
 [Setup, queries and operating limits](/how-to/audit-operators).
 
-## Resource admission in development (C11)
+## Resource admission in development (C12)
 
-Matching development assets and server use C11 to show admission wait episodes
+Matching development assets and server use C12 to show admission wait episodes
 and accepted callback results. Offer and Start indicate readiness/authorization,
 not evidence that a callback executed. Open an accepted operation for its
 original occurrence's audited arguments/result. The published 0.8.0 Console
@@ -345,7 +345,7 @@ C9 adds a required `subject` to admission wait metadata: `operation` for an
 ordinary registered call, or `provider` with the immutable original provider
 ticket. The wait preserves the approval's original activation even when capacity
 is granted to a later activation. Historical persisted C8 waits are projected as
-ordinary operations; use matching C11 server and browser assets.
+ordinary operations; use matching C12 server and browser assets.
 
 Open an admission wait and choose **Inspect admission record** to load its
 approved arguments and linked dispatch/report evidence through the audited
@@ -359,9 +359,9 @@ does not authorize another dispatch.
 Provider admission does not add a successful local-operation node. The ordinary
 accepted-operation node remains reserved for a committed generic callback
 result; recording a provider Start alone does not prove that its callback ran.
-Published Ledgence 0.8.0 continues to use C7; C11 is the current development contract.
+Published Ledgence 0.8.0 continues to use C7; C12 is the current development contract.
 
-### Standalone task admission (development C11)
+### Standalone task admission (development C12)
 
 When the installation enables task admission, **New execution** offers an optional
 named resource for a task. **Run again** preserves the requirement. In the task's
@@ -375,3 +375,7 @@ certify completion of external work.
 ## Queue concurrency in development
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
+
+### Resource offers (development C12)
+
+Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.

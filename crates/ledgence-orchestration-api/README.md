@@ -137,6 +137,8 @@ outlive its original call's occupancy. Read-only probes are outside that resourc
 policy. These contracts are not in the published 0.8.0 crate.
 [Admission contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
 
+Resource admission adapters opt into weighted offers through `supports_resource_fair_sharing()`, which defaults to false. An adapter advertising support must reserve capacity, advance the scoped resource cursor and retain its decision atomically, and implement scope-bound paginated reads. FIFO-only adapters can continue serving policies without `fair_sharing`. The service rejects a weighted policy or decision query when the active adapter lacks support. [Weighted offer contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).
+
 The development source exposes `QueuePolicyClient` for authenticated management of
 queue concurrency. A policy can set a shared maximum, pause new assignments with
 zero or explicitly remove the maximum. Inspecting a hold shows the policy revision

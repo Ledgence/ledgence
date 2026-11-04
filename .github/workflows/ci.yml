@@ -511,6 +511,13 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-task-admission-sqs-evidence"
+      - name: Compare FIFO and weighted offers with two real coordinators
+        if: matrix.suite == 'api'
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-resource-fairness.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-resource-fairness-evidence"
       - name: Exercise queue policies from the installed Python wheel
         if: matrix.suite == 'api'
         run: |

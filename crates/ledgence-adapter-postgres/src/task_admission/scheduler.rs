@@ -1,4 +1,5 @@
 use super::*;
+use crate::workflow::admission::fair;
 use crate::workflow::admission::scheduler::refresh_due;
 /// Return at most one row per indexed obligation family. Waiting rows use
 /// available_at_ms=0 once eligible, so the FIFO arm seeks without sorting a
@@ -18,6 +19,7 @@ pub(crate) async fn candidate(
         .bind(
             dispatch
                 && r.record.policy.enabled
+                && r.record.policy.fair_sharing.is_none()
                 && r.started + r.offered < u64::from(r.record.policy.max_occupancy),
         )
         .fetch_optional(&mut *tx)
@@ -187,7 +189,7 @@ pub(crate) async fn tick(
                 && dispatch
                 && r.record.policy.enabled
                 && r.capacity()? > 0
-                && first_ready(tx, &r).await? == Some(a.sequence)
+                && let Some(winner) = fair::winner(tx, &r, a.sequence, now).await?
             {
                 a.offer_generation = a
                     .offer_generation
@@ -202,6 +204,9 @@ pub(crate) async fn tick(
                 });
                 a.snapshot.state = TaskAdmissionState::Offered;
                 a.bump(now)?;
+                winner
+                    .record(tx, &mut r, false, a.offer_generation, now)
+                    .await?;
                 r.offered = r
                     .offered
                     .checked_add(1)

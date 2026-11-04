@@ -59,6 +59,10 @@ impl PostgresStore {
                 .map(|b| b.high_water_at)
                 .unwrap_or(now.max(r.high_water))
                 .max(r.high_water);
+            let fair_changed = !fair::same_rotation(
+                r.record.policy.fair_sharing.as_ref(),
+                c.policy.fair_sharing.as_ref(),
+            );
             r.record = ResourceRecord {
                 scope: c.scope.clone(),
                 name: c.name.clone(),
@@ -67,6 +71,11 @@ impl PostgresStore {
                 updated_at: now.max(r.record.updated_at),
             };
             // All offers belong to a policy epoch. Started debt survives reductions.
+            if fair_changed {
+                r.fair_round = 0;
+                r.fair_index = -1;
+                fair::reclassify(&mut tx, &r).await?;
+            }
             r.offered = 0;
             r.wake(now);
             save_resource(&mut tx, &r).await?;
@@ -83,6 +92,9 @@ impl PostgresStore {
                     policy: c.policy.clone(),
                     updated_at: now,
                 },
+                fair_round: 0,
+                fair_index: -1,
+                fair_sequence: 0,
                 credit: c.policy.rate.as_ref().map(ResourceRate::capacity),
                 high_water: now,
                 offered: 0,
@@ -154,13 +166,19 @@ impl PostgresStore {
         let mut tx = connection.begin_read().await?;
         self.require_operator(p, AccessCapability::MetadataRead, db::now(&mut tx).await?)?;
         let rows=sqlx::query("SELECT * FROM admission_resources WHERE tenant_id=$1 AND namespace=$2 AND ($3::text IS NULL OR resource_name>$3) ORDER BY resource_name LIMIT $4").bind(&q.scope.tenant_id).bind(&q.scope.namespace).bind(&q.after).bind(i64::from(q.limit)+1).fetch_all(&mut *tx).await?;
-        let more = rows.len() > q.limit as usize;
-        let items = rows
-            .iter()
-            .take(q.limit as usize)
-            .map(|r| resource_row(r).map(|v| v.snapshot(quarantined)))
-            .collect::<StoreResult<Vec<_>>>()?;
-        let next = if more {
+        // Cap the serialized page as well as the number of resources. Each
+        // record fits individually; reserve room for the envelope and cursor.
+        let mut bytes = 1024;
+        let mut items = Vec::new();
+        for row in rows.iter().take(q.limit as usize) {
+            let snapshot = resource_row(row)?.snapshot(quarantined);
+            bytes += codec::encode(&snapshot)?.len() + 1;
+            if bytes > ADMISSION_PAGE_MAX_BYTES {
+                break;
+            }
+            items.push(snapshot);
+        }
+        let next = if rows.len() > items.len() {
             items.last().map(|v| v.resource.name.clone())
         } else {
             None

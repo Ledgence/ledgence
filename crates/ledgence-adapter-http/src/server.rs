@@ -218,6 +218,7 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/queue-policies/close", Policy::Worker),
     Route::post("/v1/resources/put", Policy::ResourceControl),
     Route::post("/v1/resources/query", Policy::Metadata),
+    Route::post("/v1/resources/decisions", Policy::Metadata),
     Route::post("/v1/resources/list", Policy::Metadata),
     Route::post("/v1/provider-admissions/start", Policy::Worker),
     Route::post("/v1/provider-admissions/report", Policy::Worker),

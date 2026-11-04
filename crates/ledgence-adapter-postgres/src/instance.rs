@@ -22,6 +22,8 @@ pub(super) const SCOPED_TABLES: &[&str] = &[
     "provider_reports",
     "provider_terminal_facts",
     "queue_concurrency_policies",
+    "admission_resources",
+    "admission_operator_receipts",
 ];
 
 /// Each non-null byte-collated scope lies between these indexed extremes.

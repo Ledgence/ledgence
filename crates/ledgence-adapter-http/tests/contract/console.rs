@@ -114,7 +114,7 @@ fn query_url(running: &Running, path: &str, parameters: &[(&str, &str)]) -> reqw
 }
 fn assert_headers(response: &reqwest::Response) {
     assert_eq!(response.headers()["ledgence-instance-id"], "local-console");
-    assert_eq!(response.headers()["ledgence-console-contract"], "11");
+    assert_eq!(response.headers()["ledgence-console-contract"], "12");
     assert_eq!(response.headers()["cache-control"], "no-store");
     assert_eq!(response.headers()["content-type"], "application/json");
     assert_eq!(response.headers()["x-content-type-options"], "nosniff");
@@ -148,7 +148,7 @@ async fn explorer_http_preserves_canonical_c4_entrypoints_and_relationship_evide
     let mock = Arc::new(Mock::default());
     let queries = Arc::new(Queries::default());
     let fixtures: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v11.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v12.json"
     ))
     .unwrap();
     let explorer: ConsoleWorkflowExplorer =
@@ -240,7 +240,7 @@ async fn explorer_http_rejects_missing_or_fabricated_relations_from_query_adapte
     let queries = Arc::new(Queries::default());
     let running = setup(&mock, &queries).await;
     let fixtures: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v11.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v12.json"
     ))
     .unwrap();
     let explorer: ConsoleWorkflowExplorer =
@@ -446,7 +446,7 @@ async fn console_configuration_and_errors_identify_instance_without_exposing_sco
     let bytes = response.bytes().await.unwrap();
     let config: ConsoleConfig = decode_unique_json(&bytes, CONSOLE_METADATA_MAX_BYTES).unwrap();
     assert_eq!(config.instance_id, "local-console");
-    assert_eq!(config.contract_version, 11);
+    assert_eq!(config.contract_version, 12);
     assert!(config.capabilities.executions);
     assert!(!config.capabilities.programs);
     assert!(!config.capabilities.workers);

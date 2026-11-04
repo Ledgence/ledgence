@@ -5,6 +5,12 @@ export function requiredCapabilities(
   write: boolean,
 ): AccessCapability[] {
   const route = path.split("?")[0]!.replace("/v1/console/", "");
+  if (
+    ["resources/list", "resources/inspect", "resources/decisions"].includes(
+      route,
+    )
+  )
+    return ["metadata_read"];
   if (route === "queue-policies/list" || route === "queue-policies/inspect")
     return ["metadata_read"];
   if (route === "queue-policies/holds") return ["sensitive_read"];

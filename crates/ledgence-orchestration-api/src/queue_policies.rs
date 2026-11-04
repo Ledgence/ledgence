@@ -36,7 +36,7 @@ fn timestamp(t: Timestamp) -> Result<()> {
     }
     Ok(())
 }
-mod decimal {
+pub(crate) mod decimal {
     use super::*;
     pub fn serialize<S: Serializer>(v: &u64, s: S) -> std::result::Result<S::Ok, S::Error> {
         ConsoleU64(*v).serialize(s)
@@ -45,7 +45,7 @@ mod decimal {
         Ok(ConsoleU64::deserialize(d)?.0)
     }
 }
-mod optional_decimal {
+pub(crate) mod optional_decimal {
     use super::*;
     pub fn serialize<S: Serializer>(v: &Option<u64>, s: S) -> std::result::Result<S::Ok, S::Error> {
         v.map(ConsoleU64).serialize(s)

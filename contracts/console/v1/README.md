@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v11.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v11.json).
+[`console-v12.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v12.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -18,7 +18,7 @@ pnpm --dir console contracts:check
 ```
 
 All `/v1/console/*` responses identify the fixed instance with
-`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 11`. The browser rejects
+`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 12`. The browser rejects
 responses that disagree with the configuration used for its query keys.
 Queries and commands reject unknown and duplicate fields. The server binds requests to its configured instance and scope. Responses
 include authoritative identity where their contract requires it.
@@ -127,3 +127,5 @@ it displays the server-validated digest and does not independently hash the bind
 in the browser. The inspection is read-only and cannot authorize a handler.
 
 C11 adds the `queue_policies` capability and scoped queue policy, occupancy and hold projections. Policy and hold revisions and counters are decimal strings. Queue policy pages resume after a queue name and hold pages after an attempt ID. Mutation bodies bind the inspected revision and request ID. The Console server binds the instance scope and authenticated actor. The C10 fixture is retained for compatibility tests.
+
+C12 adds the authenticated `resource_fair_sharing` capability and `POST /v1/console/resources/{list,inspect,decisions}`. The server binds the scope. These are metadata reads. Decisions are ordered by descending per-resource sequence. Use `next` as the exclusive `before` cursor. Sequence, offer generation and decision policy revision are decimal strings. The C11 fixture remains available.

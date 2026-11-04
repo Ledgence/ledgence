@@ -833,8 +833,7 @@ should await their work; wrap blocking I/O appropriately. Callback code cannot
 stage nested workflow operations through the Ledgence context.
 
 Admission supports one unit of one named resource per request. Protected provider
-dispatch uses the separate atomic composition below. Fairness, inherited budgets
-and standalone task admission remain deferred. Ordinary callbacks are governed
+dispatch uses the separate atomic composition below. Standalone tasks can request the same resource. Operators optionally weight resource offers by source queue group. Inherited budgets remain deferred. Ordinary callbacks are governed
 only when explicitly registered and admitted; existing ungoverned execution paths
 do not add admission RPCs.
 
