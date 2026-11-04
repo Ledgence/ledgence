@@ -300,6 +300,9 @@ Standalone tasks can use the same named resource: a queued task waits without a
 worker subprocess, and only a runtime-ready Start authorizes its handler.
 [Submit a governed task](docs/resource-admission.md#standalone-task-admission).
 Operators can assign weights to groups of queues on a shared resource. The orchestrator uses those weights when granting offers across workers. A lone eligible group can use every available slot. Operators can inspect each weighted offer in Console, including the group, queue and reason. [Configure weighted offers](docs/resource-admission.md#weighted-offers).
+
+Console can create or edit a named-resource policy. Changes include the expected policy revision and an operator reason. Open the resource’s outstanding sources to investigate capacity held by a task, workflow or provider call after execution history has expired. Source reads require `sensitive_read` and produce an audit record.
+
 Read-only recovery probes remain outside the limit. Workflows can declare a shared budget for calls and delegations across the whole owned run. [Try two reviews with one call](examples/shared-run-budget/README.md).
 
 ### Poll several queues with one worker (development)

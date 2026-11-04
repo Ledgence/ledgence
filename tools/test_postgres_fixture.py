@@ -1,7 +1,8 @@
 """Database-isolation regressions; never open a DB, socket, or subprocess."""
-from contextlib import ExitStack, redirect_stderr
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import socket
@@ -96,6 +97,36 @@ class OwnedDatabaseUrlTests(unittest.TestCase):
                  patch.object(module, "verify_bundle", return_value={"assets": []}), no_resources(), \
                  self.assertRaisesRegex(ValueError, "must not override"):
                 module.smoke(Path("/unused"), Path("/unused"), Path("/unused"))
+
+    def test_upgrade_cleanup_attempts_both_databases_and_cannot_report_a_pass(self):
+        module = load("tools/check-resource-upgrade.py")
+        drops = []
+
+        def psql(args, **_kwargs):
+            statement = args[-1]
+            if statement.startswith("DROP DATABASE"):
+                drops.append(statement)
+            failed = statement.startswith("DROP DATABASE") and len(drops) == 1
+            return subprocess.CompletedProcess(args, int(failed))
+
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            evidence = Path(temporary) / "evidence"
+            stack.enter_context(patch.dict(os.environ, LEDGENCE_POSTGRES_URL="postgres://localhost/fixture"))
+            stack.enter_context(patch.object(sys, "argv", ["upgrade", "--previous-bundle", temporary,
+                "--binaries", temporary, "--console-dist", temporary, "--evidence", str(evidence)]))
+            stack.enter_context(patch.object(module.shutil, "which", return_value=sys.executable))
+            stack.enter_context(patch.object(module, "bundle_inputs", return_value={}))
+            deployment = stack.enter_context(patch.object(module, "UpgradeDeployment"))
+            deployment.return_value.remove_credentials_and_scan.return_value = True
+            stack.enter_context(patch.object(module, "exercise", return_value={}))
+            stack.enter_context(patch.object(module.subprocess, "run", side_effect=psql))
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(module.main(), 1)
+            result = json.loads((evidence / "summary.json").read_text())
+        self.assertEqual(len(set(drops)), 2)
+        self.assertFalse(result["database_cleanup"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(len(result["cleanup_errors"]), 1)
 
     def test_administrative_connection_preserves_the_owned_server_settings(self):
         from http_acceptance.harness import Deployment

@@ -220,6 +220,7 @@ const ROUTES: &[Route] = &[
     Route::post("/v1/resources/put", Policy::ResourceControl),
     Route::post("/v1/resources/query", Policy::Metadata),
     Route::post("/v1/resources/decisions", Policy::Metadata),
+    Route::sensitive_post("/v1/resources/sources", AuditReadKind::ResourceSources),
     Route::post("/v1/budgets/inspect", Policy::Metadata),
     Route::post("/v1/budgets/entries", Policy::Metadata),
     Route::post("/v1/resources/list", Policy::Metadata),

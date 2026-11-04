@@ -73,6 +73,12 @@ const COMMANDS: &[Leaf] = &[
     },
     Leaf {
         group: "resource",
+        name: "sources",
+        options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --name NAME [--state possibly_dispatched|unknown_occupied] [--cursor CURSOR] [--limit 1..100]",
+        description: "Discover charged workflow, provider and standalone task occurrences on one resource. Requires sensitive_read and a committed response audit. Follow next_cursor with the same resource and state.",
+    },
+    Leaf {
+        group: "resource",
         name: "decisions",
         options: "--credentials-file FILE --server URL --tenant ID --namespace NAME --name NAME [--before SEQUENCE] [--limit 1..100]",
         description: "Read weighted offer decisions newest first. Follow next with --before. Requires metadata_read.",

@@ -1,5 +1,29 @@
 //! The admission capability is complete and independent of approved effects.
 use crate::*;
+use ledgence_worker_api::metrics::{Metric, MetricOutcome};
+
+pub(crate) fn record_budget_error(error: &ContractError) {
+    if let ContractError::RunBudgetDenied(reason) = error {
+        Metric::RunBudgetRefusal.record(1.0, (*reason).into());
+    }
+}
+
+pub(crate) fn record_granted_start() {
+    Metric::AdmissionStartResult.record(1.0, MetricOutcome::Granted);
+}
+
+pub(crate) fn record_existing_start(has_source: bool, denial: Option<RunBudgetDenial>) {
+    let outcome = if let Some(reason) = denial {
+        Metric::RunBudgetRefusal.record(1.0, reason.into());
+        MetricOutcome::BudgetDenied
+    } else if has_source {
+        MetricOutcome::ExistingSource
+    } else {
+        MetricOutcome::NotGranted
+    };
+    Metric::AdmissionStartResult.record(1.0, outcome);
+}
+
 impl ApplicationService {
     pub async fn coordinate_admissions(
         &self,
@@ -29,6 +53,33 @@ impl ApplicationService {
     }
 }
 impl AdmissionOperations for ApplicationService {
+    fn supports_resource_sources(&self) -> bool {
+        self.workflows().is_ok_and(|w| {
+            w.operator_access().is_ok()
+                && w.admissions().is_ok_and(|s| s.supports_resource_sources())
+        })
+    }
+    fn list_resource_sources<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceSourceQuery,
+    ) -> ContractFuture<'a, ResourceSourcePage> {
+        Box::pin(async move {
+            self.admissions()?;
+            q.validate()?;
+            operator(p, &q.scope, AccessCapability::SensitiveRead)?;
+            let store = self.workflows()?.admissions()?;
+            if !store.supports_resource_sources() {
+                return Err(ContractError::Unavailable(
+                    "resource source discovery unavailable".into(),
+                ));
+            }
+            let page = store.list_resource_sources(p, q).await?;
+            page.validate_for(q).map_err(|_| invalid_reply())?;
+            Ok(page)
+        })
+    }
+
     fn supports_resource_fair_sharing(&self) -> bool {
         self.workflows().is_ok_and(|w| {
             w.operator_access().is_ok()
@@ -125,6 +176,12 @@ impl AdmissionOperations for ApplicationService {
                 .start_admission(p, c)
                 .await?;
             r.validate_for(p, c).map_err(|_| invalid_reply())?;
+            match &r {
+                AdmissionStartReceipt::Granted { .. } => record_granted_start(),
+                AdmissionStartReceipt::Existing { snapshot } => {
+                    record_existing_start(snapshot.source.is_some(), snapshot.budget_denial)
+                }
+            }
             Ok(r)
         })
     }

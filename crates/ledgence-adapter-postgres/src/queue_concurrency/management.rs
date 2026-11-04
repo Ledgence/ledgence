@@ -202,7 +202,7 @@ impl PostgresStore {
         self.queue_operator(
             p,
             &q.scope,
-            AccessCapability::MetadataRead,
+            AccessCapability::SensitiveRead,
             db::now(&mut tx).await?,
         )?;
         if get_policy(&mut tx, &q.scope, &q.queue, false)
@@ -240,7 +240,7 @@ impl PostgresStore {
         self.queue_operator(
             p,
             &q.scope,
-            AccessCapability::MetadataRead,
+            AccessCapability::SensitiveRead,
             db::now(&mut tx).await?,
         )?;
         tx.commit().await?;

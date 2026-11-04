@@ -23,11 +23,17 @@ const protectedSuite =
 const output = protectedSuite ? selected : "console";
 export default defineConfig({
   testMatch: protectedSuite
-    ? ["**/" + selected + ".spec.ts"]
+    ? selected === "queue-policies"
+      ? ["**/queue-policies.spec.ts", "**/resource-policies.spec.ts"]
+      : ["**/" + selected + ".spec.ts"]
     : ["**/*.spec.ts"],
   testIgnore: protectedSuite
     ? []
-    : ["**/queue-policies.spec.ts", "**/run-budgets.spec.ts"],
+    : [
+        "**/queue-policies.spec.ts",
+        "**/resource-policies.spec.ts",
+        "**/run-budgets.spec.ts",
+      ],
   testDir: "./tests/live",
   workers: 1,
   fullyParallel: false,

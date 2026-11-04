@@ -8,10 +8,12 @@ mod commands;
 mod fairness;
 mod lifecycle;
 mod ports;
+mod sources;
 pub use commands::*;
 pub use fairness::*;
 pub use lifecycle::*;
 pub use ports::*;
+pub use sources::*;
 
 pub const ADMISSION_MAX_MAINTENANCE_BATCH: u32 = 128;
 pub const ADMISSION_ARGUMENTS_MAX_BYTES: usize = 64 * 1024;

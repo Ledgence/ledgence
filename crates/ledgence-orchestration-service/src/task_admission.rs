@@ -39,6 +39,17 @@ impl TaskAdmissionOperations for ApplicationService {
             reply
                 .validate_for(principal, command)
                 .map_err(|_| invalid_reply())?;
+            match &reply {
+                TaskAdmissionStartReceipt::Granted { .. } => {
+                    crate::admission::record_granted_start()
+                }
+                TaskAdmissionStartReceipt::Existing { snapshot } => {
+                    crate::admission::record_existing_start(
+                        snapshot.source.is_some(),
+                        snapshot.budget_denial,
+                    )
+                }
+            }
             Ok(reply)
         })
     }

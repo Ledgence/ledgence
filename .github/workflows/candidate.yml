@@ -143,14 +143,24 @@ jobs:
       - name: Verify candidate archive checksum
         working-directory: ${{ runner.temp }}/ledgence-candidate
         run: shasum -a 256 -c SHA256SUMS
-      - name: Upgrade historical and last stable approvals with the packaged candidate
+      - name: Rehearse migrations and restore with published predecessor bundles
+        env:
+          LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           rehearsal="$RUNNER_TEMP/approval-upgrade"
+          mkdir -p "$rehearsal/postgres"
+          for tool in psql pg_dump pg_restore; do
+            cat > "$rehearsal/postgres/$tool" <<'SH'
+          #!/bin/sh
+          exec docker exec -i "$LEDGENCE_POSTGRES_CONTAINER" "$(basename "$0")" "$@"
+          SH
+            chmod +x "$rehearsal/postgres/$tool"
+          done
           mkdir -p "$rehearsal/candidate"
           archives=("$RUNNER_TEMP"/ledgence-candidate/*.tar.gz)
           test "${#archives[@]}" -eq 1
           tar -xzf "${archives[0]}" --strip-components=1 -C "$rehearsal/candidate"
-          while read -r version checksum; do
+          while read -r version checksum rehearsal_script; do
             baseline="ledgence-$version-x86_64-unknown-linux-gnu"
             previous="$rehearsal/previous-$version"
             mkdir -p "$previous"
@@ -159,13 +169,14 @@ jobs:
               --output "$rehearsal/$baseline.tar.gz"
             echo "$checksum  $rehearsal/$baseline.tar.gz" | sha256sum --check
             tar -xzf "$rehearsal/$baseline.tar.gz" --strip-components=1 -C "$previous"
-            python tools/check-approval-upgrade.py --previous-bundle "$previous" \
+            python "tools/$rehearsal_script" --previous-bundle "$previous" --psql "$rehearsal/postgres/psql" \
               --binaries "$rehearsal/candidate/bin" --console-dist "$rehearsal/candidate/console" \
               --candidate-runner "$rehearsal/candidate/runtime/ledgence/worker/bootstrap.py" \
               --evidence "$rehearsal/evidence/$version"
           done <<'BASELINES'
-          0.6.1 7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be
-          0.7.0 1795cc0ed9acc42613ab8e8c63d845a9ce5235a5d06cff4a5289e287d06143c3
+          0.6.1 7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be check-approval-upgrade.py
+          0.7.0 1795cc0ed9acc42613ab8e8c63d845a9ce5235a5d06cff4a5289e287d06143c3 check-approval-upgrade.py
+          0.8.0 343942fcb3e142abc3636e1458203e697e0c27b2a4a5300bd6603412270bce5e check-resource-upgrade.py
           BASELINES
       - name: Retain upgrade evidence
         if: always()

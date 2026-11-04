@@ -874,7 +874,7 @@ redispatch. A selected workflow wake is never rewritten.
 See the [provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/)
 and [source contract](../../docs/provider-operations.md).
 
-## Resource policies and admission inspection (development source)
+## Resource policies and admission inspection
 
 Matching development servers expose `client.resources` and `client.admissions`.
 These provider-neutral APIs require configured credentialed access; installing a
@@ -940,7 +940,7 @@ surface. The runtime owns their lease identity and execution permission. Use
 for governed execution.
 
 
-### Protected provider admission (development source)
+### Protected provider admission
 
 Admission inspection also accepts governed provider bindings: version 2 includes
 `admission.resource`; version 1 omits it and retains its original encoding.
@@ -953,11 +953,9 @@ of the linked ticket, source, and report receipt.
 These records describe the dispatch and its capacity settlement. They do not
 assert business success: a completed call may have returned a pending provider
 operation. Continue inspecting the protected provider operation for its business
-outcome. A ticket grants no authority to invoke the provider again. These models
-are available in development source and are not part of the published 0.8.0
-client package.
+outcome. A ticket grants no authority to invoke the provider again. These models require a matching 0.9 server with provider admission enabled.
 
-### Standalone task admission (development source)
+### Standalone task admission
 
 Use `from ledgence.client import TaskAdmission` and pass
 `admission=TaskAdmission(resource="support-model")` to `client.tasks.prepare` or
@@ -969,14 +967,40 @@ a reviewed source with `client.task_admissions.release(inspected, request_id=...
 reason=...)`. No automatic retry of a mutation. See the [task admission
 contract](../../docs/resource-admission.md#standalone-task-admission).
 
-### Queue concurrency in development
+### Queue concurrency
 
 Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching development server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](../../docs/queue-concurrency.md).
 
-## Weighted resource offers in development
+## Find outstanding resource sources
+
+With a credential that has `sensitive_read`, find the task generations, workflow
+operations or provider approvals behind a resource's unknown occupancy.
+Every page requires a committed response audit.
+
+```python
+from ledgence.client import ResourceSourceState
+
+cursor = None
+while True:
+    page = await client.resources.sources(
+        "support-model", state=ResourceSourceState.UNKNOWN_OCCUPIED, cursor=cursor
+    )
+    for source in page.items:
+        print(source.subject, source.revision, source.updated_at)
+    cursor = page.next_cursor
+    if cursor is None:
+        break
+```
+
+Omit `state` to include accepted Starts still classified as `possibly_dispatched`.
+Inspect the returned workflow occurrence with `client.admissions.inspect` or
+the task ID and generation with `client.task_admissions.inspect` for its retained
+source evidence. Each inspection has its own audit record.
+
+## Weighted resource offers
 
 Pass `ResourceFairSharing` and its `ResourceFairGroup` values to `ResourcePolicy(fair_sharing=...)` to weight offers between queues. Read a page with `await client.resources.decisions("support-model", limit=20)`, then pass `before=page.next` for older offers when `page.next` is present. [Policy, example and compatibility](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).
 
-### Shared run budgets (development)
+### Shared run budgets
 
 Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).

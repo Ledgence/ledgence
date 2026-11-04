@@ -656,6 +656,31 @@ async fn admission_rate_uses_shadow_credit_only_spends_on_start() {
 async fn admission_retains_source_after_execution_retention_and_restart() {
     let db = fixture(policy(1)).await;
     let (a, c, source) = start_call(&db.store, "retained").await;
+    let query = ResourceSourceQuery {
+        scope: scope(),
+        name: "model".into(),
+        state: None,
+        cursor: None,
+        limit: 1,
+    };
+    let active = db
+        .store
+        .list_resource_sources(&operator(), &query)
+        .await
+        .unwrap()
+        .items
+        .pop()
+        .unwrap();
+    assert_eq!(active.state, ResourceSourceState::PossiblyDispatched);
+    assert_eq!(
+        active.subject,
+        ResourceSourceSubject::Workflow {
+            workflow_id: c.occurrence.workflow_id.clone(),
+            origin_activation_id: c.occurrence.origin_activation_id.clone(),
+            key: c.occurrence.key.clone()
+        }
+    );
+
     apply_decision(
         &db.store,
         &a,
@@ -700,12 +725,31 @@ async fn admission_retains_source_after_execution_retention_and_restart() {
         .unwrap();
     bind(&restarted, AdmissionDispatchPolicy::Enabled).await;
     assert_eq!(resource(&restarted).await.occupied, 1);
+    let retained = restarted
+        .list_resource_sources(&operator(), &query)
+        .await
+        .unwrap()
+        .items
+        .pop()
+        .unwrap();
+    assert_eq!(retained.sequence, active.sequence);
+    assert_eq!(retained.subject, active.subject);
+    assert_eq!(retained.state, ResourceSourceState::UnknownOccupied);
+
     let receipt = restarted
         .finish_admission(&worker(), &finish(&source))
         .await
         .unwrap();
     assert!(!receipt.already_accepted);
     assert_eq!(resource(&restarted).await.occupied, 0);
+    assert!(
+        restarted
+            .list_resource_sources(&operator(), &query)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
     assert_eq!(
         inspect(&restarted, &c.occurrence)
             .await
@@ -1029,6 +1073,9 @@ async fn admission_enabling_rate_during_clock_rollback_preserves_watermark_and_n
     assert_eq!(credit, 0);
     db.finish().await;
 }
+
+#[path = "resource_source_tests.rs"]
+mod resource_sources;
 
 #[path = "fair_admission_tests.rs"]
 mod fair;

@@ -393,13 +393,13 @@ the assessment's reason and references. Retained evidence survives execution
 history collection and has no automatic expiry in this capability.
 See [retained effect evidence and native waits](effect-evidence.md).
 
-## Resource admission in development (C13)
+## Resource admission in development (C14)
 
 Console C8 adds native admission waits and accepted-operation nodes. Each wait
 retains its parking entrypoint and original occurrence; accepted callbacks have
 an audited occurrence inspector rather than reading a current-activation local
 journal. Offer/Start alone is readiness/authorization, not evidence of execution.
-The browser and backend must both use C13; published 0.8.0 remains C7.
+The browser and backend must both use C14; published 0.8.0 remains C7.
 See [resource admission](resource-admission.md).
 
 
@@ -409,7 +409,7 @@ C9 adds a required `subject` to admission wait metadata: `operation` for an
 ordinary registered call, or `provider` with the immutable original provider
 ticket. The wait preserves the approval's original activation even when capacity
 is granted to a later activation. Historical persisted C8 waits are projected as
-ordinary operations; use matching C13 server and browser assets.
+ordinary operations; use matching C14 server and browser assets.
 
 Open an admission wait and choose **Inspect admission record** to load its
 approved arguments and linked dispatch/report evidence through the audited
@@ -423,9 +423,9 @@ does not authorize another dispatch.
 Provider admission does not add a successful local-operation node. The ordinary
 accepted-operation node remains reserved for a committed generic callback
 result; recording a provider Start alone does not prove that its callback ran.
-Published Ledgence 0.8.0 continues to use C7; C13 is the current development contract.
+Published Ledgence 0.8.0 continues to use C7; C14 is the current development contract.
 
-### Standalone task admission (development C13)
+### Standalone task admission (development C14)
 
 When the installation enables task admission, **New execution** offers an optional
 named resource for a task. **Run again** preserves the requirement. In the task's
@@ -438,12 +438,22 @@ certify completion of external work.
 
 ## Cluster-wide queue concurrency (development)
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C13 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
-### Resource offers (development C13)
+### Resource offers (development C14)
 
 Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.
 
-### Shared run allowances (development C13)
+### Manage resource policies and inspect charged sources
+
+Open **Resources** using a credential with `metadata_read` to inspect capacity, rate, timeouts and occupancy. An adapter can support ordinary FIFO policies independently of weighted offer history. If your credential also has `resource_control`, enter the resource name and choose **Create policy**, or open an existing resource and choose **Edit policy**. Configure occupancy, timeouts and an optional start rate. On adapters that support weighted offers, enter each group's weight and source queues in turn order and select a default group for unmapped queues. Enter the reason and choose **Save policy**.
+
+A create expects the resource to be absent. An edit uses the revision you opened. If two operators edit the same revision, one receives a conflict. Choose **Separate this operation**, reload the current policy and review it before preparing a new change. If the response is lost, choose **Retry exact request** to retrieve the receipt with the original request ID. The Console keeps the request in memory for the same signed-in browser session during navigation. Copy the original Console request before closing or reloading the page if reconciliation is still needed.
+
+On adapters that support source discovery, **Inspect retained sources** lists charged task attempts, workflow operations and provider dispatches for the resource. Filter by **Possibly dispatched** or **Unknown occupied**. **Inspect exact record** reads the retained admission record by its original generation or occurrence, even after ordinary execution history is collected. Each lookup, including an empty source page, requires `sensitive_read` and is audited. Reading the aggregate policy and occupancy requires only `metadata_read`.
+
+A credential with only `sensitive_read` opens **Resources** with a generic instance label and no suggested queues. Enter a known resource name and choose **Inspect retained sources**. Listing configured resource names, reading offer history and viewing occupancy totals each require `metadata_read`. If the adapter supports source discovery without exact task admission inspection, the Console shows the task identity and generation in the source list and explains the unavailable detail.
+
+### Shared run allowances (development C14)
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.

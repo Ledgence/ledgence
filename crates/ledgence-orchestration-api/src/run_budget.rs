@@ -112,6 +112,17 @@ pub enum RunBudgetDenial {
     DelegationsExhausted,
     DeadlineExceeded,
 }
+impl From<RunBudgetDenial> for ledgence_worker_api::metrics::MetricOutcome {
+    fn from(reason: RunBudgetDenial) -> Self {
+        match reason {
+            RunBudgetDenial::CallsExhausted => Self::CallsExhausted,
+            RunBudgetDenial::DelegationsExhausted => Self::DelegationsExhausted,
+            RunBudgetDenial::DeadlineExceeded => Self::DeadlineExceeded,
+            RunBudgetDenial::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
 impl RunBudgetDenial {
     pub const fn code(self) -> &'static str {
         match self {

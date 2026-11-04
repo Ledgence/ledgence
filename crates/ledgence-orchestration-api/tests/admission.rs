@@ -16,6 +16,95 @@ fn occurrence() -> AdmissionOccurrence {
         key: "call:0".into(),
     }
 }
+#[test]
+fn resource_source_page_cursors_bind_resource_state_and_scope_with_lossless_order() {
+    let q = ResourceSourceQuery {
+        scope: scope(),
+        name: "model".into(),
+        state: Some(ResourceSourceState::UnknownOccupied),
+        cursor: None,
+        limit: 1,
+    };
+    let item = ResourceSource {
+        scope: scope(),
+        resource: q.name.clone(),
+        sequence: i64::MAX as u64,
+        revision: 1,
+        updated_at: 100,
+        state: ResourceSourceState::UnknownOccupied,
+        subject: ResourceSourceSubject::Task {
+            task_id: "only".into(),
+            generation: 1,
+        },
+    };
+    let token = q.next_cursor(item.sequence).unwrap();
+    let page = ResourceSourcePage {
+        items: vec![item.clone()],
+        next_cursor: Some(token.clone()),
+    };
+    page.validate_for(&q).unwrap();
+    let row = serde_json::to_value(&page).unwrap();
+    assert_eq!(row["items"][0]["sequence"], "9223372036854775807");
+    for (field, value) in [
+        ("sequence", json!(12)),
+        ("revision", json!("03")),
+        ("output", json!("hidden")),
+    ] {
+        let mut bad = row.clone();
+        bad["items"][0][field] = value;
+        assert!(serde_json::from_value::<ResourceSourcePage>(bad).is_err());
+    }
+    let next = ResourceSourceQuery {
+        cursor: Some(token),
+        ..q.clone()
+    };
+    assert_eq!(next.validate().unwrap(), Some(i64::MAX as u64));
+    assert!(page.validate_for(&next).is_err());
+    for wrong in [
+        ResourceSourceQuery {
+            name: "other".into(),
+            ..next.clone()
+        },
+        ResourceSourceQuery {
+            scope: Scope {
+                namespace: "other".into(),
+                ..scope()
+            },
+            ..next.clone()
+        },
+        ResourceSourceQuery {
+            state: None,
+            ..next.clone()
+        },
+        ResourceSourceQuery {
+            cursor: Some("AA".into()),
+            ..next.clone()
+        },
+        ResourceSourceQuery {
+            limit: 101,
+            ..next.clone()
+        },
+    ] {
+        assert!(wrong.validate().is_err());
+    }
+    assert!(q.next_cursor(i64::MAX as u64 + 1).is_err());
+    assert!(
+        ResourceSourcePage {
+            items: vec![],
+            next_cursor: next.cursor.clone()
+        }
+        .validate_for(&q)
+        .is_err()
+    );
+    assert!(
+        ResourceSourcePage {
+            items: vec![item],
+            next_cursor: Some(q.next_cursor(1).unwrap())
+        }
+        .validate_for(&q)
+        .is_err()
+    );
+}
 fn audience() -> AccessAudience {
     AccessAudience {
         authority_id: "authority".into(),

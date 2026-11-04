@@ -91,6 +91,8 @@ totals after a crash or expose global queue depth, per-queue cost, or a complete
 backlog. Task IDs and business correlation belong in traces/logs and inspection
 APIs, not unbounded metric labels.
 
+Matching 0.9 development builds export `ledgence.admission.start.result` when the orchestrator returns a resource Start outcome and `ledgence.run_budget.refusal` when it observes a budget denial. An exact retry after a lost reply can add an observation. To count authorized calls or investigate the reason for a denial, open the execution’s durable budget entries. [Development metric names and outcomes](https://github.com/Ledgence/ledgence/blob/develop/docs/metrics.md).
+
 ## Keep the execution graph authoritative
 
 Console builds Graph and Trace from durable execution identities, relationships

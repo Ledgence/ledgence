@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--python-client", type=Path, required=True, help="Interpreter containing the installed candidate ledgence-client package")
     parser.add_argument("--endpoint")
+    parser.add_argument("--metrics-capture", type=Path, help="Local OTLP capture executable for the run-budget metric gate")
     parser.add_argument("--previous-bundle", type=Path, help="Verified predecessor native bundle for the optional protected dispatch compatibility check")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--provider", action="store_true", help="Qualify composed protected provider dispatch admission")
@@ -42,6 +43,8 @@ def main():
             parser.error("budget browser qualification requires --run-budget, --console-dist and --browser-command")
     if args.previous_bundle and (not args.provider or not all((args.previous_bundle / path).is_file() for path in ("bin/ledgence", "runtime/ledgence/worker/bootstrap.py"))):
         parser.error("--previous-bundle requires --provider and an extracted native bundle")
+    if args.metrics_capture and (not args.run_budget or not args.metrics_capture.is_file() or not os.access(args.metrics_capture, os.X_OK)):
+        parser.error("--metrics-capture requires --run-budget and an executable local capture")
     parent = os.environ.get("LEDGENCE_POSTGRES_URL")
     if not parent:
         parser.error("LEDGENCE_POSTGRES_URL must name an explicitly disposable PostgreSQL server")
@@ -114,6 +117,9 @@ def main():
             "program_source_sha256": hashlib.sha256(program_source).hexdigest(),
             "artifacts_sha256": deployment.store_hashes(),
         }
+        if args.metrics_capture:
+            with args.metrics_capture.open("rb") as stream:
+                provenance["metrics_capture_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
         if args.previous_bundle:
             old = deployment.previous_bundle / "bin/ledgence"
             provenance["previous_binary_version"] = subprocess.check_output([old, "--version"], text=True).strip()
@@ -142,6 +148,12 @@ def main():
             with timed(directory, "scenario", case.__name__):
                 detail = case(deployment, provider)
             results.append({"scenario": case.__name__, "passed": True, "detail": detail})
+            (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+        if args.metrics_capture:
+            from resource_admission.metrics import verify_metrics
+            with timed(directory, "scenario", "admission-budget-metrics"):
+                detail = verify_metrics(deployment, provider, args.metrics_capture.resolve())
+            results.append({"scenario": "admission-budget-metrics", "passed": True, "detail": detail})
             (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
         assert provenance["helper_sha256"] == {str(path.relative_to(deployment.runner.parent)): hashlib.sha256(path.read_bytes()).hexdigest()
                                               for path in sorted(deployment.runner.parent.rglob("*.py"))}

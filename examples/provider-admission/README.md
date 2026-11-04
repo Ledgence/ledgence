@@ -6,7 +6,7 @@ its approved export once, and then waits separately for the export result.
 Waiting does not occupy a worker subprocess.
 
 **Development capability:** use matching components from this checkout, including
-migrations and Console C13. Published 0.8.0 packages do not contain this extension.
+migrations and Console C14. Published 0.8.0 packages do not contain this extension.
 The provider uses real loopback HTTP and writes CSV files. No model, provider
 account or API key is needed.
 

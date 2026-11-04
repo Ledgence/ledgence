@@ -1,5 +1,16 @@
 use super::*;
 impl AdmissionOperations for Mock {
+    fn supports_resource_sources(&self) -> bool {
+        self.resource_sources_enabled.load(Ordering::SeqCst)
+    }
+    fn list_resource_sources<'a>(
+        &'a self,
+        _: &'a VerifiedPrincipal,
+        q: &'a ResourceSourceQuery,
+    ) -> ContractFuture<'a, ResourceSourcePage> {
+        Box::pin(async move { self.reply("resource_sources", q) })
+    }
+
     fn supports_resource_fair_sharing(&self) -> bool {
         self.fair_sharing_enabled.load(Ordering::SeqCst)
     }
@@ -59,6 +70,91 @@ impl AdmissionOperations for Mock {
     ) -> ContractFuture<'a, AdmissionReleaseReceipt> {
         Box::pin(async move { self.reply("admission_release", c) })
     }
+}
+#[tokio::test]
+async fn resource_sources_require_sensitive_response_audit_even_on_an_empty_page() {
+    let f = setup().await;
+    f.mock.admission_enabled.store(true, Ordering::SeqCst);
+    let q = ResourceSourceQuery {
+        scope: scope(),
+        name: "model".into(),
+        state: None,
+        cursor: None,
+        limit: 5,
+    };
+    let body = json!(&q);
+    let path = "/v1/resources/sources";
+    assert_eq!(
+        request(&f, path, Some(body.clone()), "source-investigator")
+            .await
+            .0,
+        503
+    );
+    f.mock
+        .resource_sources_enabled
+        .store(true, Ordering::SeqCst);
+    let page = ResourceSourcePage {
+        items: vec![],
+        next_cursor: None,
+    };
+    f.mock.set("resource_sources", Ok(&page));
+    for principal in ["reader", "resource-operator", "worker"] {
+        assert_eq!(
+            request(&f, path, Some(body.clone()), principal).await.0,
+            403
+        );
+    }
+    let client = HttpTaskService::new(&f.running.url)
+        .unwrap()
+        .with_bearer_token("source-investigator")
+        .unwrap();
+    assert_eq!(client.list_resource_sources(&q).await.unwrap(), page);
+    let audit = f
+        .auditor
+        .observations
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .clone();
+    assert_eq!(audit.read, AuditReadKind::ResourceSources);
+    assert_eq!(
+        audit.resource,
+        AuditResource::Resource {
+            name: q.name.clone()
+        }
+    );
+    let mut foreign = body.clone();
+    foreign["scope"]["namespace"] = json!("foreign");
+    assert_eq!(
+        request(&f, path, Some(foreign), "source-investigator")
+            .await
+            .0,
+        404
+    );
+    let source = ResourceSource {
+        scope: q.scope.clone(),
+        resource: q.name.clone(),
+        sequence: 1,
+        revision: 1,
+        updated_at: 100,
+        state: ResourceSourceState::UnknownOccupied,
+        subject: ResourceSourceSubject::Task {
+            task_id: "private-occurrence".into(),
+            generation: 1,
+        },
+    };
+    f.mock.set(
+        "resource_sources",
+        Ok(ResourceSourcePage {
+            items: vec![source],
+            next_cursor: None,
+        }),
+    );
+    f.auditor.mode.store(1, Ordering::SeqCst);
+    let (status, error) = request(&f, path, Some(body), "source-investigator").await;
+    assert_eq!(status, 503);
+    assert!(!error.to_string().contains("private-occurrence"));
 }
 fn occurrence() -> AdmissionOccurrence {
     AdmissionOccurrence {
@@ -339,6 +435,88 @@ async fn console_admission_inspection_binds_instance_scope_and_audits_sensitive_
 }
 
 #[tokio::test]
+async fn console_configuration_discloses_only_capability_appropriate_fields() {
+    let f = setup().await;
+    let path = "/v1/console/config";
+    f.mock.admission_enabled.store(true, Ordering::SeqCst);
+    let (status, unavailable) = request(&f, path, None, "source-investigator").await;
+    assert_eq!(status, 200);
+    assert_eq!(unavailable["capabilities"]["resource_sources"], false);
+    assert_eq!(unavailable["capabilities"]["task_admission"], false);
+    f.mock
+        .resource_sources_enabled
+        .store(true, Ordering::SeqCst);
+    let (status, restricted) = request(&f, path, None, "source-investigator").await;
+    assert_eq!(status, 200);
+    assert_eq!(restricted["instance_name"], "Ledgence");
+    assert_eq!(restricted["server_version"], "undisclosed");
+    assert_eq!(restricted["suggested_queues"], json!([]));
+    assert_eq!(restricted["instance_id"], "audit");
+    assert!(!restricted.to_string().contains("private-operator-queue"));
+    for (key, value) in restricted["capabilities"].as_object().unwrap() {
+        assert_eq!(value, &(key == "resource_sources"), "{key}");
+    }
+    for token in ["reader", "operator"] {
+        let (status, full) = request(&f, path, None, token).await;
+        assert_eq!(status, 200);
+        assert_eq!(full["server_version"], "test");
+        assert_eq!(full["instance_name"], "Audit");
+        assert_eq!(full["suggested_queues"], json!(["private-operator-queue"]));
+        assert_eq!(full["capabilities"]["resource_policies"], true);
+    }
+    for token in ["resource-operator", "worker"] {
+        assert_eq!(request(&f, path, None, token).await.0, 403);
+    }
+}
+
+#[tokio::test]
+async fn console_resource_policy_uses_installation_scope_and_independent_capabilities() {
+    let f = setup().await;
+    let config = || request(&f, "/v1/console/config", None, "reader");
+    assert_eq!(config().await.1["capabilities"]["resource_policies"], false);
+    f.mock.admission_enabled.store(true, Ordering::SeqCst);
+    let capabilities = config().await.1["capabilities"].clone();
+    assert_eq!(capabilities["resource_policies"], true);
+    assert_eq!(capabilities["resource_fair_sharing"], false);
+    assert_eq!(capabilities["resource_sources"], false);
+    let path = "/v1/console/resources/put";
+    let mut body = json!({"name":"quota","request_id":"create","expected_revision":null,
+        "reason":"Bound concurrent calls","policy":{"enabled":true,"max_occupancy":1,
+        "rate":null,"offer_timeout_ms":30000,"start_timeout_ms":5000}});
+    assert_eq!(request(&f, path, Some(body.clone()), "reader").await.0, 403);
+    let mut scoped = body.clone();
+    scoped["scope"] = json!(scope());
+    assert_eq!(
+        request(&f, path, Some(scoped.clone()), "resource-operator")
+            .await
+            .0,
+        400
+    );
+    let command: ResourcePutCommand = serde_json::from_value(scoped.clone()).unwrap();
+    let receipt = ResourcePutReceipt {
+        already_accepted: false,
+        resource: ResourceRecord {
+            scope: scope(),
+            name: command.name,
+            revision: 1,
+            policy: command.policy,
+            updated_at: 10,
+        },
+    };
+    f.mock.set("resource_put", Ok(&receipt));
+    let (status, reply) = request(&f, path, Some(body.clone()), "resource-operator").await;
+    assert_eq!(status, 200, "{reply}");
+    assert_eq!(reply, json!(receipt));
+    assert_eq!(f.mock.calls.lock().unwrap().last().unwrap().1, scoped);
+    body["policy"]["fair_sharing"] =
+        json!({"groups":[{"name":"all","weight":1,"queues":[]}],"default_group":"all"});
+    assert_eq!(
+        request(&f, path, Some(body), "resource-operator").await.0,
+        503
+    );
+}
+
+#[tokio::test]
 async fn fair_resource_history_requires_capability_metadata_access_and_bound_scope() {
     let f = setup().await;
     f.mock.admission_enabled.store(true, Ordering::SeqCst);
@@ -361,7 +539,7 @@ async fn fair_resource_history_requires_capability_metadata_access_and_bound_sco
         true
     );
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v13.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v14.json"
     ))
     .unwrap();
     let mut page: ResourceDecisionPage =
@@ -474,7 +652,7 @@ impl RunBudgetOperations for Mock {
 async fn budget_inspection_requires_capability_and_preserves_authoritative_root_and_scope() {
     let f = setup().await;
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v13.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v14.json"
     ))
     .unwrap();
     let mut snap: RunBudgetSnapshot =

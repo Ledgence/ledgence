@@ -51,6 +51,7 @@ struct Mock {
     queue_policies_enabled: AtomicBool,
     admission_enabled: AtomicBool,
     fair_sharing_enabled: AtomicBool,
+    resource_sources_enabled: AtomicBool,
     run_budgets_enabled: AtomicBool,
     provider_admission_enabled: AtomicBool,
     resolution_mode: AtomicUsize,

@@ -16,7 +16,8 @@ import sys
 import traceback
 import uuid
 
-from http_acceptance.harness import timed
+from http_acceptance.harness import eventually, timed
+from worker_poll_plan.fixture import publish_plan
 from postgres_fixture import create_owned_database, owned_database_url
 from queue_capacity.fixture import CapacityDeployment
 from queue_capacity.scenarios import (
@@ -99,6 +100,9 @@ def main():
             try:
                 d.command("ledgence", ["orchestrator", "migrate"])
                 d.provision()
+                if "browser" in selected:
+                    d.enable_admission()
+                    sensitive_reader, d.config, _ = d.issue("source-reader", "source-reader", ["sensitive_read"])
                 d.publish(
                     "poll-fixture",
                     "1.0.0",
@@ -113,11 +117,28 @@ def main():
                 d.start_server()
 
                 def browser():
+                    # Keep a genuine charged task source available through both browser projects.
+                    # Its Start commits; the isolated worker never receives that reply or confirms Close.
+                    d.resource_name = "browser-source"
+                    d.policy(offer_ms=30_000)
+                    queue = "browser-source"
+                    proxy = d.observing_proxy()
+                    lost = proxy.lose_once("/v1/task-admissions/start", block_after=True)
+                    plan = d.directory / "browser-source-plan.json"
+                    publish_plan(plan, 1, "stride", {queue: 1})
+                    worker = d.worker("browser-source", plan, 1, proxy)
+                    task = d.submit_to(queue, "browser-source", resource=d.resource_name)
+                    eventually(lost.is_set, timeout=45, description="committed task Start")
+                    assert proxy.commands("/v1/task-admissions/start")[0]["status"] == 200
+                    worker.kill()
                     environment = dict(
                         os.environ,
                         LEDGENCE_CONSOLE_URL=d.server_url + "/console/",
                         LEDGENCE_QUEUE_OPERATOR_FILE=str(d.operator),
                         LEDGENCE_QUEUE_READER_FILE=str(d.reader),
+                        LEDGENCE_RESOURCE_READER_FILE=str(sensitive_reader),
+                        LEDGENCE_RESOURCE_SOURCE_NAME=d.resource_name,
+                        LEDGENCE_RESOURCE_SOURCE_TASK=task,
                         LEDGENCE_CONSOLE_LIVE_SUITE="queue-policies",
                     )
                     run_path(str(root / "tools/check-console.py"))[

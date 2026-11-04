@@ -517,6 +517,37 @@ async fn protected_provider_wait_requires_composed_capability_before_work_applic
 }
 
 #[tokio::test]
+async fn legacy_admission_port_never_substitutes_an_empty_source_page() {
+    let (svc, store) = service(None);
+    let worker = principal(false);
+    let investigator = VerifiedPrincipal::new(
+        worker.identity().clone(),
+        worker.audience().clone(),
+        "credential".into(),
+        PrincipalClass::Operator,
+        1000,
+        vec![AccessCapability::SensitiveRead],
+    )
+    .unwrap();
+    let q = ResourceSourceQuery {
+        scope: owner().scope,
+        name: "shared".into(),
+        state: None,
+        cursor: None,
+        limit: 1,
+    };
+    assert!(!svc.supports_resource_sources());
+    assert!(matches!(
+        svc.list_resource_sources(&investigator, &q).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert!(matches!(
+        svc.list_resource_sources(&worker, &q).await,
+        Err(ContractError::Forbidden)
+    ));
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+}
+#[tokio::test]
 async fn legacy_admission_store_cannot_accept_or_explain_weighted_offers() {
     let (svc, store) = service(None);
     let actor = principal(false);

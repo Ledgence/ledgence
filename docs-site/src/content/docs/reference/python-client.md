@@ -318,6 +318,8 @@ Limit outstanding attempts across worker replicas, independently of each workerâ
 
 ### Weighted offers (development)
 
+Call `await client.resources.sources("model.requests", state="unknown_occupied", limit=20)` to find standalone task generations, original workflow operations and protected provider approvals on that resource. Each page requires `sensitive_read` and a committed audit record. Pass `cursor=page.next_cursor` with the same resource and state to continue. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
+
 Use `ResourceFairGroup` and `ResourceFairSharing` from `ledgence.client` to configure `ResourcePolicy.fair_sharing`. Use `client.resources.decisions(name, before=page.next)` to read the next page of offer history when a cursor is present. [Configure queue groups and inspect offers](/how-to/share-resource-offers).
 
 ### Shared run budgets (development)

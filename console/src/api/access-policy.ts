@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: MIT
 import type { AccessCapability } from "../app/access-state";
+export function permitsRequest(
+  path: string,
+  write: boolean,
+  permits: (capability: AccessCapability) => boolean,
+): boolean {
+  if (path === "/v1/console/config")
+    return permits("metadata_read") || permits("sensitive_read");
+  return requiredCapabilities(path, write).every(permits);
+}
 export function requiredCapabilities(
   path: string,
   write: boolean,
@@ -13,6 +22,9 @@ export function requiredCapabilities(
     )
   )
     return ["metadata_read"];
+  if (route === "resources/put") return ["resource_control"];
+  if (route === "resources/sources" || route === "task-admissions/inspect")
+    return ["sensitive_read"];
   if (route === "queue-policies/list" || route === "queue-policies/inspect")
     return ["metadata_read"];
   if (route === "queue-policies/holds") return ["sensitive_read"];

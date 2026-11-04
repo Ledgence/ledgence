@@ -187,11 +187,14 @@ Matching development components add shared capacity and token-bucket policies
 for registered workflow callbacks. Workflows park without a worker slot, then
 resume under a one-shot Start permission. Accepted results survive worker loss;
 uncertain usage remains occupied. CLI, Python, HTTP and MCP expose policy and
-inspection operations, and Console C13 renders the durable wait/result. Protected
+inspection operations, and Console C14 renders the durable wait/result. Protected
 provider dispatch can share a resource through a combined one-shot grant; its
 call completion remains separate from the provider's business outcome. Recovery
 probes are outside that resource limit. Standalone tasks can require the same
 resource before handler invocation. Resources can give eligible queue groups weighted turns at admission. Console shows committed offers with their reasons. Run budgets bound governed calls and delegations across a root and its owned executions. [Budget guide](/how-to/share-run-budgets). This is not in the 0.8.0 packages. [Guide and limits](/how-to/control-resource-capacity).
+
+Matching development builds let operators edit named-resource policies in Console, inspect decisions and find outstanding sources using the resource name. Aggregate inspection uses `metadata_read`. Listing individual sources requires `sensitive_read` and records a response audit.
+
 
 ## In development: worker poll shares
 

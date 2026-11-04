@@ -10,6 +10,18 @@ fn audience() -> AccessAudience {
     }
 }
 fn actor(class: PrincipalClass) -> VerifiedPrincipal {
+    let capabilities = if class == PrincipalClass::Worker {
+        vec![AccessCapability::WorkerExecute]
+    } else {
+        vec![
+            AccessCapability::MetadataRead,
+            AccessCapability::SensitiveRead,
+            AccessCapability::ResourceControl,
+        ]
+    };
+    actor_with(class, capabilities)
+}
+fn actor_with(class: PrincipalClass, capabilities: Vec<AccessCapability>) -> VerifiedPrincipal {
     VerifiedPrincipal::new(
         PrincipalIdentity {
             issuer: audience().issuer(),
@@ -19,14 +31,7 @@ fn actor(class: PrincipalClass) -> VerifiedPrincipal {
         "credential".into(),
         class,
         253402300799999,
-        if class == PrincipalClass::Worker {
-            vec![AccessCapability::WorkerExecute]
-        } else {
-            vec![
-                AccessCapability::MetadataRead,
-                AccessCapability::ResourceControl,
-            ]
-        },
+        capabilities,
     )
     .unwrap()
 }
@@ -98,6 +103,50 @@ async fn holds(store: &PostgresStore) -> Vec<QueueHoldSnapshot> {
         .await
         .unwrap()
         .items
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn source_bound_holds_require_sensitive_read_independently_of_metadata_read() {
+    let db = fixture().await;
+    let store = &db.store;
+    configure(store, &put("enroll", None, Some(1), None)).await;
+    submit(store, "held").await;
+    let worker = session(store).await;
+    let a = assignment(run(store, &acquire_command(&worker, 0, 1)).await);
+    let query = QueueHoldList {
+        scope: scope(),
+        queue: "python".into(),
+        after: None,
+        limit: 1,
+        include_released: false,
+    };
+    let reader = |cap| actor_with(PrincipalClass::Operator, vec![cap]);
+    let metadata = reader(AccessCapability::MetadataRead);
+    let sensitive = reader(AccessCapability::SensitiveRead);
+    assert!(matches!(
+        store.list_queue_holds(&metadata, &query).await,
+        Err(ContractError::Forbidden)
+    ));
+    let page = store.list_queue_holds(&sensitive, &query).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].attempt_id, a.lease.owner.attempt_id);
+    let aggregate = QueuePolicyQuery {
+        scope: scope(),
+        queue: "python".into(),
+    };
+    assert_eq!(
+        store
+            .inspect_queue_policy(&metadata, &aggregate)
+            .await
+            .unwrap()
+            .occupied,
+        1
+    );
+    assert!(matches!(
+        store.inspect_queue_policy(&sensitive, &aggregate).await,
+        Err(ContractError::Forbidden)
+    ));
+    db.finish().await;
 }
 async fn submit(store: &PostgresStore, key: &str) -> TaskSnapshot {
     let mut cmd = command();

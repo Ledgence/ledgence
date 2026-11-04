@@ -70,6 +70,24 @@ fn metrics_only_exports_closed_vocabulary_and_guard_lifetimes_without_logs_or_tr
             }
             // Unrecognized fields never become attributes on otherwise valid events.
             tracing::event!(target:"ledgence::metrics",tracing::Level::DEBUG,metric=Metric::CacheLookup as u64,value=1.0f64,outcome=MetricOutcome::Hit as u64,tenant="arbitrary",task_id="secret");
+            for outcome in [
+                MetricOutcome::Granted,
+                MetricOutcome::ExistingSource,
+                MetricOutcome::BudgetDenied,
+                MetricOutcome::NotGranted,
+            ] {
+                Metric::AdmissionStartResult.record(1.0, outcome);
+            }
+            for outcome in [
+                MetricOutcome::CallsExhausted,
+                MetricOutcome::DelegationsExhausted,
+                MetricOutcome::DeadlineExceeded,
+                MetricOutcome::Cancelled,
+            ] {
+                Metric::RunBudgetRefusal.record(1.0, outcome);
+            }
+            Metric::AdmissionStartResult.record(50.0, MetricOutcome::CallsExhausted);
+            Metric::RunBudgetRefusal.record(50.0, MetricOutcome::ExistingSource);
             Metric::CacheLookup.record(f64::NAN, MetricOutcome::Hit);
             Metric::CacheLookup.record(-1.0, MetricOutcome::Hit);
             Metric::CacheLookup.record(50.0, MetricOutcome::Ok);
@@ -96,6 +114,8 @@ fn metrics_only_exports_closed_vocabulary_and_guard_lifetimes_without_logs_or_tr
     let decoded = decode(&body);
     assert_eq!(sum(&decoded, Metric::CacheLookup.name()), 1001.0);
     assert_eq!(sum(&decoded, Metric::ConsumerSlots.name()), 0.0);
+    assert_eq!(sum(&decoded, Metric::AdmissionStartResult.name()), 4.0);
+    assert_eq!(sum(&decoded, Metric::RunBudgetRefusal.name()), 4.0);
     for metric in &decoded {
         match metric.data.as_ref().unwrap() {
             Data::Histogram(histogram) => {
@@ -109,13 +129,44 @@ fn metrics_only_exports_closed_vocabulary_and_guard_lifetimes_without_logs_or_tr
                 assert_eq!(point.attributes[0].key, "outcome");
             }
             Data::Sum(sum) => {
-                assert_eq!(sum.data_points.len(), 1);
-                assert!(
-                    sum.data_points[0]
-                        .attributes
-                        .iter()
-                        .all(|a| a.key == "outcome")
-                );
+                use opentelemetry_proto::tonic::common::v1::any_value::Value::StringValue;
+                let outcomes = match metric.name.as_str() {
+                    "ledgence.admission.start.result" => {
+                        Some(["budget_denied", "existing_source", "granted", "not_granted"])
+                    }
+                    "ledgence.run_budget.refusal" => Some([
+                        "calls_exhausted",
+                        "cancelled",
+                        "deadline_exceeded",
+                        "delegations_exhausted",
+                    ]),
+                    _ => None,
+                };
+                if let Some(expected) = outcomes {
+                    let mut labels = Vec::new();
+                    for point in &sum.data_points {
+                        let [attribute] = point.attributes.as_slice() else {
+                            panic!("expected one outcome label")
+                        };
+                        assert_eq!(attribute.key, "outcome");
+                        let Some(StringValue(label)) =
+                            attribute.value.as_ref().and_then(|v| v.value.as_ref())
+                        else {
+                            panic!("expected a string outcome")
+                        };
+                        labels.push(label.as_str());
+                    }
+                    labels.sort_unstable();
+                    assert_eq!(labels, expected);
+                } else {
+                    assert_eq!(sum.data_points.len(), 1);
+                    assert!(
+                        sum.data_points[0]
+                            .attributes
+                            .iter()
+                            .all(|a| a.key == "outcome")
+                    );
+                }
             }
             _ => panic!("unexpected metric kind"),
         }

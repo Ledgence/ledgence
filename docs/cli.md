@@ -520,6 +520,8 @@ Use `--poll-plan FILE` in place of `--queue NAME` for integrated HTTP or SQS del
 The regular JSON file contains a revision, strategy and queue weights. Publish
 updates by replacing the file atomically at the same path. To consume from SQS, add `--delivery-config FILE` with the same queue names and scope. A worker polling multiple SQS routes defaults to a one-second receive wait. The existing single-queue and integrated modes keep their 20-second defaults. [Plan schema, scope and recovery](worker-delivery.md#worker-local-poll-plans-development).
 
+Use `ledgence resource sources --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--state possibly_dispatched|unknown_occupied] [--cursor CURSOR] [--limit 1..100]` to find the charged occurrences for a resource. This read requires `sensitive_read` and records a response audit even for an empty page. Follow `next_cursor` with unchanged scope, resource and state. Use the returned workflow occurrence or task generation with `ledgence admission inspect`. [Resource source discovery](resource-admission.md#find-unresolved-charged-sources).
+
 In development, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.
 
 ### Inspect a shared run budget (development)

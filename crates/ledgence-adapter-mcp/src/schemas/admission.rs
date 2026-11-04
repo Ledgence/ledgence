@@ -64,6 +64,16 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             false,
         ),
         tool(
+            "ledgence_resource_sources",
+            "Discover charged workflow, provider and standalone task occurrences by resource and optional state. Each page requires sensitive_read and a committed response audit. Follow next_cursor with the same resource and state; admission inspection is a separate audited read.",
+            object(
+                json!({"name":name,"state":{"enum":["possibly_dispatched","unknown_occupied",null]},"cursor":{"anyOf":[{"type":"string","maxLength":4096},{"type":"null"}]},"limit":limit()}),
+                &["name"],
+            ),
+            true,
+            false,
+        ),
+        tool(
             "ledgence_resource_decisions",
             "Read committed weighted resource offers newest first. Follow next using before with the same resource. Requires metadata_read.",
             object(

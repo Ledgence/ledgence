@@ -97,7 +97,7 @@
     "verifiedOn": "2026-11-03"
   },
   "resourceAdmission": {
-    "title": "Shared capacity for standalone tasks, registered callbacks and approved provider dispatch",
+    "title": "Shared capacity, resource policy management and audited source inspection",
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/control-resource-capacity"

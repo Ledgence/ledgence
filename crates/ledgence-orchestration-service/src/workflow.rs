@@ -392,7 +392,8 @@ impl ApprovedEffects for ApplicationService {
                 .workflows()?
                 .approved_effects()?
                 .claim_approved_effect(command)
-                .await?;
+                .await
+                .inspect_err(crate::admission::record_budget_error)?;
             if !receipt.matches(command).unwrap_or(false) {
                 return Err(ContractError::Unavailable(
                     "invalid approved effect claim reply".into(),
@@ -542,7 +543,11 @@ impl WorkflowService for ApplicationService {
             command.validate()?;
             // Forks reuse the parent's pinned descriptor inside the store's
             // transaction; mutable catalogs and program locators play no role.
-            let receipt = self.workflows()?.fork_workflow(command).await?;
+            let receipt = self
+                .workflows()?
+                .fork_workflow(command)
+                .await
+                .inspect_err(crate::admission::record_budget_error)?;
             receipt
                 .validate()
                 .map_err(|_| ContractError::Unavailable("invalid workflow fork receipt".into()))?;

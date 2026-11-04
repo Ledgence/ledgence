@@ -92,6 +92,8 @@ pub fn fixtures() -> Value {
         instance_name: "Ledgence".into(),
         capabilities: ConsoleCapabilities {
             queue_policies: true,
+            resource_policies: true,
+            resource_sources: true,
             resource_fair_sharing: true,
             run_budgets: true,
             task_run_budgets: false,
@@ -569,6 +571,37 @@ pub fn fixtures() -> Value {
     result["queue_policy_snapshot"] = serde_json::to_value(queue_policy).unwrap();
     result["queue_hold_snapshot"] = serde_json::to_value(queue_hold).unwrap();
     result["admission"] = explorer::admission_cases();
+    let retained: AdmissionSnapshot =
+        serde_json::from_value(result["admission"]["provider"]["unknown_pending"].clone()).unwrap();
+    let binding = retained.binding.provider().unwrap();
+    let source_query = ResourceSourceQuery {
+        scope: retained.occurrence.scope.clone(),
+        name: retained.binding.resource().to_owned(),
+        state: Some(ResourceSourceState::UnknownOccupied),
+        cursor: None,
+        limit: 1,
+    };
+    let source_sequence = 9_007_199_254_740_993;
+    let sources = ResourceSourcePage {
+        items: vec![ResourceSource {
+            scope: source_query.scope.clone(),
+            resource: source_query.name.clone(),
+            sequence: source_sequence,
+            revision: retained.revision,
+            updated_at: retained.updated_at,
+            state: ResourceSourceState::UnknownOccupied,
+            subject: ResourceSourceSubject::Provider {
+                workflow_id: retained.occurrence.workflow_id,
+                origin_activation_id: retained.occurrence.origin_activation_id,
+                key: retained.occurrence.key,
+                approval_activation_id: binding.ticket.occurrence.activation_id.clone(),
+                approval_key: binding.ticket.occurrence.approval_key.clone(),
+            },
+        }],
+        next_cursor: Some(source_query.next_cursor(source_sequence).unwrap()),
+    };
+    sources.validate_for(&source_query).unwrap();
+    result["resource_sources"] = serde_json::to_value(sources).unwrap();
     result["provider_probe_status"] = serde_json::to_value(ConsoleObservedTaskStatus {
         task: probe_status,
         observed_at: at,

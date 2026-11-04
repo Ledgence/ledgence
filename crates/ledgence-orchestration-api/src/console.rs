@@ -32,7 +32,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Version 12 adds scope-bound resource inspection and weighted offer decisions.
 /// Static assets and server must advertise the same contract version.
-pub const CONSOLE_CONTRACT_VERSION: u32 = 13;
+pub const CONSOLE_CONTRACT_VERSION: u32 = 14;
 pub const CONSOLE_QUERY_MAX_BYTES: usize = 16 * 1024;
 pub const CONSOLE_METADATA_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const CONSOLE_MAX_TIMESTAMP: Timestamp = 253_402_300_799_999;
@@ -101,10 +101,12 @@ pub struct ConsoleConfig {
     pub limits: ConsoleLimits,
     pub polling: ConsolePolling,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleCapabilities {
     pub queue_policies: bool,
+    pub resource_policies: bool,
+    pub resource_sources: bool,
     pub resource_fair_sharing: bool,
     pub run_budgets: bool,
     pub task_run_budgets: bool,

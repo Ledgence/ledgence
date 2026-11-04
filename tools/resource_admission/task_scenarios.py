@@ -8,7 +8,7 @@ from http_acceptance.harness import eventually
 from workflow_acceptance.owned_scenarios import quote
 from .harness import classifier
 from .task import CLOSE, RELEASE, SESSIONS, START
-from .task_surfaces import public_surfaces
+from .task_surfaces import public_surfaces, retained_source_surfaces
 
 
 def parked_restart_and_cancel(d, _):
@@ -428,6 +428,7 @@ def late_original_cleanup(d, _):
     assert d.resource()["occupied"] == 1 and d.resource()["unknown"] == 1
     d.collect_task(task, retained=True)
     assert d.ledger(task)["source"] == unknown["source"]
+    retained_source_surfaces(d, task)
     release = d.release_source(d.ledger(task))
     assert d.resource()["occupied"] == 0
     d.collect_task(task, retained=False)
@@ -447,6 +448,7 @@ def late_original_cleanup(d, _):
         "task": task,
         "successful_result_before_close": True,
         "visible_while_occupied": True,
+        "audited_resource_source_clients": ["HTTP", "CLI", "MCP", "installed Python"],
         "retired_after_release": True,
         "accepted_original_late_close": True,
         "released_once": True,

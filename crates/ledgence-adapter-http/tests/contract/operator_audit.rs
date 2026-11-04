@@ -31,6 +31,7 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::ApprovalDecide,
             ],
             "reader" => vec![AccessCapability::MetadataRead],
+            "source-investigator" => vec![AccessCapability::SensitiveRead],
             "submitter" => vec![AccessCapability::ExecutionSubmit],
             "resource-operator" => vec![AccessCapability::ResourceControl],
             "resolver" => vec![AccessCapability::EffectResolve],
@@ -270,7 +271,7 @@ fn console_services() -> server::console::ConsoleServices {
         instance_id: "audit".into(),
         name: "Audit".into(),
         scope: scope(),
-        suggested_queues: vec![],
+        suggested_queues: vec!["private-operator-queue".into()],
         allowed_origins: vec!["https://audit.example".into()],
     };
     let verifier = Arc::new(Verifier {

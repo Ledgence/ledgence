@@ -5,7 +5,7 @@ import { useCommand, freezeCommand } from "../../api/commands";
 import { parseUserJson } from "../../api/json";
 import { ContractError } from "../../api/codecs";
 export function useQueueCommand<T extends { request_id: string }, R>(
-  resource: "put" | "release",
+  resource: "put" | "release" | "resources/put",
   key: string,
   decode: (raw: unknown) => T,
   receipt: (raw: unknown, expected: T) => R,
@@ -20,13 +20,13 @@ export function useQueueCommand<T extends { request_id: string }, R>(
   }, []);
   const saved = accessController.recover(key);
   const expected = useRef<T | null>(
-    saved ? decode(parseUserJson(saved.body, 16384)) : null,
+    saved ? decode(parseUserJson(saved.body, 65536)) : null,
   );
   const command = useCommand(
-    "queue-policies/" + resource,
+    resource === "resources/put" ? resource : "queue-policies/" + resource,
     (raw) => {
       if (!expected.current)
-        throw new ContractError("Missing the original queue request.");
+        throw new ContractError("Missing the original saved request.");
       return receipt(raw, expected.current);
     },
     (value) => {

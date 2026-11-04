@@ -46,6 +46,50 @@ asyncio.run(main())
 """
 
 
+def retained_source_surfaces(d, task):
+    """An unresolved real task should have the same occurrence in all public clients."""
+    query = {"name":d.resource_name,"state":"unknown_occupied","cursor":None,"limit":5}
+    expected = d.checked("POST", "/v1/resources/sources", {"scope":d.scope, **query})
+    assert expected["next_cursor"] is None and len(expected["items"]) == 1
+    row = expected["items"][0]
+    assert row["subject"] == {"kind":"task","task_id":task,"generation":1}
+    assert set(row) == {"scope","resource","sequence","revision","state","subject","updated_at"}
+    args = ["--server", d.server_url, "--credentials-file", str(d.operator),
+            "--tenant",d.scope["tenant_id"],"--namespace",d.scope["namespace"],
+            "--name",d.resource_name,"--state","unknown_occupied","--limit","5"]
+    assert d.command("ledgence", ["resource","sources",*args]) == expected
+    mcp = McpSession(d, "retained-resource-sources", credentials_file=d.operator)
+    d.sessions.append(mcp)
+    assert mcp.tool("ledgence_resource_sources", query) == expected
+    mcp.close()
+    client = """import asyncio, json, sys
+from dataclasses import asdict
+from pathlib import Path
+import ledgence.client
+from ledgence.client import AsyncClient, AuditFilter, AuditReadKind, AuditResourceKind, AuditSensitiveResponse
+async def main():
+    server, credential, tenant, namespace, name = sys.argv[1:]
+    assert Path(ledgence.client.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+    async with AsyncClient(server, tenant=tenant, namespace=namespace, credentials_file=credential) as c:
+        page = await c.resources.sources(name,state="unknown_occupied",limit=5)
+        history = await c.audit.list(filter=AuditFilter.resource(AuditResourceKind.RESOURCE,name),limit=100)
+        reads = [event.operation for event in history.items if isinstance(event.operation,AuditSensitiveResponse)
+                 and event.operation.read is AuditReadKind.RESOURCE_SOURCES]
+        assert len(reads) == 4 and all(entry.resource.name == name for entry in reads)
+        items = [asdict(i) for i in page.items]
+        for item in items:
+            item["revision"] = str(item["revision"])
+            item["sequence"] = str(item["sequence"])
+        print(json.dumps({"items":items,"next_cursor":page.next_cursor}))
+asyncio.run(main())
+"""
+    out = subprocess.run([d.python_client,"-I","-c",client,d.server_url,str(d.operator),
+        d.scope["tenant_id"],d.scope["namespace"],d.resource_name],
+        env=d.environment, capture_output=True, timeout=45)
+    (d.directory / "retained-source-sdk.stderr").write_bytes(out.stderr)
+    assert out.returncode == 0 and json.loads(out.stdout) == expected
+
+
 def run_documented_task(d):
     """Execute the public source file twice using the installed candidate client."""
     script = d.root / "examples/resource-admission/submit_task.py"
@@ -141,13 +185,13 @@ def public_surfaces(d, _):
     )
     assert cli == snapshot
     config = d.checked("GET", "/v1/console/config", credentials=d.operator)
-    assert config["contract_version"] == 13 and config["capabilities"]["task_admission"]
+    assert config["contract_version"] == 14 and config["capabilities"]["task_admission"]
     address = {"task_id": task, "generation": 1}
     status, headers, inspected = d.request(
         "POST", "/v1/console/task-admissions/inspect", address, credentials=d.operator
     )
     assert status == 200 and inspected == snapshot
-    assert {key.lower(): value for key, value in headers.items()}["ledgence-console-contract"] == "13"
+    assert {key.lower(): value for key, value in headers.items()}["ledgence-console-contract"] == "14"
     d.checked("POST", "/v1/console/task-admissions/inspect",
               {**address, "scope": d.scope}, credentials=d.operator, expected=400)
 

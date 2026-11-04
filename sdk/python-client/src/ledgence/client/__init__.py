@@ -164,6 +164,14 @@ __all__ += ["AuditQueue", "AuditQueueHoldReleased", "AuditQueuePolicyAccepted"]
 
 from .admission_models import ResourceFairGroup, ResourceFairSharing
 from .resource_decisions import ResourceOfferDecision, ResourceDecisionPage, TaskDecisionSubject, WorkflowDecisionSubject
+from .resource_sources import (
+    ProviderSourceSubject, ResourceSource, ResourceSourcePage,
+    ResourceSourceState, WorkflowSourceSubject,
+)
+
+__all__ += ["ProviderSourceSubject", "ResourceSource", "ResourceSourcePage",
+            "ResourceSourceState", "WorkflowSourceSubject"]
+
 
 __all__ += ["ResourceFairGroup","ResourceFairSharing","ResourceOfferDecision","ResourceDecisionPage",
             "TaskDecisionSubject","WorkflowDecisionSubject"]

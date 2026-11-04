@@ -4,6 +4,7 @@ pub(super) mod execution;
 pub(crate) mod fair;
 pub(crate) mod policy;
 pub(crate) mod scheduler;
+mod sources;
 pub(crate) mod state;
 pub(super) mod wait;
 use super::*;
@@ -11,6 +12,17 @@ pub(super) use scheduler::drain;
 use state::*;
 pub(super) use wait::{apply_wait, close_wait, install_wait};
 impl AdmissionOperations for PostgresStore {
+    fn supports_resource_sources(&self) -> bool {
+        true
+    }
+    fn list_resource_sources<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceSourceQuery,
+    ) -> ContractFuture<'a, ResourceSourcePage> {
+        Box::pin(self.run(move || self.resource_sources_once(p, q)))
+    }
+
     fn supports_resource_fair_sharing(&self) -> bool {
         true
     }
