@@ -40,6 +40,7 @@ class Provider:
                         "attempt": data["attempt"],
                         "workflow": data["workflow"],
                         "ordinal": charge,
+                        "requested_service_ms": delay,
                         "start_ns": time.monotonic_ns(),
                         "status": status,
                     }

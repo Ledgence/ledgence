@@ -5,11 +5,14 @@ import runpy
 import uuid
 
 from http_acceptance.harness import Process
-from provider_operations.sqs import loopback_endpoint, delivery_config
+from provider_operations.sqs import delivery_config, loopback_endpoint
 from worker_poll_plan.fixture import PollDeployment
 
 
 class CapacityDeployment(PollDeployment):
+    # Queue fault fixtures use short polling; other harnesses may defer to the CLI default.
+    acquire_wait_ms = 0
+
     def configure_broker(self, endpoint):
         endpoint = loopback_endpoint(endpoint)
         self.admin = runpy.run_path(str(self.root / "tools/check-sqs.py"))[
@@ -67,9 +70,9 @@ class CapacityDeployment(PollDeployment):
             self.python,
             "--runner",
             str(self.root / "sdk/python/ledgence/worker/bootstrap.py"),
-            "--acquire-wait-ms",
-            "0",
         ]
+        if self.acquire_wait_ms is not None:
+            arguments.extend(["--acquire-wait-ms", str(self.acquire_wait_ms)])
         if hasattr(self, "delivery") and queue == self.queue:
             arguments.extend(["--delivery-config", str(self.delivery)])
         p = Process(arguments, self.directory, "worker-" + name, self.environment)

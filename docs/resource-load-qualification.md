@@ -20,20 +20,22 @@ python3 tools/check-resource-load.py --binaries /path/to/optimized/bin \
   --evidence /tmp/ledgence-resource-load-qualification
 ```
 
-If `psql` is installed outside your PATH, add `--psql /path/to/psql`. The runner creates its own database and does not need an existing server URL. `--smoke` marks its output as functional evidence, including when all requests complete.
+If `psql` is installed outside your PATH, add `--psql /path/to/psql`. By default the runner omits the worker's `--acquire-wait-ms` argument, which uses the single-queue HTTP worker default of 20,000 ms. To run a matched short-poll control, repeat the same command with `--acquire-wait-ms 0` and a different evidence directory. Values between 0 and 20,000 ms are accepted. The report records the queue, concurrency and poll flag from each launched worker, and identifies whether the effective wait comes from the worker CLI default or an explicit argument. It describes configuration rather than the observed duration of each poll. The runner creates its own database and does not need an existing server URL. `--smoke` marks its output as functional evidence, including when all requests complete.
 
 ## Matched timing trials
 
-Every arm uses the same binary, warmed program, four consumer slots, four submitters and the same physical provider work. Each arm offers 96 tasks at 16 per second. Every eighth provider request takes 150 ms and the other requests take 5 ms. The generator reports actual arrival times and rejects a saturated submission pool or delay exceeding 125 ms. Three repetitions alternate forward, reverse and forward order. Smoke mode uses one repetition of 12 tasks per arm.
+Every arm uses the same binary, warmed program, four consumer slots, four submitters and the same physical provider work. Each arm offers 96 tasks at 16 per second. The first scheduled task in each block of eight requests 150 ms of provider work. The other seven request 5 ms each. Physical requests can reach the provider in a different order. The generator reports actual arrival times and rejects a saturated submission pool or delay exceeding 125 ms. Three repetitions alternate forward, reverse and forward order. Smoke mode uses one repetition of 12 tasks per arm.
 
 | Arm | Policy |
 | --- | --- |
 | Ordinary | The tasks omit resource admission and run budgets. The installation supports both. |
 | Hot resource | Every task requests the same enabled FIFO resource, with capacity four. |
-| Independent resources | Tasks are assigned round-robin to eight FIFO resources of capacity four. The worker still has four slots total. |
+| Independent resources | Every block of eight visits all eight FIFO resources, each with capacity four. The first key rotates between blocks so long requests span the resources. The worker still has four slots total. |
 | Hot resource with budget | Each standalone root requests the hot resource and permits one call. Its accepted Start charges its own root. |
 
-The provider records a distinct key and task identity for every POST, the monotonic entry/finish interval, the returned status and whether the synthetic effect was created. The verifier checks each identity individually and requires all offered tasks to complete in one attempt with one physical request/effect and the expected charge. Each budgeted task has its own root and exactly one ledger entry for the admitted source. Ordinary and resource-only tasks have no root or charges. Throughput includes the fixed arrival interval and the final terminal observation. This measures the stated offered workload, not peak platform capacity.
+The hot arm has four possible reservations. The independent arm has 32 in aggregate. Both have four worker slots. Their differences include the number of reservations that can be offered before earlier work closes, so the timing contrast cannot isolate row-lock contention. Each timing and pressure result records the relevant resource capacity and consumer slots.
+
+The provider records a distinct key and task identity for every POST, the requested service duration, monotonic entry/finish interval, the returned status and whether the synthetic effect was created. The verifier checks each identity individually and requires all offered tasks to complete in one attempt with one physical request/effect and the expected charge. Each budgeted task has its own root and exactly one ledger entry for the admitted source. Ordinary and resource-only tasks have no root or charges. Throughput includes the fixed arrival interval and the final terminal observation. This measures the stated offered workload, not peak platform capacity.
 
 `summary.json` contains nearest-rank p50/p95/p99 from database registration to first claim, governed Start and terminal completion, and the peak simultaneous provider calls. The interval to Start includes queue, offer and worker preparation. The provider busy fraction divides the sum of physical call intervals by four times the first-arrival-to-observed-drain window. Accepted Start and provider entry are distinct events. Each arm retains raw database rows, provider calls, client arrival timings and samples.
 
