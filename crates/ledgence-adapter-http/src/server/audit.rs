@@ -321,6 +321,13 @@ enum ConsoleOperation {
         policy_digest: ledgence_worker_api::Digest,
         reason: String,
     },
+    TaskAdmissionReleased {
+        occurrence: TaskAdmissionOccurrence,
+        source_id: String,
+        request_id: String,
+        revision: ConsoleU64,
+        reason: String,
+    },
     AdmissionReleased {
         occurrence: AdmissionOccurrence,
         source_id: String,
@@ -363,6 +370,19 @@ impl From<AuditEvent> for ConsoleEvent {
                 request_id,
                 revision: ConsoleU64(revision),
                 policy_digest,
+                reason,
+            },
+            AuditOperation::TaskAdmissionReleased {
+                occurrence,
+                source_id,
+                request_id,
+                revision,
+                reason,
+            } => ConsoleOperation::TaskAdmissionReleased {
+                occurrence,
+                source_id,
+                request_id,
+                revision: ConsoleU64(revision),
                 reason,
             },
             AuditOperation::AdmissionReleased {

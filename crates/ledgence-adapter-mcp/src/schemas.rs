@@ -113,7 +113,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
         tool(
             "ledgence_task_submit",
             "Submit one task and return its handle immediately. Supply a stable idempotency_key; retry an uncertain outcome only with the identical key and input. Reusing a key with changed input conflicts. Program execution may cause external effects.",
-            submission(),
+            submission(true),
             false,
             true,
         ),
@@ -151,7 +151,7 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
         tool(
             "ledgence_workflow_submit",
             "Submit one workflow and return its handle immediately. Supply a stable idempotency_key; retry an uncertain outcome only with identical key and input. The workflow may execute tasks or external effects.",
-            submission(),
+            submission(false),
             false,
             true,
         ),
@@ -292,8 +292,8 @@ fn task_filters() -> Value {
         &[],
     )
 }
-fn submission() -> Value {
-    object(
+fn submission(task: bool) -> Value {
+    let mut schema = object(
         json!({
             "program":identifier(), "version":identifier(), "queue":identifier(),
             "data":{"description":"Application-owned JSON, at most 1 MiB and depth 64. Never put credentials in persistent inputs."},
@@ -304,7 +304,14 @@ fn submission() -> Value {
             "origin_trace":object(json!({"traceparent":{"type":"string"},"tracestate":{"type":"string"}}), &["traceparent"])
         }),
         &["program", "version", "queue", "data", "idempotency_key"],
-    )
+    );
+    if task {
+        schema["properties"]["admission"] = object(
+            json!({"resource":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9_.:-]+$","description":"Existing scoped resource required before the standalone task invokes its handler."}}),
+            &["resource"],
+        );
+    }
+    schema
 }
 fn cloud_event() -> Value {
     json!({"type":"object","description":"Complete JSON CloudEvent 1.0, at most 64 KiB. Caller supplies a stable source/id; extensions are preserved.","required":["specversion","source","id","type","datacontenttype","data"],"properties":{
@@ -356,14 +363,16 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 25);
-        assert_eq!(tool_definitions(true).len(), 17);
+        assert_eq!(all.len(), 27);
+        assert_eq!(tool_definitions(true).len(), 18);
         for name in [
             "ledgence_resource_list",
             "ledgence_resource_inspect",
             "ledgence_admission_inspect",
             "ledgence_resource_put",
             "ledgence_admission_release",
+            "ledgence_task_admission_inspect",
+            "ledgence_task_admission_release",
         ] {
             assert!(names.contains(name), "missing admission tool: {name}");
         }

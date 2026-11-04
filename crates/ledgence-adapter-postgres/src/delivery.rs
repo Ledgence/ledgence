@@ -70,10 +70,34 @@ impl PostgresStore {
             return Err(ContractError::ExternalDispatchRequired.into());
         }
         let before_ms = codec::ms(before)?;
-        let row = sqlx::query("SELECT * FROM tasks WHERE tenant_id=$1 AND namespace=$2 AND queue=$3 AND state='queued' AND cancel_requested_at_ms IS NULL AND dispatch_destination IS NULL AND available_at_ms <= $4 ORDER BY available_at_ms,submitted_at_ms,task_id LIMIT 1 FOR NO KEY UPDATE SKIP LOCKED")
-            .bind(&command.scope.tenant_id).bind(&command.scope.namespace).bind(&command.queue).bind(before_ms).fetch_optional(&mut *tx).await?;
-        let candidate = row.as_ref().map(codec::task).transpose()?;
-        if candidate.is_none() && !finish_empty {
+        let candidate_sql = if session.features.iter().any(|v| v == TASK_ADMISSION_FEATURE) {
+            include_str!("../queries/acquire_admission_capable.sql")
+        } else {
+            include_str!("../queries/acquire_ordinary.sql")
+        };
+        let row = sqlx::query(candidate_sql)
+            .bind(&command.scope.tenant_id)
+            .bind(&command.scope.namespace)
+            .bind(&command.queue)
+            .bind(before_ms)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let mut candidate = row.as_ref().map(codec::task).transpose()?;
+        let invalidated =
+            if let Some(task) = candidate.as_ref().filter(|t| t.input.admission.is_some()) {
+                !crate::task_admission::validate_candidate(
+                    &mut tx,
+                    task,
+                    self.admission_configured()?.dispatch == AdmissionDispatchPolicy::Enabled,
+                )
+                .await?
+            } else {
+                false
+            };
+        if invalidated {
+            candidate = None;
+        }
+        if candidate.is_none() && !finish_empty && !invalidated {
             // A first-sequence placeholder participates in serialization, but
             // remains uncommitted. Explicit rollback releases it and all locks.
             let now = db::now(&mut tx).await?;
@@ -132,7 +156,7 @@ impl PostgresStore {
         let operation_span = producer.clone().unwrap_or_else(tracing::Span::none);
         async {
             let claimed_at = db::now(&mut tx).await?;
-            let transition = core::acquire(
+            let mut transition = core::acquire(
                 core::Acquisition {
                     session: Some(&session),
                     cursor: cursor.as_ref(),
@@ -143,6 +167,7 @@ impl PostgresStore {
                 command,
                 claimed_at,
             )?;
+            crate::task_admission::prepare_assignment(&mut tx,&mut transition,&session).await?;
             if let Some(changes) = &transition.changes {
                 let attempt = changes.attempt.as_ref().ok_or_else(|| {
                     ContractError::Unavailable("claim transition omitted its attempt".into())
@@ -278,7 +303,9 @@ impl PostgresStore {
             .as_ref()
             .ok_or_else(|| ContractError::Unavailable("active task has no attempt".into()))?;
         let attempt = db::load_attempt(&mut tx, &task, id).await?;
-        let transition = core::expire(&task, &attempt, db::now(&mut tx).await?)?;
+        let now = db::now(&mut tx).await?;
+        let transition =
+            crate::task_admission::expire_transition(&mut tx, &task, &attempt, now).await?;
         if transition.reply {
             db::apply(&mut tx, &transition).await?;
         }

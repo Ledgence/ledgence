@@ -7,8 +7,9 @@ COPY console/package.json console/pnpm-lock.yaml console/pnpm-workspace.yaml ./
 COPY console/patches ./patches
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY console ./
-# Type checking includes the cross-language saved-command fixture.
+# Type checking includes shared SDK and Rust ledger fixtures.
 COPY sdk/python-client/tests/fixtures/console-effect-resolution.json /src/sdk/python-client/tests/fixtures/console-effect-resolution.json
+COPY crates/ledgence-orchestration-api/tests/fixtures/task-admission-v1.json /src/crates/ledgence-orchestration-api/tests/fixtures/task-admission-v1.json
 COPY LICENSE /src/LICENSE
 # The full copy can give unchanged patches newer timestamps than the cached
 # install. Revalidate the final files without downloading or changing the lockfile.

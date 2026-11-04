@@ -5,6 +5,7 @@ import { ContractError } from "./codecs";
 import type { Approval } from "./approvals";
 import { effectOccurrence } from "./effects";
 import { admissionOccurrence } from "./resources";
+import { taskAdmissionOccurrence } from "./task-admissions";
 
 const id = s.refine(
   s.id,
@@ -26,6 +27,10 @@ const actor = s.object({
 });
 const resource = s.variant({
   resource: s.object({ kind: s.enumeration("resource"), name: id }),
+  task_admission: s.object({
+    kind: s.enumeration("task_admission"),
+    occurrence: taskAdmissionOccurrence,
+  }),
   admission: s.object({
     kind: s.enumeration("admission"),
     occurrence: admissionOccurrence,
@@ -80,6 +85,7 @@ const responseRead = s.refine(
       "approval_inspect",
       "effect_inspect",
       "admission_inspect",
+      "task_admission_inspect",
       "approval_list",
       "approval_decision",
     ),
@@ -95,6 +101,7 @@ const responseRead = s.refine(
       approval_inspect: "approval",
       effect_inspect: "effect",
       admission_inspect: "admission",
+      task_admission_inspect: "task_admission",
       approval_list: "approval_page",
       approval_decision: "approval",
     })[value.read] === value.resource.kind,
@@ -113,6 +120,14 @@ export const auditEvent = s.refine(
         request_id: id,
         revision: s.decimal,
         policy_digest: s.string,
+        reason: s.string,
+      }),
+      task_admission_released: s.object({
+        kind: s.enumeration("task_admission_released"),
+        occurrence: taskAdmissionOccurrence,
+        source_id: id,
+        request_id: id,
+        revision: s.decimal,
         reason: s.string,
       }),
       admission_released: s.object({

@@ -92,7 +92,17 @@ pub(crate) async fn insert_attempt(
         .ok_or_else(|| ContractError::Unavailable("stored event ID missing".into()))?;
     sqlx::query!("INSERT INTO attempts(attempt_id,task_id,generation,lease_id,worker_session_id,consumer_id,event_source,event_id,event_bytes,expires_at_ms,deadline_ms,authority_deadline_ms,state,execution_may_have_started,quiescence) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active',false,'unconfirmed')",
         o.attempt_id,o.task_id,generation,o.lease_id,o.worker_session_id,consumer,source,event_id,event,expires,deadline,horizon)
-        .execute(connection).await?;
+        .execute(&mut *connection).await?;
+    if let Some(marker) = &a.task_admission {
+        let saved:Option<bool>=sqlx::query_scalar("UPDATE attempts SET task_admission_bytes=$2 WHERE attempt_id=$1 AND task_admission_bytes IS NULL RETURNING task_admission_bytes=$2")
+            .bind(&o.attempt_id).bind(codec::encode(marker)?).fetch_optional(connection).await?;
+        if saved != Some(true) {
+            return Err(ContractError::Unavailable(
+                "task admission attempt marker was not persisted".into(),
+            )
+            .into());
+        }
+    }
     Ok(())
 }
 
@@ -114,8 +124,14 @@ pub(crate) async fn apply<R>(
             .as_ref()
             .map(|r| codec::label(&r.intent))
             .transpose()?;
-        sqlx::query!("UPDATE attempts SET expires_at_ms=$2, authority_deadline_ms=$3, state=$4, execution_may_have_started=$5, last_renew_sequence=($6::text)::ldg_u64, last_renew_intent=$7, quiescence=$8, finished_at_ms=$9 WHERE attempt_id=$1",a.lease.owner.attempt_id,expires,horizon,state,a.execution_may_have_started,sequence,intent,quiet,finished)
+        let updated=sqlx::query!("UPDATE attempts SET expires_at_ms=$2, authority_deadline_ms=$3, state=$4, execution_may_have_started=$5, last_renew_sequence=($6::text)::ldg_u64, last_renew_intent=$7, quiescence=$8, finished_at_ms=$9 WHERE attempt_id=$1",a.lease.owner.attempt_id,expires,horizon,state,a.execution_may_have_started,sequence,intent,quiet,finished)
             .execute(&mut *connection).await?;
+        if a.task_admission.is_some() && updated.rows_affected() != 1 {
+            return Err(ContractError::Unavailable(
+                "governed attempt transition was not persisted".into(),
+            )
+            .into());
+        }
         if let Some(accepted) = &a.settlement {
             let bytes = codec::encode(&accepted.command)?;
             let at = codec::ms(accepted.receipt.accepted_at)?;
@@ -150,12 +166,44 @@ pub(crate) async fn apply<R>(
     let count = i64::from(t.attempt_count);
     let binding = sqlx::query!("UPDATE tasks SET state=$2,available_at_ms=$3,terminal_at_ms=$4,current_attempt_id=$5,attempt_count=$6,cancel_requested_at_ms=$7,next_expiry_ms=(SELECT LEAST(expires_at_ms,authority_deadline_ms) FROM attempts WHERE attempt_id=$5 AND task_id=$1) WHERE task_id=$1 RETURNING dispatch_destination",t.task_id,state,available,terminal,t.current_attempt_id,count,cancelled)
         .fetch_one(&mut *connection).await?;
+    if t.input.admission.is_some() {
+        if transition
+            .history
+            .iter()
+            .any(|e| e.reason == TransitionReason::AdmissionDeferred)
+        {
+            let verified:Option<bool>=sqlx::query_scalar("UPDATE tasks SET admission_deferrals=$2 WHERE task_id=$1 RETURNING admission_deferrals=$2 AND attempt_count=$3 AND state=$4 AND current_attempt_id IS NULL").bind(&t.task_id).bind(i64::from(t.admission_deferrals)).bind(count).bind(&state).fetch_optional(&mut *connection).await?;
+            if verified != Some(true) {
+                return Err(ContractError::Unavailable(
+                    "governed deferral was not persisted".into(),
+                )
+                .into());
+            }
+        }
+        crate::task_admission::apply_transition(connection, transition).await?;
+    }
     history(connection, &transition.history).await?;
     // Submission creates its initial obligation separately in the same task
     // transaction. Only entering/leaving queued needs maintenance here; claim
     // already removed the obligation before later active/terminal transitions.
     if binding.dispatch_destination.is_some() && changes_dispatch_eligibility(&transition.history) {
         crate::dispatch_intents::sync_intent(connection, &t.task_id).await?;
+        if t.input.admission.is_some() {
+            // Only an offered task may retain a publication. Every ordinary
+            // lifecycle transition here removes its previous generation.
+            let cleared: bool = sqlx::query_scalar(
+                "SELECT NOT EXISTS(SELECT 1 FROM dispatch_intents WHERE task_id=$1)",
+            )
+            .bind(&t.task_id)
+            .fetch_one(&mut *connection)
+            .await?;
+            if !cleared {
+                return Err(ContractError::Unavailable(
+                    "governed dispatch publication was not removed".into(),
+                )
+                .into());
+            }
+        }
     }
     if transition.history.iter().any(|event| {
         matches!(
@@ -172,11 +220,14 @@ pub(crate) async fn apply<R>(
 /// Exhaustive so a new lifecycle reason requires an explicit eligibility decision.
 fn changes_dispatch_eligibility(events: &[HistoryEvent]) -> bool {
     events.iter().any(|event| match event.reason {
-        TransitionReason::Claimed | TransitionReason::RetryScheduled => true,
+        TransitionReason::AdmissionDeferred
+        | TransitionReason::Claimed
+        | TransitionReason::RetryScheduled => true,
         // A queued task has no current attempt, including a queued retry with
         // prior attempts. Active cancellation/finalization identifies its attempt.
         TransitionReason::Cancelled => event.attempt_id.is_none(),
-        TransitionReason::Submitted
+        TransitionReason::AdmissionStopped
+        | TransitionReason::Submitted
         | TransitionReason::DispatchAuthorized
         | TransitionReason::CancelRequested
         | TransitionReason::ReportAccepted

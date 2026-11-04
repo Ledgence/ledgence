@@ -1,6 +1,6 @@
 SELECT
     t.retiring_at_ms, t.tenant_id, t.namespace, t.task_id, t.run_id, t.queue, t.correlation_key,
-    t.workflow_id, t.workflow_activation_id, t.provider_probe_bytes,
+    t.workflow_id, t.workflow_activation_id, t.provider_probe_bytes,t.admission_resource,t.admission_deferrals,
     t.state, t.attempt_count, t.current_attempt_id, t.submitted_at_ms,
     t.available_at_ms, t.terminal_at_ms, t.cancel_requested_at_ms, t.next_expiry_ms,
     a.attempt_id AS latest_attempt_id, a.state AS latest_attempt_state

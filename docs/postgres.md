@@ -141,6 +141,18 @@ The supplied deployment command is `ledgence orchestrator migrate`, which reads 
 
 Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
 
+The development standalone-admission migration replaces the integrated queue's
+ready index with two disjoint partial indexes: ordinary tasks and admitted tasks
+with an offer. Each ready task is indexed once. An older worker probes only the
+ordinary index; a capable worker compares the oldest unlocked candidate in each.
+The ordering is among eligible rows, not a fairness guarantee across workers.
+
+This migration rechecks task and attempt constraints and builds indexes on the
+existing tables. On a busy installation, rehearse it on a recent representative
+restore, measure the write interruption, and schedule a suitable maintenance
+window before deploying matching components. The integration tests do not set
+an upper bound on that interval. [Standalone admission](resource-admission.md#standalone-task-admission).
+
 The 0.7.0 migration `20261102000000_workflow_resolution_progress.sql` preserves
 partial workflow program resolution. When upgrading from 0.6.1, stop the
 previous orchestrators, apply migrations and start the matching new binaries.

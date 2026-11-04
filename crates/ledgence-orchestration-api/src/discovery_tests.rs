@@ -9,6 +9,8 @@ fn scope() -> Scope {
 }
 fn status(id: &str, at: Timestamp) -> TaskStatus {
     TaskStatus {
+        admission: None,
+        admission_deferrals: 0,
         provider_probe: None,
         scope: scope(),
         task_id: id.into(),

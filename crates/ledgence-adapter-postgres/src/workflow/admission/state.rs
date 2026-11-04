@@ -1,5 +1,5 @@
 use super::*;
-pub(in crate::workflow) struct Resource {
+pub(crate) struct Resource {
     pub record: ResourceRecord,
     pub credit: Option<u64>,
     pub high_water: u64,
@@ -56,7 +56,7 @@ impl Resource {
         )
     }
 }
-pub(in crate::workflow) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
+pub(crate) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
     let record: ResourceRecord = codec::decode(&row.try_get::<Vec<u8>, _>("record_bytes")?)?;
     record.validate()?;
     if row.try_get::<String, _>("tenant_id")? != record.scope.tenant_id
@@ -86,7 +86,7 @@ pub(in crate::workflow) fn resource_row(row: &PgRow) -> StoreResult<Resource> {
     r.snapshot(false).validate()?;
     Ok(r)
 }
-pub(in crate::workflow) async fn resource(
+pub(crate) async fn resource(
     tx: &mut PgConnection,
     scope: &Scope,
     name: &str,
@@ -106,10 +106,7 @@ pub(in crate::workflow) async fn resource(
         .ok_or(ContractError::NotFound)?;
     resource_row(&row)
 }
-pub(in crate::workflow) async fn save_resource(
-    tx: &mut PgConnection,
-    r: &Resource,
-) -> StoreResult<()> {
+pub(crate) async fn save_resource(tx: &mut PgConnection, r: &Resource) -> StoreResult<()> {
     r.snapshot(false).validate()?;
     let valid:Option<bool>=sqlx::query_scalar("UPDATE admission_resources SET revision=$4,record_bytes=$5,credit=$6,high_water_at_ms=$7,offered=$8,started=$9,unknown=$10,next_due_ms=$11,quarantined_due_ms=$12 WHERE tenant_id=$1 AND namespace=$2 AND resource_name=$3 RETURNING revision=$4 AND record_bytes=$5 AND credit IS NOT DISTINCT FROM $6 AND high_water_at_ms=$7 AND offered=$8 AND started=$9 AND unknown=$10 AND next_due_ms IS NOT DISTINCT FROM $11 AND quarantined_due_ms IS NOT DISTINCT FROM $12")
         .bind(&r.record.scope.tenant_id).bind(&r.record.scope.namespace).bind(&r.record.name).bind(r.record.revision as i64).bind(codec::encode(&r.record)?).bind(r.credit.map(|v|v as i64)).bind(codec::ms(r.high_water)?).bind(r.offered as i64).bind(r.started as i64).bind(r.unknown as i64).bind(r.due.map(codec::ms).transpose()?).bind(r.quarantined_due.map(codec::ms).transpose()?).fetch_optional(&mut *tx).await?;

@@ -60,7 +60,7 @@ async fn persisted_rows(store: &PostgresStore) -> BTreeMap<&'static str, Vec<Str
         // Identifiers are a fixed list of fixture tables; encoded bytea payloads
         // and complete rows must remain identical across the schema migration.
         let rows: Vec<String> = sqlx::query_scalar(AssertSqlSafe(format!(
-            "SELECT row_to_json(r)::text FROM {table} r ORDER BY row_to_json(r)::text"
+            "SELECT to_jsonb(r)::text FROM {table} r ORDER BY to_jsonb(r)::text"
         )))
         .fetch_all(&store.pool)
         .await

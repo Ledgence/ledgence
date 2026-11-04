@@ -164,7 +164,9 @@ impl AccessReply {
         if let Some(binding) = &authenticated_binding {
             binding.audience.validate()?;
         }
-        if runtime_features.resource_admission() && authenticated_binding.is_none() {
+        if (runtime_features.resource_admission() || runtime_features.task_admission())
+            && authenticated_binding.is_none()
+        {
             return Err(unavailable(
                 "resource admission requires an authenticated audience",
             ));

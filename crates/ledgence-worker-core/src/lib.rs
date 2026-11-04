@@ -70,7 +70,13 @@ struct InteractiveExecution {
 struct InvocationInput {
     request: ExecutionRequest,
     interactive: Option<InteractiveExecution>,
+    admission: Option<Arc<dyn InvocationAdmission>>,
 }
+enum InvocationCompletion {
+    Executed(ExecutionReport),
+    NotInvoked { context: Box<ExecutionContext> },
+}
+type InvocationResult = std::result::Result<InvocationCompletion, ExecutionFailure>;
 struct Inner {
     config: WorkerConfig,
     store: Arc<dyn ProgramStore>,
@@ -160,6 +166,12 @@ impl Worker {
         self.inner.config.concurrency
     }
 
+    /// The optional runtime-side half of task admission negotiation, checked
+    /// before registering a worker session with the delivery service.
+    pub fn supports_admitted_invocation(&self) -> Result<bool> {
+        catch_call(|| self.inner.runtime.supports_admitted_invocation())
+    }
+
     pub fn new(
         config: WorkerConfig,
         store: Arc<dyn ProgramStore>,
@@ -243,6 +255,31 @@ impl Worker {
         reservation: Option<Arc<ConsumerOwnership>>,
         interactive: Option<InteractiveExecution>,
     ) -> ExecutionResult {
+        match self
+            .execute_controlled(request, control, reservation, interactive, None)
+            .await?
+        {
+            InvocationCompletion::Executed(report) => Ok(report),
+            InvocationCompletion::NotInvoked { context } => Err(logged_failure(
+                Error::new(
+                    ErrorKind::Protocol,
+                    "unexpected ungated invocation deferral",
+                ),
+                Phase::Admission,
+                false,
+                &context,
+            )),
+        }
+    }
+
+    async fn execute_controlled(
+        &self,
+        request: ExecutionRequest,
+        control: RunControl,
+        reservation: Option<Arc<ConsumerOwnership>>,
+        interactive: Option<InteractiveExecution>,
+        admission: Option<Arc<dyn InvocationAdmission>>,
+    ) -> InvocationResult {
         let context = Box::new(ExecutionContext::from(&request));
         if let Some(interactive) = &interactive {
             interactive
@@ -341,6 +378,7 @@ impl Worker {
                     InvocationInput {
                         request,
                         interactive,
+                        admission,
                     },
                     control,
                     &owned_context,
@@ -414,10 +452,11 @@ impl Worker {
         completion: &mut Completion,
         ownership: &mut InvocationOwnership,
         processing: Option<&TraceContext>,
-    ) -> ExecutionResult {
+    ) -> InvocationResult {
         let InvocationInput {
             request,
             interactive,
+            admission,
         } = input;
         let started = Instant::now();
         if ownership.permit.is_none() {
@@ -561,11 +600,83 @@ impl Worker {
                 ));
             }
         };
+        let permit = if let Some(admission) = admission {
+            let supported = catch_call(|| {
+                ownership
+                    .session
+                    .as_ref()
+                    .expect("session acquired")
+                    .session
+                    .supports_admitted_invocation()
+            });
+            if supported.is_err() {
+                self.fail_closed(&context.identity);
+            }
+            let decision = catch_panic(async {
+                if !supported? {
+                    return Err(Error::new(
+                        ErrorKind::Incompatible,
+                        "runtime does not support admitted invocation",
+                    ));
+                }
+                let ready = InvocationReady {
+                    context: context.clone(),
+                    process_id: pid,
+                    reused_process: reused,
+                };
+                control.check()?;
+                let pending = admission.ready(&ready, control.clone());
+                tokio::pin!(pending);
+                loop {
+                    control.check()?;
+                    tokio::select! {
+                        result = &mut pending => break result,
+                        _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+                    }
+                }
+            })
+            .await;
+            if decision.is_err() {
+                self.fail_closed(&context.identity);
+            }
+            match decision {
+                Ok(Ok(InvocationAdmissionDecision::Invoke(permit))) => Some(permit),
+                Ok(Ok(InvocationAdmissionDecision::DoNotInvoke)) => {
+                    // The process is healthy and has not received an invocation.
+                    // Return it to the existing bounded pool, unbound to the
+                    // durable capacity wait, so a later offer need not cold-start.
+                    self.reuse_owned(ownership).await;
+                    return Ok(InvocationCompletion::NotInvoked {
+                        context: Box::new(context.clone()),
+                    });
+                }
+                Ok(Err(error)) | Err(error) => {
+                    let cleanup = self.retire_owned(ownership, &context.identity).await.err();
+                    return Err(with_cleanup(
+                        failure(error, Phase::Admission, false, context),
+                        cleanup,
+                    ));
+                }
+            }
+        } else {
+            None
+        };
         self.inner.pool.lock().await.executing(
             &ownership.session.as_ref().expect("session acquired").slot,
             pid,
             &context.identity,
         );
+        // Pool locking and adapter construction cannot extend the send window.
+        if let Err(error) = control
+            .check()
+            .and_then(|()| permit.as_ref().map_or(Ok(()), InvocationPermit::check))
+        {
+            let cleanup = self.retire_owned(ownership, &context.identity).await.err();
+            return Err(with_cleanup(
+                failure(error, Phase::Admission, false, context),
+                cleanup,
+            ));
+        }
         ownership.stage = InvocationStage::Execution;
         tracing::info!(pid, reused, phase = "execution", "invoking program");
         let execution_span = operation_span("execute");
@@ -586,13 +697,19 @@ impl Worker {
                 .as_mut()
                 .expect("session acquired")
                 .session;
-            match interactive {
-                Some(interactive) => {
-                    session
-                        .execute_with_requests(invocation, phase_control, interactive.handler)
-                        .await
+            if let Some(permit) = permit {
+                session
+                    .execute_admitted(invocation, phase_control, permit)
+                    .await
+            } else {
+                match interactive {
+                    Some(interactive) => {
+                        session
+                            .execute_with_requests(invocation, phase_control, interactive.handler)
+                            .await
+                    }
+                    None => session.execute(invocation, phase_control).await,
                 }
-                None => session.execute(invocation, phase_control).await,
             }
         })
         .instrument(execution_span.clone())
@@ -638,26 +755,17 @@ impl Worker {
         .map(Box::new);
         match outcome {
             Ok(outcome) => {
-                let mut idle = ownership.session.take().expect("session acquired");
-                // A healthy reusable process is owned by the global process
-                // pool, not by the previous delivery's settlement reservation.
-                idle._consumer = None;
-                idle.processing = None;
-                {
-                    let mut pool = self.inner.pool.lock().await;
-                    pool.warm(&idle.slot);
-                    pool.idle.push(idle);
-                }
+                self.reuse_owned(ownership).await;
                 ownership.stage = InvocationStage::Settled;
                 tracing::info!(pid, phase = "completed", "program returned");
-                Ok(ExecutionReport {
+                Ok(InvocationCompletion::Executed(ExecutionReport {
                     observations,
                     context: Box::new(context.clone()),
                     process_id: pid,
                     reused_process: reused,
                     outcome,
                     elapsed_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
-                })
+                }))
             }
             Err(error) => {
                 let cleanup = self.retire_owned(ownership, &context.identity).await.err();
@@ -667,6 +775,15 @@ impl Worker {
                 Err(failure)
             }
         }
+    }
+
+    async fn reuse_owned(&self, ownership: &mut InvocationOwnership) {
+        let mut pool = self.inner.pool.lock().await;
+        let mut idle = ownership.session.take().expect("session acquired");
+        idle._consumer = None;
+        idle.processing = None;
+        pool.warm(&idle.slot);
+        pool.idle.push(idle);
     }
 
     async fn prepare(

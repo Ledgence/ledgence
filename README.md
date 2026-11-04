@@ -296,5 +296,8 @@ not part of the published 0.8.0 packages. Protected provider dispatch can also
 share a resource: approval, capacity and the one-shot grant preserve one original
 operation identity. A completed call releases capacity independently of its
 business result. [Try the approved export example](examples/provider-admission/README.md).
-Read-only recovery probes remain outside that resource limit. Standalone task
-admission, fairness and inherited budgets remain separate work.
+Standalone tasks can use the same named resource: a queued task waits without a
+worker subprocess, and only a runtime-ready Start authorizes its handler.
+[Submit a governed task](docs/resource-admission.md#standalone-task-admission).
+Read-only recovery probes remain outside the limit; fair sharing and inherited
+budgets remain separate work.

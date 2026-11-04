@@ -107,3 +107,30 @@ async fn guard_preserves_in_time_outcomes() {
         assert_eq!(result, expected);
     }
 }
+
+#[tokio::test]
+async fn backpressured_invocation_never_writes_first_byte_after_its_send_window() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut writer, mut reader) = tokio::io::duplex(1);
+    writer.write_all(b"x").await.unwrap();
+    let permit = InvocationPermit {
+        start_before: Instant::now() + Duration::from_millis(20),
+    };
+    let control = RunControl::new(Duration::from_secs(1));
+    let err = write_frame_checked(
+        &mut writer,
+        &serde_json::json!({"invoke": true}),
+        1024,
+        Some((&control, Some(&permit))),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::TimedOut);
+    drop(writer);
+    let mut received = Vec::new();
+    reader.read_to_end(&mut received).await.unwrap();
+    assert_eq!(
+        received, b"x",
+        "a full pipe must not extend admission permission"
+    );
+}

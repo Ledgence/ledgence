@@ -197,3 +197,19 @@ The loop validates lease route/identity and every returned publication ID. Missi
 Publication failures degrade readiness while the process remains live and its durable work remains recoverable. An empty due-intent poll cannot prove the broker recovered. Readiness restores after a fully confirmed publication batch, or after an actual bounded SQS configuration probe while an outage is followed by empty polling. Recovery probes run at most once every five seconds and reuse the existing client. Attribute checks establish current queue/configuration access; they do not establish future send capacity or publication permission for every record. Readiness also requires the existing fresh expiry-recovery progress.
 
 Unexpected publisher termination or panic drains HTTP and recovery and returns an explicit service failure. During graceful shutdown, publication and recovery continue while previously admitted HTTP operations finish. They then stop between bounded operations, retaining the current operation until its budget completes. The process closes the database pool after all three supervised tasks finish. A second signal retains its existing force-exit behavior; uncertain publication and task mutations require reconciliation after restart.
+
+For governed standalone tasks on external queues, a successful admission deferral
+means the store durably retained the wait and future publication obligation before
+the worker acknowledges the immutable message. An older worker receives no governed assignment. On a shared broker queue it
+can acknowledge a compatible deferred handoff and keep processing ordinary tasks.
+If the queue has no capable workers, offers can be deferred repeatedly; upgrade
+at least one consuming worker before submitting governed tasks. A broker acknowledgement is not execution permission. Integrated
+HTTP acquisition uses the same task ledger and excludes waiting tasks. See
+[task admission](resource-admission.md#standalone-task-admission).
+
+For mixed-version broker fleets, pre-A3 workers can read dispatch generations
+1 through 1,000. They stop consuming on larger generations before contacting
+the server. Upgrade all consumers on a shared broker destination, or route
+governed work to a queue served only by matching workers, before allowing
+repeated capacity deferrals to exceed this limit. Integrated HTTP acquisition
+excludes governed assignments for older sessions.

@@ -49,6 +49,44 @@ impl ConsumerReservation {
         .await
     }
 
+    /// Prepare one plain task, then ask the host for one ready-to-invoke grant.
+    /// A local NotInvoked result still needs durable close/deferral acceptance.
+    pub async fn execute_admitted(
+        &mut self,
+        request: ExecutionRequest,
+        control: RunControl,
+        admission: Arc<dyn InvocationAdmission>,
+    ) -> AdmittedExecutionResult {
+        if self.used {
+            return AdmittedExecutionResult::Executed(Err(logged_failure(
+                Error::new(ErrorKind::InvalidInput, "consumer reservation already used"),
+                Phase::Admission,
+                false,
+                &ExecutionContext::from(&request),
+            )));
+        }
+        self.used = true;
+        match self
+            .worker
+            .execute_controlled(
+                request,
+                control,
+                Some(self.ownership.clone()),
+                None,
+                Some(admission),
+            )
+            .await
+        {
+            Ok(InvocationCompletion::Executed(report)) => {
+                AdmittedExecutionResult::Executed(Ok(report))
+            }
+            Ok(InvocationCompletion::NotInvoked { context }) => {
+                AdmittedExecutionResult::NotInvoked { context }
+            }
+            Err(error) => AdmittedExecutionResult::Executed(Err(error)),
+        }
+    }
+
     async fn execute_inner(
         &mut self,
         request: ExecutionRequest,

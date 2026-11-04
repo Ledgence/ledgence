@@ -7,6 +7,7 @@ import math
 import re
 from typing import Any, TYPE_CHECKING
 
+from .admission_models import TaskAdmission
 from . import codec, otel
 from .discovery import _TaskQuery
 from .errors import (
@@ -56,11 +57,16 @@ def _submission_reply(raw, submission: Submission) -> tuple[str, str]:
             "task_id", "run_id", "idempotency_key", "input", "descriptor", "origin_trace",
             "state", "submitted_at", "available_at", "terminal_at", "current_attempt_id",
             "attempt_count", "cancel_requested_at",
-        })
+        }, {"admission_deferrals"})
         expected = submission.to_dict()
         actual = raw["input"]
         codec.fields(actual, {"tenant_id", "namespace", "queue", "program", "data",
-                              "retry_policy", "attempt_timeout_ms"}, {"correlation_key"})
+                              "retry_policy", "attempt_timeout_ms"}, {"correlation_key", "admission"})
+        if "admission" in actual:
+            codec.fields(actual["admission"], {"resource"})
+            TaskAdmission(**actual["admission"])
+        if not _same(actual.get("admission"), expected["input"].get("admission")):
+            raise InputError("submission reply changed task admission")
         if raw["idempotency_key"] != expected["idempotency_key"]:
             raise InputError("submission reply changed the key")
         codec.fields(actual["program"], {"id", "version"})
@@ -87,7 +93,12 @@ def _submission_reply(raw, submission: Submission) -> tuple[str, str]:
         _trace(raw["origin_trace"])
         # The first accepted origin wins even when a caller reconstructs a replay.
         state = TaskState(raw["state"])
-        count = codec.integer(raw["attempt_count"], "attempt_count", 0, 1000)
+        governed = "admission" in actual
+        count = codec.integer(raw["attempt_count"], "attempt_count", 0,
+                              (1 << 31) - 1 if governed else 1000)
+        deferrals = codec.integer(raw.get("admission_deferrals", 0), "admission_deferrals", 0, count)
+        if (not governed and deferrals) or count - deferrals > actual["retry_policy"]["max_attempts"]:
+            raise InputError("inconsistent admission retry accounting")
         current = raw["current_attempt_id"]
         if (state == TaskState.ACTIVE) != (current is not None) or (current is not None and count == 0):
             raise InputError("invalid current attempt")
@@ -118,6 +129,7 @@ class Tasks:
     def prepare(self, *, program: str, version: str, queue: str, data: Any,
                 idempotency_key: str, correlation_key: str | None = None,
                 retry_policy: RetryPolicy | None = None, attempt_timeout_ms: int | None = None,
+                admission: TaskAdmission | None = None,
                 origin_trace: TraceContext | None | object = _UNSET) -> Submission:
         """Freeze a local command before transmission, including context absence."""
         codec.text(idempotency_key, "idempotency_key", 255)
@@ -127,6 +139,10 @@ class Tasks:
         payload = {"tenant_id": self._client.scope.tenant_id,
                    "namespace": self._client.scope.namespace, "queue": queue,
                    "program": _program(program, version), "data": data}
+        if admission is not None:
+            if type(admission) is not TaskAdmission:
+                raise InputError("admission must be a TaskAdmission")
+            payload["admission"] = admission.to_dict()
         if correlation_key is not None:
             payload["correlation_key"] = codec.text(correlation_key, "correlation_key", 512,
                                                      empty=True, noncharacters=True)

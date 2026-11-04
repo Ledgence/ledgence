@@ -215,7 +215,7 @@ def _mcp(d, resource, expected):
     catalog = {
         tool["name"] for tool in ordinary.request("tools/list", {})["result"]["tools"]
     }
-    mutations = {"ledgence_resource_put", "ledgence_admission_release"}
+    mutations = {"ledgence_resource_put", "ledgence_admission_release", "ledgence_task_admission_release"}
     assert mutations.isdisjoint(catalog)
     for mutation in mutations:
         ordinary.invalid(mutation, {})
@@ -310,7 +310,7 @@ def _console(d, expected):
     status, headers, graph = d.request("GET", "/v1/console/workflows/explorer?" + query,
                                        credentials=d.operator)
     assert status == 200
-    assert {name.lower(): value for name, value in headers.items()}["ledgence-console-contract"] == "9"
+    assert {name.lower(): value for name, value in headers.items()}["ledgence-console-contract"] == "10"
     assert graph["page"]["next_cursor"] is None
     nodes = graph["page"]["items"]
     waits = [node for node in nodes if node["kind"] == "admission_wait"]

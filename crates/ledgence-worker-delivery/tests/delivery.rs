@@ -57,10 +57,12 @@ struct Counts {
     hold_execution: AtomicBool,
     hold_fetch: AtomicBool,
     hold_startup: AtomicBool,
+    legacy_runtime: AtomicBool,
     execution_error: AtomicBool,
     hold_cleanup: AtomicBool,
     injected_outcome: Mutex<Option<ProgramOutcome>>,
     injected_error: Mutex<Option<worker_api::Error>>,
+    injected_startup_error: Mutex<Option<worker_api::Error>>,
     injected_observations: Mutex<Option<InvocationObservations>>,
     observed_events: Mutex<Vec<Value>>,
     observed_processing: Mutex<Vec<Option<TraceContext>>>,
@@ -130,6 +132,10 @@ impl ArtifactCache for Cache {
 
 struct Runtime(Arc<Counts>);
 impl ExecutionRuntime for Runtime {
+    fn supports_admitted_invocation(&self) -> bool {
+        !self.0.legacy_runtime.load(Ordering::SeqCst)
+    }
+
     fn start<'a>(
         &'a self,
         artifact: PreparedArtifact,
@@ -141,6 +147,9 @@ impl ExecutionRuntime for Runtime {
                 tokio::time::sleep(Duration::from_millis(2)).await;
             }
             control.check()?;
+            if let Some(error) = self.0.injected_startup_error.lock().unwrap().clone() {
+                return Err(error);
+            }
             let pid = self.0.starts.fetch_add(1, Ordering::SeqCst) + 1;
             let live = self.0.live.fetch_add(1, Ordering::SeqCst) + 1;
             self.0.peak.fetch_max(live, Ordering::SeqCst);
@@ -179,6 +188,22 @@ impl Drop for Session {
 impl ExecutionSession for Session {
     fn pid(&self) -> u32 {
         self.pid
+    }
+
+    fn supports_admitted_invocation(&self) -> bool {
+        true
+    }
+
+    fn execute_admitted<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        permit: InvocationPermit,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async move {
+            permit.check()?;
+            self.execute(invocation, control).await
+        })
     }
 
     fn take_observations(&mut self) -> Option<InvocationObservations> {
@@ -306,6 +331,7 @@ struct ServiceState {
 }
 
 struct Service {
+    task_admission: task_admission::Fixture,
     broker_commands: Mutex<Vec<ClaimCommand>>,
     broker_disposition: Mutex<Option<ClaimDisposition>>,
     malformed_claim: AtomicBool,
@@ -338,6 +364,7 @@ struct Service {
 impl Service {
     fn new(task_count: usize) -> Arc<Self> {
         Arc::new(Self {
+            task_admission: task_admission::Fixture::default(),
             broker_commands: Mutex::new(Vec::new()),
             broker_disposition: Mutex::new(None),
             malformed_claim: AtomicBool::new(false),
@@ -396,6 +423,17 @@ fn unavailable() -> ContractError {
 }
 
 impl TaskService for Service {
+    fn task_admission_client(
+        &self,
+    ) -> ledgence_orchestration_api::Result<&dyn TaskAdmissionClient> {
+        if self.task_admission.enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable(
+                "task admission is disabled".into(),
+            ))
+        }
+    }
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move {
             self.broker_commands.lock().unwrap().push(command.clone());
@@ -430,6 +468,7 @@ impl TaskService for Service {
     ) -> ContractFuture<'a, WorkerSession> {
         Box::pin(async move {
             let session = WorkerSession {
+                features: Vec::new(),
                 id: "worker_session_test".into(),
                 scope: scope.clone(),
                 queue: queue.into(),
@@ -472,6 +511,12 @@ impl TaskService for Service {
                     assert_eq!(command.queue, session.queue);
                     assert_eq!(command.worker_session_id, session.id);
                     assert!(command.consumer_id < session.concurrency);
+                    // This fixture has a plain task for an ordinary session,
+                    // and a governed task for an admission-capable session.
+                    let governed = session
+                        .features
+                        .iter()
+                        .any(|v| v == worker_api::TASK_ADMISSION_FEATURE);
                     if state.active.contains_key(&command.consumer_id) {
                         state.capacity_violations += 1;
                     }
@@ -536,6 +581,10 @@ impl TaskService for Service {
                         AcquireReply::Assigned {
                             sequence: command.sequence,
                             assignment: Box::new(Assignment {
+                                task_admission: governed.then(|| TaskAdmissionAssignment {
+                                    offer_generation: 1,
+                                    resource: "invoice".into(),
+                                }),
                                 provider_probe,
                                 workflow_activation_id,
                                 descriptor: descriptor(),
@@ -1931,3 +1980,6 @@ mod sqs;
 
 #[path = "delivery/runtime_features.rs"]
 mod runtime_features;
+
+#[path = "delivery/task_admission.rs"]
+mod task_admission;

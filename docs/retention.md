@@ -226,3 +226,12 @@ administrative release; the execution-retention interval does not erase them.
 Workflow admission waits and graph records follow their owning execution's
 retention instead. Account for continued growth of the independent admission
 records. See [resource admission](resource-admission.md#start-finish-and-failures).
+
+Standalone task admission keeps the durable source and reconciliation ledger
+separate from ordinary task results. Started or unknown occupancy does not expire
+with a task lease. The retention sweep preserves the owning task while a source
+is occupied so an operator can find it through execution history. Once occupancy
+is released the normal task retirement rules apply; the ledger still accepts a
+late confirmation from the original worker.
+Retain capacity records for late worker quiescence and audited operator decisions;
+include their growth in retention planning. See [task admission](resource-admission.md#standalone-task-admission).

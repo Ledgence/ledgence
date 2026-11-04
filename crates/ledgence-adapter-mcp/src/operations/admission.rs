@@ -1,13 +1,19 @@
 //! Resource authority is optional and remains behind portable admission ports.
 use super::*;
 pub(super) fn is_mutation(name: &str) -> bool {
-    matches!(name, "ledgence_resource_put" | "ledgence_admission_release")
+    matches!(
+        name,
+        "ledgence_resource_put" | "ledgence_admission_release" | "ledgence_task_admission_release"
+    )
 }
 pub(super) fn is_tool(name: &str) -> bool {
     is_mutation(name)
         || matches!(
             name,
-            "ledgence_resource_list" | "ledgence_resource_inspect" | "ledgence_admission_inspect"
+            "ledgence_resource_list"
+                | "ledgence_resource_inspect"
+                | "ledgence_admission_inspect"
+                | "ledgence_task_admission_inspect"
         )
 }
 #[derive(Deserialize)]
@@ -71,6 +77,12 @@ impl ToolDispatcher {
         name: &str,
         arguments: &Value,
     ) -> std::result::Result<Value, ToolError> {
+        if matches!(
+            name,
+            "ledgence_task_admission_inspect" | "ledgence_task_admission_release"
+        ) {
+            return self.call_task_admission(name, arguments).await;
+        }
         let client = remote(self.workflows.admission_client(), false)?;
         match name {
             "ledgence_resource_list" => {
@@ -156,6 +168,68 @@ impl ToolDispatcher {
         }
     }
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskInspect {
+    task_id: String,
+    generation: u32,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskRelease {
+    task_id: String,
+    generation: u32,
+    source_id: String,
+    expected_revision: u64,
+    request_id: String,
+    reason: String,
+}
+impl ToolDispatcher {
+    async fn call_task_admission(
+        &self,
+        name: &str,
+        arguments: &Value,
+    ) -> std::result::Result<Value, ToolError> {
+        let client = remote(self.tasks.task_admission_client(), false)?;
+        if name == "ledgence_task_admission_inspect" {
+            let a: TaskInspect = parse(arguments)?;
+            let q = TaskAdmissionQuery {
+                occurrence: TaskAdmissionOccurrence {
+                    scope: self.scope.clone(),
+                    task_id: a.task_id,
+                    generation: a.generation,
+                },
+            };
+            q.validate().map_err(ToolError::arguments)?;
+            let reply = remote(client.inspect_task_admission(&q).await, false)?;
+            reply.validate().map_err(|_| invalid_reply(false))?;
+            if !reply.matches(&q) {
+                return Err(invalid_reply(false));
+            }
+            encode(reply, false)
+        } else {
+            let a: TaskRelease = parse(arguments)?;
+            let c = TaskAdmissionReleaseCommand {
+                occurrence: TaskAdmissionOccurrence {
+                    scope: self.scope.clone(),
+                    task_id: a.task_id,
+                    generation: a.generation,
+                },
+                source_id: a.source_id,
+                expected_revision: a.expected_revision,
+                request_id: a.request_id,
+                reason: a.reason,
+            };
+            c.validate().map_err(ToolError::arguments)?;
+            let reply = remote(client.release_task_admission(&c).await, true)?;
+            reply.validate().map_err(|_| invalid_reply(true))?;
+            if !reply.matches(&c) {
+                return Err(invalid_reply(true));
+            }
+            encode(reply, true)
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,7 +238,21 @@ mod tests {
         let d = test_dispatcher(false);
         assert!(!d.definitions().any(|t| is_mutation(t.name)));
         let d = d.with_resource_control().unwrap();
-        assert_eq!(d.definitions().filter(|t| is_mutation(t.name)).count(), 2);
+        let enabled = d
+            .definitions()
+            .filter(|t| is_mutation(t.name))
+            .map(|t| t.name)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            enabled,
+            [
+                "ledgence_resource_put",
+                "ledgence_admission_release",
+                "ledgence_task_admission_release"
+            ]
+            .into_iter()
+            .collect()
+        );
         assert!(test_dispatcher(true).with_resource_control().is_err());
     }
     #[tokio::test]

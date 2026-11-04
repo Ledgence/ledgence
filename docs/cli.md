@@ -505,3 +505,11 @@ and inspection events belong to the original workflow, so use `--workflow` for
 those records.
 See [resource admission](resource-admission.md#http-cli-python-and-mcp) for the
 command envelope, authority requirements and uncertain-outcome handling.
+
+For a standalone task use `ledgence admission inspect --server URL --tenant ID
+--namespace NAME --task TASK_ID --generation 1 --credentials-file FILE`. The
+existing `admission release --file FILE` command distinguishes task and workflow
+occurrences by their typed addresses and requires the original source/revision.
+The JSON command passed to `ledgence task submit` accepts optional
+`input.admission: {"resource":"support-model"}` in matching development builds.
+See [standalone task admission](resource-admission.md#standalone-task-admission).

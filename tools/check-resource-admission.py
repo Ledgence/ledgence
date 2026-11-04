@@ -28,7 +28,9 @@ def main():
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--python-client", type=Path, required=True, help="Interpreter containing the installed candidate ledgence-client package")
     parser.add_argument("--endpoint")
-    parser.add_argument("--provider", action="store_true", help="Qualify composed protected provider dispatch admission")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--provider", action="store_true", help="Qualify composed protected provider dispatch admission")
+    mode.add_argument("--task", action="store_true", help="Qualify standalone task admission at the subprocess invocation boundary")
     parser.add_argument("--evidence", type=Path)
     args = parser.parse_args()
     parent = os.environ.get("LEDGENCE_POSTGRES_URL")
@@ -60,7 +62,11 @@ def main():
 
     try:
         create_owned_database(admin, database); created = True
-        if args.provider:
+        if args.task:
+            from resource_admission.task import TaskAdmissionDeployment
+            from resource_admission.task_scenarios import CASES as cases
+            deployment_type = TaskAdmissionDeployment
+        elif args.provider:
             from resource_admission.protected import ProtectedAdmissionDeployment
             from resource_admission.protected_scenarios import CASES as cases
             deployment_type = ProtectedAdmissionDeployment
@@ -74,19 +80,32 @@ def main():
             deployment.configure_delivery(args.endpoint)
         deployment.start_server()
         deployment.publish_example()
+        if args.task:
+            from http_acceptance.harness import PROGRAM
+            program_source = PROGRAM.encode()
+        else:
+            example = "examples/provider-admission/program.py" if args.provider else "examples/resource-admission/program.py"
+            program_source = (root / example).read_bytes()
         provenance = {
             "helper_sha256": {str(path.relative_to(deployment.runner.parent)): hashlib.sha256(path.read_bytes()).hexdigest()
                               for path in sorted(deployment.runner.parent.rglob("*.py"))},
-            "program_source_sha256": hashlib.sha256((root / ("examples/provider-admission/program.py" if args.provider else "examples/resource-admission/program.py")).read_bytes()).hexdigest(),
+            "program_source_sha256": hashlib.sha256(program_source).hexdigest(),
             "artifacts_sha256": deployment.store_hashes(),
         }
+        if args.task:
+            provenance["workflow_example_sha256"] = hashlib.sha256((root / "examples/resource-admission/program.py").read_bytes()).hexdigest()
+            provenance["hello_task_sha256"] = hashlib.sha256((root / "examples/hello-ledgence/task/program.py").read_bytes()).hexdigest()
+            provenance["task_submit_example_sha256"] = hashlib.sha256((root / "examples/resource-admission/submit_task.py").read_bytes()).hexdigest()
         (directory / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
         if args.provider:
             from provider_operations.harness import provider_class
             provider = provider_class(root)(directory / "synthetic-provider", reply_timeout=30).__enter__()
-        else:
+        elif not args.task:
             provider = classifier(root)
         for case in cases:
+            if args.task:
+                # Each scenario owns independent policy/rate history on its own key.
+                deployment.resource_name = "task-" + case.__name__.replace("_", "-")
             print("RUN " + case.__name__, flush=True)
             with timed(directory, "scenario", case.__name__):
                 detail = case(deployment, provider)
@@ -127,7 +146,7 @@ def main():
                 admin(f'DROP DATABASE "{database}" WITH (FORCE)')
             except Exception:
                 cleanup = False
-        summary = {"passed": passed and clean and cleanup, "operation_kind": "provider" if args.provider else "generic", "delivery": "elasticmq" if args.endpoint else "integrated-http",
+        summary = {"passed": passed and clean and cleanup, "operation_kind": "task" if args.task else "provider" if args.provider else "generic", "delivery": "elasticmq" if args.endpoint else "integrated-http",
                    "binary_sha256": binary_digest, "database": database,
                    "credential_scan_clean": clean, "cleanup_complete": cleanup, "scenarios": results, "failure": failure}
         (directory / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

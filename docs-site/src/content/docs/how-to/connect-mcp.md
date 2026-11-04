@@ -194,3 +194,8 @@ and audited `ledgence_admission_inspect`. Explicit `--allow-resource-control`
 adds policy and release tools, subject to `resource_control`. It conflicts with
 `--read-only`. An administrative release acknowledges uncertain usage; it never
 asserts remote success. [Admission guide](/how-to/control-resource-capacity).
+
+Matching development builds add `ledgence_task_admission_inspect` for a task ID
+and generation. `ledgence_task_submit` accepts one optional named resource.
+`ledgence_task_admission_release` requires the explicit resource-control opt-in,
+source, inspected revision, request ID and operator reason. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).

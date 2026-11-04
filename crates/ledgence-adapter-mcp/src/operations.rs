@@ -288,6 +288,11 @@ impl ToolDispatcher {
             "ledgence_task_submit" | "ledgence_workflow_submit" => {
                 let args: Submission = parse(arguments)?;
                 let command = args.command(&self.scope)?;
+                if name == "ledgence_workflow_submit" && command.input.admission.is_some() {
+                    return Err(ToolError::arguments(ContractError::InvalidInput(
+                        "task admission requires a standalone task".into(),
+                    )));
+                }
                 if name == "ledgence_task_submit" {
                     let reply = remote(self.tasks.submit(&command).await, true)?;
                     reply
@@ -721,6 +726,8 @@ struct SendEvent {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Submission {
+    #[serde(default, deserialize_with = "present_task_admission")]
+    admission: Option<TaskAdmissionRequirement>,
     program: String,
     version: String,
     queue: String,
@@ -733,6 +740,11 @@ struct Submission {
     #[serde(default = "default_timeout")]
     attempt_timeout_ms: u64,
     origin_trace: Option<TraceContext>,
+}
+fn present_task_admission<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<TaskAdmissionRequirement>, D::Error> {
+    TaskAdmissionRequirement::deserialize(deserializer).map(Some)
 }
 impl Submission {
     fn command(self, scope: &Scope) -> std::result::Result<SubmitCommand, ToolError> {
@@ -749,6 +761,7 @@ impl Submission {
                 version: self.version,
             },
             correlation_key: self.correlation_key,
+            admission: self.admission,
             data: self.data,
             retry_policy: self.retry_policy,
             attempt_timeout_ms: self.attempt_timeout_ms,
@@ -911,6 +924,7 @@ mod tests {
             .command(&scope())
             .unwrap();
         let snapshot = TaskSnapshot {
+            admission_deferrals: 0,
             parent_workflow_id: None,
             root_workflow_id: None,
             workflow_id: None,

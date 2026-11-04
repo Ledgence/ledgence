@@ -14,9 +14,12 @@ impl ApplicationService {
             .await?;
         if r.examined > q.limit
             || r.offered > r.resumed
-            || r.resumed > r.examined
+            || r.resumed.saturating_add(r.task_offered) > r.examined
             || r.expired > r.examined
-            || r.offered.saturating_add(r.expired) > r.examined
+            || r.offered
+                .saturating_add(r.task_offered)
+                .saturating_add(r.expired)
+                > r.examined
         {
             return Err(ContractError::Unavailable(
                 "invalid admission maintenance reply".into(),

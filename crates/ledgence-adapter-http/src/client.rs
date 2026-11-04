@@ -5,6 +5,7 @@ mod audit;
 mod evidence;
 mod provider;
 mod provider_admission;
+mod task_admission;
 pub use access::{
     WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess, WorkerRuntimeBinding,
 };
@@ -491,6 +492,9 @@ fn query(scope: &Scope, task_id: &str) -> Vec<(&'static str, String)> {
 }
 
 impl TaskService for HttpTaskService {
+    fn task_admission_client(&self) -> Result<&dyn TaskAdmissionClient> {
+        Ok(self)
+    }
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move {
             command.validate()?;
@@ -833,6 +837,7 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },
                 digest: Digest(format!("sha256:{}", "a".repeat(64))), size: 123 },
@@ -1135,6 +1140,8 @@ mod tests {
             namespace: "namespace".into(),
         };
         let expected = TaskStatus {
+            admission: None,
+            admission_deferrals: 0,
             provider_probe: None,
             scope: scope.clone(),
             task_id: "task".into(),

@@ -228,7 +228,11 @@ impl AdmissionMaintenanceQuery {
 #[serde(deny_unknown_fields)]
 pub struct AdmissionMaintenanceProgress {
     pub examined: u32,
+    /// Workflow admission offers; each resumes an activation.
     pub offered: u32,
+    /// Standalone task offers schedule delivery without resuming a workflow.
+    #[serde(default, skip_serializing_if = "crate::task_admission::is_zero")]
+    pub task_offered: u32,
     pub expired: u32,
     pub resumed: u32,
 }

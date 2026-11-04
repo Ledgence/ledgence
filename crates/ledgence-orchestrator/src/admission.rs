@@ -40,6 +40,13 @@ pub async fn run(
             {
                 Ok(Ok(progress)) => {
                     health.admission_success();
+                    if progress.task_offered != 0 {
+                        tracing::debug!(
+                            task_offered = progress.task_offered,
+                            examined = progress.examined,
+                            "offered shared capacity to queued standalone tasks"
+                        );
+                    }
                     backoff = Duration::from_millis(50);
                     if progress.examined < ADMISSION_MAX_MAINTENANCE_BATCH {
                         break;

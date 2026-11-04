@@ -32,6 +32,14 @@ python3 -m venv /tmp/ledgence-admission-client
 LEDGENCE_POSTGRES_URL='postgres://postgres:local-password@127.0.0.1:5432/postgres' python3 tools/check-resource-admission.py --binaries target/debug --python-client /tmp/ledgence-admission-client/bin/python --evidence /tmp/ledgence-admission-check
 ```
 
+The command above exercises workflow callbacks. To run the standalone task cases,
+use the same connection URL, binary and Python client with the task selector and
+a new evidence directory:
+
+```sh
+LEDGENCE_POSTGRES_URL='postgres://postgres:local-password@127.0.0.1:5432/postgres' python3 tools/check-resource-admission.py --task --binaries target/debug --python-client /tmp/ledgence-admission-client/bin/python --evidence /tmp/ledgence-task-admission-check
+```
+
 The temporary virtual environment installs the client from your checkout so the
 check can exercise its public API. Replace the connection URL with your disposable
 test server's URL. That variable
@@ -80,5 +88,23 @@ requests inside arbitrary SDKs. An uncertain Start can consume capacity without
 any HTTP call; an uncertain external call can keep capacity occupied after the
 workflow fails. Inspect the original occurrence before explicitly releasing it.
 Release is an audited operator decision, not proof of completion or permission
-to repeat an external effect. Protected provider composition and standalone task
-admission are later work.
+to repeat an external effect. See the [protected provider example](../provider-admission)
+for approved writes, or use the task example below for whole handler invocations.
+
+## Apply the same resource to a standalone task
+
+With matching development components, publish the [Hello Ledgence task](../hello-ledgence/task)
+for your worker, configure `support-model` as above, and connect an admission-capable
+worker to `demo`. From this directory run:
+
+```sh
+uv run python submit_task.py --credentials-file ./client.credentials.json --key hello:ada:1
+```
+
+Use your installation's client credential file. The example defaults to tenant
+`acme`, namespace `demo` and queue `demo`; pass `--tenant`, `--namespace` or
+`--queue` if your installation uses other names. The task's greeting handler needs
+no workflow helper or resource code. Its module is imported during preparation;
+keep governed work inside the handler. Repeating the identical key recovers the
+same task. Open its **Resource admission** section in Console to inspect generation
+1. See the [task admission contract](../../docs/resource-admission.md#standalone-task-admission).

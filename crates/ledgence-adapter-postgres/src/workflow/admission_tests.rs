@@ -738,6 +738,7 @@ async fn admission_upgrade_preserves_existing_waits_and_defaults_disabled() {
         .migrate_with_migrator(crate::MigrationOptions::default(), &prior)
         .await
         .unwrap();
+    db.begin_legacy_task_seed().await;
     // Only bridge the new default projection for fixture seeding; remove it
     // before migration so the candidate receives the actual prior schema.
     sqlx::raw_sql("ALTER TABLE workflow_runs ADD COLUMN has_admissions boolean NOT NULL DEFAULT false, ADD COLUMN admission_wait_activation_id text COLLATE \"C\"").execute(&db.store.pool).await.unwrap();
@@ -759,6 +760,7 @@ async fn admission_upgrade_preserves_existing_waits_and_defaults_disabled() {
         &[],
     )
     .await;
+    db.finish_legacy_task_seed().await;
     sqlx::raw_sql("ALTER TABLE workflow_runs DROP COLUMN has_admissions,DROP COLUMN admission_wait_activation_id").execute(&db.store.pool).await.unwrap();
     db.store.migrate().await.unwrap();
     let after = db
@@ -786,7 +788,7 @@ async fn admission_upgrade_preserves_existing_waits_and_defaults_disabled() {
 #[ignore = "requires PostgreSQL 18"]
 async fn admission_ordinary_execution_has_no_admission_table_access() {
     let db = TestDb::new().await;
-    sqlx::raw_sql("DROP TABLE workflow_admission_waits; DROP TABLE provider_admission_links; DROP TABLE admission_requests; DROP TABLE admission_operator_receipts; DROP TABLE admission_resources").execute(&db.store.pool).await.unwrap();
+    sqlx::raw_sql("DROP TABLE task_admission_requests; DROP TABLE workflow_admission_waits; DROP TABLE provider_admission_links; DROP TABLE admission_requests; DROP TABLE admission_operator_receipts; DROP TABLE admission_resources").execute(&db.store.pool).await.unwrap();
     let w = start(&db.store).await;
     let a = acquire(&db.store, "python").await;
     let context = db.store.activation_context(&a.lease.owner).await.unwrap();
@@ -1025,3 +1027,6 @@ async fn admission_enabling_rate_during_clock_rollback_preserves_watermark_and_n
     assert_eq!(credit, 0);
     db.finish().await;
 }
+
+#[path = "task_admission_tests.rs"]
+mod standalone;

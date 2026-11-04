@@ -57,6 +57,14 @@ impl Context {
             descriptor: assignment.descriptor.clone(),
             event: assignment.event.clone(),
         };
+        let (task_admission, admission_error) =
+            match task_admission::TaskAdmissionAttempt::new(self, &assignment) {
+                Ok(admission) => (admission, None),
+                Err(error) => {
+                    self.shared.fatal(error.clone());
+                    (None, Some(error))
+                }
+            };
         let workflow_activation_id = assignment.workflow_activation_id.clone();
         let provider_probe = assignment.provider_probe.clone();
         let mut provider_probe_failure = None;
@@ -69,42 +77,59 @@ impl Context {
                 .in_current_span()
                 .with_current_subscriber(),
         );
-        let report = if let Some(control) = monitor.dispatch(&self.shared).await {
-            if let Some(probe) = provider_probe.as_ref() {
-                let (report, failure) = self
-                    .provider_probe(
-                        &mut reservation,
-                        request.clone(),
-                        monitor.owner(),
-                        probe.clone(),
-                        control,
-                    )
-                    .await;
-                provider_probe_failure = failure;
-                report
-            } else if let Some(activation_id) = workflow_activation_id {
-                if activation_id != monitor.owner().task_id {
-                    failure(
-                        &request,
-                        ErrorKind::Protocol,
-                        "workflow assignment identity mismatch",
-                        false,
-                    )
-                } else {
-                    match self
-                        .workflow_runtime(
-                            monitor.owner(),
-                            &request,
-                            processing_trace.clone(),
-                            &control,
-                        )
-                        .await
-                    {
-                        Ok(runtime) => {
-                            // Link the external cause before this new span enters
-                            // or materializes context. The attempt's already captured
-                            // processing trace and original invocation remain stable.
-                            let span = tracing::info_span!("ledgence.workflow.activation",
+        let report = if let Some(error) = admission_error {
+            Some(failure(
+                &request,
+                ErrorKind::Protocol,
+                &error.to_string(),
+                false,
+            ))
+        } else if let Some(admission) = &task_admission {
+            if let Some(control) = monitor.dispatch(&self.shared).await {
+                admission
+                    .execute(&mut reservation, request.clone(), control)
+                    .await
+            } else {
+                None
+            }
+        } else {
+            Some(
+                if let Some(control) = monitor.dispatch(&self.shared).await {
+                    if let Some(probe) = provider_probe.as_ref() {
+                        let (report, failure) = self
+                            .provider_probe(
+                                &mut reservation,
+                                request.clone(),
+                                monitor.owner(),
+                                probe.clone(),
+                                control,
+                            )
+                            .await;
+                        provider_probe_failure = failure;
+                        report
+                    } else if let Some(activation_id) = workflow_activation_id {
+                        if activation_id != monitor.owner().task_id {
+                            failure(
+                                &request,
+                                ErrorKind::Protocol,
+                                "workflow assignment identity mismatch",
+                                false,
+                            )
+                        } else {
+                            match self
+                                .workflow_runtime(
+                                    monitor.owner(),
+                                    &request,
+                                    processing_trace.clone(),
+                                    &control,
+                                )
+                                .await
+                            {
+                                Ok(runtime) => {
+                                    // Link the external cause before this new span enters
+                                    // or materializes context. The attempt's already captured
+                                    // processing trace and original invocation remain stable.
+                                    let span = tracing::info_span!("ledgence.workflow.activation",
                                 ledgence.workflow.id = request.event.value()["ldgworkflowid"].as_str(),
                                 ledgence.workflow.parent.id = request.event.value()["ldgparentworkflowid"].as_str(),
                                 ledgence.workflow.root.id = request.event.value()["ldgrootworkflowid"].as_str(),
@@ -112,39 +137,77 @@ impl Context {
                                 ledgence.workflow.wake = runtime.extension.payload["wake"]["kind"].as_str(),
                                 cloudevents.event_id = runtime.extension.payload["wake"]["event"]["id"].as_str(),
                                 cloudevents.event_source = runtime.extension.payload["wake"]["event"]["source"].as_str());
-                            if let Some(origin) = &runtime.wake_trace {
-                                self.worker.trace_bridge().add_link(&span, origin);
-                            }
-                            match reservation
-                                .execute_interactive(
-                                    request.clone(),
-                                    control,
-                                    runtime.extension,
-                                    runtime.handler,
-                                )
-                                .instrument(span)
-                                .await
-                            {
-                                Ok(report) => AttemptReport::Completed(report),
-                                Err(failure) => AttemptReport::Failed(failure),
+                                    if let Some(origin) = &runtime.wake_trace {
+                                        self.worker.trace_bridge().add_link(&span, origin);
+                                    }
+                                    match reservation
+                                        .execute_interactive(
+                                            request.clone(),
+                                            control,
+                                            runtime.extension,
+                                            runtime.handler,
+                                        )
+                                        .instrument(span)
+                                        .await
+                                    {
+                                        Ok(report) => AttemptReport::Completed(report),
+                                        Err(failure) => AttemptReport::Failed(failure),
+                                    }
+                                }
+                                Err(error) => failure(&request, error.kind, &error.message, false),
                             }
                         }
-                        Err(error) => failure(&request, error.kind, &error.message, false),
+                    } else {
+                        match reservation.execute(request.clone(), control).await {
+                            Ok(report) => AttemptReport::Completed(report),
+                            Err(failure) => AttemptReport::Failed(failure),
+                        }
                     }
-                }
-            } else {
-                match reservation.execute(request.clone(), control).await {
-                    Ok(report) => AttemptReport::Completed(report),
-                    Err(failure) => AttemptReport::Failed(failure),
-                }
-            }
-        } else {
-            failure(
-                &request,
-                ErrorKind::Cancelled,
-                "delivery stopped before local dispatch",
-                false,
+                } else {
+                    failure(
+                        &request,
+                        ErrorKind::Cancelled,
+                        "delivery stopped before local dispatch",
+                        false,
+                    )
+                },
             )
+        };
+        let report = match report {
+            Some(report) => report,
+            None => {
+                if !reservation.is_quiescent() {
+                    self.shared.stop();
+                }
+                while !reservation.is_quiescent() {
+                    tokio::time::sleep(TICK).await;
+                }
+                let receipt = task_admission
+                    .as_ref()
+                    .expect("only admitted execution may defer")
+                    .close(self, TaskAdmissionCloseOutcome::NotInvoked)
+                    .await;
+                tracing::Span::current().record(
+                    "ledgence.outcome",
+                    match receipt {
+                        Some(receipt)
+                            if receipt.disposition == TaskAdmissionCloseDisposition::Deferred =>
+                        {
+                            "admission_deferred"
+                        }
+                        Some(_) => "not_invoked",
+                        None => "admission_close_unresolved",
+                    },
+                );
+                monitor.done.store(true, Ordering::Release);
+                if let Err(error) = renewal.await {
+                    self.shared.fatal(ContractError::Unavailable(format!(
+                        "lease supervisor failed: {error}"
+                    )));
+                }
+                reservation.release();
+                return;
+            }
         };
         let quiescence = if reservation.is_quiescent() {
             Quiescence::Confirmed
@@ -194,7 +257,7 @@ impl Context {
             ledgence.outcome = tracing::field::Empty,
             otel.status_code = tracing::field::Empty
         );
-        let accepted = async { loop {
+        let settle = async { loop {
             if !report_valid {
                 self.shared.fatal(protocol(
                     "normalized settlement remains invalid; ownership is unresolved",
@@ -238,7 +301,23 @@ impl Context {
                 Err(error) => self.shared.fatal(error),
             }
             tokio::time::sleep(self.config.retry_delay).await;
-        } }.instrument(settlement_span.clone()).await;
+        } }.instrument(settlement_span.clone());
+        // Settlement and source-bound quiescence are independent facts. A lost
+        // ordinary result/confirmation must not prevent a live worker from
+        // returning capacity once its actual retained cleanup has finished.
+        let accepted = if let Some(admission) = &task_admission {
+            let late_close = async {
+                while !reservation.is_quiescent() {
+                    tokio::time::sleep(TICK).await;
+                }
+                admission
+                    .close(self, TaskAdmissionCloseOutcome::Quiescent)
+                    .await;
+            };
+            tokio::join!(settle, late_close).0
+        } else {
+            settle.await
+        };
         settlement_span.record(
             "ledgence.outcome",
             if accepted {

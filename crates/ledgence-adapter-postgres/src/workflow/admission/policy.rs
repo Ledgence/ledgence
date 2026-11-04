@@ -290,14 +290,18 @@ impl PostgresStore {
         Ok(receipt)
     }
 }
-async fn lock_receipt(tx: &mut PgConnection, scope: &Scope, id: &str) -> StoreResult<()> {
+pub(crate) async fn lock_receipt(
+    tx: &mut PgConnection,
+    scope: &Scope,
+    id: &str,
+) -> StoreResult<()> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(encode($1::bytea,'hex'),18))")
         .bind(canonical(&(scope, id))?)
         .execute(&mut *tx)
         .await?;
     Ok(())
 }
-async fn receipt<T: serde::de::DeserializeOwned, C: serde::Serialize>(
+pub(crate) async fn receipt<T: serde::de::DeserializeOwned, C: serde::Serialize>(
     tx: &mut PgConnection,
     p: &VerifiedPrincipal,
     scope: &Scope,
@@ -319,7 +323,7 @@ async fn receipt<T: serde::de::DeserializeOwned, C: serde::Serialize>(
     .transpose()
 }
 #[allow(clippy::too_many_arguments)]
-async fn record_receipt<C: serde::Serialize, R: serde::Serialize>(
+pub(crate) async fn record_receipt<C: serde::Serialize, R: serde::Serialize>(
     tx: &mut PgConnection,
     p: &VerifiedPrincipal,
     scope: &Scope,

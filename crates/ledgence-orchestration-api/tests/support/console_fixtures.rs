@@ -19,6 +19,8 @@ pub fn fixtures() -> Value {
         size: ConsoleU64(4096),
     };
     let status = ConsoleTaskStatus {
+        admission: None,
+        admission_deferrals: 0,
         task_id: "task_invoice_1042".into(),
         run_id: "run_invoice_1042".into(),
         workflow_id: None,
@@ -89,6 +91,7 @@ pub fn fixtures() -> Value {
         instance_id: "instance_demo".into(),
         instance_name: "Ledgence".into(),
         capabilities: ConsoleCapabilities {
+            task_admission: false,
             executions: true,
             workflows: true,
             programs: true,
@@ -234,6 +237,7 @@ pub fn fixtures() -> Value {
     };
     let numeric_payload=serde_json::from_str::<Value>(r#"{"large":9007199254740993,"maximum":18446744073709551615,"integer":1,"float":1.0,"negative_zero":-0.0,"nested":[-9223372036854775808]}"#).unwrap();
     let task_detail = ConsoleTaskDetail {
+        admission_deferrals: 0,
         task_id: status.task_id.clone(),
         run_id: status.run_id.clone(),
         workflow_id: None,
@@ -241,7 +245,8 @@ pub fn fixtures() -> Value {
         provider_probe: None,
         parent_workflow_id: None,
         root_workflow_id: None,
-        input: ConsoleSubmitTask {
+        input: ConsoleTaskInput {
+            admission: None,
             program: descriptor.program.clone(),
             queue: "billing".into(),
             correlation_key: status.correlation_key.clone(),
@@ -403,5 +408,24 @@ pub fn fixtures() -> Value {
     .unwrap();
     result["provider_probe_detail"] = serde_json::to_value(probe_detail).unwrap();
     result["provider_probe_execution"] = serde_json::to_value(probe_execution).unwrap();
+    let mut admitted: ConsoleObservedTaskStatus =
+        serde_json::from_value(result["task_status"].clone()).unwrap();
+    admitted.task.admission = Some(TaskAdmissionRequirement {
+        resource: "model.requests".into(),
+    });
+    admitted.task.attempt_count = 1001;
+    admitted.task.admission_deferrals = 1000;
+    admitted.task.latest_attempt_id = Some("attempt_preparation_1001".into());
+    admitted.task.validate().unwrap();
+    result["admitted_task_status"] = serde_json::to_value(admitted).unwrap();
+    let mut admitted: ConsoleTaskDetail =
+        serde_json::from_value(result["task_detail"].clone()).unwrap();
+    admitted.input.admission = Some(TaskAdmissionRequirement {
+        resource: "model.requests".into(),
+    });
+    admitted.attempt_count = 1001;
+    admitted.admission_deferrals = 1000;
+    admitted.validate().unwrap();
+    result["admitted_task_detail"] = serde_json::to_value(admitted).unwrap();
     result
 }

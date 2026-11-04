@@ -115,6 +115,7 @@ pub struct RuntimeFeatures {
 pub const NATIVE_EFFECT_RESOLUTION_FEATURE: &str = "native_effect_resolution.v1";
 pub const PROVIDER_OPERATION_FEATURE: &str = "provider_operation.v1";
 pub const PROVIDER_ADMISSION_FEATURE: &str = "provider_admission.v1";
+pub const TASK_ADMISSION_FEATURE: &str = "task_admission.v1";
 pub const RESOURCE_ADMISSION_FEATURE: &str = "resource_admission.v1";
 impl Default for RuntimeFeatures {
     fn default() -> Self {
@@ -153,6 +154,11 @@ impl RuntimeFeatures {
         self.supported
             .iter()
             .any(|name| name == NATIVE_EFFECT_RESOLUTION_FEATURE)
+    }
+    pub fn task_admission(&self) -> bool {
+        self.supported
+            .iter()
+            .any(|name| name == TASK_ADMISSION_FEATURE)
     }
     pub fn provider_admission(&self) -> bool {
         self.supported

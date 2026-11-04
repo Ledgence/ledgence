@@ -124,6 +124,7 @@ pub enum AuditReadKind {
     ApprovalDecision,
     EffectInspect,
     AdmissionInspect,
+    TaskAdmissionInspect,
 }
 impl AuditReadKind {
     fn matches(self, resource: &AuditResource) -> bool {
@@ -143,6 +144,10 @@ impl AuditReadKind {
                 | (Self::ApprovalList, AuditResource::ApprovalPage { .. })
                 | (Self::EffectInspect, AuditResource::Effect { .. })
                 | (Self::AdmissionInspect, AuditResource::Admission { .. })
+                | (
+                    Self::TaskAdmissionInspect,
+                    AuditResource::TaskAdmission { .. }
+                )
         )
     }
 }
@@ -156,6 +161,9 @@ pub enum AuditResourceKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditResource {
+    TaskAdmission {
+        occurrence: TaskAdmissionOccurrence,
+    },
     Resource {
         name: String,
     },
@@ -191,6 +199,7 @@ impl AuditResource {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
             Self::Task { task_id } => (AuditResourceKind::Task, task_id),
+            Self::TaskAdmission { occurrence } => (AuditResourceKind::Task, &occurrence.task_id),
             Self::Resource { name } => (AuditResourceKind::Resource, name),
             Self::Admission { occurrence } => {
                 (AuditResourceKind::Workflow, &occurrence.workflow_id)
@@ -206,6 +215,7 @@ impl AuditResource {
         validate_text(self.target().1, 128)?;
         match self {
             Self::Admission { occurrence } => occurrence.validate()?,
+            Self::TaskAdmission { occurrence } => occurrence.validate()?,
             Self::Resource { name } => crate::admission::name(name)?,
             Self::Effect {
                 activation_id,
@@ -244,6 +254,13 @@ impl AuditResource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditOperation {
+    TaskAdmissionReleased {
+        occurrence: TaskAdmissionOccurrence,
+        source_id: String,
+        request_id: String,
+        revision: u64,
+        reason: String,
+    },
     ResourcePolicyAccepted {
         name: String,
         request_id: String,
@@ -284,6 +301,9 @@ impl AuditOperation {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
             Self::ResourcePolicyAccepted { name, .. } => (AuditResourceKind::Resource, name),
+            Self::TaskAdmissionReleased { occurrence, .. } => {
+                (AuditResourceKind::Task, &occurrence.task_id)
+            }
             Self::AdmissionReleased { occurrence, .. } => {
                 (AuditResourceKind::Workflow, &occurrence.workflow_id)
             }
@@ -298,6 +318,19 @@ impl AuditOperation {
     }
     pub fn validate(&self) -> Result<()> {
         match self {
+            Self::TaskAdmissionReleased {
+                occurrence,
+                source_id,
+                request_id,
+                revision,
+                reason,
+            } => {
+                occurrence.validate()?;
+                validate_text(source_id, 128)?;
+                validate_text(request_id, 128)?;
+                crate::admission::positive(*revision)?;
+                validate_text(reason, 1024)?;
+            }
             Self::ResourcePolicyAccepted {
                 name,
                 request_id,
@@ -394,6 +427,11 @@ impl AuditEvent {
         self.operation.validate()?;
         let occurrence_scope = match &self.operation {
             AuditOperation::EffectResolved { occurrence, .. } => Some(&occurrence.scope),
+            AuditOperation::TaskAdmissionReleased { occurrence, .. }
+            | AuditOperation::SensitiveResponse {
+                resource: AuditResource::TaskAdmission { occurrence },
+                ..
+            } => Some(&occurrence.scope),
             AuditOperation::AdmissionReleased { occurrence, .. }
             | AuditOperation::SensitiveResponse {
                 resource: AuditResource::Admission { occurrence },

@@ -306,3 +306,8 @@ completed original call from uncertain completion; it does not describe business
 success. Inspect the linked effect ticket for provider knowledge and recovery.
 Version-2 provider approvals also expose the reviewed resource requirement.
 All of these extensions require the matching development client and server.
+
+In matching development builds, `TaskAdmission(resource="support-model")` is an
+optional `client.tasks.submit` / `prepare` argument. Use
+`client.task_admissions.inspect(task.id, generation=1)` for audited evidence.
+[Control shared resource capacity](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).

@@ -512,6 +512,8 @@ async fn prepare_and_serve(
     if admission_config.is_some() {
         ledgence_orchestration_api::WorkflowService::admissions(service.as_ref())
             .map_err(|error| error.to_string())?;
+        ledgence_orchestration_api::TaskService::task_admissions(service.as_ref())
+            .map_err(|error| error.to_string())?;
     }
     if provider_config.is_some() && admission_config.is_some() {
         ledgence_orchestration_api::WorkflowService::provider_admissions(service.as_ref())

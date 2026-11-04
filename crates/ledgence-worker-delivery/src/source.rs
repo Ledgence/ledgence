@@ -292,7 +292,8 @@ impl BrokerAcquisitionSource {
             ClaimDisposition::Claimed { reply } => SourceReply::Completed(reply),
             ClaimDisposition::AlreadyHandedOff { .. }
             | ClaimDisposition::TerminalOrSuperseded
-            | ClaimDisposition::Deferred { .. } => SourceReply::Discarded {
+            | ClaimDisposition::Deferred { .. }
+            | ClaimDisposition::AdmissionDeferred { .. } => SourceReply::Discarded {
                 sequence: command.sequence,
             },
         };

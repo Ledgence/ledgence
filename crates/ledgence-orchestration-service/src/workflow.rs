@@ -573,6 +573,11 @@ impl WorkflowService for ApplicationService {
     ) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
+            if command.input.admission.is_some() {
+                return Err(ContractError::InvalidInput(
+                    "task admission requires a standalone task".into(),
+                ));
+            }
             self.require_catalog_scope(command)?;
             let store = self.workflows()?;
             if let Some(accepted) = store.replay_workflow_submission(command).await? {

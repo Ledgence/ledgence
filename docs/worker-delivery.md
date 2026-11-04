@@ -214,3 +214,10 @@ means its report was retained; that report may still say pending or unknown.
 The original mutation callback keeps the normal workflow-attempt budget. A due
 read-only check can overlap it; neither a missing result nor a lookup miss permits
 resending the mutation.
+
+In matching development builds, authenticated workers can negotiate `task_admission.v1`.
+Capacity waiting occurs before assignment. A governed assignment authorizes
+bounded preparation, never ordinary Dispatch. The runtime-ready grant is checked
+again at the subprocess invocation frame. A lost reply does not authorize replay;
+only authenticated source-bound Close or an audited operator release can free a
+started source. [Standalone task admission](resource-admission.md#standalone-task-admission).

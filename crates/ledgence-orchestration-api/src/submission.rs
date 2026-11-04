@@ -44,6 +44,12 @@ pub const SUBMISSION_MAX_BYTES: usize = 2 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SubmitTask {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub admission: Option<crate::TaskAdmissionRequirement>,
     pub tenant_id: String,
     pub namespace: String,
     pub queue: String,
@@ -98,6 +104,11 @@ impl SubmitTask {
             return Err(invalid(
                 "correlation_key must contain at most 512 UTF-8 bytes and no control characters",
             ));
+        }
+        if let Some(admission) = &self.admission {
+            admission
+                .validate()
+                .map_err(|error| invalid(error.to_string()))?;
         }
         self.program.validate()?;
         self.retry_policy.validate()?;

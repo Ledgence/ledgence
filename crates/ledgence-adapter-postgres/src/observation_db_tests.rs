@@ -362,7 +362,15 @@ async fn compact_status_selects_no_payload_columns_and_corrupt_results_are_unava
     );
     // Only the server-owned bounded provider role marker may be bytes. Input,
     // output, descriptors, receipts and user payloads remain excluded.
-    assert_eq!(described.columns().len(), 20);
+    // Governance adds only two scalar status fields. Do not pull the admission
+    // snapshot (or a second query) into the compact task status read.
+    let columns = described
+        .columns()
+        .iter()
+        .map(|c| c.name())
+        .collect::<Vec<_>>();
+    assert!(columns.contains(&"admission_resource") && columns.contains(&"admission_deferrals"));
+    assert_eq!(columns.len(), 22);
     let (task, _, assigned) = claimed(&db.store).await;
     db.store
         .settle(&completed(&assigned, Quiescence::Confirmed, Value::Null))

@@ -3,6 +3,10 @@ use ledgence_orchestration_core as core;
 use ledgence_worker_api::ProgramDescriptor;
 
 impl TaskStore for PostgresStore {
+    fn task_admissions(&self) -> Result<&dyn TaskAdmissionStore> {
+        self.admission_configured()?;
+        Ok(self)
+    }
     fn lookup_submission<'a>(
         &'a self,
         scope: &'a Scope,
@@ -32,6 +36,7 @@ impl TaskStore for PostgresStore {
             self.require_submission_scope(command)?;
             let mut connection = self.transaction_connection().await?;
             let mut tx = connection.begin_write().await?;
+            if command.input.admission.is_some() { self.admission_configured()?; }
             let destination = crate::dispatch_intents::submission_destination(&mut tx, command).await?;
             let task_id = db::id(&mut tx,"task").await?;
             let run_id = db::id(&mut tx,"run").await?;
@@ -46,6 +51,7 @@ impl TaskStore for PostgresStore {
                 .bind(input).bind(descriptor).bind(trace).bind(at).bind(destination.as_deref())
                 .execute(&mut *tx).await?.rows_affected();
             let task = if inserted == 1 {
+                crate::task_admission::register(&mut tx,t).await?;
                 db::history(&mut tx,&transition.history).await?;
                 if destination.is_some() {
                     crate::dispatch_intents::sync_intent(&mut tx, &transition.task.task_id).await?;

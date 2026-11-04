@@ -23,6 +23,8 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
         correlation_key: task.input.correlation_key.clone(),
         state: task.state,
         attempt_count: task.attempt_count,
+        admission: task.input.admission.clone(),
+        admission_deferrals: task.admission_deferrals,
         current_attempt_id: task.current_attempt_id.clone(),
         latest_attempt_id: latest.map(|attempt| attempt.lease.owner.attempt_id.clone()),
         submitted_at: task.submitted_at,
@@ -36,16 +38,30 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
         if attempt.lease.owner.generation != task.attempt_count
             || (attempt.state == AttemptState::Active) != (task.state == TaskState::Active)
             || (attempt.state == AttemptState::Active) != attempt.finished_at.is_none()
-            || (attempt.quiescence == Quiescence::Confirmed && attempt.settlement.is_none())
-            || (attempt.state == AttemptState::Lost && attempt.quiescence == Quiescence::Confirmed)
+            || (attempt.quiescence == Quiescence::Confirmed
+                && attempt.settlement.is_none()
+                && !(task.input.admission.is_some()
+                    && matches!(
+                        attempt.state,
+                        AttemptState::Deferred | AttemptState::Lost | AttemptState::Cancelled
+                    )))
+            || (attempt.state == AttemptState::Lost
+                && attempt.quiescence == Quiescence::Confirmed
+                && task.input.admission.is_none())
             || (matches!(task.state, TaskState::Succeeded | TaskState::Failed)
                 && task.terminal_at != attempt.finished_at)
             || (task.state == TaskState::Queued
-                && !matches!(attempt.state, AttemptState::Failed | AttemptState::Lost))
+                && !matches!(
+                    attempt.state,
+                    AttemptState::Failed | AttemptState::Lost | AttemptState::Deferred
+                ))
             || (task.state == TaskState::Cancelled
                 && !matches!(
                     attempt.state,
-                    AttemptState::Cancelled | AttemptState::Failed | AttemptState::Lost
+                    AttemptState::Cancelled
+                        | AttemptState::Failed
+                        | AttemptState::Lost
+                        | AttemptState::Deferred
                 ))
         {
             return Err(corrupt());
@@ -59,6 +75,11 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
                 attempt.settlement.as_ref().map(|s| &s.command.report),
             ) {
                 (AttemptState::Lost, None) => true,
+                (AttemptState::Deferred, None)
+                    if task.input.admission.is_some() && !attempt.execution_may_have_started =>
+                {
+                    true
+                }
                 (AttemptState::Failed, Some(AttemptReport::Failed(report))) => {
                     retryable_failure(report.error.kind)
                 }
@@ -69,7 +90,9 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
                 }
                 _ => return Err(corrupt()),
             };
-            let retry_due = retryable && task.attempt_count < task.input.retry_policy.max_attempts;
+            let retry_due = retryable
+                && charged_attempts(task)? < task.input.retry_policy.max_attempts
+                && task.attempt_count < MAX_TASK_ATTEMPT_GENERATION;
             if (task.state == TaskState::Queued) != retry_due {
                 return Err(corrupt());
             }
@@ -154,6 +177,17 @@ pub fn task_result(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
                             phase: report.phase,
                             cleanup_error: report.cleanup_error.clone(),
                         },
+                    })
+                }
+                (TaskState::Failed, AttemptState::Deferred, None)
+                    if task.input.admission.is_some()
+                        && task.attempt_count == MAX_TASK_ATTEMPT_GENERATION =>
+                {
+                    Some(TaskOutcome::Failed {
+                        attempt_id,
+                        quiescence,
+                        execution_may_have_started,
+                        failure: TaskFailure::AdmissionGenerationExhausted {},
                     })
                 }
                 (TaskState::Failed, AttemptState::Lost, None) => Some(TaskOutcome::Failed {

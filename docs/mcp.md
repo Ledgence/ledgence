@@ -320,13 +320,20 @@ apply unchanged. These additions require matching 0.8.0 components.
 
 ## Resource admission in development
 
-Matching source builds add three read tools: `ledgence_resource_list`,
-`ledgence_resource_inspect` and audited `ledgence_admission_inspect`. The native
-catalog with audit has 22 default tools and 17 read-only tools; explicit effect
+Matching source builds add four read tools: `ledgence_resource_list`,
+`ledgence_resource_inspect`, audited `ledgence_admission_inspect` and
+`ledgence_task_admission_inspect`. The native
+catalog with audit has 23 default tools and 18 read-only tools; explicit effect
 resolution adds one. `--allow-resource-control` separately adds
-`ledgence_resource_put` and `ledgence_admission_release` (24 default tools, or 25
-with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
+`ledgence_resource_put`, `ledgence_admission_release` and `ledgence_task_admission_release`
+(26 tools, or 27 with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
 Session scope is fixed. Policy/release commands require stable caller request
 IDs, inspected revisions and the API's `resource_control` permission. Read-only
 mode rejects either mutation opt-in. Release never asserts remote success.
 See [resource admission](resource-admission.md) for limits and recovery semantics.
+
+`ledgence_task_submit` accepts optional `admission: {"resource":"support-model"}`.
+Only standalone tasks support it. The task inspector addresses `task_id` and
+`generation`; release additionally requires `source_id`, `expected_revision`, a
+stable `request_id` and `reason`. The MCP server fixes scope and never requests
+a worker dispatch grant.

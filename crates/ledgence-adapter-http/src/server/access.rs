@@ -379,6 +379,9 @@ pub(super) async fn dispatch(
                 if admissions {
                     supported.push(ledgence_worker_api::RESOURCE_ADMISSION_FEATURE);
                 }
+                if super::task_admission::available(server) {
+                    supported.push(TASK_ADMISSION_FEATURE);
+                }
                 if !supported.is_empty() {
                     value["worker_features"] = serde_json::json!({"v":1,"supported":supported});
                 }

@@ -61,6 +61,7 @@ impl ConsoleServices {
                 workflows: true,
                 programs: catalog.is_some(),
                 workers: observations.is_some(),
+                task_admission: false,
             },
             suggested_queues: instance.suggested_queues.clone(),
             limits: ConsoleLimits::default(),
@@ -135,6 +136,10 @@ pub(super) const ROUTES: &[Route] = &[
     Route::post("/v1/console/access/login", Policy::Login),
     Route::post("/v1/console/access/logout", Policy::Logout),
     Route::post("/v1/console/audit/events", Policy::Metadata),
+    Route::sensitive_post(
+        "/v1/console/task-admissions/inspect",
+        AuditReadKind::TaskAdmissionInspect,
+    ),
     Route::sensitive_post(
         "/v1/console/admissions/inspect",
         AuditReadKind::AdmissionInspect,
@@ -238,7 +243,9 @@ pub(super) async fn dispatch(
             .map_err(|_| invalid("GET operation does not accept a request body"))?;
         let fields = fields(parts.uri.query().unwrap_or(""), path)?;
         if path == "/v1/console/config" {
-            return server.encode(console.config.clone()).await;
+            let mut config = console.config.clone();
+            config.capabilities.task_admission = super::task_admission::available(server);
+            return server.encode(config).await;
         }
         let page = pagination(&fields)?;
         if path.starts_with("/v1/console/programs") {
@@ -506,7 +513,10 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path == "/v1/console/admissions/inspect" {
+    let maximum = if matches!(
+        path,
+        "/v1/console/admissions/inspect" | "/v1/console/task-admissions/inspect"
+    ) {
         4096
     } else if path == "/v1/console/workflows/approved-effects/resolve" {
         EFFECT_RESOLUTION_COMMAND_MAX_BYTES
@@ -528,6 +538,9 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if path == "/v1/console/task-admissions/inspect" {
+        return super::task_admission::console_inspect(server, bytes, scope, context).await;
+    }
     if path == "/v1/console/admissions/inspect" {
         return super::admission::console_inspect(server, bytes, scope, context).await;
     }

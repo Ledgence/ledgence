@@ -187,8 +187,8 @@ Matching development components add shared capacity and token-bucket policies
 for registered workflow callbacks. Workflows park without a worker slot, then
 resume under a one-shot Start permission. Accepted results survive worker loss;
 uncertain usage remains occupied. CLI, Python, HTTP and MCP expose policy and
-inspection operations, and Console C9 renders the durable wait/result. Protected
+inspection operations, and Console C10 renders the durable wait/result. Protected
 provider dispatch can share a resource through a combined one-shot grant; its
 call completion remains separate from the provider's business outcome. Recovery
-probes are outside that resource limit. Standalone task admission, fairness and
-inherited budgets remain deferred. This is not in the 0.8.0 packages. [Guide and limits](/how-to/control-resource-capacity).
+probes are outside that resource limit. Standalone tasks can require the same
+resource before handler invocation. Fair sharing and inherited budgets remain deferred. This is not in the 0.8.0 packages. [Guide and limits](/how-to/control-resource-capacity).
