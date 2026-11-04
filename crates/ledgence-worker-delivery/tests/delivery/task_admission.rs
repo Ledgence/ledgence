@@ -8,7 +8,7 @@ pub(super) struct Fixture {
     close_unavailable: AtomicBool,
     close_forbidden: AtomicBool,
     close_requests: AtomicUsize,
-    starts: Mutex<Vec<TaskAdmissionStartCommand>>,
+    pub(super) starts: Mutex<Vec<TaskAdmissionStartCommand>>,
     closes: Mutex<Vec<TaskAdmissionCloseCommand>>,
     // Persist before injecting a lost reply.
     source: Mutex<Option<TaskAdmissionSource>>,
@@ -37,7 +37,9 @@ impl TaskAdmissionClient for Service {
             session
                 .features
                 .push(worker_api::TASK_ADMISSION_FEATURE.into());
-            self.state.lock().unwrap().session = Some(session.clone());
+            let mut state = self.state.lock().unwrap();
+            state.sessions.insert(session.id.clone(), session.clone());
+            state.session = Some(session.clone());
             Ok(session)
         })
     }
@@ -153,7 +155,7 @@ impl TaskAdmissionClient for Service {
     }
 }
 
-fn driver(worker: Worker, service: Arc<Service>) -> DeliveryDriver {
+pub(super) fn driver(worker: Worker, service: Arc<Service>) -> DeliveryDriver {
     service.task_admission.enabled.store(true, Ordering::SeqCst);
     DeliveryDriver::new(worker, service, config())
         .unwrap()

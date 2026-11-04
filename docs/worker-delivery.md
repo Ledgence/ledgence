@@ -221,3 +221,62 @@ bounded preparation, never ordinary Dispatch. The runtime-ready grant is checked
 again at the subprocess invocation frame. A lost reply does not authorize replay;
 only authenticated source-bound Close or an audited operator release can free a
 started source. [Standalone task admission](resource-admission.md#standalone-task-admission).
+
+## Worker-local poll plans (development)
+
+`ledgence worker connect --poll-plan FILE` gives one physical worker a fixed set
+of integrated queues in its tenant and namespace. Use it instead of `--queue`.
+There are still N consumers and at most N subprocesses across all routes. The
+orchestrator registers one existing queue-bound session per route, each able
+to identify the same N consumer indexes. The per-session concurrency values
+must not be added together to estimate physical capacity.
+
+The [example plan](../examples/worker-poll-plan.json) selects `stride` with
+weights 7 and 3. One turn is a **fresh logical poll**. An empty response counts;
+an uncertain acquire is reconciled on its original queue and sequence. It gets
+no extra turn. On continuously eligible queues, Stride apportions opportunities
+deterministically, and `lottery` samples in proportion to positive weights.
+Neither mode specifies proportions of task completions, running time or cost.
+A long poll keeps its consumer until it returns. The usual empty-poll pacing
+also applies when switching queues. Choose `--acquire-wait-ms` for the latency
+and request rate your service can support.
+
+The plan is a regular UTF-8 JSON file of at most 16 KiB. It uses
+`schema_version: 1`, an unsigned 64-bit `revision`, `strategy: "stride"` or
+`"lottery"`, and between 1 and 64 distinct queue names with unsigned 32-bit
+`weight`. Weights are relative; multiplying all weights by the same factor
+leaves the distribution unchanged. Set a queue to zero to disable its next
+polls. All zero weights pause new polls. The worker keeps its sessions and
+current tasks while paused.
+
+Write a complete replacement file in the same directory and atomically rename it
+over the original path. The worker re-reads it about once per second. A higher
+revision changes future polls. Replaying equivalent weights preserves strategy
+history. A malformed file, missing file, stale revision, conflicting edit at the
+same revision, or changed route membership or strategy leaves the last valid
+plan in force. Check the worker's stderr for `worker poll plan loaded` or
+`worker poll plan rejected`. Restart the worker to change membership or strategy.
+The revision and selection history are local to this worker process; after a
+restart it loads the current file afresh. A program can generate the plan file
+or an embedded Rust caller can install a plan on the shared planner directly.
+
+During shutdown, the worker drains uncertain acquisitions and assignments on their
+original sessions. Session registration is queue-scoped; sessions opened before
+a startup failure expire normally. Worker observations publish the physical
+snapshot on the primary session, the first queue in the startup plan. Reordering queues in a live revision keeps that primary session. Other subscribed sessions represent routes,
+not additional observed pools. Secondary execution slots still count toward
+physical occupancy; their primary-session snapshot shows `unknown` without
+task/attempt links. Use task history for those links. The final JSON report's
+`route_sessions` maps each queue to its durable session ID.
+
+To inspect individual planned polls, set
+`RUST_LOG=info,ledgence_worker_delivery::polls=debug` when starting the worker.
+A `worker.poll.issued` event records a fresh binding with queue, plan revision,
+session, consumer and sequence. Retries keep that identity. A `worker.poll.resolved`
+event reports the reconciled disposition. These local diagnostics are optional
+and do not measure task duration or replace server receipts.
+
+This mode supports integrated HTTP. Existing SQS/ElasticMQ delivery uses
+`--queue` with `--delivery-config` and one external route. Poll weights are
+local to one worker. Durable resource admission remains a separate limit on
+whether governed work can start; see [resource admission](resource-admission.md).

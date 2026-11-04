@@ -39,3 +39,9 @@ An acquired assignment establishes identity but initially remains `AwaitingAutho
 A stopping worker retains its reservation while reconciling the same acquisition sequence with zero wait. An assignment obtained during stopping is reconciled without dispatch. The orchestrator rejects new requests and wakes already accepted waits into authoritative finalization. It keeps the coordinator and local hints alive through HTTP/recovery drain, then stops notification tasks and closes their pool before closing the lifecycle pool. Cleanup observation intervals do not abandon ownership; the second explicit signal remains the force path.
 
 See [HTTP verification](http-orchestration.md#verification), [PostgreSQL verification](postgres.md#verification) and the service/worker tests for the corresponding race, replay, deadline, notification and process scenarios. Performance depends on queue sharing, database latency, workload and deployment; no latency SLA is implied by the wait duration.
+
+With a [worker poll plan](worker-delivery.md#worker-local-poll-plans-development),
+a fresh acquisition selects a queue only after local capacity is available.
+It uses that queue's session and its sequence for the consumer. The next poll
+on another queue uses its own sequence. Lost responses and shutdown recovery
+retain the original route, even after plan replacement.

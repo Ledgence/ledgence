@@ -3,6 +3,7 @@
 mod composition;
 mod connect;
 mod output;
+mod poll_file;
 mod signals;
 mod telemetry;
 
@@ -25,7 +26,7 @@ use std::{
 };
 use tokio::{sync::Mutex, task::JoinSet};
 
-const HELP: &str = "Ledgence worker\n\nCommands:\n  ledgence worker run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  ledgence worker connect --server URL --tenant ID --namespace ID --queue NAME --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
+const HELP: &str = "Ledgence worker\n\nCommands:\n  ledgence worker run --tasks FILE --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--timeout-ms MS]\n  ledgence worker connect --server URL --tenant ID --namespace ID (--queue NAME | --poll-plan FILE) --store DIR_OR_URL --cache DIR --python EXE --runner BOOTSTRAP [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]\n\nrun consumes a local JSON task fixture. connect acquires tasks through HTTP,\nrenews leases, and reconciles durable results. One concurrency setting controls\nconsumers and the reusable process pool. The first shutdown signal drains;\na second signal forces exit with unresolved work.\n";
 
 /// Runs a worker command in the current process.
 ///
@@ -272,8 +273,12 @@ async fn prepare(
             &config.python,
             &config.runner,
         )?;
-        let tasks: Vec<SubmittedTask> = decode_json(&read_bounded(&config.tasks, 8 * 1024 * 1024)?)
-            .map_err(|e| input(format!("invalid task fixture: {e}")))?;
+        let tasks: Vec<SubmittedTask> = decode_json(&read_bounded(
+            &config.tasks,
+            8 * 1024 * 1024,
+            "task fixture",
+        )?)
+        .map_err(|e| input(format!("invalid task fixture: {e}")))?;
         if tasks.len() > 1000 {
             return Err(input("task fixture is limited to 1000 invocations"));
         }
@@ -497,10 +502,10 @@ async fn finish_shutdown(
     }
 }
 
-fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
+fn read_bounded(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     if !std::fs::symlink_metadata(path)?.is_file() {
-        return Err(input("task fixture must be a regular file"));
+        return Err(input(format!("{label} must be a regular file")));
     }
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -512,11 +517,11 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     }
     let file = options.open(path)?;
     if !file.metadata()?.is_file() {
-        return Err(input("task fixture must be a regular file"));
+        return Err(input(format!("{label} must be a regular file")));
     }
     file.take(limit + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > limit {
-        return Err(input("task fixture exceeds size limit"));
+        return Err(input(format!("{label} exceeds size limit")));
     }
     Ok(bytes)
 }

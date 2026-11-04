@@ -68,3 +68,14 @@ deletes the observation as one counted row before removing the remaining session
 records. A session with an active attempt remains protected, including its last
 observation. There is no separate telemetry TTL that bypasses that protection,
 and no growing history of snapshots.
+
+For a development worker using a [poll plan](worker-delivery.md#worker-local-poll-plans-development),
+the primary session publishes the shared physical worker snapshot. Other
+queue-bound sessions belong to the same runtime. Summing their registered
+concurrency would count the same consumers more than once.
+
+Task and attempt links on the primary snapshot are shown only for work assigned
+to that primary session. A slot executing a secondary queue's task still counts
+as occupied, but its sampled state appears as `unknown` without a task link.
+Use task or execution history to inspect that task. This preserves the ownership
+check for every link and avoids reporting the physical pool once per queue.

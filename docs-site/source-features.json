@@ -101,5 +101,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/control-resource-capacity"
+  },
+  "workerPollPlan": {
+    "title": "Weighted polling of multiple integrated queues by one worker",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/share-worker-polls"
   }
 }

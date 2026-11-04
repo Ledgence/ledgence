@@ -401,6 +401,12 @@ jobs:
           python tools/check-http.py --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
             --evidence "$RUNNER_TEMP/ledgence-http-evidence"
+      - name: Check multi-queue worker poll plans with real HTTP delivery
+        if: matrix.suite == 'http'
+        run: |
+          python tools/check-worker-poll-plan.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
+            --evidence "$RUNNER_TEMP/ledgence-worker-poll-plan-evidence"
       - name: Check SQS delivery with production long-poll and lease timings
         if: matrix.suite == 'sqs'
         run: |
