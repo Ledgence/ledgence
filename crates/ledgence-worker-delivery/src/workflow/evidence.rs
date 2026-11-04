@@ -44,6 +44,7 @@ impl WorkflowOperations {
         let payload: ClaimRequest = serde_json::from_value(request.payload)
             .map_err(|_| Error::new(ErrorKind::Protocol, "invalid effect claim v2 request"))?;
         let command = EffectClaimV2Command {
+            budget_fence: true,
             owner: self.owner.clone(),
             workflow_id: self.workflow_id.clone(),
             approval_key: payload.approval_key,
@@ -59,6 +60,7 @@ impl WorkflowOperations {
             .map_err(runtime_error)?;
         // Do not resend a possible dispatch grant. Recovery requires a new
         // explicit owned invocation and its verified current permission.
+        let began = Instant::now();
         let reply = controlled(&control, self.request_timeout, || {
             effects.claim_v2(&command)
         })
@@ -93,15 +95,24 @@ impl WorkflowOperations {
                     | EffectClaimV2Receipt::LookupOnly { claim } => claim,
                     _ => unreachable!(),
                 };
+                if kind == "dispatch" {
+                    check_budget_window(claim.budget_grant, began)?;
+                }
                 if !access.matches(&claim.worker) {
                     return Err(mismatch());
                 }
-                json!({"kind":kind,"claim":{
+                let mut result = json!({"kind":kind,"claim":{
                     "workflow_id":claim.workflow_id,"activation_id":claim.activation_id,
                     "approval_key":claim.approval_key,"claim_id":claim.claim_id,
                     "action":claim.action,"lookup":claim.lookup,"claimed_at":claim.claimed_at,
                     "initial_permission":claim.initial_permission,"recorded_revision":claim.recorded_revision,
-                    "already_accepted":claim.already_accepted}})
+                    "already_accepted":claim.already_accepted}});
+                if kind == "dispatch"
+                    && let Some(grant) = claim.budget_grant
+                {
+                    result["claim"]["budget_grant"] = json!(grant);
+                }
+                result
             }
         };
         Ok(RuntimeReply {

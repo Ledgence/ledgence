@@ -202,6 +202,7 @@ pub(super) async fn append_local(
 /// happen after workflow -> task locks, so cancellation and attempt replacement
 /// cannot race a newly acknowledged result into an obsolete continuation.
 pub(super) struct ActivationAuthority {
+    pub(super) has_run_budget: bool,
     task_state: TaskState,
     current_attempt_id: Option<String>,
     cancellation_requested: bool,
@@ -233,9 +234,10 @@ pub(super) async fn lock_activation(
     .fetch_optional(&mut *connection)
     .await?
     .ok_or(ContractError::OwnershipLost)?;
-    let row = sqlx::query("SELECT retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
+    let row = sqlx::query("SELECT has_run_budget,retiring_at_ms,workflow_id,parent_workflow_id,root_workflow_id,tenant_id,namespace,state,trunc(revision)::text AS revision_text,current_activation_id,submitted_at_ms,terminal_at_ms,correlation_key FROM workflow_runs WHERE tenant_id=$1 AND namespace=$2 AND workflow_id=$3 FOR NO KEY UPDATE")
         .bind(&owner.scope.tenant_id).bind(&owner.scope.namespace).bind(&workflow_id).fetch_optional(&mut *connection).await?.ok_or(ContractError::NotFound)?;
     let workflow = status_record(&row)?;
+    let has_run_budget = row.try_get("has_run_budget")?;
     // Only authority metadata is read: local receipts must not decode or transfer
     // task input, frozen inputs, checkpoint, event or accepted report payloads.
     let task = sqlx::query("SELECT workflow_id,workflow_activation_id,state,current_attempt_id,cancel_requested_at_ms FROM tasks WHERE tenant_id=$1 AND namespace=$2 AND task_id=$3 FOR NO KEY UPDATE")
@@ -268,6 +270,7 @@ pub(super) async fn lock_activation(
     Ok((
         workflow,
         ActivationAuthority {
+            has_run_budget,
             task_state: serde_json::from_value(Value::String(task.try_get("state")?))
                 .map_err(|_| corrupt("task state"))?,
             current_attempt_id: task.try_get("current_attempt_id")?,

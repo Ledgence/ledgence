@@ -24,6 +24,7 @@ fn receipt(
     disposition: ApprovedEffectDisposition,
 ) -> ApprovedEffectClaimReceipt {
     ApprovedEffectClaimReceipt {
+        budget_grant: None,
         scope: command.owner.scope.clone(),
         attempt_id: command.owner.attempt_id.clone(),
         workflow_id: command.workflow_id.clone(),
@@ -201,4 +202,16 @@ async fn unsupported_effect_capability_rejects_the_claim_before_dispatch() {
         .handle(claim(), RunControl::new(Duration::from_secs(1)))
         .await;
     assert_eq!(result.unwrap_err().kind, ErrorKind::Protocol);
+}
+
+#[test]
+fn delayed_budget_dispatch_cannot_reach_the_program_or_gain_time_on_a_clock_jump() {
+    let grant = RunBudgetGrant::new(1_000, 1_025).unwrap();
+    let began = Instant::now() - Duration::from_millis(25);
+    assert_eq!(
+        check_budget_window(Some(grant), began).unwrap_err().kind,
+        ErrorKind::TimedOut
+    );
+    assert!(RunBudgetGrant::new(1_000, 1_000).is_err());
+    assert!(check_budget_window(None, began).is_ok());
 }

@@ -32,6 +32,21 @@ impl PostgresStore {
             tx.commit().await?;
             return Ok(receipt(&original, true));
         }
+        if authority.has_run_budget {
+            let previous:Option<(String,bool,Vec<u8>)>=sqlx::query_as("SELECT accepting_attempt,request_digest=sha256($3::bytea),denial_bytes FROM run_budget_fork_refusals WHERE workflow_id=$1 AND fork_key=$2")
+               .bind(&workflow.workflow_id).bind(&command.fork.key).bind(codec::encode(&command.fork)?).fetch_optional(&mut *tx).await?;
+            if let Some((attempt, identical, reason)) = previous {
+                if !identical {
+                    return Err(ContractError::Conflict.into());
+                }
+                if attempt != owner.attempt_id {
+                    check_live(&workflow, &authority, owner, db::now(&mut tx).await?, true)?;
+                }
+                let denial = codec::decode(&reason)?;
+                tx.commit().await?;
+                return Err(ContractError::RunBudgetDenied(denial).into());
+            }
+        }
         let now = db::now(&mut tx).await?;
         check_live(&workflow, &authority, owner, now, true)?;
         let bytes = codec::encode(&command.fork)?;
@@ -68,6 +83,11 @@ impl PostgresStore {
             false,
         )
         .await?;
+        if parent.has_run_budget {
+            sqlx::query("SAVEPOINT budget_fork")
+                .execute(&mut *tx)
+                .await?;
+        }
         sqlx::query("INSERT INTO workflow_forks(workflow_id,fork_key,request_bytes,accepting_activation_id,accepting_attempt_id,accepted_at_ms) VALUES($1,$2,$3,$4,$5,$6)")
             .bind(&workflow.workflow_id).bind(&command.fork.key).bind(bytes)
             .bind(&owner.task_id).bind(&owner.attempt_id).bind(codec::ms(now)?)
@@ -98,30 +118,91 @@ impl PostgresStore {
                     .await?,
             );
         }
-        explorer::insert(
-            &mut tx,
-            &owner.task_id,
-            &ledgence_orchestration_api::console::ConsoleExplorerData::Fork {
-                key: command.fork.key.clone(),
-                branch_keys: command
-                    .fork
-                    .branches
-                    .iter()
-                    .map(|branch| branch.key.clone())
-                    .collect(),
-                accepted_at: now,
-                accepting_attempt_id: owner.attempt_id.clone(),
-            },
-        )
-        .await?;
-        record_history(
-            &mut tx,
-            &workflow.workflow_id,
-            Some(&owner.task_id),
-            now,
-            "fork_accepted",
-        )
-        .await?;
+        let allowance = if parent.has_run_budget {
+            let children = wakes
+                .iter()
+                .map(|t| {
+                    t.workflow_id
+                        .as_deref()
+                        .map(crate::run_budget::workflow)
+                        .ok_or_else(|| corrupt("fork child lacks workflow"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            crate::run_budget::delegate(
+                &mut tx,
+                &parent.snapshot.scope,
+                &parent.snapshot.workflow_id,
+                &children,
+            )
+            .await?
+        } else {
+            Ok(None)
+        };
+        if allowance.is_ok() {
+            explorer::insert(
+                &mut tx,
+                &owner.task_id,
+                &ledgence_orchestration_api::console::ConsoleExplorerData::Fork {
+                    key: command.fork.key.clone(),
+                    branch_keys: command
+                        .fork
+                        .branches
+                        .iter()
+                        .map(|branch| branch.key.clone())
+                        .collect(),
+                    accepted_at: now,
+                    accepting_attempt_id: owner.attempt_id.clone(),
+                },
+            )
+            .await?;
+            record_history(
+                &mut tx,
+                &workflow.workflow_id,
+                Some(&owner.task_id),
+                now,
+                "fork_accepted",
+            )
+            .await?;
+        }
+        if parent.has_run_budget {
+            let final_now = db::now(&mut tx).await?;
+            check_live(&workflow, &authority, owner, final_now, true)?;
+            let reason = match allowance {
+                Err(reason) => Some(reason),
+                Ok(Some(deadline)) if final_now >= deadline => {
+                    Some(RunBudgetDenial::DeadlineExceeded)
+                }
+                _ => None,
+            };
+            if let Some(reason) = reason {
+                sqlx::query("ROLLBACK TO SAVEPOINT budget_fork")
+                    .execute(&mut *tx)
+                    .await?;
+                let key = crate::run_budget::denial_id(
+                    &mut tx,
+                    &("fork", &workflow.workflow_id, &command.fork.key),
+                )
+                .await?;
+                crate::run_budget::record_denial(
+                    &mut tx,
+                    &workflow.scope,
+                    &crate::run_budget::workflow(&workflow.workflow_id),
+                    RunBudgetAction::Delegation,
+                    &key,
+                    reason,
+                    None,
+                )
+                .await?;
+                let saved:Option<bool>=sqlx::query_scalar("INSERT INTO run_budget_fork_refusals(workflow_id,fork_key,accepting_attempt,request_digest,denial_bytes) VALUES($1,$2,$3,sha256($4::bytea),$5) RETURNING workflow_id=$1 AND fork_key=$2 AND accepting_attempt=$3 AND request_digest=sha256($4::bytea) AND denial_bytes=$5")
+                    .bind(&workflow.workflow_id).bind(&command.fork.key).bind(&owner.attempt_id).bind(codec::encode(&command.fork)?).bind(codec::encode(&reason)?).fetch_optional(&mut *tx).await?;
+                if saved != Some(true) {
+                    return Err(corrupt("run budget fork refusal changed or suppressed").into());
+                }
+                check_live(&workflow, &authority, owner, db::now(&mut tx).await?, true)?;
+                tx.commit().await?;
+                return Err(ContractError::RunBudgetDenied(reason).into());
+            }
+        }
         tx.commit().await?;
         self.workflow_wakes(&wakes);
         Ok(receipt(&command.fork, false))

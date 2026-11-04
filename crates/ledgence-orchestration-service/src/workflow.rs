@@ -430,6 +430,11 @@ impl WorkflowService for ApplicationService {
         Ok(self)
     }
 
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        self.workflows()?.operator_access()?;
+        self.workflows()?.budgets()?;
+        Ok(self)
+    }
     fn admissions(&self) -> Result<&dyn AdmissionOperations> {
         self.workflows()?.admissions()?;
         self.workflows()?.operator_access()?;
@@ -573,6 +578,9 @@ impl WorkflowService for ApplicationService {
     ) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
+            if command.input.budget.is_some() {
+                self.budgets()?;
+            }
             if command.input.admission.is_some() {
                 return Err(ContractError::InvalidInput(
                     "task admission requires a standalone task".into(),

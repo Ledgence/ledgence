@@ -305,7 +305,7 @@ pub(crate) fn name(value: &str) -> Result<()> {
     }
     Ok(())
 }
-fn safe(n: u64) -> Result<()> {
+pub(crate) fn safe(n: u64) -> Result<()> {
     if n > ADMISSION_SAFE_INTEGER {
         Err(invalid("admission integer exceeds safe range"))
     } else {
@@ -330,7 +330,7 @@ fn time(n: Timestamp) -> Result<()> {
 fn invalid(message: &str) -> ContractError {
     ContractError::InvalidInput(message.into())
 }
-fn bound<T: Serialize>(value: &T, bytes: usize) -> Result<()> {
+pub(crate) fn bound<T: Serialize>(value: &T, bytes: usize) -> Result<()> {
     crate::submission::check_encoded_size(value, bytes, "admission value").map_err(Into::into)
 }
 pub(crate) fn digest<T: Serialize>(value: &T) -> Result<Digest> {

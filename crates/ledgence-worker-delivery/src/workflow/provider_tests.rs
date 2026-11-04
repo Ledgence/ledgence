@@ -110,6 +110,7 @@ fn claim() -> RuntimeRequest {
 }
 fn source(c: &ProviderClaimCommand) -> ProviderDispatchSource {
     ProviderDispatchSource {
+        budget_grant: None,
         source_id: "source".into(),
         claim_id: c.claim_id.clone(),
         report_id: c.report_id.clone(),
@@ -204,6 +205,7 @@ async fn provider_report_retries_frozen_facts_and_preserves_existing_ingress() {
     let (reply, ()) = bounded(async { tokio::join!(exchange, backend) }).await;
     let reply = reply.unwrap();
     let report = ProviderReport {
+        usage: None,
         reported_target: serde_json::from_value(claim().payload["binding"]["target"].clone())
             .unwrap(),
         provider_reference: None,

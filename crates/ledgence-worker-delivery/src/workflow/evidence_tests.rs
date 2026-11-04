@@ -45,6 +45,7 @@ fn claim() -> RuntimeRequest {
 }
 fn binding(command: &EffectClaimV2Command) -> EffectClaimBinding {
     EffectClaimBinding {
+        budget_grant: None,
         scope: command.owner.scope.clone(),
         workflow_id: command.workflow_id.clone(),
         activation_id: command.owner.task_id.clone(),

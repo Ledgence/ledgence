@@ -12,7 +12,7 @@ import aiohttp
 
 from . import codec, otel
 from .errors import (
-    ClientClosed, Conflict, Forbidden, InputError, NotFound, ProtocolError, RequestTimeout, Unauthenticated,
+    ClientClosed, Conflict, RunBudgetDenied, Forbidden, InputError, NotFound, ProtocolError, RequestTimeout, Unauthenticated,
     ServiceError, TransportError, Unavailable,
 )
 
@@ -78,6 +78,7 @@ def _decode_response(raw: bytes, status: int, request_id: str | None,
         code = value["code"]
         statuses = {
             "invalid_input": {400, 413, 415}, "not_found": {404}, "unknown_session": {404},
+            "run_budget_denied": {409},
             "conflict": {409}, "ownership_lost": {409}, "obsolete_operation": {409},
             "out_of_order": {409}, "busy": {409}, "session_expired": {410},
             "unavailable": {503}, "unauthenticated": {401}, "forbidden": {403},
@@ -85,6 +86,11 @@ def _decode_response(raw: bytes, status: int, request_id: str | None,
         if type(code) is not str or status not in statuses.get(code, set()):
             raise ProtocolError("unknown or mismatched HTTP error response")
         message = value.get("message")
+        if code == "run_budget_denied":
+            from .budgets import RunBudgetDenial
+            if type(message) is not str or message not in {reason.value for reason in RunBudgetDenial}:
+                raise ProtocolError("invalid budget denial reason")
+            raise RunBudgetDenied(message, code=code, request_id=request_id)
         if code in {"invalid_input", "unavailable"}:
             if type(message) is not str:
                 raise ProtocolError("missing HTTP error message")

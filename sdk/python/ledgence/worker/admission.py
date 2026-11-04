@@ -260,7 +260,9 @@ def validate_source(value):
 
 
 def validate_finish(value):
-    _fields(value, {"source", "output", "accepted_at", "already_accepted"})
+    _fields(value, {"source", "output", "accepted_at", "already_accepted"}, {"usage"})
+    if "usage" in value:
+        RunBudgetUsage.from_dict(value["usage"])
     validate_source(value["source"])
     _encode(value["output"], RESULT_BYTES, authoritative=True)
     _integer(value["accepted_at"], "accepted_at", maximum=MAX_TIMESTAMP)
@@ -353,6 +355,7 @@ def validate_wake(value):
             "cancelled",
             "deadline",
             "administratively_released",
+            "calls_exhausted", "delegations_exhausted", "deadline_exceeded", "budget_cancelled",
         ):
             raise WorkflowError("invalid admission closure")
     elif kind == "needs_review":
@@ -393,9 +396,18 @@ class AdmissionOutcomeKind(StrEnum):
 
 
 class AdmissionClosedReason(StrEnum):
+    BUDGET_CANCELLED = "budget_cancelled"
+    CALLS_EXHAUSTED = "calls_exhausted"
+    DELEGATIONS_EXHAUSTED = "delegations_exhausted"
+    DEADLINE_EXCEEDED = "deadline_exceeded"
     CANCELLED = "cancelled"
     DEADLINE = "deadline"
     ADMINISTRATIVELY_RELEASED = "administratively_released"
+
+
+def budget_closed_reason(snapshot):
+    reason = snapshot.get("budget_denial")
+    return AdmissionClosedReason.BUDGET_CANCELLED.value if reason == "cancelled" else reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -426,6 +438,57 @@ def outcome(kind, **values):
     return AdmissionOutcome(
         _encode({"kind": kind.value, **values}, RESULT_BYTES + 1024, authoritative=True)
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RunBudgetUsage:
+    """Attach measured or estimated token counts to a governed operation."""
+    kind: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+    def __post_init__(self):
+        if self.kind not in ("reported", "estimated", "unknown"):
+            raise WorkflowError("invalid budget usage provenance")
+        counts = [v for v in (self.input_tokens,self.output_tokens) if v is not None]
+        if (self.kind == "unknown") != (not counts):
+            raise WorkflowError("measured or estimated usage requires at least one count")
+        for value in counts:
+            _integer(value, "token count", maximum=(1 << 53)-1)
+
+    @classmethod
+    def reported(cls, *, input_tokens=None, output_tokens=None):
+        return cls("reported", input_tokens, output_tokens)
+
+    @classmethod
+    def estimated(cls, *, input_tokens=None, output_tokens=None):
+        return cls("estimated", input_tokens, output_tokens)
+
+    @classmethod
+    def from_dict(cls, value):
+        _fields(value, {"kind"}, {"input_tokens","output_tokens"})
+        if None in value.values():
+            raise WorkflowError("omit unreported token counts")
+        return cls(**value)
+
+    def to_dict(self):
+        values = {"kind":self.kind}
+        if self.input_tokens is not None:
+            values["input_tokens"] = self.input_tokens
+        if self.output_tokens is not None:
+            values["output_tokens"] = self.output_tokens
+        return values
+
+
+@dataclass(frozen=True, slots=True)
+class AdmittedResult:
+    """Return an application output with an optional usage report."""
+    output: object
+    usage: RunBudgetUsage
+
+    def __post_init__(self):
+        if type(self.usage) is not RunBudgetUsage:
+            raise WorkflowError("expected RunBudgetUsage")
 
 
 class _AdmissionAwaitable:
@@ -537,6 +600,7 @@ def _matches_finish(wake, finish):
         if (
             finish["source"] != previous["source"]
             or finish["accepted_at"] != previous["accepted_at"]
+            or finish.get("usage") != previous.get("usage")
             or _encode(finish["output"], RESULT_BYTES, authoritative=True)
             != _encode(previous["output"], RESULT_BYTES, authoritative=True)
         ):
@@ -601,7 +665,7 @@ async def _run(ctx, fn, wake):
                     reason=(
                         "administratively_released"
                         if snapshot["state"] == "administratively_released"
-                        else None
+                        else budget_closed_reason(snapshot)
                     ),
                 )
             return outcome(AdmissionOutcomeKind.WAIT_REQUIRED)
@@ -631,15 +695,20 @@ async def _run(ctx, fn, wake):
         result = fn(**arguments)
         if inspect.isawaitable(result):
             result = await result
+        usage = None
+        if type(result) is AdmittedResult:
+            usage = result.usage.to_dict()
+            result = result.output
         result = _freeze(result, RESULT_BYTES)
     finally:
         _local_owner.reset(token)
     try:
-        receipt = await ctx._rpc(
-            "resource_admission.finish.v1", {"source": source, "output": result}
-        )
+        command = {"source": source, "output": result}
+        if usage is not None:
+            command["usage"] = usage
+        receipt = await ctx._rpc("resource_admission.finish.v1", command)
         validate_finish(receipt)
-        if receipt["source"] != source or _encode(
+        if receipt["source"] != source or receipt.get("usage") != usage or _encode(
             receipt["output"], RESULT_BYTES, authoritative=True
         ) != _encode(result, RESULT_BYTES, authoritative=True):
             raise WorkflowError("admission Finish receipt mismatch")
@@ -665,8 +734,10 @@ def validate_snapshot(value):
             "source",
             "finish",
         },
-        {"provider"},
+        {"provider","budget_denial"},
     )
+    if "budget_denial" in value and (value["state"] != "closed_before_start" or value["budget_denial"] not in ("calls_exhausted","delegations_exhausted","deadline_exceeded","cancelled")):
+        raise WorkflowError("invalid run budget denial")
     validate_occurrence(value["occurrence"])
     validate_binding(value["binding"])
     if value["state"] not in (

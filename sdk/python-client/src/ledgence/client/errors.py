@@ -36,6 +36,15 @@ class Forbidden(ServiceError):
     """The authenticated principal lacks permission for this operation."""
 
 
+class RunBudgetDenied(ServiceError):
+    """The run's durable allowance or deadline declined this operation."""
+
+    @property
+    def reason(self):
+        from .budgets import RunBudgetDenial
+        return RunBudgetDenial(str(self))
+
+
 class NotFound(ServiceError):
     """The requested scoped resource was not found."""
 

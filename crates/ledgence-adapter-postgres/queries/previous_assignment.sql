@@ -19,6 +19,7 @@ SELECT
     a.last_renew_intent AS a_last_renew_intent,
     a.quiescence AS a_quiescence,
     a.finished_at_ms AS a_finished_at_ms,
+    a.budget_denial_bytes AS a_budget_denial_bytes,
     s.accepted_command AS a_accepted_command,
     s.accepted_at AS a_accepted_at,
     s.operation_id AS a_accepted_operation_id

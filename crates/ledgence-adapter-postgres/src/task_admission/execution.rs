@@ -120,6 +120,58 @@ impl PostgresStore {
             return Err(ContractError::OwnershipLost.into());
         }
         let attempt = db::load_attempt(&mut tx, &task, &c.owner.attempt_id).await?;
+        let member = crate::run_budget::task(&o.task_id);
+        let source_id = db::id(&mut tx, "tadmsrc").await?;
+        let budget_deadline = if task.input.budget.is_some() {
+            match crate::run_budget::call(&mut tx, &o.scope, &member, &source_id, None).await? {
+                Ok((_, deadline)) => deadline,
+                Err(reason) => {
+                    let key =
+                        crate::run_budget::denial_id(&mut tx, &("task", &o, c.offer_generation))
+                            .await?;
+                    crate::run_budget::record_denial(
+                        &mut tx,
+                        &o.scope,
+                        &member,
+                        RunBudgetAction::Call,
+                        &key,
+                        reason,
+                        None,
+                    )
+                    .await?;
+                    let now = db::now(&mut tx).await?;
+                    self.admission_worker(p, &o.scope, now)?;
+                    let transition =
+                        core::deny_task_admission(&task, &attempt, &c.owner, reason, now)?;
+                    release_offer(&mut a, &mut r, now)?;
+                    a.snapshot.budget_denial = Some(reason);
+                    a.start_bytes = Some(canonical(c)?);
+                    a.check_at = None;
+                    a.bump(now)?;
+                    r.wake(now);
+                    save(&mut tx, &a).await?;
+                    capacity::save_resource(&mut tx, &r).await?;
+                    db::apply(&mut tx, &transition).await?;
+                    let receipt = TaskAdmissionStartReceipt::Existing {
+                        snapshot: Box::new(a.snapshot),
+                    };
+                    receipt.validate_for(p, c)?;
+                    tx.commit().await?;
+                    return Ok(receipt);
+                }
+            }
+        } else {
+            None
+        };
+        let now = if task.input.budget.is_some() {
+            db::now(&mut tx).await?
+        } else {
+            now
+        };
+        self.admission_worker(p, &o.scope, now)?;
+        if now >= offer.expires_at || now >= session.expires_at {
+            return Err(ContractError::OwnershipLost.into());
+        }
         let transition = core::start_task_admission(&task, &attempt, &c.owner, now)?;
         r.refill(now)?;
         if r.offered == 0 {
@@ -142,7 +194,7 @@ impl PostgresStore {
             resource: name,
             binding_digest: a.snapshot.binding().digest()?,
             start_id: c.start_id.clone(),
-            source_id: db::id(&mut tx, "tadmsrc").await?,
+            source_id,
             worker: a
                 .worker
                 .clone()
@@ -153,7 +205,8 @@ impl PostgresStore {
                 .ok_or_else(|| corrupt("start time overflow"))?
                 .min(attempt.deadline)
                 .min(attempt.lease.expires_at)
-                .min(attempt.authority_deadline),
+                .min(attempt.authority_deadline)
+                .min(budget_deadline.unwrap_or(u64::MAX)),
         };
         source.validate()?;
         r.offered -= 1;
@@ -259,7 +312,22 @@ impl PostgresStore {
             release_offer(&mut a, &mut r, now)?;
             a.snapshot.state = TaskAdmissionState::ClosedBeforeStart;
             a.check_at = None;
-            if c.outcome == TaskAdmissionCloseOutcome::NotInvoked
+            if a.snapshot.budget_denial.is_some() {
+                let original: TaskAdmissionStartCommand = codec::decode(
+                    a.start_bytes
+                        .as_deref()
+                        .ok_or_else(|| corrupt("missing budget denial command"))?,
+                )?;
+                if original.start_id != c.start_id {
+                    return Err(ContractError::Conflict.into());
+                }
+                if let Some(task) = &task {
+                    let attempt = db::load_attempt(&mut tx, task, &c.owner.attempt_id).await?;
+                    transition = Some(core::confirm_denied_task_quiescence(
+                        task, &attempt, &c.owner, now,
+                    )?);
+                }
+            } else if c.outcome == TaskAdmissionCloseOutcome::NotInvoked
                 && let Some(task) = &task
             {
                 let attempt = db::load_attempt(&mut tx, task, &c.owner.attempt_id).await?;

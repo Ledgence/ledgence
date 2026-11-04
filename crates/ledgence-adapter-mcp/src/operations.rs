@@ -38,6 +38,7 @@ impl ToolError {
             ContractError::InvalidInput(_) => "invalid_input",
             ContractError::ExternalDispatchRequired => "external_dispatch_required",
             ContractError::InvalidQueueDelivery(_) => "invalid_queue_delivery",
+            ContractError::RunBudgetDenied(reason) => reason.code(),
             ContractError::Conflict => "conflict",
             ContractError::OwnershipLost => "ownership_lost",
             ContractError::UnknownSession => "unknown_session",
@@ -72,6 +73,40 @@ pub struct ToolDispatcher {
     tools: Arc<Vec<crate::schemas::ToolDefinition>>,
 }
 impl ToolDispatcher {
+    async fn call_budget(
+        &self,
+        name: &str,
+        arguments: &Value,
+    ) -> std::result::Result<Value, ToolError> {
+        let mut scoped = arguments.clone();
+        let object = scoped.as_object_mut().ok_or_else(|| {
+            ToolError::arguments(ContractError::InvalidInput(
+                "expected budget arguments".into(),
+            ))
+        })?;
+        if object.insert("scope".into(), json!(self.scope)).is_some() {
+            return Err(ToolError::arguments(ContractError::InvalidInput(
+                "scope is fixed for this MCP session".into(),
+            )));
+        }
+        let client = remote(self.workflows.budget_client(), false)?;
+        if name == "ledgence_budget_inspect" {
+            let q: RunBudgetQuery = parse(&scoped)?;
+            q.validate().map_err(ToolError::arguments)?;
+            let reply = remote(client.run_budget(&q).await, false)?;
+            reply.validate_for(&q).map_err(|_| invalid_reply(false))?;
+            encode(reply, false)
+        } else {
+            object.entry("before").or_insert(Value::Null);
+            object.entry("limit").or_insert(json!(default_limit()));
+            let q: RunBudgetEntriesQuery = parse(&scoped)?;
+            q.validate().map_err(ToolError::arguments)?;
+            let reply = remote(client.list_run_budget_entries(&q).await, false)?;
+            reply.validate_for(&q).map_err(|_| invalid_reply(false))?;
+            encode(reply, false)
+        }
+    }
+
     pub fn new(
         tasks: Arc<dyn TaskService>,
         workflows: Arc<dyn WorkflowService>,
@@ -172,6 +207,9 @@ impl ToolDispatcher {
         }
         if queue_policies::is_tool(name) {
             return self.call_queue_policy(name, arguments).await;
+        }
+        if matches!(name, "ledgence_budget_inspect" | "ledgence_budget_entries") {
+            return self.call_budget(name, arguments).await;
         }
         if admission::is_tool(name) {
             return self.call_admission(name, arguments).await;
@@ -735,6 +773,8 @@ struct SendEvent {
 struct Submission {
     #[serde(default, deserialize_with = "present_task_admission")]
     admission: Option<TaskAdmissionRequirement>,
+    #[serde(default, deserialize_with = "present_budget")]
+    budget: Option<RunBudgetPolicy>,
     program: String,
     version: String,
     queue: String,
@@ -747,6 +787,11 @@ struct Submission {
     #[serde(default = "default_timeout")]
     attempt_timeout_ms: u64,
     origin_trace: Option<TraceContext>,
+}
+fn present_budget<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<RunBudgetPolicy>, D::Error> {
+    RunBudgetPolicy::deserialize(d).map(Some)
 }
 fn present_task_admission<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -769,6 +814,7 @@ impl Submission {
             },
             correlation_key: self.correlation_key,
             admission: self.admission,
+            budget: self.budget,
             data: self.data,
             retry_policy: self.retry_policy,
             attempt_timeout_ms: self.attempt_timeout_ms,

@@ -6,6 +6,7 @@ mod evidence;
 mod provider;
 mod provider_admission;
 mod queue_policies;
+mod run_budget;
 mod task_admission;
 pub use access::{
     WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess, WorkerRuntimeBinding,
@@ -51,6 +52,7 @@ pub struct HttpTaskService {
     client: Client,
     base: Url,
     authorization: Option<header::HeaderValue>,
+    budget_fence: bool,
     timeout: Duration,
     blocking: Arc<Semaphore>,
     observer: Option<Arc<Observer>>,
@@ -63,6 +65,11 @@ impl HttpTaskService {
         self.base.as_str().trim_end_matches('/')
     }
 
+    /// Enable only for workers that validate the dispatch window before handing a grant to a program.
+    pub fn with_budget_dispatch_fence(mut self) -> Self {
+        self.budget_fence = true;
+        self
+    }
     pub fn new(base_url: &str) -> Result<Self> {
         Self::with_timeout(base_url, Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS))
     }
@@ -107,6 +114,7 @@ impl HttpTaskService {
             client,
             base,
             authorization: None,
+            budget_fence: false,
             timeout,
             blocking: Arc::new(Semaphore::new(4)),
             observer: None,
@@ -323,6 +331,9 @@ impl HttpTaskService {
                     .client
                     .request(method, url)
                     .header(header::ACCEPT, "application/json");
+                if self.budget_fence {
+                    request = request.header("Ledgence-Run-Budget", "1");
+                }
                 if discover_features {
                     request = request.header("Ledgence-Worker-Features", "1");
                 }

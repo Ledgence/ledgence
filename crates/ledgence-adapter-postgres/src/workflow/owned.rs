@@ -79,6 +79,16 @@ pub(super) async fn create_child_at(
         return Err(corrupt("missing owned creating activation").into());
     }
     explorer::child(connection, activation, command, &id, start.fork_key, now).await?;
+    if parent.has_run_budget {
+        crate::run_budget::mark_workflow(connection, &id).await?;
+        crate::run_budget::inherit(
+            connection,
+            &parent.snapshot.scope,
+            &crate::run_budget::workflow(&parent.snapshot.workflow_id),
+            &crate::run_budget::workflow(&id),
+        )
+        .await?;
+    }
     let mut child = load_run(connection, &parent.snapshot.scope, Some(&id), None, false).await?;
     let task = schedule_activation(connection, &mut child, BTreeMap::new(), None, now).await?;
     record_history(connection, &id, Some(&task.task_id), now, "started_owned").await?;

@@ -93,6 +93,8 @@ pub fn fixtures() -> Value {
         capabilities: ConsoleCapabilities {
             queue_policies: true,
             resource_fair_sharing: true,
+            run_budgets: true,
+            task_run_budgets: false,
             task_admission: false,
             executions: true,
             workflows: true,
@@ -248,6 +250,7 @@ pub fn fixtures() -> Value {
         parent_workflow_id: None,
         root_workflow_id: None,
         input: ConsoleTaskInput {
+            budget: None,
             admission: None,
             program: descriptor.program.clone(),
             queue: "billing".into(),
@@ -499,6 +502,68 @@ pub fn fixtures() -> Value {
         next: Some(9_007_199_254_740_993),
     };
     decisions.validate().unwrap();
+    let root = RunBudgetSubject::Workflow {
+        workflow_id: "wf_root".into(),
+    };
+    let subject = RunBudgetSubject::Workflow {
+        workflow_id: "wf_review".into(),
+    };
+    let budget = RunBudgetSnapshot {
+        scope: fair_resource.resource.scope.clone(),
+        subject: subject.clone(),
+        root: root.clone(),
+        policy: RunBudgetPolicy {
+            max_calls: Some(5),
+            max_delegations: Some(3),
+            deadline_at_ms: None,
+        },
+        calls: 1,
+        delegations: 1,
+        observed_at: fair_resource.resource.updated_at,
+    };
+    budget.validate().unwrap();
+    let entries = RunBudgetPage {
+        scope: budget.scope.clone(),
+        subject: subject.clone(),
+        root: root.clone(),
+        items: vec![RunBudgetEntry {
+            scope: budget.scope.clone(),
+            root,
+            sequence: 9_007_199_254_740_993,
+            subject,
+            action: RunBudgetAction::Call,
+            outcome: RunBudgetOutcome::Authorized,
+            reason: None,
+            source_id: "source_review".into(),
+            approval: Some(EffectOccurrence {
+                scope: budget.scope.clone(),
+                workflow_id: "wf_review".into(),
+                activation_id: "act_review".into(),
+                approval_key: "approve".into(),
+            }),
+            usage: RunBudgetUsage::Reported {
+                input_tokens: Some(120),
+                output_tokens: Some(16),
+            },
+            recorded_at: budget.observed_at,
+        }],
+        next: Some(9_007_199_254_740_993),
+    };
+    entries.validate().unwrap();
+    let large_budget = RunBudgetSnapshot {
+        policy: RunBudgetPolicy {
+            max_calls: None,
+            max_delegations: None,
+            deadline_at_ms: Some(budget.observed_at + 1),
+        },
+        calls: 9_007_199_254_740_993,
+        delegations: u64::MAX,
+        ..budget.clone()
+    };
+    large_budget.validate().unwrap();
+    result["run_budget_large_usage"] = serde_json::to_value(large_budget).unwrap();
+    result["run_budget"] = serde_json::to_value(budget).unwrap();
+    result["run_budget_entries"] = serde_json::to_value(entries).unwrap();
     result["fair_resource_snapshot"] = serde_json::to_value(fair_resource).unwrap();
     result["resource_decision_page"] = serde_json::to_value(decisions).unwrap();
     result["queue_policy_snapshot"] = serde_json::to_value(queue_policy).unwrap();

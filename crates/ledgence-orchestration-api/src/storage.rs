@@ -15,6 +15,9 @@ use ledgence_worker_api::ProgramDescriptor;
 /// the required locks, and atomically persist its complete transition. These
 /// operations must not perform external program resolution inside transactions.
 pub trait TaskStore: Send + Sync {
+    fn supports_run_budgets(&self) -> bool {
+        false
+    }
     fn queue_policies(&self) -> Result<&dyn QueuePolicyStore> {
         Err(ContractError::Unavailable(
             "queue policy operations unavailable".into(),

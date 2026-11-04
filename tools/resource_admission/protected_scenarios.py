@@ -260,4 +260,26 @@ def late_report_after_retirement(d, provider):
             "explicit_release_not_decremented_twice": True, "identity_change_rejected": True}
 
 
-CASES.append(late_report_after_retirement)
+def exhausted_budget_after_approval(d, provider):
+    key = "approved-without-call-allowance"
+    d.policy(capacity=1)
+    worker = d.worker()
+    try:
+        occurrence, _ = d.begin(key, provider, budget={"max_calls": 0})
+        workflow = occurrence["workflow_id"]
+        eventually(lambda: d.status(workflow)["state"] == "failed", timeout=90,
+                   description="approved mutation closes on exhausted root allowance")
+        admitted = d.admission(workflow)
+        assert admitted["state"] == "closed_before_start" and admitted["source"] is None
+        assert admitted["budget_denial"] == "calls_exhausted"
+        assert d.provider_census(provider, key)["posts"] == 0 and d.resource()["occupied"] == 0
+        query = {"scope": d.scope, "subject": {"kind":"workflow", "workflow_id":workflow}}
+        assert d.checked("POST", "/v1/budgets/inspect", query)["calls"] == "0"
+        page = d.checked("POST", "/v1/budgets/entries", {**query,"before":None,"limit":10})
+        assert len(page["items"]) == 1 and page["items"][0]["reason"] == "calls_exhausted"
+        return {"workflow_id":workflow,"provider_posts":0,"charged_calls":0}
+    finally:
+        worker.stop()
+
+
+CASES.extend([late_report_after_retirement, exhausted_budget_after_approval])

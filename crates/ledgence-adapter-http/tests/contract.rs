@@ -51,6 +51,7 @@ struct Mock {
     queue_policies_enabled: AtomicBool,
     admission_enabled: AtomicBool,
     fair_sharing_enabled: AtomicBool,
+    run_budgets_enabled: AtomicBool,
     provider_admission_enabled: AtomicBool,
     resolution_mode: AtomicUsize,
     operator_access: std::sync::OnceLock<Arc<dyn OperatorAccess>>,
@@ -233,6 +234,7 @@ fn submit(data: Value) -> SubmitCommand {
         idempotency_key: " idempotency +%/é ".into(),
         origin_trace: None,
         input: SubmitTask {
+            budget: None,
             admission: None,
             tenant_id: scope().tenant_id,
             namespace: scope().namespace,
@@ -316,6 +318,7 @@ fn receipt() -> SettlementReceipt {
 }
 fn attempt(data: Value, command: SettleCommand) -> AttemptSnapshot {
     AttemptSnapshot {
+        budget_denial: None,
         task_admission: None,
         event: event(data),
         descriptor: descriptor(),

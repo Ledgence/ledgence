@@ -135,6 +135,12 @@ impl AdmissionState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdmissionFinishReceipt {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub usage: Option<RunBudgetUsage>,
     pub source: AdmissionSource,
     #[serde(deserialize_with = "crate::observation::required_value")]
     pub output: Value,
@@ -144,6 +150,9 @@ pub struct AdmissionFinishReceipt {
 impl AdmissionFinishReceipt {
     pub fn validate(&self) -> Result<()> {
         self.source.validate()?;
+        if let Some(usage) = &self.usage {
+            usage.validate()?;
+        }
         validate_wire_value(&self.output)?;
         bound(&self.output, ADMISSION_OUTPUT_MAX_BYTES)?;
         time(self.accepted_at)?;
@@ -153,7 +162,7 @@ impl AdmissionFinishReceipt {
         Ok(())
     }
     pub fn matches(&self, c: &AdmissionFinishCommand) -> bool {
-        self.source == c.source && canonical_eq(&self.output, &c.output)
+        self.usage == c.usage && self.source == c.source && canonical_eq(&self.output, &c.output)
     }
     pub fn validate_for(&self, p: &VerifiedPrincipal, c: &AdmissionFinishCommand) -> Result<()> {
         self.validate()?;
@@ -167,6 +176,12 @@ impl AdmissionFinishReceipt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdmissionSnapshot {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget_denial: Option<RunBudgetDenial>,
     pub occurrence: AdmissionOccurrence,
     pub binding: AdmissionBinding,
     pub state: AdmissionState,
@@ -189,6 +204,11 @@ pub struct AdmissionSnapshot {
 }
 impl AdmissionSnapshot {
     pub fn validate(&self) -> Result<()> {
+        if self.budget_denial.is_some() && self.state != AdmissionState::ClosedBeforeStart {
+            return Err(invalid(
+                "budget refusal requires closed-before-start admission",
+            ));
+        }
         self.occurrence.validate()?;
         self.binding.validate()?;
         positive(self.revision)?;
@@ -356,9 +376,23 @@ impl AdmissionStartReceipt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdmissionClosedReason {
+    BudgetCancelled,
+    CallsExhausted,
+    DelegationsExhausted,
+    DeadlineExceeded,
     Cancelled,
     Deadline,
     AdministrativelyReleased,
+}
+impl From<RunBudgetDenial> for AdmissionClosedReason {
+    fn from(reason: RunBudgetDenial) -> Self {
+        match reason {
+            RunBudgetDenial::CallsExhausted => Self::CallsExhausted,
+            RunBudgetDenial::DelegationsExhausted => Self::DelegationsExhausted,
+            RunBudgetDenial::DeadlineExceeded => Self::DeadlineExceeded,
+            RunBudgetDenial::Cancelled => Self::BudgetCancelled,
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

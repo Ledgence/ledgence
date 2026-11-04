@@ -1,5 +1,6 @@
 // Explicit safe projections mirror the Rust Console contract; no transport casts.
 import * as s from "./schema";
+import { budgetPolicy, budgetDenial } from "./run-budgets";
 export const program = s.object({ id: s.id, version: s.id });
 export const descriptor = s.object({ program, digest: s.id, size: s.decimal });
 export const taskState = s.enumeration(
@@ -112,19 +113,16 @@ const submissionFields = {
   retry_policy: retryPolicy,
   attempt_timeout_ms: s.integer(1, 86400000),
 };
-export const submission = s.object({
-  ...submissionFields,
-  admission: s.nullable(taskAdmissionRequirement),
-});
+export const submission = s.withOptional(
+  { ...submissionFields, admission: s.nullable(taskAdmissionRequirement) },
+  { budget: budgetPolicy },
+);
 // Detail responses explicitly represent an absent binding with null. Submission
 // commands omit it so that a malformed requirement cannot silently run ungoverned.
-export function submissionCommand(value: unknown) {
-  return value && typeof value === "object" && "admission" in value
-    ? s.object({ ...submissionFields, admission: taskAdmissionRequirement })(
-        value,
-      )
-    : s.object(submissionFields)(value);
-}
+export const submissionCommand = s.withOptional(submissionFields, {
+  admission: taskAdmissionRequirement,
+  budget: budgetPolicy,
+});
 export const trace: s.Decoder<{
   traceparent: string;
   tracestate: string | null;
@@ -187,6 +185,10 @@ export const failure = s.variant({
     phase: s.string,
     cleanup_error: s.nullable(executionError),
   }),
+  budget_denied: s.object({
+    kind: s.enumeration("budget_denied"),
+    reason: budgetDenial,
+  }),
   attempt_lost: s.object({ kind: s.enumeration("attempt_lost") }),
   admission_generation_exhausted: s.object({
     kind: s.enumeration("admission_generation_exhausted"),
@@ -227,19 +229,22 @@ export const observedTask = s.object({
   task: taskStatus,
   observed_at: s.timestamp,
 });
-export const attempt = s.object({
-  task_id: s.id,
-  attempt_id: s.id,
-  generation: s.integer(1, 2147483647),
-  worker_session_id: s.id,
-  consumer_id: s.integer(),
-  state: attemptState,
-  execution_may_have_started: s.boolean,
-  quiescence,
-  claimed_at: s.nullable(s.timestamp),
-  dispatch_authorized_at: s.nullable(s.timestamp),
-  finished_at: s.nullable(s.timestamp),
-});
+export const attempt = s.withOptional(
+  {
+    task_id: s.id,
+    attempt_id: s.id,
+    generation: s.integer(1, 2147483647),
+    worker_session_id: s.id,
+    consumer_id: s.integer(),
+    state: attemptState,
+    execution_may_have_started: s.boolean,
+    quiescence,
+    claimed_at: s.nullable(s.timestamp),
+    dispatch_authorized_at: s.nullable(s.timestamp),
+    finished_at: s.nullable(s.timestamp),
+  },
+  { budget_denial: budgetDenial },
+);
 export const attemptPage = s.page(attempt);
 export const attemptDetail = s.object({
   attempt,

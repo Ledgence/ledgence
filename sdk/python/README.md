@@ -833,7 +833,7 @@ should await their work; wrap blocking I/O appropriately. Callback code cannot
 stage nested workflow operations through the Ledgence context.
 
 Admission supports one unit of one named resource per request. Protected provider
-dispatch uses the separate atomic composition below. Standalone tasks can request the same resource. Operators optionally weight resource offers by source queue group. Inherited budgets remain deferred. Ordinary callbacks are governed
+dispatch uses the separate atomic composition below. Standalone tasks can request the same resource. Operators optionally weight resource offers by source queue group. Owned children can inherit the root execution budget. Ordinary callbacks are governed
 only when explicitly registered and admitted; existing ungoverned execution paths
 do not add admission RPCs.
 
@@ -930,3 +930,7 @@ all physical requests or hidden retries inside an adapter.
 See the runnable [provider admission example](../../examples/provider-admission/README.md)
 for an approval, resource wait, dispatch and business-result workflow using a
 local synthetic provider.
+
+### Run allowance and token observations (development)
+
+A governed callback can return `AdmittedResult(output, usage=RunBudgetUsage.reported(input_tokens=7, output_tokens=3))`. Both types are in `ledgence.worker.admission`. Use `RunBudgetUsage.estimated(...)` for an estimate. An ordinary return value keeps usage unknown. `AdmittedResult` preserves the application output; usage is recorded separately from its one call authorization. A provider adapter can pass `usage=` on its provider report. See [run budgets](https://github.com/Ledgence/ledgence/blob/develop/docs/run-budgets.md).

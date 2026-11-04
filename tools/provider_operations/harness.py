@@ -207,6 +207,7 @@ class ProviderDeployment(ResolutionDeployment):
         program=None,
         attempts=1,
         overrides=None,
+        budget=None,
     ):
         paths = {
             name: str(self.directory / (key + "-" + name))
@@ -225,6 +226,8 @@ class ProviderDeployment(ResolutionDeployment):
             probe_queue=self.probe_queue,
             **paths,
         )
+        if budget is not None:
+            command["input"]["budget"] = budget
         command["input"]["data"].update(overrides or {})
         command["input"]["retry_policy"]["max_attempts"] = attempts
         workflow = self.checked("POST", "/v1/workflows", command)["workflow_id"]

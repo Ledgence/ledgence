@@ -203,3 +203,5 @@ source, inspected revision, request ID and operator reason. [Task resource admis
 ## Weighted resource offers in development
 
 Use `ledgence_resource_decisions` with a resource `name` to inspect each committed weighted offer. Pass `next` back as `before` for older decisions. The tool requires `metadata_read`. Configure queue groups through `ledgence_resource_put` with the resource-control opt-in. [Share capacity across queue groups](/how-to/share-resource-offers).
+
+In development, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.

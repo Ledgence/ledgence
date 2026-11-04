@@ -3,6 +3,7 @@ use super::*;
 pub(super) struct RunRecord {
     pub snapshot: WorkflowSnapshot,
     pub nesting_depth: u32,
+    pub has_run_budget: bool,
     pub submission: SubmitCommand,
     pub controller: ProgramDescriptor,
     pub continuation: String,
@@ -136,6 +137,7 @@ pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
     Ok(RunRecord {
         snapshot,
         nesting_depth,
+        has_run_budget: row.try_get("has_run_budget")?,
         submission,
         controller,
         continuation: row.try_get("continuation")?,
@@ -209,6 +211,21 @@ pub(super) async fn save_run(connection: &mut PgConnection, run: &RunRecord) -> 
         .fetch_optional(&mut *connection).await?;
     if valid != Some(true) {
         return Err(corrupt("workflow checkpoint suppressed or changed").into());
+    }
+    if run.has_run_budget
+        && matches!(
+            run.snapshot.state,
+            WorkflowState::Cancelling | WorkflowState::Failing
+        )
+    {
+        let now = db::now(connection).await?;
+        crate::run_budget::stop(
+            connection,
+            &run.snapshot.scope,
+            &crate::run_budget::workflow(&run.snapshot.workflow_id),
+            now,
+        )
+        .await?;
     }
     if run.snapshot.state.is_terminal() {
         if run.snapshot.parent_workflow_id.is_some() {
@@ -318,6 +335,7 @@ pub(super) async fn schedule_activation_with_id(
     };
     context.validate()?;
     let mut command = run.submission.clone();
+    command.input.budget = None; // Policy is submitted once; this activation inherits authority internally.
     command.idempotency_key = format!("workflow:{}:{task_id}", run.snapshot.workflow_id);
     let task = insert_task(
         connection,
@@ -329,6 +347,15 @@ pub(super) async fn schedule_activation_with_id(
         now,
     )
     .await?;
+    if run.has_run_budget {
+        crate::run_budget::inherit(
+            connection,
+            &run.snapshot.scope,
+            &crate::run_budget::workflow(&run.snapshot.workflow_id),
+            &crate::run_budget::task(&task_id),
+        )
+        .await?;
+    }
     sqlx::query("INSERT INTO workflow_activations(activation_id,workflow_id,revision,task_id,context_bytes) VALUES($1,$2,($3::text)::ldg_u64,$1,$4)")
         .bind(&task_id).bind(&run.snapshot.workflow_id).bind(run.snapshot.revision.to_string()).bind(codec::encode(&context)?)
         .execute(&mut *connection).await?;

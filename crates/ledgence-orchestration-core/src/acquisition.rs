@@ -174,6 +174,7 @@ pub fn acquire(
         insert_trace(&mut event, trace);
     }
     let attempt = AttemptSnapshot {
+        budget_denial: None,
         task_admission: None,
         event: CloudEvent::new(event)?,
         descriptor: task.descriptor.clone(),

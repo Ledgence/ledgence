@@ -521,3 +521,7 @@ The regular JSON file contains a revision, strategy and queue weights. Publish
 updates by replacing the file atomically at the same path. To consume from SQS, add `--delivery-config FILE` with the same queue names and scope. A worker polling multiple SQS routes defaults to a one-second receive wait. The existing single-queue and integrated modes keep their 20-second defaults. [Plan schema, scope and recovery](worker-delivery.md#worker-local-poll-plans-development).
 
 In development, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.
+
+### Inspect a shared run budget (development)
+
+Read `ledgence budget inspect --server URL --credentials-file FILE --tenant ID --namespace NAME --workflow ID`. Replace `--workflow ID` with `--task ID` for a task. `ledgence budget entries` takes the same scope and subject; pass `--before SEQUENCE` to follow the returned cursor. Both require `metadata_read`.

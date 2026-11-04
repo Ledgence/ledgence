@@ -102,6 +102,12 @@
     "sourceRef": "develop",
     "guide": "/how-to/control-resource-capacity"
   },
+  "runBudgets": {
+    "title": "Inherited run budgets for governed calls and delegations",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/share-run-budgets"
+  },
   "resourceFairSharing": {
     "title": "Weighted resource offers between queue groups with scoped decision history",
     "availability": "development",

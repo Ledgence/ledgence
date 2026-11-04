@@ -35,11 +35,22 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
     status.validate()?;
     if let Some(attempt) = latest {
         validate_attempt(task, attempt).map_err(|_| corrupt())?;
+        let budget_denied = attempt.budget_denial.is_some();
+        if budget_denied
+            && (task.input.admission.is_none()
+                || task.state != TaskState::Failed
+                || attempt.state != AttemptState::Failed
+                || attempt.execution_may_have_started
+                || attempt.settlement.is_some())
+        {
+            return Err(corrupt());
+        }
         if attempt.lease.owner.generation != task.attempt_count
             || (attempt.state == AttemptState::Active) != (task.state == TaskState::Active)
             || (attempt.state == AttemptState::Active) != attempt.finished_at.is_none()
             || (attempt.quiescence == Quiescence::Confirmed
                 && attempt.settlement.is_none()
+                && !budget_denied
                 && !(task.input.admission.is_some()
                     && matches!(
                         attempt.state,
@@ -74,6 +85,7 @@ pub fn task_status(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
                 attempt.state,
                 attempt.settlement.as_ref().map(|s| &s.command.report),
             ) {
+                (AttemptState::Failed, None) if budget_denied => false,
                 (AttemptState::Lost, None) => true,
                 (AttemptState::Deferred, None)
                     if task.input.admission.is_some() && !attempt.execution_may_have_started =>
@@ -177,6 +189,16 @@ pub fn task_result(task: &TaskSnapshot, latest: Option<&AttemptSnapshot>) -> Res
                             phase: report.phase,
                             cleanup_error: report.cleanup_error.clone(),
                         },
+                    })
+                }
+                (TaskState::Failed, AttemptState::Failed, None)
+                    if let Some(reason) = attempt.budget_denial =>
+                {
+                    Some(TaskOutcome::Failed {
+                        attempt_id,
+                        quiescence,
+                        execution_may_have_started,
+                        failure: TaskFailure::BudgetDenied { reason },
                     })
                 }
                 (TaskState::Failed, AttemptState::Deferred, None)

@@ -7,6 +7,7 @@ import re
 from typing import Any, Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .budgets import RunBudgetDenial
     from .provider_models import ProviderProbeAssignment
     from .admission_models import TaskAdmission
 
@@ -181,6 +182,12 @@ class AdmissionGenerationExhausted:
 
 
 @dataclass(frozen=True)
+class BudgetDeniedFailure:
+    reason: RunBudgetDenial
+    kind: Literal["budget_denied"] = field(default="budget_denied", init=False)
+
+
+@dataclass(frozen=True)
 class AttemptLost:
     kind: Literal["attempt_lost"] = field(default="attempt_lost", init=False)
 
@@ -199,7 +206,7 @@ class Failed:
     attempt_id: str
     quiescence: Quiescence
     execution_may_have_started: bool
-    failure: ApplicationFailure | ExecutionFailure | AttemptLost | AdmissionGenerationExhausted
+    failure: ApplicationFailure | ExecutionFailure | AttemptLost | AdmissionGenerationExhausted | BudgetDeniedFailure
     kind: Literal["failed"] = field(default="failed", init=False)
 
 
@@ -321,6 +328,10 @@ def _failure(raw):
             return ExecutionFailure(_error(raw["error"], worker=True), raw["phase"],
                                     None if raw["cleanup_error"] is None else
                                     _error(raw["cleanup_error"], worker=True))
+        case "budget_denied":
+            from .budgets import RunBudgetDenial
+            codec.fields(raw, {"kind","reason"})
+            return BudgetDeniedFailure(RunBudgetDenial(raw["reason"]))
         case "admission_generation_exhausted":
             codec.fields(raw, {"kind"})
             return AdmissionGenerationExhausted()
@@ -367,6 +378,8 @@ def parse_result(raw, scope: Scope, task_id: str) -> TaskResult:
             value = Succeeded(outcome["attempt_id"], quiescence, started, outcome["output"])
         else:
             failure = _failure(outcome["failure"])
+            if isinstance(failure, BudgetDeniedFailure) and (task.admission is None or started):
+                raise InputError("inconsistent task budget denial")
             if isinstance(failure, ApplicationFailure) and not started:
                 raise InputError("application failure requires execution-start evidence")
             if isinstance(failure, AttemptLost) and task.admission is None and quiescence != Quiescence.UNCONFIRMED:

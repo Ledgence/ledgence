@@ -40,6 +40,9 @@ impl ApprovedEffects for HttpTaskService {
 }
 
 impl WorkflowService for HttpTaskService {
+    fn budget_client(&self) -> Result<&dyn RunBudgetClient> {
+        Ok(self)
+    }
     fn provider_admission_client(&self) -> Result<&dyn ProviderAdmissionClient> {
         Ok(self)
     }

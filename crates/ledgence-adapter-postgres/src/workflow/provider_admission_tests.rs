@@ -70,7 +70,15 @@ async fn park(
     id: &str,
     binding: ProviderBindingRequest,
 ) -> (ProviderClaimCommand, AdmissionOccurrence) {
-    let (a, c) = approved(store, id, binding).await;
+    park_budget(store, id, binding, None).await
+}
+async fn park_budget(
+    store: &PostgresStore,
+    id: &str,
+    binding: ProviderBindingRequest,
+    budget: Option<RunBudgetPolicy>,
+) -> (ProviderClaimCommand, AdmissionOccurrence) {
+    let (a, c) = providers::approved_with_budget(store, id, binding, budget).await;
     assert!(store.claim_provider(&worker(), &c).await.is_err());
     apply_decision(
         store,
@@ -250,6 +258,7 @@ async fn protected_admission_atomic_start_race_preserves_original_approval_and_p
             .finish_admission(
                 &p,
                 &AdmissionFinishCommand {
+                    usage: None,
                     source: source.admission.clone(),
                     output: Value::Null
                 }
@@ -573,6 +582,7 @@ async fn protected_admission_probe_completion_never_releases_unknown_call() {
                 report_id: context.report_id,
                 generation: context.generation,
                 report: ProviderReport {
+                    usage: None,
                     reported_target: c.binding.target.clone(),
                     provider_reference: Some("remote-1".into()),
                     provider_request_id: None,
@@ -1300,5 +1310,173 @@ async fn fair_admission_protected_provider_keeps_approval_origin_in_decision() {
             .unwrap(),
         history
     );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn run_budget_provider_dispatch_is_charged_only_if_fresh_and_reports_usage_once() {
+    let db = fixture().await;
+    let store = &db.store;
+    let policy = RunBudgetPolicy {
+        max_calls: Some(1),
+        max_delegations: None,
+        deadline_at_ms: None,
+    };
+    let (_, mut cmd) =
+        providers::approved_with_budget(store, "plain-budget", binding(), Some(policy.clone()))
+            .await;
+    assert!(matches!(
+        store.claim_provider(&worker(), &cmd).await,
+        Err(ContractError::InvalidInput(_))
+    ));
+    cmd.budget_fence = true;
+    let ProviderClaimReceipt::Dispatch { source, .. } =
+        store.claim_provider(&worker(), &cmd).await.unwrap()
+    else {
+        panic!("expected fresh plain dispatch")
+    };
+    assert!(source.budget_grant.is_some());
+    assert!(matches!(
+        store.claim_provider(&worker(), &cmd).await.unwrap(),
+        ProviderClaimReceipt::Existing { .. }
+    ));
+    let mut reported = providers::reported(&cmd, &source, ProviderKnowledge::Pending);
+    reported.report.usage = Some(RunBudgetUsage::Estimated {
+        input_tokens: Some(8),
+        output_tokens: None,
+    });
+    store.report_dispatch(&worker(), &reported).await.unwrap();
+    store.report_dispatch(&worker(), &reported).await.unwrap();
+    let query = RunBudgetEntriesQuery {
+        scope: scope(),
+        subject: crate::run_budget::workflow(&cmd.workflow_id),
+        before: None,
+        limit: 8,
+    };
+    let rows = store
+        .list_run_budget_entries(&operator(), &query)
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].usage, reported.report.usage.unwrap());
+    let (cmd, occ) = park_budget(
+        store,
+        "composed-budget",
+        {
+            let mut b = governed();
+            b.business.key = "budget-investigation".into();
+            b.deduplication.as_mut().unwrap().key = "budget-investigation".into();
+            b
+        },
+        Some(policy),
+    )
+    .await;
+    let (_, start) = offer(store, "composed-budget", &occ).await;
+    let ProviderAdmissionStartReceipt::Granted { source } = store
+        .start_provider_admission(&worker(), &start)
+        .await
+        .unwrap()
+    else {
+        panic!("expected composed dispatch")
+    };
+    let mut finish = report(
+        &cmd,
+        &source,
+        ProviderCallCompletion::Completed,
+        ProviderKnowledge::Pending,
+    );
+    finish.outcome.report.usage = Some(RunBudgetUsage::Reported {
+        input_tokens: Some(9),
+        output_tokens: Some(4),
+    });
+    store
+        .report_provider_admission(&worker(), &finish)
+        .await
+        .unwrap();
+    store
+        .report_provider_admission(&worker(), &finish)
+        .await
+        .unwrap();
+    let rows = store
+        .list_run_budget_entries(
+            &operator(),
+            &RunBudgetEntriesQuery {
+                subject: crate::run_budget::workflow(&cmd.workflow_id),
+                ..query
+            },
+        )
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].usage, finish.outcome.report.usage.unwrap());
+    db.finish().await
+}
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn run_budget_exhausted_provider_keeps_approved_grant_unused_and_restored_absence_quarantines()
+ {
+    let db = fixture().await;
+    let s = &db.store;
+    let p = RunBudgetPolicy {
+        max_calls: Some(0),
+        max_delegations: None,
+        deadline_at_ms: None,
+    };
+    let (cmd, o) = park_budget(s, "limited", governed(), Some(p.clone())).await;
+    let (_, start) = offer(s, "limited", &o).await;
+    for _ in 0..2 {
+        let ProviderAdmissionStartReceipt::Existing { snapshot, .. } =
+            s.start_provider_admission(&worker(), &start).await.unwrap()
+        else {
+            panic!("granted exhausted call")
+        };
+        assert_eq!(
+            snapshot.budget_denial,
+            Some(RunBudgetDenial::CallsExhausted)
+        );
+    }
+    let claimed: bool = sqlx::query_scalar(
+        "SELECT effect_dispatch_claimed FROM workflow_approvals WHERE workflow_id=$1",
+    )
+    .bind(&cmd.workflow_id)
+    .fetch_one(&s.pool)
+    .await
+    .unwrap();
+    assert!(!claimed);
+    let (_, mut direct) =
+        providers::approved_with_budget(s, "limited-direct", binding(), Some(p)).await;
+    direct.budget_fence = true;
+    assert!(matches!(
+        s.claim_provider(&worker(), &direct).await,
+        Err(ContractError::RunBudgetDenied(
+            RunBudgetDenial::CallsExhausted
+        ))
+    ));
+    let (_, absent) = approved(s, "no-budget", binding()).await;
+    let q = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
+    providers::bind(&q, ProviderDispatchPolicy::Enabled).await;
+    q.configure_admissions(&AdmissionConfig {
+        v: 1,
+        audience: audience(),
+        dispatch: AdmissionDispatchPolicy::Quarantined,
+    })
+    .unwrap();
+    assert!(matches!(
+        q.claim_provider(&worker(), &absent).await,
+        Err(ContractError::Forbidden)
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM provider_operations")
+            .fetch_one(&s.pool)
+            .await
+            .unwrap(),
+        0
+    );
+    q.close().await;
     db.finish().await;
 }

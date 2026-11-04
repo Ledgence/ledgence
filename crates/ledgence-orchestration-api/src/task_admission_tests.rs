@@ -69,6 +69,7 @@ fn source() -> TaskAdmissionSource {
 }
 fn snapshot() -> TaskAdmissionSnapshot {
     TaskAdmissionSnapshot {
+        budget_denial: None,
         occurrence: (&owner()).into(),
         resource: binding().resource,
         program: program(),

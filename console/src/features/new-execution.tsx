@@ -96,6 +96,15 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
   const [queue, setQueue] = useState(
     initial?.queue ?? config.suggested_queues[0] ?? "",
   );
+  const [calls, setCalls] = useState(String(initial?.budget?.max_calls ?? ""));
+  const [delegations, setDelegations] = useState(
+    String(initial?.budget?.max_delegations ?? ""),
+  );
+  const [deadline, setDeadline] = useState(
+    initial?.budget?.deadline_at_ms === undefined
+      ? ""
+      : new Date(initial.budget.deadline_at_ms).toISOString().slice(0, -1),
+  );
   const [resource, setResource] = useState(initial?.admission?.resource ?? "");
   const [correlation, setCorrelation] = useState(
     initial?.correlation_key ?? "",
@@ -143,6 +152,10 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
     ? catalogue.data?.version.metadata.kind
     : undefined;
   const actualIntent = kind === "task" || kind === "workflow" ? kind : intent;
+  const budgetSupported =
+    config.capabilities.run_budgets &&
+    (actualIntent === "workflow" || config.capabilities.task_run_budgets);
+  const hasBudget = !!(calls || delegations || deadline);
   const command = useCommand(
     actualIntent === "task" ? "tasks" : "workflows",
     (value) => response({ kind: actualIntent, value }),
@@ -185,7 +198,26 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
         throw new Error(
           "This instance cannot enforce the original task resource requirement.",
         );
+      if (hasBudget && !budgetSupported)
+        throw new Error("This instance cannot enforce the requested budget.");
+      if (hasBudget && actualIntent === "task" && !resource)
+        throw new Error(
+          "Set a required resource for a budgeted standalone task.",
+        );
       const body = submissionCommand({
+        ...(hasBudget
+          ? {
+              budget: {
+                ...(calls ? { max_calls: Number(calls) } : {}),
+                ...(delegations
+                  ? { max_delegations: Number(delegations) }
+                  : {}),
+                ...(deadline
+                  ? { deadline_at_ms: Date.parse(deadline + "Z") }
+                  : {}),
+              },
+            }
+          : {}),
         ...(actualIntent === "task" && resource
           ? { admission: { resource } }
           : {}),
@@ -333,21 +365,22 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
           </label>
         )}
         <div className="form-grid">
-          <label>
+          <label htmlFor="execution-queue">
             Queue
             <input
+              id="execution-queue"
               required
               list="new-queue-suggestions"
               value={queue}
               onChange={(e) => setQueue(e.target.value)}
               maxLength={128}
             />
-            <datalist id="new-queue-suggestions">
-              {config.suggested_queues.map((q) => (
-                <option key={q}>{q}</option>
-              ))}
-            </datalist>
           </label>
+          <datalist id="new-queue-suggestions">
+            {config.suggested_queues.map((q) => (
+              <option key={q}>{q}</option>
+            ))}
+          </datalist>
           {actualIntent === "task" &&
             (config.capabilities.task_admission || resource) && (
               <label>
@@ -365,6 +398,64 @@ function ExecutionForm({ initial }: { initial?: Submission }) {
                 </span>
               </label>
             )}
+          {!budgetSupported && hasBudget && (
+            <div className="notice" role="status">
+              This instance cannot enforce a budget on the selected execution
+              kind.
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={locked}
+                onClick={() => {
+                  setCalls("");
+                  setDelegations("");
+                  setDeadline("");
+                }}
+              >
+                Remove budget from submission
+              </Button>
+            </div>
+          )}
+          {budgetSupported && (
+            <fieldset disabled={locked}>
+              <legend>Shared run budget (optional)</legend>
+              <p className="muted">
+                The root and all of its branches share these limits. Leave a
+                limit blank to omit it.
+              </p>
+              <label>
+                Maximum calls
+                <input
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="1"
+                  value={calls}
+                  onChange={(e) => setCalls(e.target.value)}
+                />
+              </label>
+              <label>
+                Maximum delegations
+                <input
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="1"
+                  value={delegations}
+                  onChange={(e) => setDelegations(e.target.value)}
+                />
+              </label>
+              <label>
+                Deadline (UTC)
+                <input
+                  type="datetime-local"
+                  step="0.001"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                />
+              </label>
+            </fieldset>
+          )}
           <div>
             <label>
               Correlation key

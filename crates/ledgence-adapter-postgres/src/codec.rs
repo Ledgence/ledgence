@@ -379,15 +379,24 @@ pub(crate) fn attempt_prefixed(
         last_renewal,
         quiescence: enum_value(get(row, "quiescence")?)?,
         settlement,
+        budget_denial: get::<Option<Vec<u8>>>(row, "budget_denial_bytes")?
+            .map(|b| decode(&b))
+            .transpose()?,
         finished_at: optional_time(row, "finished_at_ms")?,
     };
     if (attempt.state == AttemptState::Active) != attempt.finished_at.is_none()
+        || (attempt.budget_denial.is_some()
+            && (attempt.state != AttemptState::Failed
+                || attempt.task_admission.is_none()
+                || attempt.execution_may_have_started
+                || attempt.settlement.is_some()))
         || (attempt.state == AttemptState::Deferred
             && (attempt.task_admission.is_none()
                 || attempt.execution_may_have_started
                 || attempt.settlement.is_some()))
         || (attempt.quiescence == Quiescence::Confirmed
             && attempt.settlement.is_none()
+            && attempt.budget_denial.is_none()
             && !(attempt.task_admission.is_some()
                 && matches!(
                     attempt.state,

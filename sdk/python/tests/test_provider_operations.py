@@ -154,6 +154,18 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.contexts.append(context)
         return context
 
+    async def test_provider_grant_window_is_checked_inside_the_callback(self):
+        from unittest.mock import patch
+        def add_grant(operation, result):
+            if operation == "provider_operation.claim.v1":
+                result["source"]["budget_grant"]={"authorized_at":50,"expires_at":55}
+        self.mutate_reply=add_grant
+        with patch("ledgence.worker.providers.monotonic",side_effect=[10,10.006]):
+            outcome=await self.context().approved_provider_operation()
+        self.assertEqual(outcome.to_dict(), ticket())
+        self.assertEqual(CALLS,[])
+        self.assertEqual([kind for kind,_ in self.requests],["provider_operation.claim.v1"])
+
     async def test_one_dispatch_one_frozen_report_no_journal_and_repeated_await(self):
         context = self.context()
         first = context.approved_provider_operation()

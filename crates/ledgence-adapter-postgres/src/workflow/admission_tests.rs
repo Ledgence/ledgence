@@ -181,6 +181,7 @@ async fn inspect(store: &PostgresStore, o: &AdmissionOccurrence) -> AdmissionSna
 }
 fn finish(source: &AdmissionSource) -> AdmissionFinishCommand {
     AdmissionFinishCommand {
+        usage: None,
         source: source.clone(),
         output: json!({"answer":"done","large":9007199254740993_u64,"nul":"\0"}),
     }
@@ -789,7 +790,7 @@ async fn admission_upgrade_preserves_existing_waits_and_defaults_disabled() {
 #[ignore = "requires PostgreSQL 18"]
 async fn admission_ordinary_execution_has_no_admission_table_access() {
     let db = TestDb::new().await;
-    sqlx::raw_sql("DROP TABLE admission_offer_decisions; DROP TABLE task_admission_requests; DROP TABLE workflow_admission_waits; DROP TABLE provider_admission_links; DROP TABLE admission_requests; DROP TABLE admission_operator_receipts; DROP TABLE admission_resources").execute(&db.store.pool).await.unwrap();
+    sqlx::raw_sql("DROP TABLE run_budget_fork_refusals,run_budget_entries,run_budget_members,run_budgets; DROP TABLE admission_offer_decisions; DROP TABLE task_admission_requests; DROP TABLE workflow_admission_waits; DROP TABLE provider_admission_links; DROP TABLE admission_requests; DROP TABLE admission_operator_receipts; DROP TABLE admission_resources").execute(&db.store.pool).await.unwrap();
     let w = start(&db.store).await;
     let a = acquire(&db.store, "python").await;
     let context = db.store.activation_context(&a.lease.owner).await.unwrap();
@@ -1034,3 +1035,6 @@ mod fair;
 
 #[path = "task_admission_tests.rs"]
 mod standalone;
+
+#[path = "run_budget_tests.rs"]
+mod run_budgets;

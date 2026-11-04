@@ -223,6 +223,9 @@ pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
             false,
         ),
     ];
+    let subject = json!({"oneOf":[object(json!({"kind":{"const":"task"},"task_id":identifier()}),&["kind","task_id"]),object(json!({"kind":{"const":"workflow"},"workflow_id":identifier()}),&["kind","workflow_id"])]});
+    tools.push(tool("ledgence_budget_inspect","Read the shared root budget for a task or workflow in this session's scope. Requires metadata_read.",object(json!({"subject":subject}), &["subject"]),true,false));
+    tools.push(tool("ledgence_budget_entries","Read the shared root budget ledger newest first. Follow next using before. Requires metadata_read.",object(json!({"subject":subject,"before":{"anyOf":[{"type":"string","pattern":"^[1-9][0-9]{0,19}$"},{"type":"null"}]},"limit":limit()}), &["subject"]),true,false));
     tools.extend(admission::definitions());
     tools.extend(queue_policies::definitions());
     if read_only {
@@ -307,6 +310,13 @@ fn submission(task: bool) -> Value {
         }),
         &["program", "version", "queue", "data", "idempotency_key"],
     );
+    let n = json!({"type":"integer","minimum":0,"maximum":1000000});
+    let mut budget = object(
+        json!({"max_calls":n,"max_delegations":n,"deadline_at_ms":{"type":"integer","minimum":0,"maximum":253402300799999_u64}}),
+        &[],
+    );
+    budget["minProperties"] = json!(1);
+    schema["properties"]["budget"] = budget;
     if task {
         schema["properties"]["admission"] = object(
             json!({"resource":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9_.:-]+$","description":"Existing scoped resource required before the standalone task invokes its handler."}}),
@@ -366,11 +376,13 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 33);
-        assert_eq!(tool_definitions(true).len(), 22);
+        assert_eq!(all.len(), 35);
+        assert_eq!(tool_definitions(true).len(), 24);
         for name in [
             "ledgence_resource_list",
             "ledgence_resource_decisions",
+            "ledgence_budget_inspect",
+            "ledgence_budget_entries",
             "ledgence_resource_inspect",
             "ledgence_admission_inspect",
             "ledgence_resource_put",

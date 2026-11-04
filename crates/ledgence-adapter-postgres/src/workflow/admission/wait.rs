@@ -148,6 +148,7 @@ pub(in crate::workflow) async fn install_wait(
     let mut a = match new_binding {
         Some(binding) => {
             let snapshot = AdmissionSnapshot {
+                budget_denial: None,
                 occurrence: occurrence.clone(),
                 binding,
                 state: AdmissionState::Waiting,
@@ -280,7 +281,10 @@ pub(super) fn resolved(a: &Request, deadline: u64, now: u64) -> Option<Admission
                 })
         }
         AdmissionState::ClosedBeforeStart => Some(AdmissionSelection::Closed {
-            reason: AdmissionClosedReason::Deadline,
+            reason: a
+                .snapshot
+                .budget_denial
+                .map_or(AdmissionClosedReason::Deadline, Into::into),
         }),
         AdmissionState::PossiblyDispatched | AdmissionState::UnknownOccupied if now >= deadline => {
             a.snapshot

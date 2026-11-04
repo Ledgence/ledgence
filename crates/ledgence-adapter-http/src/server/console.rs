@@ -63,6 +63,8 @@ impl ConsoleServices {
                 workers: observations.is_some(),
                 task_admission: false,
                 resource_fair_sharing: false,
+                run_budgets: false,
+                task_run_budgets: false,
                 queue_policies: false,
             },
             suggested_queues: instance.suggested_queues.clone(),
@@ -134,6 +136,8 @@ impl ConsoleServices {
     }
 }
 pub(super) const ROUTES: &[Route] = &[
+    Route::post("/v1/console/budgets/inspect", Policy::Metadata),
+    Route::post("/v1/console/budgets/entries", Policy::Metadata),
     Route::post("/v1/console/resources/list", Policy::Metadata),
     Route::post("/v1/console/resources/inspect", Policy::Metadata),
     Route::post("/v1/console/resources/decisions", Policy::Metadata),
@@ -261,6 +265,9 @@ pub(super) async fn dispatch(
         if path == "/v1/console/config" {
             let mut config = console.config.clone();
             config.capabilities.queue_policies = super::queue_policies::available(server);
+            config.capabilities.run_budgets = super::run_budget::available(server);
+            config.capabilities.task_run_budgets =
+                config.capabilities.run_budgets && super::run_budget::task_support(server);
             config.capabilities.resource_fair_sharing =
                 super::admission::fair_sharing_available(server);
             config.capabilities.task_admission = super::task_admission::available(server);
@@ -536,6 +543,7 @@ pub(super) async fn dispatch(
         path,
         "/v1/console/admissions/inspect" | "/v1/console/task-admissions/inspect"
     ) || path.starts_with("/v1/console/resources/")
+        || path.starts_with("/v1/console/budgets/")
     {
         4096
     } else if path.starts_with("/v1/console/queue-policies/") {
@@ -560,6 +568,9 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if let Some(operation) = path.strip_prefix("/v1/console/budgets/") {
+        return super::run_budget::post(server, operation, bytes, Some(scope), context).await;
+    }
     if let Some(operation) = path.strip_prefix("/v1/console/resources/") {
         return super::admission::console_resources(server, operation, bytes, scope, context).await;
     }
@@ -596,6 +607,7 @@ pub(super) async fn dispatch(
                 input: submission.input.into_submission(scope)?,
                 origin_trace: submission.origin_trace,
             };
+            super::run_budget::require_submission(server, &command, path.ends_with("/tasks"))?;
             if path.ends_with("/tasks") {
                 let reply = server.service.submit(&command).await?;
                 check_snapshot(&reply, scope, &reply.task_id)?;

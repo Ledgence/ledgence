@@ -1,6 +1,7 @@
 import { providerBindingRequest } from "./providers";
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
+import { budgetDenial, budgetUsage } from "./run-budgets";
 import { ContractError } from "./codecs";
 import { admissionOccurrence, program, providerTicket } from "./resources";
 import { stringifyUserJson } from "./json";
@@ -107,32 +108,51 @@ const source = s.refine(
   "Inconsistent admission source.",
 );
 const finish = s.refine(
-  s.object({
-    source,
-    output: s.refine(s.payload, bounded, "Admission output exceeds its limit."),
-    accepted_at: s.timestamp,
-    already_accepted: s.boolean,
-  }),
+  s.withOptional(
+    {
+      source,
+      output: s.refine(
+        s.payload,
+        bounded,
+        "Admission output exceeds its limit.",
+      ),
+      accepted_at: s.timestamp,
+      already_accepted: s.boolean,
+    },
+    { usage: budgetUsage },
+  ),
   (v) => v.accepted_at >= v.source.accepted_at,
   "Finish predates its source.",
 );
 const providerSource = s.refine(
-  s.object({
-    source_id: s.id,
-    claim_id: s.id,
-    report_id: s.id,
-    ticket: providerTicket,
-    worker: s.object({
-      audience: s.object({ authority_id: s.id, instance_id: s.id, scope }),
-      issuer: s.id,
-      subject: s.id,
-      credential_id: s.id,
-    }),
-    accepted_at: s.timestamp,
-    first_possible_dispatch_at: s.timestamp,
-    reconciliation_deadline: s.timestamp,
-  }),
+  s.withOptional(
+    {
+      source_id: s.id,
+      claim_id: s.id,
+      report_id: s.id,
+      ticket: providerTicket,
+      worker: s.object({
+        audience: s.object({ authority_id: s.id, instance_id: s.id, scope }),
+        issuer: s.id,
+        subject: s.id,
+        credential_id: s.id,
+      }),
+      accepted_at: s.timestamp,
+      first_possible_dispatch_at: s.timestamp,
+      reconciliation_deadline: s.timestamp,
+    },
+    {
+      budget_grant: s.object({
+        authorized_at: s.timestamp,
+        expires_at: s.timestamp,
+      }),
+    },
+  ),
   (v) =>
+    (!v.budget_grant ||
+      (v.budget_grant.authorized_at === v.accepted_at &&
+        v.budget_grant.expires_at > v.accepted_at &&
+        v.budget_grant.expires_at - v.accepted_at <= 5000)) &&
     v.accepted_at === v.first_possible_dispatch_at &&
     v.reconciliation_deadline > v.accepted_at &&
     same(v.worker.audience.scope, v.ticket.occurrence.scope),
@@ -224,13 +244,14 @@ const snapshotFields = {
   source: s.nullable(source),
   finish: s.nullable(finish),
 };
-const snapshotShape = (raw: unknown) =>
-  s.isJsonObject(raw) && Object.hasOwn(raw, "provider")
-    ? s.object({ ...snapshotFields, provider: providerRecord })(raw)
-    : { ...s.object(snapshotFields)(raw), provider: undefined };
+const snapshotShape = s.withOptional(snapshotFields, {
+  provider: providerRecord,
+  budget_denial: budgetDenial,
+});
 export const admissionSnapshot = s.refine(
   snapshotShape,
   (v) => {
+    if (v.budget_denial && v.state !== "closed_before_start") return false;
     if (v.updated_at < v.created_at || v.deadline_at < v.created_at)
       return false;
     if (

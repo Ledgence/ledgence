@@ -201,6 +201,34 @@ impl PostgresStore {
             return Err(ContractError::Conflict.into());
         }
 
+        let budget_grant = if !evidence.claimed {
+            match self
+                .check_effect_budget(
+                    &mut tx,
+                    &workflow,
+                    &authority,
+                    &evidence.approval,
+                    command.budget_fence,
+                    command,
+                )
+                .await?
+            {
+                Ok(grant) => grant,
+                Err(reason) => {
+                    execution::check_live(
+                        &workflow,
+                        &authority,
+                        owner,
+                        db::now(&mut tx).await?,
+                        true,
+                    )?;
+                    tx.commit().await?;
+                    return Err(ContractError::RunBudgetDenied(reason).into());
+                }
+            }
+        } else {
+            None
+        };
         grant(&mut tx, command, &evidence).await?;
         let now = db::now(&mut tx).await?;
         let mut retained = super::effect_retained::ensure(
@@ -212,9 +240,12 @@ impl PostgresStore {
         )
         .await?;
         super::effect_retained::legacy_confirmation(&mut tx, &mut retained, now).await?;
-        execution::check_live(&workflow, &authority, owner, db::now(&mut tx).await?, true)?;
+        let final_now = db::now(&mut tx).await?;
+        execution::check_live(&workflow, &authority, owner, final_now, true)?;
+        crate::run_budget::check_grant(budget_grant, final_now)?;
         tx.commit().await?;
         Ok(ApprovedEffectClaimReceipt {
+            budget_grant,
             scope: evidence.approval.scope,
             workflow_id: evidence.approval.workflow_id,
             activation_id: owner.task_id.clone(),
@@ -364,4 +395,57 @@ pub(super) async fn grant_bound(
     }
 
     Ok(())
+}
+
+impl PostgresStore {
+    pub(super) async fn check_effect_budget<T: serde::Serialize>(
+        &self,
+        tx: &mut PgConnection,
+        workflow: &WorkflowSnapshot,
+        authority: &execution::ActivationAuthority,
+        reviewed: &ApprovalSnapshot,
+        negotiated: bool,
+        command: &T,
+    ) -> StoreResult<std::result::Result<Option<RunBudgetGrant>, RunBudgetDenial>> {
+        self.check_dispatch_quarantine()?;
+        if !authority.has_run_budget {
+            return Ok(Ok(None));
+        }
+        self.admission_configured()?;
+        if !negotiated {
+            return Err(ContractError::InvalidInput(
+                "worker must support run budget dispatch fences".into(),
+            )
+            .into());
+        }
+        let member = crate::run_budget::workflow(&workflow.workflow_id);
+        let approval = EffectOccurrence {
+            scope: reviewed.scope.clone(),
+            workflow_id: reviewed.workflow_id.clone(),
+            activation_id: reviewed.activation_id.clone(),
+            approval_key: reviewed.key.clone(),
+        };
+        let source_id = crate::run_budget::effect_source(tx, &approval).await?;
+        match crate::run_budget::call(tx, &workflow.scope, &member, &source_id, Some(&approval))
+            .await?
+        {
+            Ok((at, deadline)) => Ok(Ok(Some(RunBudgetGrant::new(
+                at,
+                deadline.unwrap_or(u64::MAX).min(authority.valid_until()),
+            )?))),
+            Err(reason) => {
+                let reason = crate::run_budget::bound_call_refusal(
+                    tx,
+                    &workflow.scope,
+                    &member,
+                    &source_id,
+                    reason,
+                    command,
+                    &approval,
+                )
+                .await?;
+                Ok(Err(reason))
+            }
+        }
+    }
 }

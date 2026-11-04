@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 const fixture = JSON.parse(
   readFileSync(
     new URL(
-      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v12.json",
+      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v13.json",
       import.meta.url,
     ),
     "utf8",
@@ -31,7 +31,7 @@ async function wire(
         status,
         contentType: "application/json",
         headers: {
-          "Ledgence-Console-Contract": "12",
+          "Ledgence-Console-Contract": "13",
           "Ledgence-Instance-Id": fixture.config.instance_id,
         },
         body: JSON.stringify(data),

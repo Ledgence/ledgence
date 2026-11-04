@@ -18,7 +18,17 @@ async fn request_with_protection(
     key: &str,
     protection: ApprovalProtection,
 ) -> ApprovalDecisionCommand {
+    request_budget(store, queue, key, protection, None).await
+}
+pub(super) async fn request_budget(
+    store: &PostgresStore,
+    queue: &str,
+    key: &str,
+    protection: ApprovalProtection,
+    budget: Option<RunBudgetPolicy>,
+) -> ApprovalDecisionCommand {
     let mut submission = command();
+    submission.input.budget = budget;
     submission.input.queue = queue.into();
     submission.idempotency_key = queue.into();
     let workflow = store
@@ -60,6 +70,7 @@ pub(super) async fn activate(
     store.apply_work(&one_work(store).await, &[]).await.unwrap();
     let assignment = acquire(store, queue).await;
     let claim = ApprovedEffectClaimCommand {
+        budget_fence: false,
         owner: assignment.lease.owner.clone(),
         workflow_id: decision.workflow_id.clone(),
         approval_key: decision.key.clone(),
@@ -117,6 +128,7 @@ async fn concurrent_claims_lost_reply_and_replacement_attempt_never_regrant_disp
         Err(ContractError::OwnershipLost)
     ));
     let replacement = ApprovedEffectClaimCommand {
+        budget_fence: false,
         owner: second.lease.owner.clone(),
         ..claim.clone()
     };
@@ -206,6 +218,7 @@ async fn a_claim_is_bound_to_its_approval_action_and_live_resumed_activation() {
         Err(ContractError::ObsoleteOperation)
     ));
     let stale_wake = ApprovedEffectClaimCommand {
+        budget_fence: false,
         owner: rejected.lease.owner,
         ..claim
     };

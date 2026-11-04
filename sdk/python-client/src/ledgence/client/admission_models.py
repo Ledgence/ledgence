@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from . import codec
 from .errors import InputError, ProtocolError
+from .budgets import RunBudgetDenial, _usage
 from .models import Scope, _scope
 
 LIMIT = 256 * 1024
@@ -202,6 +203,11 @@ class AdmissionSnapshot:
     revision: int
     _encoded: bytes = field(repr=False)
 
+    @property
+    def budget_denial(self) -> RunBudgetDenial | None:
+        reason = self.to_dict().get("budget_denial")
+        return None if reason is None else RunBudgetDenial(reason)
+
     def to_dict(self):
         return json.loads(self._encoded)
 
@@ -386,10 +392,14 @@ def _snapshot(raw, occurrence):
             "source",
             "finish",
         },
-        {"provider"},
+        {"provider","budget_denial"},
     )
     _occurrence(raw["occurrence"], occurrence)
     state = AdmissionState(raw["state"])
+    if "budget_denial" in raw:
+        RunBudgetDenial(raw["budget_denial"])
+        if state is not AdmissionState.CLOSED_BEFORE_START:
+            raise InputError("budget denied a started operation")
     integer(raw["revision"], 1)
     binding = raw["binding"]
     is_provider = "provider" in binding
@@ -452,7 +462,9 @@ def _snapshot(raw, occurrence):
         ):
             raise InputError("source outside admission lifetime")
     if finish is not None:
-        codec.fields(finish, {"source", "output", "accepted_at", "already_accepted"})
+        codec.fields(finish, {"source", "output", "accepted_at", "already_accepted"}, {"usage"})
+        if "usage" in finish:
+            _usage(finish["usage"])
         boolean(finish["already_accepted"])
         if (
             source is None

@@ -115,6 +115,7 @@ pub(super) fn source() -> AdmissionSource {
 }
 fn snapshot() -> AdmissionSnapshot {
     AdmissionSnapshot {
+        budget_denial: None,
         occurrence: occurrence(),
         binding: binding(),
         state: AdmissionState::UnknownOccupied,
@@ -214,12 +215,14 @@ async fn start_and_finish_check_original_source_and_never_retry_http() {
         Err(ContractError::Unavailable(_))
     ));
     let c = AdmissionFinishCommand {
+        usage: None,
         source: source(),
         output: json!({"answer":42}),
     };
     f.mock.set(
         "admission_finish",
         Ok(AdmissionFinishReceipt {
+            usage: None,
             source: source(),
             output: c.output.clone(),
             accepted_at: 22,
@@ -234,6 +237,7 @@ async fn start_and_finish_check_original_source_and_never_retry_http() {
     f.mock.set(
         "admission_finish",
         Ok(AdmissionFinishReceipt {
+            usage: None,
             source: changed,
             output: c.output.clone(),
             accepted_at: 22,
@@ -357,7 +361,7 @@ async fn fair_resource_history_requires_capability_metadata_access_and_bound_sco
         true
     );
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v12.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v13.json"
     ))
     .unwrap();
     let mut page: ResourceDecisionPage =
@@ -448,4 +452,215 @@ async fn fair_resource_history_requires_capability_metadata_access_and_bound_sco
         AdmissionClient::list_resource_decisions(&client, &q).await,
         Err(ContractError::Unavailable(_))
     ));
+}
+
+impl RunBudgetOperations for Mock {
+    fn run_budget<'a>(
+        &'a self,
+        _: &'a VerifiedPrincipal,
+        q: &'a RunBudgetQuery,
+    ) -> ContractFuture<'a, RunBudgetSnapshot> {
+        Box::pin(async move { self.reply("budget_snapshot", q) })
+    }
+    fn list_run_budget_entries<'a>(
+        &'a self,
+        _: &'a VerifiedPrincipal,
+        q: &'a RunBudgetEntriesQuery,
+    ) -> ContractFuture<'a, RunBudgetPage> {
+        Box::pin(async move { self.reply("budget_entries", q) })
+    }
+}
+#[tokio::test]
+async fn budget_inspection_requires_capability_and_preserves_authoritative_root_and_scope() {
+    let f = setup().await;
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v13.json"
+    ))
+    .unwrap();
+    let mut snap: RunBudgetSnapshot =
+        serde_json::from_value(fixture["run_budget"].clone()).unwrap();
+    snap.scope = scope();
+    let q = RunBudgetQuery {
+        scope: scope(),
+        subject: snap.subject.clone(),
+    };
+    let client = HttpTaskService::new(&f.running.url)
+        .unwrap()
+        .with_bearer_token("reader")
+        .unwrap();
+    assert!(matches!(
+        client.run_budget(&q).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert_eq!(
+        request(&f, "/v1/console/config", None, "reader").await.1["capabilities"]["run_budgets"],
+        false
+    );
+    f.mock.run_budgets_enabled.store(true, Ordering::SeqCst);
+    f.mock.set("budget_snapshot", Ok(&snap));
+    assert_eq!(client.run_budget(&q).await.unwrap(), snap);
+    let path = "/v1/console/budgets/inspect";
+    let body = json!({"subject":q.subject});
+    assert_eq!(
+        request(&f, path, Some(body.clone()), "reader").await,
+        (200, serde_json::to_value(&snap).unwrap())
+    );
+    assert_eq!(
+        request(&f, path, Some(body.clone()), "resource-operator")
+            .await
+            .0,
+        403
+    );
+    assert_eq!(
+        request(
+            &f,
+            path,
+            Some(json!({"scope":scope(),"subject":q.subject})),
+            "reader"
+        )
+        .await
+        .0,
+        400
+    );
+    let mut page: RunBudgetPage =
+        serde_json::from_value(fixture["run_budget_entries"].clone()).unwrap();
+    page.scope = scope();
+    page.items[0].scope = scope();
+    page.items[0].approval.as_mut().unwrap().scope = scope();
+    f.mock.set("budget_entries", Ok(&page));
+    let entries = RunBudgetEntriesQuery {
+        scope: scope(),
+        subject: q.subject.clone(),
+        before: None,
+        limit: 1,
+    };
+    assert_eq!(
+        client.list_run_budget_entries(&entries).await.unwrap(),
+        page
+    );
+    assert_eq!(
+        request(
+            &f,
+            "/v1/console/budgets/entries",
+            Some(json!({"subject":q.subject,"before":null,"limit":1})),
+            "reader"
+        )
+        .await,
+        (200, serde_json::to_value(&page).unwrap())
+    );
+    let mut other = entries.clone();
+    other.scope.namespace = "other".into();
+    assert_eq!(
+        client.list_run_budget_entries(&other).await.unwrap_err(),
+        ContractError::NotFound
+    );
+    page.root = RunBudgetSubject::Workflow {
+        workflow_id: "foreign".into(),
+    };
+    f.mock.set("budget_entries", Ok(&page));
+    assert!(matches!(
+        client.list_run_budget_entries(&entries).await,
+        Err(ContractError::Unavailable(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_predecessor_worker_receives_terminal_refusal_and_cannot_receive_a_fenced_dispatch() {
+    let f = setup().await;
+    let client = HttpTaskService::new(&f.running.url)
+        .unwrap()
+        .with_bearer_token("worker")
+        .unwrap();
+    let mut command = ApprovedEffectClaimCommand {
+        budget_fence: false,
+        owner: owner(),
+        workflow_id: "wf".into(),
+        approval_key: "review".into(),
+        action: ApprovalAction {
+            name: "transfer".into(),
+            version: "1".into(),
+            arguments: json!({}),
+        },
+        lookup: "lookup".into(),
+    };
+    let current = client.clone().with_budget_dispatch_fence();
+    for reason in [RunBudgetDenial::CallsExhausted, RunBudgetDenial::Cancelled] {
+        f.mock.set::<ApprovedEffectClaimReceipt>(
+            "effect_claim",
+            Err(ContractError::RunBudgetDenied(reason)),
+        );
+        command.budget_fence = false;
+        assert_eq!(
+            client.claim_approved_effect(&command).await.unwrap_err(),
+            ContractError::InvalidInput(reason.code().into())
+        );
+        command.budget_fence = true;
+        assert_eq!(
+            current.claim_approved_effect(&command).await.unwrap_err(),
+            ContractError::RunBudgetDenied(reason)
+        );
+    }
+    let reply = ApprovedEffectClaimReceipt {
+        budget_grant: Some(RunBudgetGrant::new(100, 99999).unwrap()),
+        scope: command.owner.scope.clone(),
+        workflow_id: command.workflow_id.clone(),
+        activation_id: command.owner.task_id.clone(),
+        attempt_id: command.owner.attempt_id.clone(),
+        approval_key: command.approval_key.clone(),
+        action: command.action.clone(),
+        lookup: command.lookup.clone(),
+        disposition: ApprovedEffectDisposition::Dispatch,
+    };
+    assert_eq!(reply.budget_grant.unwrap().expires_at, 5100);
+    f.mock.set("effect_claim", Ok(&reply));
+    assert!(
+        current
+            .claim_approved_effect(&command)
+            .await
+            .unwrap()
+            .budget_grant
+            .is_some()
+    );
+    command.budget_fence = false;
+    assert!(matches!(
+        client.claim_approved_effect(&command).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    let raw = serde_json::to_value(&command).unwrap();
+    assert!(raw.get("budget_fence").is_none());
+}
+
+#[tokio::test]
+async fn workflow_only_budget_support_does_not_advertise_or_accept_standalone_task_budgets() {
+    let f = setup().await;
+    f.mock.run_budgets_enabled.store(true, Ordering::SeqCst);
+    let caps = request(&f, "/v1/console/config", None, "reader").await.1["capabilities"].clone();
+    assert_eq!(caps["run_budgets"], true);
+    assert_eq!(caps["task_run_budgets"], false);
+    let mut command = submit(Value::Null);
+    command.input.budget = Some(RunBudgetPolicy {
+        max_calls: Some(2),
+        max_delegations: None,
+        deadline_at_ms: None,
+    });
+    let mut accepted = workflow::snapshot();
+    accepted.correlation_key = command.input.correlation_key.clone();
+    f.mock.set("wf_submit", Ok(accepted));
+    let data = serde_json::to_value(&command).unwrap();
+    let (status, response) = request(&f, "/v1/workflows", Some(data), "submitter").await;
+    assert_eq!(status, 200, "{response}");
+    command.input.admission = Some(TaskAdmissionRequirement {
+        resource: "provider".into(),
+    });
+    let raw = serde_json::to_value(&command).unwrap();
+    let (status, response) = request(&f, "/v1/tasks", Some(raw), "submitter").await;
+    assert_eq!(status, 503, "{response}");
+    assert!(
+        !f.mock
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(name, _)| *name == "submit")
+    );
 }

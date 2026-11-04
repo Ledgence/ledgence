@@ -12,6 +12,7 @@ import json
 from typing import Literal, TYPE_CHECKING
 
 from . import codec
+from .budgets import RunBudgetUsage, _usage
 from .errors import InputError
 from .models import ErrorDetail
 from .provider_bindings import ProviderTarget, _digest, parse_provider_target
@@ -134,6 +135,7 @@ class ProviderReport:
     provider_reference: str | None
     provider_request_id: str | None
     knowledge: ProviderKnowledge
+    usage: RunBudgetUsage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,7 +336,7 @@ def _message(value, name):
 
 
 def parse_provider_report(raw):
-    codec.fields(raw, set(ProviderReport.__dataclass_fields__))
+    codec.fields(raw, {"reported_target","provider_reference","provider_request_id","knowledge"}, {"usage"})
     codec.validate_authoritative(raw, 144 * 1024, max_depth=96)
     target = parse_provider_target(raw["reported_target"])
     reference = _nullable_text(raw["provider_reference"], "provider reference", 1024)
@@ -377,7 +379,7 @@ def parse_provider_report(raw):
         )
     else:
         raise InputError("invalid provider report knowledge")
-    return ProviderReport(target, reference, request, knowledge)
+    return ProviderReport(target, reference, request, knowledge, _usage(raw["usage"]) if "usage" in raw else None)
 
 
 def parse_provider_reference(raw, count, revision):

@@ -12,6 +12,8 @@ pub enum Operation {
     Queue(crate::queue_policy::Operation),
     List(ResourceListQuery),
     Resource(ResourceQuery),
+    Budget(RunBudgetQuery),
+    Entries(RunBudgetEntriesQuery),
     Decisions(ResourceDecisionQuery),
     Inspect(AdmissionQuery),
     TaskInspect(TaskAdmissionQuery),
@@ -47,6 +49,28 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
     };
     scope.validate()?;
     let operation = match (group, verb.as_str()) {
+        ("budget", "inspect" | "entries") => {
+            let subject = match (options.remove("--task"), options.remove("--workflow")) {
+                (Some(task_id), None) => RunBudgetSubject::Task { task_id },
+                (None, Some(workflow_id)) => RunBudgetSubject::Workflow { workflow_id },
+                _ => return Err(invalid("supply exactly one of --task or --workflow")),
+            };
+            if verb == "inspect" {
+                let q = RunBudgetQuery { scope, subject };
+                q.validate()?;
+                Operation::Budget(q)
+            } else {
+                let (before, limit) = read_page(&mut options)?;
+                let q = RunBudgetEntriesQuery {
+                    scope,
+                    subject,
+                    before,
+                    limit,
+                };
+                q.validate()?;
+                Operation::Entries(q)
+            }
+        }
         ("queue", verb) => Operation::Queue(crate::queue_policy::parse(verb, scope, &mut options)?),
         ("resource", "put") => Operation::Put {
             scope,
@@ -66,20 +90,7 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
         }
         ("resource", "decisions") => {
             let name = take("--name")?;
-            let before = options
-                .remove("--before")
-                .map(|v| {
-                    v.parse::<u64>()
-                        .ok()
-                        .filter(|n| n.to_string() == v)
-                        .ok_or_else(|| invalid("expected a canonical decimal cursor"))
-                })
-                .transpose()?;
-            let limit = options
-                .remove("--limit")
-                .map(|v| v.parse().map_err(|_| invalid("invalid page size")))
-                .transpose()?
-                .unwrap_or(50);
+            let (before, limit) = read_page(&mut options)?;
             let query = ResourceDecisionQuery {
                 scope,
                 name,
@@ -134,6 +145,23 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
     }
     Ok(Command::Admission { server, operation })
 }
+fn read_page(options: &mut BTreeMap<String, String>) -> Result<(Option<u64>, u32)> {
+    let before = options
+        .remove("--before")
+        .map(|v| {
+            v.parse::<u64>()
+                .ok()
+                .filter(|n| n.to_string() == v)
+                .ok_or_else(|| invalid("expected a canonical decimal cursor"))
+        })
+        .transpose()?;
+    let limit = options
+        .remove("--limit")
+        .map(|v| v.parse().map_err(|_| invalid("invalid page size")))
+        .transpose()?
+        .unwrap_or(50);
+    Ok((before, limit))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SavedCommand {
@@ -172,6 +200,10 @@ pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<V
         Operation::List(q) => encode(AdmissionClient::list_resources(client, &q).await?),
         Operation::Decisions(q) => {
             encode(AdmissionClient::list_resource_decisions(client, &q).await?)
+        }
+        Operation::Budget(q) => encode(RunBudgetClient::run_budget(client, &q).await?),
+        Operation::Entries(q) => {
+            encode(RunBudgetClient::list_run_budget_entries(client, &q).await?)
         }
         Operation::Resource(q) => encode(AdmissionClient::resource(client, &q).await?),
         Operation::Inspect(q) => encode(AdmissionClient::inspect_admission(client, &q).await?),
@@ -258,6 +290,43 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn budget_reads_require_one_subject_and_preserve_large_cursor() {
+        let base = [
+            "entries",
+            "--server",
+            "http://localhost:8080",
+            "--tenant",
+            "acme",
+            "--namespace",
+            "demo",
+        ];
+        let parse_budget =
+            |extra: &[&str]| parse("budget", base.iter().chain(extra).map(|s| (*s).to_owned()));
+        for suffix in [
+            &[][..],
+            &["--task", "t", "--workflow", "w"],
+            &["--workflow", "w", "--before", "01"],
+            &["--workflow", "w", "--limit", "101"],
+        ] {
+            assert!(parse_budget(suffix).is_err());
+        }
+        let Command::Admission {
+            operation: Operation::Entries(q),
+            ..
+        } = parse_budget(&["--workflow", "w", "--before", "9007199254740993"]).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(q.before, Some(9_007_199_254_740_993));
+        assert_eq!(
+            q.subject,
+            RunBudgetSubject::Workflow {
+                workflow_id: "w".into()
+            }
+        );
+    }
+
     #[test]
     fn decision_history_preserves_exclusive_cursor_without_float_conversion() {
         let args = [

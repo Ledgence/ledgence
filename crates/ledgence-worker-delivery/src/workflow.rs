@@ -277,6 +277,7 @@ impl WorkflowOperations {
         let claim: ApprovedEffectClaimRequest = serde_json::from_value(request.payload)
             .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
         let command = ApprovedEffectClaimCommand {
+            budget_fence: true,
             owner: self.owner.clone(),
             workflow_id: self.workflow_id.clone(),
             approval_key: claim.approval_key,
@@ -288,6 +289,7 @@ impl WorkflowOperations {
         // A lost grant may already have consumed the only dispatch. Only a
         // fresh, verified reply may reach the subprocess.
         let effects = self.service.approved_effects().map_err(runtime_error)?;
+        let began = Instant::now();
         let result = controlled(&control, self.request_timeout, || {
             effects.claim_approved_effect(&command)
         })
@@ -298,22 +300,31 @@ impl WorkflowOperations {
             ContractError::ObsoleteOperation => Error::new(ErrorKind::Protocol, error.to_string()),
             other => runtime_error(other),
         })?;
+        if receipt.disposition == ApprovedEffectDisposition::Dispatch {
+            check_budget_window(receipt.budget_grant, began)?;
+        }
         if !matches!(receipt.matches(&command), Ok(true)) {
             return Err(Error::new(
                 ErrorKind::Protocol,
                 "approved effect receipt identity mismatch",
             ));
         }
-        Ok(RuntimeReply {
-            id: request.id,
-            result: json!({
+        let mut result = json!({
                 "workflow_id": receipt.workflow_id,
                 "activation_id": receipt.activation_id,
                 "approval_key": receipt.approval_key,
                 "action": receipt.action,
                 "lookup": receipt.lookup,
                 "disposition": receipt.disposition,
-            }),
+        });
+        if receipt.disposition == ApprovedEffectDisposition::Dispatch
+            && let Some(grant) = receipt.budget_grant
+        {
+            result["budget_grant"] = json!(grant);
+        }
+        Ok(RuntimeReply {
+            id: request.id,
+            result,
         })
     }
 
@@ -465,8 +476,27 @@ pub(super) async fn pause(
     }
     control.check()
 }
+/// Include request encoding, transport and response decoding in time spent before handoff.
+fn check_budget_window(
+    window: Option<RunBudgetGrant>,
+    began: Instant,
+) -> ledgence_worker_api::Result<()> {
+    if let Some(window) = window {
+        window.validate().map_err(runtime_error)?;
+        if began.elapsed() >= Duration::from_millis(window.expires_at - window.authorized_at) {
+            return Err(Error::new(
+                ErrorKind::TimedOut,
+                "budgeted dispatch grant expired before handoff",
+            ));
+        }
+    }
+    Ok(())
+}
 pub(super) fn runtime_error(error: ContractError) -> Error {
     let kind = match error {
+        ContractError::RunBudgetDenied(reason) => {
+            return Error::new(ErrorKind::Protocol, reason.code());
+        }
         ContractError::OwnershipLost => ErrorKind::Cancelled,
         ContractError::InvalidInput(_) | ContractError::Conflict | ContractError::NotFound => {
             ErrorKind::Protocol

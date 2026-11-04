@@ -61,6 +61,8 @@ Provider integrations are optional application dependencies, separate from the
 Ledgence platform and Python client. Offline tests substitute external model
 responses; explicitly enabled live checks use the actual provider.
 
+[Shared ticket review budget](shared-run-budget/README.md) gives two owned classifier workflows a single governed model call. The local check records the provider request independently and restarts the orchestrator while both children wait.
+
 ## Data and agent workflows
 
 These examples connect data preparation to an agent investigation and a reviewed

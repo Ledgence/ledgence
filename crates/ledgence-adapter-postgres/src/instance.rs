@@ -3,6 +3,9 @@ use crate::*;
 use sqlx::{AssertSqlSafe, Row};
 
 pub(super) const SCOPED_TABLES: &[&str] = &[
+    "run_budgets",
+    "run_budget_members",
+    "run_budget_entries",
     "tasks",
     "workflow_runs",
     "worker_sessions",

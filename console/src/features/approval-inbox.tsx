@@ -275,6 +275,7 @@ export function ApprovalReviewPage() {
   const [params] = useSearchParams();
   const workflow = params.get("workflow");
   const key = params.get("key");
+  const activation = params.get("activation");
   return (
     <>
       <BackLink to="/approvals">Back to approvals</BackLink>
@@ -283,7 +284,8 @@ export function ApprovalReviewPage() {
         <Empty>Workflows are unavailable on this server.</Empty>
       ) : workflow && key ? (
         <ApprovalReview
-          key={JSON.stringify([workflow, key])}
+          key={JSON.stringify([workflow, key, activation])}
+          activation={activation}
           workflow={workflow}
           approvalKey={key}
         />
@@ -298,11 +300,13 @@ export function ApprovalReviewPage() {
 }
 
 function ApprovalReview({
+  activation,
   workflow,
   approvalKey,
 }: {
   workflow: string;
   approvalKey: string;
+  activation: string | null;
 }) {
   const { polling } = useInstance();
   const query = useApprovalRead(
@@ -312,6 +316,17 @@ function ApprovalReview({
     (item) =>
       !item || item.status === "pending" ? polling.waiting_workflow_ms : false,
   );
+  if (
+    activation !== null &&
+    query.data &&
+    query.data.activation_id !== activation
+  )
+    return (
+      <ErrorState
+        title="Approval activation mismatch"
+        message="The recorded approval belongs to a different activation."
+      />
+    );
   return (
     <>
       {query.isPending && <LoadingState label="Loading approval details" />}

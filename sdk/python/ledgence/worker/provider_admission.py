@@ -108,7 +108,11 @@ def validate_source(source):
             "first_possible_dispatch_at",
             "reconciliation_deadline",
         },
+        {"budget_grant"},
     )
+    if "budget_grant" in provider:
+        from .workflow import _budget_dispatch_deadline
+        _budget_dispatch_deadline(provider["budget_grant"], 0, authorized_at=provider["accepted_at"])
     ticket = ProviderOperationTicket.from_dict(provider["ticket"])
     _text(provider["source_id"], "provider source")
     if (
@@ -373,7 +377,7 @@ async def _run(ctx, wake, dispatch, binding):
                     ProviderAdmissionOutcomeKind.CLOSED,
                     reason="administratively_released"
                     if snapshot["state"] == "administratively_released"
-                    else None,
+                    else admission.budget_closed_reason(snapshot),
                 )
             if snapshot["state"] in ("possibly_dispatched", "unknown_occupied"):
                 return _outcome(ProviderAdmissionOutcomeKind.NEEDS_REVIEW)
@@ -393,6 +397,9 @@ async def _run(ctx, wake, dispatch, binding):
         deadline = (
             begun + (authority["start_deadline_at"] - authority["accepted_at"]) / 1000
         )
+        if "budget_grant" in source["provider"]:
+            from .workflow import _budget_dispatch_deadline
+            deadline = min(deadline, _budget_dispatch_deadline(source["provider"]["budget_grant"], begun, authorized_at=authority["accepted_at"]))
         if monotonic() >= deadline:
             raise WorkflowError("provider Start expired before callback")
     except BaseException as exc:

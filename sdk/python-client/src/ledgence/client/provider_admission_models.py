@@ -78,7 +78,14 @@ def validate_record(raw, binding, occurrence, source, updated, state):
     if linked["admission"] != source or raw["ticket"] != binding["provider"]["ticket"]:
         raise InputError("unlinked admission source")
     provider = linked["provider"]
-    codec.fields(provider, {"source_id", "claim_id", "report_id", "ticket", "worker", "accepted_at", "first_possible_dispatch_at", "reconciliation_deadline"})
+    codec.fields(provider, {"source_id", "claim_id", "report_id", "ticket", "worker", "accepted_at", "first_possible_dispatch_at", "reconciliation_deadline"}, {"budget_grant"})
+    if "budget_grant" in provider:
+        grant = provider["budget_grant"]
+        codec.fields(grant, {"authorized_at", "expires_at"})
+        issued = timestamp(grant["authorized_at"])
+        expires = timestamp(grant["expires_at"])
+        if issued != provider["accepted_at"] or not 0 < expires-issued <= 5000:
+            raise InputError("invalid provider budget dispatch grant")
     for key in ("source_id", "claim_id", "report_id"):
         codec.text(provider[key], key)
     _worker(provider["worker"], occurrence.scope)

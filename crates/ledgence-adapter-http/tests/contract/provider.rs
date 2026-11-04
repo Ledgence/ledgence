@@ -58,6 +58,7 @@ fn identity() -> EffectWorkerIdentity {
 fn claim() -> ProviderClaimCommand {
     let binding = binding();
     ProviderClaimCommand {
+        budget_fence: false,
         owner: owner(),
         workflow_id: "workflow".into(),
         approval_key: "approval".into(),
@@ -121,6 +122,7 @@ async fn provider_claim_freezes_permission_and_rejects_changed_receipt_as_uncert
     let command = claim();
     let ticket = command.ticket().unwrap();
     let source = ProviderDispatchSource {
+        budget_grant: None,
         source_id: "source".into(),
         claim_id: command.claim_id.clone(),
         report_id: command.report_id.clone(),

@@ -64,7 +64,16 @@ pub(super) async fn approved(
     id: &str,
     request: ProviderBindingRequest,
 ) -> (Assignment, ProviderClaimCommand) {
+    approved_with_budget(store, id, request, None).await
+}
+pub(super) async fn approved_with_budget(
+    store: &PostgresStore,
+    id: &str,
+    request: ProviderBindingRequest,
+    budget: Option<RunBudgetPolicy>,
+) -> (Assignment, ProviderClaimCommand) {
     let mut submission = command();
+    submission.input.budget = budget;
     submission.idempotency_key = id.into();
     submission.input.queue = id.into();
     let w = store
@@ -130,6 +139,7 @@ pub(super) async fn approved(
     (
         a.clone(),
         ProviderClaimCommand {
+            budget_fence: false,
             owner: a.lease.owner,
             workflow_id: w.workflow_id,
             approval_key: "approve".into(),
@@ -157,6 +167,7 @@ pub(super) fn reported(
         source_id: source.source_id.clone(),
         report_id: source.report_id.clone(),
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("remote-1".into()),
             provider_request_id: Some("req-1".into()),
@@ -256,6 +267,7 @@ async fn provider_one_grant_exact_report_and_no_journal() {
         Err(ContractError::Conflict)
     ));
     let claim = ProviderClaimCommand {
+        budget_fence: false,
         owner: a.lease.owner.clone(),
         workflow_id: c.ticket.occurrence.workflow_id.clone(),
         approval_key: "approve".into(),
@@ -282,6 +294,7 @@ async fn provider_one_grant_exact_report_and_no_journal() {
     assert!(matches!(
         db.store
             .claim_approved_effect(&ApprovedEffectClaimCommand {
+                budget_fence: false,
                 owner: a.lease.owner,
                 workflow_id: claim.workflow_id,
                 approval_key: claim.approval_key,
@@ -385,6 +398,7 @@ async fn provider_probe_report_cleanup_and_one_native_wake() {
         report_id: ctx.report_id,
         generation: marker.generation,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("remote-1".into()),
             provider_request_id: None,
@@ -712,6 +726,7 @@ async fn provider_finite_pending_budget_stops_without_overlapping_probes() {
             report_id: context.report_id,
             generation,
             report: ProviderReport {
+                usage: None,
                 reported_target: c.binding.target.clone(),
                 provider_reference: None,
                 provider_request_id: None,
@@ -874,6 +889,7 @@ async fn provider_operator_failure_assessment_is_challenged_only_by_new_terminal
         source_id: ctx.source_id,
         report_id: ctx.report_id,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("remote-1".into()),
             provider_request_id: None,
@@ -1025,6 +1041,7 @@ async fn provider_late_conflicting_terminal_never_reopens_handling_before_or_aft
             report_id: context.report_id,
             generation: context.generation,
             report: ProviderReport {
+                usage: None,
                 reported_target: c.binding.target.clone(),
                 provider_reference: Some("remote-1".into()),
                 provider_request_id: None,
@@ -1140,6 +1157,7 @@ async fn provider_concurrent_nonterminal_reports_preserve_highest_knowledge_rank
             source_id: context.source_id,
             report_id: context.report_id,
             report: ProviderReport {
+                usage: None,
                 reported_target: c.binding.target.clone(),
                 provider_reference: None,
                 provider_request_id: None,
@@ -1329,6 +1347,7 @@ async fn provider_nonterminal_reference_conflict_stops_checks_and_terminal_later
         report_id: ctx.report_id,
         generation: ctx.generation,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("reference-a".into()),
             provider_request_id: None,
@@ -1366,6 +1385,7 @@ async fn provider_nonterminal_reference_conflict_stops_checks_and_terminal_later
         source_id: second.source_id,
         report_id: second.report_id,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("reference-a".into()),
             provider_request_id: None,

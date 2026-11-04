@@ -30,6 +30,12 @@ impl TaskAdmissionState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskAdmissionSnapshot {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget_denial: Option<RunBudgetDenial>,
     pub occurrence: TaskAdmissionOccurrence,
     pub resource: String,
     pub program: ProgramDescriptor,
@@ -55,6 +61,11 @@ impl TaskAdmissionSnapshot {
         }
     }
     pub fn validate(&self) -> Result<()> {
+        if self.budget_denial.is_some() && self.state != TaskAdmissionState::ClosedBeforeStart {
+            return Err(invalid(
+                "budget refusal requires closed-before-start admission",
+            ));
+        }
         self.binding().validate()?;
         crate::admission::positive(self.revision)?;
         time(self.created_at)?;

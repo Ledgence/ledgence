@@ -4,7 +4,7 @@ description: Park workflows while a resource is full, then run a registered oper
 ---
 
 **In development.** Use matching components built from this checkout, including
-migrations and Console C12. Published 0.8.0 packages do not contain this capability. On existing databases,
+migrations and Console C13. Published 0.8.0 packages do not contain this capability. On existing databases,
 rehearse the migration on a representative restore: rebuilding the task queue indexes
 can block writes.
 

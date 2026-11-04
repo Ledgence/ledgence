@@ -1321,3 +1321,108 @@ async fn busy_admission_resource_does_not_lock_queue_capacity_for_ordinary_work(
     );
     db.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn run_budget_task_refusal_is_terminal_without_fabricating_a_worker_report() {
+    let db = fixture(policy(1)).await;
+    let store = &db.store;
+    let mut c = submission("standalone-budget");
+    c.input.retry_policy.max_attempts = 4;
+    c.input.budget = Some(RunBudgetPolicy {
+        max_calls: Some(0),
+        max_delegations: None,
+        deadline_at_ms: None,
+    });
+    let t = store
+        .accept_resolved_submission(&c, &descriptor())
+        .await
+        .unwrap();
+    assert_eq!(advance(store).await.task_offered, 1);
+    let ws = session(store).await;
+    let a = assignment(store.acquire(&acquire_command(&ws, 0, 1)).await.unwrap());
+    let start = TaskAdmissionStartCommand {
+        owner: a.lease.owner.clone(),
+        offer_generation: a.task_admission.as_ref().unwrap().offer_generation,
+        start_id: "start".into(),
+    };
+    for _ in 0..2 {
+        let TaskAdmissionStartReceipt::Existing { snapshot } =
+            store.start_task_admission(&worker(), &start).await.unwrap()
+        else {
+            panic!("unexpected grant")
+        };
+        assert_eq!(
+            snapshot.budget_denial,
+            Some(RunBudgetDenial::CallsExhausted)
+        );
+    }
+    let result = store.result(&scope(), &t.task_id).await.unwrap();
+    assert!(matches!(
+        result.outcome,
+        Some(TaskOutcome::Failed {
+            failure: TaskFailure::BudgetDenied {
+                reason: RunBudgetDenial::CallsExhausted
+            },
+            execution_may_have_started: false,
+            ..
+        })
+    ));
+
+    let quiet = |pool: sqlx::PgPool, attempt: String| async move {
+        sqlx::query_scalar::<_, String>("SELECT quiescence FROM attempts WHERE attempt_id=$1")
+            .bind(attempt)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    };
+    assert_eq!(
+        quiet(store.pool.clone(), start.owner.attempt_id.clone()).await,
+        "unconfirmed"
+    );
+    let mut wrong = close(&start, TaskAdmissionCloseOutcome::NotInvoked);
+    wrong.start_id = "unrelated".into();
+    assert!(matches!(
+        store.close_task_admission(&worker(), &wrong).await,
+        Err(ContractError::Conflict)
+    ));
+    let clean = close(&start, TaskAdmissionCloseOutcome::NotInvoked);
+    assert!(
+        !store
+            .close_task_admission(&worker(), &clean)
+            .await
+            .unwrap()
+            .already_accepted
+    );
+    assert!(
+        store
+            .close_task_admission(&worker(), &clean)
+            .await
+            .unwrap()
+            .already_accepted
+    );
+    assert_eq!(
+        quiet(store.pool.clone(), start.owner.attempt_id.clone()).await,
+        "confirmed"
+    );
+    let snap = store
+        .run_budget(
+            &operator(),
+            &RunBudgetQuery {
+                scope: scope(),
+                subject: crate::run_budget::task(&t.task_id),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(snap.calls, 0);
+    assert_eq!(resource(store).await.occupied, 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM accepted_settlements")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap(),
+        0
+    );
+    db.finish().await
+}

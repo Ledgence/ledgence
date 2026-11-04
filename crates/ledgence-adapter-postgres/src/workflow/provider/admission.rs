@@ -127,6 +127,7 @@ impl PostgresStore {
             return Err(corrupt("missing protected admission link").into());
         }
         let claim = ProviderClaimCommand {
+            budget_fence: true,
             owner: c.owner.clone(),
             workflow_id: workflow.workflow_id.clone(),
             approval_key: subject.ticket.occurrence.approval_key.clone(),
@@ -159,19 +160,35 @@ impl PostgresStore {
                 &subject.ticket.occurrence,
                 now,
                 Some(capacity_deadline),
+                authority.has_run_budget,
+                authority.valid_until(),
             )
             .await?;
         let provider = match provider {
             Ok(receipt) => receipt,
-            Err(expired) => {
+            Err(claim::ClaimRefusal::Budget(reason)) => {
+                let key = crate::run_budget::denial_id(
+                    &mut tx,
+                    &("provider", &subject.ticket.occurrence),
+                )
+                .await?;
+                a.start_bytes = Some(canonical(command)?);
+                crate::workflow::admission::execution::close_budget_offer(
+                    &mut tx, &mut a, &mut r, reason, &key,
+                )
+                .await?;
+                let at = db::now(&mut tx).await?;
+                self.admission_worker(p, &c.occurrence.scope, at)?;
+                self.require_effect_worker(p, &c.occurrence.scope, at)?;
+                execution::check_live(&workflow, &authority, &c.owner, at, true)?;
+                let receipt = existing(p, a.snapshot);
+                receipt.validate_for(p, command)?;
+                tx.commit().await?;
+                return Ok(receipt);
+            }
+            Err(claim::ClaimRefusal::Expired { observed_at }) => {
                 let receipt = self
-                    .recover_expired_provider_admission(
-                        &mut tx,
-                        p,
-                        command,
-                        &name,
-                        expired.observed_at,
-                    )
+                    .recover_expired_provider_admission(&mut tx, p, command, &name, observed_at)
                     .await?;
                 tx.commit().await?;
                 return Ok(receipt);
@@ -209,6 +226,19 @@ impl PostgresStore {
                     r.credit = Some(bucket.credit);
                     r.high_water = bucket.high_water_at;
                 }
+                let deadline = if authority.has_run_budget {
+                    crate::run_budget::lock(
+                        &mut tx,
+                        &c.occurrence.scope,
+                        &crate::run_budget::workflow(&c.occurrence.workflow_id),
+                    )
+                    .await?
+                    .ok_or_else(|| corrupt("missing run budget"))?
+                    .policy
+                    .deadline_at_ms
+                } else {
+                    None
+                };
                 let source = ProviderAdmissionSource {
                     admission: AdmissionSource {
                         occurrence: c.occurrence.clone(),
@@ -223,7 +253,8 @@ impl PostgresStore {
                         start_deadline_at: now
                             .checked_add(u64::from(r.record.policy.start_timeout_ms))
                             .ok_or_else(|| corrupt("admission start deadline"))?
-                            .min(authority.valid_until()),
+                            .min(authority.valid_until())
+                            .min(deadline.unwrap_or(u64::MAX)),
                     },
                     provider: *provider,
                 };

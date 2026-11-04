@@ -976,3 +976,7 @@ Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a mat
 ## Weighted resource offers in development
 
 Pass `ResourceFairSharing` and its `ResourceFairGroup` values to `ResourcePolicy(fair_sharing=...)` to weight offers between queues. Read a page with `await client.resources.decisions("support-model", limit=20)`, then pass `before=page.next` for older offers when `page.next` is present. [Policy, example and compatibility](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).
+
+### Shared run budgets (development)
+
+Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).

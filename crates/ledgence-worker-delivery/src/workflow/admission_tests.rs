@@ -199,6 +199,7 @@ async fn finish_retries_identical_source_and_output_without_another_start() {
         finish_id: "finish".into(),
     };
     let command = AdmissionFinishCommand {
+        usage: None,
         source: source(&c, &handler),
         output: json!({"value":1.0}),
     };
@@ -216,6 +217,7 @@ async fn finish_retries_identical_source_and_output_without_another_start() {
         let (second, tx) = finishes.recv().await.unwrap();
         assert_eq!(first, second);
         tx.send(Ok(AdmissionFinishReceipt {
+            usage: None,
             source: second.source,
             output: second.output,
             accepted_at: 2000,

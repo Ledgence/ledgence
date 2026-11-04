@@ -148,6 +148,7 @@ async fn instance_legacy_routes_reject_foreign_scope_before_calling_any_service(
     assert_eq!(
         client
             .claim_approved_effect(&ApprovedEffectClaimCommand {
+                budget_fence: false,
                 owner: owner(),
                 workflow_id: "wf".into(),
                 approval_key: "approve".into(),

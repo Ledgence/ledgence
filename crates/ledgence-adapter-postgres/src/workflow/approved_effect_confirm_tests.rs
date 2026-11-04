@@ -110,6 +110,7 @@ async fn confirmation_requires_a_bound_grant_and_cannot_be_forged_through_the_ge
         ApprovedEffectDisposition::Dispatch
     );
     let rebind = ApprovedEffectClaimCommand {
+        budget_fence: false,
         lookup: "app:other_lookup".into(),
         ..claim.clone()
     };
@@ -208,6 +209,7 @@ async fn replacement_reconciles_once_and_only_the_accepting_attempt_can_replay_a
     let second = acquire(&db.store, "reconcile").await;
     dispatched(&db.store, &second).await;
     let replacement = ApprovedEffectClaimCommand {
+        budget_fence: false,
         owner: second.lease.owner.clone(),
         ..claim.clone()
     };

@@ -14,6 +14,7 @@ mod effect_resolution;
 mod provider_admission;
 mod provider_operation;
 mod queue_policies;
+mod run_budget;
 mod task_admission;
 pub mod worker_observations;
 mod workflow;
@@ -141,6 +142,11 @@ impl ApplicationService {
 }
 
 impl TaskService for ApplicationService {
+    fn supports_task_run_budgets(&self) -> bool {
+        self.store.supports_run_budgets()
+            && self.budgets().is_ok()
+            && self.task_admissions().is_ok()
+    }
     fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
         self.store.queue_policies()?;
         Ok(self)
@@ -206,6 +212,19 @@ impl TaskService for ApplicationService {
     fn submit<'a>(&'a self, command: &'a SubmitCommand) -> ContractFuture<'a, TaskSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
+            if command.input.budget.is_some() {
+                if command.input.admission.is_none() {
+                    return Err(ContractError::InvalidInput(
+                        "standalone run budget requires task admission".into(),
+                    ));
+                }
+                self.budgets()?;
+                if !self.store.supports_run_budgets() {
+                    return Err(ContractError::Unavailable(
+                        "task store cannot enforce run budgets".into(),
+                    ));
+                }
+            }
             if command.input.admission.is_some() {
                 self.task_admissions()?;
             }
