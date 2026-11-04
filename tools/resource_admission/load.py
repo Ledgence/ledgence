@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from http_acceptance.harness import eventually
+from http_acceptance.sqs import acquisition_wait
 from program_fixture import prepare_package
 from queue_capacity.fixture import CapacityDeployment
 from workflow_acceptance.owned_scenarios import quote
@@ -23,9 +24,70 @@ from .load_stats import (
 SLOTS = 4
 RATE = 16
 MODES = ("ordinary", "hot", "independent", "budget")
+KEYS = 8
+
+
+def timing_input(mode, index):
+    resource = None
+    if mode == "independent":
+        # Each block visits all keys and its long request lands on a different one.
+        resource = f"load-{(index + index // KEYS) % KEYS}"
+    elif mode in ("hot", "budget"):
+        resource = "load-hot"
+    return resource, 150 if index % 8 == 0 else 5
+
+
+def poll_configuration(wait):
+    return {
+        "transport": "single_queue_http",
+        "mode": "short_poll" if wait == 0 else "long_poll",
+        "flag_ms": wait,
+        "effective_ms": 20_000 if wait is None else wait,
+        "basis": "worker_cli_default" if wait is None else "explicit_worker_argument",
+    }
 
 
 class Deployment(CapacityDeployment):
+    def __init__(self, *args, acquire_wait_ms=None, **kwargs):
+        self.acquire_wait_ms = (
+            None if acquire_wait_ms is None else acquisition_wait(acquire_wait_ms)
+        )
+        self.launched_workers = {}
+        super().__init__(*args, **kwargs)
+
+    def consumer(self, name, queue, concurrency):
+        process = super().consumer(name, queue, concurrency)
+        args = process.process.args
+        wait = (
+            int(args[args.index("--acquire-wait-ms") + 1])
+            if "--acquire-wait-ms" in args
+            else None
+        )
+        slots = int(args[args.index("--concurrency") + 1])
+        assert (
+            wait == self.acquire_wait_ms
+            and slots == concurrency
+            and args[args.index("--queue") + 1] == queue
+        )
+        self.launched_workers[name] = {
+            "queue": queue,
+            "slots": slots,
+            "polling": poll_configuration(wait),
+        }
+        return process
+
+    def topology(self, count, limit):
+        return {
+            "polling": poll_configuration(self.acquire_wait_ms),
+            "workers": dict(self.launched_workers),
+            "total_worker_slots": sum(
+                w["slots"] for w in self.launched_workers.values()
+            ),
+            "requested_resource_count": count,
+            "reservation_cap_per_resource": limit,
+            "aggregate_reservation_cap": count * limit if count else None,
+        }
+
     def publish_programs(self):
         source = Path(__file__).with_name("load_program.py").read_text()
         for name, handler in (("load-task", "task"), ("load-retry", "workflow")):
@@ -159,20 +221,14 @@ def timing_arm(d, provider, mode, tag, total):
 
     def submit(i, due):
         issued = time.monotonic_ns()
-        resource = (
-            None
-            if mode == "ordinary"
-            else f"load-{i % 8}"
-            if mode == "independent"
-            else "load-hot"
-        )
+        resource, duration = timing_input(mode, i)
         task = d.submit_call(
             tag,
             i,
             provider,
             resource=resource,
             budget=mode == "budget",
-            ms=150 if i % 8 == 0 else 5,
+            ms=duration,
         )
         return {
             "task": task,
@@ -233,13 +289,8 @@ def timing_arm(d, provider, mode, tag, total):
                 and physical_by_id[row["task_id"]]["attempt"] == row["owner_attempt_id"]
             )
         index = int(row["key"].rsplit("-", 1)[1])
-        expected_resource = (
-            f"load-{index % 8}"
-            if mode == "independent"
-            else "load-hot"
-            if governed
-            else None
-        )
+        expected_resource, duration = timing_input(mode, index)
+        assert physical_by_id[row["task_id"]]["requested_service_ms"] == duration
         assert row["resource"] == expected_resource
         assert row["submitted"] <= row["claim"] <= row["terminal"]
     lateness = [(a["issued_ns"] - a["due_ns"]) / 1e6 for a in arrivals]
@@ -248,9 +299,12 @@ def timing_arm(d, provider, mode, tag, total):
     )
     n = peak(physical)
     assert n <= SLOTS
+    count = KEYS if mode == "independent" else int(governed)
+    topology = d.topology(count, SLOTS if governed else None)
     (d.directory / (tag + "-raw.json")).write_text(
         json.dumps(
             {
+                "topology": topology,
                 "arrivals": arrivals,
                 "tasks": rows,
                 "provider": physical,
@@ -264,6 +318,7 @@ def timing_arm(d, provider, mode, tag, total):
     result = {
         "case": tag,
         "mode": mode,
+        "topology": topology,
         "offered": total,
         "accepted": len(arrivals),
         "succeeded": sum(r["state"] == "succeeded" for r in rows),
@@ -342,6 +397,7 @@ def parked(d, provider, total):
     assert live == 0
     return {
         "parked": total,
+        "topology_after_enable": d.topology(1, SLOTS),
         "physical_before_release": 0,
         "ordinary_witness": 1,
         "completed_after_restart": len(physical),
@@ -415,6 +471,7 @@ def throttle(d, provider):
         result.append(
             {
                 "workflow": wf,
+                "topology": d.topology(1, SLOTS),
                 "outcome": state,
                 "charges": 2,
                 "gap_ms": gap / 1e6,
@@ -481,6 +538,7 @@ def skew(d, provider):
     )
     return {
         "backlog_before_release": {"batch": 12, "support": 8},
+        "topology": d.topology(1, 2),
         "physical_sends": len(physical),
         "peak_provider": 2,
         "first_support_opportunity": opportunity,

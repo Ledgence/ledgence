@@ -13,11 +13,14 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from http_acceptance.harness import eventually
+from http_acceptance.sqs import acquisition_wait
 from resource_admission.load import (
+    KEYS,
     MODES,
     SLOTS,
     Deployment,
     parked,
+    poll_configuration,
     skew,
     throttle,
     timing_arm,
@@ -126,6 +129,11 @@ def main():
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--psql", default="psql")
     parser.add_argument(
+        "--acquire-wait-ms",
+        type=acquisition_wait,
+        help="worker poll wait (0..20000 ms); omit to use the single-queue HTTP worker default",
+    )
+    parser.add_argument(
         "--smoke",
         action="store_true",
         help="small functional check; not a release timing result",
@@ -167,6 +175,7 @@ def main():
         "system": platform.platform(),
         "machine": platform.machine(),
         "slots": SLOTS,
+        "polling": poll_configuration(a.acquire_wait_ms),
         "timing_arms": [],
         "database_removed": False,
         "deployment_closed": False,
@@ -181,6 +190,7 @@ def main():
                 os.environ.get("LEDGENCE_PYTHON", sys.executable),
                 url,
                 a.psql,
+                acquire_wait_ms=a.acquire_wait_ms,
             )
             p = None
             try:
@@ -192,7 +202,7 @@ def main():
                 d.enable_admission()
                 d.publish_programs()
                 d.start_server()
-                for name in ["load-hot", *(f"load-{i}" for i in range(8))]:
+                for name in ["load-hot", *(f"load-{i}" for i in range(KEYS))]:
                     d.configure(name)
                 d.consumer("load-main", d.queue, SLOTS)
                 p = Provider()
@@ -229,6 +239,7 @@ def main():
                     )
                 assert len(p.rows) == all_expected
                 report["provider_records"] = len(p.rows)
+                report["launched_workers"] = d.launched_workers
                 assert digest(binary) == sha and helpers == {
                     f.name: digest(f) for f in sorted(helper.glob("*.py"))
                 }
