@@ -152,6 +152,26 @@ accepted wait releases the same invocation reservation and resumes only through
 the durable coordinator's selected assessment. See
 [native operator rendezvous](effect-evidence.md#park-without-occupying-a-worker).
 
+#### Runtime feature discovery for Rust compositions (development)
+
+On `develop`, `HttpTaskService::discover_worker_runtime()` returns the validated
+feature manifest separately from the optional authenticated effect-evidence
+binding. A valid manifest can retain unknown feature names without enabling
+effect evidence. `DeliveryDriver::with_runtime_features()` carries these names
+into interactive workflow invocations; adding an effect binding later does not
+replace the manifest. The older `discover_worker()` method remains compatible:
+it returns `None` when effect evidence is unavailable.
+
+A feature name is not execution authority. Native effect resolution and provider
+operations still require their existing evidence prerequisites, and an unknown
+name enables neither operation. Credentialed discovery still rejects invalid
+worker identity, scope, expiry or malformed features before starting the worker.
+The exchange uses the existing request, header and response format; no additional
+startup or per-task request is introduced. The production server continues to
+advertise only its implemented capabilities. This change prepares Rust adapter
+composition; it does not implement shared resource limits or run budgets, and is
+not part of the published 0.8.0 release.
+
 Standalone tasks do not fetch a workflow context or use local-result RPCs.
 Suspension ends the controller invocation; normal process-pool reuse remains
 available. Distributed children have their own ordinary task leases and may use
@@ -194,3 +214,74 @@ means its report was retained; that report may still say pending or unknown.
 The original mutation callback keeps the normal workflow-attempt budget. A due
 read-only check can overlap it; neither a missing result nor a lookup miss permits
 resending the mutation.
+
+In matching development builds, authenticated workers can negotiate `task_admission.v1`.
+Capacity waiting occurs before assignment. A governed assignment authorizes
+bounded preparation, never ordinary Dispatch. The runtime-ready grant is checked
+again at the subprocess invocation frame. A lost reply does not authorize replay;
+only authenticated source-bound Close or an audited operator release can free a
+started source. [Standalone task admission](resource-admission.md#standalone-task-admission).
+
+## Worker-local poll plans (development)
+
+`ledgence worker connect --poll-plan FILE` gives one physical worker a fixed set
+of queues in its tenant and namespace. Choose integrated HTTP delivery or SQS delivery for that worker. Use it instead of `--queue`.
+There are still N consumers and at most N subprocesses across all routes. The
+orchestrator registers one existing queue-bound session per route, each able
+to identify the same N consumer indexes. The per-session concurrency values
+must not be added together to estimate physical capacity.
+
+The [example plan](../examples/worker-poll-plan.json) selects `stride` with
+weights 7 and 3. One turn is a **fresh logical poll**. An empty response counts;
+an uncertain acquire is reconciled on its original queue and sequence. It gets
+no extra turn. On continuously eligible queues, Stride apportions opportunities
+deterministically, and `lottery` samples in proportion to positive weights.
+Neither mode specifies proportions of task completions, running time or cost.
+A long poll keeps its consumer until it returns. The usual empty-poll pacing
+also applies when switching queues. Choose `--acquire-wait-ms` for the latency
+and request rate your service can support.
+
+The plan is a regular UTF-8 JSON file of at most 16 KiB. It uses
+`schema_version: 1`, an unsigned 64-bit `revision`, `strategy: "stride"` or
+`"lottery"`, and between 1 and 64 distinct queue names with unsigned 32-bit
+`weight`. Weights are relative; multiplying all weights by the same factor
+leaves the distribution unchanged. Set a queue to zero to disable its next
+polls. All zero weights pause new polls. The worker keeps its sessions and
+current tasks while paused.
+
+Write a complete replacement file in the same directory and atomically rename it
+over the original path. The worker re-reads it about once per second. A higher
+revision changes future polls. Replaying equivalent weights preserves strategy
+history. A malformed file, missing file, stale revision, conflicting edit at the
+same revision, or changed route membership or strategy leaves the last valid
+plan in force. Check the worker's stderr for `worker poll plan loaded` or
+`worker poll plan rejected`. Restart the worker to change membership or strategy.
+The revision and selection history are local to this worker process; after a
+restart it loads the current file afresh. A program can generate the plan file
+or an embedded Rust caller can install a plan on the shared planner directly.
+
+During shutdown, the worker drains uncertain acquisitions and assignments on their
+original sessions. Session registration is queue-scoped; sessions opened before
+a startup failure expire normally. Worker observations publish the physical
+snapshot on the primary session, the first queue in the startup plan. Reordering queues in a live revision keeps that primary session. Other subscribed sessions represent routes,
+not additional observed pools. Secondary execution slots still count toward
+physical occupancy; their primary-session snapshot shows `unknown` without
+task/attempt links. Use task history for those links. The final JSON report's
+`route_sessions` maps each queue to its durable session ID.
+
+To inspect individual planned polls, set
+`RUST_LOG=info,ledgence_worker_delivery::polls=debug` when starting the worker.
+A `worker.poll.issued` event records a fresh binding with queue, plan revision,
+session, consumer and sequence. Retries keep that identity. A `worker.poll.resolved`
+event reports the reconciled disposition. These local diagnostics are optional
+and do not measure task duration or replace server receipts. They count logical handoffs. Use broker observations to count physical receives and genuine empty responses. A stop after handoff or a transport retry does not create a second turn.
+
+For SQS, pass a [delivery configuration](dispatch-delivery.md#multiple-sqs-routes-in-development) with one dedicated Standard queue per plan entry. Each consumer issues at most one receive at a time. An empty broker response consumes a turn but leaves its durable claim sequence unchanged. A lost claim response is reconciled against the same queue, session, consumer and message. A new revision changes future polls. An outstanding receive, claim or running handler retains its original binding. A disrupted route can keep a consumer occupied until that exchange is resolved. A malformed or foreign dispatch stops the affected worker and leaves the message unacknowledged for operator investigation. Only a confirmed empty receive or settled handoff makes it available for another choice.
+
+A planned worker with more than one SQS route defaults to a one-second receive wait. Integrated workers and single-queue SQS workers retain the 20-second default. Use `--acquire-wait-ms` to override it. The SQS wire protocol accepts whole seconds, rounding down and allowing time for the response. Poll weights are
+local to one worker. Durable resource admission remains a separate limit on
+whether governed work can start; see [resource admission](resource-admission.md).
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

@@ -76,6 +76,21 @@ impl LocalStepRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowActivationContext {
+    /// Retained admission result loaded only for a matching native admission wake.
+    /// This does not rewrite the original frozen wake on an activation retry.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub admission_result: Option<AdmissionFinishReceipt>,
+    /// Linked provider dispatch evidence for a matching native admission wake.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub provider_admission: Option<ProviderAdmissionRecord>,
     /// Present together only for a nested owned workflow; roots omit both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_workflow_id: Option<String>,
@@ -105,6 +120,7 @@ impl WorkflowActivationContext {
             Some(WorkflowWake::Approval { approval }) => Some(&approval.scope),
             Some(WorkflowWake::EffectResolution(wake)) => Some(&wake.occurrence.scope),
             Some(WorkflowWake::ProviderOperation(wake)) => Some(&wake.occurrence.scope),
+            Some(WorkflowWake::ResourceAdmission(wake)) => Some(&wake.occurrence.scope),
             Some(
                 WorkflowWake::Event { .. }
                 | WorkflowWake::Timeout { .. }
@@ -139,6 +155,18 @@ impl WorkflowActivationContext {
             validate_text(key, 128)?;
             child.validate()?;
         }
+        if let Some(record) = &self.provider_admission {
+            let Some(WorkflowWake::ResourceAdmission(wake)) = &self.wake else {
+                return Err(invalid("provider evidence requires native admission wake"));
+            };
+            wake.validate_provider_record(record)?;
+        }
+        if let Some(result) = &self.admission_result {
+            let Some(WorkflowWake::ResourceAdmission(wake)) = &self.wake else {
+                return Err(invalid("admission result requires native admission wake"));
+            };
+            wake.validate_result(result)?;
+        }
         if let Some(wake) = &self.wake {
             wake.validate()?;
             if let WorkflowWake::Approval { approval } = wake
@@ -164,6 +192,13 @@ impl WorkflowActivationContext {
                     || wake.resumed_revision != self.revision)
             {
                 return Err(invalid("provider wake disagrees with activation"));
+            }
+            if let WorkflowWake::ResourceAdmission(wake) = wake
+                && (wake.occurrence.workflow_id != self.workflow_id
+                    || wake.resumed_activation_id != self.activation_id
+                    || wake.resumed_revision != self.revision)
+            {
+                return Err(invalid("admission wake disagrees with activation"));
             }
             #[derive(Serialize)]
             struct FrozenInputs<'a> {
@@ -221,6 +256,8 @@ pub type WorkflowTaskCommand = WorkflowChildCommand;
 impl WorkflowChildCommand {
     pub fn submission(&self, scope: &Scope, correlation_key: Option<String>) -> SubmitTask {
         SubmitTask {
+            budget: None,
+            admission: None,
             tenant_id: scope.tenant_id.clone(),
             namespace: scope.namespace.clone(),
             queue: self.queue.clone(),
@@ -522,6 +559,22 @@ pub struct WorkflowProgress {
 /// Successful replies follow commit of every required write. Transport loss may
 /// leave a committed operation whose immutable identity must be reconciled.
 pub trait WorkflowStore: Send + Sync {
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        Err(ContractError::Unavailable(
+            "run budgets are not supported".into(),
+        ))
+    }
+    fn admissions(&self) -> Result<&dyn AdmissionStore> {
+        Err(ContractError::Unavailable(
+            "resource admission is unavailable".into(),
+        ))
+    }
+
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionStore> {
+        Err(ContractError::Unavailable(
+            "provider admission is not supported".into(),
+        ))
+    }
     fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
         Err(ContractError::Unavailable(
             "provider operations are unavailable".into(),
@@ -695,6 +748,37 @@ pub trait WorkflowStore: Send + Sync {
 /// Client and interactive-worker operations. Unsupported implementations must
 /// reject explicitly instead of silently submitting an ordinary task.
 pub trait WorkflowService: Send + Sync {
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        Err(ContractError::Unavailable(
+            "run budgets are not supported".into(),
+        ))
+    }
+    fn budget_client(&self) -> Result<&dyn RunBudgetClient> {
+        Err(ContractError::Unavailable(
+            "run budgets are not supported".into(),
+        ))
+    }
+    fn admissions(&self) -> Result<&dyn AdmissionOperations> {
+        Err(ContractError::Unavailable(
+            "resource admission is unavailable".into(),
+        ))
+    }
+    fn admission_client(&self) -> Result<&dyn AdmissionClient> {
+        Err(ContractError::Unavailable(
+            "resource admission client is unavailable".into(),
+        ))
+    }
+
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionOperations> {
+        Err(ContractError::Unavailable(
+            "provider admission is not supported".into(),
+        ))
+    }
+    fn provider_admission_client(&self) -> Result<&dyn ProviderAdmissionClient> {
+        Err(ContractError::Unavailable(
+            "provider admission is not supported".into(),
+        ))
+    }
     fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
         Err(ContractError::Unavailable(
             "provider operations are unavailable".into(),
@@ -950,6 +1034,8 @@ mod tests {
             },
         });
         let mut context = WorkflowActivationContext {
+            admission_result: None,
+            provider_admission: None,
             parent_workflow_id: None,
             root_workflow_id: None,
             v: 1,

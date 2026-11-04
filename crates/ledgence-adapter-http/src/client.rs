@@ -1,9 +1,16 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
 mod access;
+mod admission;
 mod audit;
 mod evidence;
 mod provider;
-pub use access::WorkerEffectAccess;
+mod provider_admission;
+mod queue_policies;
+mod run_budget;
+mod task_admission;
+pub use access::{
+    WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess, WorkerRuntimeBinding,
+};
 mod credentials;
 pub use credentials::HttpCredentials;
 mod catalog;
@@ -45,6 +52,7 @@ pub struct HttpTaskService {
     client: Client,
     base: Url,
     authorization: Option<header::HeaderValue>,
+    budget_fence: bool,
     timeout: Duration,
     blocking: Arc<Semaphore>,
     observer: Option<Arc<Observer>>,
@@ -57,6 +65,11 @@ impl HttpTaskService {
         self.base.as_str().trim_end_matches('/')
     }
 
+    /// Enable only for workers that validate the dispatch window before handing a grant to a program.
+    pub fn with_budget_dispatch_fence(mut self) -> Self {
+        self.budget_fence = true;
+        self
+    }
     pub fn new(base_url: &str) -> Result<Self> {
         Self::with_timeout(base_url, Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS))
     }
@@ -101,6 +114,7 @@ impl HttpTaskService {
             client,
             base,
             authorization: None,
+            budget_fence: false,
             timeout,
             blocking: Arc::new(Semaphore::new(4)),
             observer: None,
@@ -317,6 +331,9 @@ impl HttpTaskService {
                     .client
                     .request(method, url)
                     .header(header::ACCEPT, "application/json");
+                if self.budget_fence {
+                    request = request.header("Ledgence-Run-Budget", "1");
+                }
                 if discover_features {
                     request = request.header("Ledgence-Worker-Features", "1");
                 }
@@ -487,6 +504,12 @@ fn query(scope: &Scope, task_id: &str) -> Vec<(&'static str, String)> {
 }
 
 impl TaskService for HttpTaskService {
+    fn queue_policy_client(&self) -> Result<&dyn QueuePolicyClient> {
+        Ok(self)
+    }
+    fn task_admission_client(&self) -> Result<&dyn TaskAdmissionClient> {
+        Ok(self)
+    }
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move {
             command.validate()?;
@@ -829,6 +852,8 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            queue_concurrency:false,
+            task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,            descriptor: ProgramDescriptor { program: ProgramRef { id: "invoice".into(), version: "1".into() },
                 digest: Digest(format!("sha256:{}", "a".repeat(64))), size: 123 },
@@ -1131,6 +1156,8 @@ mod tests {
             namespace: "namespace".into(),
         };
         let expected = TaskStatus {
+            admission: None,
+            admission_deferrals: 0,
             provider_probe: None,
             scope: scope.clone(),
             task_id: "task".into(),

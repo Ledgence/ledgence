@@ -1,4 +1,6 @@
 //! Scope-bound tool dispatch over portable service ports, without a framework SDK.
+mod admission;
+mod queue_policies;
 use crate::schemas::tool_definitions;
 use ledgence_orchestration_api::{console::*, *};
 use ledgence_worker_api::ProgramRef;
@@ -36,6 +38,7 @@ impl ToolError {
             ContractError::InvalidInput(_) => "invalid_input",
             ContractError::ExternalDispatchRequired => "external_dispatch_required",
             ContractError::InvalidQueueDelivery(_) => "invalid_queue_delivery",
+            ContractError::RunBudgetDenied(reason) => reason.code(),
             ContractError::Conflict => "conflict",
             ContractError::OwnershipLost => "ownership_lost",
             ContractError::UnknownSession => "unknown_session",
@@ -66,9 +69,44 @@ pub struct ToolDispatcher {
     scope: Scope,
     read_only: bool,
     allow_effect_resolution: bool,
+    allow_resource_control: bool,
     tools: Arc<Vec<crate::schemas::ToolDefinition>>,
 }
 impl ToolDispatcher {
+    async fn call_budget(
+        &self,
+        name: &str,
+        arguments: &Value,
+    ) -> std::result::Result<Value, ToolError> {
+        let mut scoped = arguments.clone();
+        let object = scoped.as_object_mut().ok_or_else(|| {
+            ToolError::arguments(ContractError::InvalidInput(
+                "expected budget arguments".into(),
+            ))
+        })?;
+        if object.insert("scope".into(), json!(self.scope)).is_some() {
+            return Err(ToolError::arguments(ContractError::InvalidInput(
+                "scope is fixed for this MCP session".into(),
+            )));
+        }
+        let client = remote(self.workflows.budget_client(), false)?;
+        if name == "ledgence_budget_inspect" {
+            let q: RunBudgetQuery = parse(&scoped)?;
+            q.validate().map_err(ToolError::arguments)?;
+            let reply = remote(client.run_budget(&q).await, false)?;
+            reply.validate_for(&q).map_err(|_| invalid_reply(false))?;
+            encode(reply, false)
+        } else {
+            object.entry("before").or_insert(Value::Null);
+            object.entry("limit").or_insert(json!(default_limit()));
+            let q: RunBudgetEntriesQuery = parse(&scoped)?;
+            q.validate().map_err(ToolError::arguments)?;
+            let reply = remote(client.list_run_budget_entries(&q).await, false)?;
+            reply.validate_for(&q).map_err(|_| invalid_reply(false))?;
+            encode(reply, false)
+        }
+    }
+
     pub fn new(
         tasks: Arc<dyn TaskService>,
         workflows: Arc<dyn WorkflowService>,
@@ -85,6 +123,7 @@ impl ToolDispatcher {
             scope,
             read_only,
             allow_effect_resolution: false,
+            allow_resource_control: false,
             tools: Arc::new(tool_definitions(false)),
         })
     }
@@ -103,11 +142,23 @@ impl ToolDispatcher {
         self.allow_effect_resolution = true;
         Ok(self)
     }
+    /// Explicit opt-in for policy changes and release of uncertain capacity.
+    pub fn with_resource_control(mut self) -> ledgence_orchestration_api::Result<Self> {
+        if self.read_only {
+            return Err(ContractError::InvalidInput(
+                "resource control conflicts with read-only MCP mode".into(),
+            ));
+        }
+        self.allow_resource_control = true;
+        Ok(self)
+    }
     pub(crate) fn definitions(&self) -> impl Iterator<Item = &crate::schemas::ToolDefinition> {
         self.tools.iter().filter(|tool| {
             (!self.read_only || tool.read_only)
                 && (tool.name != "ledgence_audit_query" || self.audit.is_some())
                 && (tool.name != "ledgence_effect_resolve" || self.allow_effect_resolution)
+                && (!(admission::is_mutation(tool.name) || queue_policies::is_mutation(tool.name))
+                    || self.allow_resource_control)
         })
     }
     pub fn read_only(&self) -> bool {
@@ -138,12 +189,30 @@ impl ToolDispatcher {
                 outcome_unknown: false,
             });
         }
+        if (admission::is_mutation(name) || queue_policies::is_mutation(name))
+            && !self.allow_resource_control
+        {
+            return Err(ToolError {
+                code: "unknown_tool",
+                message: "Resource control requires explicit server opt-in".into(),
+                outcome_unknown: false,
+            });
+        }
         if self.read_only && !definition.read_only {
             return Err(ToolError {
                 code: "read_only",
                 message: "This MCP server only exposes read operations".into(),
                 outcome_unknown: false,
             });
+        }
+        if queue_policies::is_tool(name) {
+            return self.call_queue_policy(name, arguments).await;
+        }
+        if matches!(name, "ledgence_budget_inspect" | "ledgence_budget_entries") {
+            return self.call_budget(name, arguments).await;
+        }
+        if admission::is_tool(name) {
+            return self.call_admission(name, arguments).await;
         }
         let value = match name {
             "ledgence_audit_query" => {
@@ -264,6 +333,11 @@ impl ToolDispatcher {
             "ledgence_task_submit" | "ledgence_workflow_submit" => {
                 let args: Submission = parse(arguments)?;
                 let command = args.command(&self.scope)?;
+                if name == "ledgence_workflow_submit" && command.input.admission.is_some() {
+                    return Err(ToolError::arguments(ContractError::InvalidInput(
+                        "task admission requires a standalone task".into(),
+                    )));
+                }
                 if name == "ledgence_task_submit" {
                     let reply = remote(self.tasks.submit(&command).await, true)?;
                     reply
@@ -697,6 +771,10 @@ struct SendEvent {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Submission {
+    #[serde(default, deserialize_with = "present_task_admission")]
+    admission: Option<TaskAdmissionRequirement>,
+    #[serde(default, deserialize_with = "present_budget")]
+    budget: Option<RunBudgetPolicy>,
     program: String,
     version: String,
     queue: String,
@@ -709,6 +787,16 @@ struct Submission {
     #[serde(default = "default_timeout")]
     attempt_timeout_ms: u64,
     origin_trace: Option<TraceContext>,
+}
+fn present_budget<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<RunBudgetPolicy>, D::Error> {
+    RunBudgetPolicy::deserialize(d).map(Some)
+}
+fn present_task_admission<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<TaskAdmissionRequirement>, D::Error> {
+    TaskAdmissionRequirement::deserialize(deserializer).map(Some)
 }
 impl Submission {
     fn command(self, scope: &Scope) -> std::result::Result<SubmitCommand, ToolError> {
@@ -725,6 +813,8 @@ impl Submission {
                 version: self.version,
             },
             correlation_key: self.correlation_key,
+            admission: self.admission,
+            budget: self.budget,
             data: self.data,
             retry_policy: self.retry_policy,
             attempt_timeout_ms: self.attempt_timeout_ms,
@@ -838,13 +928,23 @@ mod tests {
         let readonly = test_dispatcher(true);
         for definition in tool_definitions(false)
             .into_iter()
-            .filter(|tool| !tool.read_only && tool.name != "ledgence_effect_resolve")
+            .filter(|tool| !tool.read_only)
         {
             let error = readonly
                 .call(definition.name, &json!({}))
                 .await
                 .unwrap_err();
-            assert_eq!(error.code, "read_only");
+            let requires_opt_in = definition.name == "ledgence_effect_resolve"
+                || admission::is_mutation(definition.name)
+                || queue_policies::is_mutation(definition.name);
+            assert_eq!(
+                error.code,
+                if requires_opt_in {
+                    "unknown_tool"
+                } else {
+                    "read_only"
+                }
+            );
             assert!(!error.outcome_unknown);
         }
     }
@@ -886,6 +986,7 @@ mod tests {
             .command(&scope())
             .unwrap();
         let snapshot = TaskSnapshot {
+            admission_deferrals: 0,
             parent_workflow_id: None,
             root_workflow_id: None,
             workflow_id: None,

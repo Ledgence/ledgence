@@ -42,9 +42,7 @@ An incompatible worker fails before entering the registered application callback
 Its allocated check still consumes the finite budget and may require operator review.
 
 With SQS or ElasticMQ, configure an external delivery route for both logical
-queues. Each orchestrator delivery configuration routes one queue, so run one
-publisher process per queue against the same database and authority. Both
-processes need the same provider policy and authenticated access configuration.
+queues. With 0.8.0, run one publisher process per queue against the same database and authority. Both processes need the same provider policy and authenticated access configuration. A development orchestrator can serve both queues with one [route list](dispatch-delivery.md#multiple-sqs-routes-in-development).
 Use the matching external delivery configuration on each worker. The
 [provider recovery example](../examples/provider-recovery/README.md#run-the-local-demonstration-from-the-checkout)
 includes a local ElasticMQ check of probe delivery and a lost report reply.
@@ -243,3 +241,19 @@ metadata cost even for ordinary workflows. Enabled recovery performs a bounded
 indexed due scan even when idle. Only marked provider tasks add
 source/report/finalization work. These costs support the durability contract.
 Production throughput still requires measurement under the intended workload.
+
+## Development: share dispatch capacity
+
+The development checkout adds optional resource admission to the reviewed
+provider binding. This extension is not in 0.8.0. A version-2 binding names the
+resource before approval; version-1 bindings retain their published behavior.
+Use the composed workflow methods and explicit call-completion envelope described
+in [resource admission](resource-admission.md#compose-admission-with-protected-provider-dispatch).
+A new admission activation preserves the original approved effect identity.
+
+A completed dispatch call can release capacity while the provider's business
+operation remains pending. Conversely, a successful probe does not prove the
+original call stopped and cannot release its uncertain occupancy. Reconciliation
+probes remain outside the dispatch resource policy. The existing ordinary
+provider claim/report paths reject governed dispatch sources; use the composed
+Start/Report capability. [Runnable example](../examples/provider-admission/README.md).

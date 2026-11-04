@@ -42,7 +42,7 @@ class InstalledPackageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(distribution.metadata["License-Expression"], "MIT")
         self.assertEqual(distribution.metadata["Requires-Python"], ">=3.11")
         self.assertTrue((self.helper / "py.typed").is_file())
-        for name in ("_logging", "_observations", "_protocol", "bootstrap", "otel", "workflow", "providers"):
+        for name in ("_logging", "_observations", "_protocol", "bootstrap", "otel", "workflow", "providers", "admission", "provider_admission"):
             module = importlib.import_module("ledgence.worker." + name)
             self.assertEqual(Path(module.__file__).resolve().parent, self.helper)
         self.assertIsNone(importlib.util.find_spec("ledgence.client"))
@@ -337,6 +337,89 @@ handle=workflow.build()
         self.assertEqual(frames[3]["output"]["output"],{"items":[1]})
         self.assertNotIn(b"DISPATCH_ENTERED",result.stderr)
         self.assertNotIn(b"WORKFLOW_CONTEXT_LEAKED",result.stderr)
+
+
+    def test_installed_admission_checkpoint_and_preloaded_finish_need_no_callback(self):
+        admission = importlib.import_module("ledgence.worker.admission")
+        self.assertEqual(Path(admission.__file__).resolve().parent, self.helper)
+        source_code = """from enum import StrEnum
+from ledgence.worker.workflow import Workflow, OperationKind
+from ledgence.worker.admission import AdmissionOutcomeKind
+class Entry(StrEnum): START='start'; RESUME='resume'
+workflow=Workflow(Entry)
+@workflow.operation(kind=OperationKind.TOOL,version='1')
+async def operation(value, suffix='!'):
+    raise AssertionError('ADMISSION_CALLBACK_ENTERED')
+@workflow.entrypoint(Entry.START,default=True)
+def start(event,ctx):
+    return ctx.request_admission('operation:1',resource='tool',operation=operation.bind(value=42),resume=Entry.RESUME,state=None,timeout_ms=60000)
+@workflow.entrypoint(Entry.RESUME)
+async def resume(event,ctx):
+    result=await ctx.admitted_operation(operation)
+    assert result.kind is AdmissionOutcomeKind.SUCCEEDED
+    output=result.result
+    output['items'].append('changed')
+    return ctx.complete(result.result)
+handle=workflow.build()
+"""
+        scope = {"tenant_id": "tenant", "namespace": "tests"}
+        digest = "sha256:" + "a" * 64
+        occurrence = {"scope": scope, "workflow_id": "workflow-1",
+                      "origin_activation_id": "activation-1", "key": "operation:1"}
+        binding = {"resource": "tool", "program": {"program": {"id": "test", "version": "1"},
+                   "digest": digest, "size": 100}, "operation": {"callable": "program:operation",
+                   "kind": "tool", "version": "1", "arguments": {"value": 42, "suffix": "!"}}}
+        wake = {"kind": "resource_admission", "key": "operation:1", "occurrence": occurrence,
+                "waiting_activation_id": "activation-1", "resumed_activation_id": "resumed",
+                "resumed_revision": 1, "binding": binding, "selected_at": 10,
+                "selection": {"kind": "offered", "offer": {"occurrence": occurrence,
+                    "generation": 1, "policy_revision": 1, "activation_id": "resumed",
+                    "expires_at": 2000, "binding_digest": digest}}}
+        receipt = {"source": {"occurrence": occurrence, "source_id": "source", "start_id": "start",
+                    "finish_id": "finish", "generation": 1, "binding_digest": digest,
+                    "owner": {"scope": scope, "task_id": "resumed", "attempt_id": "original-attempt",
+                        "lease_id": "lease", "generation": 1, "worker_session_id": "worker", "consumer_id": 0},
+                    "worker": {"audience": {"scope": scope, "authority_id": "authority", "instance_id": "instance"},
+                        "issuer": "issuer", "subject": "worker", "credential_id": "credential"},
+                    "accepted_at": 12, "start_deadline_at": 1012},
+                   "output": {"items": [42]}, "accepted_at": 20, "already_accepted": True}
+        def message(number, context, negotiated=True):
+            event = {"specversion": "1.0", "id": f"event-{number}", "source": "urn:installed-admission",
+                "type": "test.invoke", "ldgattemptid": f"attempt-{number}", "data": {},
+                "ldgtaskid": context["activation_id"], "ldgactivationid": context["activation_id"],
+                "ldgworkflowid": "workflow-1", "ldgtenantid": "tenant", "ldgnamespace": "tests"}
+            return {"v": 3, "type": "invoke", "event_id": event["id"], "attempt_id": event["ldgattemptid"],
+                "event": event, "processing_context": None,
+                "runtime_features": {"v": 1, "supported": ["resource_admission.v1"] if negotiated else []},
+                "extension": {"schema": self.workflow.SCHEMA, "payload": context}}
+        resumed = activation(activation_id="resumed", revision=1, continuation="resume",
+                             wake=wake, admission_result=receipt)
+        messages = [message(1, activation()), message(2, resumed, False), message(3, resumed),
+                    {"v": 3, "type": "shutdown"}]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            helper, package = root / "helper/ledgence/worker", root / "program"
+            package.mkdir()
+            shutil.copytree(self.helper, helper, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            (package / "program.py").write_text(source_code)
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-B", str(helper / "bootstrap.py"),
+                 "--package-root", str(package), "--handler", "program:handle",
+                 "--python-version", f"{sys.version_info.major}.{sys.version_info.minor}", "--protocol-version", "3"],
+                cwd=root, input=b"".join(json.dumps(m).encode() + b"\n" for m in messages),
+                capture_output=True, timeout=20,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        frames = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual([f["type"] for f in frames], ["ready", "result", "result", "result", "closing"])
+        first = frames[1]
+        self.assertEqual(first["status"], "success")
+        self.assertEqual(first["output"]["wait"]["kind"], "resource_admission")
+        self.assertEqual(first["output"]["wait"]["request"]["operation"]["arguments"], {"value": 42, "suffix": "!"})
+        self.assertEqual(frames[2]["status"], "runtime_error")
+        self.assertEqual(frames[3]["status"], "success")
+        self.assertEqual(frames[3]["output"]["output"], {"items": [42]})
+        self.assertNotIn(b"ADMISSION_CALLBACK_ENTERED", result.stderr)
 
 
 if __name__ == "__main__":

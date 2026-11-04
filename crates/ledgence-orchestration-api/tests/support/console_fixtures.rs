@@ -19,6 +19,8 @@ pub fn fixtures() -> Value {
         size: ConsoleU64(4096),
     };
     let status = ConsoleTaskStatus {
+        admission: None,
+        admission_deferrals: 0,
         task_id: "task_invoice_1042".into(),
         run_id: "run_invoice_1042".into(),
         workflow_id: None,
@@ -89,6 +91,13 @@ pub fn fixtures() -> Value {
         instance_id: "instance_demo".into(),
         instance_name: "Ledgence".into(),
         capabilities: ConsoleCapabilities {
+            queue_policies: true,
+            resource_policies: true,
+            resource_sources: true,
+            resource_fair_sharing: true,
+            run_budgets: true,
+            task_run_budgets: false,
+            task_admission: false,
             executions: true,
             workflows: true,
             programs: true,
@@ -234,6 +243,7 @@ pub fn fixtures() -> Value {
     };
     let numeric_payload=serde_json::from_str::<Value>(r#"{"large":9007199254740993,"maximum":18446744073709551615,"integer":1,"float":1.0,"negative_zero":-0.0,"nested":[-9223372036854775808]}"#).unwrap();
     let task_detail = ConsoleTaskDetail {
+        admission_deferrals: 0,
         task_id: status.task_id.clone(),
         run_id: status.run_id.clone(),
         workflow_id: None,
@@ -241,7 +251,9 @@ pub fn fixtures() -> Value {
         provider_probe: None,
         parent_workflow_id: None,
         root_workflow_id: None,
-        input: ConsoleSubmitTask {
+        input: ConsoleTaskInput {
+            budget: None,
+            admission: None,
             program: descriptor.program.clone(),
             queue: "billing".into(),
             correlation_key: status.correlation_key.clone(),
@@ -271,6 +283,7 @@ pub fn fixtures() -> Value {
         external_wait_key: None,
         native_effect_wait: None,
         provider_wait: None,
+        admission_wait: None,
         observed_at: at,
     };
     let activations = ConsolePage {
@@ -394,6 +407,201 @@ pub fn fixtures() -> Value {
         .as_object_mut()
         .unwrap()
         .extend(explorer::fixtures().as_object().unwrap().clone());
+    let queue_policy = QueuePolicySnapshot {
+        record: QueuePolicyRecord {
+            scope: Scope {
+                tenant_id: "acme".into(),
+                namespace: "billing".into(),
+            },
+            queue: "billing".into(),
+            revision: 9_007_199_254_740_993,
+            updated_at: 100,
+            policy: QueueConcurrencyPolicy {
+                max_concurrency: Some(5),
+                timeout: Some(QueueHoldTimeout {
+                    after_ms: 30_000,
+                    release: QueueTimeoutRelease::AfterGrace { grace_ms: 5000 },
+                }),
+            },
+        },
+        occupied: 1,
+        uncertain: 1,
+    };
+    queue_policy.validate().unwrap();
+    let queue_hold = QueueHoldSnapshot {
+        scope: queue_policy.record.scope.clone(),
+        queue: "billing".into(),
+        task_id: "task_invoice".into(),
+        attempt_id: "attempt_invoice".into(),
+        worker_session_id: "ws_invoice".into(),
+        consumer_id: 0,
+        revision: 4,
+        state: QueueHoldState::Uncertain,
+        acquired_at: 100,
+        policy_revision: queue_policy.record.revision,
+        deadline: Some(30_100),
+        stop_requested_at: Some(30_500),
+        grace_ms: Some(5000),
+        force_at: Some(35_500),
+        released_at: None,
+        release_kind: None,
+    };
+    queue_hold.validate().unwrap();
+    let fair_resource = ResourceSnapshot {
+        resource: ResourceRecord {
+            scope: queue_policy.record.scope.clone(),
+            name: "model.requests".into(),
+            revision: 3,
+            updated_at: at,
+            policy: ResourcePolicy {
+                enabled: true,
+                max_occupancy: 5,
+                rate: None,
+                offer_timeout_ms: 30_000,
+                start_timeout_ms: 1_000,
+                fair_sharing: Some(ResourceFairSharing {
+                    groups: vec![
+                        ResourceFairGroup {
+                            name: "support".into(),
+                            weight: 3,
+                            queues: vec!["support".into()],
+                        },
+                        ResourceFairGroup {
+                            name: "batch".into(),
+                            weight: 1,
+                            queues: vec![],
+                        },
+                    ],
+                    default_group: "batch".into(),
+                }),
+            },
+        },
+        offered: 1,
+        occupied: 2,
+        unknown: 0,
+        quarantined: false,
+    };
+    fair_resource.validate().unwrap();
+    let decisions = ResourceDecisionPage {
+        items: vec![ResourceOfferDecision {
+            scope: fair_resource.resource.scope.clone(),
+            resource: fair_resource.resource.name.clone(),
+            sequence: 9_007_199_254_740_993,
+            policy_revision: 3,
+            group: "support".into(),
+            weight: 3,
+            eligible_groups: 2,
+            cycle_round: 2,
+            reason: ResourceDecisionReason::Weighted,
+            queue: "support".into(),
+            subject: ResourceDecisionSubject::Task {
+                task_id: "task_support".into(),
+                generation: 1,
+            },
+            offer_generation: 1,
+            offered_at: at,
+        }],
+        next: Some(9_007_199_254_740_993),
+    };
+    decisions.validate().unwrap();
+    let root = RunBudgetSubject::Workflow {
+        workflow_id: "wf_root".into(),
+    };
+    let subject = RunBudgetSubject::Workflow {
+        workflow_id: "wf_review".into(),
+    };
+    let budget = RunBudgetSnapshot {
+        scope: fair_resource.resource.scope.clone(),
+        subject: subject.clone(),
+        root: root.clone(),
+        policy: RunBudgetPolicy {
+            max_calls: Some(5),
+            max_delegations: Some(3),
+            deadline_at_ms: None,
+        },
+        calls: 1,
+        delegations: 1,
+        observed_at: fair_resource.resource.updated_at,
+    };
+    budget.validate().unwrap();
+    let entries = RunBudgetPage {
+        scope: budget.scope.clone(),
+        subject: subject.clone(),
+        root: root.clone(),
+        items: vec![RunBudgetEntry {
+            scope: budget.scope.clone(),
+            root,
+            sequence: 9_007_199_254_740_993,
+            subject,
+            action: RunBudgetAction::Call,
+            outcome: RunBudgetOutcome::Authorized,
+            reason: None,
+            source_id: "source_review".into(),
+            approval: Some(EffectOccurrence {
+                scope: budget.scope.clone(),
+                workflow_id: "wf_review".into(),
+                activation_id: "act_review".into(),
+                approval_key: "approve".into(),
+            }),
+            usage: RunBudgetUsage::Reported {
+                input_tokens: Some(120),
+                output_tokens: Some(16),
+            },
+            recorded_at: budget.observed_at,
+        }],
+        next: Some(9_007_199_254_740_993),
+    };
+    entries.validate().unwrap();
+    let large_budget = RunBudgetSnapshot {
+        policy: RunBudgetPolicy {
+            max_calls: None,
+            max_delegations: None,
+            deadline_at_ms: Some(budget.observed_at + 1),
+        },
+        calls: 9_007_199_254_740_993,
+        delegations: u64::MAX,
+        ..budget.clone()
+    };
+    large_budget.validate().unwrap();
+    result["run_budget_large_usage"] = serde_json::to_value(large_budget).unwrap();
+    result["run_budget"] = serde_json::to_value(budget).unwrap();
+    result["run_budget_entries"] = serde_json::to_value(entries).unwrap();
+    result["fair_resource_snapshot"] = serde_json::to_value(fair_resource).unwrap();
+    result["resource_decision_page"] = serde_json::to_value(decisions).unwrap();
+    result["queue_policy_snapshot"] = serde_json::to_value(queue_policy).unwrap();
+    result["queue_hold_snapshot"] = serde_json::to_value(queue_hold).unwrap();
+    result["admission"] = explorer::admission_cases();
+    let retained: AdmissionSnapshot =
+        serde_json::from_value(result["admission"]["provider"]["unknown_pending"].clone()).unwrap();
+    let binding = retained.binding.provider().unwrap();
+    let source_query = ResourceSourceQuery {
+        scope: retained.occurrence.scope.clone(),
+        name: retained.binding.resource().to_owned(),
+        state: Some(ResourceSourceState::UnknownOccupied),
+        cursor: None,
+        limit: 1,
+    };
+    let source_sequence = 9_007_199_254_740_993;
+    let sources = ResourceSourcePage {
+        items: vec![ResourceSource {
+            scope: source_query.scope.clone(),
+            resource: source_query.name.clone(),
+            sequence: source_sequence,
+            revision: retained.revision,
+            updated_at: retained.updated_at,
+            state: ResourceSourceState::UnknownOccupied,
+            subject: ResourceSourceSubject::Provider {
+                workflow_id: retained.occurrence.workflow_id,
+                origin_activation_id: retained.occurrence.origin_activation_id,
+                key: retained.occurrence.key,
+                approval_activation_id: binding.ticket.occurrence.activation_id.clone(),
+                approval_key: binding.ticket.occurrence.approval_key.clone(),
+            },
+        }],
+        next_cursor: Some(source_query.next_cursor(source_sequence).unwrap()),
+    };
+    sources.validate_for(&source_query).unwrap();
+    result["resource_sources"] = serde_json::to_value(sources).unwrap();
     result["provider_probe_status"] = serde_json::to_value(ConsoleObservedTaskStatus {
         task: probe_status,
         observed_at: at,
@@ -401,5 +609,24 @@ pub fn fixtures() -> Value {
     .unwrap();
     result["provider_probe_detail"] = serde_json::to_value(probe_detail).unwrap();
     result["provider_probe_execution"] = serde_json::to_value(probe_execution).unwrap();
+    let mut admitted: ConsoleObservedTaskStatus =
+        serde_json::from_value(result["task_status"].clone()).unwrap();
+    admitted.task.admission = Some(TaskAdmissionRequirement {
+        resource: "model.requests".into(),
+    });
+    admitted.task.attempt_count = 1001;
+    admitted.task.admission_deferrals = 1000;
+    admitted.task.latest_attempt_id = Some("attempt_preparation_1001".into());
+    admitted.task.validate().unwrap();
+    result["admitted_task_status"] = serde_json::to_value(admitted).unwrap();
+    let mut admitted: ConsoleTaskDetail =
+        serde_json::from_value(result["task_detail"].clone()).unwrap();
+    admitted.input.admission = Some(TaskAdmissionRequirement {
+        resource: "model.requests".into(),
+    });
+    admitted.attempt_count = 1001;
+    admitted.admission_deferrals = 1000;
+    admitted.validate().unwrap();
+    result["admitted_task_detail"] = serde_json::to_value(admitted).unwrap();
     result
 }

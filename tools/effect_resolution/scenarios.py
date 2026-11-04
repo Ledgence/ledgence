@@ -50,6 +50,13 @@ asyncio.run(main())
     return json.loads(saved.read_text())
 
 
+def mcp_resolution_arguments(command):
+    arguments = {key: value for key, value in command.items() if key != "occurrence"}
+    arguments.update({key: command["occurrence"][key] for key in ("workflow_id", "activation_id", "approval_key")})
+    arguments["expected_effect_revision"] = str(command["expected_effect_revision"])
+    return arguments
+
+
 def after_park_capacity_surfaces(d, interpreter):
     with RefundProvider(d.directory / "after-park-provider.jsonl", cooperative=True) as provider:
         occurrence, paths = d.begin("after-park", provider)
@@ -66,11 +73,14 @@ def after_park_capacity_surfaces(d, interpreter):
         for credential in (d.reader,d.reviewer,d.workers["late-origin"]):
             d.resolve(command,credential,expected=403)
         assert d.assessments(occurrence)==0
-        session=McpSession(d,"default-no-resolution",credentials_file=d.operator)
+        # Even the resolver credential needs an explicit process opt-in.
+        session = McpSession(d, "default-no-resolution", credentials_file=d.resolver)
         d.sessions.append(session)
-        catalog=session.request("tools/list",{})["result"]["tools"]
-        assert len(catalog)==19 and "ledgence_effect_resolve" not in {row["name"] for row in catalog}
-        session.invalid("ledgence_effect_resolve",{})
+        catalog = {row["name"]: row["annotations"] for row in session.request("tools/list", {})["result"]["tools"]}
+        assert catalog["ledgence_effect_inspect"]["readOnlyHint"] is True
+        assert "ledgence_effect_resolve" not in catalog, catalog.keys()
+        session.invalid("ledgence_effect_resolve", mcp_resolution_arguments(command))
+        assert d.assessments(occurrence) == 0
         session.close()
         saved=installed_client(d,interpreter,occurrence)
         wakes=d.finished(occurrence,paths,"recorded_success")
@@ -96,12 +106,13 @@ def before_park_disputed_followup(d, proxy):
         command=d.resolution(occurrence,"before-success",{"kind":"record_success","result":{"operator_selected":True}})
         session=McpSession(d,"resolve-opt-in",credentials_file=d.resolver,allow_effect_resolution=True)
         d.sessions.append(session)
-        catalog=session.request("tools/list",{})["result"]["tools"]
-        assert len(catalog)==20
-        args={key:value for key,value in command.items() if key!="occurrence"}
-        args.update({key:occurrence[key] for key in ("workflow_id","activation_id","approval_key")})
-        args["expected_effect_revision"]=str(args["expected_effect_revision"])
-        receipt=session.tool("ledgence_effect_resolve",args)
+        catalog = {row["name"]: row["annotations"] for row in session.request("tools/list", {})["result"]["tools"]}
+        assert catalog["ledgence_effect_inspect"]["readOnlyHint"] is True
+        assert catalog["ledgence_effect_resolve"]["readOnlyHint"] is False
+        assert {"ledgence_approval_decide", "ledgence_resource_put", "ledgence_admission_release",
+                "ledgence_task_admission_release"}.isdisjoint(catalog), catalog.keys()
+        arguments = mcp_resolution_arguments(command)
+        receipt = session.tool("ledgence_effect_resolve", arguments)
         assert receipt["accepted_revision"]==str(command["expected_effect_revision"]+1)
         assert not d.wakes(paths)
         assert int(d.sql("SELECT count(*) FROM workflow_effect_waits WHERE workflow_id="+quote(occurrence["workflow_id"])))==0
@@ -121,7 +132,7 @@ def before_park_disputed_followup(d, proxy):
         # Historical discrepancy persists, but bound review of it closes current dispute.
         detail=d.inspect(occurrence)
         assert detail["summary"]["operator_resolution"]["first_conflicting_entry_sequence"] is None
-        original=session.tool("ledgence_effect_resolve",args)
+        original = session.tool("ledgence_effect_resolve", arguments)
         assert original==dict(receipt,already_accepted=True)
         session.close()
         return {"occurrence":occurrence,"before_park_acceptance":True,"disputed_wake":True,"follow_up_wake":True,

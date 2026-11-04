@@ -22,11 +22,17 @@ pub use measurements::{
 };
 mod trace;
 pub use trace::{NoopTraceBridge, TraceBridge, TraceContext};
+mod admission;
+pub use admission::{
+    AdmittedExecutionResult, InvocationAdmission, InvocationAdmissionDecision, InvocationPermit,
+    InvocationReady,
+};
 mod execution;
 pub use execution::{
     ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult,
-    NATIVE_EFFECT_RESOLUTION_FEATURE, PROVIDER_OPERATION_FEATURE, Phase, RuntimeCapabilities,
-    RuntimeExtension, RuntimeFeatures, RuntimeInvocation, RuntimeReply, RuntimeRequest,
+    NATIVE_EFFECT_RESOLUTION_FEATURE, PROVIDER_ADMISSION_FEATURE, PROVIDER_OPERATION_FEATURE,
+    Phase, RESOURCE_ADMISSION_FEATURE, RuntimeCapabilities, RuntimeExtension, RuntimeFeatures,
+    RuntimeInvocation, RuntimeReply, RuntimeRequest, TASK_ADMISSION_FEATURE,
 };
 mod invocation;
 mod observation;
@@ -781,6 +787,12 @@ pub enum StartOutcome {
 }
 
 pub trait ExecutionRuntime: Send + Sync {
+    /// Declare that this runtime can create sessions with a first-byte admission
+    /// fence. Legacy adapters keep ordinary work and never register for governed
+    /// tasks. Each prepared session must also confirm its own support.
+    fn supports_admitted_invocation(&self) -> bool {
+        false
+    }
     /// An outer error guarantees no process remains owned. Otherwise return a
     /// ready session or a cleanup handle that must continue occupying pool capacity.
     fn start<'a>(
@@ -839,6 +851,26 @@ pub trait ExecutionSession: Send {
         invocation: RuntimeInvocation,
         control: RunControl,
     ) -> PortFuture<'a, ProgramOutcome>;
+    /// Whether this runtime checks an admission permit immediately before it
+    /// sends the invocation. Unsupported adapters must fail before a grant RPC.
+    fn supports_admitted_invocation(&self) -> bool {
+        false
+    }
+    /// Opt-in one-shot invocation. The permit must be checked after any local
+    /// command-queue wait, immediately before the actual invocation send.
+    fn execute_admitted<'a>(
+        &'a mut self,
+        _invocation: RuntimeInvocation,
+        _control: RunControl,
+        _permit: InvocationPermit,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async {
+            Err(Error::new(
+                ErrorKind::Incompatible,
+                "runtime does not support admitted invocation",
+            ))
+        })
+    }
     /// Opt-in execution with intermediate request/reply exchanges. Unsupported
     /// runtimes reject this explicitly without executing the program. The same
     /// process ownership and cleanup obligations as `execute` apply; callback

@@ -59,7 +59,7 @@ blobs before their descriptors. Docker preparation belongs to the CLI only; see
 
 The [delivery contract](delivery-contract.md) defines the portable `TaskService` boundary and executable orchestration decisions. The [delivery driver](worker-delivery.md) accepts `Worker` and `Arc<dyn TaskService>` and derives N from `Worker::concurrency()`. `Worker::reserve_consumer` uses the existing N semaphore to retain capacity before acquisition and through settlement; its local execution method is single-use. Execution reports live in worker-api and remain reexported by worker-core. The [PostgreSQL persistence adapter](postgres.md) commits all transition records atomically before returning a durable acknowledgement. The driver has no PostgreSQL dependency; integration tests compose the real service, database, artifact, and subprocess adapters.
 
-The driver opens a session and starts N consumers. Each reserves worker capacity before its ordered acquisition. Idle acquisitions wait up to 20 seconds without retaining a database transaction. For integrated delivery, a completed Empty advances the sequence; an early Empty observes the remaining minimum one-second cycle delay. Broker-empty polls do not consume a durable sequence; a confirmed nonauthority disposition advances it without idle pacing. Assigned work requires a dispatch renewal before preparation/execution. A separate lease monitor cancels user work at its conservative local deadline while settlement and cleanup reconciliation continue. Uncertain acquisition, renewal, and settlement replies reuse the same operation identity. The driver retains its reservation until remote ownership is resolved and local work is quiescent.
+The driver opens one session for a single queue or one per subscribed queue with a poll plan. It starts N consumers in total. Each reserves worker capacity before its ordered acquisition. Idle acquisitions wait up to 20 seconds without retaining a database transaction. For integrated delivery, a completed Empty advances the sequence; an early Empty observes the remaining minimum one-second cycle delay. Broker-empty polls do not consume a durable sequence; a confirmed nonauthority disposition advances it without idle pacing. Assigned work requires a dispatch renewal before preparation/execution. A separate lease monitor cancels user work at its conservative local deadline while settlement and cleanup reconciliation continue. Uncertain acquisition, renewal, and settlement replies reuse the same operation identity. The driver retains its reservation until remote ownership is resolved and local work is quiescent.
 
 Stopping the driver closes worker admission and runs worker cleanup concurrently with those consumers. If an execution returns while its local work or cleanup is still outstanding, the driver reports unconfirmed quiescence and drains the whole worker. The driver retains one cleanup operation across status checks and retries only after an adapter returns an error; a separate confirmation finishes accepted reports without changing them. The embedding Tokio runtime must remain alive while this process is pending.
 
@@ -179,3 +179,32 @@ coordinator does not keep a worker process parked or scan every active task.
 Provider waits have their own namespace and select one immutable wake. Provider
 knowledge, operator assessments, task completion and journal confirmation remain
 distinct. Earlier A/B observations are not reinterpreted as typed provider facts.
+
+### Protected provider admission in development
+
+`ProviderAdmissionStore` is a complete composed capability, not a derived claim
+from separate admission and provider ports. PostgreSQL commits the one-shot
+provider grant, capacity/rate charge and recovery obligation atomically. The
+original approved effect remains the business identity across the new admission
+activation. Its linked source accepts one frozen completion envelope independently
+of the current worker lease. Provider knowledge and call occupancy remain separate;
+read-only probes cannot free original dispatch capacity. The public API contains
+no provider SDK types. [Contract and limits](resource-admission.md#compose-admission-with-protected-provider-dispatch).
+
+### Standalone task admission in development
+
+A standalone task can bind one resource during submission. The application uses
+the same durable resource scheduler as workflow operations, plus the optional
+`TaskAdmissionStore` for authenticated task session, Start, Close and operator
+operations. The store commits the wait with task creation and grants a short
+invocation window only to the first Start for the prepared attempt. Ordinary
+acquire and renew replies never grant governed dispatch. The worker adapter
+checks the permit before writing to the subprocess; result settlement and
+source closure can arrive in either order. An adapter offering only part of
+this protocol cannot accept governed submissions. [Task contract and limits](resource-admission.md#standalone-task-admission).
+
+In development, the [worker-local poll planner](worker-delivery.md#worker-local-poll-plans-development)
+selects a registered queue before issuing a fresh poll. An integrated worker uses one HTTP service. An SQS worker binds each session to its own acquisition source and retains the selected route through receive, claim and acknowledgment.
+A single physical worker still owns one concurrency budget; its queue sessions
+carry the backend identities needed for retries. Resource admission is evaluated
+separately.

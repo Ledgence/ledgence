@@ -18,10 +18,11 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
     use ledgence_adapter_http::HttpProgramCatalogService;
     use ledgence_adapter_mcp::ToolDispatcher;
     use std::{sync::Arc, time::Duration};
-    let (url, scope, read_only, allow_effect_resolution) = match parse(arguments) {
-        Ok(options) => options,
-        Err(error) => return super::diagnose(error, None),
-    };
+    let (url, scope, read_only, allow_effect_resolution, allow_resource_control) =
+        match parse(arguments) {
+            Ok(options) => options,
+            Err(error) => return super::diagnose(error, None),
+        };
     let client = match crate::credentials::task_client(&url, credentials.as_ref()) {
         Ok(client) => Arc::new(client),
         Err(error) => return super::diagnose(error, None),
@@ -39,6 +40,14 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
         match dispatcher.with_effect_resolution() {
             Ok(dispatcher) => dispatcher,
             Err(error) => return super::diagnose(error, None),
+        }
+    } else {
+        dispatcher
+    };
+    let dispatcher = if allow_resource_control {
+        match dispatcher.with_resource_control() {
+            Ok(d) => d,
+            Err(e) => return super::diagnose(e, None),
         }
     } else {
         dispatcher
@@ -108,12 +117,14 @@ async fn wait_for_shutdown() {
 #[cfg(feature = "mcp")]
 fn parse(
     arguments: Vec<String>,
-) -> ledgence_orchestration_api::Result<(String, ledgence_orchestration_api::Scope, bool, bool)> {
+) -> ledgence_orchestration_api::Result<(String, ledgence_orchestration_api::Scope, bool, bool, bool)>
+{
     use crate::args::invalid;
     let mut values = std::collections::HashMap::new();
     let mut arguments = arguments.into_iter();
     let mut read_only = false;
     let mut allow_effect_resolution = false;
+    let mut allow_resource_control = false;
     while let Some(key) = arguments.next() {
         if key == "--read-only" && !read_only {
             read_only = true;
@@ -121,6 +132,10 @@ fn parse(
         }
         if key == "--allow-effect-resolution" && !allow_effect_resolution {
             allow_effect_resolution = true;
+            continue;
+        }
+        if key == "--allow-resource-control" && !allow_resource_control {
+            allow_resource_control = true;
             continue;
         }
         if !matches!(key.as_str(), "--server" | "--tenant" | "--namespace") {
@@ -147,12 +162,16 @@ fn parse(
             .ok_or_else(|| invalid("missing --namespace"))?,
     };
     scope.validate()?;
-    if read_only && allow_effect_resolution {
-        return Err(invalid(
-            "--read-only conflicts with --allow-effect-resolution",
-        ));
+    if read_only && (allow_effect_resolution || allow_resource_control) {
+        return Err(invalid("--read-only conflicts with mutation opt-in"));
     }
-    Ok((server, scope, read_only, allow_effect_resolution))
+    Ok((
+        server,
+        scope,
+        read_only,
+        allow_effect_resolution,
+        allow_resource_control,
+    ))
 }
 
 #[cfg(all(test, feature = "mcp"))]
@@ -177,9 +196,13 @@ mod tests {
             )
         };
         assert!(!options(&[]).unwrap().3);
+        assert!(!options(&[]).unwrap().4);
+        assert!(options(&["--allow-resource-control"]).unwrap().4);
         assert!(options(&["--allow-effect-resolution"]).unwrap().3);
         for flags in [
             &["--allow-effect-resolution", "--read-only"][..],
+            &["--allow-resource-control", "--read-only"][..],
+            &["--allow-resource-control", "--allow-resource-control"][..],
             &["--allow-effect-resolution", "--allow-effect-resolution"][..],
         ] {
             assert!(options(flags).is_err());

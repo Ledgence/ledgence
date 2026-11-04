@@ -48,6 +48,12 @@ use tokio::{
 #[derive(Default)]
 struct Mock {
     evidence_capabilities: AtomicUsize,
+    queue_policies_enabled: AtomicBool,
+    admission_enabled: AtomicBool,
+    fair_sharing_enabled: AtomicBool,
+    resource_sources_enabled: AtomicBool,
+    run_budgets_enabled: AtomicBool,
+    provider_admission_enabled: AtomicBool,
     resolution_mode: AtomicUsize,
     operator_access: std::sync::OnceLock<Arc<dyn OperatorAccess>>,
     protected_writes_disabled: AtomicBool,
@@ -93,6 +99,14 @@ impl Mock {
     }
 }
 impl TaskService for Mock {
+    fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
+        if self.queue_policies_enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable("queue policies disabled".into()))
+        }
+    }
+
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move { self.reply("claim", command) })
     }
@@ -221,6 +235,8 @@ fn submit(data: Value) -> SubmitCommand {
         idempotency_key: " idempotency +%/é ".into(),
         origin_trace: None,
         input: SubmitTask {
+            budget: None,
+            admission: None,
             tenant_id: scope().tenant_id,
             namespace: scope().namespace,
             queue: "queue".into(),
@@ -235,6 +251,7 @@ fn submit(data: Value) -> SubmitCommand {
 fn task(data: Value) -> TaskSnapshot {
     let submit = submit(data);
     TaskSnapshot {
+        admission_deferrals: 0,
         provider_probe: None,
         workflow_id: None,
         workflow_activation_id: None,
@@ -302,6 +319,8 @@ fn receipt() -> SettlementReceipt {
 }
 fn attempt(data: Value, command: SettleCommand) -> AttemptSnapshot {
     AttemptSnapshot {
+        budget_denial: None,
+        task_admission: None,
         event: event(data),
         descriptor: descriptor(),
         lease: Lease {
@@ -354,6 +373,7 @@ async fn all_methods_roundtrip_scoped_opaque_ids_and_lossless_application_values
     let data = decode_unique_json::<Value>(br#"[18446744073709551615,-9223372036854775808,9007199254740993,1,1.0,-0.0,2.291712365432881e-09,{"nul":"\u0000"}]"#, 1000).unwrap();
     let mock = Arc::new(Mock::default());
     let session = WorkerSession {
+        features: Vec::new(),
         id: "session".into(),
         scope: scope(),
         queue: "queue".into(),
@@ -377,6 +397,8 @@ async fn all_methods_roundtrip_scoped_opaque_ids_and_lossless_application_values
     }];
     mock.set("history", Ok(history.clone()));
     let assignment = Assignment {
+        queue_concurrency: false,
+        task_admission: None,
         provider_probe: None,
         workflow_activation_id: None,
         descriptor: descriptor(),
@@ -1673,6 +1695,8 @@ async fn disconnected_waiting_http_request_drops_its_service_future() {
 fn compact_status(state: TaskState) -> TaskStatus {
     let allocated = state != TaskState::Queued;
     TaskStatus {
+        admission: None,
+        admission_deferrals: 0,
         provider_probe: None,
         scope: scope(),
         task_id: "..".into(),
@@ -2207,6 +2231,8 @@ async fn targeted_claim_roundtrips_every_handoff_disposition_and_lossless_payloa
     let assigned = AcquireReply::Assigned {
         sequence: command.acquisition.sequence,
         assignment: Box::new(Assignment {
+            queue_concurrency: false,
+            task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,
             descriptor: descriptor(),

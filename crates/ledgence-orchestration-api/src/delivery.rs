@@ -53,6 +53,8 @@ impl TaskState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttemptState {
+    /// Preparation closed before a Start was accepted; no execution retry consumed.
+    Deferred,
     Active,
     Succeeded,
     Failed,
@@ -63,6 +65,8 @@ pub enum AttemptState {
 /// Transaction-loaded scheduling record. Inputs and the descriptor are immutable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSnapshot {
+    #[serde(default, skip_serializing_if = "crate::task_admission::is_zero")]
+    pub admission_deferrals: u32,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -96,6 +100,13 @@ pub struct TaskSnapshot {
     pub cancel_requested_at: Option<Timestamp>,
 }
 impl TaskSnapshot {
+    pub fn charged_attempts(&self) -> Result<u32> {
+        task_retry_attempts(
+            self.attempt_count,
+            self.admission_deferrals,
+            self.input.admission.is_some(),
+        )
+    }
     pub fn scope(&self) -> Scope {
         Scope {
             tenant_id: self.input.tenant_id.clone(),
@@ -108,6 +119,8 @@ impl TaskSnapshot {
 /// Unknown/expired session IDs are rejected even after old cursor deletion.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerSession {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
     pub id: String,
     pub scope: Scope,
     pub queue: String,
@@ -151,7 +164,7 @@ pub struct LeaseOwner {
 impl LeaseOwner {
     pub(crate) fn validate(&self) -> Result<()> {
         self.scope.validate()?;
-        if self.generation == 0 {
+        if self.generation == 0 || self.generation > MAX_TASK_ATTEMPT_GENERATION {
             return Err(ContractError::InvalidInput(
                 "lease generation must be positive".into(),
             ));
@@ -188,6 +201,15 @@ pub struct Authority {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
+    /// Fresh assignments with queue capacity holds request a source-bound cleanup receipt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub queue_concurrency: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub task_admission: Option<TaskAdmissionAssignment>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -205,6 +227,17 @@ pub struct Assignment {
 impl Assignment {
     /// The opt-in runtime marker must agree with the immutable invocation event.
     pub fn validate_workflow_identity(&self) -> Result<()> {
+        if let Some(admission) = &self.task_admission {
+            admission.validate()?;
+            if self.workflow_activation_id.is_some()
+                || self.provider_probe.is_some()
+                || self.event.value().get("ldgworkflowid").is_some()
+            {
+                return Err(ContractError::InvalidInput(
+                    "task admission requires a standalone task".into(),
+                ));
+            }
+        }
         if let Some(probe) = &self.provider_probe {
             probe.validate()?;
             if self.workflow_activation_id.is_some()
@@ -256,6 +289,8 @@ pub enum AcquireReply {
 #[serde(rename_all = "snake_case")]
 pub enum RenewIntent {
     KeepAlive,
+    /// Extend preparation authority without permitting entrypoint invocation.
+    Prepare,
     Dispatch,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -333,6 +368,19 @@ pub struct SettleReply {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttemptSnapshot {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget_denial: Option<RunBudgetDenial>,
+    /// Frozen on acquisition so cursor replay preserves the same preparation requirement.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub task_admission: Option<TaskAdmissionAssignment>,
     pub event: CloudEvent,
     pub descriptor: ProgramDescriptor,
     pub lease: Lease,
@@ -349,6 +397,8 @@ pub struct AttemptSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransitionReason {
+    AdmissionDeferred,
+    AdmissionStopped,
     Submitted,
     Claimed,
     DispatchAuthorized,
@@ -379,6 +429,31 @@ pub struct RecordedHistoryEvent {
 /// Service boundary implemented by future transport adapters. A successful
 /// mutation reply is permitted only after durable transactional acceptance.
 pub trait TaskService: Send + Sync {
+    /// The implementation persists root task budgets and checks them before invoking the handler.
+    fn supports_task_run_budgets(&self) -> bool {
+        false
+    }
+    fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
+        Err(ContractError::Unavailable(
+            "queue policy operations unavailable".into(),
+        ))
+    }
+    fn queue_policy_client(&self) -> Result<&dyn QueuePolicyClient> {
+        Err(ContractError::Unavailable(
+            "queue policy client unavailable".into(),
+        ))
+    }
+
+    fn task_admissions(&self) -> Result<&dyn TaskAdmissionOperations> {
+        Err(ContractError::Unavailable(
+            "task admission is unavailable".into(),
+        ))
+    }
+    fn task_admission_client(&self) -> Result<&dyn TaskAdmissionClient> {
+        Err(ContractError::Unavailable(
+            "task admission client is unavailable".into(),
+        ))
+    }
     /// Claim one exact external dispatch. Successful replies follow durable
     /// acceptance and bind the complete command. Unsupported implementations
     /// reject explicitly; they must never fall back to an unrestricted queue scan.

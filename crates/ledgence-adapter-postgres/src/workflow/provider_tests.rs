@@ -1,6 +1,6 @@
 //! Real provider transactions; every test owns a disposable database.
 use super::*;
-fn audience() -> AccessAudience {
+pub(super) fn audience() -> AccessAudience {
     AccessAudience {
         authority_id: "provider-authority".into(),
         instance_id: "provider-instance".into(),
@@ -30,16 +30,16 @@ fn principal(subject: &str, credential: &str, class: PrincipalClass) -> Verified
     )
     .unwrap()
 }
-fn worker() -> VerifiedPrincipal {
+pub(super) fn worker() -> VerifiedPrincipal {
     principal("worker", "worker-key", PrincipalClass::Worker)
 }
-fn operator() -> VerifiedPrincipal {
+pub(super) fn operator() -> VerifiedPrincipal {
     principal("operator", "operator-key", PrincipalClass::Operator)
 }
-fn binding() -> ProviderBindingRequest {
+pub(super) fn binding() -> ProviderBindingRequest {
     serde_json::from_value(json!({"v":1,"business":{"namespace":"exports","key":"business:1"},"contract":{"adapter_id":"example.export","version":"1","digest":format!("sha256:{}","b".repeat(64)),"completion_criterion":"Artifact committed","dispatch_callable":"app:send","reconcile_callable":"app:lookup","lookup":"by_binding"},"target":{"provider":"example","environment":"local","account":"demo","api_variant":"v1","operation":"export","endpoint_identity":"local-provider","dimensions":{}},"deduplication":{"domain":{"provider":"example","namespace":"account","dimensions":{"account":"demo"}},"key":"effect:1","horizon":{"kind":"unknown"}},"credential_reference":"local-provider","reconciliation":{"queue":"recovery","initial_delay_ms":1000,"interval_ms":1000,"maximum_interval_ms":2000,"max_checks":2,"max_elapsed_ms":60000,"check_timeout_ms":1000}})).unwrap()
 }
-async fn bind(store: &PostgresStore, dispatch: ProviderDispatchPolicy) {
+pub(super) async fn bind(store: &PostgresStore, dispatch: ProviderDispatchPolicy) {
     let config = SelfHostedInstanceConfig {
         instance_id: audience().instance_id,
         name: "Provider tests".into(),
@@ -59,12 +59,21 @@ async fn bind(store: &PostgresStore, dispatch: ProviderDispatchPolicy) {
         })
         .unwrap();
 }
-async fn approved(
+pub(super) async fn approved(
     store: &PostgresStore,
     id: &str,
     request: ProviderBindingRequest,
 ) -> (Assignment, ProviderClaimCommand) {
+    approved_with_budget(store, id, request, None).await
+}
+pub(super) async fn approved_with_budget(
+    store: &PostgresStore,
+    id: &str,
+    request: ProviderBindingRequest,
+    budget: Option<RunBudgetPolicy>,
+) -> (Assignment, ProviderClaimCommand) {
     let mut submission = command();
+    submission.input.budget = budget;
     submission.idempotency_key = id.into();
     submission.input.queue = id.into();
     let w = store
@@ -130,6 +139,7 @@ async fn approved(
     (
         a.clone(),
         ProviderClaimCommand {
+            budget_fence: false,
             owner: a.lease.owner,
             workflow_id: w.workflow_id,
             approval_key: "approve".into(),
@@ -146,7 +156,7 @@ async fn fixture() -> (TestDb, Assignment, ProviderClaimCommand) {
     let (a, c) = approved(&db.store, "python", binding()).await;
     (db, a, c)
 }
-fn reported(
+pub(super) fn reported(
     c: &ProviderClaimCommand,
     source: &ProviderDispatchSource,
     knowledge: ProviderKnowledge,
@@ -157,6 +167,7 @@ fn reported(
         source_id: source.source_id.clone(),
         report_id: source.report_id.clone(),
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("remote-1".into()),
             provider_request_id: Some("req-1".into()),
@@ -174,7 +185,7 @@ async fn inspect(store: &PostgresStore, c: &ProviderClaimCommand) -> EffectEvide
         .await
         .unwrap()
 }
-async fn due(store: &PostgresStore, c: &ProviderClaimCommand) {
+pub(super) async fn due(store: &PostgresStore, c: &ProviderClaimCommand) {
     let o = c.occurrence();
     let mut tx = store.pool.begin().await.unwrap();
     let mut r = super::super::effect_retained::load(&mut tx, &o)
@@ -256,6 +267,7 @@ async fn provider_one_grant_exact_report_and_no_journal() {
         Err(ContractError::Conflict)
     ));
     let claim = ProviderClaimCommand {
+        budget_fence: false,
         owner: a.lease.owner.clone(),
         workflow_id: c.ticket.occurrence.workflow_id.clone(),
         approval_key: "approve".into(),
@@ -282,6 +294,7 @@ async fn provider_one_grant_exact_report_and_no_journal() {
     assert!(matches!(
         db.store
             .claim_approved_effect(&ApprovedEffectClaimCommand {
+                budget_fence: false,
                 owner: a.lease.owner,
                 workflow_id: claim.workflow_id,
                 approval_key: claim.approval_key,
@@ -385,6 +398,7 @@ async fn provider_probe_report_cleanup_and_one_native_wake() {
         report_id: ctx.report_id,
         generation: marker.generation,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("remote-1".into()),
             provider_request_id: None,
@@ -712,6 +726,7 @@ async fn provider_finite_pending_budget_stops_without_overlapping_probes() {
             report_id: context.report_id,
             generation,
             report: ProviderReport {
+                usage: None,
                 reported_target: c.binding.target.clone(),
                 provider_reference: None,
                 provider_request_id: None,
@@ -874,6 +889,7 @@ async fn provider_operator_failure_assessment_is_challenged_only_by_new_terminal
         source_id: ctx.source_id,
         report_id: ctx.report_id,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("remote-1".into()),
             provider_request_id: None,
@@ -949,7 +965,7 @@ async fn provider_live_report_expiring_during_insert_rolls_back_but_late_observe
     db.finish().await;
 }
 
-async fn collect_execution(db: &TestDb) {
+pub(super) async fn collect_execution(db: &TestDb) {
     sqlx::query("UPDATE workflow_runs SET submitted_at_ms=1,terminal_at_ms=2 WHERE terminal_at_ms IS NOT NULL").execute(&db.store.pool).await.unwrap();
     sqlx::query("UPDATE tasks SET submitted_at_ms=1,available_at_ms=1,terminal_at_ms=2 WHERE terminal_at_ms IS NOT NULL").execute(&db.store.pool).await.unwrap();
     sqlx::query("UPDATE worker_sessions SET expires_at_ms=1")
@@ -976,7 +992,7 @@ async fn collect_execution(db: &TestDb) {
     assert_eq!(remaining, 0);
 }
 
-async fn admitted_probe(
+pub(super) async fn admitted_probe(
     db: &TestDb,
     c: &ProviderClaimCommand,
 ) -> (Assignment, ProviderProbeContext) {
@@ -1025,6 +1041,7 @@ async fn provider_late_conflicting_terminal_never_reopens_handling_before_or_aft
             report_id: context.report_id,
             generation: context.generation,
             report: ProviderReport {
+                usage: None,
                 reported_target: c.binding.target.clone(),
                 provider_reference: Some("remote-1".into()),
                 provider_request_id: None,
@@ -1140,6 +1157,7 @@ async fn provider_concurrent_nonterminal_reports_preserve_highest_knowledge_rank
             source_id: context.source_id,
             report_id: context.report_id,
             report: ProviderReport {
+                usage: None,
                 reported_target: c.binding.target.clone(),
                 provider_reference: None,
                 provider_request_id: None,
@@ -1329,6 +1347,7 @@ async fn provider_nonterminal_reference_conflict_stops_checks_and_terminal_later
         report_id: ctx.report_id,
         generation: ctx.generation,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("reference-a".into()),
             provider_request_id: None,
@@ -1366,6 +1385,7 @@ async fn provider_nonterminal_reference_conflict_stops_checks_and_terminal_later
         source_id: second.source_id,
         report_id: second.report_id,
         report: ProviderReport {
+            usage: None,
             reported_target: c.binding.target.clone(),
             provider_reference: Some("reference-a".into()),
             provider_request_id: None,

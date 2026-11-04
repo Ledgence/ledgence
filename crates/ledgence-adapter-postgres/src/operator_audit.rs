@@ -185,6 +185,21 @@ pub(crate) async fn insert_event(
     let (event_kind, key) = match &event.operation {
         AuditOperation::ApprovalAccepted { key, .. } => ("approval_accepted", Some(key.as_str())),
         AuditOperation::SensitiveResponse { .. } => ("sensitive_response", None),
+        AuditOperation::QueuePolicyAccepted { request_id, .. } => {
+            ("queue_policy_accepted", Some(request_id.as_str()))
+        }
+        AuditOperation::QueueHoldReleased { request_id, .. } => {
+            ("queue_hold_released", Some(request_id.as_str()))
+        }
+        AuditOperation::ResourcePolicyAccepted { request_id, .. } => {
+            ("resource_policy_accepted", Some(request_id.as_str()))
+        }
+        AuditOperation::TaskAdmissionReleased { request_id, .. } => {
+            ("task_admission_released", Some(request_id.as_str()))
+        }
+        AuditOperation::AdmissionReleased { request_id, .. } => {
+            ("admission_released", Some(request_id.as_str()))
+        }
         AuditOperation::EffectResolved { resolution_id, .. } => {
             ("effect_resolved", Some(resolution_id.as_str()))
         }
@@ -218,7 +233,13 @@ pub(crate) async fn load_acceptance(
     let event = decode_event(&row)?;
     if !matches!(
         event.operation,
-        AuditOperation::ApprovalAccepted { .. } | AuditOperation::EffectResolved { .. }
+        AuditOperation::ApprovalAccepted { .. }
+            | AuditOperation::EffectResolved { .. }
+            | AuditOperation::ResourcePolicyAccepted { .. }
+            | AuditOperation::QueuePolicyAccepted { .. }
+            | AuditOperation::QueueHoldReleased { .. }
+            | AuditOperation::TaskAdmissionReleased { .. }
+            | AuditOperation::AdmissionReleased { .. }
     ) {
         return Err(corrupt("approval audit event kind").into());
     }
@@ -238,6 +259,21 @@ fn decode_event(row: &PgRow) -> StoreResult<AuditEvent> {
     let (event_kind, key) = match &event.operation {
         AuditOperation::ApprovalAccepted { key, .. } => ("approval_accepted", Some(key.as_str())),
         AuditOperation::SensitiveResponse { .. } => ("sensitive_response", None),
+        AuditOperation::QueuePolicyAccepted { request_id, .. } => {
+            ("queue_policy_accepted", Some(request_id.as_str()))
+        }
+        AuditOperation::QueueHoldReleased { request_id, .. } => {
+            ("queue_hold_released", Some(request_id.as_str()))
+        }
+        AuditOperation::ResourcePolicyAccepted { request_id, .. } => {
+            ("resource_policy_accepted", Some(request_id.as_str()))
+        }
+        AuditOperation::TaskAdmissionReleased { request_id, .. } => {
+            ("task_admission_released", Some(request_id.as_str()))
+        }
+        AuditOperation::AdmissionReleased { request_id, .. } => {
+            ("admission_released", Some(request_id.as_str()))
+        }
         AuditOperation::EffectResolved { resolution_id, .. } => {
             ("effect_resolved", Some(resolution_id.as_str()))
         }
@@ -264,6 +300,8 @@ fn decode_event(row: &PgRow) -> StoreResult<AuditEvent> {
 fn kind(kind: AuditResourceKind) -> &'static str {
     match kind {
         AuditResourceKind::Task => "task",
+        AuditResourceKind::Resource => "resource",
+        AuditResourceKind::Queue => "queue",
         AuditResourceKind::Workflow => "workflow",
     }
 }

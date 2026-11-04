@@ -43,8 +43,9 @@ pub trait AcquisitionSource: Send + Sync {
     ) -> ContractFuture<'a, SourceReply> {
         self.acquire(command, options)
     }
-    /// Called only after every consumer has stopped. No new claims may start;
-    /// task state remains responsible for recovery of lost session authority.
+    /// Called after every consumer has stopped, or to unwind a session whose
+    /// initialization failed. Release only local state for the supplied session.
+    /// Task state remains responsible for recovery of lost session authority.
     fn finish_session(&self, _worker_session_id: &str) {}
 }
 
@@ -82,7 +83,7 @@ pub struct BrokerAcquisitionSource {
 #[derive(Default)]
 struct Registry {
     session: Option<WorkerSession>,
-    slots: Vec<Arc<AsyncMutex<Slot>>>,
+    slots: Vec<Option<Arc<AsyncMutex<Slot>>>>,
     stopped: Option<ContractError>,
 }
 struct Slot {
@@ -93,16 +94,18 @@ struct Slot {
     pending: Option<Pending>,
 }
 struct Pending {
-    record: PublishedDispatch,
     command: ClaimCommand,
-    receipt: String,
+    /// Taken before the single acknowledgment attempt. After a plan change a
+    /// dormant route only retains the compact command needed for cursor replay.
+    acknowledgment: Option<Acknowledgment>,
     /// Set before the first claim future is awaited; cancellation never resets it.
     claim_started: bool,
     /// Durable handoff was observed, whether or not the caller received our reply.
     completed: bool,
-    /// Retained before awaiting acknowledgment, including cancellation or panic.
-    /// A later reconciliation refreshes the claim but cannot be held by delete again.
-    ack_attempted: bool,
+}
+struct Acknowledgment {
+    publication_id: String,
+    receipt: String,
 }
 impl BrokerAcquisitionSource {
     pub fn new(queue: Arc<dyn AckQueue>, service: Arc<dyn TaskService>) -> Result<Self> {
@@ -117,7 +120,7 @@ impl BrokerAcquisitionSource {
     }
 
     fn slot(&self, command: &AcquireCommand) -> Result<Arc<AsyncMutex<Slot>>> {
-        let registry = self.registry.lock().unwrap_or_else(|p| p.into_inner());
+        let mut registry = self.registry.lock().unwrap_or_else(|p| p.into_inner());
         let session = registry.session.as_ref().ok_or_else(|| {
             ContractError::InvalidInput("broker source has no active worker session".into())
         })?;
@@ -131,7 +134,14 @@ impl BrokerAcquisitionSource {
                 "broker acquisition does not match its registered consumer".into(),
             ));
         }
-        Ok(registry.slots[command.consumer_id as usize].clone())
+        let slot = registry.slots[command.consumer_id as usize].get_or_insert_with(|| {
+            Arc::new(AsyncMutex::new(Slot {
+                sequence: 1,
+                receiving: None,
+                pending: None,
+            }))
+        });
+        Ok(slot.clone())
     }
 
     fn stopped(&self) -> Option<ContractError> {
@@ -240,19 +250,20 @@ impl BrokerAcquisitionSource {
             };
             let claim = ClaimCommand {
                 acquisition: command.clone(),
-                dispatch: record.dispatch.clone(),
+                dispatch: record.dispatch,
             };
             if claim.validate().is_err() {
                 return Ok(self.stop("broker dispatch does not match the worker route; record remains unacknowledged"));
             }
             // Save before polling any operation that could commit task authority.
             slot.pending = Some(Pending {
-                record,
                 command: claim,
-                receipt: delivery.receipt,
+                acknowledgment: Some(Acknowledgment {
+                    publication_id: record.publication_id,
+                    receipt: delivery.receipt,
+                }),
                 claim_started: false,
                 completed: false,
-                ack_attempted: false,
             });
         }
         let pending = slot.pending.as_mut().expect("selected record retained");
@@ -262,25 +273,24 @@ impl BrokerAcquisitionSource {
         let reply = self.service.claim_dispatch(&pending.command).await?;
         reply.validate_reply_against(&pending.command)?;
         pending.completed = true;
-        if !pending.ack_attempted {
+        if let Some(ack) = pending.acknowledgment.take() {
             // Save before constructing or polling adapter I/O. If this await
             // consumes the acquisition deadline, the next call must refresh
             // authority and return without repeating a full-budget delete.
-            pending.ack_attempted = true;
-            let receipts = [pending.receipt.clone()];
+            let receipts = [ack.receipt];
             match self.queue.acknowledge(&receipts, options.deadline).await {
                 Ok(results)
                     if results.len() == 1
-                        && results[0].receipt == pending.receipt
+                        && results[0].receipt == receipts[0]
                         && results[0].confirmed => {}
                 Ok(_) => tracing::warn!(
                     task_id = %pending.command.dispatch.task_id,
-                    publication_id = %pending.record.publication_id,
+                    publication_id = %ack.publication_id,
                     "broker acknowledgment unconfirmed after durable handoff"
                 ),
                 Err(error) => tracing::warn!(
                     task_id = %pending.command.dispatch.task_id,
-                    publication_id = %pending.record.publication_id,
+                    publication_id = %ack.publication_id,
                     error = %error,
                     "broker acknowledgment failed after durable handoff"
                 ),
@@ -292,7 +302,8 @@ impl BrokerAcquisitionSource {
             ClaimDisposition::Claimed { reply } => SourceReply::Completed(reply),
             ClaimDisposition::AlreadyHandedOff { .. }
             | ClaimDisposition::TerminalOrSuperseded
-            | ClaimDisposition::Deferred { .. } => SourceReply::Discarded {
+            | ClaimDisposition::Deferred { .. }
+            | ClaimDisposition::AdmissionDeferred { .. } => SourceReply::Discarded {
                 sequence: command.sequence,
             },
         };
@@ -315,15 +326,9 @@ impl AcquisitionSource for BrokerAcquisitionSource {
                 "broker source already has a worker session".into(),
             ));
         }
-        registry.slots = (0..session.concurrency)
-            .map(|_| {
-                Arc::new(AsyncMutex::new(Slot {
-                    sequence: 1,
-                    receiving: None,
-                    pending: None,
-                }))
-            })
-            .collect();
+        // In a multi-queue plan a route may be disabled or rarely selected.
+        // Allocate the per-consumer receive mutex only when that consumer polls.
+        registry.slots = vec![None; session.concurrency as usize];
         registry.session = Some(session.clone());
         registry.stopped = None;
         Ok(())

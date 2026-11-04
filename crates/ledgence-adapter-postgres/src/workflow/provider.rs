@@ -1,5 +1,7 @@
 //! Provider recovery owns immutable callback sources and finite, event-driven probes.
 //! Live mutations lock workflow -> active task -> retained occurrence -> source.
+//! Protected admission additionally locks capacity before retained effect evidence.
+mod admission;
 mod claim;
 mod reports;
 pub(super) mod scheduler;
@@ -7,7 +9,9 @@ pub(super) mod state;
 mod wait;
 use super::effect_retained::{self as retained, Retained};
 use super::*;
-pub(super) use scheduler::{close_for_assessment, drain, finalize, terminal_obligation};
+pub(super) use scheduler::{
+    close_for_assessment, drain, finalize, lock_drain_tasks, terminal_obligation,
+};
 pub(super) use state::lock_active;
 use state::*;
 pub(super) use wait::{apply_wait, close_wait, install_wait};

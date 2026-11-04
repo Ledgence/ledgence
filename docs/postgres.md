@@ -141,6 +141,18 @@ The supplied deployment command is `ledgence orchestrator migrate`, which reads 
 
 Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
 
+The development standalone-admission migration replaces the integrated queue's
+ready index with two disjoint partial indexes: ordinary tasks and admitted tasks
+with an offer. Each ready task is indexed once. An older worker probes only the
+ordinary index; a capable worker compares the oldest unlocked candidate in each.
+The ordering is among eligible rows, not a fairness guarantee across workers.
+
+This migration rechecks task and attempt constraints and builds indexes on the
+existing tables. On a busy installation, rehearse it on a recent representative
+restore, measure the write interruption, and schedule a suitable maintenance
+window before deploying matching components. The integration tests do not set
+an upper bound on that interval. [Standalone admission](resource-admission.md#standalone-task-admission).
+
 The 0.7.0 migration `20261102000000_workflow_resolution_progress.sql` preserves
 partial workflow program resolution. When upgrading from 0.6.1, stop the
 previous orchestrators, apply migrations and start the matching new binaries.
@@ -295,3 +307,32 @@ session's latest [worker observation](worker-observations.md). These metadata
 views are distinct from optional OpenTelemetry exports. Apply the complete
 migration set for the selected executable; the migrations named above explain
 features and are not a subset to install independently.
+
+## Resource authority in development
+
+The new admission migration adds scoped policies, durable operation occurrences
+and wait episodes. Apply it explicitly with `ledgence orchestrator migrate` before
+starting matching source-built services. Resource policy, offers, Start, retained
+Finish and release accounting commit transactionally; no lock spans a callback.
+The additive `provider_admission_links` migration binds each governed reservation
+to its original approved provider occurrence. Apply the complete migration set;
+do not install only the first admission migration. Combined provider Start/Report
+transactions preserve the one-shot grant, capacity accounting and recovery evidence.
+
+A restored deployment must start with external admission quarantine and provider
+`declared_restore_quarantine` before reconciliation. Either fence blocks fresh
+composed grants; late original evidence remains admissible. See
+[resource admission](resource-admission.md#restore-and-operate).
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+
+Weighted resource admission stores the group cursor on the resource row. Each successful reservation appends a row to `admission_offer_decisions` in the same transaction. The per-resource journal grows with weighted offers. Group mapping edits reclassify the live backlog under that lock. Rehearse migrations and large policy edits on a representative restore. See [weighted offers](resource-admission.md#weighted-offers).
+
+
+## Upgrade from 0.8.0 to 0.9.0
+
+Stop writers and preserve the database and immutable program store. Run the matching 0.9 migrator once before starting the new replicas. Migrations add named resources, protected provider and standalone task admission, queue holds, weighted offer history, inherited budgets and retained-source lookup. Existing executions retain their original scope and accepted receipts. Opt in to a resource or a budget when submitting new work. A restore must preserve an external record of outstanding provider effects and apply restore quarantine before resuming governed writes. [Upgrade rehearsal and operating procedure](../docs-site/src/content/docs/how-to/upgrade-to-0-9.md).
+
+A queue enrolled after a failed budget authorization accepts the original worker's cleanup without reserving a nonexistent slot. The additive migration preserves fail-closed checks on live or possibly started attempts. Resource-scoped lookup indexes let operators locate outstanding dispatch sources after ordinary execution retention. They also add index maintenance to governed transitions; measure the effect using the expected workload.

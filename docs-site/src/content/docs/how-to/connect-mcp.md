@@ -186,3 +186,24 @@ check scheduling are typed evidence, not a promise that task success equals
 external success. Platform u64 fields, including probe generations and program
 sizes, are decimal strings; application JSON remains unchanged. The tool count
 and explicit effect-resolution opt-in are unchanged. [Recover provider operations](/how-to/recover-provider-operations).
+
+## Resource tools in development
+
+Matching source builds add `ledgence_resource_list`, `ledgence_resource_inspect`
+and audited `ledgence_admission_inspect`. Explicit `--allow-resource-control`
+adds policy and release tools, subject to `resource_control`. It conflicts with
+`--read-only`. An administrative release acknowledges uncertain usage; it never
+asserts remote success. [Admission guide](/how-to/control-resource-capacity).
+
+Matching development builds add `ledgence_task_admission_inspect` for a task ID
+and generation. `ledgence_task_submit` accepts one optional named resource.
+`ledgence_task_admission_release` requires the explicit resource-control opt-in,
+source, inspected revision, request ID and operator reason. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
+
+## Weighted resource offers in development
+
+Call `ledgence_resource_sources` with a resource `name` to inspect charged task, workflow and provider occurrences. Use `state="unknown_occupied"` to focus on unresolved usage and pass `next_cursor` as `cursor` to continue. Each page requires `sensitive_read` and a committed response audit. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
+
+Use `ledgence_resource_decisions` with a resource `name` to inspect each committed weighted offer. Pass `next` back as `before` for older decisions. The tool requires `metadata_read`. Configure queue groups through `ledgence_resource_put` with the resource-control opt-in. [Share capacity across queue groups](/how-to/share-resource-offers).
+
+In development, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.

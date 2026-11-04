@@ -67,6 +67,8 @@ Keep at least one configured orchestrator publishing that destination. Removing
 the publisher configuration does not switch tasks back to integrated
 acquisition; pending delivery intents wait for a matching publisher to return.
 
+In development, one worker can poll several configured SQS Standard queues and one orchestrator can publish all their routes. [Share one worker across queues](/how-to/share-worker-polls).
+
 ## Extend through adapters
 
 The Rust `DispatchPublisher` and `AckQueue` ports support batch publication and

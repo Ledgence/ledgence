@@ -21,7 +21,7 @@ import uuid
 
 
 class ExportProvider:
-    def __init__(self, directory, *, port=0, completion_delay=0.25):
+    def __init__(self, directory, *, port=0, completion_delay=0.25, reply_timeout=5):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.log_path = self.directory / "provider.jsonl"
@@ -30,6 +30,9 @@ class ExportProvider:
         self.accepted = threading.Event()
         self.release_reply = threading.Event()
         self.release_reply.set()
+        if not 0 < reply_timeout <= 30:
+            raise ValueError("reply timeout must be greater than zero and at most 30 seconds")
+        self.reply_timeout = reply_timeout
         self.completion_delay = completion_delay
         self.clock_offset = 0.0
         self.operations = {}
@@ -252,7 +255,7 @@ class ExportProvider:
                         owner.operations[operation["id"]] = operation
                     reply = {"id": operation["id"], "status": operation["status"]}
                     owner.accepted.set()
-                owner.release_reply.wait(5)
+                owner.release_reply.wait(owner.reply_timeout)
                 response_kind = fault.get("post_response", "normal")
                 if response_kind == "drop":
                     self.close_connection = True
@@ -282,10 +285,10 @@ class ExportProvider:
                 parsed = urlsplit(self.path)
                 account = self.headers.get("X-Provider-Account", "")
                 with owner.lock:
-                    owner.record(
-                        "request", method="GET", path=parsed.path, account=account
-                    )
                     key = parse_qs(parsed.query).get("key", [""])[0]
+                    owner.record(
+                        "request", method="GET", path=parsed.path, account=account, key=key
+                    )
                     delay = owner.faults.get(key, {}).get("lookup_delay", 0)
                 # Delay after counting receipt, outside the shared lock. It is a
                 # bounded fixture fault; another request still reaches this service.

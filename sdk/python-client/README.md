@@ -873,3 +873,134 @@ redispatch. A selected workflow wake is never rewritten.
 
 See the [provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/)
 and [source contract](../../docs/provider-operations.md).
+
+## Resource policies and admission inspection
+
+Matching development servers expose `client.resources` and `client.admissions`.
+These provider-neutral APIs require configured credentialed access; installing a
+new client does not enable the server capability. Published availability remains
+in the release reference above.
+
+An operator creates a named, scoped resource with a concurrency limit and an
+optional token-bucket rate. `occupied` includes outstanding offers, running
+callbacks and unresolved starts; `unknown` is the unresolved subset.
+
+```python
+from ledgence.client import ResourcePolicy, ResourceRate
+
+# Inside an authenticated AsyncClient context with resource_control permission:
+receipt = await client.resources.put(
+    "reply-service",
+    policy=ResourcePolicy(
+        max_occupancy=4,
+        rate=ResourceRate(numerator=10, period_ms=1_000, burst=10),
+    ),
+    request_id="reply-service:create:1",
+    reason="Limit concurrent callbacks and accepted starts",
+)
+print(receipt.resource.revision)
+print(await client.resources.get("reply-service"))
+page = await client.resources.list(limit=50)
+```
+
+`expected_revision=None` creates a policy; pass the last reviewed revision for a
+compare-and-swap update. The `request_id` belongs to the immutable command. If an
+acknowledgement is uncertain, preserve and resend all the same arguments. A
+changed command with the same ID conflicts. Calls do not automatically retry.
+Disabling a resource pauses new admission; it does not prove existing work ended.
+
+To inspect an occurrence, use its original workflow activation and logical key,
+not the most recent resume activation. Inspection includes sensitive arguments
+and results, requires `sensitive_read`, and records an audit event:
+
+```python
+from ledgence.client import AdmissionOccurrence
+
+occurrence = AdmissionOccurrence(
+    client.scope, workflow_id="workflow-id",
+    origin_activation_id="original-activation-id", key="reply:1",
+)
+detail = await client.admissions.inspect(occurrence)
+print(detail.state, detail.revision)
+```
+
+After independently reviewing an unresolved source, an operator with
+`resource_control` can call `client.admissions.release(occurrence,
+source_id=detail.source["source_id"], expected_revision=detail.revision,
+request_id="review:1", reason="Explain the reviewed evidence")`. This explicit,
+audited override releases capacity. It does not report successful execution or
+invoke the callback again. Preserve the exact command when reconciling an
+uncertain response. A later completed result may still be retained with its
+original source; release and completion must not release occupancy twice.
+
+Worker Start/Finish calls are deliberately absent from this application client
+surface. The runtime owns their lease identity and execution permission. Use
+`Workflow.operation`, `ctx.request_admission` and `ctx.admitted_operation` from
+[`ledgence.worker`](../python/README.md#durable-resource-admission-development-source)
+for governed execution.
+
+
+### Protected provider admission
+
+Admission inspection also accepts governed provider bindings: version 2 includes
+`admission.resource`; version 1 omits it and retains its original encoding.
+`ProviderBinding.admission` is an optional `ProviderAdmissionRequirement`.
+`AdmissionSnapshot.provider` exposes an immutable `ProviderAdmissionRecord`;
+`record.call_completion` is `ProviderCallCompletion.COMPLETED`, `UNKNOWN`, or
+`None` when no report has been accepted. `record.to_dict()` returns a fresh copy
+of the linked ticket, source, and report receipt.
+
+These records describe the dispatch and its capacity settlement. They do not
+assert business success: a completed call may have returned a pending provider
+operation. Continue inspecting the protected provider operation for its business
+outcome. A ticket grants no authority to invoke the provider again. These models require a matching 0.9 server with provider admission enabled.
+
+### Standalone task admission
+
+Use `from ledgence.client import TaskAdmission` and pass
+`admission=TaskAdmission(resource="support-model")` to `client.tasks.prepare` or
+`submit`. The optional requirement is frozen with the submission; it never changes
+CloudEvent `data`. `TaskStatus.admission_deferrals` preserves the difference
+between total assignment generations and retry budget consumed. Inspect a source
+with `await client.task_admissions.inspect(task.id, generation=1)`; release only
+a reviewed source with `client.task_admissions.release(inspected, request_id=...,
+reason=...)`. No automatic retry of a mutation. See the [task admission
+contract](../../docs/resource-admission.md#standalone-task-admission).
+
+### Queue concurrency
+
+Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching development server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](../../docs/queue-concurrency.md).
+
+## Find outstanding resource sources
+
+With a credential that has `sensitive_read`, find the task generations, workflow
+operations or provider approvals behind a resource's unknown occupancy.
+Every page requires a committed response audit.
+
+```python
+from ledgence.client import ResourceSourceState
+
+cursor = None
+while True:
+    page = await client.resources.sources(
+        "support-model", state=ResourceSourceState.UNKNOWN_OCCUPIED, cursor=cursor
+    )
+    for source in page.items:
+        print(source.subject, source.revision, source.updated_at)
+    cursor = page.next_cursor
+    if cursor is None:
+        break
+```
+
+Omit `state` to include accepted Starts still classified as `possibly_dispatched`.
+Inspect the returned workflow occurrence with `client.admissions.inspect` or
+the task ID and generation with `client.task_admissions.inspect` for its retained
+source evidence. Each inspection has its own audit record.
+
+## Weighted resource offers
+
+Pass `ResourceFairSharing` and its `ResourceFairGroup` values to `ResourcePolicy(fair_sharing=...)` to weight offers between queues. Read a page with `await client.resources.decisions("support-model", limit=20)`, then pass `before=page.next` for older offers when `page.next` is present. [Policy, example and compatibility](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).
+
+### Shared run budgets
+
+Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).

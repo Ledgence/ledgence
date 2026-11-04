@@ -5,6 +5,7 @@ use crate::{
     composition::WorkerParts,
     finish_shutdown, input, number,
     output::Sink,
+    poll_file::PlanFile,
     required,
     signals::{ShutdownSignals, forced_exit},
 };
@@ -13,7 +14,12 @@ use ledgence_orchestration_api::{ContractError, LONG_POLL_WAIT_MS, Scope, valida
 use ledgence_worker_api::{Error, ErrorKind, Result, TraceBridge};
 use ledgence_worker_delivery::{DeliveryConfig, DeliveryDriver, DeliveryHandle};
 use serde_json::json;
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 pub struct ConnectOptions {
     server: String,
@@ -21,6 +27,7 @@ pub struct ConnectOptions {
     credentials: Option<HttpCredentials>,
     scope: Scope,
     queue: String,
+    poll_plan: Option<PlanFile>,
     store: String,
     cache: PathBuf,
     python: PathBuf,
@@ -40,9 +47,8 @@ impl ConnectOptions {
                     .parse::<u64>()
                     .map_err(|_| input("invalid acquisition wait"))
             })
-            .transpose()?
-            .unwrap_or(LONG_POLL_WAIT_MS);
-        if acquire_wait_ms > LONG_POLL_WAIT_MS {
+            .transpose()?;
+        if acquire_wait_ms.is_some_and(|wait| wait > LONG_POLL_WAIT_MS) {
             return Err(input("acquisition wait must be between 0 and 20000 ms"));
         }
         let server = required(&mut options, "--server")?;
@@ -55,13 +61,38 @@ impl ConnectOptions {
             tenant_id: required(&mut options, "--tenant")?,
             namespace: required(&mut options, "--namespace")?,
         };
-        let queue = required(&mut options, "--queue")?;
+        let (queue, poll_plan) = match (options.remove("--queue"), options.remove("--poll-plan")) {
+            (Some(queue), None) => (queue, None),
+            (None, Some(path)) => {
+                let file = PlanFile::load(PathBuf::from(path))?;
+                let queue = file
+                    .planner()
+                    .queues()
+                    .first()
+                    .ok_or_else(|| input("poll plan requires at least one queue"))?
+                    .clone();
+                (queue, Some(file))
+            }
+            _ => return Err(input("specify exactly one of --queue or --poll-plan")),
+        };
         let store = required(&mut options, "--store")?;
         let cache = required(&mut options, "--cache")?.into();
         let python = required(&mut options, "--python")?.into();
         let runner = required(&mut options, "--runner")?.into();
         let concurrency = number(options.remove("--concurrency"), 4, "concurrency")?;
         let delivery_config = options.remove("--delivery-config").map(PathBuf::from);
+        let acquire_wait_ms = acquire_wait_ms.unwrap_or_else(|| {
+            if delivery_config.is_some()
+                && poll_plan
+                    .as_ref()
+                    .is_some_and(|file| file.planner().queues().len() > 1)
+            {
+                // An empty long receive holds its consumer on the chosen route.
+                1000
+            } else {
+                LONG_POLL_WAIT_MS
+            }
+        });
         let display_name = options.remove("--display-name");
         check_empty(options)?;
         #[cfg(not(feature = "sqs"))]
@@ -80,7 +111,9 @@ impl ConnectOptions {
         }
         // Reuse the adapter's URL validation before runtime/telemetry startup.
         // The constructor does not connect; retain the client for execution.
-        let mut client = HttpTaskService::new(&server).map_err(contract_error)?;
+        let mut client = HttpTaskService::new(&server)
+            .map_err(contract_error)?
+            .with_budget_dispatch_fence();
         if let Some(credentials) = &credentials {
             client = client
                 .with_credentials(credentials.clone())
@@ -92,6 +125,7 @@ impl ConnectOptions {
             credentials,
             scope,
             queue,
+            poll_plan,
             store,
             cache,
             python,
@@ -114,8 +148,8 @@ pub async fn run(
 ) -> Result<()> {
     let client = Arc::new(config.client.clone().with_trace_bridge(trace.clone()));
     // Authenticate and negotiate before any broker, session or runtime exists.
-    let effect_access = {
-        let discovered = client.discover_worker(&config.scope);
+    let runtime_access = {
+        let discovered = client.discover_worker_runtime(&config.scope);
         tokio::pin!(discovered);
         tokio::select! {
             result = &mut discovered => result.map_err(contract_error)?,
@@ -126,7 +160,7 @@ pub async fn run(
             }
         }
     };
-    let broker_source = prepare_broker(&config, client.clone(), signals, interrupted).await?;
+    let mut broker_sources = prepare_broker(&config, client.clone(), signals, interrupted).await?;
     // Reporting has its own bounded JSON executor and connection pool, so a slow
     // observation exchange cannot consume execution-control admission.
     let mut observation_client =
@@ -173,17 +207,48 @@ pub async fn run(
         .with_workflows(client.clone())
         .with_observation_publisher(observation_client, display_name)
         .map_err(contract_error)?;
-    if let Some(access) = effect_access {
+    if let Some(binding) = runtime_access.authenticated_binding {
         driver = driver
-            .with_effect_evidence(access.audience, access.identity)
-            .and_then(|driver| driver.with_runtime_features(access.runtime_features))
+            .with_runtime_binding(binding.audience, binding.identity)
             .map_err(contract_error)?;
     }
-    if let Some(source) = broker_source {
-        driver = driver.with_acquisition_source(source);
+    if let Some(binding) = runtime_access.effect_evidence {
+        driver = driver
+            .with_effect_evidence(binding.audience, binding.identity)
+            .map_err(contract_error)?;
     }
+    driver = driver
+        .with_runtime_features(runtime_access.runtime_features)
+        .map_err(contract_error)?;
+    let poll_plan = config.poll_plan;
+    driver = match &poll_plan {
+        Some(file) if !broker_sources.is_empty() => driver
+            .with_planned_sources(file.planner().clone(), broker_sources)
+            .map_err(contract_error)?,
+        Some(file) => driver
+            .with_poll_planner(file.planner().clone())
+            .map_err(contract_error)?,
+        None => match broker_sources.pop_first() {
+            Some((_, source)) => driver.with_acquisition_source(source),
+            None => driver,
+        },
+    };
     let mut handle = driver.start();
-    supervise(&mut handle, output, signals, interrupted).await
+    let supervise = supervise(
+        &mut handle,
+        output,
+        signals,
+        interrupted,
+        poll_plan.is_some(),
+    );
+    if let Some(file) = poll_plan {
+        tokio::select! {
+            result = supervise => result,
+            () = file.watch() => unreachable!("poll plan watch runs until supervision ends"),
+        }
+    } else {
+        supervise.await
+    }
 }
 
 async fn prepare_broker(
@@ -191,9 +256,9 @@ async fn prepare_broker(
     client: Arc<HttpTaskService>,
     signals: &mut ShutdownSignals,
     interrupted: &mut bool,
-) -> Result<Option<Arc<dyn ledgence_worker_delivery::AcquisitionSource>>> {
+) -> Result<BTreeMap<String, Arc<dyn ledgence_worker_delivery::AcquisitionSource>>> {
     let Some(path) = config.delivery_config.clone() else {
-        return Ok(None);
+        return Ok(BTreeMap::new());
     };
     #[cfg(not(feature = "sqs"))]
     {
@@ -205,10 +270,13 @@ async fn prepare_broker(
     #[cfg(feature = "sqs")]
     {
         let scope = config.scope.clone();
-        let queue = config.queue.clone();
+        let queues = config.poll_plan.as_ref().map_or_else(
+            || vec![config.queue.clone()],
+            |p| p.planner().queues().to_vec(),
+        );
         let mut loading = tokio::task::spawn_blocking(move || {
-            let delivery = ledgence_adapter_sqs::deployment::DeliveryConfig::load(&path)?;
-            delivery.validate_worker(&scope, &queue)?;
+            let delivery = ledgence_adapter_sqs::deployment::DeliveryRoutes::load(&path)?;
+            delivery.validate_worker(&scope, &queues)?;
             Ok::<_, ContractError>(delivery)
         });
         let delivery = loop {
@@ -228,9 +296,9 @@ async fn prepare_broker(
                 "delivery configuration interrupted",
             ));
         }
-        let connecting = ledgence_adapter_sqs::SqsQueue::connect(delivery.sqs);
+        let connecting = delivery.connect();
         tokio::pin!(connecting);
-        let sqs = tokio::select! {
+        let routes = tokio::select! {
             biased;
             signal = signals.recv() => {
                 signal?;
@@ -241,9 +309,19 @@ async fn prepare_broker(
             }
             result = &mut connecting => result.map_err(contract_error)?,
         };
-        let source = ledgence_worker_delivery::BrokerAcquisitionSource::new(Arc::new(sqs), client)
+        let mut sources = BTreeMap::new();
+        for (route, queue) in routes {
+            let source = ledgence_worker_delivery::BrokerAcquisitionSource::new(
+                Arc::new(queue),
+                client.clone(),
+            )
             .map_err(contract_error)?;
-        Ok(Some(Arc::new(source)))
+            sources.insert(
+                route.queue,
+                Arc::new(source) as Arc<dyn ledgence_worker_delivery::AcquisitionSource>,
+            );
+        }
+        Ok(sources)
     }
 }
 
@@ -252,6 +330,7 @@ async fn supervise(
     output: &Sink,
     signals: &mut ShutdownSignals,
     interrupted: &mut bool,
+    planned: bool,
 ) -> Result<()> {
     let status = loop {
         tokio::select! {
@@ -277,15 +356,16 @@ async fn supervise(
         }
     };
     // Output can itself stall; retain the persistent subscriptions throughout.
-    let report = output.line(
-        json!({"delivery": {
-            "session_id": status.session_id,
-            "finished": status.finished,
-            "settled_attempts": status.settled_attempts,
-            "lost_attempts": status.lost_attempts
-        }})
-        .to_string(),
-    );
+    let mut delivery = json!({
+        "session_id": status.session_id,
+        "finished": status.finished,
+        "settled_attempts": status.settled_attempts,
+        "lost_attempts": status.lost_attempts
+    });
+    if planned {
+        delivery["route_sessions"] = json!(status.route_sessions);
+    }
+    let report = output.line(json!({"delivery":delivery}).to_string());
     tokio::pin!(report);
     loop {
         tokio::select! {
@@ -375,6 +455,59 @@ mod tests {
             assert_eq!(config.acquire_wait, Duration::from_millis(expected));
             assert_eq!(config.concurrency, 4);
         }
+    }
+
+    #[test]
+    fn plan_selects_one_shared_pool_and_is_exclusive_with_single_route_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("plan.json");
+        std::fs::write(&file, r#"{"schema_version":1,"revision":1,"strategy":"lottery","queues":[{"queue":"first","weight":0},{"queue":"second","weight":1}]}"#).unwrap();
+        let mut supplied = options(None);
+        supplied.insert("--poll-plan".into(), file.to_str().unwrap().into());
+        assert!(
+            ConnectOptions::parse(supplied.clone())
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("exactly one")
+        );
+        supplied.remove("--queue");
+        let config = ConnectOptions::parse(supplied.clone()).unwrap();
+        assert_eq!(config.queue, "first");
+        assert_eq!(
+            config.poll_plan.unwrap().planner().queues(),
+            ["first", "second"]
+        );
+        supplied.insert("--delivery-config".into(), "external.json".into());
+        #[cfg(feature = "sqs")]
+        {
+            let parse = |args| ConnectOptions::parse(args).unwrap().acquire_wait;
+            assert_eq!(parse(supplied.clone()), Duration::from_secs(1));
+            for wait in [0, 500, 20_000] {
+                let mut args = supplied.clone();
+                args.insert("--acquire-wait-ms".into(), wait.to_string());
+                assert_eq!(parse(args), Duration::from_millis(wait));
+            }
+            std::fs::write(&file,r#"{"schema_version":1,"revision":1,"strategy":"stride","queues":[{"queue":"one","weight":1}]}"#).unwrap();
+            assert_eq!(parse(supplied), Duration::from_secs(20));
+        }
+        #[cfg(not(feature = "sqs"))]
+        assert!(
+            ConnectOptions::parse(supplied)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("sqs feature")
+        );
+        let mut missing = options(None);
+        missing.remove("--queue");
+        assert!(
+            ConnectOptions::parse(missing)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("exactly one")
+        );
     }
 
     #[test]

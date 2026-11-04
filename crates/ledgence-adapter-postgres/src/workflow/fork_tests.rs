@@ -61,6 +61,8 @@ async fn historical_workflow_fixture(store: &PostgresStore) -> WorkflowSnapshot 
         inputs: BTreeMap::new(),
         wake: None,
         local_steps: vec![],
+        admission_result: None,
+        provider_admission: None,
     };
     let mut task_command = submit;
     task_command.idempotency_key = "workflow:wf_upgrade:task_upgrade".into();

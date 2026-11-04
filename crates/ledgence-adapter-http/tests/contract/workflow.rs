@@ -16,6 +16,30 @@ impl ApprovedEffects for Mock {
 }
 
 impl WorkflowService for Mock {
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        if self.run_budgets_enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable("run budgets disabled".into()))
+        }
+    }
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionOperations> {
+        if self.provider_admission_enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable(
+                "atomic provider admission unavailable".into(),
+            ))
+        }
+    }
+    fn admissions(&self) -> Result<&dyn AdmissionOperations> {
+        if self.admission_enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable("admission unavailable".into()))
+        }
+    }
+
     fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
         if self.evidence_capabilities.load(Ordering::SeqCst) & 8 == 8 {
             Ok(self)
@@ -164,6 +188,8 @@ pub(super) fn snapshot() -> WorkflowSnapshot {
 }
 fn context() -> WorkflowActivationContext {
     WorkflowActivationContext {
+        admission_result: None,
+        provider_admission: None,
         v: 1,
         workflow_id: snapshot().workflow_id,
         parent_workflow_id: None,

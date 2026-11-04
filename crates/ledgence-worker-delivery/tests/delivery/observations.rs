@@ -153,3 +153,123 @@ async fn periodic_report_coalesces_changes_and_uses_current_slot_ownership() {
     wait_for(|| handle.status().settled_attempts == 1).await;
     handle.shutdown(WAIT).await.unwrap();
 }
+
+#[tokio::test]
+async fn idle_planned_worker_reports_its_physical_pool_on_the_primary_session_only() {
+    use ledgence_worker_delivery::poll_plan::{PollPlan, PollPlanner, PollStrategy};
+    let (worker, _) = setup(3);
+    let service = Service::new(0);
+    let publisher = Arc::new(Publisher::default());
+    let plan = PollPlan::new(1, vec![("a".into(), 0), ("invoices".into(), 0)]).unwrap();
+    let mut handle = DeliveryDriver::new(worker, service.clone(), config())
+        .unwrap()
+        .with_poll_planner(PollPlanner::new(plan, PollStrategy::Stride))
+        .unwrap()
+        .with_observation_publisher(publisher.clone(), Some("shared pool".into()))
+        .unwrap()
+        .start();
+    wait_for(|| !publisher.commands.lock().unwrap().is_empty()).await;
+    let status = handle.shutdown(WAIT).await.unwrap();
+    // The reporter sends a final bounded snapshot after driver shutdown.
+    wait_for(|| publisher.commands.lock().unwrap().len() >= 2).await;
+    let primary = &status.route_sessions["invoices"];
+    assert_ne!(*primary, status.route_sessions["a"]);
+    for command in publisher.commands.lock().unwrap().iter() {
+        assert_eq!(&command.worker_session_id, primary);
+        assert_eq!(command.snapshot.configured_concurrency, 3);
+    }
+    assert!(service.state.lock().unwrap().acquisitions.is_empty());
+}
+
+#[tokio::test]
+async fn a_physical_snapshot_keeps_primary_links_and_suppresses_secondary_links() {
+    use ledgence_worker_delivery::poll_plan::{PollPlan, PollPlanner, PollStrategy};
+    let (worker, counts) = setup(2);
+    counts.hold_execution.store(true, Ordering::SeqCst);
+    let service = Service::new(2);
+    let publisher = Arc::new(Publisher::default());
+    let plan = PollPlan::new(1, vec![("invoices".into(), 1), ("reports".into(), 1)]).unwrap();
+    let mut handle = DeliveryDriver::new(worker, service.clone(), config())
+        .unwrap()
+        .with_poll_planner(PollPlanner::new(plan, PollStrategy::Stride))
+        .unwrap()
+        .with_observation_publisher(publisher.clone(), None)
+        .unwrap()
+        .start();
+    wait_for(|| counts.executions.load(Ordering::SeqCst) == 2).await;
+    let primary = handle.status().session_id.unwrap();
+    let primary_attempt = {
+        let state = service.state.lock().unwrap();
+        state
+            .replies
+            .values()
+            .find_map(|reply| {
+                if let AcquireReply::Assigned { assignment, .. } = reply
+                    && assignment.lease.owner.worker_session_id == primary
+                {
+                    return Some(assignment.lease.owner.attempt_id.clone());
+                }
+                None
+            })
+            .expect("a primary task was acquired")
+    };
+    // Reports are periodic with a maximum 5.5s interval. Inspect an actual
+    // sample taken while both the primary and secondary handlers are running.
+    let observed = tokio::time::timeout(Duration::from_secs(9), async {
+        loop {
+            if let Some(report) = publisher
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|r| {
+                    r.snapshot.occupied_process_slots == 2
+                        && r.snapshot.slots.iter().all(|slot| {
+                            matches!(
+                                slot.state,
+                                ProcessSlotState::Executing | ProcessSlotState::Unknown
+                            )
+                        })
+                })
+                .cloned()
+            {
+                return report;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(observed.worker_session_id, primary);
+    assert_eq!(observed.snapshot.active_consumers, 2);
+    let primary_slot = observed
+        .snapshot
+        .slots
+        .iter()
+        .find(|slot| slot.state == ProcessSlotState::Executing)
+        .unwrap();
+    assert_eq!(
+        primary_slot.invocation.as_ref().unwrap().attempt_id,
+        primary_attempt
+    );
+    assert_eq!(
+        observed
+            .snapshot
+            .slots
+            .iter()
+            .filter(|slot| slot.invocation.is_some())
+            .count(),
+        1
+    );
+    let secondary = observed
+        .snapshot
+        .slots
+        .iter()
+        .find(|slot| slot.state == ProcessSlotState::Unknown)
+        .unwrap();
+    assert!(secondary.invocation.is_none());
+    assert!(secondary.process_instance_id.is_some());
+    counts.hold_execution.store(false, Ordering::SeqCst);
+    wait_for(|| handle.status().settled_attempts == 2).await;
+    handle.shutdown(WAIT).await.unwrap();
+}

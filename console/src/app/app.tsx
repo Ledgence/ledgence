@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AccessBoundary } from "./access";
 import { accessController } from "./access-state";
+import { usePermission } from "./access-session";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { AppShell } from "../components/app-shell";
@@ -29,9 +30,13 @@ import {
   ApprovalReviewPage,
 } from "../features/approval-inbox";
 
+import { ResourcesPage } from "../features/resources/page";
+import { QueuesPage } from "../features/queues/page";
 import { EffectsPage, EffectReviewPage } from "../features/effects";
 
 function Console() {
+  const metadata = usePermission("metadata_read");
+  const sensitive = usePermission("sensitive_read");
   const config = useQuery({
     queryKey: [location.origin, consoleContractVersion, "config"],
     queryFn: ({ signal }) => getConfig(signal),
@@ -40,7 +45,14 @@ function Console() {
   return (
     <AppShell
       instanceName={config.data?.instance_name ?? "Ledgence"}
-      serverVersion={config.data?.server_version}
+      serverVersion={metadata ? config.data?.server_version : undefined}
+      resourceSharingEnabled={
+        config.data?.capabilities.resource_policies ?? false
+      }
+      resourceSourcesEnabled={
+        config.data?.capabilities.resource_sources ?? false
+      }
+      queuePoliciesEnabled={config.data?.capabilities.queue_policies ?? false}
     >
       {config.isPending ? (
         <LoadingState label="Connecting to your instance" />
@@ -63,7 +75,21 @@ function Console() {
         <InstanceContext.Provider value={config.data}>
           <NavigationMemory />
           <Routes>
-            <Route index element={<Navigate to="/executions" replace />} />
+            <Route
+              index
+              element={
+                <Navigate
+                  to={
+                    !metadata &&
+                    sensitive &&
+                    config.data.capabilities.resource_sources
+                      ? "/resources"
+                      : "/executions"
+                  }
+                  replace
+                />
+              }
+            />
             <Route path="executions" element={<ExecutionsPage />} />
             <Route path="executions/new" element={<NewExecutionPage />} />
             <Route
@@ -91,6 +117,8 @@ function Console() {
               path="agents/:programId/versions/:version"
               element={<ProgramVersionPage />}
             />
+            <Route path="resources" element={<ResourcesPage />} />
+            <Route path="queues" element={<QueuesPage />} />
             <Route path="workers" element={<WorkersPage />} />
             <Route
               path="workers/:workerSessionId"

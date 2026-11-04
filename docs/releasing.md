@@ -149,6 +149,10 @@ restart qualification and representative load/soak scenarios. Packaging evidence
 covers only the gates the packaging tool actually executes; it is not a
 substitute for the integration and capacity reports.
 
+For 0.9, the Linux Console candidate gate verifies the published 0.8.0 archive against its pinned SHA256, boots the previous version on a disposable database, and passes the packaged candidate binary, Console and helper to the resource upgrade rehearsal. The separate 0.6.1 and 0.7.0 approval rehearsals remain required. The candidate job verifies a successful receipt for every predecessor against its executable and the packaged candidate executable. A missing receipt blocks the candidate even if the rehearsal shell exited successfully. Preserve evidence of external provider request counts across restore, outstanding source discovery after retention, actual denied budget authority and credential checks. Qualify the macOS bundle against the same previous stable release.
+
+Compare the previous optimized release and the candidate on ordinary tasks and workflows. Separately measure enabled admission with a hot resource, independent resources, parked work, and late-arriving interactive traffic. Use the worker's default acquisition wait for the primary measurements. Repeat the matched timing trials with an explicit zero wait and report those results separately. For the independent-resource trials, record both the available worker slots and the combined reservation limits. Count successful business outcomes and independently observed calls. Record the hardware, arrival schedule, SQL and WAL collection boundaries, and measured percentile changes. Keep latency measurements separate from proxy diagnostics and do not extrapolate local measurements to fleet throughput. [Governed load procedure and measurement boundaries](resource-load-qualification.md).
+
 Check that:
 
 - retained results, callback obligations and replay identities survive the

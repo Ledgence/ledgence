@@ -50,7 +50,8 @@ impl ProviderOperations for ApplicationService {
                 .workflows()?
                 .provider_operations()?
                 .claim_provider(principal, command)
-                .await?;
+                .await
+                .inspect_err(crate::admission::record_budget_error)?;
             reply.validate_for(principal, command)?;
             Ok(reply)
         })

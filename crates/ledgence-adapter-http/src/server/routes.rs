@@ -5,6 +5,7 @@ use ledgence_orchestration_api::{
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Policy {
+    ConsoleConfig,
     Metadata,
     Sensitive,
     Submit,
@@ -12,6 +13,7 @@ pub(super) enum Policy {
     Publish,
     Approval,
     EffectResolution,
+    ResourceControl,
     Worker,
     Access,
     Login,
@@ -30,6 +32,11 @@ impl Policy {
         }
         use AccessCapability::*;
         let capability = match self {
+            Self::ConsoleConfig => {
+                return actor
+                    .require(MetadataRead)
+                    .or_else(|_| actor.require(SensitiveRead));
+            }
             Self::Metadata => MetadataRead,
             Self::Sensitive => SensitiveRead,
             Self::Submit => ExecutionSubmit,
@@ -40,6 +47,7 @@ impl Policy {
                 ApprovalDecide
             }
             Self::EffectResolution => EffectResolve,
+            Self::ResourceControl => ResourceControl,
             Self::Worker => WorkerExecute,
             Self::Access | Self::Login | Self::Logout => unreachable!(),
         };
@@ -139,10 +147,10 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 91);
+        assert_eq!(routes.len(), 129);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
-            91
+            routes.len()
         );
         let mut methods = 0;
         let mut audited = 0;
@@ -166,8 +174,8 @@ mod tests {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 94);
-        assert_eq!(audited, 16);
+        assert_eq!(methods, 132);
+        assert_eq!(audited, 24);
     }
     #[test]
     fn payload_worker_and_mixed_method_policies_are_explicit() {
@@ -176,7 +184,7 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        let policy = |path, method| {
+        let policy = |path: &str, method: &str| {
             routes
                 .iter()
                 .find(|r| r.path == path)
@@ -211,6 +219,41 @@ mod tests {
             policy("/v1/programs/{program_id}/{version}/artifact", "PUT"),
             Some(Policy::Publish)
         );
+        assert_eq!(
+            policy("/v1/console/config", "GET"),
+            Some(Policy::ConsoleConfig)
+        );
+        for base in ["/v1/resources", "/v1/console/resources"] {
+            assert_eq!(
+                policy(&format!("{base}/put"), "POST"),
+                Some(Policy::ResourceControl)
+            );
+            let path = format!("{base}/sources");
+            let sources = routes.iter().find(|r| r.path == path).unwrap();
+            assert_eq!(sources.policy("POST"), Some(Policy::Sensitive));
+            assert_eq!(
+                sources.audit_read("POST"),
+                Some(AuditReadKind::ResourceSources)
+            );
+        }
+        for base in ["/v1/queue-policies", "/v1/console/queue-policies"] {
+            for (operation, expected) in [
+                ("put", Policy::ResourceControl),
+                ("release", Policy::ResourceControl),
+                ("inspect", Policy::Metadata),
+                ("list", Policy::Metadata),
+                ("holds", Policy::Sensitive),
+            ] {
+                let path = format!("{base}/{operation}");
+                assert_eq!(policy(&path, "POST"), Some(expected));
+                assert_eq!(policy(&path, "GET"), None);
+            }
+        }
+        assert_eq!(
+            policy("/v1/queue-policies/close", "POST"),
+            Some(Policy::Worker)
+        );
+        assert_eq!(policy("/v1/console/queue-policies/close", "POST"), None);
         assert_eq!(policy("/v1/unclassified", "POST"), None);
     }
 }

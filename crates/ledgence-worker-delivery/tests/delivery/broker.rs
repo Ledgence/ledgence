@@ -228,7 +228,10 @@ async fn dropped_ack_future_refreshes_same_claim_without_repeating_acknowledgmen
     assert!(operation.await.unwrap_err().is_cancelled());
     {
         let mut state = service.state.lock().unwrap();
-        let AcquireReply::Assigned { assignment, .. } = state.replies.get_mut(&(0, 1)).unwrap()
+        let AcquireReply::Assigned { assignment, .. } = state
+            .replies
+            .get_mut(&(command.worker_session_id.clone(), 0, 1))
+            .unwrap()
         else {
             panic!("committed assignment expected");
         };
@@ -921,3 +924,36 @@ async fn running_immediate_polls_retry_receive_errors_and_can_still_claim_work()
         1
     );
 }
+
+#[tokio::test]
+async fn a_durable_admission_wait_is_acknowledged_only_for_the_exact_dispatched_generation() {
+    let service = Service::new(1);
+    let mut occurrence = TaskAdmissionOccurrence {
+        scope: scope(),
+        task_id: "task_1".into(),
+        generation: 2,
+    };
+    *service.broker_disposition.lock().unwrap() = Some(ClaimDisposition::AdmissionDeferred {
+        occurrence: occurrence.clone(),
+    });
+    let queue = Queue::with_records([vec![record(1)]]);
+    let (source, command) = source(queue.clone(), service.clone(), 1).await;
+    assert!(source.acquire(&command, options()).await.is_err());
+    assert!(queue.acknowledgments.lock().unwrap().is_empty());
+    occurrence.generation = 1;
+    *service.broker_disposition.lock().unwrap() =
+        Some(ClaimDisposition::AdmissionDeferred { occurrence });
+    assert!(matches!(
+        source.acquire(&command, options()).await.unwrap(),
+        SourceReply::Discarded { sequence: 1 }
+    ));
+    assert_eq!(queue.polls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        queue.acknowledgments.lock().unwrap().as_slice(),
+        &[vec!["receipt_1".to_string()]]
+    );
+    assert!(service.state.lock().unwrap().active.is_empty());
+}
+
+#[path = "broker/planned.rs"]
+mod planned;

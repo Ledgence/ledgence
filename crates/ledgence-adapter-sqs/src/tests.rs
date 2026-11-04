@@ -35,6 +35,49 @@ fn success(id: &str) -> Value {
     json!({"Id":id,"MessageId":format!("message_{id}"),"MD5OfMessageBody":"md5"})
 }
 
+fn alias_routes(endpoint: &str) -> deployment::DeliveryRoutes {
+    let entries: Vec<_>=["logical-a","logical-b"].into_iter().map(|name| json!({
+        "route":{"scope":{"tenant_id":"tenant","namespace":"namespace"},"queue":name,"destination":name},
+        "sqs":{"region":"us-east-1","queue_url":format!("{endpoint}/000000000000/{name}"),
+               "endpoint_url":endpoint, "local_credentials":true}
+    })).collect();
+    deployment::DeliveryRoutes::decode(&serde_json::to_vec(&json!({"routes":entries})).unwrap())
+        .unwrap()
+}
+
+#[tokio::test]
+async fn multi_route_startup_requires_distinct_concrete_queue_arns_before_use() {
+    let first = "arn:aws:sqs:us-east-1:000000000000:first";
+    let second = "arn:aws:sqs:us-east-1:000000000000:second";
+    for (last, allowed) in [
+        (Some(second), true),
+        (Some(first), false),
+        (None, false),
+        (Some("arn:aws:sqs:us-east-1:000000000000:*"), false),
+        (Some(""), false),
+    ] {
+        let mut a = attributes();
+        a["Attributes"]["QueueArn"] = first.into();
+        let mut b = attributes();
+        if let Some(arn) = last {
+            b["Attributes"]["QueueArn"] = arn.into();
+        }
+        let fixture = Fixture::new(vec![a, b]);
+        let result = alias_routes(&fixture.endpoint).connect().await;
+        assert_eq!(result.is_ok(), allowed);
+        let requests = fixture.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for (_, body) in &*requests {
+            assert!(
+                body["AttributeNames"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("QueueArn"))
+            );
+        }
+    }
+}
+
 #[test]
 fn direct_http_transport_requires_local_credentials_and_two_plain_loopback_urls() {
     use bounded_http::Transport;

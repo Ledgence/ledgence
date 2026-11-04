@@ -9,6 +9,7 @@ SELECT
     a.event_source AS a_event_source,
     a.event_id AS a_event_id,
     a.event_bytes AS a_event_bytes,
+    a.task_admission_bytes AS a_task_admission_bytes,
     a.expires_at_ms AS a_expires_at_ms,
     a.deadline_ms AS a_deadline_ms,
     a.authority_deadline_ms AS a_authority_deadline_ms,
@@ -18,6 +19,7 @@ SELECT
     a.last_renew_intent AS a_last_renew_intent,
     a.quiescence AS a_quiescence,
     a.finished_at_ms AS a_finished_at_ms,
+    a.budget_denial_bytes AS a_budget_denial_bytes,
     s.accepted_command AS a_accepted_command,
     s.accepted_at AS a_accepted_at,
     s.operation_id AS a_accepted_operation_id

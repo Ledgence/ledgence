@@ -24,6 +24,7 @@ fn principal(credential: &str) -> VerifiedPrincipal {
 }
 fn command() -> EffectClaimV2Command {
     EffectClaimV2Command {
+        budget_fence: false,
         owner: LeaseOwner {
             scope: principal("one").audience().scope.clone(),
             task_id: "activation".into(),
@@ -110,6 +111,7 @@ fn claim_replay_permission_is_lookup_only_and_runtime_context_fields_are_not_acc
     let c = command();
     let p = principal("one");
     let claim = EffectClaimBinding {
+        budget_grant: None,
         scope: c.owner.scope.clone(),
         workflow_id: c.workflow_id.clone(),
         activation_id: c.owner.task_id.clone(),

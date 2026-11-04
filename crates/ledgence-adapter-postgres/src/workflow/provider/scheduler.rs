@@ -162,6 +162,8 @@ impl PostgresStore {
         };
         let command = SubmitCommand {
             input: SubmitTask {
+                budget: None,
+                admission: None,
                 tenant_id: o.scope.tenant_id.clone(),
                 namespace: o.scope.namespace.clone(),
                 queue: b.reconciliation.queue.clone(),
@@ -451,6 +453,23 @@ async fn load_live_run(
 ) -> StoreResult<Option<RunRecord>> {
     let row=sqlx::query("SELECT *,trunc(revision)::text AS revision_text FROM workflow_runs WHERE workflow_id=$1 AND retiring_at_ms IS NULL").bind(&o.workflow_id).fetch_optional(tx).await?;
     row.as_ref().map(run_record).transpose()
+}
+/// A composed cancellation must acquire active probe task locks before resource
+/// locks, then retain those locks while draining provider effect evidence. The
+/// workflow lock keeps this bounded candidate set stable between both phases.
+pub(in crate::workflow) async fn lock_drain_tasks(
+    tx: &mut PgConnection,
+    run: &RunRecord,
+) -> StoreResult<()> {
+    if !run.has_provider_operations {
+        return Ok(());
+    }
+    let ids: Vec<String> = sqlx::query_scalar("SELECT active_task_id FROM (SELECT active_task_id FROM provider_operations WHERE workflow_id=$1 AND (stopped_reason IS NULL OR active_task_id IS NOT NULL) ORDER BY activation_id,approval_key LIMIT 16) p WHERE active_task_id IS NOT NULL ORDER BY active_task_id")
+        .bind(&run.snapshot.workflow_id).fetch_all(&mut *tx).await?;
+    for id in ids {
+        db::load_task(tx, &run.snapshot.scope, &id, true).await?;
+    }
+    Ok(())
 }
 pub(in crate::workflow) async fn drain(
     tx: &mut PgConnection,

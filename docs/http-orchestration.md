@@ -320,6 +320,30 @@ receipts to 16 KiB. Invalid receipts after a possible commit report uncertainty.
 
 Existing Effects inbox/inspect routes include typed provider evidence and an
 optional `provider_filter`. Inspection remains sensitive and audited. Matching
-Console components use C7; earlier C6 assets must be upgraded together with the
-server. Worker feature discovery remains opt-in through
+Console components in published 0.8.0 use C7; earlier C6 assets must be upgraded
+together with the server. Worker feature discovery remains opt-in through
 `Ledgence-Worker-Features: 1`; the header-absent response retains the earlier shape.
+
+## Resource admission in development
+
+The development server exposes bounded, authenticated `/v1/resources/*` and
+`/v1/admissions/*` routes through an optional portable admission port. Worker
+feature negotiation advertises `resource_admission.v1` independently of effect
+evidence. Start is one-shot; Finish records the result and capacity release
+atomically. The distinct composed port advertises `provider_admission.v1` only
+when protected dispatch and admission are jointly available. Its worker-only
+`/v1/provider-admissions/start` and `/v1/provider-admissions/report` routes commit
+provider permission with capacity, and provider evidence with justified release,
+respectively. Governing a provider binding requires version 2; older version-1
+bindings are unchanged. Development Console assets and server both require C14;
+published 0.8.0 remains C7. [Routes, permissions and recovery contract](resource-admission.md).
+
+Standalone task admission adds authenticated `/v1/task-admissions/sessions`,
+`start`, `close`, `inspect` and `release` operations. Only the first runtime-ready
+Start is executable. `POST /v1/tasks` accepts one optional `input.admission`
+resource requirement; the ordinary worker Dispatch route cannot authorize a
+governed task. See [standalone task admission](resource-admission.md#standalone-task-admission).
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

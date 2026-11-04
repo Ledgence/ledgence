@@ -1,6 +1,7 @@
 //! Unified entry point for program administration and platform services.
 
 mod access;
+mod admission;
 mod approvals;
 mod args;
 mod bundle;
@@ -12,6 +13,7 @@ mod mcp;
 mod program_build;
 mod program_new;
 mod program_publish;
+mod queue_policy;
 mod routing;
 mod submission;
 mod telemetry;
@@ -78,6 +80,7 @@ fn run_admin(mut arguments: Vec<String>) -> ExitCode {
         Err(error) => return diagnose(error, None),
     };
     let (server, operation) = match command {
+        Command::Admission { server, operation } => (server, RunOperation::Admission(operation)),
         Command::Effect { server, operation } => (server, RunOperation::Effect(operation)),
         Command::Audit { server, query } => (server, RunOperation::Audit(query)),
         Command::Approval { server, operation } => (server, RunOperation::Approval(operation)),
@@ -133,6 +136,7 @@ fn run_admin(mut arguments: Vec<String>) -> ExitCode {
 }
 
 enum RunOperation {
+    Admission(admission::Operation),
     Effect(args::EffectOperation),
     Audit(ledgence_orchestration_api::AuditQuery),
     Approval(args::ApprovalOperation),
@@ -170,6 +174,7 @@ fn run_task(
     };
     let result = runtime.block_on(async {
         match operation {
+            RunOperation::Admission(operation) => admission::execute(&client, operation).await,
             RunOperation::Effect(args::EffectOperation::Inbox(query)) => {
                 encode(client.effect_inbox(&query).await?)
             }

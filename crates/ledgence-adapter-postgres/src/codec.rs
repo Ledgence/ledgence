@@ -127,6 +127,9 @@ fn identifier(row: &impl Record, column: &str, maximum: usize) -> Result<String>
 pub(crate) fn status(row: &PgRow) -> Result<TaskStatus> {
     visible(row)?;
     let status = TaskStatus {
+        admission: get::<Option<String>>(row, "admission_resource")?
+            .map(|resource| TaskAdmissionRequirement { resource }),
+        admission_deferrals: count(row, "admission_deferrals")?,
         provider_probe: get::<Option<Vec<u8>>>(row, "provider_probe_bytes")?
             .map(|b| decode(&b))
             .transpose()?,
@@ -153,20 +156,24 @@ pub(crate) fn status(row: &PgRow) -> Result<TaskStatus> {
     let latest_state: Option<AttemptState> = get::<Option<String>>(row, "latest_attempt_state")?
         .map(enum_value)
         .transpose()?;
+    let deferred = latest_state == Some(AttemptState::Deferred) && status.admission.is_some();
     if (status.state == TaskState::Active) != optional_time(row, "next_expiry_ms")?.is_some()
         || (latest_state == Some(AttemptState::Active)) != (status.state == TaskState::Active)
         || (status.state == TaskState::Succeeded && latest_state != Some(AttemptState::Succeeded))
         || (status.state == TaskState::Failed
+            && !(deferred && status.attempt_count == MAX_TASK_ATTEMPT_GENERATION)
             && !matches!(
                 latest_state,
                 Some(AttemptState::Failed | AttemptState::Lost)
             ))
         || (status.state == TaskState::Queued
+            && !deferred
             && !matches!(
                 latest_state,
                 None | Some(AttemptState::Failed | AttemptState::Lost)
             ))
         || (status.state == TaskState::Cancelled
+            && !deferred
             && !matches!(
                 latest_state,
                 None | Some(AttemptState::Cancelled | AttemptState::Failed | AttemptState::Lost)
@@ -190,7 +197,9 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
         .map_err(|_| corrupt("submission binding"))?;
     let descriptor: ProgramDescriptor = decode(&get::<Vec<u8>>(row, "descriptor_bytes")?)?;
     descriptor.validate().map_err(|_| corrupt("descriptor"))?;
-    if descriptor.program != command.input.program
+    if get::<Option<String>>(row, "admission_resource")?.as_ref()
+        != command.input.admission.as_ref().map(|a| &a.resource)
+        || descriptor.program != command.input.program
         || get::<String>(row, "tenant_id")? != command.input.tenant_id
         || get::<String>(row, "namespace")? != command.input.namespace
         || get::<String>(row, "queue")? != command.input.queue
@@ -199,6 +208,7 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
         return Err(corrupt("indexed submission differs from immutable binding"));
     }
     let task = TaskSnapshot {
+        admission_deferrals: count(row, "admission_deferrals")?,
         provider_probe: get::<Option<Vec<u8>>>(row, "provider_probe_bytes")?
             .map(|b| decode(&b))
             .transpose()?,
@@ -257,7 +267,10 @@ pub(crate) fn task(row: &PgRow) -> Result<TaskSnapshot> {
     if (task.state == TaskState::Active) != task.current_attempt_id.is_some()
         || (task.state == TaskState::Active) != next_expiry.is_some()
         || task.state.is_terminal() != task.terminal_at.is_some()
-        || task.attempt_count > task.input.retry_policy.max_attempts
+        || task
+            .charged_attempts()
+            .map_err(|_| corrupt("attempt accounting"))?
+            > task.input.retry_policy.max_attempts
         || (task.state == TaskState::Active && task.attempt_count == 0)
     {
         return Err(corrupt("task scheduling state"));
@@ -342,7 +355,17 @@ pub(crate) fn attempt_prefixed(
         }
         _ => return Err(corrupt("incomplete accepted settlement")),
     };
+    let marker: Option<TaskAdmissionAssignment> =
+        get::<Option<Vec<u8>>>(row, "task_admission_bytes")?
+            .map(|b| decode(&b))
+            .transpose()?;
+    if marker.as_ref().map(|m| &m.resource) != task.input.admission.as_ref().map(|a| &a.resource)
+        || marker.as_ref().is_some_and(|m| m.validate().is_err())
+    {
+        return Err(corrupt("attempt admission marker"));
+    }
     let attempt = AttemptSnapshot {
+        task_admission: marker,
         event,
         descriptor: task.descriptor.clone(),
         lease: Lease {
@@ -356,10 +379,29 @@ pub(crate) fn attempt_prefixed(
         last_renewal,
         quiescence: enum_value(get(row, "quiescence")?)?,
         settlement,
+        budget_denial: get::<Option<Vec<u8>>>(row, "budget_denial_bytes")?
+            .map(|b| decode(&b))
+            .transpose()?,
         finished_at: optional_time(row, "finished_at_ms")?,
     };
     if (attempt.state == AttemptState::Active) != attempt.finished_at.is_none()
-        || (attempt.quiescence == Quiescence::Confirmed && attempt.settlement.is_none())
+        || (attempt.budget_denial.is_some()
+            && (attempt.state != AttemptState::Failed
+                || attempt.task_admission.is_none()
+                || attempt.execution_may_have_started
+                || attempt.settlement.is_some()))
+        || (attempt.state == AttemptState::Deferred
+            && (attempt.task_admission.is_none()
+                || attempt.execution_may_have_started
+                || attempt.settlement.is_some()))
+        || (attempt.quiescence == Quiescence::Confirmed
+            && attempt.settlement.is_none()
+            && attempt.budget_denial.is_none()
+            && !(attempt.task_admission.is_some()
+                && matches!(
+                    attempt.state,
+                    AttemptState::Deferred | AttemptState::Lost | AttemptState::Cancelled
+                )))
     {
         return Err(corrupt("attempt lifecycle state"));
     }
@@ -377,6 +419,10 @@ pub(crate) fn attempt_prefixed(
 
 pub(crate) fn session(row: &PgRow) -> Result<WorkerSession> {
     let session = WorkerSession {
+        features: get::<Option<Vec<u8>>>(row, "features_bytes")?
+            .map(|b| decode(&b))
+            .transpose()?
+            .unwrap_or_default(),
         id: identifier(row, "session_id", 128)?,
         scope: Scope {
             tenant_id: identifier(row, "tenant_id", 128)?,

@@ -32,6 +32,9 @@ impl ConsoleProviderProbeAssignment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleTaskStatus {
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub admission: Option<TaskAdmissionRequirement>,
+    pub admission_deferrals: u32,
     pub task_id: String,
     pub run_id: String,
     pub workflow_id: Option<String>,
@@ -52,6 +55,8 @@ pub struct ConsoleTaskStatus {
 impl From<TaskStatus> for ConsoleTaskStatus {
     fn from(v: TaskStatus) -> Self {
         Self {
+            admission: v.admission,
+            admission_deferrals: v.admission_deferrals,
             task_id: v.task_id,
             run_id: v.run_id,
             workflow_id: v.workflow_id,
@@ -73,6 +78,8 @@ impl From<TaskStatus> for ConsoleTaskStatus {
 impl ConsoleTaskStatus {
     pub fn validate(&self) -> Result<()> {
         TaskStatus {
+            admission: self.admission.clone(),
+            admission_deferrals: self.admission_deferrals,
             scope: self
                 .provider_probe
                 .as_ref()
@@ -138,6 +145,18 @@ impl ConsoleRecord for ConsoleTaskSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleSubmitTask {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget: Option<RunBudgetPolicy>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub admission: Option<TaskAdmissionRequirement>,
     pub program: ProgramRef,
     pub queue: String,
     #[serde(default)]
@@ -155,6 +174,8 @@ const fn attempt_timeout() -> u64 {
 impl ConsoleSubmitTask {
     pub fn into_submission(self, scope: &Scope) -> Result<SubmitTask> {
         let value = SubmitTask {
+            budget: self.budget,
+            admission: self.admission,
             tenant_id: scope.tenant_id.clone(),
             namespace: scope.namespace.clone(),
             program: self.program,
@@ -169,20 +190,65 @@ impl ConsoleSubmitTask {
     }
 }
 impl From<SubmitTask> for ConsoleSubmitTask {
-    fn from(v: SubmitTask) -> Self {
+    fn from(value: SubmitTask) -> Self {
+        ConsoleTaskInput::from(value).into()
+    }
+}
+
+/// Recorded input is an observation: the nullable admission field is always
+/// present. A submission command instead omits the field to opt out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsoleTaskInput {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget: Option<RunBudgetPolicy>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub admission: Option<TaskAdmissionRequirement>,
+    pub program: ProgramRef,
+    pub queue: String,
+    pub correlation_key: Option<String>,
+    #[serde(deserialize_with = "crate::observation::required_value")]
+    pub data: Value,
+    pub retry_policy: RetryPolicy,
+    pub attempt_timeout_ms: u64,
+}
+impl From<SubmitTask> for ConsoleTaskInput {
+    fn from(value: SubmitTask) -> Self {
         Self {
-            program: v.program,
-            queue: v.queue,
-            correlation_key: v.correlation_key,
-            data: v.data,
-            retry_policy: v.retry_policy,
-            attempt_timeout_ms: v.attempt_timeout_ms,
+            budget: value.budget,
+            admission: value.admission,
+            program: value.program,
+            queue: value.queue,
+            correlation_key: value.correlation_key,
+            data: value.data,
+            retry_policy: value.retry_policy,
+            attempt_timeout_ms: value.attempt_timeout_ms,
         }
     }
 }
+impl From<ConsoleTaskInput> for ConsoleSubmitTask {
+    fn from(value: ConsoleTaskInput) -> Self {
+        Self {
+            budget: value.budget,
+            admission: value.admission,
+            program: value.program,
+            queue: value.queue,
+            correlation_key: value.correlation_key,
+            data: value.data,
+            retry_policy: value.retry_policy,
+            attempt_timeout_ms: value.attempt_timeout_ms,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleTaskDetail {
+    pub admission_deferrals: u32,
     pub task_id: String,
     pub run_id: String,
     pub workflow_id: Option<String>,
@@ -191,7 +257,7 @@ pub struct ConsoleTaskDetail {
     pub provider_probe: Option<ConsoleProviderProbeAssignment>,
     pub parent_workflow_id: Option<String>,
     pub root_workflow_id: Option<String>,
-    pub input: ConsoleSubmitTask,
+    pub input: ConsoleTaskInput,
     pub descriptor: ConsoleProgramDescriptor,
     pub idempotency_key: String,
     pub origin_trace: Option<TraceContext>,
@@ -208,7 +274,7 @@ impl ConsoleTaskDetail {
     /// Validate only facts present in the snapshot; the last allocated attempt
     /// is deliberately not inferred from the currently active attempt.
     pub fn validate(&self) -> Result<()> {
-        self.input.clone().into_submission(&Scope {
+        ConsoleSubmitTask::from(self.input.clone()).into_submission(&Scope {
             tenant_id: "console-validation".into(),
             namespace: "console-validation".into(),
         })?;
@@ -241,8 +307,21 @@ impl ConsoleTaskDetail {
                 return Err(inconsistent("inconsistent workflow activation identity"));
             }
         }
+        let charged = task_retry_attempts(
+            self.attempt_count,
+            self.admission_deferrals,
+            self.input.admission.is_some(),
+        )
+        .map_err(|_| inconsistent("inconsistent task admission counters"))?;
+        if self.input.admission.is_some()
+            && (self.workflow_id.is_some()
+                || self.workflow_activation_id.is_some()
+                || self.provider_probe.is_some())
+        {
+            return Err(inconsistent("task admission requires a standalone task"));
+        }
         if self.descriptor.program != self.input.program
-            || self.attempt_count > self.input.retry_policy.max_attempts
+            || charged > self.input.retry_policy.max_attempts
             || (self.state == TaskState::Active) != self.current_attempt_id.is_some()
             || (matches!(
                 self.state,
@@ -271,6 +350,7 @@ impl ConsoleTaskDetail {
     }
     pub fn from_snapshot(v: TaskSnapshot, observed_at: Timestamp) -> Self {
         Self {
+            admission_deferrals: v.admission_deferrals,
             task_id: v.task_id,
             run_id: v.run_id,
             workflow_id: v.workflow_id,
@@ -333,7 +413,7 @@ impl ConsoleRecord for ConsoleAttemptSummary {
         for id in [&self.task_id, &self.attempt_id, &self.worker_session_id] {
             validate_text(id, 128)?;
         }
-        if !(1..=1000).contains(&self.generation) {
+        if !(1..=MAX_TASK_ATTEMPT_GENERATION).contains(&self.generation) {
             return Err(invalid("invalid attempt generation"));
         }
         for at in [

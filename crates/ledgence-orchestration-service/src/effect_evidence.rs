@@ -14,7 +14,8 @@ impl ApprovedEffectEvidence for ApplicationService {
                 .workflows()?
                 .approved_effect_evidence()?
                 .claim_v2(principal, command)
-                .await?;
+                .await
+                .inspect_err(crate::admission::record_budget_error)?;
             reply.validate_for(principal, command)?;
             Ok(reply)
         })

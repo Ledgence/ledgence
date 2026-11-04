@@ -6,6 +6,7 @@ const APPLICATION_DEADLINE_MS: u64 = 24 * 60 * 60 * 1_000;
 const DRAIN_BATCH: i64 = 16;
 
 struct WorkRow {
+    valid_until: u64,
     kind: String,
     task_id: String,
     failures: u32,
@@ -149,6 +150,9 @@ impl PostgresStore {
         ) {
             self.provider_configured()?;
         }
+        if matches!(work.source, WorkflowWorkSource::AdmissionWait) {
+            self.admission_configured()?;
+        }
         if matches!(work.source, WorkflowWorkSource::EffectResolutionWait) {
             self.audit_audience()?;
         }
@@ -167,6 +171,9 @@ impl PostgresStore {
             ..WorkflowProgress::default()
         };
         let mut wakes = Vec::new();
+        let mut budgeted_decision = false;
+        let mut delegation_deadline = None;
+        let mut budget_refusal = None;
         if snapshot.state.is_terminal() {
             finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "provider_probe_terminal" {
@@ -179,6 +186,20 @@ impl PostgresStore {
             )
             .await?;
             provider::finalize(&mut tx, &run, &row.task_id, now).await?;
+            finish_work(&mut tx, &work.id, now).await?;
+        } else if row.kind == "admission_wait" {
+            let mut run = load_run(
+                &mut tx,
+                &snapshot.scope,
+                Some(&snapshot.workflow_id),
+                None,
+                false,
+            )
+            .await?;
+            if let Some(task) = admission::apply_wait(&mut tx, &mut run, &row.task_id, now).await? {
+                wakes.push(task);
+                progress.activations_scheduled += 1;
+            }
             finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "provider_wait" {
             let mut run = load_run(
@@ -288,6 +309,15 @@ impl PostgresStore {
                         if matches!(
                             &decision.action,
                             WorkflowAction::Wait {
+                                wait: WorkflowWait::ResourceAdmission { .. },
+                                ..
+                            }
+                        ) {
+                            self.admission_configured()?;
+                        }
+                        if matches!(
+                            &decision.action,
+                            WorkflowAction::Wait {
                                 wait: WorkflowWait::ProviderOperation { .. }
                                     | WorkflowWait::Approval {
                                         protection: ApprovalProtection::ProviderOperation,
@@ -296,6 +326,18 @@ impl PostgresStore {
                                 ..
                             }
                         ) {
+                            self.provider_configured()?;
+                        }
+                        if let WorkflowAction::Wait { wait, .. } = &decision.action
+                            && (matches!(
+                                wait,
+                                WorkflowWait::ResourceAdmission {
+                                    request: AdmissionWaitRequest::Provider { .. },
+                                    ..
+                                }
+                            ) || matches!(wait, WorkflowWait::Approval { provider_binding: Some(binding), .. } if binding.admission.is_some()))
+                        {
+                            self.admission_configured()?;
                             self.provider_configured()?;
                         }
                         if matches!(
@@ -322,6 +364,13 @@ impl PostgresStore {
                             )
                             .into());
                         }
+                        let budgeted = run.has_run_budget && !decision.commands().is_empty();
+                        budgeted_decision = budgeted;
+                        if budgeted {
+                            sqlx::query("SAVEPOINT budget_decision")
+                                .execute(&mut *tx)
+                                .await?;
+                        }
                         let applied = apply_decision(
                             &mut tx,
                             &mut run,
@@ -332,8 +381,36 @@ impl PostgresStore {
                             &mut progress,
                         )
                         .await?;
-                        wakes.extend(applied.wakes);
                         now = applied.at;
+                        let authorized = if applied.delegates.is_empty() {
+                            Ok(None)
+                        } else {
+                            crate::run_budget::delegate(
+                                &mut tx,
+                                &run.snapshot.scope,
+                                &run.snapshot.workflow_id,
+                                &applied.delegates,
+                            )
+                            .await?
+                        };
+                        match authorized {
+                            Ok(deadline) => {
+                                delegation_deadline = deadline;
+                                wakes.extend(applied.wakes);
+                            }
+                            Err(reason) => {
+                                budget_refusal = Some(reason);
+                                now = reject_budget_decision(
+                                    &mut tx,
+                                    &snapshot,
+                                    &row.task_id,
+                                    reason,
+                                )
+                                .await?;
+                                progress.children_scheduled = 0;
+                                progress.activations_scheduled = 0;
+                            }
+                        }
                         sqlx::query("UPDATE workflow_activations SET applied_at_ms=$2 WHERE activation_id=$1")
                             .bind(&row.task_id).bind(codec::ms(now)?).execute(&mut *tx).await?;
                     }
@@ -363,7 +440,7 @@ impl PostgresStore {
                 }
             } else if snapshot.state == WorkflowState::Waiting {
                 let bytes: Option<Vec<u8>> = sqlx::query_scalar(
-                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL AND native_wait_activation_id IS NULL AND provider_wait_activation_id IS NULL",
+                    "SELECT wait_keys_bytes FROM workflow_runs WHERE workflow_id=$1 AND external_wait_key IS NULL AND native_wait_activation_id IS NULL AND provider_wait_activation_id IS NULL AND admission_wait_activation_id IS NULL",
                 )
                 .bind(&snapshot.workflow_id)
                 .fetch_optional(&mut *tx)
@@ -400,7 +477,34 @@ impl PostgresStore {
             }
             finish_work(&mut tx, &work.id, now).await?;
         }
+        if let Some(deadline) = delegation_deadline
+            && db::now(&mut tx).await? >= deadline
+        {
+            budget_refusal = Some(RunBudgetDenial::DeadlineExceeded);
+            now = reject_budget_decision(
+                &mut tx,
+                &snapshot,
+                &row.task_id,
+                RunBudgetDenial::DeadlineExceeded,
+            )
+            .await?;
+            sqlx::query("UPDATE workflow_activations SET applied_at_ms=$2 WHERE activation_id=$1")
+                .bind(&row.task_id)
+                .bind(codec::ms(now)?)
+                .execute(&mut *tx)
+                .await?;
+            finish_work(&mut tx, &work.id, now).await?;
+            progress.children_scheduled = 0;
+            progress.activations_scheduled = 0;
+            wakes.clear();
+        }
+        if budgeted_decision && db::now(&mut tx).await? >= row.valid_until {
+            return Err(ContractError::OwnershipLost.into());
+        }
         tx.commit().await?;
+        if let Some(reason) = budget_refusal {
+            Metric::RunBudgetRefusal.record(1.0, reason.into());
+        }
         self.workflow_wakes(&wakes);
         Ok(progress)
     }
@@ -591,6 +695,7 @@ async fn lock_work(
         return Err(ContractError::OwnershipLost.into());
     }
     Ok(Some(WorkRow {
+        valid_until: codec::timestamp(until.ok_or_else(|| corrupt("missing coordinator lease"))?)?,
         resolution_bytes: load_resolution(connection, &row).await?,
         kind: row.try_get("kind")?,
         task_id: row.try_get("task_id")?,
@@ -608,9 +713,55 @@ async fn finish_work(connection: &mut PgConnection, id: &str, now: u64) -> Store
     }
     Ok(())
 }
+/// Discard every child, counter, outbox and checkpoint created by this decision
+/// before recording a refusal against the original owner and activation.
+async fn reject_budget_decision(
+    tx: &mut PgConnection,
+    snapshot: &WorkflowSnapshot,
+    activation: &str,
+    reason: RunBudgetDenial,
+) -> StoreResult<u64> {
+    sqlx::query("ROLLBACK TO SAVEPOINT budget_decision")
+        .execute(&mut *tx)
+        .await?;
+    let mut run = load_run(
+        tx,
+        &snapshot.scope,
+        Some(&snapshot.workflow_id),
+        None,
+        false,
+    )
+    .await?;
+    let key =
+        crate::run_budget::denial_id(tx, &("decision", &snapshot.workflow_id, activation)).await?;
+    crate::run_budget::record_denial(
+        tx,
+        &snapshot.scope,
+        &crate::run_budget::workflow(&snapshot.workflow_id),
+        RunBudgetAction::Delegation,
+        &key,
+        reason,
+        None,
+    )
+    .await?;
+    let now = db::now(tx).await?;
+    fail_run(
+        tx,
+        &mut run,
+        &ApplicationError {
+            kind: reason.code().into(),
+            message: "execution budget refused new delegation".into(),
+        },
+        now,
+    )
+    .await?;
+    Ok(now)
+}
+
 pub(super) struct AppliedDecision {
     pub wakes: Vec<TaskSnapshot>,
     pub at: u64,
+    delegates: Vec<RunBudgetSubject>,
 }
 
 pub(super) async fn apply_decision(
@@ -623,6 +774,7 @@ pub(super) async fn apply_decision(
     progress: &mut WorkflowProgress,
 ) -> StoreResult<AppliedDecision> {
     let mut wakes = Vec::new();
+    let mut delegates = Vec::new();
     let unfinished = if matches!(decision.action, WorkflowAction::Complete { .. }) {
         owned::unfinished(connection, &run.snapshot.workflow_id).await?
     } else {
@@ -742,6 +894,26 @@ pub(super) async fn apply_decision(
             explorer::child(connection, &decision.activation_id, command, &id, None, now).await?;
             task
         };
+        if run.has_run_budget {
+            let member = if command.kind == WorkflowChildKind::Workflow {
+                crate::run_budget::workflow(
+                    task.workflow_id
+                        .as_ref()
+                        .ok_or_else(|| corrupt("missing child workflow"))?,
+                )
+            } else {
+                let member = crate::run_budget::task(&task.task_id);
+                crate::run_budget::inherit(
+                    connection,
+                    &run.snapshot.scope,
+                    &crate::run_budget::workflow(&run.snapshot.workflow_id),
+                    &member,
+                )
+                .await?;
+                member
+            };
+            delegates.push(member);
+        }
         wakes.push(task);
         progress.children_scheduled += 1;
     }
@@ -838,6 +1010,9 @@ pub(super) async fn apply_decision(
                     .into());
                 }
             }
+            // A completed workflow cannot prove a remote callback stopped.
+            // Mark a bounded batch unknown; indexed maintenance closes the rest.
+            admission::drain(connection, run, applied_at).await?;
             // Owned children can finish after the coordinator's initial time
             // sample without locking this parent. Timestamp the observed join.
             applied_at = db::now(connection).await?;
@@ -851,6 +1026,7 @@ pub(super) async fn apply_decision(
             run.external_wait_key = None;
             run.native_wait_activation = None;
             run.provider_wait_activation = None;
+            run.admission_wait_activation = None;
             save_run(connection, run).await?;
         }
         core::WorkflowDisposition::Fail { error } => fail_run(connection, run, &error, now).await?,
@@ -871,6 +1047,7 @@ pub(super) async fn apply_decision(
     };
     explorer::decision(connection, decision, applied_at, resumed).await?;
     Ok(AppliedDecision {
+        delegates,
         wakes,
         at: applied_at,
     })
@@ -990,9 +1167,16 @@ async fn drain(
         db::apply(connection, &transition).await?;
     }
     owned::enqueue_cancellations(connection, &run.snapshot.workflow_id, remaining, now).await?;
+    // Cross-workflow deduplication takes resource -> retained provider effect.
+    // Cancellation must use the same order, with probe task locks taken first.
+    if run.has_admissions {
+        provider::lock_drain_tasks(connection, run).await?;
+    }
+    let admission_pending = admission::drain(connection, run, now).await?;
     let provider_pending = provider::drain(connection, run, now).await?;
-    let unfinished =
-        owned::unfinished(connection, &run.snapshot.workflow_id).await? || provider_pending;
+    let unfinished = owned::unfinished(connection, &run.snapshot.workflow_id).await?
+        || provider_pending
+        || admission_pending;
     if unfinished {
         sqlx::query("UPDATE workflow_work SET available_at_ms=$2,lease_token=NULL,lease_until_ms=NULL WHERE id=$1")
             .bind(work_id).bind(codec::ms(now + 1_000)?).execute(connection).await?;
@@ -1012,6 +1196,7 @@ async fn drain(
         run.external_wait_key = None;
         run.native_wait_activation = None;
         run.provider_wait_activation = None;
+        run.admission_wait_activation = None;
         save_run(connection, run).await?;
         record_history(
             connection,
@@ -1054,6 +1239,7 @@ async fn work_source(
         "wait" => WorkflowWorkSource::Wait,
         "effect_wait" => WorkflowWorkSource::EffectResolutionWait,
         "provider_wait" => WorkflowWorkSource::ProviderWait,
+        "admission_wait" => WorkflowWorkSource::AdmissionWait,
         "provider_probe_terminal" => {
             let task_id: String = row.try_get("task_id")?;
             let marker: Vec<u8> = sqlx::query_scalar(

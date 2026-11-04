@@ -2,7 +2,10 @@
 use crate::*;
 use sqlx::{AssertSqlSafe, Row};
 
-const SCOPED_TABLES: &[&str] = &[
+pub(super) const SCOPED_TABLES: &[&str] = &[
+    "run_budgets",
+    "run_budget_members",
+    "run_budget_entries",
     "tasks",
     "workflow_runs",
     "worker_sessions",
@@ -21,6 +24,9 @@ const SCOPED_TABLES: &[&str] = &[
     "provider_invocations",
     "provider_reports",
     "provider_terminal_facts",
+    "queue_concurrency_policies",
+    "admission_resources",
+    "admission_operator_receipts",
 ];
 
 /// Each non-null byte-collated scope lies between these indexed extremes.

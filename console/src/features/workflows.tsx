@@ -37,6 +37,7 @@ import { CommandFeedback } from "../components/command-feedback";
 import { ExecutionHeading } from "../components/execution-heading";
 import { WorkflowExplorer, WorkflowInput } from "./workflow-explorer";
 import { WorkflowResources } from "./execution-resources";
+import { RunBudgetPanel } from "./run-budget";
 import { DetailPanels, DetailSections } from "./detail-panels";
 export function WorkflowDetailPage() {
   const { workflowId = "" } = useParams();
@@ -109,13 +110,15 @@ export function WorkflowDetailPage() {
             <p className="notice">
               {detail.child_wait
                 ? `Waiting for terminal outcomes: ${detail.child_wait.command_keys.join(", ")}.`
-                : detail.provider_wait
-                  ? `Waiting for provider outcome: ${detail.provider_wait.key}.`
-                  : detail.native_effect_wait
-                    ? `Waiting for operator resolution: ${detail.native_effect_wait.key}.`
-                    : detail.external_wait_key
-                      ? `Waiting for external wake: ${detail.external_wait_key}.`
-                      : "Waiting for a recorded continuation."}
+                : detail.admission_wait
+                  ? `Waiting for resource admission: ${detail.admission_wait.resource}.`
+                  : detail.provider_wait
+                    ? `Waiting for provider outcome: ${detail.provider_wait.key}.`
+                    : detail.native_effect_wait
+                      ? `Waiting for operator resolution: ${detail.native_effect_wait.key}.`
+                      : detail.external_wait_key
+                        ? `Waiting for external wake: ${detail.external_wait_key}.`
+                        : "Waiting for a recorded continuation."}
             </p>
           )}
           {["failing", "cancelling"].includes(
@@ -219,6 +222,24 @@ export function WorkflowDetailPage() {
                           </section>
                         ),
                       },
+                      ...(config.capabilities.run_budgets
+                        ? [
+                            {
+                              id: "budget",
+                              title: "Run budget",
+                              description:
+                                "Shared allowances and decisions for this workflow tree.",
+                              content: (
+                                <RunBudgetPanel
+                                  subject={{
+                                    kind: "workflow",
+                                    workflow_id: workflowId,
+                                  }}
+                                />
+                              ),
+                            },
+                          ]
+                        : []),
                       {
                         id: "input",
                         title: "Input",
@@ -603,11 +624,13 @@ function Waits({
                     ? "External event"
                     : wait.kind === "approval"
                       ? "Approval"
-                      : wait.kind === "provider_operation"
-                        ? "Provider operation"
-                        : wait.kind === "effect_resolution"
-                          ? "Effect recovery"
-                          : "Timer"}
+                      : wait.kind === "resource_admission"
+                        ? "Resource admission"
+                        : wait.kind === "provider_operation"
+                          ? "Provider operation"
+                          : wait.kind === "effect_resolution"
+                            ? "Effect recovery"
+                            : "Timer"}
                 </h3>
                 <CopyText value={wait.wait_key} />
                 <Status value={wait.closed_at === null ? "open" : "closed"} />
@@ -630,6 +653,13 @@ function Waits({
                     waitKey={wait.wait_key}
                     enabled={active && wait.closed_at === null}
                   />
+                )}
+                {wait.admission_wait && (
+                  <p>
+                    Resource <code>{wait.admission_wait.resource}</code> ·
+                    operation <code>{wait.admission_wait.occurrence.key}</code>.
+                    No worker process is held while this wait is parked.
+                  </p>
                 )}
                 {wait.provider_wait && (
                   <p>

@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v7.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json).
+[`console-v14.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -18,7 +18,7 @@ pnpm --dir console contracts:check
 ```
 
 All `/v1/console/*` responses identify the fixed instance with
-`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 7`. The browser rejects
+`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 14`. The browser rejects
 responses that disagree with the configuration used for its query keys.
 Queries and commands reject unknown and duplicate fields. The server binds requests to its configured instance and scope. Responses
 include authoritative identity where their contract requires it.
@@ -33,7 +33,7 @@ instance scope, parent and filters. A page is internally consistent; consecutive
 pages can observe later committed changes. The worker slot cursor uses the
 stable slot position, not a changing snapshot sequence.
 
-The HTTP namespace remains `/v1/console`; the Console contract version is 7.
+The HTTP namespace remains `/v1/console`; the Console contract version is 11.
 Explorer nodes carry backend-projected typed relations with references to existing
 workflow-scoped or activation-scoped identities. Relations remain present when an
 endpoint is outside the current page. See the [query model](../../../docs/console-query-model.md)
@@ -84,3 +84,52 @@ Its wait cursor distinguishes native and legacy waits even when their logical
 keys and timestamps match. Apply the native effect-resolution migration and use
 matching server and Console assets. Historical C5 fixtures remain unchanged.
 Ledgence 0.7.0 uses C5.
+
+## Durable resource admission (development)
+
+C8 adds required, nullable `admission_wait` to workflow detail and wait history.
+A native admission wait is keyed by its parking activation and carries its
+original logical occurrence and resource. Its registration and actual scheduled
+resumption establish graph relationships. An offer reserves capacity; it does
+not prove that the callback ran.
+
+An `admission_operation` node exists only after the original worker source
+accepts a result. Its invocation edge belongs to that source's activation;
+its reference keeps the original occurrence across rewaits and result replay.
+The timeline shows result acceptance as a milestone, without inventing a callback
+interval. Metadata omits effective arguments and output. Expanding the operation
+uses audited, scope-free `POST /v1/console/admissions/inspect` and validates the
+returned source against the selected node. Cancellation and administrative
+release do not fabricate accepted-operation nodes. Historical C7 fixtures remain
+unchanged and are rejected by a C8 browser.
+
+
+C9 requires an admission wait `subject`: `{ "kind": "operation" }` or
+`{ "kind": "provider", "ticket": { "occurrence": ..., "binding_digest": ... } }`.
+Provider subjects retain the original approval occurrence. The selection kind
+`provider` means a non-executable provider ticket was selected; it is not business
+success. The on-demand native admission inspector accepts the strict disjoint
+provider binding and linked provider evidence, keeping report receipts separate
+from generic `finish` results. C8 fixtures remain historical and unchanged.
+
+C10 adds a `task_admission` installation capability, the nullable task requirement,
+admission deferral counts, `deferred` attempts and a scoped, audited task admission
+inspector. C10 task read projections include `admission`/`admission_deferrals`
+where applicable; ungoverned values are null/zero. Both Console and portable
+task submission commands omit an unused requirement; explicit null is invalid. [`task-admission-v1.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/task-admission-v1.json)
+is the shared Rust ledger fixture used by Python and Console tests. C9 remains a
+historical fixture; released Ledgence 0.8.0 remains C7.
+
+The application service recomputes the source binding digest from the immutable
+occurrence, resource and program before returning an inspected ledger. Console
+validates the response shape, instance, generation, resource and cleanup evidence;
+it displays the server-validated digest and does not independently hash the binding
+in the browser. The inspection is read-only and cannot authorize a handler.
+
+C11 adds the `queue_policies` capability and scoped queue policy, occupancy and hold projections. Policy and hold revisions and counters are decimal strings. Queue policy pages resume after a queue name and hold pages after an attempt ID. Mutation bodies bind the inspected revision and request ID. The Console server binds the instance scope and authenticated actor. The C10 fixture is retained for compatibility tests.
+
+C12 adds the authenticated `resource_fair_sharing` capability and `POST /v1/console/resources/{list,inspect,decisions}`. The server binds the scope. These are metadata reads. Decisions are ordered by descending per-resource sequence. Use `next` as the exclusive `before` cursor. Sequence, offer generation and decision policy revision are decimal strings. The C11 fixture remains available.
+
+C13 adds the authenticated `run_budgets` capability, root budget submission, and scoped `POST /v1/console/budgets/{inspect,entries}` metadata routes. The server binds instance scope and resolves the root using execution ownership. An immutable C12 fixture remains in the test corpus.
+
+C14 exposes named-resource policy administration and retained source discovery as separate capabilities. The browser can submit a revision-bound resource policy with an operator reason. An operator with `sensitive_read` can list outstanding dispatch sources by resource even after execution history has been collected. Each successful source-page response is audited. C13 remains a historical compatibility fixture.

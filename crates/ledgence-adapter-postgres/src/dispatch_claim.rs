@@ -120,7 +120,30 @@ impl PostgresStore {
             );
         }
         let now = db::now(&mut tx).await?;
-        let future = if task.state == TaskState::Queued && task.available_at > now {
+        // An old broker record may outlive its offer. Acknowledge that precise
+        // generation only after proving that its durable wait owns redelivery.
+        let governed = task.input.admission.is_some()
+            && task.state == TaskState::Queued
+            && task.attempt_count.checked_add(1) == Some(command.dispatch.generation);
+        let compatible = session.features.iter().any(|v| v == TASK_ADMISSION_FEATURE);
+        let legacy_until = if governed && !compatible {
+            Some(crate::task_admission::defer_legacy_claim(&mut tx, &task).await?)
+        } else {
+            None
+        };
+        let deferred = if governed && compatible {
+            !crate::task_admission::validate_candidate(
+                &mut tx,
+                &task,
+                self.admission_configured()?.dispatch == AdmissionDispatchPolicy::Enabled,
+            )
+            .await?
+        } else {
+            legacy_until.is_some()
+        };
+        let future = if deferred {
+            true
+        } else if task.state == TaskState::Queued && task.available_at > now {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM dispatch_intents WHERE task_id=$1 AND generation=$2 AND destination=$3 AND available_at_ms=$4)")
                 .bind(&task.task_id).bind(i64::from(command.dispatch.generation)).bind(destination.as_deref()).bind(codec::ms(task.available_at)?)
                 .fetch_one(&mut *tx).await?
@@ -129,71 +152,106 @@ impl PostgresStore {
         };
         let mut producer = None;
         let mut queue_age = None;
-        let (transition, disposition) =
-            match core::classify_dispatch(&task, &command.dispatch, now, future)? {
-                core::DispatchDecision::Handled(disposition) => {
-                    // Task-lock contention can outlive the session even when no
-                    // execution authority is returned. Revalidate before writing
-                    // the nonauthority receipt and consuming its sequence.
-                    let transition = core::acquire(
-                        core::Acquisition {
-                            session: Some(&session),
-                            cursor: cursor.as_ref(),
-                            previous: previous.as_ref().map(|(t, a)| (t, a)),
-                            candidate: None,
-                            ids: None,
-                        },
-                        acquire,
-                        db::now(&mut tx).await?,
-                    )?;
-                    (transition, disposition)
+        let mut decision = core::classify_dispatch(&task, &command.dispatch, now, future)?;
+        if let Some(available_at) = legacy_until {
+            decision = core::DispatchDecision::Handled(ClaimDisposition::Deferred { available_at });
+        } else if deferred {
+            decision = core::DispatchDecision::Handled(ClaimDisposition::AdmissionDeferred {
+                occurrence: TaskAdmissionOccurrence {
+                    scope: task.scope(),
+                    task_id: task.task_id.clone(),
+                    generation: command.dispatch.generation,
+                },
+            });
+        }
+        let gate = if matches!(decision, core::DispatchDecision::Ready) {
+            crate::queue_concurrency::gate(&mut tx, &acquire.scope, &acquire.queue).await?
+        } else {
+            None
+        };
+        if gate.as_ref().is_some_and(|g| g.full) {
+            let available_at = crate::queue_concurrency::defer_broker(
+                &mut tx,
+                &task,
+                destination.as_deref().expect("external route validated"),
+                command.dispatch.generation,
+            )
+            .await?;
+            decision = core::DispatchDecision::Handled(ClaimDisposition::Deferred { available_at });
+        }
+        let (transition, disposition) = match decision {
+            core::DispatchDecision::Handled(disposition) => {
+                // Task-lock contention can outlive the session even when no
+                // execution authority is returned. Revalidate before writing
+                // the nonauthority receipt and consuming its sequence.
+                let transition = core::acquire(
+                    core::Acquisition {
+                        session: Some(&session),
+                        cursor: cursor.as_ref(),
+                        previous: previous.as_ref().map(|(t, a)| (t, a)),
+                        candidate: None,
+                        ids: None,
+                    },
+                    acquire,
+                    db::now(&mut tx).await?,
+                )?;
+                (transition, disposition)
+            }
+            core::DispatchDecision::Ready => {
+                if let Some((old_task, old_attempt)) = &mut previous
+                    && old_task.task_id == task.task_id
+                {
+                    *old_task = task.clone();
+                    *old_attempt =
+                        db::load_attempt(&mut tx, &task, &old_attempt.lease.owner.attempt_id)
+                            .await?;
                 }
-                core::DispatchDecision::Ready => {
-                    if let Some((old_task, old_attempt)) = &mut previous
-                        && old_task.task_id == task.task_id
-                    {
-                        *old_task = task.clone();
-                        *old_attempt =
-                            db::load_attempt(&mut tx, &task, &old_attempt.lease.owner.attempt_id)
-                                .await?;
-                    }
-                    let mut ids = core::AttemptIds {
-                        attempt_id: db::id(&mut tx, "att").await?,
-                        lease_id: db::id(&mut tx, "lease").await?,
-                        event_id: db::id(&mut tx, "evt").await?,
-                        trace: task.origin_trace.clone(),
-                    };
-                    let transport = self.trace_bridge.context(&tracing::Span::current());
-                    let span = crate::delivery::invocation_span(&task, acquire, &ids);
-                    self.trace_bridge
-                        .set_parent(&span, task.origin_trace.as_ref());
-                    if let Some(transport) = &transport {
-                        self.trace_bridge.add_link(&span, transport);
-                    }
-                    ids.trace = self
-                        .trace_bridge
-                        .context(&span)
-                        .or_else(|| task.origin_trace.clone());
-                    let claimed_at = db::now(&mut tx).await?;
-                    queue_age = Some(claimed_at.saturating_sub(task.available_at));
-                    let transition = core::acquire(
-                        core::Acquisition {
-                            session: Some(&session),
-                            cursor: cursor.as_ref(),
-                            previous: previous.as_ref().map(|(t, a)| (t, a)),
-                            candidate: Some(&task),
-                            ids: Some(&ids),
-                        },
-                        acquire,
-                        claimed_at,
-                    )?;
-                    let disposition = ClaimDisposition::Claimed {
-                        reply: transition.reply.clone(),
-                    };
-                    producer = Some(span);
-                    (transition, disposition)
+                let mut ids = core::AttemptIds {
+                    attempt_id: db::id(&mut tx, "att").await?,
+                    lease_id: db::id(&mut tx, "lease").await?,
+                    event_id: db::id(&mut tx, "evt").await?,
+                    trace: task.origin_trace.clone(),
+                };
+                let transport = self.trace_bridge.context(&tracing::Span::current());
+                let span = crate::delivery::invocation_span(&task, acquire, &ids);
+                self.trace_bridge
+                    .set_parent(&span, task.origin_trace.as_ref());
+                if let Some(transport) = &transport {
+                    self.trace_bridge.add_link(&span, transport);
                 }
-            };
+                ids.trace = self
+                    .trace_bridge
+                    .context(&span)
+                    .or_else(|| task.origin_trace.clone());
+                let claimed_at = db::now(&mut tx).await?;
+                queue_age = Some(claimed_at.saturating_sub(task.available_at));
+                let mut transition = core::acquire(
+                    core::Acquisition {
+                        session: Some(&session),
+                        cursor: cursor.as_ref(),
+                        previous: previous.as_ref().map(|(t, a)| (t, a)),
+                        candidate: Some(&task),
+                        ids: Some(&ids),
+                    },
+                    acquire,
+                    claimed_at,
+                )?;
+                crate::queue_concurrency::prepare(
+                    &mut tx,
+                    &mut transition,
+                    gate.as_ref(),
+                    claimed_at,
+                )
+                .await?;
+                crate::task_admission::prepare_assignment(&mut tx, &mut transition, &session)
+                    .await?;
+                let disposition = ClaimDisposition::Claimed {
+                    reply: transition.reply.clone(),
+                };
+                producer = Some(span);
+                (transition, disposition)
+            }
+        };
         if let Some(changes) = &transition.changes {
             let attempt = changes.attempt.as_ref().ok_or_else(|| {
                 ContractError::Unavailable("claim transition omitted attempt".into())
@@ -312,9 +370,9 @@ impl PostgresStore {
             acquire,
             db::now(tx).await?,
         )?;
-        saved.disposition = ClaimDisposition::Claimed {
-            reply: transition.reply,
-        };
+        let mut reply = transition.reply;
+        crate::queue_concurrency::replay(tx, &mut reply).await?;
+        saved.disposition = ClaimDisposition::Claimed { reply };
         saved.validate_reply_against(command)?;
         Ok(())
     }

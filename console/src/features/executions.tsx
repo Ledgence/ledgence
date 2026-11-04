@@ -35,6 +35,8 @@ import { ExecutionHeading } from "../components/execution-heading";
 import { TaskResources, AttemptResources } from "./execution-resources";
 import { effectDetailPath } from "../api/effects";
 import { DetailPanels, DetailSections } from "./detail-panels";
+import { RunBudgetPanel } from "./run-budget";
+import { TaskAdmissionPanel } from "./task-admission";
 export function ExecutionDetailPage() {
   const { taskId = "" } = useParams();
   const location = useLocation();
@@ -146,6 +148,45 @@ export function ExecutionDetailPage() {
                         },
                       ]
                     : [
+                        ...(config.capabilities.run_budgets
+                          ? [
+                              {
+                                id: "budget",
+                                title: "Run budget",
+                                description:
+                                  "Shared allowances and decisions for this execution tree.",
+                                content: (
+                                  <RunBudgetPanel
+                                    subject={{ kind: "task", task_id: taskId }}
+                                  />
+                                ),
+                              },
+                            ]
+                          : []),
+                        ...(task.admission
+                          ? [
+                              {
+                                id: "admission",
+                                title: "Resource admission",
+                                description:
+                                  "Inspect the capacity reservation and invocation evidence for this task.",
+                                content: (
+                                  <Permission capability="sensitive_read">
+                                    <TaskAdmissionPanel
+                                      key={taskId}
+                                      taskId={taskId}
+                                      resource={task.admission.resource}
+                                      current={Math.max(
+                                        1,
+                                        task.attempt_count +
+                                          (task.state === "queued" ? 1 : 0),
+                                      )}
+                                    />
+                                  </Permission>
+                                ),
+                              },
+                            ]
+                          : []),
                         {
                           id: "identity",
                           title: "Execution details",
@@ -175,6 +216,20 @@ export function ExecutionDetailPage() {
                                     value={query.data?.observed_at ?? null}
                                   />
                                 </Field>
+                                {task.admission && (
+                                  <>
+                                    <Field label="Required resource">
+                                      {task.admission.resource}
+                                    </Field>
+                                    <Field label="Admission deferrals">
+                                      {task.admission_deferrals}
+                                    </Field>
+                                    <Field label="Retry attempts used">
+                                      {task.attempt_count -
+                                        task.admission_deferrals}
+                                    </Field>
+                                  </>
+                                )}
                                 <Field label="Attempts">
                                   {task.attempt_count}
                                 </Field>

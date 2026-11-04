@@ -5,6 +5,10 @@
 //! under the required locks, obtain fresh authoritative time, call a transition,
 //! persist ALL returned records/history, and commit before returning its reply.
 
+mod task_admission;
+pub use task_admission::*;
+mod admission;
+pub use admission::*;
 mod completion;
 pub use completion::*;
 mod workflow;
@@ -84,6 +88,7 @@ pub fn submit(
         terminal_at: None,
         current_attempt_id: None,
         attempt_count: 0,
+        admission_deferrals: 0,
         cancel_requested_at: None,
     };
     Ok(Transition {
@@ -127,6 +132,7 @@ pub fn open_session(
         queue: queue.into(),
         concurrency,
         expires_at: add_time(now, SESSION_VALIDITY_MS)?,
+        features: vec![],
     })
 }
 
@@ -274,6 +280,7 @@ fn authority(task: &TaskSnapshot, attempt: &AttemptSnapshot, now: Timestamp) -> 
         dispatch_allowed: valid
             && !cancellation
             && attempt.settlement.is_none()
+            && task.input.admission.is_none()
             && attempt
                 .last_renewal
                 .as_ref()

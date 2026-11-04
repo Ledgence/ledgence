@@ -154,6 +154,18 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.contexts.append(context)
         return context
 
+    async def test_provider_grant_window_is_checked_inside_the_callback(self):
+        from unittest.mock import patch
+        def add_grant(operation, result):
+            if operation == "provider_operation.claim.v1":
+                result["source"]["budget_grant"]={"authorized_at":50,"expires_at":55}
+        self.mutate_reply=add_grant
+        with patch("ledgence.worker.providers.monotonic",side_effect=[10,10.006]):
+            outcome=await self.context().approved_provider_operation()
+        self.assertEqual(outcome.to_dict(), ticket())
+        self.assertEqual(CALLS,[])
+        self.assertEqual([kind for kind,_ in self.requests],["provider_operation.claim.v1"])
+
     async def test_one_dispatch_one_frozen_report_no_journal_and_repeated_await(self):
         context = self.context()
         first = context.approved_provider_operation()
@@ -169,6 +181,38 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision["wait"]["occurrence"], occurrence())
         self.assertEqual(context._validate_decision(decision), decision)
         self.assertEqual(len(self.requests), 2)
+
+    async def test_checked_callback_survives_scheduling_and_claim_await_mutations(self):
+        replacements = []
+
+        async def replacement(request):
+            replacements.append(request.arguments)
+            return ProviderReport.pending(target=request.target)
+
+        for timing in ("scheduled", "claim_reply"):
+            with self.subTest(timing=timing):
+                self.provider._dispatch = dispatch
+                self.requests.clear()
+                CALLS.clear()
+                self.mutate_reply = None
+                context = self.context()
+                pending = context.approved_provider_operation()
+                if timing == "scheduled":
+                    self.provider._dispatch = replacement
+                else:
+                    def mutate(op, _reply):
+                        if op == "provider_operation.claim.v1":
+                            self.provider._dispatch = replacement
+                    self.mutate_reply = mutate
+                result = await pending
+                self.assertEqual(result.to_dict(), ticket())
+                self.assertEqual([call[0] for call in CALLS], ["dispatch"])
+                self.assertEqual(CALLS[0][1], {"amount": 50})
+                self.assertEqual(replacements, [])
+                self.assertEqual([op for op, _ in self.requests], [
+                    "provider_operation.claim.v1", "provider_operation.report.v1",
+                ])
+        self.provider._dispatch = dispatch
 
     async def test_existing_receipt_never_dispatches_or_reports(self):
         self.mode = "existing"

@@ -1225,3 +1225,80 @@ fn nested_workflow_ancestry_is_bound_to_each_attempt_and_its_report() {
         ContractError::Conflict
     );
 }
+
+#[test]
+fn permanent_budget_refusal_closes_without_worker_settlement_or_retry() {
+    let Claimed {
+        mut task, attempt, ..
+    } = claimed();
+    task.input.admission = Some(TaskAdmissionRequirement {
+        resource: "model".into(),
+    });
+    let owner = &attempt.lease.owner;
+    let denied = deny_task_admission(
+        &task,
+        &attempt,
+        owner,
+        RunBudgetDenial::CallsExhausted,
+        NOW + 1,
+    )
+    .unwrap();
+    assert_eq!(denied.reply, TaskState::Failed);
+    assert!(denied.task.current_attempt_id.is_none());
+    let closed = denied.attempt.as_ref().unwrap();
+    assert!(closed.settlement.is_none());
+    assert_eq!(closed.quiescence, Quiescence::Unconfirmed);
+    let confirmed = confirm_denied_task_quiescence(&denied.task, closed, owner, NOW + 3).unwrap();
+    assert_eq!(
+        confirmed.attempt.as_ref().unwrap().quiescence,
+        Quiescence::Confirmed
+    );
+    assert_eq!(confirmed.task.terminal_at, denied.task.terminal_at);
+    assert_eq!(
+        confirmed.history[0].reason,
+        TransitionReason::CleanupConfirmed
+    );
+    assert!(
+        confirm_denied_task_quiescence(
+            &confirmed.task,
+            confirmed.attempt.as_ref().unwrap(),
+            owner,
+            NOW + 4
+        )
+        .unwrap()
+        .history
+        .is_empty()
+    );
+    assert!(matches!(
+        task_result(&denied.task, Some(closed)).unwrap().outcome,
+        Some(TaskOutcome::Failed {
+            failure: TaskFailure::BudgetDenied {
+                reason: RunBudgetDenial::CallsExhausted
+            },
+            execution_may_have_started: false,
+            ..
+        })
+    ));
+    let mut started = attempt.clone();
+    started.execution_may_have_started = true;
+    assert!(
+        deny_task_admission(
+            &task,
+            &started,
+            owner,
+            RunBudgetDenial::CallsExhausted,
+            NOW + 1
+        )
+        .is_err()
+    );
+    assert!(
+        deny_task_admission(
+            &task,
+            &attempt,
+            owner,
+            RunBudgetDenial::DeadlineExceeded,
+            attempt.deadline
+        )
+        .is_err()
+    );
+}

@@ -124,6 +124,63 @@ impl ConsoleProviderWait {
         Ok(())
     }
 }
+/// Public metadata only; action arguments remain in the audited inspector.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ConsoleAdmissionSubject {
+    #[default]
+    Operation,
+    Provider {
+        ticket: ProviderOperationTicket,
+    },
+}
+impl ConsoleAdmissionSubject {
+    pub fn from_binding(binding: &AdmissionBinding) -> Self {
+        match binding.provider() {
+            Some(provider) => Self::Provider {
+                ticket: provider.ticket.clone(),
+            },
+            None => Self::Operation,
+        }
+    }
+    pub fn validate_for(&self, occurrence: &AdmissionOccurrence) -> Result<()> {
+        if let Self::Provider { ticket } = self {
+            ticket.validate()?;
+            if ticket.occurrence.scope != occurrence.scope
+                || ticket.occurrence.workflow_id != occurrence.workflow_id
+                || ticket.occurrence.activation_id != occurrence.origin_activation_id
+            {
+                return Err(invalid(
+                    "provider admission subject disagrees with occurrence",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsoleAdmissionWait {
+    #[serde(default)]
+    pub subject: ConsoleAdmissionSubject,
+    pub parking_activation_id: String,
+    pub key: String,
+    pub occurrence: AdmissionOccurrence,
+    pub resource: String,
+}
+impl ConsoleAdmissionWait {
+    pub fn validate(&self, workflow_id: &str) -> Result<()> {
+        validate_text(&self.parking_activation_id, 128)?;
+        validate_text(&self.key, 128)?;
+        self.occurrence.validate()?;
+        self.subject.validate_for(&self.occurrence)?;
+        crate::admission::name(&self.resource)?;
+        if self.occurrence.workflow_id != workflow_id {
+            return Err(invalid("admission wait belongs to another workflow"));
+        }
+        Ok(())
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleWorkflowDetail {
@@ -135,6 +192,8 @@ pub struct ConsoleWorkflowDetail {
     pub native_effect_wait: Option<ConsoleNativeEffectWait>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub provider_wait: Option<ConsoleProviderWait>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub admission_wait: Option<ConsoleAdmissionWait>,
     pub observed_at: Timestamp,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +345,7 @@ pub enum ConsoleWaitKind {
     Approval,
     EffectResolution,
     ProviderOperation,
+    ResourceAdmission,
 }
 impl ConsoleWaitKind {
     pub fn as_str(self) -> &'static str {
@@ -295,6 +355,7 @@ impl ConsoleWaitKind {
             Self::Approval => "approval",
             Self::EffectResolution => "effect_resolution",
             Self::ProviderOperation => "provider_operation",
+            Self::ResourceAdmission => "resource_admission",
         }
     }
 }
@@ -312,6 +373,8 @@ pub struct ConsoleWorkflowWait {
     pub native_effect_wait: Option<ConsoleNativeEffectWait>,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub provider_wait: Option<ConsoleProviderWait>,
+    #[serde(deserialize_with = "crate::observation::required_option")]
+    pub admission_wait: Option<ConsoleAdmissionWait>,
 }
 impl ConsoleRecord for ConsoleWorkflowWait {
     fn position(&self) -> ConsolePosition {
@@ -337,6 +400,18 @@ impl ConsoleRecord for ConsoleWorkflowWait {
         }
         if (self.kind == ConsoleWaitKind::ProviderOperation) != self.provider_wait.is_some() {
             return Err(invalid("inconsistent provider wait metadata"));
+        }
+        if (self.kind == ConsoleWaitKind::ResourceAdmission) != self.admission_wait.is_some() {
+            return Err(invalid("inconsistent admission wait metadata"));
+        }
+        if let Some(wait) = &self.admission_wait {
+            wait.validate(&self.workflow_id)?;
+            if wait.key != self.wait_key
+                || wait.parking_activation_id != self.activation_id
+                || self.deadline.is_none()
+            {
+                return Err(invalid("inconsistent admission wait identity"));
+            }
         }
         if let Some(wait) = &self.provider_wait {
             wait.validate(&self.workflow_id)?;

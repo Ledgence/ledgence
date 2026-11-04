@@ -59,10 +59,9 @@ jobs:
         run: |
           pnpm --dir console test
           pnpm --dir console test:e2e
-      - name: Build source-qualified static assets and the Ledgence executable
-        run: |
-          pnpm --dir console build
-          cargo build --locked --all-features -p ledgence-cli --bin ledgence
+      - name: Build the Ledgence executable
+        # test:e2e already built and checked the static assets used below.
+        run: cargo build --locked --all-features -p ledgence-cli --bin ledgence
       - name: Exercise Console with real PostgreSQL, HTTP, workers and browsers
         env:
           LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
@@ -70,6 +69,18 @@ jobs:
           python tools/check-console.py --binaries target/debug --console-dist console/dist \
             --evidence "$RUNNER_TEMP/console-native" \
             --browser-command pnpm --dir console test:live
+      - name: Exercise credential-bound queue management in Chromium and WebKit
+        run: |
+          python tools/check-queue-concurrency.py --scenario browser --binaries target/debug --console-dist console/dist \
+            --evidence "$RUNNER_TEMP/console-queue-policy" --browser-command pnpm --dir console test:live
+      - name: Read inherited allowances and submit a budget in Chromium and WebKit
+        env:
+          LEDGENCE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          python tools/check-python-client.py --venv-dir "$RUNNER_TEMP/console-budget-client"
+          python tools/check-resource-admission.py --run-budget --binaries target/debug \
+            --python-client "$RUNNER_TEMP/console-budget-client/bin/python" --console-dist console/dist \
+            --evidence "$RUNNER_TEMP/console-run-budget" --browser-command pnpm --dir console test:live
       - name: Preserve failures and exact acceptance evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -77,6 +88,8 @@ jobs:
           name: console-qualification
           if-no-files-found: ignore
           path: |
+            ${{ runner.temp }}/console-queue-policy
+            ${{ runner.temp }}/console-run-budget
             ${{ runner.temp }}/console-native
             console/playwright-report
             console/test-results

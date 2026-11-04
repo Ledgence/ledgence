@@ -123,36 +123,63 @@ pub enum AuditReadKind {
     ApprovalList,
     ApprovalDecision,
     EffectInspect,
+    AdmissionInspect,
+    TaskAdmissionInspect,
+    QueueHolds,
+    ResourceSources,
 }
 impl AuditReadKind {
     fn matches(self, resource: &AuditResource) -> bool {
         matches!(
             (self, resource),
-            (
-                Self::TaskInspect | Self::TaskResult,
-                AuditResource::Task { .. }
-            ) | (
-                Self::WorkflowResult | Self::WorkflowInput,
-                AuditResource::Workflow { .. }
-            ) | (Self::LocalStepInspect, AuditResource::LocalStep { .. })
+            (Self::QueueHolds, AuditResource::Queue { .. })
+                | (Self::ResourceSources, AuditResource::Resource { .. })
+                | (
+                    Self::TaskInspect | Self::TaskResult,
+                    AuditResource::Task { .. }
+                )
+                | (
+                    Self::WorkflowResult | Self::WorkflowInput,
+                    AuditResource::Workflow { .. }
+                )
+                | (Self::LocalStepInspect, AuditResource::LocalStep { .. })
                 | (
                     Self::ApprovalInspect | Self::ApprovalDecision,
                     AuditResource::Approval { .. }
                 )
                 | (Self::ApprovalList, AuditResource::ApprovalPage { .. })
                 | (Self::EffectInspect, AuditResource::Effect { .. })
+                | (Self::AdmissionInspect, AuditResource::Admission { .. })
+                | (
+                    Self::TaskAdmissionInspect,
+                    AuditResource::TaskAdmission { .. }
+                )
         )
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditResourceKind {
+    Queue,
+    Resource,
     Task,
     Workflow,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditResource {
+    Queue {
+        queue: String,
+    },
+    TaskAdmission {
+        occurrence: TaskAdmissionOccurrence,
+    },
+    Resource {
+        name: String,
+    },
+    Admission {
+        occurrence: AdmissionOccurrence,
+    },
     Effect {
         workflow_id: String,
         activation_id: String,
@@ -181,7 +208,13 @@ pub enum AuditResource {
 impl AuditResource {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
+            Self::Queue { queue } => (AuditResourceKind::Queue, queue),
             Self::Task { task_id } => (AuditResourceKind::Task, task_id),
+            Self::TaskAdmission { occurrence } => (AuditResourceKind::Task, &occurrence.task_id),
+            Self::Resource { name } => (AuditResourceKind::Resource, name),
+            Self::Admission { occurrence } => {
+                (AuditResourceKind::Workflow, &occurrence.workflow_id)
+            }
             Self::Workflow { workflow_id }
             | Self::LocalStep { workflow_id, .. }
             | Self::Approval { workflow_id, .. }
@@ -192,6 +225,9 @@ impl AuditResource {
     pub fn validate(&self) -> Result<()> {
         validate_text(self.target().1, 128)?;
         match self {
+            Self::Admission { occurrence } => occurrence.validate()?,
+            Self::TaskAdmission { occurrence } => occurrence.validate()?,
+            Self::Resource { name } => crate::admission::name(name)?,
             Self::Effect {
                 activation_id,
                 approval_key,
@@ -229,6 +265,42 @@ impl AuditResource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditOperation {
+    QueuePolicyAccepted {
+        queue: String,
+        request_id: String,
+        revision: u64,
+        policy_digest: ledgence_worker_api::Digest,
+        reason: String,
+    },
+    QueueHoldReleased {
+        queue: String,
+        task_id: String,
+        attempt_id: String,
+        request_id: String,
+        revision: u64,
+        reason: String,
+    },
+    TaskAdmissionReleased {
+        occurrence: TaskAdmissionOccurrence,
+        source_id: String,
+        request_id: String,
+        revision: u64,
+        reason: String,
+    },
+    ResourcePolicyAccepted {
+        name: String,
+        request_id: String,
+        revision: u64,
+        policy_digest: ledgence_worker_api::Digest,
+        reason: String,
+    },
+    AdmissionReleased {
+        occurrence: AdmissionOccurrence,
+        source_id: String,
+        request_id: String,
+        revision: u64,
+        reason: String,
+    },
     EffectResolved {
         occurrence: EffectOccurrence,
         resolution_id: String,
@@ -254,6 +326,16 @@ pub enum AuditOperation {
 impl AuditOperation {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
+            Self::QueuePolicyAccepted { queue, .. } | Self::QueueHoldReleased { queue, .. } => {
+                (AuditResourceKind::Queue, queue)
+            }
+            Self::ResourcePolicyAccepted { name, .. } => (AuditResourceKind::Resource, name),
+            Self::TaskAdmissionReleased { occurrence, .. } => {
+                (AuditResourceKind::Task, &occurrence.task_id)
+            }
+            Self::AdmissionReleased { occurrence, .. } => {
+                (AuditResourceKind::Workflow, &occurrence.workflow_id)
+            }
             Self::EffectResolved { occurrence, .. } => {
                 (AuditResourceKind::Workflow, &occurrence.workflow_id)
             }
@@ -265,6 +347,72 @@ impl AuditOperation {
     }
     pub fn validate(&self) -> Result<()> {
         match self {
+            Self::QueuePolicyAccepted {
+                queue,
+                request_id,
+                revision,
+                policy_digest,
+                reason,
+            } => {
+                validate_text(queue, 128)?;
+                validate_text(request_id, 128)?;
+                crate::admission::positive(*revision)?;
+                policy_digest.validate()?;
+                validate_text(reason, 1024)?;
+            }
+            Self::QueueHoldReleased {
+                queue,
+                task_id,
+                attempt_id,
+                request_id,
+                revision,
+                reason,
+            } => {
+                for id in [queue, task_id, attempt_id, request_id] {
+                    validate_text(id, 128)?;
+                }
+                crate::admission::positive(*revision)?;
+                validate_text(reason, 1024)?;
+            }
+            Self::TaskAdmissionReleased {
+                occurrence,
+                source_id,
+                request_id,
+                revision,
+                reason,
+            } => {
+                occurrence.validate()?;
+                validate_text(source_id, 128)?;
+                validate_text(request_id, 128)?;
+                crate::admission::positive(*revision)?;
+                validate_text(reason, 1024)?;
+            }
+            Self::ResourcePolicyAccepted {
+                name,
+                request_id,
+                revision,
+                policy_digest,
+                reason,
+            } => {
+                crate::admission::name(name)?;
+                validate_text(request_id, 128)?;
+                crate::admission::positive(*revision)?;
+                policy_digest.validate()?;
+                validate_text(reason, 1024)?;
+            }
+            Self::AdmissionReleased {
+                occurrence,
+                source_id,
+                request_id,
+                revision,
+                reason,
+            } => {
+                occurrence.validate()?;
+                validate_text(source_id, 128)?;
+                validate_text(request_id, 128)?;
+                crate::admission::positive(*revision)?;
+                validate_text(reason, 1024)?;
+            }
             Self::EffectResolved {
                 occurrence,
                 resolution_id,
@@ -333,9 +481,21 @@ impl AuditEvent {
         self.audience.validate()?;
         self.actor.validate()?;
         self.operation.validate()?;
-        if let AuditOperation::EffectResolved { occurrence, .. } = &self.operation
-            && occurrence.scope != self.audience.scope
-        {
+        let occurrence_scope = match &self.operation {
+            AuditOperation::EffectResolved { occurrence, .. } => Some(&occurrence.scope),
+            AuditOperation::TaskAdmissionReleased { occurrence, .. }
+            | AuditOperation::SensitiveResponse {
+                resource: AuditResource::TaskAdmission { occurrence },
+                ..
+            } => Some(&occurrence.scope),
+            AuditOperation::AdmissionReleased { occurrence, .. }
+            | AuditOperation::SensitiveResponse {
+                resource: AuditResource::Admission { occurrence },
+                ..
+            } => Some(&occurrence.scope),
+            _ => None,
+        };
+        if occurrence_scope.is_some_and(|scope| scope != &self.audience.scope) {
             return Err(invalid("assessment audit scope"));
         }
         bounded(self, AUDIT_EVENT_MAX_BYTES, "audit event")

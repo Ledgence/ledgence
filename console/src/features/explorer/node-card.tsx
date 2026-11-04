@@ -54,7 +54,8 @@ export function WorkCard({ node }: { node: ExplorerNode }) {
     node.kind === "entrypoint" ||
     node.kind === "external_wait" ||
     node.kind === "native_effect_wait" ||
-    node.kind === "provider_wait";
+    node.kind === "provider_wait" ||
+    node.kind === "admission_wait";
   const Icon =
     node.kind === "entrypoint"
       ? LogIn
@@ -69,9 +70,10 @@ export function WorkCard({ node }: { node: ExplorerNode }) {
                 ? ShieldCheck
                 : Clock3
             : node.kind === "native_effect_wait" ||
-                node.kind === "provider_wait"
+                node.kind === "provider_wait" ||
+                node.kind === "admission_wait"
               ? ShieldCheck
-              : node.kind === "local"
+              : node.kind === "local" || node.kind === "admission_operation"
                 ? Code2
                 : node.execution.kind === "workflow"
                   ? Workflow

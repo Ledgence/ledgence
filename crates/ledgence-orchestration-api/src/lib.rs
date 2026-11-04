@@ -10,10 +10,16 @@
 
 pub use ledgence_worker_api::TraceContext;
 
+mod run_budget;
+pub use run_budget::*;
+mod queue_policies;
+pub use queue_policies::*;
 mod operator_audit;
 pub use operator_audit::*;
 mod access;
+mod admission;
 pub use access::*;
+pub use admission::*;
 mod acquisition;
 mod completion;
 pub mod console;
@@ -29,6 +35,7 @@ mod effect_evidence;
 mod effect_evidence_reads;
 mod effect_resolution;
 mod observation;
+mod provider_admission;
 mod provider_binding;
 mod provider_operation;
 mod provider_reads;
@@ -36,6 +43,7 @@ mod provider_wait;
 mod retention;
 mod storage;
 mod submission;
+mod task_admission;
 mod workflow;
 mod workflow_approvals;
 mod workflow_children;
@@ -52,6 +60,7 @@ pub use effect_evidence::*;
 pub use effect_evidence_reads::*;
 pub use effect_resolution::*;
 pub use observation::*;
+pub use provider_admission::*;
 pub use provider_binding::*;
 pub use provider_operation::*;
 pub use provider_reads::*;
@@ -59,6 +68,7 @@ pub use provider_wait::*;
 pub use retention::*;
 pub use storage::*;
 pub use submission::*;
+pub use task_admission::*;
 pub use workflow::*;
 pub use workflow_approvals::*;
 pub use workflow_children::*;
@@ -79,6 +89,7 @@ pub enum ContractError {
     /// The verified principal lacks permission. No operation was authorized.
     Forbidden,
     InvalidInput(String),
+    RunBudgetDenied(RunBudgetDenial),
     /// Integrated acquisition rejected because the queue requires external
     /// dispatch. This exact operation granted no authority and committed no
     /// consumer-cursor mutation. Existing completed sequences must replay before

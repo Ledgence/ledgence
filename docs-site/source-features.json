@@ -95,5 +95,35 @@
     "sourceRef": "v0.8.0",
     "guide": "/how-to/recover-provider-operations",
     "verifiedOn": "2026-11-03"
+  },
+  "resourceAdmission": {
+    "title": "Shared capacity, resource policy management and audited source inspection",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/control-resource-capacity"
+  },
+  "runBudgets": {
+    "title": "Inherited run budgets for governed calls and delegations",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/share-run-budgets"
+  },
+  "resourceFairSharing": {
+    "title": "Weighted resource offers between queue groups with scoped decision history",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/share-resource-offers"
+  },
+  "workerPollPlan": {
+    "title": "Weighted polling of multiple integrated or SQS Standard queues by one worker",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/share-worker-polls"
+  },
+  "queueConcurrency": {
+    "title": "Cluster-wide queue limits, source-bound cleanup and audited recovery",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/limit-queue-concurrency"
   }
 }

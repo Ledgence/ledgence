@@ -137,7 +137,27 @@ impl ApplicationService {
             }
             _ => false,
         });
-        let applied = if provider {
+        let admission = matches!(work.source, WorkflowWorkSource::AdmissionWait)
+            || work.outcome.as_ref().is_some_and(|outcome| match outcome {
+                TaskOutcome::Succeeded { output, .. } => WorkflowDecision::decode(output)
+                    .is_ok_and(|d| {
+                        matches!(
+                            d.action,
+                            WorkflowAction::Wait {
+                                wait: WorkflowWait::ResourceAdmission { .. },
+                                ..
+                            }
+                        )
+                    }),
+                _ => false,
+            });
+        let applied = if admission {
+            self.admissions()?;
+            store
+                .admissions()?
+                .apply_admission_work(&work, &resolved)
+                .await
+        } else if provider {
             self.provider_operations()?;
             store
                 .provider_operations()?
@@ -212,6 +232,17 @@ impl ApplicationService {
         if matches!(
             &decision.action,
             WorkflowAction::Wait {
+                wait: WorkflowWait::ResourceAdmission { .. },
+                ..
+            }
+        ) {
+            self.admissions().map_err(|_| {
+                ContractError::InvalidInput("resource admission is unavailable".into())
+            })?;
+        }
+        if matches!(
+            &decision.action,
+            WorkflowAction::Wait {
                 wait: WorkflowWait::ProviderOperation { .. }
                     | WorkflowWait::Approval {
                         protection: ApprovalProtection::ProviderOperation,
@@ -222,6 +253,19 @@ impl ApplicationService {
         ) {
             self.provider_operations().map_err(|_| {
                 ContractError::InvalidInput("provider operations are unavailable".into())
+            })?;
+        }
+        if let WorkflowAction::Wait { wait, .. } = &decision.action
+            && (matches!(
+                wait,
+                WorkflowWait::ResourceAdmission {
+                    request: AdmissionWaitRequest::Provider { .. },
+                    ..
+                }
+            ) || matches!(wait, WorkflowWait::Approval { provider_binding: Some(binding), .. } if binding.admission.is_some()))
+        {
+            self.provider_admissions().map_err(|_| {
+                ContractError::InvalidInput("protected provider admission is unavailable".into())
             })?;
         }
         let native = matches!(
@@ -348,7 +392,8 @@ impl ApprovedEffects for ApplicationService {
                 .workflows()?
                 .approved_effects()?
                 .claim_approved_effect(command)
-                .await?;
+                .await
+                .inspect_err(crate::admission::record_budget_error)?;
             if !receipt.matches(command).unwrap_or(false) {
                 return Err(ContractError::Unavailable(
                     "invalid approved effect claim reply".into(),
@@ -379,6 +424,23 @@ impl ApprovedEffects for ApplicationService {
 }
 
 impl WorkflowService for ApplicationService {
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionOperations> {
+        self.admissions()?;
+        self.provider_operations()?;
+        self.workflows()?.provider_admissions()?;
+        Ok(self)
+    }
+
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        self.workflows()?.operator_access()?;
+        self.workflows()?.budgets()?;
+        Ok(self)
+    }
+    fn admissions(&self) -> Result<&dyn AdmissionOperations> {
+        self.workflows()?.admissions()?;
+        self.workflows()?.operator_access()?;
+        Ok(self)
+    }
     fn provider_operations(&self) -> Result<&dyn ProviderOperations> {
         self.effect_resolution()?;
         self.workflows()?.provider_operations()?;
@@ -481,7 +543,11 @@ impl WorkflowService for ApplicationService {
             command.validate()?;
             // Forks reuse the parent's pinned descriptor inside the store's
             // transaction; mutable catalogs and program locators play no role.
-            let receipt = self.workflows()?.fork_workflow(command).await?;
+            let receipt = self
+                .workflows()?
+                .fork_workflow(command)
+                .await
+                .inspect_err(crate::admission::record_budget_error)?;
             receipt
                 .validate()
                 .map_err(|_| ContractError::Unavailable("invalid workflow fork receipt".into()))?;
@@ -517,6 +583,14 @@ impl WorkflowService for ApplicationService {
     ) -> ContractFuture<'a, WorkflowSnapshot> {
         Box::pin(async move {
             validate_submission(command)?;
+            if command.input.budget.is_some() {
+                self.budgets()?;
+            }
+            if command.input.admission.is_some() {
+                return Err(ContractError::InvalidInput(
+                    "task admission requires a standalone task".into(),
+                ));
+            }
             self.require_catalog_scope(command)?;
             let store = self.workflows()?;
             if let Some(accepted) = store.replay_workflow_submission(command).await? {

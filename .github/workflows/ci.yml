@@ -101,11 +101,13 @@ jobs:
           python -m unittest discover -s tools -p 'test_local_receiver.py' -v
           python -m unittest discover -s tools -p 'test_refund_*.py' -v
           python -m unittest discover -s tools -p 'test_acceptance_timing.py' -v
+          python -m unittest discover -s tools -p 'test_resource_load.py' -v
           python -m unittest discover -s tools -p 'test_program_fixture.py' -v
           python -m unittest discover -s tools -p 'test_instance_access_gate.py' -v
           python -m unittest discover -s tools -p 'test_effect_evidence_fixtures.py' -v
           python -m unittest discover -s tools -p 'test_provider_operations_fixtures.py' -v
           PYTHONPATH=sdk/python python -m unittest discover -s examples/provider-recovery/tests -v
+          PYTHONPATH=sdk/python python -m unittest discover -s examples/provider-admission/tests -v
       - name: Test the performance measurement harness
         run: python tools/check-performance.py --self-test
       - name: Test the mixed-workload qualification harness
@@ -322,7 +324,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [http, sqs, api, provider, provider-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
+        suite: [http, sqs, api, provider, provider-sqs, admission, admission-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
     services:
       elasticmq:
         # An empty image disables this service in suites using integrated delivery.
@@ -400,6 +402,30 @@ jobs:
           python tools/check-http.py --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
             --evidence "$RUNNER_TEMP/ledgence-http-evidence"
+      - name: Check multi-queue worker poll plans with real HTTP delivery
+        if: matrix.suite == 'http'
+        run: |
+          python tools/check-worker-poll-plan.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
+            --evidence "$RUNNER_TEMP/ledgence-worker-poll-plan-evidence"
+      - name: Exercise cluster-wide queue limits and managed stop through real HTTP workers
+        if: matrix.suite == 'http'
+        run: |
+          python tools/check-queue-concurrency.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/default" \
+            --evidence "$RUNNER_TEMP/ledgence-queue-limits-evidence"
+      - name: Exercise full-queue deferral, recovery and concurrency through ElasticMQ
+        if: matrix.suite == 'sqs'
+        run: |
+          python tools/check-queue-concurrency.py --scenario workers --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --evidence "$RUNNER_TEMP/ledgence-queue-limits-sqs-evidence"
+      - name: Qualify multi-queue SQS workers, route isolation and matched workloads
+        if: matrix.suite == 'sqs'
+        run: |
+          python tools/check-multi-queue-sqs.py --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --evidence "$RUNNER_TEMP/ledgence-multi-queue-sqs-evidence"
       - name: Check SQS delivery with production long-poll and lease timings
         if: matrix.suite == 'sqs'
         run: |
@@ -421,7 +447,7 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
       - name: Build and install the Python client wheel for end-to-end acceptance
-        if: matrix.suite == 'api' || startsWith(matrix.suite, 'provider') || startsWith(matrix.suite, 'workflows-')
+        if: matrix.suite == 'api' || startsWith(matrix.suite, 'provider') || startsWith(matrix.suite, 'admission') || startsWith(matrix.suite, 'workflows-')
         run: |
           python tools/check-python-client.py \
             --venv-dir "$RUNNER_TEMP/ledgence-client-e2e-env" \
@@ -453,6 +479,66 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-provider-sqs-evidence"
+      - name: Check durable admission with real processes and synthetic HTTP calls
+        if: matrix.suite == 'admission'
+        run: |
+          python tools/check-resource-admission.py --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-admission-evidence"
+          python tools/check-resource-admission.py --provider --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-provider-admission-evidence"
+          python tools/check-resource-admission.py --task --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-task-admission-evidence"
+      - name: Check the same admission recovery through ElasticMQ
+        if: matrix.suite == 'admission-sqs'
+        run: |
+          python tools/check-resource-admission.py --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-admission-sqs-evidence"
+          python tools/check-resource-admission.py --provider --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-provider-admission-sqs-evidence"
+          python tools/check-resource-admission.py --task --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-task-admission-sqs-evidence"
+      - name: Check shared run budgets with integrated delivery
+        if: matrix.suite == 'admission'
+        run: |
+          python tools/check-resource-admission.py --run-budget --metrics-capture "$RUNNER_TEMP/ledgence-acceptance-binaries/otlp-capture" --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-budgets-http-evidence"
+      - name: Check shared run budgets with local ElasticMQ delivery
+        if: matrix.suite == 'admission-sqs'
+        run: |
+          python tools/check-resource-admission.py --run-budget --endpoint http://127.0.0.1:9324 \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-budgets-sqs-evidence"
+      - name: Compare FIFO and weighted offers with two real coordinators
+        if: matrix.suite == 'api'
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-resource-fairness.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-resource-fairness-evidence"
+      - name: Exercise queue policies from the installed Python wheel
+        if: matrix.suite == 'api'
+        run: |
+          "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" tools/check-queue-concurrency.py --scenario sdk \
+            --psql "$RUNNER_TEMP/ledgence-psql" --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --evidence "$RUNNER_TEMP/ledgence-queue-limits-client-evidence"
       - name: Check instance credentials across real clients, publication and workers
         if: matrix.suite == 'api'
         run: |

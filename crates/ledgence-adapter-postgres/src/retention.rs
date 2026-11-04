@@ -86,7 +86,7 @@ impl PostgresStore {
             _ => "session",
         };
         let mut progress = RetentionProgress::default();
-        if let Some((id, retiring)) = candidate(
+        if let Some((id, retiring, governed)) = candidate(
             &mut tx,
             scope,
             kind,
@@ -103,7 +103,9 @@ impl PostgresStore {
                 "task" => {
                     if retiring {
                         collect_task(&mut tx, &id, policy.batch_size, &mut progress).await?;
-                    } else {
+                    } else if !governed || !sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM task_admission_requests WHERE task_id=$1 AND state IN ('waiting','offered','preparing','possibly_dispatched','unknown_occupied'))").bind(&id).fetch_one(&mut *tx).await? {
+                        // Keep unresolved capacity authorities discoverable from
+                        // task history until precise cleanup or an audited release.
                         retire_task(&mut tx, &id, cutoff, now, &mut progress).await?;
                         if progress.retired > 0 && progress.deleted_rows < policy.batch_size {
                             collect_task(&mut tx, &id, policy.batch_size, &mut progress).await?;
@@ -137,7 +139,7 @@ async fn candidate(
     scope: &Scope,
     kind: &str,
     cutoff: i64,
-) -> StoreResult<Option<(String, bool)>> {
+) -> StoreResult<Option<(String, bool, bool)>> {
     sqlx::query("INSERT INTO retention_scans(tenant_id,namespace,lane) VALUES($1,$2,$3) ON CONFLICT DO NOTHING").bind(&scope.tenant_id).bind(&scope.namespace).bind(kind).execute(&mut *connection).await?;
     let row = sqlx::query(
         "SELECT * FROM retention_scans WHERE tenant_id=$1 AND namespace=$2 AND lane=$3",
@@ -187,12 +189,22 @@ async fn candidate(
     let (next_at, next_id) = position.clone().unwrap_or((0, String::new()));
     sqlx::query(AssertSqlSafe(format!("UPDATE retention_scans SET {at_column}=$2,{id_column}=$3 WHERE lane=$1 AND tenant_id=$4 AND namespace=$5")))
         .bind(kind).bind(next_at).bind(next_id).bind(&scope.tenant_id).bind(&scope.namespace).execute(&mut *connection).await?;
-    Ok(position.map(|(_, id)| (id, job)))
+    let governed = selected
+        .as_ref()
+        .map(|r| r.try_get::<bool, _>("governed"))
+        .transpose()?
+        .unwrap_or(false);
+    Ok(position.map(|(_, id)| (id, job, governed)))
 }
 
 fn candidate_sql(table: &str, id: &str, time: &str, filter: &str) -> String {
+    let marker = if table == "tasks" {
+        "admission_resource IS NOT NULL"
+    } else {
+        "false"
+    };
     format!(
-        "SELECT {id} AS id,{time} AS at FROM {table} WHERE tenant_id=$4 AND namespace=$5 AND ({time},{id})>($1,$2){filter} AND {time}<=$3 ORDER BY {time},{id} LIMIT 1 FOR UPDATE SKIP LOCKED"
+        "SELECT {id} AS id,{time} AS at,{marker} AS governed FROM {table} WHERE tenant_id=$4 AND namespace=$5 AND ({time},{id})>($1,$2){filter} AND {time}<=$3 ORDER BY {time},{id} LIMIT 1 FOR UPDATE SKIP LOCKED"
     )
 }
 
@@ -285,7 +297,7 @@ async fn retire_workflow(
     let Some(removed) = expire_subscriptions(connection, "workflow", id, cutoff).await? else {
         return Ok(());
     };
-    sqlx::query("UPDATE workflow_runs SET retiring_at_ms=$2,current_activation_id=NULL,wait_activation_id=NULL,wait_keys_bytes=NULL,external_wait_key=NULL,native_wait_activation_id=NULL WHERE workflow_id=$1")
+    sqlx::query("UPDATE workflow_runs SET retiring_at_ms=$2,current_activation_id=NULL,wait_activation_id=NULL,wait_keys_bytes=NULL,external_wait_key=NULL,native_wait_activation_id=NULL,provider_wait_activation_id=NULL,admission_wait_activation_id=NULL WHERE workflow_id=$1")
         .bind(id).bind(codec::ms(now)?).execute(connection).await?;
     progress.retired = 1;
     progress.deleted_rows = removed;
@@ -359,6 +371,7 @@ async fn collect_workflow(
         "DELETE FROM workflow_forks WHERE ctid IN (SELECT ctid FROM workflow_forks WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_events WHERE ctid IN (SELECT ctid FROM workflow_events WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_approvals WHERE ctid IN (SELECT ctid FROM workflow_approvals WHERE workflow_id=$1 LIMIT $2)",
+        "DELETE FROM workflow_admission_waits WHERE ctid IN (SELECT ctid FROM workflow_admission_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_provider_waits WHERE ctid IN (SELECT ctid FROM workflow_provider_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_effect_waits WHERE ctid IN (SELECT ctid FROM workflow_effect_waits WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_waits WHERE ctid IN (SELECT ctid FROM workflow_waits WHERE workflow_id=$1 LIMIT $2)",

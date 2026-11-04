@@ -1,0 +1,138 @@
+use super::*;
+fn integer(min: u64, max: u64) -> Value {
+    json!({"type":"integer","minimum":min,"maximum":max})
+}
+pub(super) fn definitions() -> Vec<ToolDefinition> {
+    let revision = integer(1, 9_007_199_254_740_990);
+    let name = json!({"type":"string","minLength":1,"maxLength":128});
+    let reason = json!({"type":"string","minLength":1,"maxLength":1024,"description":"Required operator reason, at most 1024 UTF-8 bytes."});
+    let rate = object(
+        json!({"numerator":integer(1,1_000_000),"period_ms":integer(1,86_400_000),"burst":integer(1,1_000_000)}),
+        &["numerator", "period_ms", "burst"],
+    );
+    let group = object(
+        json!({"name":name,"weight":integer(1,1000),"queues":{"type":"array","maxItems":64,"uniqueItems":true,"items":name}}),
+        &["name", "weight", "queues"],
+    );
+    let fair = object(
+        json!({"groups":{"type":"array","minItems":1,"maxItems":16,"items":group},"default_group":name}),
+        &["groups", "default_group"],
+    );
+    let policy = object(
+        json!({"enabled":{"type":"boolean"},"max_occupancy":integer(1,1_000_000),"rate":{"anyOf":[rate,{"type":"null"}]},"offer_timeout_ms":integer(1000,300000),"start_timeout_ms":integer(100,30000),"fair_sharing":fair}),
+        &[
+            "enabled",
+            "max_occupancy",
+            "rate",
+            "offer_timeout_ms",
+            "start_timeout_ms",
+        ],
+    );
+    vec![
+        tool(
+            "ledgence_task_admission_inspect",
+            "Inspect resource admission for an exact standalone task generation, including preparation, retained source and quiescence. Initial queued generation is 1; this does not grant execution permission. Requires sensitive_read.",
+            object(
+                json!({"task_id":identifier(),"generation":integer(1,2_147_483_647)}),
+                &["task_id", "generation"],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_task_admission_release",
+            "Explicitly release occupied task capacity after operator review. This does not stop remote work or prove its outcome. Requires resource-control opt-in and resource_control. Preserve inspected source/revision, request_id and all arguments when reconciling uncertainty.",
+            object(
+                json!({"task_id":identifier(),"generation":integer(1,2_147_483_647),"source_id":identifier(),"expected_revision":revision,"request_id":identifier(),"reason":reason}),
+                &[
+                    "task_id",
+                    "generation",
+                    "source_id",
+                    "expected_revision",
+                    "request_id",
+                    "reason",
+                ],
+            ),
+            false,
+            true,
+        ),
+        tool(
+            "ledgence_resource_list",
+            "List configured resource policies and occupancy in this session's fixed scope. Metadata only; unknown usage remains occupied. Follow next using after.",
+            object(json!({"after":name,"limit":limit()}), &[]),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_resource_sources",
+            "Discover charged workflow, provider and standalone task occurrences by resource and optional state. Each page requires sensitive_read and a committed response audit. Follow next_cursor with the same resource and state; admission inspection is a separate audited read.",
+            object(
+                json!({"name":name,"state":{"enum":["possibly_dispatched","unknown_occupied",null]},"cursor":{"anyOf":[{"type":"string","maxLength":4096},{"type":"null"}]},"limit":limit()}),
+                &["name"],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_resource_decisions",
+            "Read committed weighted resource offers newest first. Follow next using before with the same resource. Requires metadata_read.",
+            object(
+                json!({"name":name,"before":{"anyOf":[{"type":"string","pattern":"^[1-9][0-9]{0,19}$"},{"type":"null"}]},"limit":limit()}),
+                &["name"],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_resource_inspect",
+            "Inspect resource policy and offered, occupied and unknown counters. Requires metadata_read.",
+            object(json!({"name":name}), &["name"]),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_admission_inspect",
+            "Inspect the original admission occurrence, frozen callback arguments and retained output. Requires sensitive_read and durable audit; use origin_activation_id, not the latest continuation. Start permission alone is not evidence that a remote call happened.",
+            object(
+                json!({"workflow_id":identifier(),"origin_activation_id":identifier(),"key":identifier()}),
+                &["workflow_id", "origin_activation_id", "key"],
+            ),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_resource_put",
+            "Apply a resource policy with a stable caller-supplied request_id and expected_revision (null creates). Requires explicit resource-control opt-in and resource_control. Retry an uncertain response with identical arguments only. Policy updates preserve occupied/unknown usage.",
+            object(
+                json!({"name":name,"request_id":identifier(),"expected_revision":{"anyOf":[revision,{"type":"null"}]},"policy":policy,"reason":reason}),
+                &[
+                    "name",
+                    "request_id",
+                    "expected_revision",
+                    "policy",
+                    "reason",
+                ],
+            ),
+            false,
+            true,
+        ),
+        tool(
+            "ledgence_admission_release",
+            "Explicitly release uncertain occupied capacity after operator review. Requires explicit resource-control opt-in and resource_control. This does not stop remote work, prove its outcome or mark the workflow successful. Preserve inspected source_id/revision and the same request_id and arguments when reconciling a lost response.",
+            object(
+                json!({"workflow_id":identifier(),"origin_activation_id":identifier(),"key":identifier(),"source_id":identifier(),"expected_revision":revision,"request_id":identifier(),"reason":reason}),
+                &[
+                    "workflow_id",
+                    "origin_activation_id",
+                    "key",
+                    "source_id",
+                    "expected_revision",
+                    "request_id",
+                    "reason",
+                ],
+            ),
+            false,
+            true,
+        ),
+    ]
+}

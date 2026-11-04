@@ -133,7 +133,7 @@ class ProviderDeployment(ResolutionDeployment):
         config["dispatch"] = value
         self.provider_config.write_text(json.dumps(config))
 
-    def worker(self, subject, proxy=None, *, queue=None, binaries=None, runner=None):
+    def worker(self, subject, proxy=None, *, queue=None, binaries=None, runner=None, acquire_wait_ms=None, cache=None):
         credentials = self.workers[subject]
         if proxy is not None:
             payload = json.loads(credentials.read_text())
@@ -160,7 +160,7 @@ class ProviderDeployment(ResolutionDeployment):
             "--store",
             self.artifacts.url,
             "--cache",
-            str(self.directory / ("cache-" + subject)),
+            str(cache or self.directory / ("cache-" + subject)),
             "--python",
             self.python,
             "--runner",
@@ -168,6 +168,8 @@ class ProviderDeployment(ResolutionDeployment):
             "--concurrency",
             "1",
         ]
+        if acquire_wait_ms is not None:
+            args += ["--acquire-wait-ms", str(acquire_wait_ms)]
         if hasattr(self, "delivery_configs"):
             args += [
                 "--delivery-config",
@@ -205,6 +207,7 @@ class ProviderDeployment(ResolutionDeployment):
         program=None,
         attempts=1,
         overrides=None,
+        budget=None,
     ):
         paths = {
             name: str(self.directory / (key + "-" + name))
@@ -223,6 +226,8 @@ class ProviderDeployment(ResolutionDeployment):
             probe_queue=self.probe_queue,
             **paths,
         )
+        if budget is not None:
+            command["input"]["budget"] = budget
         command["input"]["data"].update(overrides or {})
         command["input"]["retry_policy"]["max_attempts"] = attempts
         workflow = self.checked("POST", "/v1/workflows", command)["workflow_id"]

@@ -53,6 +53,7 @@ async fn fixture() -> (TestDb, Assignment, EffectClaimV2Command) {
     dispatched(&db.store, &assignment).await;
     bind(&db.store).await;
     let c = EffectClaimV2Command {
+        budget_fence: false,
         owner: c.owner,
         workflow_id: c.workflow_id,
         approval_key: c.approval_key,
@@ -521,6 +522,7 @@ async fn historical_confirmation(
     let (assigned, c) = resume(store, queue, &decision).await;
     dispatched(store, &assigned).await;
     let c = EffectClaimV2Command {
+        budget_fence: false,
         owner: c.owner,
         workflow_id: c.workflow_id,
         approval_key: c.approval_key,
@@ -700,6 +702,7 @@ async fn v2_replacement_worker_has_its_own_lookup_claim_and_cannot_report_dispat
     let next = acquire(&db.store, "evidence").await;
     dispatched(&db.store, &next).await;
     let replacement = EffectClaimV2Command {
+        budget_fence: false,
         owner: next.lease.owner.clone(),
         claim_id: "replacement-claim".into(),
         ..c.clone()
@@ -818,3 +821,401 @@ async fn v2_mutated_grant_or_journal_cannot_acknowledge_an_unstored_binding() {
 
 #[path = "native_resolution_tests.rs"]
 mod native_resolution;
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn run_budget_generic_effect_replays_do_not_regrant_and_restore_quarantine_fences_missing_membership()
+ {
+    let db = TestDb::new().await;
+    bind(&db.store).await;
+    let cfg = AdmissionConfig {
+        v: 1,
+        audience: audience(),
+        dispatch: AdmissionDispatchPolicy::Enabled,
+    };
+    db.store.configure_admissions(&cfg).unwrap();
+    let restored = PostgresStore::connect(&db.url, PostgresOptions::default())
+        .await
+        .unwrap();
+    bind(&restored).await;
+    restored
+        .configure_admissions(&AdmissionConfig {
+            dispatch: AdmissionDispatchPolicy::Quarantined,
+            ..cfg
+        })
+        .unwrap();
+    let limits = RunBudgetPolicy {
+        max_calls: Some(1),
+        max_delegations: None,
+        deadline_at_ms: None,
+    };
+    for (queue, governed, v2) in [
+        ("v1-budget", true, false),
+        ("v2-budget", true, true),
+        ("v1-absent", false, false),
+        ("v2-absent", false, true),
+    ] {
+        let decision = super::approved_effects::request_budget(
+            &db.store,
+            queue,
+            "send",
+            ApprovalProtection::ExternalEffect,
+            governed.then_some(limits.clone()),
+        )
+        .await;
+        let reviewer = VerifiedPrincipal::new(
+            PrincipalIdentity {
+                issuer: audience().issuer(),
+                subject: "reviewer".into(),
+            },
+            audience(),
+            "review-key".into(),
+            PrincipalClass::Operator,
+            253402300799999,
+            vec![
+                AccessCapability::ApprovalDecide,
+                AccessCapability::SensitiveRead,
+            ],
+        )
+        .unwrap();
+        db.store
+            .decide_verified(
+                &reviewer,
+                &decision,
+                &OperatorRequest::new(format!("decision:{queue}"), None).unwrap(),
+            )
+            .await
+            .unwrap();
+        let (a, mut c) = activate(&db.store, queue, &decision).await;
+        dispatched(&db.store, &a).await;
+        if v2 {
+            let mut command = EffectClaimV2Command {
+                budget_fence: false,
+                owner: c.owner.clone(),
+                workflow_id: c.workflow_id.clone(),
+                approval_key: c.approval_key.clone(),
+                action: c.action.clone(),
+                lookup: c.lookup.clone(),
+                claim_id: "op".into(),
+            };
+            assert!(matches!(
+                restored.claim_v2(&actor(), &command).await,
+                Err(ContractError::Forbidden)
+            ));
+            if governed {
+                assert!(matches!(
+                    db.store.claim_v2(&actor(), &command).await,
+                    Err(ContractError::InvalidInput(_))
+                ));
+            }
+            command.budget_fence = true;
+            let EffectClaimV2Receipt::Dispatch { claim } =
+                db.store.claim_v2(&actor(), &command).await.unwrap()
+            else {
+                panic!("no fresh grant")
+            };
+            assert_eq!(claim.budget_grant.is_some(), governed);
+            assert!(matches!(
+                restored.claim_v2(&actor(), &command).await.unwrap(),
+                EffectClaimV2Receipt::LookupOnly { .. }
+            ));
+        } else {
+            assert!(matches!(
+                restored.claim_approved_effect(&c).await,
+                Err(ContractError::Forbidden)
+            ));
+            if governed {
+                assert!(matches!(
+                    db.store.claim_approved_effect(&c).await,
+                    Err(ContractError::InvalidInput(_))
+                ));
+            }
+            c.budget_fence = true;
+            let r = db.store.claim_approved_effect(&c).await.unwrap();
+            assert_eq!(r.disposition, ApprovedEffectDisposition::Dispatch);
+            assert_eq!(r.budget_grant.is_some(), governed);
+            assert_eq!(
+                restored
+                    .claim_approved_effect(&c)
+                    .await
+                    .unwrap()
+                    .disposition,
+                ApprovedEffectDisposition::LookupOnly
+            );
+        }
+        let calls: Option<i64> =
+            sqlx::query_scalar("SELECT calls FROM run_budgets WHERE root_id=$1")
+                .bind(&decision.workflow_id)
+                .fetch_optional(&db.store.pool)
+                .await
+                .unwrap();
+        assert_eq!(calls, governed.then_some(1));
+    }
+    restored.close().await;
+    db.finish().await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn run_budget_expired_deadline_does_not_change_previously_refused_forks_or_effects() {
+    let db = TestDb::new().await;
+    bind(&db.store).await;
+    db.store
+        .configure_admissions(&AdmissionConfig {
+            v: 1,
+            audience: audience(),
+            dispatch: AdmissionDispatchPolicy::Enabled,
+        })
+        .unwrap();
+    let now = {
+        let mut tx = db.store.pool.begin().await.unwrap();
+        db::now(&mut tx).await.unwrap()
+    };
+    let expiry = now + 4000;
+    let decision = super::approved_effects::request_budget(
+        &db.store,
+        "stable-refusal",
+        "send",
+        ApprovalProtection::ExternalEffect,
+        Some(RunBudgetPolicy {
+            max_calls: Some(0),
+            max_delegations: Some(0),
+            deadline_at_ms: Some(expiry),
+        }),
+    )
+    .await;
+    let reviewer = VerifiedPrincipal::new(
+        PrincipalIdentity {
+            issuer: audience().issuer(),
+            subject: "reviewer".into(),
+        },
+        audience(),
+        "review-key".into(),
+        PrincipalClass::Operator,
+        253402300799999,
+        vec![
+            AccessCapability::ApprovalDecide,
+            AccessCapability::SensitiveRead,
+        ],
+    )
+    .unwrap();
+    db.store
+        .decide_verified(
+            &reviewer,
+            &decision,
+            &OperatorRequest::new("decision:stable".to_owned(), None).unwrap(),
+        )
+        .await
+        .unwrap();
+    let (a, mut c) = activate(&db.store, "stable-refusal", &decision).await;
+    dispatched(&db.store, &a).await;
+    c.budget_fence = true;
+    let f = WorkflowForkCommand {
+        owner: a.lease.owner.clone(),
+        processing_trace: None,
+        fork: WorkflowForkRequest {
+            key: "fork".into(),
+            branches: vec![WorkflowBranch {
+                key: "branch".into(),
+                entrypoint: "next".into(),
+                queue: "branch".into(),
+                data: Value::Null,
+                retry_policy: command().input.retry_policy,
+                attempt_timeout_ms: 300000,
+            }],
+        },
+    };
+    assert!(matches!(
+        db.store.fork_workflow(&f).await,
+        Err(ContractError::RunBudgetDenied(
+            RunBudgetDenial::DelegationsExhausted
+        ))
+    ));
+    assert!(matches!(
+        db.store.claim_approved_effect(&c).await,
+        Err(ContractError::RunBudgetDenied(
+            RunBudgetDenial::CallsExhausted
+        ))
+    ));
+    let now = {
+        let mut tx = db.store.pool.begin().await.unwrap();
+        db::now(&mut tx).await.unwrap()
+    };
+    tokio::time::sleep(Duration::from_millis(expiry.saturating_sub(now) + 10)).await;
+    assert!(matches!(
+        db.store.fork_workflow(&f).await,
+        Err(ContractError::RunBudgetDenied(
+            RunBudgetDenial::DelegationsExhausted
+        ))
+    ));
+    assert!(matches!(
+        db.store.claim_approved_effect(&c).await,
+        Err(ContractError::RunBudgetDenied(
+            RunBudgetDenial::CallsExhausted
+        ))
+    ));
+    let mut changed = c.clone();
+    changed.lookup = "app:different".into();
+    assert!(matches!(
+        db.store.claim_approved_effect(&changed).await,
+        Err(ContractError::Conflict)
+    ));
+    let mut different = f.clone();
+    different.fork.branches[0].queue = "other".into();
+    assert!(matches!(
+        db.store.fork_workflow(&different).await,
+        Err(ContractError::Conflict)
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM run_budget_entries")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap(),
+        2
+    );
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn run_budget_distinct_generic_effects_in_one_workflow_link_to_exact_approvals_after_lock_wait()
+ {
+    let db = TestDb::new().await;
+    let s = &db.store;
+    bind(s).await;
+    s.configure_admissions(&AdmissionConfig {
+        v: 1,
+        audience: audience(),
+        dispatch: AdmissionDispatchPolicy::Enabled,
+    })
+    .unwrap();
+    let mut d = super::approved_effects::request_budget(
+        s,
+        "trace",
+        "first",
+        ApprovalProtection::ExternalEffect,
+        Some(RunBudgetPolicy {
+            max_calls: Some(2),
+            max_delegations: None,
+            deadline_at_ms: None,
+        }),
+    )
+    .await;
+    let root = d.workflow_id.clone();
+    let mut expected = vec![];
+    let reviewer = VerifiedPrincipal::new(
+        PrincipalIdentity {
+            issuer: audience().issuer(),
+            subject: "trace-reviewer".into(),
+        },
+        audience(),
+        "review-key".into(),
+        PrincipalClass::Operator,
+        253402300799999,
+        vec![
+            AccessCapability::ApprovalDecide,
+            AccessCapability::SensitiveRead,
+            AccessCapability::MetadataRead,
+        ],
+    )
+    .unwrap();
+    for key in ["first", "second"] {
+        let submitted = s.approval(&scope(), &root, key).await.unwrap();
+        d.revision = submitted.revision;
+        d.activation_id = submitted.activation_id.clone();
+        d.action = submitted.action.clone();
+        d.protection = submitted.protection;
+        s.decide_verified(
+            &reviewer,
+            &d,
+            &OperatorRequest::new(format!("approved:{key}"), None).unwrap(),
+        )
+        .await
+        .unwrap();
+        let (a, mut c) = activate(s, "trace", &d).await;
+        dispatched(s, &a).await;
+        c.budget_fence = true;
+        if key == "first" {
+            assert!(
+                s.claim_approved_effect(&c)
+                    .await
+                    .unwrap()
+                    .budget_grant
+                    .is_some()
+            );
+        } else {
+            let v2 = EffectClaimV2Command {
+                budget_fence: true,
+                owner: c.owner.clone(),
+                workflow_id: c.workflow_id.clone(),
+                approval_key: c.approval_key.clone(),
+                action: c.action.clone(),
+                lookup: c.lookup.clone(),
+                claim_id: "claim-1".into(),
+            };
+            let mut blocker = s.pool.begin().await.unwrap();
+            sqlx::query("SELECT root_id FROM run_budgets WHERE root_id=$1 FOR NO KEY UPDATE")
+                .bind(&root)
+                .execute(&mut *blocker)
+                .await
+                .unwrap();
+            let actor = actor();
+            let (r, ()) = tokio::join!(s.claim_v2(&actor, &v2), async {
+                tokio::time::timeout(Duration::from_secs(2),async{loop{let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid())").fetch_one(&s.pool).await.unwrap();if waiting{break;}tokio::time::sleep(Duration::from_millis(5)).await;}}).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                blocker.commit().await.unwrap();
+            });
+            let EffectClaimV2Receipt::Dispatch { claim } = r.unwrap() else {
+                panic!("fresh grant expected")
+            };
+            assert_eq!(claim.claimed_at, claim.budget_grant.unwrap().authorized_at);
+        }
+        let o = EffectOccurrence {
+            scope: scope(),
+            workflow_id: root.clone(),
+            activation_id: d.activation_id.clone(),
+            approval_key: d.key.clone(),
+        };
+        expected.push(o);
+        if key == "first" {
+            let wf = s.workflow_status(&scope(), &root).await.unwrap();
+            d = approvals::decide(&wf, &a, "second");
+            d.protection = ApprovalProtection::ExternalEffect;
+            let mut action = approvals::wait("second", 60000);
+            let WorkflowAction::Wait {
+                wait: WorkflowWait::Approval { protection, .. },
+                ..
+            } = &mut action
+            else {
+                panic!()
+            };
+            *protection = ApprovalProtection::ExternalEffect;
+            let revision = s.activation_context(&a.lease.owner).await.unwrap().revision;
+            apply_decision(s, &a, revision, action, &[]).await;
+        }
+    }
+    let h = s
+        .list_run_budget_entries(
+            &reviewer,
+            &RunBudgetEntriesQuery {
+                scope: scope(),
+                subject: crate::run_budget::workflow(&root),
+                before: None,
+                limit: 10,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(h.items.len(), 2);
+    assert_ne!(h.items[0].source_id, h.items[1].source_id);
+    for (row, expected) in h.items.iter().rev().zip(expected) {
+        assert_eq!(row.approval.as_ref(), Some(&expected));
+        let recorded = s
+            .approval(&scope(), &root, &expected.approval_key)
+            .await
+            .unwrap();
+        assert_eq!(recorded.activation_id, expected.activation_id);
+        assert_eq!(recorded.key, expected.approval_key);
+    }
+    db.finish().await;
+}

@@ -7,6 +7,8 @@ import {
   BookOpen,
   Inbox,
   ShieldCheck,
+  ListTree,
+  Gauge,
   FileText,
   Layers2,
   LogOut,
@@ -28,6 +30,8 @@ const sections = [
   { to: "/programs", title: "Programs", icon: Layers2 },
   { to: "/approvals", title: "Approvals", icon: Inbox },
   { to: "/effects", title: "Effects", icon: ShieldCheck },
+  { to: "/queues", title: "Queues", icon: ListTree },
+  { to: "/resources", title: "Resources", icon: Gauge },
   { to: "/workers", title: "Workers", icon: Server },
 ];
 
@@ -70,10 +74,16 @@ function AccountControls({
 export function AppShell({
   instanceName,
   serverVersion,
+  queuePoliciesEnabled = false,
+  resourceSharingEnabled = false,
+  resourceSourcesEnabled = false,
   children,
 }: {
   instanceName: string;
   serverVersion?: string | undefined;
+  queuePoliciesEnabled?: boolean;
+  resourceSharingEnabled?: boolean;
+  resourceSourcesEnabled?: boolean;
   children: ReactNode;
 }) {
   const { pathname } = useLocation();
@@ -155,24 +165,37 @@ export function AppShell({
             className="navigation shell-navigation"
             aria-label="Main navigation"
           >
-            {sections.map(({ to, title, icon: Icon }) => (
-              <Link
-                key={to}
-                to={to}
-                aria-label={title}
-                title={collapsed ? title : undefined}
-                aria-current={to === `/${activeSection}` ? "page" : undefined}
-              >
-                <Icon aria-hidden="true" />
-                <span className="sidebar-label">{title}</span>
-              </Link>
-            ))}
+            {sections
+              .filter(({ to }) => {
+                const metadata =
+                  identity?.capabilities.includes("metadata_read");
+                if (to !== "/resources" && to !== "/queues")
+                  return !identity || metadata;
+                if (to === "/queues") return queuePoliciesEnabled && metadata;
+                return (
+                  (resourceSharingEnabled && metadata) ||
+                  (resourceSourcesEnabled &&
+                    identity?.capabilities.includes("sensitive_read"))
+                );
+              })
+              .map(({ to, title, icon: Icon }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  aria-label={title}
+                  title={collapsed ? title : undefined}
+                  aria-current={to === `/${activeSection}` ? "page" : undefined}
+                >
+                  <Icon aria-hidden="true" />
+                  <span className="sidebar-label">{title}</span>
+                </Link>
+              ))}
           </nav>
           <div className="sidebar-footer shell-sidebar-footer">
             {identity && <AccountControls {...identity} />}
 
             <span className="shell-caption sidebar-label" aria-hidden="true">
-              Resources
+              Links
             </span>
             <a
               href="https://docs.ledgence.com/"

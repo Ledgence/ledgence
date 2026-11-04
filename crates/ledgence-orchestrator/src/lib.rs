@@ -1,6 +1,7 @@
 //! Network orchestration composition, including supervised expiry recovery.
 
 mod access;
+mod admission;
 mod application;
 mod command;
 mod completion;
@@ -248,6 +249,7 @@ async fn dispatch(
                 instance_config,
                 access_config,
                 provider_config,
+                admission_config,
                 allow_insecure_console_access,
                 console_dir,
                 allow_program_publication,
@@ -265,6 +267,7 @@ async fn dispatch(
                         instance_config,
                         access_config,
                         provider_config,
+                        admission_config,
                         allow_insecure_console_access,
                         console_dir,
                         allow_program_publication,
@@ -287,6 +290,7 @@ struct ServePaths {
     instance_config: Option<std::path::PathBuf>,
     access_config: Option<std::path::PathBuf>,
     provider_config: Option<std::path::PathBuf>,
+    admission_config: Option<std::path::PathBuf>,
     allow_insecure_console_access: bool,
     console_dir: Option<std::path::PathBuf>,
     allow_program_publication: bool,
@@ -307,6 +311,7 @@ async fn prepare_and_serve(
         instance_config: instance_config_path,
         access_config,
         provider_config,
+        admission_config,
         allow_insecure_console_access,
         console_dir,
         allow_program_publication,
@@ -332,6 +337,39 @@ async fn prepare_and_serve(
         verifier.as_ref().map(|verifier| verifier.audience()),
     )
     .await?;
+    let admission_config = admission::load_optional(
+        admission_config,
+        verifier.as_ref().map(|verifier| verifier.audience()),
+    )
+    .await?;
+    #[cfg(feature = "sqs")]
+    let brokers = match delivery_config {
+        Some(path) => {
+            let config = tokio::task::spawn_blocking(move || {
+                ledgence_adapter_sqs::deployment::DeliveryRoutes::load(&path)
+            })
+            .await
+            .map_err(|_| "delivery configuration loading failed".to_owned())?
+            .map_err(|error| error.to_string())?;
+            if let Some(instance) = &instance_config
+                && config.scope() != &instance.scope
+            {
+                return Err("SQS routes must match the configured instance scope".into());
+            }
+            // Provider preflight is read-only; no durable route or session
+            // exists until all queues and their distinct identities are verified.
+            tokio::select! {
+                biased;
+                () = stop_requested(stopped.clone()) => return Ok(()),
+                result = config.connect() => result.map_err(|error| error.to_string())?,
+            }
+        }
+        None => Vec::new(),
+    };
+    #[cfg(not(feature = "sqs"))]
+    if delivery_config.is_some() {
+        return Err("--delivery-config requires a binary built with the sqs feature".into());
+    }
     // Headless starts perform the same durable binding check. Never start an
     // unbound coordinator on a previously bound database by omitting a flag.
     let instance_context = store
@@ -344,6 +382,11 @@ async fn prepare_and_serve(
     if let Some(config) = &provider_config {
         store
             .configure_provider_operations(config)
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(config) = &admission_config {
+        store
+            .configure_admissions(config)
             .map_err(|error| error.to_string())?;
     }
     let console_assets = match console_dir {
@@ -391,40 +434,6 @@ async fn prepare_and_serve(
         }
         None => Vec::new(),
     };
-    #[cfg(feature = "sqs")]
-    let broker = match delivery_config {
-        Some(path) => {
-            let config = tokio::task::spawn_blocking(move || {
-                ledgence_adapter_sqs::deployment::DeliveryConfig::load(&path)
-            })
-            .await
-            .map_err(|_| "delivery configuration loading failed".to_owned())?
-            .map_err(|error| error.to_string())?;
-            if *stopped.borrow() {
-                return Ok(());
-            }
-            if let Some(context) = &instance_context {
-                context
-                    .require_scope(&config.route.scope)
-                    .map_err(|error| error.to_string())?;
-            }
-            // Validate external capabilities without changing durable routing.
-            let queue = Arc::new(
-                ledgence_adapter_sqs::SqsQueue::connect(config.sqs)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            );
-            if *stopped.borrow() {
-                return Ok(());
-            }
-            Some((queue, config.route))
-        }
-        None => None,
-    };
-    #[cfg(not(feature = "sqs"))]
-    if delivery_config.is_some() {
-        return Err("--delivery-config requires a binary built with the sqs feature".into());
-    }
     let artifact_publication = if allow_program_publication {
         if instance_config.is_none()
             || location.starts_with("http://")
@@ -494,6 +503,16 @@ async fn prepare_and_serve(
         ledgence_orchestration_api::WorkflowService::provider_operations(service.as_ref())
             .map_err(|error| error.to_string())?;
     }
+    if admission_config.is_some() {
+        ledgence_orchestration_api::WorkflowService::admissions(service.as_ref())
+            .map_err(|error| error.to_string())?;
+        ledgence_orchestration_api::TaskService::task_admissions(service.as_ref())
+            .map_err(|error| error.to_string())?;
+    }
+    if provider_config.is_some() && admission_config.is_some() {
+        ledgence_orchestration_api::WorkflowService::provider_admissions(service.as_ref())
+            .map_err(|error| error.to_string())?;
+    }
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(|error| format!("could not bind HTTP listener: {error}"))?;
@@ -544,10 +563,10 @@ async fn prepare_and_serve(
                 .map_err(|error| error.to_string())?;
         }
         #[cfg(feature = "sqs")]
-        if let Some((_, route)) = &broker {
-            use ledgence_orchestration_api::DispatchIntentStore;
+        if !brokers.is_empty() {
+            let routes: Vec<_> = brokers.iter().map(|(route, _)| route.clone()).collect();
             store
-                .configure_route(route)
+                .configure_routes(&routes)
                 .await
                 .map_err(|error| error.to_string())?;
         }
@@ -580,6 +599,10 @@ async fn prepare_and_serve(
         } else {
             router
         };
+        #[cfg(feature = "sqs")]
+        let publisher = publication::start(store.clone(), brokers, health.clone());
+        #[cfg(not(feature = "sqs"))]
+        let publisher = None;
         let (http_stop, http_stopped) = watch::channel(false);
         let (recovery_stop, recovery_stopped) = watch::channel(false);
         let http = tokio::spawn(
@@ -588,23 +611,6 @@ async fn prepare_and_serve(
                 .into_future()
                 .with_current_subscriber(),
         );
-        #[cfg(feature = "sqs")]
-        let publisher = broker.map(|(queue, route)| {
-            health.require_publication();
-            let checked_queue = queue.clone();
-            let probe: publication::ConfigurationProbe = Arc::new(move || {
-                let queue = checked_queue.clone();
-                Box::pin(async move { queue.check_configuration().await })
-            });
-            let (stop, stopped) = watch::channel(false);
-            let task = tokio::spawn(
-                publication::run(store.clone(), queue, route, probe, health.clone(), stopped)
-                    .with_current_subscriber(),
-            );
-            BackgroundTask { task, stop }
-        });
-        #[cfg(not(feature = "sqs"))]
-        let publisher = None;
         let completion_task = if completion_destinations.is_empty() {
             None
         } else {
@@ -647,6 +653,17 @@ async fn prepare_and_serve(
                 stop,
             }
         });
+        let admission_task = admission_config.as_ref().map(|_| {
+            health.require_admissions();
+            let (stop, stopped) = watch::channel(false);
+            BackgroundTask {
+                task: tokio::spawn(
+                    admission::run(service.clone(), health.clone(), stopped)
+                        .with_current_subscriber(),
+                ),
+                stop,
+            }
+        });
         tracing::info!(%address, "orchestration HTTP listener started");
         let acquisition_service = service.clone();
         supervise(
@@ -657,6 +674,7 @@ async fn prepare_and_serve(
                 workflow: workflow_task,
                 completion: completion_task,
                 provider: provider_task,
+                admission: admission_task,
             },
             health,
             stopped,
@@ -709,6 +727,7 @@ struct BackgroundTasks {
     workflow: Option<BackgroundTask>,
     completion: Option<BackgroundTask>,
     provider: Option<BackgroundTask>,
+    admission: Option<BackgroundTask>,
 }
 
 async fn supervise(
@@ -726,6 +745,7 @@ async fn supervise(
         mut workflow,
         mut completion,
         mut provider,
+        mut admission,
     } = background;
     let mut http_finished = false;
     let mut scanner_finished = false;
@@ -733,7 +753,17 @@ async fn supervise(
     let mut workflow_finished = false;
     let mut completion_finished = false;
     let mut provider_finished = false;
+    let mut admission_finished = false;
     let mut failure = tokio::select! {
+        finished = async {
+            match &mut admission {
+                Some(coordinator) => (&mut coordinator.task).await,
+                None => std::future::pending().await,
+            }
+        } => {
+            admission_finished = true;
+            Some(format!("admission recovery stopped unexpectedly: {finished:?}"))
+        }
         _ = stop_requested(stopped) => None,
         finished = async {
             match &mut provider {
@@ -800,6 +830,9 @@ async fn supervise(
     if let Some(coordinator) = &provider {
         let _ = coordinator.stop.send(true);
     }
+    if let Some(coordinator) = &admission {
+        let _ = coordinator.stop.send(true);
+    }
     if let Some(coordinator) = &workflow {
         let _ = coordinator.stop.send(true);
     }
@@ -852,6 +885,17 @@ async fn supervise(
             result => {
                 failure
                     .get_or_insert_with(|| format!("provider recovery drain failed: {result:?}"));
+            }
+        }
+    }
+    if let Some(coordinator) = &mut admission
+        && !admission_finished
+    {
+        match observe_drain(&mut coordinator.task, "admission recovery").await {
+            Ok(Ok(())) => {}
+            result => {
+                failure
+                    .get_or_insert_with(|| format!("admission recovery drain failed: {result:?}"));
             }
         }
     }
@@ -932,6 +976,7 @@ mod tests {
                 workflow: None,
                 completion: None,
                 provider: None,
+                admission: None,
                 scanner,
                 publisher: None,
             },
@@ -986,6 +1031,7 @@ mod tests {
                 workflow: None,
                 completion: None,
                 provider: None,
+                admission: None,
                 scanner,
                 publisher: None,
             },
@@ -1057,6 +1103,7 @@ mod publication_supervision_tests {
                 workflow: None,
                 completion: None,
                 provider: None,
+                admission: None,
             },
             health,
             stopped,
@@ -1112,6 +1159,7 @@ mod publication_supervision_tests {
                     workflow: None,
                     completion: None,
                     provider: None,
+                    admission: None,
                 },
                 health,
                 stopped,
@@ -1166,6 +1214,7 @@ mod completion_supervision_tests {
                     }),
                 }),
                 provider: None,
+                admission: None,
             },
             health,
             stopped,
@@ -1220,6 +1269,7 @@ mod completion_supervision_tests {
                         }),
                     }),
                     provider: None,
+                    admission: None,
                 },
                 health,
                 stopped,
@@ -1267,6 +1317,7 @@ mod provider_supervision_tests {
                 publisher: None,
                 workflow: None,
                 completion: None,
+                admission: None,
                 provider: Some(BackgroundTask {
                     stop: provider_stop,
                     task: tokio::spawn(async move {
@@ -1322,6 +1373,7 @@ mod provider_supervision_tests {
                         publisher: None,
                         workflow: None,
                         completion: None,
+                        admission: None,
                         provider: Some(BackgroundTask {
                             stop: provider_stop,
                             task: tokio::spawn(async move {
@@ -1345,6 +1397,121 @@ mod provider_supervision_tests {
                 result
                     .unwrap_err()
                     .contains("provider recovery stopped unexpectedly")
+            );
+            assert!(observed.stopping.load(std::sync::atomic::Ordering::Acquire));
+        }
+    }
+}
+
+#[cfg(test)]
+mod admission_supervision_tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    #[tokio::test(start_paused = true)]
+    async fn admission_maintenance_retains_ownership_through_http_and_database_drain() {
+        let health = Health::new(Duration::from_secs(40));
+        let (stop, stopped) = watch::channel(false);
+        let (http_stop, mut http_stopped) = watch::channel(false);
+        let (recovery_stop, recovery_stopped) = watch::channel(false);
+        let (admission_stop, mut admission_stopped) = watch::channel(false);
+        let (finish_http, pending_http) = oneshot::channel();
+        let (finish_admission, pending_admission) = oneshot::channel();
+        let http = tokio::spawn(async move {
+            pending_http.await.unwrap();
+            Ok(())
+        });
+        let scanner = tokio::spawn(async move {
+            stop_requested(recovery_stopped).await;
+            Ok(())
+        });
+        let supervisor = tokio::spawn(supervise(
+            http,
+            BackgroundTasks {
+                scanner,
+                publisher: None,
+                workflow: None,
+                completion: None,
+                provider: None,
+                admission: Some(BackgroundTask {
+                    stop: admission_stop,
+                    task: tokio::spawn(async move {
+                        pending_admission.await.unwrap();
+                        Ok(())
+                    }),
+                }),
+            },
+            health,
+            stopped,
+            http_stop,
+            recovery_stop,
+            || {},
+        ));
+        stop.send(true).unwrap();
+        http_stopped.changed().await.unwrap();
+        assert!(!*admission_stopped.borrow());
+        finish_http.send(()).unwrap();
+        admission_stopped.changed().await.unwrap();
+        assert!(*admission_stopped.borrow());
+        tokio::time::advance(Duration::from_secs(36)).await;
+        assert!(
+            !supervisor.is_finished(),
+            "observation deadline must not abandon a database operation"
+        );
+        finish_admission.send(()).unwrap();
+        supervisor.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn admission_failure_or_panic_drains_http_and_reports_failure() {
+        for panic in [false, true] {
+            let health = Health::new(Duration::from_secs(40));
+            let observed = health.clone();
+            let (_stop, stopped) = watch::channel(false);
+            let (http_stop, http_stopped) = watch::channel(false);
+            let (recovery_stop, recovery_stopped) = watch::channel(false);
+            let (admission_stop, _admission_stopped) = watch::channel(false);
+            let http = tokio::spawn(async move {
+                stop_requested(http_stopped).await;
+                Ok(())
+            });
+            let scanner = tokio::spawn(async move {
+                stop_requested(recovery_stopped).await;
+                Ok(())
+            });
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                supervise(
+                    http,
+                    BackgroundTasks {
+                        scanner,
+                        publisher: None,
+                        workflow: None,
+                        completion: None,
+                        provider: None,
+                        admission: Some(BackgroundTask {
+                            stop: admission_stop,
+                            task: tokio::spawn(async move {
+                                assert!(!panic, "controlled admission failure");
+                                Err(ledgence_orchestration_api::ContractError::InvalidInput(
+                                    "controlled admission failure".into(),
+                                ))
+                            }),
+                        }),
+                    },
+                    health,
+                    stopped,
+                    http_stop,
+                    recovery_stop,
+                    || {},
+                ),
+            )
+            .await
+            .unwrap();
+            assert!(
+                result
+                    .unwrap_err()
+                    .contains("admission recovery stopped unexpectedly")
             );
             assert!(observed.stopping.load(std::sync::atomic::Ordering::Acquire));
         }

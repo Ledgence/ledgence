@@ -1,0 +1,706 @@
+{
+  "close_deferred": {
+    "accepted_at": 2000,
+    "already_accepted": false,
+    "disposition": "deferred",
+    "offer_generation": 1,
+    "operation_id": "close",
+    "outcome": "not_invoked",
+    "owner": {
+      "attempt_id": "attempt",
+      "consumer_id": 0,
+      "generation": 1,
+      "lease_id": "lease",
+      "scope": {
+        "namespace": "demo",
+        "tenant_id": "acme"
+      },
+      "task_id": "task",
+      "worker_session_id": "session"
+    },
+    "source": null,
+    "start_id": "start"
+  },
+  "close_released": {
+    "accepted_at": 2000,
+    "already_accepted": false,
+    "disposition": "released",
+    "offer_generation": 1,
+    "operation_id": "close",
+    "outcome": "quiescent",
+    "owner": {
+      "attempt_id": "attempt",
+      "consumer_id": 0,
+      "generation": 1,
+      "lease_id": "lease",
+      "scope": {
+        "namespace": "demo",
+        "tenant_id": "acme"
+      },
+      "task_id": "task",
+      "worker_session_id": "session"
+    },
+    "source": {
+      "accepted_at": 1000,
+      "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+      "offer_generation": 1,
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "resource": "model.requests",
+      "source_id": "source",
+      "start_deadline_at": 2000,
+      "start_id": "start",
+      "worker": {
+        "audience": {
+          "authority_id": "authority",
+          "instance_id": "instance",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          }
+        },
+        "credential_id": "credential",
+        "issuer": "issuer",
+        "subject": "worker"
+      }
+    },
+    "start_id": "start"
+  },
+  "snapshots": {
+    "deferred": {
+      "close": {
+        "accepted_at": 2000,
+        "already_accepted": false,
+        "disposition": "deferred",
+        "offer_generation": 1,
+        "operation_id": "close",
+        "outcome": "not_invoked",
+        "owner": {
+          "attempt_id": "attempt",
+          "consumer_id": 0,
+          "generation": 1,
+          "lease_id": "lease",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          },
+          "task_id": "task",
+          "worker_session_id": "session"
+        },
+        "source": null,
+        "start_id": "start"
+      },
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": {
+        "expires_at": 300100,
+        "generation": 1,
+        "policy_revision": 1
+      },
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 4,
+      "source": null,
+      "state": "closed_before_start",
+      "updated_at": 2000
+    },
+    "finished": {
+      "close": {
+        "accepted_at": 2000,
+        "already_accepted": false,
+        "disposition": "released",
+        "offer_generation": 1,
+        "operation_id": "close",
+        "outcome": "quiescent",
+        "owner": {
+          "attempt_id": "attempt",
+          "consumer_id": 0,
+          "generation": 1,
+          "lease_id": "lease",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          },
+          "task_id": "task",
+          "worker_session_id": "session"
+        },
+        "source": {
+          "accepted_at": 1000,
+          "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+          "offer_generation": 1,
+          "owner": {
+            "attempt_id": "attempt",
+            "consumer_id": 0,
+            "generation": 1,
+            "lease_id": "lease",
+            "scope": {
+              "namespace": "demo",
+              "tenant_id": "acme"
+            },
+            "task_id": "task",
+            "worker_session_id": "session"
+          },
+          "resource": "model.requests",
+          "source_id": "source",
+          "start_deadline_at": 2000,
+          "start_id": "start",
+          "worker": {
+            "audience": {
+              "authority_id": "authority",
+              "instance_id": "instance",
+              "scope": {
+                "namespace": "demo",
+                "tenant_id": "acme"
+              }
+            },
+            "credential_id": "credential",
+            "issuer": "issuer",
+            "subject": "worker"
+          }
+        },
+        "start_id": "start"
+      },
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": {
+        "expires_at": 300000,
+        "generation": 1,
+        "policy_revision": 1
+      },
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 5,
+      "source": {
+        "accepted_at": 1000,
+        "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+        "offer_generation": 1,
+        "owner": {
+          "attempt_id": "attempt",
+          "consumer_id": 0,
+          "generation": 1,
+          "lease_id": "lease",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          },
+          "task_id": "task",
+          "worker_session_id": "session"
+        },
+        "resource": "model.requests",
+        "source_id": "source",
+        "start_deadline_at": 2000,
+        "start_id": "start",
+        "worker": {
+          "audience": {
+            "authority_id": "authority",
+            "instance_id": "instance",
+            "scope": {
+              "namespace": "demo",
+              "tenant_id": "acme"
+            }
+          },
+          "credential_id": "credential",
+          "issuer": "issuer",
+          "subject": "worker"
+        }
+      },
+      "state": "finished",
+      "updated_at": 2000
+    },
+    "offered": {
+      "close": null,
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": {
+        "expires_at": 30100,
+        "generation": 1,
+        "policy_revision": 1
+      },
+      "owner": null,
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 2,
+      "source": null,
+      "state": "offered",
+      "updated_at": 100
+    },
+    "preparing": {
+      "close": null,
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": {
+        "expires_at": 300100,
+        "generation": 1,
+        "policy_revision": 1
+      },
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 3,
+      "source": null,
+      "state": "preparing",
+      "updated_at": 200
+    },
+    "released": {
+      "close": null,
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": {
+        "expires_at": 300000,
+        "generation": 1,
+        "policy_revision": 1
+      },
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 6,
+      "source": {
+        "accepted_at": 1000,
+        "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+        "offer_generation": 1,
+        "owner": {
+          "attempt_id": "attempt",
+          "consumer_id": 0,
+          "generation": 1,
+          "lease_id": "lease",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          },
+          "task_id": "task",
+          "worker_session_id": "session"
+        },
+        "resource": "model.requests",
+        "source_id": "source",
+        "start_deadline_at": 2000,
+        "start_id": "start",
+        "worker": {
+          "audience": {
+            "authority_id": "authority",
+            "instance_id": "instance",
+            "scope": {
+              "namespace": "demo",
+              "tenant_id": "acme"
+            }
+          },
+          "credential_id": "credential",
+          "issuer": "issuer",
+          "subject": "worker"
+        }
+      },
+      "state": "administratively_released",
+      "updated_at": 3000
+    },
+    "started": {
+      "close": null,
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": {
+        "expires_at": 300000,
+        "generation": 1,
+        "policy_revision": 1
+      },
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 4,
+      "source": {
+        "accepted_at": 1000,
+        "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+        "offer_generation": 1,
+        "owner": {
+          "attempt_id": "attempt",
+          "consumer_id": 0,
+          "generation": 1,
+          "lease_id": "lease",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          },
+          "task_id": "task",
+          "worker_session_id": "session"
+        },
+        "resource": "model.requests",
+        "source_id": "source",
+        "start_deadline_at": 2000,
+        "start_id": "start",
+        "worker": {
+          "audience": {
+            "authority_id": "authority",
+            "instance_id": "instance",
+            "scope": {
+              "namespace": "demo",
+              "tenant_id": "acme"
+            }
+          },
+          "credential_id": "credential",
+          "issuer": "issuer",
+          "subject": "worker"
+        }
+      },
+      "state": "possibly_dispatched",
+      "updated_at": 1000
+    },
+    "unknown": {
+      "close": null,
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": {
+        "expires_at": 300000,
+        "generation": 1,
+        "policy_revision": 1
+      },
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 5,
+      "source": {
+        "accepted_at": 1000,
+        "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+        "offer_generation": 1,
+        "owner": {
+          "attempt_id": "attempt",
+          "consumer_id": 0,
+          "generation": 1,
+          "lease_id": "lease",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          },
+          "task_id": "task",
+          "worker_session_id": "session"
+        },
+        "resource": "model.requests",
+        "source_id": "source",
+        "start_deadline_at": 2000,
+        "start_id": "start",
+        "worker": {
+          "audience": {
+            "authority_id": "authority",
+            "instance_id": "instance",
+            "scope": {
+              "namespace": "demo",
+              "tenant_id": "acme"
+            }
+          },
+          "credential_id": "credential",
+          "issuer": "issuer",
+          "subject": "worker"
+        }
+      },
+      "state": "unknown_occupied",
+      "updated_at": 2000
+    },
+    "waiting": {
+      "close": null,
+      "created_at": 0,
+      "occurrence": {
+        "generation": 1,
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task"
+      },
+      "offer": null,
+      "owner": null,
+      "program": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "program": {
+          "id": "hello",
+          "version": "1.0.0"
+        },
+        "size": 100
+      },
+      "resource": "model.requests",
+      "revision": 1,
+      "source": null,
+      "state": "waiting",
+      "updated_at": 0
+    }
+  },
+  "source": {
+    "accepted_at": 1000,
+    "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+    "offer_generation": 1,
+    "owner": {
+      "attempt_id": "attempt",
+      "consumer_id": 0,
+      "generation": 1,
+      "lease_id": "lease",
+      "scope": {
+        "namespace": "demo",
+        "tenant_id": "acme"
+      },
+      "task_id": "task",
+      "worker_session_id": "session"
+    },
+    "resource": "model.requests",
+    "source_id": "source",
+    "start_deadline_at": 2000,
+    "start_id": "start",
+    "worker": {
+      "audience": {
+        "authority_id": "authority",
+        "instance_id": "instance",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        }
+      },
+      "credential_id": "credential",
+      "issuer": "issuer",
+      "subject": "worker"
+    }
+  },
+  "start_command": {
+    "offer_generation": 1,
+    "owner": {
+      "attempt_id": "attempt",
+      "consumer_id": 0,
+      "generation": 1,
+      "lease_id": "lease",
+      "scope": {
+        "namespace": "demo",
+        "tenant_id": "acme"
+      },
+      "task_id": "task",
+      "worker_session_id": "session"
+    },
+    "start_id": "start"
+  },
+  "start_granted": {
+    "authority": {
+      "cancel_requested": false,
+      "dispatch_allowed": true,
+      "execution_remaining_ms": 300000,
+      "expires_at": 31000,
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "remaining_ms": 30000,
+      "renew_sequence": 0
+    },
+    "kind": "granted",
+    "source": {
+      "accepted_at": 1000,
+      "binding_digest": "sha256:5f1d748636a09f79998ccb4aa2718607829dc39819c10e2e7e924f3373581b4a",
+      "offer_generation": 1,
+      "owner": {
+        "attempt_id": "attempt",
+        "consumer_id": 0,
+        "generation": 1,
+        "lease_id": "lease",
+        "scope": {
+          "namespace": "demo",
+          "tenant_id": "acme"
+        },
+        "task_id": "task",
+        "worker_session_id": "session"
+      },
+      "resource": "model.requests",
+      "source_id": "source",
+      "start_deadline_at": 2000,
+      "start_id": "start",
+      "worker": {
+        "audience": {
+          "authority_id": "authority",
+          "instance_id": "instance",
+          "scope": {
+            "namespace": "demo",
+            "tenant_id": "acme"
+          }
+        },
+        "credential_id": "credential",
+        "issuer": "issuer",
+        "subject": "worker"
+      }
+    }
+  },
+  "v": 1
+}

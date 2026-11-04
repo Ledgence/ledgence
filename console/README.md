@@ -100,13 +100,25 @@ pnpm --dir console contracts:check
 pnpm --dir console test
 pnpm --dir console test:e2e
 pnpm --dir console licenses:check
+# Build assets separately when browser checks are not needed:
 pnpm --dir console build
 ```
 
 `test` includes unit tests and real Chromium/WebKit component tests. `test:e2e`
-checks browser interaction against Rust-generated contract fixtures. These
-controlled transport tests complement the repository's real server, database and
-worker acceptance gate; they do not establish end-to-end orchestration behavior.
+runs the full production build, then serves those fresh static assets through a
+loopback preview server and checks browser interaction against Rust-generated
+contract fixtures. No Vite development client or automatic reconnect reload runs
+in these pages. The server has a strict port and never reuses an existing server;
+if port 5173 is occupied, set `LEDGENCE_CONSOLE_TEST_PORT` to an unused port. Its
+120-second startup budget includes the build; test timeouts and retries are
+unchanged. CI uses the same checked `dist/` for the subsequent native acceptance
+gate. These controlled transport tests complement the repository's real server,
+database and worker acceptance gate; they do not establish end-to-end
+orchestration behavior. To open the browser reports from the repository root, use
+`pnpm --dir console exec playwright show-report playwright-report/e2e` for the
+fixture suite or `pnpm --dir console exec playwright show-report playwright-report/live`
+for the native suite. Their test artifacts use separate directories so running
+one suite does not erase the other suite's traces.
 
 Production output is `dist/`, including legal notices, the inventory of packages
 actually included in browser chunks and `console-manifest.json`. The manifest
@@ -255,7 +267,9 @@ and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-The browser and server use Console contract **7**; deploy matching assets together.
+This development branch uses Console contract **14** for native admission waits,
+accepted operations and weighted resource offers; deploy matching server and assets together.
+Published Ledgence 0.8.0 remains on contract **7**.
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
 
 Resources shows per-attempt runtime and Python-process CPU where recorded.
@@ -360,3 +374,57 @@ and operation version bound to the durable call. The accepting attempt and
 acceptance time come from the durable record. A replay observation describes
 one observed attempt; it does not count every reuse. If only timing or failure
 was observed, the node has no durable result to inspect.
+
+C9 additionally identifies protected provider subjects in admission waits. The
+on-demand admission inspector separates capacity settlement from provider
+business completion and displays the original provider ticket. Provider grants
+are not rendered as successful local-operation nodes. Use matching C14 assets
+and backend; the published 0.8.0 contract remains C7.
+
+C10 adds standalone task resource admission. Task details show the resource,
+charged retries and admission deferrals; open **Resource admission** to inspect
+one generation's offer, worker source and cleanup evidence. This is an audited,
+read-only view. A task can already have a result while its resource remains
+occupied. [Contract and limitations](../docs/resource-admission.md#standalone-task-admission).
+
+C11 introduced **Queues** for credential-backed instances with queue concurrency
+policies enabled. The page lists configured limits, occupied capacity and
+uncertain holds. `metadata_read` grants policy inspection; `resource_control`
+grants policy edits. Inspecting the attempts behind holds is an explicit audited
+`sensitive_read` operation. An operator with both permissions can release an
+uncertain hold with its exact task, attempt, revision and a reason.
+
+Set a limit, pause new attempts, or select unlimited. A stop timeout waits for
+closure by default. Forced release after an explicitly configured grace period
+can let another task start while the original still runs. The page distinguishes
+the time the stop was requested from the release time and reason. Lowering a
+limit lets existing holds drain. A lost response can be reconciled in the
+current browser session by retrying the original request ID, revision and exact
+body; inspect the current policy before creating a new command.
+
+To run the credential-backed queue-policy browser acceptance, point
+`LEDGENCE_CONSOLE_URL` at an explicitly disposable loopback Console served by
+the backend, set `LEDGENCE_QUEUE_OPERATOR_FILE` and `LEDGENCE_QUEUE_READER_FILE`
+to current same-origin operator/metadata-reader credential files, then run
+`LEDGENCE_CONSOLE_LIVE_SUITE=queue-policies pnpm --dir console test:live`.
+The test creates a uniquely named policy, pauses and edits it, verifies
+metadata-only access, and leaves it unlimited for database teardown. This
+suite disables retained browser traces and uses separate output directories.
+
+### Resource offers (development C14)
+
+Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.
+
+### Manage resource policies and inspect charged sources
+
+Open **Resources** using a credential with `metadata_read` to inspect capacity, rate, timeouts and occupancy. An adapter can support ordinary FIFO policies independently of weighted offer history. If your credential also has `resource_control`, enter the resource name and choose **Create policy**, or open an existing resource and choose **Edit policy**. Configure occupancy, timeouts and an optional start rate. On adapters that support weighted offers, enter each group's weight and source queues in turn order and select a default group for unmapped queues. Enter the reason and choose **Save policy**.
+
+A create expects the resource to be absent. An edit uses the revision you opened. If two operators edit the same revision, one receives a conflict. Choose **Separate this operation**, reload the current policy and review it before preparing a new change. If the response is lost, choose **Retry exact request** to retrieve the receipt with the original request ID. The Console keeps the request in memory for the same signed-in browser session during navigation. Copy the original Console request before closing or reloading the page if reconciliation is still needed.
+
+On adapters that support source discovery, **Inspect retained sources** lists charged task attempts, workflow operations and provider dispatches for the resource. Filter by **Possibly dispatched** or **Unknown occupied**. **Inspect exact record** reads the retained admission record by its original generation or occurrence, even after ordinary execution history is collected. Each lookup, including an empty source page, requires `sensitive_read` and is audited. Reading the aggregate policy and occupancy requires only `metadata_read`.
+
+A credential with only `sensitive_read` opens **Resources** with a generic instance label and no suggested queues. Enter a known resource name and choose **Inspect retained sources**. Listing configured resource names, reading offer history and viewing occupancy totals each require `metadata_read`. If the adapter supports source discovery without exact task admission inspection, the Console shows the task identity and generation in the source list and explains the unavailable detail.
+
+### Shared run allowances (development C14)
+
+On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.

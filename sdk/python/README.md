@@ -750,3 +750,186 @@ never interpreted as a workflow decision, even when it contains a `kind` field.
 
 See [`docs/workflows.md`](../../docs/workflows.md) for the workflow contract,
 checkpoint limits, cancellation, and recovery semantics.
+
+## Durable resource admission
+
+The 0.9 worker helper supports provider-neutral admission for registered workflow
+callbacks. It requires a credentialed worker/server connection advertising
+`resource_admission.v1`, plus an operator-created resource policy. Admission is
+independent of protected-effect evidence. It is not available merely because a
+helper package is installed; see the release reference before choosing a
+published version.
+
+Register a module-level callback on the workflow, freeze its effective JSON
+arguments before the checkpoint, and consume the typed outcome after resumption:
+
+```python
+from enum import StrEnum
+from ledgence.worker.workflow import Workflow, OperationKind
+from ledgence.worker.admission import AdmissionOutcomeKind
+
+class Entry(StrEnum):
+    START = "start"
+    CALL = "call"
+
+workflow = Workflow(Entry)
+
+@workflow.operation(kind=OperationKind.TOOL, version="1")
+async def format_reply(message, suffix="!"):
+    # A synthetic callback; replace its body with your own awaited adapter.
+    # Initialize credentials/clients inside the callback, outside JSON arguments.
+    return {"reply": message.strip() + suffix}
+
+@workflow.entrypoint(Entry.START, default=True)
+def start(event, ctx):
+    return ctx.request_admission(
+        "reply:1", resource="reply-service",
+        operation=format_reply.bind(message=event["data"]["message"]),
+        resume=Entry.CALL, state=None, timeout_ms=60_000,
+    )
+
+@workflow.entrypoint(Entry.CALL)
+async def call(event, ctx):
+    outcome = await ctx.admitted_operation(format_reply)
+    if outcome.kind == AdmissionOutcomeKind.SUCCEEDED:
+        return ctx.complete(outcome.result)
+    if outcome.kind == AdmissionOutcomeKind.WAIT_REQUIRED:
+        return ctx.wait_admission(resume=Entry.CALL, state=None, timeout_ms=60_000)
+    if outcome.kind == AdmissionOutcomeKind.NEEDS_REVIEW:
+        return ctx.fail("admission_unknown", "Review the original operation's evidence")
+    return ctx.fail("admission_closed", "Admission closed before this callback could run")
+
+handle = workflow.build()
+```
+
+The first wait parks the workflow and frees the runtime process. An offer reserves
+capacity; only the first accepted Start reply authorizes the callback. Its exact
+callable, version, default-expanded arguments, resource and program artifact stay
+bound to the original occurrence. `wait_admission` preserves that occurrence and
+cannot extend its original deadline for admission or authorize a later Start.
+After Start, a new bounded wait episode may wait for Finish or operator release
+beyond that deadline. Its timeout yields `NEEDS_REVIEW` without releasing unknown
+occupancy or granting another callback. A retry is not a new logical operation.
+
+A completed callback reports its bounded JSON result through Finish. Accepted
+results replay without Start or callback execution. This result is separate from
+`ctx.local` records. Finish retries retain identical source and output; an uncertain
+Start is never retried to obtain execution permission. Malformed or uncertain
+runtime acknowledgements prevent the controller from committing a decision.
+
+Exceptions, cancellation, worker loss and invalid outputs do not prove external
+completion and do not release occupancy. Even if your controller explicitly
+catches a callback exception, its source remains unresolved; completing the
+workflow does not silently release it. Review evidence before an operator release.
+A release is an audited capacity override, not proof of business success.
+
+Registration freezes at `workflow.build()`. Lambdas, closures, bound instance
+methods, replacement callbacks and callbacks outside the prepared artifact are
+rejected. Pass only effective JSON parameters to `.bind`; do not serialize client
+objects, credentials or live sessions. One authorization covers one bounded
+callback, not every hidden HTTP request or SDK retry inside it. Configure those
+retries explicitly or use an adapter with matching accounting. Async callbacks
+should await their work; wrap blocking I/O appropriately. Callback code cannot
+stage nested workflow operations through the Ledgence context.
+
+Admission supports one unit of one named resource per request. Protected provider
+dispatch uses the separate atomic composition below. Standalone tasks can request the same resource. Operators optionally weight resource offers by source queue group. Owned children can inherit the root execution budget. Ordinary callbacks are governed
+only when explicitly registered and admitted; existing ungoverned execution paths
+do not add admission RPCs.
+
+### Approved provider operations with shared admission
+
+The 0.9 helper supports atomic provider admission. It requires the
+explicit `provider_admission.v1` capability; separate provider-operation and
+resource-admission capabilities do not imply support. Use a matching worker, orchestrator and database schema.
+
+Freeze a resource requirement into the provider intent before requesting human
+approval:
+
+```python
+from ledgence.worker.providers import (
+    ProviderAdmissionRequirement,
+    ProviderDispatchOutcome,
+    ProviderReport,
+)
+
+binding = exports.binding(
+    business={"namespace": "exports", "key": export_key},
+    target=target,
+    credential_reference="exports-account",
+    queue="provider-checks",
+    admission=ProviderAdmissionRequirement(resource="export-dispatch"),
+)
+```
+
+The resource is reviewed together with the pinned adapter, target and arguments.
+After approval, return `ctx.request_provider_admission("export-capacity",
+resume=Entry.DISPATCH, state=None, timeout_ms=60_000)`. This durable wait releases
+the worker slot. It retains the original approved occurrence across subsequent
+activations; neither the resumed helper nor an old dispatch helper can replace
+its resource, adapter or arguments.
+
+```python
+from ledgence.worker.provider_admission import ProviderAdmissionOutcomeKind
+
+@workflow.entrypoint(Entry.DISPATCH)
+async def dispatch(event, ctx):
+    admitted = await ctx.admitted_provider_operation()
+    if admitted.kind in (
+        ProviderAdmissionOutcomeKind.WAIT_REQUIRED,
+        ProviderAdmissionOutcomeKind.NEEDS_REVIEW,
+    ):
+        return ctx.wait_admission(resume=Entry.DISPATCH, state=None, timeout_ms=60_000)
+    if admitted.kind is ProviderAdmissionOutcomeKind.CLOSED:
+        return ctx.fail("admission_closed", "Dispatch closed before a provider ticket was available")
+    ticket = admitted.ticket
+    if ticket.occurrence.workflow_id != ctx.workflow_id:
+        return ctx.complete({"existing_operation": ticket.occurrence.to_dict()})
+    return ctx.wait_provider_operation("export-result", ticket=ticket,
+                                       resume=Entry.RESULT, state=None)
+```
+
+The ticket is a recovery handle, never permission to dispatch again. A retained
+ticket replays without a Start exchange or callback. A deduplicated operation can
+belong to another workflow; that ticket cannot be adopted as this workflow's
+native provider wait. `ctx.wait_admission()` reuses the original admission
+occurrence, so a new waiting episode cannot extend its pre-Start deadline.
+An offer that expires before the atomic Start commits returns `WAIT_REQUIRED`
+when the task still has authority, including expiry during database contention.
+Tentative grants and rate charges are rolled back before that response. The SDK
+does not retry Start to recover executable permission.
+
+Governed dispatch callbacks return `ProviderDispatchOutcome.completed(report)`
+or `ProviderDispatchOutcome.unknown(report)`. These describe the original call's
+completion separately from the provider's business state:
+
+- A complete HTTP 202 response can justify `completed(ProviderReport.pending(...))`:
+  call occupancy is released while normal provider recovery continues.
+- `unknown(ProviderReport.succeeded(...))` retains uncertain call occupancy even
+  though the adapter reports a successful business outcome.
+- Exceptions, cancellation and plain `ProviderReport` values from a governed
+  dispatch do not invent completion or release capacity. Ordinary ungoverned
+  callbacks and read-only probes continue returning plain `ProviderReport`.
+
+The combined Start is sent once. Lost acknowledgement can consume the grant
+without a physical provider call; it never grants another mutation on retry.
+The combined Report freezes its linked sources and outcome and retries identical
+bytes while execution control remains live. Large provider reports use the
+provider ledger's existing limits, including results up to 128 KiB; they are not
+converted into a generic admission's 64 KiB output.
+
+Read-only reconciliation probes and evidence-only business observations do not
+release the original call's occupancy. Unknown completion requires audited
+administrative release or acceptance of the original frozen completed report;
+an operator release does not stop remote work or replenish dispatch/recovery
+budgets. An accepted `unknown` report cannot later be changed to `completed`
+under the same report identity. This resource controls registered initial dispatch authorizations, not
+all physical requests or hidden retries inside an adapter.
+
+See the runnable [provider admission example](../../examples/provider-admission/README.md)
+for an approval, resource wait, dispatch and business-result workflow using a
+local synthetic provider.
+
+### Run allowance and token observations
+
+A governed callback can return `AdmittedResult(output, usage=RunBudgetUsage.reported(input_tokens=7, output_tokens=3))`. Both types are in `ledgence.worker.admission`. Use `RunBudgetUsage.estimated(...)` for an estimate. An ordinary return value keeps usage unknown. `AdmittedResult` preserves the application output; usage is recorded separately from its one call authorization. A provider adapter can pass `usage=` on its provider report. See [run budgets](https://github.com/Ledgence/ledgence/blob/develop/docs/run-budgets.md).

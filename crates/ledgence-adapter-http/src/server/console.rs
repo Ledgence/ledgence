@@ -61,6 +61,13 @@ impl ConsoleServices {
                 workflows: true,
                 programs: catalog.is_some(),
                 workers: observations.is_some(),
+                task_admission: false,
+                resource_policies: false,
+                resource_sources: false,
+                resource_fair_sharing: false,
+                run_budgets: false,
+                task_run_budgets: false,
+                queue_policies: false,
             },
             suggested_queues: instance.suggested_queues.clone(),
             limits: ConsoleLimits::default(),
@@ -131,10 +138,39 @@ impl ConsoleServices {
     }
 }
 pub(super) const ROUTES: &[Route] = &[
+    Route::post("/v1/console/budgets/inspect", Policy::Metadata),
+    Route::post("/v1/console/budgets/entries", Policy::Metadata),
+    Route::post("/v1/console/resources/put", Policy::ResourceControl),
+    Route::sensitive_post(
+        "/v1/console/resources/sources",
+        AuditReadKind::ResourceSources,
+    ),
+    Route::post("/v1/console/resources/list", Policy::Metadata),
+    Route::post("/v1/console/resources/inspect", Policy::Metadata),
+    Route::post("/v1/console/resources/decisions", Policy::Metadata),
+    Route::post("/v1/console/queue-policies/put", Policy::ResourceControl),
+    Route::post("/v1/console/queue-policies/inspect", Policy::Metadata),
+    Route::post("/v1/console/queue-policies/list", Policy::Metadata),
+    Route::sensitive_post(
+        "/v1/console/queue-policies/holds",
+        AuditReadKind::QueueHolds,
+    ),
+    Route::post(
+        "/v1/console/queue-policies/release",
+        Policy::ResourceControl,
+    ),
     Route::get("/v1/console/access", Policy::Access),
     Route::post("/v1/console/access/login", Policy::Login),
     Route::post("/v1/console/access/logout", Policy::Logout),
     Route::post("/v1/console/audit/events", Policy::Metadata),
+    Route::sensitive_post(
+        "/v1/console/task-admissions/inspect",
+        AuditReadKind::TaskAdmissionInspect,
+    ),
+    Route::sensitive_post(
+        "/v1/console/admissions/inspect",
+        AuditReadKind::AdmissionInspect,
+    ),
     Route::post(
         "/v1/console/workflows/approved-effects/resolve",
         Policy::EffectResolution,
@@ -160,7 +196,7 @@ pub(super) const ROUTES: &[Route] = &[
     Route::sensitive_get("/v1/console/workflows/input", AuditReadKind::WorkflowInput),
     Route::get("/v1/console/attempts/observations", Policy::Metadata),
     Route::get("/v1/console/programs/catalog", Policy::Metadata),
-    Route::get("/v1/console/config", Policy::Metadata),
+    Route::get("/v1/console/config", Policy::ConsoleConfig),
     Route::read_write("/v1/console/tasks", Policy::Metadata, Policy::Submit),
     Route::sensitive_get("/v1/console/tasks/inspect", AuditReadKind::TaskInspect),
     Route::get("/v1/console/tasks/status", Policy::Metadata),
@@ -234,7 +270,43 @@ pub(super) async fn dispatch(
             .map_err(|_| invalid("GET operation does not accept a request body"))?;
         let fields = fields(parts.uri.query().unwrap_or(""), path)?;
         if path == "/v1/console/config" {
-            return server.encode(console.config.clone()).await;
+            if access::control(server).is_some()
+                && !context
+                    .principal()?
+                    .capabilities()
+                    .contains(&AccessCapability::MetadataRead)
+            {
+                let resource_sources = super::admission::sources_available(server);
+                // The restricted projection never reads operator-configured metadata.
+                return server
+                    .encode(ConsoleConfig {
+                        contract_version: CONSOLE_CONTRACT_VERSION,
+                        instance_id: context.principal()?.audience().instance_id.clone(),
+                        instance_name: "Ledgence".into(),
+                        server_version: "undisclosed".into(),
+                        capabilities: ConsoleCapabilities {
+                            resource_sources,
+                            task_admission: resource_sources
+                                && super::task_admission::available(server),
+                            ..ConsoleCapabilities::default()
+                        },
+                        suggested_queues: Vec::new(),
+                        limits: ConsoleLimits::default(),
+                        polling: ConsolePolling::default(),
+                    })
+                    .await;
+            }
+            let mut config = console.config.clone();
+            config.capabilities.queue_policies = super::queue_policies::available(server);
+            config.capabilities.run_budgets = super::run_budget::available(server);
+            config.capabilities.task_run_budgets =
+                config.capabilities.run_budgets && super::run_budget::task_support(server);
+            config.capabilities.resource_policies = super::admission::available(server);
+            config.capabilities.resource_sources = super::admission::sources_available(server);
+            config.capabilities.resource_fair_sharing =
+                super::admission::fair_sharing_available(server);
+            config.capabilities.task_admission = super::task_admission::available(server);
+            return server.encode(config).await;
         }
         let page = pagination(&fields)?;
         if path.starts_with("/v1/console/programs") {
@@ -502,7 +574,20 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path == "/v1/console/workflows/approved-effects/resolve" {
+    let maximum = if path == "/v1/console/resources/put" {
+        ADMISSION_COMMAND_MAX_BYTES
+    } else if path == "/v1/console/resources/sources" {
+        RESOURCE_SOURCE_CURSOR_MAX_BYTES + 2048
+    } else if matches!(
+        path,
+        "/v1/console/admissions/inspect" | "/v1/console/task-admissions/inspect"
+    ) || path.starts_with("/v1/console/resources/")
+        || path.starts_with("/v1/console/budgets/")
+    {
+        4096
+    } else if path.starts_with("/v1/console/queue-policies/") {
+        QUEUE_POLICY_COMMAND_MAX_BYTES
+    } else if path == "/v1/console/workflows/approved-effects/resolve" {
         EFFECT_RESOLUTION_COMMAND_MAX_BYTES
     } else if path.starts_with("/v1/console/workflows/approved-effects/") {
         EFFECT_EVIDENCE_CURSOR_MAX_BYTES + 4096
@@ -522,6 +607,44 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if let Some(operation) = path.strip_prefix("/v1/console/budgets/") {
+        return super::run_budget::post(server, operation, bytes, Some(scope), context).await;
+    }
+    if path == "/v1/console/resources/put" {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Put {
+            name: String,
+            request_id: String,
+            #[serde(deserialize_with = "Option::deserialize")]
+            expected_revision: Option<u64>,
+            policy: ResourcePolicy,
+            reason: String,
+        }
+        let put: Put = server.decode(bytes, maximum).await?;
+        let scoped = ResourcePutCommand {
+            scope: scope.clone(),
+            name: put.name,
+            request_id: put.request_id,
+            expected_revision: put.expected_revision,
+            policy: put.policy,
+            reason: put.reason,
+        };
+        let bytes = encode_bounded(&scoped, maximum)?;
+        return super::admission::post(server, "/v1/resources/put", bytes, context).await;
+    }
+    if let Some(operation) = path.strip_prefix("/v1/console/resources/") {
+        return super::admission::console_resources(server, operation, bytes, scope, context).await;
+    }
+    if let Some(operation) = path.strip_prefix("/v1/console/queue-policies/") {
+        return super::queue_policies::post(server, operation, bytes, Some(scope), context).await;
+    }
+    if path == "/v1/console/task-admissions/inspect" {
+        return super::task_admission::console_inspect(server, bytes, scope, context).await;
+    }
+    if path == "/v1/console/admissions/inspect" {
+        return super::admission::console_inspect(server, bytes, scope, context).await;
+    }
     if path.starts_with("/v1/console/approvals/") {
         return super::approvals::post(server, path, bytes, Some(scope), context).await;
     }
@@ -546,6 +669,7 @@ pub(super) async fn dispatch(
                 input: submission.input.into_submission(scope)?,
                 origin_trace: submission.origin_trace,
             };
+            super::run_budget::require_submission(server, &command, path.ends_with("/tasks"))?;
             if path.ends_with("/tasks") {
                 let reply = server.service.submit(&command).await?;
                 check_snapshot(&reply, scope, &reply.task_id)?;

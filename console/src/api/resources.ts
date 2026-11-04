@@ -1,5 +1,6 @@
 // Explicit safe projections mirror the Rust Console contract; no transport casts.
 import * as s from "./schema";
+import { budgetPolicy, budgetDenial } from "./run-budgets";
 export const program = s.object({ id: s.id, version: s.id });
 export const descriptor = s.object({ program, digest: s.id, size: s.decimal });
 export const taskState = s.enumeration(
@@ -24,6 +25,7 @@ export const attemptState = s.enumeration(
   "failed",
   "cancelled",
   "lost",
+  "deferred",
 );
 export const quiescence = s.enumeration("confirmed", "unconfirmed");
 export const effectOccurrence = s.object({
@@ -41,6 +43,26 @@ export const providerProbe = s.object({
     "Invalid probe generation.",
   ),
 });
+export const taskAdmissionRequirement = s.object({
+  resource: s.refine(
+    s.id,
+    (v) => /^[A-Za-z0-9_.:-]{1,128}$/.test(v),
+    "Invalid task resource name.",
+  ),
+});
+function validRetryCount(
+  count: number,
+  deferrals: number,
+  governed: boolean,
+  maximum: number,
+) {
+  return (
+    count <= 2147483647 &&
+    deferrals <= count &&
+    (governed || deferrals === 0) &&
+    count - deferrals <= maximum
+  );
+}
 export const taskStatus = s.refine(
   s.object({
     task_id: s.id,
@@ -51,7 +73,9 @@ export const taskStatus = s.refine(
     queue: s.id,
     correlation_key: s.nullable(s.string),
     state: taskState,
-    attempt_count: s.integer(),
+    admission: s.nullable(taskAdmissionRequirement),
+    admission_deferrals: s.integer(0, 2147483647),
+    attempt_count: s.integer(0, 2147483647),
     current_attempt_id: s.nullable(s.id),
     latest_attempt_id: s.nullable(s.id),
     submitted_at: s.timestamp,
@@ -60,9 +84,19 @@ export const taskStatus = s.refine(
     cancel_requested_at: s.nullable(s.timestamp),
   }),
   (value) =>
-    !value.provider_probe ||
-    (value.workflow_activation_id === null &&
-      value.workflow_id === value.provider_probe.occurrence.workflow_id),
+    validRetryCount(
+      value.attempt_count,
+      value.admission_deferrals,
+      value.admission !== null,
+      1000,
+    ) &&
+    (!value.admission ||
+      (!value.workflow_id &&
+        !value.workflow_activation_id &&
+        !value.provider_probe)) &&
+    (!value.provider_probe ||
+      (value.workflow_activation_id === null &&
+        value.workflow_id === value.provider_probe.occurrence.workflow_id)),
   "Inconsistent provider check task identity.",
 );
 export const taskSummary = s.object({ task: taskStatus, descriptor });
@@ -71,13 +105,23 @@ export const retryPolicy = s.object({
   max_attempts: s.integer(1, 1000),
   retry_delay_ms: s.integer(0, 86400000),
 });
-export const submission = s.object({
+const submissionFields = {
   program,
   queue: s.id,
   correlation_key: s.nullable(s.string),
   data: s.payload,
   retry_policy: retryPolicy,
   attempt_timeout_ms: s.integer(1, 86400000),
+};
+export const submission = s.withOptional(
+  { ...submissionFields, admission: s.nullable(taskAdmissionRequirement) },
+  { budget: budgetPolicy },
+);
+// Detail responses explicitly represent an absent binding with null. Submission
+// commands omit it so that a malformed requirement cannot silently run ungoverned.
+export const submissionCommand = s.withOptional(submissionFields, {
+  admission: taskAdmissionRequirement,
+  budget: budgetPolicy,
 });
 export const trace: s.Decoder<{
   traceparent: string;
@@ -103,7 +147,8 @@ export const taskDetail = s.refine(
     idempotency_key: s.id,
     origin_trace: s.nullable(trace),
     state: taskState,
-    attempt_count: s.integer(),
+    admission_deferrals: s.integer(0, 2147483647),
+    attempt_count: s.integer(0, 2147483647),
     current_attempt_id: s.nullable(s.id),
     submitted_at: s.timestamp,
     available_at: s.timestamp,
@@ -112,9 +157,19 @@ export const taskDetail = s.refine(
     observed_at: s.timestamp,
   }),
   (value) =>
-    !value.provider_probe ||
-    (value.workflow_activation_id === null &&
-      value.workflow_id === value.provider_probe.occurrence.workflow_id),
+    validRetryCount(
+      value.attempt_count,
+      value.admission_deferrals,
+      value.input.admission !== null,
+      value.input.retry_policy.max_attempts,
+    ) &&
+    (!value.input.admission ||
+      (!value.workflow_id &&
+        !value.workflow_activation_id &&
+        !value.provider_probe)) &&
+    (!value.provider_probe ||
+      (value.workflow_activation_id === null &&
+        value.workflow_id === value.provider_probe.occurrence.workflow_id)),
   "Inconsistent provider check task identity.",
 );
 export const applicationError = s.object({ kind: s.string, message: s.string });
@@ -130,7 +185,14 @@ export const failure = s.variant({
     phase: s.string,
     cleanup_error: s.nullable(executionError),
   }),
+  budget_denied: s.object({
+    kind: s.enumeration("budget_denied"),
+    reason: budgetDenial,
+  }),
   attempt_lost: s.object({ kind: s.enumeration("attempt_lost") }),
+  admission_generation_exhausted: s.object({
+    kind: s.enumeration("admission_generation_exhausted"),
+  }),
 });
 export const taskOutcome = s.variant({
   succeeded: s.object({
@@ -167,19 +229,22 @@ export const observedTask = s.object({
   task: taskStatus,
   observed_at: s.timestamp,
 });
-export const attempt = s.object({
-  task_id: s.id,
-  attempt_id: s.id,
-  generation: s.integer(1, 1000),
-  worker_session_id: s.id,
-  consumer_id: s.integer(),
-  state: attemptState,
-  execution_may_have_started: s.boolean,
-  quiescence,
-  claimed_at: s.nullable(s.timestamp),
-  dispatch_authorized_at: s.nullable(s.timestamp),
-  finished_at: s.nullable(s.timestamp),
-});
+export const attempt = s.withOptional(
+  {
+    task_id: s.id,
+    attempt_id: s.id,
+    generation: s.integer(1, 2147483647),
+    worker_session_id: s.id,
+    consumer_id: s.integer(),
+    state: attemptState,
+    execution_may_have_started: s.boolean,
+    quiescence,
+    claimed_at: s.nullable(s.timestamp),
+    dispatch_authorized_at: s.nullable(s.timestamp),
+    finished_at: s.nullable(s.timestamp),
+  },
+  { budget_denial: budgetDenial },
+);
 export const attemptPage = s.page(attempt);
 export const attemptDetail = s.object({
   attempt,
@@ -237,6 +302,51 @@ export const providerWait = s.object({
     s.refine(s.decimal, (v) => BigInt(v) > 0n, "Invalid effect revision."),
   ),
 });
+export const admissionOccurrence = s.object({
+  scope: s.object({ tenant_id: s.id, namespace: s.id }),
+  workflow_id: s.id,
+  origin_activation_id: s.id,
+  key: s.id,
+});
+export const providerTicket = s.object({
+  occurrence: effectOccurrence,
+  binding_digest: s.refine(
+    s.string,
+    (v) => /^sha256:[0-9a-f]{64}$/.test(v),
+    "Invalid provider digest.",
+  ),
+});
+export const admissionSubject = s.variant({
+  operation: s.object({ kind: s.enumeration("operation") }),
+  provider: s.object({
+    kind: s.enumeration("provider"),
+    ticket: providerTicket,
+  }),
+});
+export function admissionSubjectMatches(
+  subject: s.Decoded<typeof admissionSubject>,
+  occurrence: s.Decoded<typeof admissionOccurrence>,
+) {
+  if (subject.kind === "operation") return true;
+  const original = subject.ticket.occurrence;
+  return (
+    original.scope.tenant_id === occurrence.scope.tenant_id &&
+    original.scope.namespace === occurrence.scope.namespace &&
+    original.workflow_id === occurrence.workflow_id &&
+    original.activation_id === occurrence.origin_activation_id
+  );
+}
+export const admissionWait = s.refine(
+  s.object({
+    subject: admissionSubject,
+    parking_activation_id: s.id,
+    key: s.id,
+    occurrence: admissionOccurrence,
+    resource: s.id,
+  }),
+  (v) => admissionSubjectMatches(v.subject, v.occurrence),
+  "Foreign provider admission subject.",
+);
 export const workflowDetail = s.refine(
   s.object({
     summary: workflowSummary,
@@ -245,6 +355,7 @@ export const workflowDetail = s.refine(
     external_wait_key: s.nullable(s.string),
     native_effect_wait: s.nullable(nativeEffectWait),
     provider_wait: s.nullable(providerWait),
+    admission_wait: s.nullable(admissionWait),
     observed_at: s.timestamp,
   }),
   (value) =>
@@ -253,12 +364,16 @@ export const workflowDetail = s.refine(
       value.external_wait_key,
       value.native_effect_wait,
       value.provider_wait,
+      value.admission_wait,
     ].filter((v) => v !== null).length <= 1 &&
     (!value.native_effect_wait ||
       value.native_effect_wait.occurrence.workflow_id ===
         value.summary.workflow.workflow_id) &&
     (!value.provider_wait ||
       value.provider_wait.occurrence.workflow_id ===
+        value.summary.workflow.workflow_id) &&
+    (!value.admission_wait ||
+      value.admission_wait.occurrence.workflow_id ===
         value.summary.workflow.workflow_id),
   "Inconsistent current workflow wait.",
 );
@@ -316,14 +431,22 @@ export const wait = s.refine(
       "approval",
       "effect_resolution",
       "provider_operation",
+      "resource_admission",
     ),
     deadline: s.nullable(s.timestamp),
     registered_at: s.timestamp,
     closed_at: s.nullable(s.timestamp),
     native_effect_wait: s.nullable(nativeEffectWait),
     provider_wait: s.nullable(providerWait),
+    admission_wait: s.nullable(admissionWait),
   }),
   (value) =>
+    (value.kind === "resource_admission") === (value.admission_wait !== null) &&
+    (!value.admission_wait ||
+      (value.deadline !== null &&
+        value.admission_wait.occurrence.workflow_id === value.workflow_id &&
+        value.admission_wait.parking_activation_id === value.activation_id &&
+        value.admission_wait.key === value.wait_key)) &&
     (value.kind === "provider_operation") === (value.provider_wait !== null) &&
     (!value.provider_wait ||
       (value.deadline === null &&

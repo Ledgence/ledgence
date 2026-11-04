@@ -57,13 +57,18 @@ struct Counts {
     hold_execution: AtomicBool,
     hold_fetch: AtomicBool,
     hold_startup: AtomicBool,
+    legacy_runtime: AtomicBool,
     execution_error: AtomicBool,
     hold_cleanup: AtomicBool,
     injected_outcome: Mutex<Option<ProgramOutcome>>,
     injected_error: Mutex<Option<worker_api::Error>>,
+    injected_startup_error: Mutex<Option<worker_api::Error>>,
     injected_observations: Mutex<Option<InvocationObservations>>,
     observed_events: Mutex<Vec<Value>>,
     observed_processing: Mutex<Vec<Option<TraceContext>>>,
+    observed_runtime: Mutex<Vec<(RuntimeFeatures, RuntimeCapabilities)>>,
+    try_probe_orchestration: AtomicBool,
+    rejected_probe_requests: AtomicUsize,
 }
 
 struct Store(Arc<Counts>);
@@ -85,7 +90,7 @@ impl ProgramStore for Store {
 }
 
 #[derive(Default)]
-struct Cache(Mutex<HashMap<Digest, PreparedArtifact>>);
+struct Cache(Mutex<HashMap<Digest, PreparedArtifact>>, bool);
 impl ArtifactCache for Cache {
     fn lookup<'a>(&'a self, d: &'a ProgramDescriptor) -> PortFuture<'a, Option<PreparedArtifact>> {
         Box::pin(async { Ok(self.0.lock().unwrap().get(&d.digest).cloned()) })
@@ -105,7 +110,7 @@ impl ArtifactCache for Cache {
                     runtime: PythonRuntime {
                         kind: "python".into(),
                         python: "3.12".into(),
-                        protocol: 1,
+                        protocol: if self.1 { 3 } else { 1 },
                     },
                     handler: "app:handle".into(),
                     platform: Platform {
@@ -127,6 +132,10 @@ impl ArtifactCache for Cache {
 
 struct Runtime(Arc<Counts>);
 impl ExecutionRuntime for Runtime {
+    fn supports_admitted_invocation(&self) -> bool {
+        !self.0.legacy_runtime.load(Ordering::SeqCst)
+    }
+
     fn start<'a>(
         &'a self,
         artifact: PreparedArtifact,
@@ -138,6 +147,9 @@ impl ExecutionRuntime for Runtime {
                 tokio::time::sleep(Duration::from_millis(2)).await;
             }
             control.check()?;
+            if let Some(error) = self.0.injected_startup_error.lock().unwrap().clone() {
+                return Err(error);
+            }
             let pid = self.0.starts.fetch_add(1, Ordering::SeqCst) + 1;
             let live = self.0.live.fetch_add(1, Ordering::SeqCst) + 1;
             self.0.peak.fetch_max(live, Ordering::SeqCst);
@@ -176,6 +188,22 @@ impl Drop for Session {
 impl ExecutionSession for Session {
     fn pid(&self) -> u32 {
         self.pid
+    }
+
+    fn supports_admitted_invocation(&self) -> bool {
+        true
+    }
+
+    fn execute_admitted<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        permit: InvocationPermit,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async move {
+            permit.check()?;
+            self.execute(invocation, control).await
+        })
     }
 
     fn take_observations(&mut self) -> Option<InvocationObservations> {
@@ -228,6 +256,39 @@ impl ExecutionSession for Session {
         })
     }
 
+    fn execute_with_requests<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        self.counts
+            .observed_runtime
+            .lock()
+            .unwrap()
+            .push((handler.features(), handler.capabilities()));
+        Box::pin(async move {
+            if self.counts.try_probe_orchestration.load(Ordering::SeqCst) {
+                let error = handler
+                    .handle(
+                        RuntimeRequest {
+                            id: 1,
+                            operation: "local_step.commit".into(),
+                            payload: json!({}),
+                        },
+                        control.clone(),
+                    )
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.kind, ErrorKind::Protocol);
+                self.counts
+                    .rejected_probe_requests
+                    .fetch_add(1, Ordering::SeqCst);
+            }
+            self.execute(invocation, control).await
+        })
+    }
+
     fn close(&mut self) -> PortFuture<'_, ()> {
         Box::pin(async {
             self.counts.closes.fetch_add(1, Ordering::SeqCst);
@@ -256,10 +317,12 @@ impl ExecutionSession for Session {
 #[derive(Default)]
 struct ServiceState {
     session: Option<WorkerSession>,
+    sessions: HashMap<String, WorkerSession>,
+    deny_registration: Option<String>,
     next_task: usize,
     acquisitions: Vec<AcquireCommand>,
     acquisition_waits: Vec<Duration>,
-    replies: HashMap<(u32, u64), AcquireReply>,
+    replies: HashMap<(String, u32, u64), AcquireReply>,
     active: HashMap<u32, String>,
     renewals: Vec<RenewCommand>,
     accepted_renewals: HashMap<String, RenewCommand>,
@@ -270,11 +333,15 @@ struct ServiceState {
 }
 
 struct Service {
+    task_admission: task_admission::Fixture,
+    queue: queue_concurrency::Fixture,
     broker_commands: Mutex<Vec<ClaimCommand>>,
     broker_disposition: Mutex<Option<ClaimDisposition>>,
     malformed_claim: AtomicBool,
     state: Mutex<ServiceState>,
     task_count: usize,
+    workflow_mode: AtomicBool,
+    probe_mode: AtomicBool,
     acquire_unavailable: AtomicBool,
     settle_unavailable: AtomicBool,
     renew_unavailable: AtomicBool,
@@ -300,11 +367,15 @@ struct Service {
 impl Service {
     fn new(task_count: usize) -> Arc<Self> {
         Arc::new(Self {
+            task_admission: task_admission::Fixture::default(),
+            queue: queue_concurrency::Fixture::default(),
             broker_commands: Mutex::new(Vec::new()),
             broker_disposition: Mutex::new(None),
             malformed_claim: AtomicBool::new(false),
             state: Mutex::new(ServiceState::default()),
             task_count,
+            workflow_mode: AtomicBool::new(false),
+            probe_mode: AtomicBool::new(false),
             acquire_unavailable: AtomicBool::new(false),
             settle_unavailable: AtomicBool::new(false),
             renew_unavailable: AtomicBool::new(false),
@@ -329,14 +400,15 @@ impl Service {
     }
 
     fn authority(&self, owner: &LeaseOwner, sequence: u64, dispatch: bool) -> Authority {
+        let stopped = self.queue.stop_requested.load(Ordering::SeqCst);
         Authority {
             owner: owner.clone(),
             expires_at: 1_000_000,
             remaining_ms: self.lease_ms.load(Ordering::SeqCst),
-            execution_remaining_ms: 300_000,
+            execution_remaining_ms: if stopped { 0 } else { 300_000 },
             renew_sequence: sequence,
-            cancel_requested: false,
-            dispatch_allowed: dispatch,
+            cancel_requested: stopped,
+            dispatch_allowed: dispatch && !stopped,
         }
     }
 
@@ -356,6 +428,20 @@ fn unavailable() -> ContractError {
 }
 
 impl TaskService for Service {
+    fn queue_policy_client(&self) -> ledgence_orchestration_api::Result<&dyn QueuePolicyClient> {
+        Ok(&self.queue)
+    }
+    fn task_admission_client(
+        &self,
+    ) -> ledgence_orchestration_api::Result<&dyn TaskAdmissionClient> {
+        if self.task_admission.enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable(
+                "task admission is disabled".into(),
+            ))
+        }
+    }
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move {
             self.broker_commands.lock().unwrap().push(command.clone());
@@ -389,14 +475,20 @@ impl TaskService for Service {
         concurrency: u32,
     ) -> ContractFuture<'a, WorkerSession> {
         Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            if state.deny_registration.as_deref() == Some(queue) {
+                return Err(ContractError::Forbidden);
+            }
             let session = WorkerSession {
-                id: "worker_session_test".into(),
+                features: Vec::new(),
+                id: format!("worker_session_{queue}"),
                 scope: scope.clone(),
                 queue: queue.into(),
                 concurrency,
                 expires_at: u64::MAX,
             };
-            self.state.lock().unwrap().session = Some(session.clone());
+            state.sessions.insert(session.id.clone(), session.clone());
+            state.session = Some(session.clone());
             Ok(session)
         })
     }
@@ -407,8 +499,14 @@ impl TaskService for Service {
             if self.session_expired.load(Ordering::SeqCst) {
                 return Err(ContractError::SessionExpired);
             }
-            let session = self.state.lock().unwrap().session.clone().unwrap();
-            assert_eq!(id, session.id);
+            let session = self
+                .state
+                .lock()
+                .unwrap()
+                .sessions
+                .get(id)
+                .cloned()
+                .unwrap();
             Ok(session)
         })
     }
@@ -423,15 +521,25 @@ impl TaskService for Service {
                 let mut state = self.state.lock().unwrap();
                 state.acquisitions.push(command.clone());
                 state.acquisition_waits.push(options.max_wait);
-                let key = (command.consumer_id, command.sequence);
+                let key = (
+                    command.worker_session_id.clone(),
+                    command.consumer_id,
+                    command.sequence,
+                );
                 if let Some(reply) = state.replies.get(&key) {
                     reply.clone()
                 } else {
-                    let session = state.session.as_ref().unwrap();
+                    let session = state.sessions.get(&command.worker_session_id).unwrap();
                     assert_eq!(command.scope, session.scope);
                     assert_eq!(command.queue, session.queue);
                     assert_eq!(command.worker_session_id, session.id);
                     assert!(command.consumer_id < session.concurrency);
+                    // This fixture has a plain task for an ordinary session,
+                    // and a governed task for an admission-capable session.
+                    let governed = session
+                        .features
+                        .iter()
+                        .any(|v| v == worker_api::TASK_ADMISSION_FEATURE);
                     if state.active.contains_key(&command.consumer_id) {
                         state.capacity_violations += 1;
                     }
@@ -454,7 +562,7 @@ impl TaskService for Service {
                         state
                             .active
                             .insert(command.consumer_id, owner.attempt_id.clone());
-                        let event = CloudEvent::new(json!({
+                        let mut event = CloudEvent::new(json!({
                             "specversion":"1.0", "id":format!("evt_{number}"),
                             "source":"urn:ledgence:orchestrator",
                             "type":"com.ledgence.task.invocation.requested.v1",
@@ -467,11 +575,42 @@ impl TaskService for Service {
                             "data":{"invoice":"INV-1042","nested":[1,{"opaque":true}]}
                         }))
                         .unwrap();
+                        let workflow_activation_id = if self.workflow_mode.load(Ordering::SeqCst) {
+                            let mut value = event.into_value();
+                            value["ldgworkflowid"] = json!("workflow");
+                            value["ldgactivationid"] = json!(owner.task_id);
+                            event = CloudEvent::new(value).unwrap();
+                            Some(owner.task_id.clone())
+                        } else {
+                            None
+                        };
+                        let provider_probe = if self.probe_mode.load(Ordering::SeqCst) {
+                            let mut value = event.into_value();
+                            value["ldgworkflowid"] = json!("workflow");
+                            event = CloudEvent::new(value).unwrap();
+                            Some(ProviderProbeAssignment {
+                                occurrence: EffectOccurrence {
+                                    scope: owner.scope.clone(),
+                                    workflow_id: "workflow".into(),
+                                    activation_id: "origin".into(),
+                                    approval_key: "approval".into(),
+                                },
+                                probe_id: "probe".into(),
+                                generation: 1,
+                            })
+                        } else {
+                            None
+                        };
                         AcquireReply::Assigned {
                             sequence: command.sequence,
                             assignment: Box::new(Assignment {
-                                provider_probe: None,
-                                workflow_activation_id: None,
+                                queue_concurrency: self.queue.enabled.load(Ordering::SeqCst),
+                                task_admission: governed.then(|| TaskAdmissionAssignment {
+                                    offer_generation: 1,
+                                    resource: "invoice".into(),
+                                }),
+                                provider_probe,
+                                workflow_activation_id,
                                 descriptor: descriptor(),
                                 event,
                                 lease: Lease {
@@ -570,6 +709,9 @@ impl TaskService for Service {
 
     fn settle<'a>(&'a self, command: &'a SettleCommand) -> ContractFuture<'a, SettleReply> {
         Box::pin(async move {
+            if self.queue.settlement_fenced.load(Ordering::SeqCst) {
+                return Err(ContractError::OwnershipLost);
+            }
             let already_accepted = {
                 let mut state = self.state.lock().unwrap();
                 state.settlements.push(command.clone());
@@ -1862,3 +2004,14 @@ mod observations;
 
 #[path = "delivery/sqs.rs"]
 mod sqs;
+
+#[path = "delivery/runtime_features.rs"]
+mod runtime_features;
+
+#[path = "delivery/queue_concurrency.rs"]
+mod queue_concurrency;
+#[path = "delivery/task_admission.rs"]
+mod task_admission;
+
+#[path = "delivery/poll_routes.rs"]
+mod poll_routes;

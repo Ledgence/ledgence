@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
 import {
+  effectText as text,
+  effectId as id,
+  effectScope as scope,
+  effectOccurrence,
+  type EffectOccurrence,
+} from "./effect-occurrence";
+export { effectOccurrence, type EffectOccurrence } from "./effect-occurrence";
+import {
   providerSummary,
   providerReport,
   providerReportReference,
@@ -17,41 +25,11 @@ import { parseUserJson, stringifyUserJson } from "./json";
 
 const byteLength = (value: unknown) =>
   new TextEncoder().encode(stringifyUserJson(value)).length;
-function validPlatformText(value: string, limit: number) {
-  return (
-    value.length > 0 &&
-    new TextEncoder().encode(value).length <= limit &&
-    [...value].every((character) => {
-      const code = character.codePointAt(0)!;
-      return (
-        code >= 32 &&
-        !(code >= 127 && code <= 159) &&
-        !(code >= 0xfdd0 && code <= 0xfdef) &&
-        (code & 0xfffe) !== 0xfffe
-      );
-    })
-  );
-}
-const text = (limit: number) =>
-  s.refine(
-    s.string,
-    (value) => validPlatformText(value, limit),
-    "Effect identifier exceeds its limit.",
-  );
-const id = text(128);
 const positive = s.refine(
   s.decimal,
   (value) => BigInt(value) > 0n,
   "Effect revision must be positive.",
 );
-const scope = s.object({ tenant_id: id, namespace: id });
-export const effectOccurrence = s.object({
-  scope,
-  workflow_id: id,
-  activation_id: id,
-  approval_key: id,
-});
-export type EffectOccurrence = s.Decoded<typeof effectOccurrence>;
 export type EffectAddress = Omit<EffectOccurrence, "scope">;
 const audience = s.object({ authority_id: id, instance_id: id, scope });
 const worker = s.object({

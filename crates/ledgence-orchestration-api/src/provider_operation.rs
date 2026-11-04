@@ -82,6 +82,9 @@ impl ProviderOperationTicket {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderClaimCommand {
+    /// Transport negotiation is separate from the immutable command identity.
+    #[serde(skip)]
+    pub budget_fence: bool,
     pub owner: LeaseOwner,
     pub workflow_id: String,
     pub approval_key: String,
@@ -114,9 +117,15 @@ impl ProviderClaimCommand {
         provider_bound(self, PROVIDER_COMMAND_MAX_BYTES)
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDispatchSource {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub budget_grant: Option<RunBudgetGrant>,
     pub source_id: String,
     pub claim_id: String,
     pub report_id: String,
@@ -136,6 +145,12 @@ impl ProviderDispatchSource {
         time(self.accepted_at)?;
         time(self.first_possible_dispatch_at)?;
         time(self.reconciliation_deadline)?;
+        if let Some(grant) = self.budget_grant {
+            grant.validate()?;
+            if grant.authorized_at != self.accepted_at {
+                return Err(provider_invalid());
+            }
+        }
         if self.accepted_at != self.first_possible_dispatch_at
             || self.reconciliation_deadline <= self.accepted_at
             || self.worker.audience.scope != self.ticket.occurrence.scope
@@ -199,7 +214,8 @@ impl ProviderClaimReceipt {
         }
         Ok(match self {
             Self::Dispatch { source, .. } => {
-                ticket == &expected
+                (source.budget_grant.is_none() || command.budget_fence)
+                    && ticket == &expected
                     && source.claim_id == command.claim_id
                     && source.report_id == command.report_id
             }
@@ -298,6 +314,12 @@ impl ProviderKnowledge {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderReport {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::effect_resolution::present"
+    )]
+    pub usage: Option<RunBudgetUsage>,
     pub reported_target: ProviderTarget,
     #[serde(deserialize_with = "crate::observation::required_option")]
     pub provider_reference: Option<String>,
@@ -307,6 +329,9 @@ pub struct ProviderReport {
 }
 impl ProviderReport {
     pub fn validate(&self) -> Result<()> {
+        if let Some(usage) = &self.usage {
+            usage.validate()?;
+        }
         self.reported_target.validate()?;
         for value in [&self.provider_reference, &self.provider_request_id]
             .into_iter()
@@ -564,7 +589,7 @@ impl ProviderReportedCommand for ProviderObservationCommand {
         true
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderReportReceipt {
     pub ticket: ProviderOperationTicket,

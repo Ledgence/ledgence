@@ -8,15 +8,23 @@ export default defineConfig({
   workers: 4,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  // Playwright cleans its output directory before a run. Keep these siblings of
+  // the live suite's directories so a short e2e run cannot erase a live trace.
+  outputDir: "test-results/e2e",
+  reporter: [
+    ["list"],
+    ["html", { open: "never", outputFolder: "playwright-report/e2e" }],
+  ],
   use: {
     baseURL: `http://127.0.0.1:${port}/console/`,
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `node node_modules/vite/bin/vite.js --host 127.0.0.1 --port ${port}`,
+    // Exercise fresh distribution bytes without the dev client's reconnect reloads.
+    command: `node --run build && node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port ${port} --strictPort`,
     url: `http://127.0.0.1:${port}/console/`,
-    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+    reuseExistingServer: false,
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },

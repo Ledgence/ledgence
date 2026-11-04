@@ -6,6 +6,9 @@ enum Missing {
     Reader,
     Audit,
     Evidence,
+    Admission,
+    Provider,
+    Composition,
 }
 struct Store {
     missing: Option<Missing>,
@@ -31,6 +34,27 @@ macro_rules! unused_methods {
     )*};
 }
 impl WorkflowStore for Store {
+    fn admissions(&self) -> Result<&dyn AdmissionStore> {
+        if matches!(self.missing, Some(Missing::Admission)) {
+            Err(unavailable())
+        } else {
+            Ok(self)
+        }
+    }
+    fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
+        if matches!(self.missing, Some(Missing::Provider)) {
+            Err(unavailable())
+        } else {
+            Ok(self)
+        }
+    }
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionStore> {
+        if matches!(self.missing, Some(Missing::Composition)) {
+            Err(unavailable())
+        } else {
+            Ok(self)
+        }
+    }
     fn approved_effect_evidence(&self) -> Result<&dyn ApprovedEffectEvidence> {
         if matches!(self.missing, Some(Missing::Evidence)) {
             Err(unavailable())
@@ -180,6 +204,7 @@ fn principal(worker: bool) -> VerifiedPrincipal {
 }
 fn claim() -> EffectClaimV2Command {
     EffectClaimV2Command {
+        budget_fence: false,
         owner: owner(),
         workflow_id: "workflow".into(),
         approval_key: "approval".into(),
@@ -303,6 +328,8 @@ fn context(wake: WorkflowWake) -> WorkflowActivationContext {
         state: json!(null),
         inputs: Default::default(),
         local_steps: vec![],
+        admission_result: None,
+        provider_admission: None,
         wake: Some(wake),
     }
 }
@@ -361,4 +388,216 @@ fn provider_context_scope_must_match_current_lease() {
             deadline_at: 60000,
         },
     })));
+}
+
+impl AdmissionOperations for Store {
+    fn put_resource<'a>(
+        &'a self,
+        _p: &'a VerifiedPrincipal,
+        _c: &'a ResourcePutCommand,
+    ) -> ContractFuture<'a, ResourcePutReceipt> {
+        self.reached()
+    }
+    unused_methods! {
+        fn resource(_p: &'a VerifiedPrincipal, _q: &'a ResourceQuery) -> ResourceSnapshot;
+        fn list_resources(_p: &'a VerifiedPrincipal, _q: &'a ResourceListQuery) -> ResourcePage;
+        fn start_admission(_p: &'a VerifiedPrincipal, _c: &'a AdmissionStartCommand) -> AdmissionStartReceipt;
+        fn finish_admission(_p: &'a VerifiedPrincipal, _c: &'a AdmissionFinishCommand) -> AdmissionFinishReceipt;
+        fn inspect_admission(_p: &'a VerifiedPrincipal, _q: &'a AdmissionQuery) -> AdmissionSnapshot;
+        fn release_admission(_p: &'a VerifiedPrincipal, _c: &'a AdmissionReleaseCommand) -> AdmissionReleaseReceipt;
+    }
+}
+impl AdmissionStore for Store {
+    unused_methods! {
+        fn advance_admissions(_q: &'a AdmissionMaintenanceQuery) -> AdmissionMaintenanceProgress;
+        fn apply_admission_work(_w: &'a WorkflowWork, _r: &'a [ResolvedWorkflowChild]) -> WorkflowProgress;
+    }
+}
+impl ProviderOperations for Store {
+    unused_methods! {
+        fn claim_provider(_p: &'a VerifiedPrincipal, _c: &'a ProviderClaimCommand) -> ProviderClaimReceipt;
+        fn report_dispatch(_p: &'a VerifiedPrincipal, _c: &'a ProviderDispatchReportCommand) -> ProviderReportReply;
+        fn report_probe(_p: &'a VerifiedPrincipal, _c: &'a ProviderProbeReportCommand) -> ProviderReportReply;
+        fn observe_provider(_p: &'a VerifiedPrincipal, _c: &'a ProviderObservationCommand) -> ProviderReportReply;
+        fn probe_context(_p: &'a VerifiedPrincipal, _c: &'a ProviderProbeContextCommand) -> ProviderProbeContext;
+    }
+}
+impl ProviderOperationStore for Store {
+    unused_methods! {
+        fn advance_provider_operations(_q: &'a ProviderMaintenanceQuery) -> ProviderMaintenanceProgress;
+        fn apply_provider_work(_w: &'a WorkflowWork, _r: &'a [ResolvedWorkflowChild]) -> WorkflowProgress;
+    }
+}
+impl ProviderAdmissionOperations for Store {
+    fn start_provider_admission<'a>(
+        &'a self,
+        _p: &'a VerifiedPrincipal,
+        _c: &'a ProviderAdmissionStartCommand,
+    ) -> ContractFuture<'a, ProviderAdmissionStartReceipt> {
+        self.reached()
+    }
+    fn report_provider_admission<'a>(
+        &'a self,
+        _p: &'a VerifiedPrincipal,
+        _c: &'a ProviderAdmissionReportCommand,
+    ) -> ContractFuture<'a, ProviderAdmissionReportReceipt> {
+        self.reached()
+    }
+}
+impl ProviderAdmissionStore for Store {}
+#[tokio::test]
+async fn protected_provider_admission_requires_complete_atomic_store_before_mutation() {
+    let c = ProviderAdmissionStartCommand {
+        admission: AdmissionStartCommand {
+            owner: owner(),
+            occurrence: AdmissionOccurrence {
+                scope: owner().scope,
+                workflow_id: "workflow".into(),
+                origin_activation_id: "approved-activation".into(),
+                key: "provider-call".into(),
+            },
+            offer_generation: 1,
+            start_id: "start".into(),
+            finish_id: "report".into(),
+        },
+    };
+    for missing in [
+        Missing::Reader,
+        Missing::Audit,
+        Missing::Evidence,
+        Missing::Admission,
+        Missing::Provider,
+        Missing::Composition,
+    ] {
+        let (service, store) = service(Some(missing));
+        assert!(matches!(
+            service.start_provider_admission(&principal(true), &c).await,
+            Err(ContractError::Unavailable(_))
+        ));
+        assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    }
+    let (service, store) = service(None);
+    assert_eq!(
+        service
+            .start_provider_admission(&principal(true), &c)
+            .await
+            .unwrap_err(),
+        ContractError::NotFound
+    );
+    assert_eq!(store.calls.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn protected_provider_wait_requires_composed_capability_before_work_application() {
+    let mut work = native_work(true);
+    if let Some(TaskOutcome::Succeeded { output, .. }) = &mut work.outcome {
+        output["wait"] = json!({"kind":"resource_admission","key":"provider-call","request":{"kind":"provider","approval_key":"approval"},"timeout_ms":60000});
+    }
+    for missing in [
+        Missing::Reader,
+        Missing::Audit,
+        Missing::Evidence,
+        Missing::Admission,
+        Missing::Provider,
+        Missing::Composition,
+    ] {
+        let (service, store) = service(Some(missing));
+        assert!(matches!(
+            service.resolve_workflow_children(&work, &mut vec![]).await,
+            Err(ContractError::InvalidInput(_))
+        ));
+        assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    }
+    let (service, _) = service(None);
+    assert!(
+        !service
+            .resolve_workflow_children(&work, &mut vec![])
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn legacy_admission_port_never_substitutes_an_empty_source_page() {
+    let (svc, store) = service(None);
+    let worker = principal(false);
+    let investigator = VerifiedPrincipal::new(
+        worker.identity().clone(),
+        worker.audience().clone(),
+        "credential".into(),
+        PrincipalClass::Operator,
+        1000,
+        vec![AccessCapability::SensitiveRead],
+    )
+    .unwrap();
+    let q = ResourceSourceQuery {
+        scope: owner().scope,
+        name: "shared".into(),
+        state: None,
+        cursor: None,
+        limit: 1,
+    };
+    assert!(!svc.supports_resource_sources());
+    assert!(matches!(
+        svc.list_resource_sources(&investigator, &q).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert!(matches!(
+        svc.list_resource_sources(&worker, &q).await,
+        Err(ContractError::Forbidden)
+    ));
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+}
+#[tokio::test]
+async fn legacy_admission_store_cannot_accept_or_explain_weighted_offers() {
+    let (svc, store) = service(None);
+    let actor = principal(false);
+    let operator = VerifiedPrincipal::new(
+        actor.identity().clone(),
+        actor.audience().clone(),
+        "credential".into(),
+        PrincipalClass::Operator,
+        1000,
+        vec![
+            AccessCapability::MetadataRead,
+            AccessCapability::ResourceControl,
+        ],
+    )
+    .unwrap();
+    assert!(!svc.supports_resource_fair_sharing());
+    let scope = owner().scope;
+    let mut cmd: ResourcePutCommand = serde_json::from_value(serde_json::json!({
+        "scope":scope, "name":"shared", "request_id":"update", "expected_revision":null,
+        "reason":"test", "policy":{"enabled":true,"max_occupancy":1,"rate":null,
+        "offer_timeout_ms":1000,"start_timeout_ms":1000,"fair_sharing":{
+            "groups":[{"name":"batch","weight":1,"queues":[]}],"default_group":"batch"}}
+    }))
+    .unwrap();
+    let query = ResourceDecisionQuery {
+        scope: scope.clone(),
+        name: "shared".into(),
+        before: None,
+        limit: 10,
+    };
+    assert!(matches!(
+        svc.put_resource(&operator, &cmd).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert!(matches!(
+        svc.list_resource_decisions(&operator, &query).await,
+        Err(ContractError::Unavailable(_))
+    ));
+    assert_eq!(
+        svc.list_resource_decisions(&actor, &query)
+            .await
+            .unwrap_err(),
+        ContractError::Forbidden
+    );
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    cmd.policy.fair_sharing = None;
+    // FIFO still reaches the existing adapter instead of requiring a new capability.
+    assert_eq!(
+        svc.put_resource(&operator, &cmd).await.unwrap_err(),
+        ContractError::NotFound
+    );
+    assert_eq!(store.calls.load(Ordering::SeqCst), 1);
 }

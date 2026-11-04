@@ -7,6 +7,12 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub(super) struct Binding {
     pub v: u8,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::approvals::optional_non_null"
+    )]
+    pub admission: Option<ProviderAdmissionRequirement>,
     pub business: ProviderBusinessIdentity,
     pub contract: ProviderContract,
     pub target: ProviderTarget,
@@ -20,6 +26,7 @@ impl From<ProviderBinding> for Binding {
     fn from(v: ProviderBinding) -> Self {
         Self {
             v: v.v,
+            admission: v.admission,
             business: v.business,
             contract: v.contract,
             target: v.target,
@@ -34,6 +41,7 @@ impl Binding {
     pub fn into_core(self) -> ProviderBinding {
         ProviderBinding {
             v: self.v,
+            admission: self.admission,
             business: self.business,
             contract: self.contract,
             target: self.target,
@@ -272,8 +280,27 @@ mod tests {
         assert!(serde_json::from_value::<Binding>(missing).is_err());
     }
     #[test]
+    fn governed_binding_roundtrip_preserves_reviewed_resource_and_rejects_null_requirement() {
+        let mut original = binding();
+        let legacy = serde_json::to_value(Binding::from(original.clone())).unwrap();
+        assert!(legacy.get("admission").is_none());
+        original.v = 2;
+        original.admission = Some(ProviderAdmissionRequirement {
+            resource: "export-dispatch".into(),
+        });
+        let encoded = serde_json::to_value(Binding::from(original.clone())).unwrap();
+        let restored: Binding = serde_json::from_value(encoded.clone()).unwrap();
+        let restored = restored.into_core();
+        restored.validate().unwrap();
+        assert_eq!(restored, original);
+        let mut invalid = encoded;
+        invalid["admission"] = Value::Null;
+        assert!(serde_json::from_value::<Binding>(invalid).is_err());
+    }
+    #[test]
     fn report_projection_stringifies_only_platform_counters() {
         let report = ProviderReport {
+            usage: None,
             reported_target: binding().target,
             provider_reference: None,
             provider_request_id: None,

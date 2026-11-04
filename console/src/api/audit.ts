@@ -4,6 +4,8 @@ import { stringifyUserJson } from "./json";
 import { ContractError } from "./codecs";
 import type { Approval } from "./approvals";
 import { effectOccurrence } from "./effects";
+import { admissionOccurrence } from "./resources";
+import { taskAdmissionOccurrence } from "./task-admissions";
 
 const id = s.refine(
   s.id,
@@ -24,6 +26,16 @@ const actor = s.object({
   credential_id: id,
 });
 const resource = s.variant({
+  queue: s.object({ kind: s.enumeration("queue"), queue: id }),
+  resource: s.object({ kind: s.enumeration("resource"), name: id }),
+  task_admission: s.object({
+    kind: s.enumeration("task_admission"),
+    occurrence: taskAdmissionOccurrence,
+  }),
+  admission: s.object({
+    kind: s.enumeration("admission"),
+    occurrence: admissionOccurrence,
+  }),
   effect: s.object({
     kind: s.enumeration("effect"),
     workflow_id: id,
@@ -73,6 +85,10 @@ const responseRead = s.refine(
       "local_step_inspect",
       "approval_inspect",
       "effect_inspect",
+      "admission_inspect",
+      "task_admission_inspect",
+      "resource_sources",
+      "queue_holds",
       "approval_list",
       "approval_decision",
     ),
@@ -87,6 +103,10 @@ const responseRead = s.refine(
       local_step_inspect: "local_step",
       approval_inspect: "approval",
       effect_inspect: "effect",
+      admission_inspect: "admission",
+      task_admission_inspect: "task_admission",
+      resource_sources: "resource",
+      queue_holds: "queue",
       approval_list: "approval_page",
       approval_decision: "approval",
     })[value.read] === value.resource.kind,
@@ -99,6 +119,47 @@ export const auditEvent = s.refine(
     audience,
     actor,
     operation: s.variant({
+      queue_policy_accepted: s.object({
+        kind: s.enumeration("queue_policy_accepted"),
+        queue: id,
+        request_id: id,
+        revision: s.decimal,
+        policy_digest: s.string,
+        reason: s.string,
+      }),
+      queue_hold_released: s.object({
+        kind: s.enumeration("queue_hold_released"),
+        queue: id,
+        task_id: id,
+        attempt_id: id,
+        request_id: id,
+        revision: s.decimal,
+        reason: s.string,
+      }),
+      resource_policy_accepted: s.object({
+        kind: s.enumeration("resource_policy_accepted"),
+        name: id,
+        request_id: id,
+        revision: s.decimal,
+        policy_digest: s.string,
+        reason: s.string,
+      }),
+      task_admission_released: s.object({
+        kind: s.enumeration("task_admission_released"),
+        occurrence: taskAdmissionOccurrence,
+        source_id: id,
+        request_id: id,
+        revision: s.decimal,
+        reason: s.string,
+      }),
+      admission_released: s.object({
+        kind: s.enumeration("admission_released"),
+        occurrence: admissionOccurrence,
+        source_id: id,
+        request_id: id,
+        revision: s.decimal,
+        reason: s.string,
+      }),
       effect_resolved: s.refine(
         s.object({
           kind: s.enumeration("effect_resolved"),

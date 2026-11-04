@@ -291,3 +291,37 @@ whose task success does not itself establish external success.
 See the
 [provider recovery guide](/how-to/recover-provider-operations) and the
 [complete SDK models and example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#typed-provider-operations-development).
+
+## Resource administration in development
+
+The development client adds `client.resources.put/get/list`, typed `ResourcePolicy`
+and `ResourceRate`, and `client.admissions.inspect/release`. Resource metadata
+requires metadata access; arguments/results require audited sensitive access;
+mutations require operator `resource_control`. Preserve command identity after
+a lost response. [Guide](/how-to/control-resource-capacity).
+
+An inspected admission can carry a typed `ProviderAdmissionRecord` instead of a
+generic operation result. `snapshot.provider.call_completion` distinguishes a
+completed original call from uncertain completion; it does not describe business
+success. Inspect the linked effect ticket for provider knowledge and recovery.
+Version-2 provider approvals also expose the reviewed resource requirement.
+All of these extensions require the matching development client and server.
+
+In matching development builds, `TaskAdmission(resource="support-model")` is an
+optional `client.tasks.submit` / `prepare` argument. Use
+`client.task_admissions.inspect(task.id, generation=1)` for audited evidence.
+[Control shared resource capacity](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
+
+## Queue concurrency in development
+
+Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
+
+### Weighted offers (development)
+
+Call `await client.resources.sources("model.requests", state="unknown_occupied", limit=20)` to find standalone task generations, original workflow operations and protected provider approvals on that resource. Each page requires `sensitive_read` and a committed audit record. Pass `cursor=page.next_cursor` with the same resource and state to continue. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
+
+Use `ResourceFairGroup` and `ResourceFairSharing` from `ledgence.client` to configure `ResourcePolicy.fair_sharing`. Use `client.resources.decisions(name, before=page.next)` to read the next page of offer history when a cursor is present. [Configure queue groups and inspect offers](/how-to/share-resource-offers).
+
+### Shared run budgets (development)
+
+Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).

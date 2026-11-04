@@ -54,6 +54,11 @@ export default defineConfig({
         { label: 'Require approval', slug: 'how-to/require-approval' },
         { label: 'Recover model and tool calls', slug: 'how-to/recover-agent-calls' },
         { label: 'Recover provider operations', slug: 'how-to/recover-provider-operations' },
+        { label: 'Share resource offers between queue groups (development)', slug: 'how-to/share-resource-offers' },
+        { label: 'Limit a queue across workers (development)', slug: 'how-to/limit-queue-concurrency' },
+        { label: 'Share one worker across queues (development)', slug: 'how-to/share-worker-polls' },
+        { label: 'Share a run budget (development)', slug: 'how-to/share-run-budgets' },
+        { label: 'Share model and tool capacity (development)', slug: 'how-to/control-resource-capacity' },
       ] },
       { label: 'Integrations and examples', collapsed: true, items: [
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },
@@ -65,6 +70,7 @@ export default defineConfig({
         { label: 'Configure instance access', slug: 'how-to/configure-instance-access' },
         { label: 'Inspect external effects', slug: 'how-to/inspect-effects' },
         { label: 'Inspect operator audit', slug: 'how-to/audit-operators' },
+        { label: 'Upgrade to 0.9.0', slug: 'how-to/upgrade-to-0-9' },
         { label: 'Upgrade to 0.8.0', slug: 'how-to/upgrade-to-0-8' },
         { label: 'Upgrade to 0.7.0', slug: 'how-to/upgrade-to-0-7' },
         { label: 'Advanced setup', collapsed: true, items: [

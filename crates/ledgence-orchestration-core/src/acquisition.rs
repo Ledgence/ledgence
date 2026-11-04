@@ -133,7 +133,10 @@ pub fn acquire(
         .attempt_count
         .checked_add(1)
         .ok_or_else(|| invalid("attempt number overflow"))?;
-    if number > task.input.retry_policy.max_attempts {
+    if number > MAX_TASK_ATTEMPT_GENERATION {
+        return Err(invalid("attempt generation exhausted"));
+    }
+    if charged_attempts(task)? >= task.input.retry_policy.max_attempts {
         return Err(invalid("retry budget exhausted"));
     }
     for id in [&ids.attempt_id, &ids.lease_id, &ids.event_id] {
@@ -171,6 +174,8 @@ pub fn acquire(
         insert_trace(&mut event, trace);
     }
     let attempt = AttemptSnapshot {
+        budget_denial: None,
+        task_admission: None,
         event: CloudEvent::new(event)?,
         descriptor: task.descriptor.clone(),
         lease: Lease {
@@ -231,6 +236,8 @@ fn assigned(
     AcquireReply::Assigned {
         sequence,
         assignment: Box::new(Assignment {
+            queue_concurrency: false,
+            task_admission: attempt.task_admission.clone(),
             provider_probe: task.provider_probe.clone(),
             workflow_activation_id: task.workflow_activation_id.clone(),
             descriptor: attempt.descriptor.clone(),

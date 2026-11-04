@@ -1,5 +1,6 @@
 use axum::{Router, http::StatusCode, response::IntoResponse, routing::get};
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -19,10 +20,11 @@ struct Progress {
     prerequisites: bool,
     last_success: Option<Instant>,
     failure: Option<&'static str>,
-    publication: Option<ComponentProgress>,
+    publication: BTreeMap<String, ComponentProgress>,
     workflow: Option<ComponentProgress>,
     completion: Option<ComponentProgress>,
     provider: Option<ComponentProgress>,
+    admission: Option<ComponentProgress>,
 }
 
 #[derive(Default)]
@@ -55,21 +57,24 @@ impl Health {
     }
 
     #[cfg(feature = "sqs")]
-    pub fn require_publication(&self) {
-        self.progress().publication = Some(ComponentProgress::default());
+    pub fn require_publication(&self, destination: &str) {
+        self.progress()
+            .publication
+            .entry(destination.to_owned())
+            .or_default();
     }
 
     #[cfg(feature = "sqs")]
-    pub fn publication_success(&self) {
-        if let Some(publication) = &mut self.progress().publication {
+    pub fn publication_success(&self, destination: &str) {
+        if let Some(publication) = self.progress().publication.get_mut(destination) {
             publication.last_success = Some(Instant::now());
             publication.failure = None;
         }
     }
 
     #[cfg(feature = "sqs")]
-    pub fn publication_failure(&self, reason: &'static str) {
-        if let Some(publication) = &mut self.progress().publication {
+    pub fn publication_failure(&self, destination: &str, reason: &'static str) {
+        if let Some(publication) = self.progress().publication.get_mut(destination) {
             publication.failure = Some(reason);
         }
     }
@@ -123,6 +128,21 @@ impl Health {
         }
     }
 
+    pub fn require_admissions(&self) {
+        self.progress().admission = Some(ComponentProgress::default());
+    }
+    pub fn admission_success(&self) {
+        if let Some(progress) = &mut self.progress().admission {
+            progress.last_success = Some(Instant::now());
+            progress.failure = None;
+        }
+    }
+    pub fn admission_failure(&self, reason: &'static str) {
+        if let Some(progress) = &mut self.progress().admission {
+            progress.failure = Some(reason);
+        }
+    }
+
     fn progress(&self) -> std::sync::MutexGuard<'_, Progress> {
         self.inner
             .lock()
@@ -147,14 +167,16 @@ impl Health {
             Some(age) if age > self.freshness => reasons.push("recovery_stale"),
             _ => {}
         }
-        if let Some(publication) = &progress.publication {
-            if let Some(reason) = publication.failure {
-                reasons.push(reason);
-            }
-            match publication.last_success.map(|at| at.elapsed()) {
-                None => reasons.push("publication_pending"),
-                Some(age) if age > self.freshness => reasons.push("publication_stale"),
-                _ => {}
+        for publication in progress.publication.values() {
+            let age_reason = match publication.last_success.map(|at| at.elapsed()) {
+                None => Some("publication_pending"),
+                Some(age) if age > self.freshness => Some("publication_stale"),
+                _ => None,
+            };
+            for reason in [publication.failure, age_reason].into_iter().flatten() {
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
             }
         }
         if let Some(workflow) = &progress.workflow {
@@ -174,6 +196,16 @@ impl Health {
             match provider.last_success.map(|at| at.elapsed()) {
                 None => reasons.push("provider_recovery_pending"),
                 Some(age) if age > self.freshness => reasons.push("provider_recovery_stale"),
+                _ => {}
+            }
+        }
+        if let Some(admission) = &progress.admission {
+            if let Some(reason) = admission.failure {
+                reasons.push(reason);
+            }
+            match admission.last_success.map(|at| at.elapsed()) {
+                None => reasons.push("admission_recovery_pending"),
+                Some(age) if age > self.freshness => reasons.push("admission_recovery_stale"),
                 _ => {}
             }
         }
@@ -259,6 +291,30 @@ mod tests {
         health.provider_failure("provider_recovery_failed");
         assert_eq!(health.readiness().0, StatusCode::SERVICE_UNAVAILABLE);
         health.provider_success();
+        assert_eq!(health.readiness().0, StatusCode::OK);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn admission_recovery_health_is_required_only_when_configured() {
+        let health = Health::new(Duration::from_secs(40));
+        health.prerequisites_ready();
+        health.recovery_success();
+        assert_eq!(health.readiness().0, StatusCode::OK);
+        health.require_admissions();
+        assert_eq!(
+            health.readiness().1["reasons"],
+            json!(["admission_recovery_pending"])
+        );
+        health.admission_success();
+        assert_eq!(health.readiness().0, StatusCode::OK);
+        tokio::time::advance(Duration::from_secs(41)).await;
+        health.recovery_success();
+        assert_eq!(
+            health.readiness().1["reasons"],
+            json!(["admission_recovery_stale"])
+        );
+        health.admission_failure("admission_recovery_failed");
+        assert_eq!(health.readiness().0, StatusCode::SERVICE_UNAVAILABLE);
+        health.admission_success();
         assert_eq!(health.readiness().0, StatusCode::OK);
     }
 

@@ -21,6 +21,7 @@ import {
   nodeTiming,
   type RecordedRelation,
 } from "../explorer-model";
+import { AdmissionRecord } from "./admission-record";
 import { OperationRecord } from "./operation-record";
 import { RelationList } from "./relations";
 export function NodeInspector({
@@ -218,6 +219,67 @@ export function NodeInspector({
               were not recorded.
             </p>
           )}
+        </>
+      )}
+      {node.kind === "admission_wait" && (
+        <>
+          <Fields>
+            <Field label="Resource">{node.resource}</Field>
+            <Field label="Original activation">
+              {node.occurrence.origin_activation_id}
+            </Field>
+            <Field label="Operation key">{node.occurrence.key}</Field>
+            <Field label="Deadline">
+              <When value={node.deadline} />
+            </Field>
+          </Fields>
+          <details
+            onToggle={(event) => setInspectOperation(event.currentTarget.open)}
+          >
+            <summary>Inspect admission record</summary>
+            {inspectOperation && <AdmissionRecord node={node} />}
+          </details>
+          {node.subject.kind === "provider" && (
+            <p>
+              This wait governs one approved provider call. A provider ticket is
+              not permission to dispatch and does not assert business
+              completion.
+            </p>
+          )}
+          <p>
+            {node.selection_kind
+              ? `Selected ${node.selection_kind.replaceAll("_", " ")}. A continuation was scheduled; an offer is not permission to execute the callback.`
+              : node.closed_at !== null
+                ? "This admission wait closed without a scheduled continuation."
+                : "Waiting durably for resource admission. No worker process is held while parked."}
+          </p>
+        </>
+      )}
+      {node.kind === "admission_operation" && (
+        <>
+          <p>
+            The original callback result was accepted durably. Replaying this
+            result does not create another operation.
+          </p>
+          <Fields>
+            <Field label="Callable">{node.callable}</Field>
+            <Field label="Resource">{node.resource}</Field>
+            <Field label="Original activation">
+              {node.occurrence.origin_activation_id}
+            </Field>
+            <Field label="Operation key">{node.occurrence.key}</Field>
+            <Field label="Accepting attempt">{node.accepting_attempt_id}</Field>
+          </Fields>
+          <details
+            onToggle={(event) => setInspectOperation(event.currentTarget.open)}
+          >
+            <summary>Inspect accepted operation</summary>
+            {inspectOperation && <AdmissionRecord node={node} />}
+          </details>
+          <p className="muted">
+            Acceptance is a recorded milestone. Callback duration and resource
+            usage are not recorded for this operation.
+          </p>
         </>
       )}
       {node.kind === "provider_wait" && (

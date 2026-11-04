@@ -1,0 +1,36 @@
+{
+  "routes": [
+    {
+      "route": {
+        "scope": {
+          "tenant_id": "acme",
+          "namespace": "demo"
+        },
+        "queue": "interactive",
+        "destination": "interactive-sqs"
+      },
+      "sqs": {
+        "region": "us-east-1",
+        "queue_url": "http://127.0.0.1:9324/000000000000/interactive",
+        "endpoint_url": "http://127.0.0.1:9324",
+        "local_credentials": true
+      }
+    },
+    {
+      "route": {
+        "scope": {
+          "tenant_id": "acme",
+          "namespace": "demo"
+        },
+        "queue": "batch",
+        "destination": "batch-sqs"
+      },
+      "sqs": {
+        "region": "us-east-1",
+        "queue_url": "http://127.0.0.1:9324/000000000000/batch",
+        "endpoint_url": "http://127.0.0.1:9324",
+        "local_credentials": true
+      }
+    }
+  ]
+}

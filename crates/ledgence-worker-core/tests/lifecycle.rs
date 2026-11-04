@@ -12,6 +12,9 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 
+#[path = "lifecycle/admission.rs"]
+mod admission;
+
 #[path = "lifecycle/interactive.rs"]
 mod interactive;
 #[path = "lifecycle/observation.rs"]

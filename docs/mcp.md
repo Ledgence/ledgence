@@ -317,3 +317,32 @@ result or expired provider key never grants another POST. Existing permissions,
 startup-bound scope, sensitive-read audit and explicit `--allow-effect-resolution`
 apply unchanged. These additions require matching 0.8.0 components.
 [Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).
+
+## Resource admission in development
+
+Matching source builds add six resource read tools: `ledgence_resource_list`,
+`ledgence_resource_inspect`, `ledgence_resource_decisions`, audited `ledgence_resource_sources`, `ledgence_admission_inspect` and
+`ledgence_task_admission_inspect`. The native
+catalog with audit has 30 default tools and 25 read-only tools. Explicit effect
+resolution adds one. `--allow-resource-control` separately adds
+`ledgence_resource_put`, `ledgence_admission_release`, `ledgence_task_admission_release`,
+`ledgence_queue_policy_put` and `ledgence_queue_hold_release`
+(35 tools, or 36 with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
+Call `ledgence_resource_sources` with `name` and optional `state`, `cursor` and
+`limit`. A credential with `sensitive_read` can discover charged task,
+workflow and provider occurrences. Every page records a resource response
+audit. Pass `next_cursor` unchanged with the same name and state.
+Session scope is fixed. Policy/release commands require stable caller request
+IDs, inspected revisions and the API's `resource_control` permission. Read-only
+mode rejects either mutation opt-in. Release never asserts remote success.
+See [resource admission](resource-admission.md) for limits and recovery semantics.
+
+`ledgence_task_submit` accepts optional `admission: {"resource":"support-model"}`.
+Only standalone tasks support it. The task inspector addresses `task_id` and
+`generation`; release additionally requires `source_id`, `expected_revision`, a
+stable `request_id` and `reason`. The MCP server fixes scope and never requests
+a worker dispatch grant.
+
+The development catalog includes `ledgence_queue_policy_inspect`, `ledgence_queue_policy_list` and `ledgence_queue_holds` in both default and read-only modes. Exact hold reads require `sensitive_read`; edits and releases require the resource-control opt-in and server permission. [Queue policy contract](queue-concurrency.md).
+
+In development, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.

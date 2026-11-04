@@ -58,6 +58,15 @@ Returned model and tool records use the versioned durable operation binding.
 Existing adapters return `ContractError::Unavailable` for these optional reads
 until they implement them.
 
+Standalone task admission uses the grouped
+`TaskAdmissionStore` and `TaskAdmissionClient` ports. An adapter must bind
+the authenticated worker to its session, grant at most one executable Start,
+retain uncertain occupancy, and accept source-bound cleanup independently
+of ordinary result settlement. It must implement the corresponding transactional
+submission, acquisition, maintenance, cancellation, retention and recovery paths
+before advertising this capability. Generic acquire/renew replies never grant
+permission for a governed invocation. [Standalone task contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#standalone-task-admission)
+
 Requires Rust 1.98 or newer. The pre-1.0 API may change between minor versions.
 See the [published API documentation](https://docs.rs/ledgence-orchestration-api),
 [delivery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/delivery-contract.md)
@@ -111,3 +120,33 @@ to bind the context and all scoped wake variants to the current lease, then
 check the expected workflow and parent/root lineage from their assignment.
 The application service applies complete-capability checks to direct evidence
 and resolution calls as well as discovery and native-wait admission.
+
+### Resource and protected provider admission
+
+This crate exposes portable resource policies, durable admission waits
+and one-shot Start/Finish contracts. `ProviderAdmissionStore` is a separate
+complete capability: its implementation must commit provider dispatch permission,
+capacity accounting and recovery obligation atomically. Implementing the separate
+provider and resource ports does not imply this guarantee. Default capability
+hooks remain unavailable until the composed store is supplied.
+
+Version-2 provider bindings freeze the reviewed resource requirement; ungoverned
+version-1 bindings preserve their encoding. A linked provider report distinguishes
+call completion from business knowledge, so a pending asynchronous operation can
+outlive its original call's occupancy. Read-only probes are outside that resource
+policy. Select the 0.9 API for these contracts.
+[Admission contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
+
+Resource admission adapters opt into weighted offers through `supports_resource_fair_sharing()`, which defaults to false. An adapter advertising support must reserve capacity, advance the scoped resource cursor and retain its decision atomically, and implement scope-bound paginated reads. FIFO-only adapters can continue serving policies without `fair_sharing`. The service rejects a weighted policy or decision query when the active adapter lacks support. [Weighted offer contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).
+
+The crate exposes `QueuePolicyClient` for authenticated management of
+queue concurrency. A policy can set a shared maximum, pause new assignments with
+zero or explicitly remove the maximum. Inspecting a hold shows the policy revision
+and timeout schedule that applied to its original attempt. `QueuePolicyOperations`
+binds each request to a verified principal, and `QueuePolicyStore` implements the
+transactional authority. Existing adapters can explicitly omit this capability.
+A close receipt is bound to the full worker source, including the original lease,
+without exposing that lease in operator inspection. Mutation retries reuse the
+same request ID, expected revision and arguments.
+
+Run budget support is an explicit adapter capability. A capable store must derive root membership from ownership and commit each delegation or call decision with the state change it authorizes. The `WorkflowStore::budgets()` and `TaskStore::supports_run_budgets()` defaults leave this capability unavailable. `RunBudgetClient` exposes scope-bound metadata. A custom worker may opt into fresh native grants with `HttpTaskService::with_budget_dispatch_fence` only when it enforces the returned send window at callback invocation. An adapter without the capability must reject budgeted submissions. [Contract and limitations](https://github.com/Ledgence/ledgence/blob/develop/docs/run-budgets.md).

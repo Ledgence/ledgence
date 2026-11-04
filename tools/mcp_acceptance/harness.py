@@ -36,7 +36,7 @@ class McpDeployment(Deployment):
 class McpSession:
     """Minimal protocol client; stdout must contain only complete JSON-RPC lines."""
     def __init__(self, d, label, *, server=None, scope=None, read_only=False, initialize=True,
-                 credentials_file=None, allow_effect_resolution=False):
+                 credentials_file=None, allow_effect_resolution=False, allow_resource_control=False):
         scope = scope or d.scope
         args = [str(d.binaries / "ledgence"), "mcp", "serve", "--server", server or d.server_url,
                 "--tenant", scope["tenant_id"], "--namespace", scope["namespace"]]
@@ -44,6 +44,8 @@ class McpSession:
             args.append("--read-only")
         if allow_effect_resolution:
             args.append("--allow-effect-resolution")
+        if allow_resource_control:
+            args.append("--allow-resource-control")
         if credentials_file is not None:
             args.extend(["--credentials-file", str(credentials_file)])
         self.stdout_path = d.directory / (label + ".stdout")

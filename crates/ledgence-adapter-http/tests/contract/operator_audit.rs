@@ -4,12 +4,18 @@ use ledgence_orchestration_api::console::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CANARY: &str = "private-payload-must-not-leak";
+#[path = "admission.rs"]
+mod admission;
 #[path = "effect_evidence.rs"]
 mod effect_evidence;
 #[path = "effect_resolution.rs"]
 mod effect_resolution;
 #[path = "provider.rs"]
 mod provider;
+#[path = "provider_admission.rs"]
+mod provider_admission;
+#[path = "queue_policies.rs"]
+mod queue_policies;
 struct Verifier {
     audience: AccessAudience,
 }
@@ -25,6 +31,9 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::ApprovalDecide,
             ],
             "reader" => vec![AccessCapability::MetadataRead],
+            "source-investigator" => vec![AccessCapability::SensitiveRead],
+            "submitter" => vec![AccessCapability::ExecutionSubmit],
+            "resource-operator" => vec![AccessCapability::ResourceControl],
             "resolver" => vec![AccessCapability::EffectResolve],
             "worker" => vec![AccessCapability::WorkerExecute],
             "expiring" => vec![
@@ -262,7 +271,7 @@ fn console_services() -> server::console::ConsoleServices {
         instance_id: "audit".into(),
         name: "Audit".into(),
         scope: scope(),
-        suggested_queues: vec![],
+        suggested_queues: vec!["private-operator-queue".into()],
         allowed_origins: vec!["https://audit.example".into()],
     };
     let verifier = Arc::new(Verifier {

@@ -1,12 +1,14 @@
 //! Bind runtime requests to the acquired activation's exact lease owner.
 use super::*;
 use ledgence_worker_api::{
-    Error, ErrorKind, PortFuture, RuntimeExtension, RuntimeReply, RuntimeRequest,
+    Error, ErrorKind, ExecutionRequest, PortFuture, RuntimeExtension, RuntimeReply, RuntimeRequest,
     RuntimeRequestHandler,
 };
 use serde_json::json;
+mod admission;
 mod evidence;
 mod provider;
+mod provider_admission;
 
 pub(super) struct WorkflowRuntime {
     pub extension: RuntimeExtension,
@@ -18,12 +20,21 @@ impl Context {
     pub(super) async fn workflow_runtime(
         &self,
         owner: LeaseOwner,
-        expected_workflow: &str,
-        expected_parent: Option<&str>,
-        expected_root: Option<&str>,
+        request: &ExecutionRequest,
         processing_trace: Option<TraceContext>,
         control: &RunControl,
     ) -> ledgence_worker_api::Result<WorkflowRuntime> {
+        let expected_workflow =
+            request.event.value()["ldgworkflowid"]
+                .as_str()
+                .ok_or_else(|| {
+                    Error::new(
+                        ErrorKind::Protocol,
+                        "workflow assignment is missing workflow identity",
+                    )
+                })?;
+        let expected_parent = request.event.value()["ldgparentworkflowid"].as_str();
+        let expected_root = request.event.value()["ldgrootworkflowid"].as_str();
         if let Some(trace) = &processing_trace {
             trace.validate()?;
         }
@@ -44,10 +55,7 @@ impl Context {
         )
         .await?;
         if matches!(context.wake, Some(WorkflowWake::EffectResolution(_)))
-            && !self
-                .effect_access
-                .as_ref()
-                .is_some_and(|access| access.features.native_effect_resolution())
+            && !(self.effect_access.is_some() && self.runtime_features.native_effect_resolution())
         {
             return Err(Error::new(
                 ErrorKind::Incompatible,
@@ -55,16 +63,38 @@ impl Context {
             ));
         }
         if matches!(context.wake, Some(WorkflowWake::ProviderOperation(_)))
-            && !self
-                .effect_access
-                .as_ref()
-                .is_some_and(|access| access.features.provider_operation())
+            && !(self.effect_access.is_some() && self.runtime_features.provider_operation())
         {
             return Err(Error::new(
                 ErrorKind::Incompatible,
                 "provider operations were not negotiated for this worker",
             ));
         }
+        let admission_wake = match &context.wake {
+            Some(WorkflowWake::ResourceAdmission(wake)) => {
+                if self.runtime_binding.is_none() || !self.runtime_features.resource_admission() {
+                    return Err(Error::new(
+                        ErrorKind::Incompatible,
+                        "resource admission was not negotiated",
+                    ));
+                }
+                if wake.binding.program() != &request.descriptor {
+                    return Err(Error::new(
+                        ErrorKind::Protocol,
+                        "admission program differs from assigned artifact",
+                    ));
+                }
+                if wake.binding.provider().is_some() && !self.runtime_features.provider_admission()
+                {
+                    return Err(Error::new(
+                        ErrorKind::Incompatible,
+                        "atomic provider admission was not negotiated",
+                    ));
+                }
+                Some(wake.as_ref().clone())
+            }
+            _ => None,
+        };
         let wake_trace = context.wake.as_ref().and_then(|wake| match wake {
             WorkflowWake::Event { event, .. } => event.trace_context(),
             _ => None,
@@ -74,6 +104,9 @@ impl Context {
         let handler = Arc::new(WorkflowOperations {
             service,
             effect_access: self.effect_access.clone(),
+            runtime_binding: self.runtime_binding.clone(),
+            admission_wake,
+            runtime_features: self.runtime_features.clone(),
             owner,
             workflow_id: expected_workflow.to_owned(),
             processing_trace,
@@ -132,6 +165,9 @@ async fn fetch_context(
 struct WorkflowOperations {
     service: Arc<dyn WorkflowService>,
     effect_access: Option<Arc<EffectAccess>>,
+    runtime_binding: Option<Arc<EffectAccess>>,
+    admission_wake: Option<AdmissionWake>,
+    runtime_features: ledgence_worker_api::RuntimeFeatures,
     owner: LeaseOwner,
     workflow_id: String,
     processing_trace: Option<TraceContext>,
@@ -140,10 +176,7 @@ struct WorkflowOperations {
 }
 impl RuntimeRequestHandler for WorkflowOperations {
     fn features(&self) -> ledgence_worker_api::RuntimeFeatures {
-        self.effect_access
-            .as_ref()
-            .map(|access| access.features.clone())
-            .unwrap_or_default()
+        self.runtime_features.clone()
     }
     fn capabilities(&self) -> ledgence_worker_api::RuntimeCapabilities {
         ledgence_worker_api::RuntimeCapabilities {
@@ -158,6 +191,18 @@ impl RuntimeRequestHandler for WorkflowOperations {
         Box::pin(async move {
             request.validate()?;
             match request.operation.as_str() {
+                "provider_admission.start.v1" => {
+                    return self.start_provider_admission(request, control).await;
+                }
+                "provider_admission.report.v1" => {
+                    return self.report_provider_admission(request, control).await;
+                }
+                "resource_admission.start.v1" => {
+                    return self.start_admission(request, control).await;
+                }
+                "resource_admission.finish.v1" => {
+                    return self.finish_admission(request, control).await;
+                }
                 "provider_operation.claim.v1" => {
                     return self.claim_provider(request, control).await;
                 }
@@ -232,6 +277,7 @@ impl WorkflowOperations {
         let claim: ApprovedEffectClaimRequest = serde_json::from_value(request.payload)
             .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
         let command = ApprovedEffectClaimCommand {
+            budget_fence: true,
             owner: self.owner.clone(),
             workflow_id: self.workflow_id.clone(),
             approval_key: claim.approval_key,
@@ -243,6 +289,7 @@ impl WorkflowOperations {
         // A lost grant may already have consumed the only dispatch. Only a
         // fresh, verified reply may reach the subprocess.
         let effects = self.service.approved_effects().map_err(runtime_error)?;
+        let began = Instant::now();
         let result = controlled(&control, self.request_timeout, || {
             effects.claim_approved_effect(&command)
         })
@@ -253,22 +300,31 @@ impl WorkflowOperations {
             ContractError::ObsoleteOperation => Error::new(ErrorKind::Protocol, error.to_string()),
             other => runtime_error(other),
         })?;
+        if receipt.disposition == ApprovedEffectDisposition::Dispatch {
+            check_budget_window(receipt.budget_grant, began)?;
+        }
         if !matches!(receipt.matches(&command), Ok(true)) {
             return Err(Error::new(
                 ErrorKind::Protocol,
                 "approved effect receipt identity mismatch",
             ));
         }
-        Ok(RuntimeReply {
-            id: request.id,
-            result: json!({
+        let mut result = json!({
                 "workflow_id": receipt.workflow_id,
                 "activation_id": receipt.activation_id,
                 "approval_key": receipt.approval_key,
                 "action": receipt.action,
                 "lookup": receipt.lookup,
                 "disposition": receipt.disposition,
-            }),
+        });
+        if receipt.disposition == ApprovedEffectDisposition::Dispatch
+            && let Some(grant) = receipt.budget_grant
+        {
+            result["budget_grant"] = json!(grant);
+        }
+        Ok(RuntimeReply {
+            id: request.id,
+            result,
         })
     }
 
@@ -420,8 +476,27 @@ pub(super) async fn pause(
     }
     control.check()
 }
+/// Include request encoding, transport and response decoding in time spent before handoff.
+fn check_budget_window(
+    window: Option<RunBudgetGrant>,
+    began: Instant,
+) -> ledgence_worker_api::Result<()> {
+    if let Some(window) = window {
+        window.validate().map_err(runtime_error)?;
+        if began.elapsed() >= Duration::from_millis(window.expires_at - window.authorized_at) {
+            return Err(Error::new(
+                ErrorKind::TimedOut,
+                "budgeted dispatch grant expired before handoff",
+            ));
+        }
+    }
+    Ok(())
+}
 pub(super) fn runtime_error(error: ContractError) -> Error {
     let kind = match error {
+        ContractError::RunBudgetDenied(reason) => {
+            return Error::new(ErrorKind::Protocol, reason.code());
+        }
         ContractError::OwnershipLost => ErrorKind::Cancelled,
         ContractError::InvalidInput(_) | ContractError::Conflict | ContractError::NotFound => {
             ErrorKind::Protocol

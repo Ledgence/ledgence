@@ -14,6 +14,7 @@ struct Permission {
     phase: Phase,
     ready: bool,
     consumed: bool,
+    preparing: bool,
 }
 impl Permission {
     fn stop(&mut self) {
@@ -58,8 +59,12 @@ impl Permission {
             self.stop();
             return;
         }
-        if command.intent == RenewIntent::Dispatch {
-            self.ready = self.tracker.check_dispatch(now).is_ok();
+        if matches!(command.intent, RenewIntent::Dispatch | RenewIntent::Prepare) {
+            self.ready = if command.intent == RenewIntent::Prepare {
+                self.tracker.state(now) == LeaseState::Active && !authority.cancel_requested
+            } else {
+                self.tracker.check_dispatch(now).is_ok()
+            };
             if !self.ready {
                 self.stop();
                 return;
@@ -105,6 +110,7 @@ impl Monitor {
                 phase,
                 ready: false,
                 consumed: false,
+                preparing: assignment.task_admission.is_some(),
             }),
             done: AtomicBool::new(false),
         }
@@ -128,7 +134,7 @@ impl Monitor {
                         unreachable!("dispatch permission requires confirmed authority");
                     };
                     let control = control.clone();
-                    if state.tracker.check_dispatch(Instant::now()).is_ok()
+                    if (state.preparing || state.tracker.check_dispatch(Instant::now()).is_ok())
                         && control.check().is_ok()
                     {
                         state.consumed = true;
@@ -159,7 +165,11 @@ impl Monitor {
         let mut command = RenewCommand {
             owner: assignment.lease.owner,
             sequence,
-            intent: RenewIntent::Dispatch,
+            intent: if assignment.task_admission.is_some() {
+                RenewIntent::Prepare
+            } else {
+                RenewIntent::Dispatch
+            },
         };
         let mut sent = false;
         let mut next = Instant::now();
@@ -232,7 +242,11 @@ impl Monitor {
                         // Preserve dispatch permission until the consumer has
                         // taken it. A faster heartbeat must not revoke an
                         // authorization that has not yet reached execution.
-                        RenewIntent::Dispatch
+                        if state.preparing {
+                            RenewIntent::Prepare
+                        } else {
+                            RenewIntent::Dispatch
+                        }
                     };
                     next = Instant::now() + context.config.renew_interval;
                 }
@@ -461,6 +475,8 @@ mod tests {
             consumer_id: 0,
         };
         let assignment = Assignment {
+            queue_concurrency: false,
+            task_admission: None,
             provider_probe: None,
             workflow_activation_id: None,
             descriptor: ProgramDescriptor {
@@ -508,10 +524,9 @@ mod tests {
         let context = Arc::new(Context {
             workflows: None,
             effect_access: None,
+            runtime_binding: None,
+            runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
             worker,
-            source: Arc::new(source::ServiceAcquisitionSource {
-                service: service.clone(),
-            }),
             service,
             config,
             shared,
@@ -580,6 +595,7 @@ mod tests {
             },
             ready: false,
             consumed: false,
+            preparing: false,
         }
     }
 

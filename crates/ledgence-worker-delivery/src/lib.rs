@@ -6,10 +6,13 @@
 //! on service expiry/retry; this driver has no local durable recovery journal.
 
 mod attempt;
+mod binding;
 mod observations;
+pub mod poll_plan;
 mod provider;
 mod renewal;
 mod source;
+mod task_admission;
 mod workflow;
 pub use source::{AcquisitionSource, BrokerAcquisitionSource, SourceReply};
 
@@ -17,6 +20,7 @@ use ledgence_orchestration_api::*;
 use ledgence_worker_api::RunControl;
 use ledgence_worker_core::Worker;
 use std::{
+    collections::BTreeMap,
     future::Future,
     sync::{
         Arc, Mutex,
@@ -88,7 +92,10 @@ impl DeliveryConfig {
 /// lost attempts have an authoritative rejection, not merely a request timeout.
 #[derive(Debug, Clone, Default)]
 pub struct DeliveryStatus {
+    /// Primary queue registration, also used to publish physical observations once.
     pub session_id: Option<String>,
+    /// Ready registrations for this worker. All share the same physical consumers.
+    pub route_sessions: BTreeMap<String, String>,
     pub stopping: bool,
     pub finished: bool,
     pub settled_attempts: u64,
@@ -141,12 +148,27 @@ impl Shared {
     }
 }
 
+enum AcquisitionSources {
+    Integrated,
+    Single(Arc<dyn AcquisitionSource>),
+    Routed(BTreeMap<String, Arc<dyn AcquisitionSource>>),
+}
+
+/// Pair the adapter with the exact session it registered, through final drain.
+struct RegisteredRoute {
+    session: WorkerSession,
+    source: Arc<dyn AcquisitionSource>,
+}
+
 pub struct DeliveryDriver {
     worker: Worker,
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     effect_access: Option<Arc<EffectAccess>>,
-    source: Arc<dyn AcquisitionSource>,
+    runtime_binding: Option<Arc<EffectAccess>>,
+    runtime_features: ledgence_worker_api::RuntimeFeatures,
+    sources: AcquisitionSources,
+    planner: Option<poll_plan::PollPlanner>,
     config: DeliveryConfig,
     observations: Option<observations::ObservationReporting>,
 }
@@ -162,12 +184,13 @@ impl DeliveryDriver {
         })?;
         Ok(Self {
             worker,
-            source: Arc::new(source::ServiceAcquisitionSource {
-                service: service.clone(),
-            }),
+            sources: AcquisitionSources::Integrated,
+            planner: None,
             service,
             workflows: None,
             effect_access: None,
+            runtime_binding: None,
+            runtime_features: ledgence_worker_api::RuntimeFeatures::default(),
             config,
             observations: None,
         })
@@ -212,38 +235,165 @@ impl DeliveryDriver {
                 ContractError::Unavailable("effect evidence requires workflow delivery".into())
             })?
             .effect_evidence_client()?;
-        self.effect_access = Some(Arc::new(EffectAccess {
-            audience,
-            identity,
-            features: ledgence_worker_api::RuntimeFeatures::default(),
-        }));
+        self.effect_access = Some(Arc::new(EffectAccess { audience, identity }));
+        Ok(self)
+    }
+
+    /// Attach a startup-authenticated audience independently of effect evidence.
+    pub fn with_runtime_binding(
+        mut self,
+        audience: AccessAudience,
+        identity: PrincipalIdentity,
+    ) -> Result<Self> {
+        audience.validate()?;
+        identity.validate()?;
+        if audience.scope != self.config.scope {
+            return Err(ContractError::Forbidden);
+        }
+        self.runtime_binding = Some(Arc::new(EffectAccess { audience, identity }));
         Ok(self)
     }
 
     /// Use only the features authenticated by this worker connection's startup
     /// discovery. Merely implementing a client trait does not establish support.
+    /// Generic features do not confer effect authority; known effect features
+    /// require an effect binding attached before this call.
     pub fn with_runtime_features(
         mut self,
-        features: ledgence_worker_api::RuntimeFeatures,
+        mut features: ledgence_worker_api::RuntimeFeatures,
     ) -> Result<Self> {
         features
             .validate()
             .map_err(|_| ContractError::InvalidInput("invalid runtime features".into()))?;
-        let access = self.effect_access.as_mut().ok_or_else(|| {
-            ContractError::Unavailable(
-                "runtime features require authenticated effect evidence".into(),
-            )
-        })?;
-        Arc::make_mut(access).features = features;
+        if features.native_effect_resolution() && self.effect_access.is_none() {
+            return Err(ContractError::Unavailable(
+                "native effect features require authenticated effect evidence".into(),
+            ));
+        }
+        if features.provider_operation() {
+            self.workflows
+                .as_ref()
+                .ok_or_else(|| {
+                    ContractError::Unavailable(
+                        "provider operations require workflow delivery".into(),
+                    )
+                })?
+                .provider_operation_client()?;
+        }
+        if features.resource_admission() {
+            if self.runtime_binding.is_none() {
+                return Err(ContractError::Unavailable(
+                    "resource admission requires authenticated runtime binding".into(),
+                ));
+            }
+            self.workflows
+                .as_ref()
+                .ok_or_else(|| {
+                    ContractError::Unavailable(
+                        "resource admission requires workflow delivery".into(),
+                    )
+                })?
+                .admission_client()?;
+        }
+        if features.provider_admission() {
+            self.workflows
+                .as_ref()
+                .ok_or_else(|| {
+                    ContractError::Unavailable(
+                        "provider admission requires workflow delivery".into(),
+                    )
+                })?
+                .provider_admission_client()?;
+        }
+        if features.task_admission()
+            && !self
+                .worker
+                .supports_admitted_invocation()
+                .map_err(|error| ContractError::Unavailable(error.to_string()))?
+        {
+            // Discovery says what the service supports. A worker with a legacy
+            // runtime must open an ordinary session; otherwise it would claim
+            // governed work and charge a retry without being able to execute.
+            features
+                .supported
+                .retain(|name| name != TASK_ADMISSION_FEATURE);
+        }
+        if features.task_admission() {
+            if self.runtime_binding.is_none() {
+                return Err(ContractError::Unavailable(
+                    "task admission requires authenticated runtime binding".into(),
+                ));
+            }
+            self.service.task_admission_client()?;
+        }
+        self.runtime_features = features;
         Ok(self)
     }
 
     /// Use a pluggable source with the same N consumers and attempt lifecycle.
     pub fn with_acquisition_source(mut self, source: Arc<dyn AcquisitionSource>) -> Self {
-        self.source = source;
+        self.sources = AcquisitionSources::Single(source);
         self
     }
-    /// Start one non-resumable service session with N supervised consumers.
+
+    /// Poll the planner's fixed integrated HTTP routes with one shared set of N
+    /// consumers. Keep a clone to install revised weights on the live worker.
+    pub fn with_poll_planner(mut self, planner: poll_plan::PollPlanner) -> Result<Self> {
+        if !matches!(self.sources, AcquisitionSources::Integrated) {
+            return Err(protocol(
+                "use with_planned_sources to bind custom sources by queue",
+            ));
+        }
+        self.validate_primary(&planner)?;
+        self.planner = Some(planner);
+        Ok(self)
+    }
+
+    /// Apply one poll planner across an explicit source per logical queue.
+    /// Sources and their sessions stay fixed when weights change. Each worker
+    /// consumer holds at most one bound receive, claim or active attempt.
+    pub fn with_planned_sources(
+        mut self,
+        planner: poll_plan::PollPlanner,
+        sources: BTreeMap<String, Arc<dyn AcquisitionSource>>,
+    ) -> Result<Self> {
+        self.validate_primary(&planner)?;
+        if !matches!(self.sources, AcquisitionSources::Integrated) {
+            return Err(protocol("acquisition sources have already been configured"));
+        }
+        if sources.len() != planner.queues().len()
+            || planner.queues().iter().any(|q| !sources.contains_key(q))
+        {
+            return Err(protocol(
+                "acquisition sources must match the poll plan queues exactly",
+            ));
+        }
+        // A broker source owns a registry and can bind only one service session.
+        // Reject accidental sharing before opening any remote registration.
+        let mut distinct = std::collections::HashSet::new();
+        if sources
+            .values()
+            .any(|s| !distinct.insert(Arc::as_ptr(s).cast::<()>()))
+        {
+            return Err(protocol(
+                "each planned queue requires a distinct acquisition source",
+            ));
+        }
+        self.sources = AcquisitionSources::Routed(sources);
+        self.planner = Some(planner);
+        Ok(self)
+    }
+
+    fn validate_primary(&self, planner: &poll_plan::PollPlanner) -> Result<()> {
+        if !planner.queues().contains(&self.config.queue) {
+            return Err(protocol(
+                "the primary worker queue must be present in the poll plan",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Start one non-resumable service session per route and N supervised consumers total.
     /// Session expiry drains this driver; callers may start a new worker after
     /// shutdown. Never transplant old cursors into a new service session.
     pub fn start(self) -> DeliveryHandle {
@@ -272,69 +422,117 @@ impl DeliveryDriver {
         handle
     }
     async fn run(self, shared: Arc<Shared>) {
-        let session = self.open(&shared).await;
-        let mut reporting = None;
+        let queues = self.planner.as_ref().map_or_else(
+            || std::slice::from_ref(&self.config.queue),
+            |plan| plan.queues(),
+        );
+        // The legacy single-source builder cannot return an error. Reject its
+        // combination with a planner before opening any remote session.
+        if self.planner.is_some() && matches!(self.sources, AcquisitionSources::Single(_)) {
+            shared.fatal(protocol(
+                "use with_planned_sources to bind custom sources by queue",
+            ));
+        }
+        let integrated: Arc<dyn AcquisitionSource> = Arc::new(source::ServiceAcquisitionSource {
+            service: self.service.clone(),
+        });
+        let context = Arc::new(Context {
+            worker: self.worker.clone(),
+            service: self.service.clone(),
+            workflows: self.workflows.clone(),
+            effect_access: self.effect_access.clone(),
+            runtime_binding: self.runtime_binding.clone(),
+            runtime_features: self.runtime_features.clone(),
+            config: self.config.clone(),
+            shared: shared.clone(),
+        });
+        let mut routes = Vec::with_capacity(queues.len());
         let mut consumers = Vec::new();
-        let maintenance_done = Arc::new(AtomicBool::new(false));
-        let mut maintenance = None;
-        let source = self.source.clone();
-        let mut source_session = None;
-        let session = session.filter(|session| {
+        let (maintenance_done, done) = watch::channel(());
+        let mut maintenance = Vec::new();
+        for queue in queues {
+            let Some(session) = self.open(queue, &shared).await else {
+                break;
+            };
+            if routes
+                .iter()
+                .any(|other: &RegisteredRoute| other.session.id == session.id)
+            {
+                shared.fatal(protocol(
+                    "registration reused a session identity across queues",
+                ));
+                break;
+            }
+            let source = match &self.sources {
+                AcquisitionSources::Integrated => integrated.clone(),
+                AcquisitionSources::Single(source) => source.clone(),
+                AcquisitionSources::Routed(sources) => sources[queue].clone(),
+            };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                source.start_session(session)
+                source.start_session(&session)
             }))
             .unwrap_or_else(|_| {
                 Err(ContractError::Unavailable(
                     "acquisition source panicked during session setup".into(),
                 ))
             });
-            match result {
-                Ok(()) => {
-                    source_session = Some(session.id.clone());
-                    true
-                }
-                Err(error) => {
-                    shared.fatal(error);
-                    false
-                }
-            }
-        });
-        if let Some(session) = session {
-            if let Some(observations) = self.observations {
-                reporting = Some(observations.start(self.worker.clone(), session.clone()));
-            }
-            shared
-                .status
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .session_id = Some(session.id.clone());
-            let context = Arc::new(Context {
-                worker: self.worker.clone(),
-                service: self.service,
-                workflows: self.workflows,
-                effect_access: self.effect_access,
-                source: source.clone(),
-                config: self.config,
-                shared: shared.clone(),
+            // Also unwind a source whose initialization failed after allocating
+            // local state. No consumer starts unless every route is ready.
+            routes.push(RegisteredRoute {
+                session: session.clone(),
+                source,
             });
+            if let Err(error) = result {
+                shared.fatal(error);
+                break;
+            }
+            // Earlier registrations stay alive even if a later route retries.
             let current = context.clone();
-            let registered = session.clone();
-            let done = maintenance_done.clone();
-            maintenance = Some(tokio::spawn(
-                async move { current.maintain_session(registered, done).await }
+            let done = done.clone();
+            maintenance.push(tokio::spawn(
+                async move { current.maintain_session(session, done).await }
                     .with_current_subscriber(),
             ));
-            for consumer in 0..session.concurrency {
+        }
+        let routes: Arc<[RegisteredRoute]> = routes.into();
+        let mut reporting = None;
+        if !shared.stopping() && routes.len() == queues.len() {
+            let primary = routes
+                .iter()
+                .map(|route| &route.session)
+                .find(|s| s.queue == self.config.queue)
+                .expect("the validated route set includes the primary queue");
+            // The sessions represent logical routes of one process; publishing
+            // the physical pool N times would falsely multiply observed capacity.
+            let primary_links = (routes.len() > 1 && self.observations.is_some())
+                .then(observations::PrimaryLinks::default);
+            if let Some(observations) = self.observations {
+                reporting = Some(observations.start(
+                    self.worker.clone(),
+                    primary.clone(),
+                    primary_links.clone(),
+                ));
+            }
+            {
+                let mut status = shared.status.lock().unwrap_or_else(|p| p.into_inner());
+                status.session_id = Some(primary.id.clone());
+                status.route_sessions = routes
+                    .iter()
+                    .map(|route| (route.session.queue.clone(), route.session.id.clone()))
+                    .collect();
+            }
+            for consumer in 0..primary.concurrency {
                 let current = context.clone();
-                let command = AcquireCommand {
-                    scope: session.scope.clone(),
-                    queue: session.queue.clone(),
-                    worker_session_id: session.id.clone(),
-                    consumer_id: consumer,
-                    sequence: 1,
-                };
+                let routes = routes.clone();
+                let planner = self.planner.clone();
+                let primary_links = primary_links.clone();
                 consumers.push(tokio::spawn(
-                    async move { current.consume(command).await }.with_current_subscriber(),
+                    async move {
+                        current
+                            .consume(routes, consumer, planner, primary_links)
+                            .await
+                    }
+                    .with_current_subscriber(),
                 ));
             }
         }
@@ -366,19 +564,24 @@ impl DeliveryDriver {
                 _ = tokio::time::sleep(TICK) => {},
             }
         }
-        if let Some(session_id) = source_session
-            && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                source.finish_session(&session_id);
+        for route in routes.iter() {
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                route.source.finish_session(&route.session.id);
             }))
             .is_err()
-        {
-            shared.fatal(ContractError::Unavailable(
-                "acquisition source panicked during session cleanup".into(),
-            ));
+            {
+                shared.fatal(ContractError::Unavailable(
+                    "acquisition source panicked during session cleanup".into(),
+                ));
+            }
         }
-        maintenance_done.store(true, Ordering::Release);
-        if let Some(maintenance) = maintenance {
-            let _ = maintenance.await;
+        drop(maintenance_done);
+        for handle in maintenance {
+            if let Err(error) = handle.await {
+                shared.error(ContractError::Unavailable(format!(
+                    "session maintenance failed: {error}"
+                )));
+            }
         }
         shared.stop();
         if !cleanup_finished {
@@ -387,18 +590,27 @@ impl DeliveryDriver {
         // Signals a final attempt without waiting on observation network I/O.
         drop(reporting);
     }
-    async fn open(&self, shared: &Shared) -> Option<WorkerSession> {
+    async fn open(&self, queue: &str, shared: &Shared) -> Option<WorkerSession> {
         while !shared.stopping() {
             if !self.worker.stats().await.accepting {
                 shared.stop();
                 return None;
             }
-            let future = exchange(self.config.request_timeout, || {
-                self.service.open_session(
-                    &self.config.scope,
-                    &self.config.queue,
-                    self.worker.concurrency() as u32,
-                )
+            let future = exchange(self.config.request_timeout, || async {
+                if self.runtime_features.task_admission() {
+                    self.service
+                        .task_admission_client()?
+                        .open_task_admission_session(&TaskAdmissionSessionCommand {
+                            scope: self.config.scope.clone(),
+                            queue: queue.to_owned(),
+                            concurrency: self.worker.concurrency() as u32,
+                        })
+                        .await
+                } else {
+                    self.service
+                        .open_session(&self.config.scope, queue, self.worker.concurrency() as u32)
+                        .await
+                }
             });
             tokio::pin!(future);
             let result = loop {
@@ -410,9 +622,14 @@ impl DeliveryDriver {
             match result {
                 Ok(session)
                     if session.scope == self.config.scope
-                        && session.queue == self.config.queue
+                        && session.queue == queue
                         && session.concurrency == self.worker.concurrency() as u32
-                        && validate_text(&session.id, 128).is_ok() =>
+                        && validate_text(&session.id, 128).is_ok()
+                        && session
+                            .features
+                            .iter()
+                            .any(|feature| feature == TASK_ADMISSION_FEATURE)
+                            == self.runtime_features.task_admission() =>
                 {
                     return Some(session);
                 }
@@ -510,7 +727,6 @@ impl Drop for DeliveryHandle {
 struct EffectAccess {
     audience: AccessAudience,
     identity: PrincipalIdentity,
-    features: ledgence_worker_api::RuntimeFeatures,
 }
 impl EffectAccess {
     fn matches(&self, worker: &EffectWorkerIdentity) -> bool {
@@ -524,36 +740,34 @@ struct Context {
     service: Arc<dyn TaskService>,
     workflows: Option<Arc<dyn WorkflowService>>,
     effect_access: Option<Arc<EffectAccess>>,
-    source: Arc<dyn AcquisitionSource>,
+    runtime_binding: Option<Arc<EffectAccess>>,
+    runtime_features: ledgence_worker_api::RuntimeFeatures,
     config: DeliveryConfig,
     shared: Arc<Shared>,
 }
 impl Context {
-    async fn maintain_session(&self, session: WorkerSession, done: Arc<AtomicBool>) {
-        let mut next = Instant::now() + self.config.session_extend_interval;
-        while !done.load(Ordering::Acquire) {
-            if Instant::now() < next {
-                tokio::time::sleep(TICK).await;
-                continue;
+    async fn maintain_session(&self, session: WorkerSession, mut done: watch::Receiver<()>) {
+        let mut delay = self.config.session_extend_interval;
+        loop {
+            tokio::select! {
+                biased;
+                _ = done.changed() => return,
+                _ = tokio::time::sleep(delay) => {}
             }
-            let request = exchange(self.config.request_timeout, || {
-                self.service.extend_session(&session.id)
-            });
-            tokio::pin!(request);
-            let result = loop {
-                tokio::select! {
-                    result = &mut request => break result,
-                    _ = tokio::time::sleep(TICK) => if done.load(Ordering::Acquire) {return;},
-                }
+            let result = tokio::select! {
+                biased;
+                _ = done.changed() => return,
+                result = exchange(self.config.request_timeout, || self.service.extend_session(&session.id)) => result,
             };
             match result {
                 Ok(reply)
                     if reply.id == session.id
                         && reply.scope == session.scope
                         && reply.queue == session.queue
-                        && reply.concurrency == session.concurrency =>
+                        && reply.concurrency == session.concurrency
+                        && reply.features == session.features =>
                 {
-                    next = Instant::now() + self.config.session_extend_interval
+                    delay = self.config.session_extend_interval
                 }
                 Ok(_) => {
                     self.shared
@@ -562,7 +776,7 @@ impl Context {
                 }
                 Err(error) if retryable(&error) => {
                     self.shared.error(error);
-                    next = Instant::now() + self.config.retry_delay;
+                    delay = self.config.retry_delay;
                 }
                 Err(error) => {
                     self.shared.fatal(error);
@@ -572,12 +786,38 @@ impl Context {
         }
     }
     #[tracing::instrument(name = "delivery_consumer", skip_all, fields(
-        tenant_id = %command.scope.tenant_id, namespace = %command.scope.namespace,
-        queue = %command.queue, worker_session_id = %command.worker_session_id,
-        consumer_id = command.consumer_id
+        tenant_id = %self.config.scope.tenant_id, namespace = %self.config.scope.namespace,
+        queue = (routes.len() == 1).then(|| routes[0].session.queue.as_str()),
+        worker_session_id = (routes.len() == 1).then(|| routes[0].session.id.as_str()),
+        consumer_id = consumer
     ))]
-    async fn consume(self: Arc<Self>, mut command: AcquireCommand) {
+    async fn consume(
+        self: Arc<Self>,
+        routes: Arc<[RegisteredRoute]>,
+        consumer: u32,
+        planner: Option<poll_plan::PollPlanner>,
+        primary_links: Option<observations::PrimaryLinks>,
+    ) {
+        // Each durable acquisition cursor belongs to one (session, consumer),
+        // even while the same physical consumer moves between queues.
+        let mut commands: Vec<_> = routes
+            .iter()
+            .map(|route| AcquireCommand {
+                scope: route.session.scope.clone(),
+                queue: route.session.queue.clone(),
+                worker_session_id: route.session.id.clone(),
+                consumer_id: consumer,
+                sequence: 1,
+            })
+            .collect();
         while !self.shared.stopping() {
+            if let Some(planner) = &planner {
+                tokio::select! {
+                    biased;
+                    _ = self.shared.stopped() => return,
+                    _ = planner.wait_active() => {}
+                }
+            }
             let admission = RunControl::new(self.config.request_timeout);
             let reserve = self.worker.reserve_consumer(admission.clone());
             tokio::pin!(reserve);
@@ -597,83 +837,29 @@ impl Context {
                     return;
                 }
             };
-            if self.shared.stopping() {
-                return;
-            }
-            // Once sent, shutdown cannot abandon this sequence: even a timed-out
-            // exchange may already have committed a claim.
             let cycle_started = Instant::now();
-            let reply = loop {
-                let started = Instant::now();
-                let draining = self.shared.stopping();
-                let max_wait = if draining {
-                    Duration::ZERO
-                } else {
-                    self.config.acquire_wait
-                };
-                let options = AcquireOptions::new(max_wait, started + self.config.request_timeout)
-                    .expect("validated acquisition timing");
-                let result = {
-                    let request = exchange(self.config.request_timeout, || {
-                        if draining {
-                            self.source.drain(&command, options)
-                        } else {
-                            self.source.acquire(&command, options)
-                        }
-                    });
-                    tokio::pin!(request);
-                    tokio::select! {
-                        result = &mut request => Some(result),
-                        _ = self.shared.stopped(), if !draining => {
-                            // Reconcile immediately with the same sequence. Dropping
-                            // this future cannot prove that no claim committed.
-                            None
-                        }
-                    }
-                };
-                let Some(result) = result else { continue };
-                match result {
-                    Ok(reply @ (SourceReply::Idle | SourceReply::Stopped { .. })) => break reply,
-                    Ok(SourceReply::Discarded { sequence }) => {
-                        if sequence == command.sequence {
-                            break SourceReply::Discarded { sequence };
-                        }
-                        self.shared
-                            .fatal(protocol("discarded handoff changed sequence"));
-                    }
-                    Ok(SourceReply::Completed(reply)) => {
-                        let sequence = match &reply {
-                            AcquireReply::Empty { sequence }
-                            | AcquireReply::Assigned { sequence, .. }
-                            | AcquireReply::OwnershipLost { sequence, .. } => *sequence,
-                        };
-                        let valid = if sequence != command.sequence {
-                            Err(protocol("acquisition reply changed sequence"))
-                        } else if let AcquireReply::Assigned { assignment, .. } = &reply {
-                            attempt::validate_assignment(&command, assignment)
-                        } else {
-                            Ok(())
-                        };
-                        match valid {
-                            Ok(()) => break SourceReply::Completed(reply),
-                            Err(error) => self.shared.fatal(error),
-                        }
-                    }
-                    Err(
-                        error @ (ContractError::UnknownSession | ContractError::SessionExpired),
-                    ) => {
-                        self.shared.fatal(error);
-                        return;
-                    }
-                    Err(error) if retryable(&error) => self.shared.error(error),
-                    Err(error) => self.shared.fatal(error),
-                }
-                tokio::time::sleep(self.config.retry_delay).await;
+            let Some((route, reply)) = binding::acquire(
+                &routes,
+                &commands,
+                planner.as_ref(),
+                &self.config,
+                &self.shared,
+            )
+            .await
+            else {
+                // A stop or paused revision before handoff leaves no binding
+                // to reconcile and releases this physical reservation.
+                continue;
             };
+            let command = &mut commands[route];
             let idle = matches!(reply, SourceReply::Idle);
             match reply {
                 SourceReply::Completed(AcquireReply::Assigned { assignment, .. }) => {
-                    self.attempt(reservation, *assignment).await
+                    let _link = primary_links
+                        .as_ref()
+                        .filter(|_| command.queue == self.config.queue)
+                        .map(|links| links.track(&assignment.lease.owner));
+                    self.attempt(reservation, *assignment, &command.queue).await
                 }
                 SourceReply::Idle | SourceReply::Completed(AcquireReply::Empty { .. }) => {
                     drop(reservation);

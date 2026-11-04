@@ -435,3 +435,38 @@ chooses `enabled` or `declared_restore_quarantine`; omitting it disables provide
 operations. It contains no provider credentials. See the
 [recovery guide](/how-to/recover-provider-operations) and
 [complete CLI policy format](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#provider-operation-recovery-in-development).
+
+## Resource commands in development
+
+The development checkout adds `resource list|inspect|decisions|put`,
+`admission inspect|release` and `orchestrator serve --admission-config FILE`.
+Mutations require `resource_control` and a destination-bound saved command.
+`mcp serve --allow-resource-control` separately opts into policy/release tools.
+`ledgence audit list --resource NAME` selects audit events for that resource's
+policy; choose only one of `--resource`, `--task` or `--workflow`. Admission
+release and inspection events use `--workflow WORKFLOW_ID` for workflow operations
+or `--task TASK_ID` for standalone tasks.
+The existing credential, scope, limit and cursor options apply.
+These additions are not in 0.8.0. [Guide](/how-to/control-resource-capacity).
+
+With development components, `ledgence admission inspect` accepts `--task ID
+--generation N` instead of a workflow occurrence. The same `admission release`
+command accepts a source-bound saved task release. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
+
+## Worker poll plans (development)
+
+`ledgence worker connect --poll-plan FILE` selects among integrated HTTP or SQS Standard queues
+with weighted Stride or lottery. Supply it instead of `--queue`; use a matching
+development build. For SQS, add `--delivery-config FILE` with exactly the plan’s queue names. A multi-queue SQS plan defaults to a one-second receive wait. [Configuration and live reload](/how-to/share-worker-polls).
+
+## Queue concurrency in development
+
+Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
+
+Use `ledgence resource sources --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--state possibly_dispatched|unknown_occupied] [--cursor CURSOR] [--limit 1..100]` to discover charged occurrences. Each page requires `sensitive_read` and a committed response audit. Pass `next_cursor` back through `--cursor` for the same resource and state. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
+
+In development, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.
+
+### Inspect a shared run budget (development)
+
+Read `ledgence budget inspect --server URL --credentials-file FILE --tenant ID --namespace NAME --workflow ID`. Replace `--workflow ID` with `--task ID` for a task. `ledgence budget entries` takes the same scope and subject; pass `--before SEQUENCE` to follow the returned cursor. Both require `metadata_read`.

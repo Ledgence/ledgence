@@ -1,5 +1,6 @@
 //! Workflow mutations use workflow -> work/task row ordering. Ordinary task
 //! settlement only inserts terminal obligations; it never takes a workflow lock.
+pub(crate) mod admission;
 mod approval_inbox;
 mod approvals;
 pub(crate) mod approved_effects;
@@ -43,6 +44,21 @@ impl ApprovedEffects for PostgresStore {
 }
 
 impl WorkflowStore for PostgresStore {
+    fn provider_admissions(&self) -> Result<&dyn ProviderAdmissionStore> {
+        self.admission_configured()?;
+        self.provider_configured()?;
+        Ok(self)
+    }
+
+    fn budgets(&self) -> Result<&dyn RunBudgetOperations> {
+        self.admission_configured()?;
+        Ok(self)
+    }
+    fn admissions(&self) -> Result<&dyn AdmissionStore> {
+        self.admission_configured()?;
+        Ok(self)
+    }
+
     fn provider_operations(&self) -> Result<&dyn ProviderOperationStore> {
         self.provider_configured()?;
         Ok(self)
@@ -140,6 +156,7 @@ impl WorkflowStore for PostgresStore {
         Box::pin(self.run(move || async move {
             core::validate_submission(command)?;
             self.require_submission_scope(command)?;
+            if command.input.admission.is_some() { return Err(ContractError::InvalidInput("task admission requires a standalone task".into()).into()); }
             controller.validate().map_err(ContractError::from)?;
             if controller.program != command.input.program { return Err(ContractError::Conflict.into()); }
             let mut connection = self.transaction_connection().await?;
@@ -154,6 +171,12 @@ impl WorkflowStore for PostgresStore {
             replay_submission(&run, command)?;
             let mut wakes = Vec::new();
             if inserted == 1 {
+                if let Some(policy) = &command.input.budget {
+                    self.admission_configured()?;
+                    crate::run_budget::mark_workflow(&mut tx,&id).await?;
+                    run.has_run_budget=true;
+                    crate::run_budget::create(&mut tx, &command_scope(command), &crate::run_budget::workflow(&id), policy).await?;
+                }
                 wakes.push(schedule_activation(&mut tx, &mut run, BTreeMap::new(), None, now).await?);
                 record_history(&mut tx, &run.snapshot.workflow_id, run.snapshot.activation_id.as_deref(), now, "started").await?;
             }

@@ -74,14 +74,14 @@ fn fixture() -> (
             issuer: worker.issuer,
             subject: worker.subject,
         },
-        features: ledgence_worker_api::RuntimeFeatures {
-            v: 1,
-            supported: vec![
-                "native_effect_resolution.v1".into(),
-                "provider_operation.v1".into(),
-            ],
-        },
     }));
+    handler.runtime_features = ledgence_worker_api::RuntimeFeatures {
+        v: 1,
+        supported: vec![
+            "native_effect_resolution.v1".into(),
+            "provider_operation.v1".into(),
+        ],
+    };
     (handler, rx, rrx)
 }
 fn worker() -> EffectWorkerIdentity {
@@ -110,6 +110,7 @@ fn claim() -> RuntimeRequest {
 }
 fn source(c: &ProviderClaimCommand) -> ProviderDispatchSource {
     ProviderDispatchSource {
+        budget_grant: None,
         source_id: "source".into(),
         claim_id: c.claim_id.clone(),
         report_id: c.report_id.clone(),
@@ -135,6 +136,20 @@ async fn provider_unnegotiated_or_forged_authority_never_dispatches() {
             ErrorKind::Protocol
         );
     }
+    let negotiated = handler.runtime_features.clone();
+    handler.runtime_features = ledgence_worker_api::RuntimeFeatures {
+        v: 1,
+        supported: vec!["custom_runtime.v1".into()],
+    };
+    assert_eq!(
+        handler
+            .handle(claim(), RunControl::new(Duration::from_secs(1)))
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::Incompatible
+    );
+    handler.runtime_features = negotiated;
     handler.effect_access = None;
     assert_eq!(
         handler
@@ -190,6 +205,7 @@ async fn provider_report_retries_frozen_facts_and_preserves_existing_ingress() {
     let (reply, ()) = bounded(async { tokio::join!(exchange, backend) }).await;
     let reply = reply.unwrap();
     let report = ProviderReport {
+        usage: None,
         reported_target: serde_json::from_value(claim().payload["binding"]["target"].clone())
             .unwrap(),
         provider_reference: None,

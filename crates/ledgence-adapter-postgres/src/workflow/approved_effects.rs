@@ -58,7 +58,17 @@ impl Evidence {
         key: &str,
         lookup: &str,
     ) -> StoreResult<Self> {
-        Self::load_bound(tx, workflow, owner, workflow_id, key, Some(lookup), false).await
+        Self::load_bound(
+            tx,
+            workflow,
+            &owner.scope,
+            &owner.task_id,
+            workflow_id,
+            key,
+            Some(lookup),
+            false,
+        )
+        .await
     }
     pub(super) async fn load_provider(
         tx: &mut PgConnection,
@@ -67,12 +77,43 @@ impl Evidence {
         workflow_id: &str,
         key: &str,
     ) -> StoreResult<Self> {
-        Self::load_bound(tx, workflow, owner, workflow_id, key, None, true).await
+        Self::load_bound(
+            tx,
+            workflow,
+            &owner.scope,
+            &owner.task_id,
+            workflow_id,
+            key,
+            None,
+            true,
+        )
+        .await
     }
+    /// Only composed admission calls this after validating its retained subject.
+    /// The approval's original resumed activation stays immutable across reentry.
+    pub(super) async fn load_provider_occurrence(
+        tx: &mut PgConnection,
+        workflow: &WorkflowSnapshot,
+        occurrence: &EffectOccurrence,
+    ) -> StoreResult<Self> {
+        Self::load_bound(
+            tx,
+            workflow,
+            &occurrence.scope,
+            &occurrence.activation_id,
+            &occurrence.workflow_id,
+            &occurrence.approval_key,
+            None,
+            true,
+        )
+        .await
+    }
+    #[allow(clippy::too_many_arguments)]
     async fn load_bound(
         tx: &mut PgConnection,
         workflow: &WorkflowSnapshot,
-        owner: &LeaseOwner,
+        scope: &Scope,
+        activation_id: &str,
         workflow_id: &str,
         key: &str,
         lookup: Option<&str>,
@@ -89,17 +130,14 @@ impl Evidence {
              LEFT JOIN workflow_local_results j ON j.activation_id=$3 AND j.step_key=k.step_key
              WHERE a.workflow_id=$1 AND a.wait_key=$2",
         )
-        .bind(workflow_id).bind(key).bind(&owner.task_id).fetch_optional(tx).await?
+        .bind(workflow_id).bind(key).bind(activation_id).fetch_optional(tx).await?
         .ok_or(ContractError::NotFound)?;
         let approval = approvals::decode(&row)?;
-        if approval.workflow_id != workflow_id
-            || approval.key != key
-            || approval.scope != owner.scope
-        {
+        if approval.workflow_id != workflow_id || approval.key != key || &approval.scope != scope {
             return Err(corrupt("approved effect identity").into());
         }
         if approval.status != ApprovalStatus::Approved
-            || approval.resumed_activation_id.as_deref() != Some(&owner.task_id)
+            || approval.resumed_activation_id.as_deref() != Some(activation_id)
         {
             return Err(ContractError::ObsoleteOperation.into());
         }
@@ -163,6 +201,34 @@ impl PostgresStore {
             return Err(ContractError::Conflict.into());
         }
 
+        let budget_grant = if !evidence.claimed {
+            match self
+                .check_effect_budget(
+                    &mut tx,
+                    &workflow,
+                    &authority,
+                    &evidence.approval,
+                    command.budget_fence,
+                    command,
+                )
+                .await?
+            {
+                Ok(grant) => grant,
+                Err(reason) => {
+                    execution::check_live(
+                        &workflow,
+                        &authority,
+                        owner,
+                        db::now(&mut tx).await?,
+                        true,
+                    )?;
+                    tx.commit().await?;
+                    return Err(ContractError::RunBudgetDenied(reason).into());
+                }
+            }
+        } else {
+            None
+        };
         grant(&mut tx, command, &evidence).await?;
         let now = db::now(&mut tx).await?;
         let mut retained = super::effect_retained::ensure(
@@ -174,9 +240,12 @@ impl PostgresStore {
         )
         .await?;
         super::effect_retained::legacy_confirmation(&mut tx, &mut retained, now).await?;
-        execution::check_live(&workflow, &authority, owner, db::now(&mut tx).await?, true)?;
+        let final_now = db::now(&mut tx).await?;
+        execution::check_live(&workflow, &authority, owner, final_now, true)?;
+        crate::run_budget::check_grant(budget_grant, final_now)?;
         tx.commit().await?;
         Ok(ApprovedEffectClaimReceipt {
+            budget_grant,
             scope: evidence.approval.scope,
             workflow_id: evidence.approval.workflow_id,
             activation_id: owner.task_id.clone(),
@@ -326,4 +395,57 @@ pub(super) async fn grant_bound(
     }
 
     Ok(())
+}
+
+impl PostgresStore {
+    pub(super) async fn check_effect_budget<T: serde::Serialize>(
+        &self,
+        tx: &mut PgConnection,
+        workflow: &WorkflowSnapshot,
+        authority: &execution::ActivationAuthority,
+        reviewed: &ApprovalSnapshot,
+        negotiated: bool,
+        command: &T,
+    ) -> StoreResult<std::result::Result<Option<RunBudgetGrant>, RunBudgetDenial>> {
+        self.check_dispatch_quarantine()?;
+        if !authority.has_run_budget {
+            return Ok(Ok(None));
+        }
+        self.admission_configured()?;
+        if !negotiated {
+            return Err(ContractError::InvalidInput(
+                "worker must support run budget dispatch fences".into(),
+            )
+            .into());
+        }
+        let member = crate::run_budget::workflow(&workflow.workflow_id);
+        let approval = EffectOccurrence {
+            scope: reviewed.scope.clone(),
+            workflow_id: reviewed.workflow_id.clone(),
+            activation_id: reviewed.activation_id.clone(),
+            approval_key: reviewed.key.clone(),
+        };
+        let source_id = crate::run_budget::effect_source(tx, &approval).await?;
+        match crate::run_budget::call(tx, &workflow.scope, &member, &source_id, Some(&approval))
+            .await?
+        {
+            Ok((at, deadline)) => Ok(Ok(Some(RunBudgetGrant::new(
+                at,
+                deadline.unwrap_or(u64::MAX).min(authority.valid_until()),
+            )?))),
+            Err(reason) => {
+                let reason = crate::run_budget::bound_call_refusal(
+                    tx,
+                    &workflow.scope,
+                    &member,
+                    &source_id,
+                    reason,
+                    command,
+                    &approval,
+                )
+                .await?;
+                Ok(Err(reason))
+            }
+        }
+    }
 }

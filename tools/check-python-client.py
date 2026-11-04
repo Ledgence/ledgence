@@ -81,6 +81,7 @@ def verify_distribution(path, inventory):
             deps.require(not any(n.startswith(("ledgence_worker/", "aiohttp/", "opentelemetry/")) for n in names), "client wheel bundles unrelated package code")
     else:
         expected["tests/json-values.json"] = (ROOT / "tests/fixtures/json-values.json").read_bytes()
+        expected["tests/fixtures/task-admission-v1.json"] = (ROOT / "crates/ledgence-orchestration-api/tests/fixtures/task-admission-v1.json").read_bytes()
         expected["third_party/inventory.json"] = (deps.LEGAL / "inventory.json").read_bytes()
         for group in deps.GROUPS:
             expected[f"third_party/{group}-requirements.txt"] = (deps.LEGAL / f"{group}-requirements.txt").read_bytes()

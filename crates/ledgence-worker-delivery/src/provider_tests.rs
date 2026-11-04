@@ -74,6 +74,7 @@ fn fixture() -> (ProviderProbeReportCommand, EffectAccess, DeliveryConfig) {
         source_id: "source".into(),
         report_id: "report".into(),
         report: ProviderReport {
+            usage: None,
             reported_target: serde_json::from_value(
                 fixture["binding"]["approval"]["provider_binding"]["target"].clone(),
             )
@@ -92,13 +93,6 @@ fn fixture() -> (ProviderProbeReportCommand, EffectAccess, DeliveryConfig) {
         identity: PrincipalIdentity {
             issuer: "worker-issuer".into(),
             subject: "worker".into(),
-        },
-        features: RuntimeFeatures {
-            v: 1,
-            supported: vec![
-                "native_effect_resolution.v1".into(),
-                "provider_operation.v1".into(),
-            ],
         },
     };
     let mut config = DeliveryConfig::new(scope, "probes");

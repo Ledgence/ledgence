@@ -24,6 +24,8 @@ pub enum Metric {
     RecoveryExpired,
     ConsumerSlots,
     ExecutingPrograms,
+    AdmissionStartResult,
+    RunBudgetRefusal,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricKind {
@@ -32,7 +34,7 @@ pub enum MetricKind {
     UpDownCounter,
 }
 impl Metric {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 16] = [
         Self::HttpDuration,
         Self::DatabaseDuration,
         Self::ExecutionDuration,
@@ -47,6 +49,8 @@ impl Metric {
         Self::RecoveryExpired,
         Self::ConsumerSlots,
         Self::ExecutingPrograms,
+        Self::AdmissionStartResult,
+        Self::RunBudgetRefusal,
     ];
     pub fn from_id(id: u64) -> Option<Self> {
         Self::ALL.get(usize::try_from(id).ok()?).copied()
@@ -67,6 +71,8 @@ impl Metric {
             Self::RecoveryExpired => "ledgence.recovery.expired",
             Self::ConsumerSlots => "ledgence.worker.consumer.occupied",
             Self::ExecutingPrograms => "ledgence.worker.execution.active",
+            Self::AdmissionStartResult => "ledgence.admission.start.result",
+            Self::RunBudgetRefusal => "ledgence.run_budget.refusal",
         }
     }
     pub fn kind(self) -> MetricKind {
@@ -74,7 +80,9 @@ impl Metric {
             Self::CacheLookup
             | Self::ProcessSelection
             | Self::DatabaseRetry
-            | Self::RecoveryExpired => MetricKind::Counter,
+            | Self::RecoveryExpired
+            | Self::AdmissionStartResult
+            | Self::RunBudgetRefusal => MetricKind::Counter,
             Self::ConsumerSlots | Self::ExecutingPrograms => MetricKind::UpDownCounter,
             _ => MetricKind::Histogram,
         }
@@ -102,6 +110,14 @@ impl Metric {
             | Self::ExecutingPrograms => outcome == None,
             Self::CacheLookup => matches!(outcome, Hit | Miss),
             Self::ProcessSelection => matches!(outcome, Reused | Started),
+            Self::AdmissionStartResult => matches!(
+                outcome,
+                Granted | ExistingSource | BudgetDenied | NotGranted
+            ),
+            Self::RunBudgetRefusal => matches!(
+                outcome,
+                CallsExhausted | DelegationsExhausted | DeadlineExceeded | Cancelled
+            ),
         }
     }
     /// Only fixed enum dimensions are emitted. Negative values are valid only
@@ -134,9 +150,16 @@ pub enum MetricOutcome {
     Retry,
     Integrated,
     External,
+    Granted,
+    ExistingSource,
+    BudgetDenied,
+    NotGranted,
+    CallsExhausted,
+    DelegationsExhausted,
+    DeadlineExceeded,
 }
 impl MetricOutcome {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 21] = [
         Self::None,
         Self::Ok,
         Self::Failed,
@@ -151,6 +174,13 @@ impl MetricOutcome {
         Self::Retry,
         Self::Integrated,
         Self::External,
+        Self::Granted,
+        Self::ExistingSource,
+        Self::BudgetDenied,
+        Self::NotGranted,
+        Self::CallsExhausted,
+        Self::DelegationsExhausted,
+        Self::DeadlineExceeded,
     ];
     pub fn from_id(id: u64) -> Option<Self> {
         Self::ALL.get(usize::try_from(id).ok()?).copied()
@@ -171,6 +201,13 @@ impl MetricOutcome {
             Self::Retry => "retry",
             Self::Integrated => "integrated",
             Self::External => "external",
+            Self::Granted => "granted",
+            Self::ExistingSource => "existing_source",
+            Self::BudgetDenied => "budget_denied",
+            Self::NotGranted => "not_granted",
+            Self::CallsExhausted => "calls_exhausted",
+            Self::DelegationsExhausted => "delegations_exhausted",
+            Self::DeadlineExceeded => "deadline_exceeded",
         }
     }
 }

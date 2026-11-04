@@ -296,3 +296,19 @@ exact assessment binding, cancellation and retention behavior.
 Use [durable model and tool calls](agent-recovery.md) for typed, versioned
 operation bindings within an agent loop. They reuse the local journal and
 explicit checkpoints, with no provider dependency or new queue delivery.
+
+## Resource waits in development
+
+A registered model/tool callback can request capacity through a native
+`resource_admission` checkpoint. Each wait episode belongs to its parking
+entrypoint while the original operation identity survives rewaits and retries.
+Finish uses its own occurrence journal, not a second `ctx.local()` commit.
+See [durable resource admission](resource-admission.md) and its runnable example.
+
+An approved provider binding can also request this wait through
+`ctx.request_provider_admission(...)`. The composed Start atomically grants
+capacity and the original protected dispatch. `ctx.admitted_provider_operation()`
+returns a typed provider ticket for the existing business-result wait; completion
+of the original call is accounted separately. The approval occurrence survives
+the additional activation. See the
+[protected composition](resource-admission.md#compose-admission-with-protected-provider-dispatch).

@@ -46,7 +46,7 @@ def static_and_contract(d, record):
         status, _, _ = raw_exchange(d.server_url, "GET", path)
         assert status == 404, (path, status)
     manifest = json.loads((d.console_dist / "console-manifest.json").read_text())
-    assert manifest["console_contract_version"] == 7
+    assert manifest["console_contract_version"] == 14
     for asset in manifest["assets"]:
         status, _, body = raw_exchange(d.server_url, "GET", "/console/" + asset["path"])
         assert status == 200 and body == (d.console_dist / asset["path"]).read_bytes(), asset["path"]
@@ -71,9 +71,17 @@ def static_and_contract(d, record):
         status, _, body = raw_exchange(d.server_url, "GET", link)
         assert status == 200 and body == (d.console_dist / relative).read_bytes(), link
     config = d.api("GET", "config")
-    assert config["contract_version"] == 7
+    assert config["contract_version"] == 14
     assert config["instance_id"] == d.instance["instance_id"]
-    assert all(config["capabilities"].values()), config
+    # This installation has no admission configuration. Core monitoring and
+    # execution remain available; optional governance must not be advertised.
+    assert config["capabilities"] == {
+        "executions": True, "workflows": True, "programs": True,
+        "workers": True,
+        "task_admission": False, "queue_policies": False,
+        "resource_policies": False, "resource_sources": False, "resource_fair_sharing": False,
+        "run_budgets": False, "task_run_budgets": False,
+    }, config
     assert "scope" not in config and "tenant_id" not in config and "namespace" not in config
     for path in ("config?tenant_id=other", "tasks?limit=1&limit=2", "tasks?tenant_id=other",
                  "tasks?limit=0", "tasks?limit=101", "tasks?cursor=corrupt", "tasks?%GG=value"):

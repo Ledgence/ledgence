@@ -180,3 +180,28 @@ be measured; these features do not establish a production throughput guarantee.
 
 Matching 0.8.0 components add verified approval acceptance and durable sensitive-response observations, exposed through API, CLI, Python, MCP and Console. Pending result polling creates no observation rows.
 [Setup, queries and operating limits](/how-to/audit-operators).
+
+## In development: durable resource admission
+
+Matching development components add shared capacity and token-bucket policies
+for registered workflow callbacks. Workflows park without a worker slot, then
+resume under a one-shot Start permission. Accepted results survive worker loss;
+uncertain usage remains occupied. CLI, Python, HTTP and MCP expose policy and
+inspection operations, and Console C14 renders the durable wait/result. Protected
+provider dispatch can share a resource through a combined one-shot grant; its
+call completion remains separate from the provider's business outcome. Recovery
+probes are outside that resource limit. Standalone tasks can require the same
+resource before handler invocation. Resources can give eligible queue groups weighted turns at admission. Console shows committed offers with their reasons. Run budgets bound governed calls and delegations across a root and its owned executions. [Budget guide](/how-to/share-run-budgets). This is not in the 0.8.0 packages. [Guide and limits](/how-to/control-resource-capacity).
+
+Matching development builds let operators edit named-resource policies in Console, inspect decisions and find outstanding sources using the resource name. Aggregate inspection uses `metadata_read`. Listing individual sources requires `sensitive_read` and records a response audit.
+
+
+## In development: worker poll shares
+
+[Configure a worker to poll multiple integrated or SQS Standard queues](/how-to/share-worker-polls)
+with one concurrency budget. Choose deterministic Stride or weighted lottery,
+then adjust the weights without interrupting active tasks.
+
+## Queue concurrency in development
+
+Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).

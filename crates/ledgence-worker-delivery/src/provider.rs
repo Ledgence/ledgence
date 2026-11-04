@@ -83,7 +83,7 @@ impl Context {
                     payload,
                 },
                 Arc::new(ProbeHandler {
-                    features: access.features.clone(),
+                    features: self.runtime_features.clone(),
                     timeout: Duration::from_millis(context.check_timeout_ms),
                 }),
             )
@@ -196,7 +196,7 @@ impl Context {
         let access = self
             .effect_access
             .clone()
-            .filter(|a| a.features.provider_operation())
+            .filter(|_| self.runtime_features.provider_operation())
             .ok_or_else(|| {
                 Error::new(
                     ErrorKind::Incompatible,

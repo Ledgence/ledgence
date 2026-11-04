@@ -6,13 +6,14 @@ coordinates read-only probes without re-dispatching an uncertain mutation.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 import hashlib
 import inspect
 import json
 from pathlib import Path
 import re
+from time import monotonic
 from types import MappingProxyType
 import uuid
 
@@ -20,7 +21,7 @@ from .workflow import (
     ApprovalAction, ApprovalProtection, ApprovalStatus, EffectOccurrence,
     EffectResolutionOutcome, MAX_APPROVAL_BYTES, MAX_TIMESTAMP, MAX_WAIT_MS,
     WorkflowContext, WorkflowError, _callable_name, _encode, _fields, _freeze,
-    _integer, _local_owner, _text,
+    _integer, _local_owner, _text, _budget_dispatch_deadline,
 )
 
 PROBE_SCHEMA = "ledgence.provider.probe.v1"
@@ -80,9 +81,12 @@ def _target(value):
 def _validate_binding(value, *, resolved):
     fields = {"v", "business", "contract", "target", "deduplication",
               "credential_reference", "reconciliation"}
-    _fields(value, fields | ({"program"} if resolved else set()))
-    if type(value["v"]) is not int or value["v"] != 1:
+    version = value.get("v") if type(value) is dict else None
+    if type(version) is not int or version not in (1, 2):
         raise WorkflowError("unsupported provider binding version")
+    _fields(value, fields | ({"program"} if resolved else set()) | ({"admission"} if version == 2 else set()))
+    if version == 2:
+        ProviderAdmissionRequirement.from_dict(value["admission"])
     _fields(value["business"], {"namespace", "key"})
     _text(value["business"]["namespace"], "business namespace")
     _text(value["business"]["key"], "business key", 256)
@@ -152,6 +156,24 @@ def _validate_binding(value, *, resolved):
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderAdmissionRequirement:
+    """Named shared resource frozen into the action reviewed for dispatch."""
+    resource: str
+
+    def __post_init__(self):
+        from .admission import _resource_name
+        _resource_name(self.resource)
+
+    @classmethod
+    def from_dict(cls, value):
+        _fields(value, {"resource"})
+        return cls(value["resource"])
+
+    def to_dict(self):
+        return {"resource": self.resource}
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderBindingRequest:
     """Frozen proposed binding; the backend adds the immutable program descriptor."""
     _encoded: bytes
@@ -196,7 +218,10 @@ class ProviderReport:
 
     @classmethod
     def from_dict(cls, value):
-        _fields(value, {"reported_target", "provider_reference", "provider_request_id", "knowledge"})
+        _fields(value, {"reported_target", "provider_reference", "provider_request_id", "knowledge"}, {"usage"})
+        if "usage" in value:
+            from .admission import RunBudgetUsage
+            RunBudgetUsage.from_dict(value["usage"])
         _target(value["reported_target"])
         for key in ("provider_reference", "provider_request_id"):
             if value[key] is not None:
@@ -224,9 +249,15 @@ class ProviderReport:
         return cls(_encode(value, REPORT_BYTES, 96))
 
     @classmethod
-    def _make(cls, knowledge, *, target, provider_reference=None, provider_request_id=None):
-        return cls.from_dict({"reported_target": target, "provider_reference": provider_reference,
-                              "provider_request_id": provider_request_id, "knowledge": knowledge})
+    def _make(cls, knowledge, *, target, provider_reference=None, provider_request_id=None, usage=None):
+        value = {"reported_target": target, "provider_reference": provider_reference,
+                 "provider_request_id": provider_request_id, "knowledge": knowledge}
+        if usage is not None:
+            from .admission import RunBudgetUsage
+            if type(usage) is not RunBudgetUsage:
+                raise WorkflowError("provider report expects RunBudgetUsage")
+            value["usage"] = usage.to_dict()
+        return cls.from_dict(value)
 
     @classmethod
     def unknown(cls, reason, **source):
@@ -258,6 +289,52 @@ class ProviderReport:
     @property
     def kind(self):
         return ProviderKnowledgeKind(self.to_dict()["knowledge"]["kind"])
+
+
+class ProviderCallCompletion(StrEnum):
+    COMPLETED = "completed"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderDispatchOutcome:
+    """Original call completion, independent of the reported business outcome."""
+    _encoded: bytes = field(repr=False)
+
+    @classmethod
+    def from_dict(cls, value):
+        _fields(value, {"call_completion", "report"})
+        if value["call_completion"] not in ("completed", "unknown"):
+            raise WorkflowError("invalid original provider call completion")
+        report = ProviderReport.from_dict(value["report"])
+        return cls(_encode({"call_completion": value["call_completion"], "report": report.to_dict()}, REPORT_BYTES + 1024, 96))
+
+    @classmethod
+    def _make(cls, completion, report):
+        if type(report) is not ProviderReport:
+            raise WorkflowError("dispatch outcome requires a ProviderReport")
+        return cls.from_dict({"call_completion": completion, "report": report.to_dict()})
+
+    @classmethod
+    def completed(cls, report):
+        """The original call finished; Pending still means business work remains."""
+        return cls._make("completed", report)
+
+    @classmethod
+    def unknown(cls, report):
+        """Business knowledge does not prove original call completion."""
+        return cls._make("unknown", report)
+
+    @property
+    def completion(self):
+        return ProviderCallCompletion(self.to_dict()["call_completion"])
+
+    @property
+    def report(self):
+        return ProviderReport.from_dict(self.to_dict()["report"])
+
+    def to_dict(self):
+        return json.loads(self._encoded)
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +374,7 @@ class ProviderAdapter:
         self._dispatch = None
         self._probe = None
         self._contract = None
+        self._frozen_callbacks = None
 
     def _register(self, fn, role):
         if self._contract is not None:
@@ -334,9 +412,10 @@ class ProviderAdapter:
                     "reconcile_callable": None if self._probe is None else _callable_name(self._probe)}
         contract["digest"] = "sha256:" + hashlib.sha256(_encode(contract, BINDING_REQUEST_BYTES)).hexdigest()
         self._contract = _encode(contract, BINDING_REQUEST_BYTES)
+        self._frozen_callbacks = (self._dispatch, self._probe)
 
     def binding(self, *, business, target, credential_reference, queue, deduplication=None,
-                reconciliation=None):
+                reconciliation=None, admission=None):
         if self._contract is None:
             raise WorkflowError("build the workflow before creating provider bindings")
         policy = {"queue": queue, "initial_delay_ms": 30_000, "interval_ms": 5000,
@@ -346,9 +425,14 @@ class ProviderAdapter:
             if type(reconciliation) is not dict or set(reconciliation) - (set(policy) - {"queue"}):
                 raise WorkflowError("invalid provider reconciliation overrides")
             policy.update(reconciliation)
-        return ProviderBindingRequest.from_dict({"v": 1, "business": business,
+        value = {"v": 1, "business": business,
             "contract": json.loads(self._contract), "target": target, "deduplication": deduplication,
-            "credential_reference": credential_reference, "reconciliation": policy})
+            "credential_reference": credential_reference, "reconciliation": policy}
+        if admission is not None:
+            if type(admission) is not ProviderAdmissionRequirement:
+                raise WorkflowError("provider admission requires a ProviderAdmissionRequirement")
+            value.update(v=2, admission=admission.to_dict())
+        return ProviderBindingRequest.from_dict(value)
 
 
 def _registry(adapters):
@@ -377,6 +461,9 @@ def _bound_adapter(registry, binding, action):
     _validate_binding(binding, resolved=True)
     adapter = registry.get(binding["contract"]["adapter_id"])
     if (adapter is None or _encode(binding["contract"], BINDING_REQUEST_BYTES) != adapter._contract
+            or adapter._frozen_callbacks is None
+            or adapter._dispatch is not adapter._frozen_callbacks[0]
+            or adapter._probe is not adapter._frozen_callbacks[1]
             or action["name"] != binding["contract"]["dispatch_callable"]
             or action["version"] != binding["contract"]["version"]):
         raise WorkflowError("provider contract differs from the registered adapter")
@@ -387,22 +474,34 @@ class _InvalidReport(WorkflowError):
     """The callback returned a value outside the frozen report contract."""
 
 
-async def _call(callback, action, binding, reference):
-    request = ProviderRequest(_encode({"arguments": action["arguments"], "binding": binding,
-                                      "provider_reference": reference}, 64 * 1024, 96, authoritative=True))
+def _request(action, binding, reference):
+    return ProviderRequest(_encode({"arguments": action["arguments"], "binding": binding,
+                                   "provider_reference": reference}, 64 * 1024, 96, authoritative=True))
+
+
+async def _call(callback, action, binding, reference, *, governed=False, request=None, dispatch_deadline=None):
+    request = _request(action, binding, reference) if request is None else request
+    def invoke():
+        # Check inside the thread too: queueing for a busy executor cannot
+        # extend an admission Start's conservative monotonic send window.
+        if dispatch_deadline is not None and monotonic() >= dispatch_deadline:
+            raise WorkflowError("provider admission start expired before callback")
+        return callback(request)
     # Sync I/O belongs to a thread. The Rust runtime owns the hard invocation
     # deadline, including a callback that blocks or ignores Python cancellation.
     if inspect.iscoroutinefunction(callback):
-        result = await callback(request)
+        result = await invoke()
     else:
-        result = await asyncio.to_thread(callback, request)
+        result = await asyncio.to_thread(invoke)
         if inspect.isawaitable(result):
             result = await result
     try:
-        if type(result) is not ProviderReport:
-            raise WorkflowError("provider callback must return a ProviderReport")
-        result = ProviderReport.from_dict(result.to_dict())
-        if result.to_dict()["reported_target"] != binding["target"]:
+        expected = ProviderDispatchOutcome if governed else ProviderReport
+        if type(result) is not expected:
+            raise WorkflowError("governed dispatch requires ProviderDispatchOutcome; ordinary callbacks require ProviderReport")
+        result = expected.from_dict(result.to_dict())
+        report = result.report if governed else result
+        if report.to_dict()["reported_target"] != binding["target"]:
             raise WorkflowError("provider report target differs from the approved target")
     except Exception as exc:
         raise _InvalidReport("invalid provider callback report") from exc
@@ -435,9 +534,12 @@ def approved_operation(context):
             or approval.protection != ApprovalProtection.PROVIDER_OPERATION):
         raise WorkflowError("provider operation requires its approved provider wake")
     raw = approval.to_dict()
+    if raw["provider_binding"].get("admission") is not None:
+        raise WorkflowError("governed provider dispatch requires request_provider_admission and admitted_provider_operation")
     adapter = _bound_adapter(context._providers, raw["provider_binding"], raw["action"])
     if context._provider_pending is None:
-        task = context._loop.create_task(_dispatch(context, raw, adapter))
+        # Bind the checked callable before task scheduling and the Claim await.
+        task = context._loop.create_task(_dispatch(context, raw, adapter._dispatch))
         context._provider_pending = task
     return _OperationResult(context._provider_pending, context._observed_failures)
 
@@ -453,13 +555,17 @@ async def _rpc(context, operation, request):
             raise
 
 
-async def _dispatch(context, approval, adapter):
+async def _dispatch(context, approval, dispatch):
     request = {"approval_key": approval["key"], "action": approval["action"],
                "binding": approval["provider_binding"], "claim_id": "claim_" + uuid.uuid4().hex,
                "report_id": "report_" + uuid.uuid4().hex}
+    begun = monotonic()
     reply = await _rpc(context, "provider_operation.claim.v1", request)
     try:
         ticket, source = _claim_reply(context, approval, request, reply)
+        deadline = None
+        if source is not None and "budget_grant" in source:
+            deadline = _budget_dispatch_deadline(source["budget_grant"], begun, authorized_at=source["accepted_at"])
     except BaseException as exc:
         context._fatal = exc
         raise
@@ -470,7 +576,7 @@ async def _dispatch(context, approval, adapter):
         # A callback exception is neither failure evidence nor authority to
         # dispatch again. The durable recovery obligation already exists.
         try:
-            report = await _call(adapter._dispatch, approval["action"], approval["provider_binding"], None)
+            report = await _call(dispatch, approval["action"], approval["provider_binding"], None, dispatch_deadline=deadline)
         except Exception:
             return ticket
     finally:
@@ -500,7 +606,7 @@ def _claim_reply(context, approval, request, reply):
     source = reply.get("source")
     if source is not None:
         _fields(source, {"source_id", "claim_id", "report_id", "ticket", "accepted_at",
-                         "first_possible_dispatch_at", "reconciliation_deadline"})
+                         "first_possible_dispatch_at", "reconciliation_deadline"}, {"budget_grant"})
         _text(source["source_id"], "provider source id")
         if (source["ticket"] != reply["ticket"] or source["claim_id"] != request["claim_id"]
                 or source["report_id"] != request["report_id"]):

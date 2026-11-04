@@ -23,7 +23,7 @@ impl WorkflowOperations {
     fn provider_access(&self) -> ledgence_worker_api::Result<&EffectAccess> {
         self.effect_access
             .as_deref()
-            .filter(|access| access.features.provider_operation())
+            .filter(|_| self.runtime_features.provider_operation())
             .ok_or_else(|| {
                 Error::new(
                     ErrorKind::Incompatible,
@@ -40,6 +40,7 @@ impl WorkflowOperations {
         let payload: ClaimRequest = serde_json::from_value(request.payload)
             .map_err(|_| Error::new(ErrorKind::Protocol, "invalid provider claim request"))?;
         let command = ProviderClaimCommand {
+            budget_fence: true,
             owner: self.owner.clone(),
             workflow_id: self.workflow_id.clone(),
             approval_key: payload.approval_key,
@@ -49,6 +50,12 @@ impl WorkflowOperations {
             report_id: payload.report_id,
         };
         command.validate().map_err(runtime_error)?;
+        if command.binding.admission.is_some() {
+            return Err(Error::new(
+                ErrorKind::Incompatible,
+                "governed provider dispatch requires atomic provider admission",
+            ));
+        }
         control.check()?;
         let service = self
             .service
@@ -56,6 +63,7 @@ impl WorkflowOperations {
             .map_err(runtime_error)?;
         // A lost grant response never causes the host to dispatch again. An
         // explicit retry recovers only the existing operation's ticket.
+        let began = Instant::now();
         let reply = controlled(&control, self.request_timeout, || {
             service.claim_provider(&command)
         })
@@ -67,14 +75,19 @@ impl WorkflowOperations {
         }
         let result = match reply {
             ProviderClaimReceipt::Dispatch { ticket, source } => {
+                check_budget_window(source.budget_grant, began)?;
                 if !access.matches(&source.worker) {
                     return Err(super::super::provider::mismatch());
                 }
-                json!({"kind":"dispatch","ticket":ticket,"source":{
+                let mut result = json!({"kind":"dispatch","ticket":ticket,"source":{
                     "source_id":source.source_id,"claim_id":source.claim_id,"report_id":source.report_id,
                     "ticket":source.ticket,"accepted_at":source.accepted_at,
                     "first_possible_dispatch_at":source.first_possible_dispatch_at,
-                    "reconciliation_deadline":source.reconciliation_deadline}})
+                    "reconciliation_deadline":source.reconciliation_deadline}});
+                if let Some(grant) = source.budget_grant {
+                    result["source"]["budget_grant"] = json!(grant);
+                }
+                result
             }
             ProviderClaimReceipt::Existing { audience, ticket } => {
                 if audience != access.audience {

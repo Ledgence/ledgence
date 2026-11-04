@@ -202,3 +202,36 @@ acceptance and effect-resolution acceptance events survive task/workflow removal
 and currently have no automatic expiry.
 Execution retention and acceptance evidence therefore have separate lifetimes.
 [Operator audit](operator-audit.md#retention-and-operating-limits).
+
+## Retained admission usage in development
+
+Admission sources with unresolved occupancy remain durable after workflow
+termination. Workflow cleanup must not erase outstanding capacity obligations.
+For generic callbacks, an original-source Finish can settle retained occupancy;
+protected provider dispatch uses its original composed Report with explicit call
+completion. An audited operator admission release can also free capacity without
+reviving the workflow. The linked provider source and report remain retained.
+
+Capacity release alone does not remove the unresolved-provider-effect hold on
+execution collection. A terminal provider report or operator assessment must
+close that business handling, in addition to ordinary cleanup and age checks.
+A successful probe may remove the business hold while original call occupancy
+stays uncertain. Admission and provider evidence remain available after eligible
+execution records are collected.
+
+This initial capability has no automatic expiry for admission occurrences,
+frozen bindings, accepted results, resource records or operator policy/release
+command receipts. They survive execution retirement even after completion or
+administrative release; the execution-retention interval does not erase them.
+Workflow admission waits and graph records follow their owning execution's
+retention instead. Account for continued growth of the independent admission
+records. See [resource admission](resource-admission.md#start-finish-and-failures).
+
+Standalone task admission keeps the durable source and reconciliation ledger
+separate from ordinary task results. Started or unknown occupancy does not expire
+with a task lease. The retention sweep preserves the owning task while a source
+is occupied so an operator can find it through execution history. Once occupancy
+is released the normal task retirement rules apply; the ledger still accepts a
+late confirmation from the original worker.
+Retain capacity records for late worker quiescence and audited operator decisions;
+include their growth in retention planning. See [task admission](resource-admission.md#standalone-task-admission).

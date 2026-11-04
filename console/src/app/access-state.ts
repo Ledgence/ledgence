@@ -9,6 +9,7 @@ export type AccessCapability =
   | "program_publish"
   | "approval_decide"
   | "worker_execute"
+  | "resource_control"
   | "effect_resolve";
 export type Access =
   | { mode: "operator_trusted" }

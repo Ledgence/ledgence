@@ -181,6 +181,20 @@ class EffectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.provider.posts, [])
         self.assertEqual(len(self.provider.lookups), 2)
 
+    async def test_budget_window_expired_in_transit_does_not_invoke_effect(self):
+        from unittest.mock import patch
+
+        async def grant(operation, request):
+            reply = await self.authority(operation, request)
+            return {**reply, "budget_grant":{"authorized_at":100,"expires_at":105}}
+
+        with patch("ledgence.worker.workflow.monotonic", side_effect=[10, 10.006]):
+            with self.assertRaises(EffectOutcomeUnknown):
+                await self.activation(grant).approved_effect(self.provider.issue,lookup=self.provider.lookup,version="1")
+        self.assertEqual(self.provider.posts, [])
+        self.assertEqual(self.provider.lookups, [])
+        self.assertEqual(len(self.claims), 1)
+
     async def test_invalid_or_uncorrelated_grant_fails_closed(self):
         altered = deepcopy(self.approval["action"])
         altered["arguments"]["amount"] = 50.0

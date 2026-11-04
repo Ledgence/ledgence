@@ -61,11 +61,12 @@ impl PrincipalClass {
     }
     pub fn validate_capabilities(self, capabilities: &[AccessCapability]) -> Result<()> {
         let mut seen = HashSet::new();
-        if capabilities.is_empty() || capabilities.len() > 8 {
+        if capabilities.is_empty() || capabilities.len() > 9 {
             return Err(invalid());
         }
         for capability in capabilities {
             if !seen.insert(capability)
+                || (*capability == AccessCapability::ResourceControl && self != Self::Operator)
                 || (self == Self::Worker) != (*capability == AccessCapability::WorkerExecute)
             {
                 return Err(invalid());
@@ -86,6 +87,7 @@ pub enum AccessCapability {
     ApprovalDecide,
     EffectResolve,
     WorkerExecute,
+    ResourceControl,
 }
 impl AccessCapability {
     pub const fn as_str(self) -> &'static str {
@@ -98,6 +100,7 @@ impl AccessCapability {
             Self::ApprovalDecide => "approval_decide",
             Self::EffectResolve => "effect_resolve",
             Self::WorkerExecute => "worker_execute",
+            Self::ResourceControl => "resource_control",
         }
     }
 }

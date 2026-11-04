@@ -489,3 +489,41 @@ All API replicas must agree on this policy. Run matching workers on the dedicate
 probe queue named in each immutable binding. There is no additional worker flag
 and no scheduler that redirects such work to an eligible older worker.
 [Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).
+
+## Resource administration in development
+
+The development checkout adds `resource list|inspect|decisions|put` and
+`admission inspect|release`, plus `orchestrator serve --admission-config FILE`.
+Use scoped credentials and retain a destination-bound command file for mutations.
+`mcp serve --allow-resource-control` explicitly enables resource policy/release
+tools; it conflicts with read-only mode. These commands are not in 0.8.0.
+
+`ledgence audit list --resource NAME` reads audit events for a named resource
+policy. `--resource`, `--task` and `--workflow` are mutually exclusive; the
+existing scope, credential, limit and cursor options apply. Admission release
+and inspection events belong to the original workflow, so use `--workflow` for
+those records.
+See [resource admission](resource-admission.md#http-cli-python-and-mcp) for the
+command envelope, authority requirements and uncertain-outcome handling.
+
+For a standalone task use `ledgence admission inspect --server URL --tenant ID
+--namespace NAME --task TASK_ID --generation 1 --credentials-file FILE`. The
+existing `admission release --file FILE` command distinguishes task and workflow
+occurrences by their typed addresses and requires the original source/revision.
+The JSON command passed to `ledgence task submit` accepts optional
+`input.admission: {"resource":"support-model"}` in matching development builds.
+See [standalone task admission](resource-admission.md#standalone-task-admission).
+
+## Connect one worker to multiple queues (development)
+
+Use `--poll-plan FILE` in place of `--queue NAME` for integrated HTTP or SQS delivery.
+The regular JSON file contains a revision, strategy and queue weights. Publish
+updates by replacing the file atomically at the same path. To consume from SQS, add `--delivery-config FILE` with the same queue names and scope. A worker polling multiple SQS routes defaults to a one-second receive wait. The existing single-queue and integrated modes keep their 20-second defaults. [Plan schema, scope and recovery](worker-delivery.md#worker-local-poll-plans-development).
+
+Use `ledgence resource sources --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--state possibly_dispatched|unknown_occupied] [--cursor CURSOR] [--limit 1..100]` to find the charged occurrences for a resource. This read requires `sensitive_read` and records a response audit even for an empty page. Follow `next_cursor` with unchanged scope, resource and state. Use the returned workflow occurrence or task generation with `ledgence admission inspect`. [Resource source discovery](resource-admission.md#find-unresolved-charged-sources).
+
+In development, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.
+
+### Inspect a shared run budget (development)
+
+Read `ledgence budget inspect --server URL --credentials-file FILE --tenant ID --namespace NAME --workflow ID`. Replace `--workflow ID` with `--task ID` for a task. `ledgence budget entries` takes the same scope and subject; pass `--before SEQUENCE` to follow the returned cursor. Both require `metadata_read`.

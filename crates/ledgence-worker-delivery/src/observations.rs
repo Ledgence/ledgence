@@ -13,6 +13,58 @@ pub(super) struct ObservationReporting {
     pub display_name: Option<String>,
 }
 
+/// Only the primary session can link attempts through its physical report.
+/// Track at most one active primary attempt per physical consumer. A stale
+/// sample losing its active link is safely omitted, never reattributed.
+#[derive(Default, Clone)]
+pub(super) struct PrimaryLinks(Arc<Mutex<BTreeMap<String, String>>>);
+
+impl PrimaryLinks {
+    pub(super) fn track(&self, owner: &LeaseOwner) -> PrimaryLink<'_> {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(owner.attempt_id.clone(), owner.task_id.clone());
+        PrimaryLink {
+            links: self,
+            attempt: owner.attempt_id.clone(),
+        }
+    }
+
+    fn isolate(&self, command: &mut WorkerObservationCommand) {
+        let active = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        for slot in &mut command.snapshot.slots {
+            if slot
+                .invocation
+                .as_ref()
+                .is_some_and(|id| active.get(&id.attempt_id) != Some(&id.task_id))
+            {
+                slot.invocation = None;
+                // An Executing detail requires a valid task link. Retain
+                // occupancy and process metadata without asserting ownership.
+                if slot.state == ProcessSlotState::Executing {
+                    slot.state = ProcessSlotState::Unknown;
+                }
+            }
+        }
+    }
+}
+
+pub(super) struct PrimaryLink<'a> {
+    links: &'a PrimaryLinks,
+    attempt: String,
+}
+
+impl Drop for PrimaryLink<'_> {
+    fn drop(&mut self) {
+        self.links
+            .0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.attempt);
+    }
+}
+
 /// Dropping this signal requests one deadline-bounded final snapshot, but does
 /// not make shutdown await an unavailable observability endpoint.
 pub(super) struct ReportingGuard(Option<oneshot::Sender<()>>);
@@ -25,16 +77,27 @@ impl Drop for ReportingGuard {
 }
 
 impl ObservationReporting {
-    pub fn start(self, worker: Worker, session: WorkerSession) -> ReportingGuard {
+    pub fn start(
+        self,
+        worker: Worker,
+        session: WorkerSession,
+        primary_links: Option<PrimaryLinks>,
+    ) -> ReportingGuard {
         let (sender, receiver) = oneshot::channel();
         tokio::spawn(
-            self.run(worker, session, receiver)
+            self.run(worker, session, primary_links, receiver)
                 .with_current_subscriber(),
         );
         ReportingGuard(Some(sender))
     }
 
-    async fn run(self, worker: Worker, session: WorkerSession, mut stop: oneshot::Receiver<()>) {
+    async fn run(
+        self,
+        worker: Worker,
+        session: WorkerSession,
+        primary_links: Option<PrimaryLinks>,
+        mut stop: oneshot::Receiver<()>,
+    ) {
         let mut sequence = 1_u64;
         let mut last_warning = None;
         loop {
@@ -45,11 +108,11 @@ impl ObservationReporting {
                     // The cancelled exchange may already have committed. A new
                     // snapshot must never reuse its immutable sequence identity.
                     if let Some(final_sequence) = sequence.checked_add(1) {
-                        let _ = self.publish(&worker, &session, final_sequence).await;
+                        let _ = self.publish(&worker, &session, final_sequence, primary_links.as_ref()).await;
                     }
                     return;
                 }
-                result = self.publish(&worker, &session, sequence) => result,
+                result = self.publish(&worker, &session, sequence, primary_links.as_ref()) => result,
             };
             if let Err(error) = result {
                 let now = Instant::now();
@@ -65,7 +128,7 @@ impl ObservationReporting {
             tokio::select! {
                 biased;
                 _ = &mut stop => {
-                    let _ = self.publish(&worker, &session, sequence).await;
+                    let _ = self.publish(&worker, &session, sequence, primary_links.as_ref()).await;
                     return;
                 }
                 _ = tokio::time::sleep_until(next) => {}
@@ -73,7 +136,13 @@ impl ObservationReporting {
         }
     }
 
-    async fn publish(&self, worker: &Worker, session: &WorkerSession, sequence: u64) -> Result<()> {
+    async fn publish(
+        &self,
+        worker: &Worker,
+        session: &WorkerSession,
+        sequence: u64,
+        primary_links: Option<&PrimaryLinks>,
+    ) -> Result<()> {
         exchange(REPORT_TIMEOUT, || async {
             let mut command = WorkerObservationCommand {
                 schema_version: 1,
@@ -84,6 +153,9 @@ impl ObservationReporting {
                 snapshot: worker.observation().await,
             };
             isolate_scope(&mut command);
+            if let Some(links) = primary_links {
+                links.isolate(&mut command);
+            }
             // A complete summary is better than truncated detail. Structural
             // validation still runs after this byte-bound fallback.
             if !fits_body(&command) {

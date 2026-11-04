@@ -49,7 +49,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json",
     import.meta.url,
   ),
   "utf8",
@@ -76,7 +76,7 @@ const parentUrl = `/console/workflows/${encodeURIComponent(parentId)}`;
 const config = decodeConfig(field("config"));
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "7",
+  "Ledgence-Console-Contract": "14",
   "Ledgence-Instance-Id": config.instance_id,
 };
 
@@ -100,7 +100,7 @@ async function mount(
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "7",
+          "Ledgence-Console-Contract": "14",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
@@ -328,6 +328,8 @@ const nodeDimensions = {
   external_wait: [224, 64],
   native_effect_wait: [224, 64],
   provider_wait: [224, 64],
+  admission_wait: [224, 64],
+  admission_operation: [212, 84],
 } as const;
 
 async function expectReadableGeometry(

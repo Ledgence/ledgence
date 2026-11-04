@@ -7,6 +7,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from .admission_models import AdmissionOccurrence
+    from .task_admissions import TaskAdmissionOccurrence
     from .effect_models import EffectOccurrence
     from .effect_resolution_models import EffectAssessmentKind
 
@@ -21,6 +23,8 @@ AUDIT_CURSOR_LIMIT = 8192
 
 
 class AuditResourceKind(StrEnum):
+    QUEUE = "queue"
+    RESOURCE = "resource"
     TASK = "task"
     WORKFLOW = "workflow"
 
@@ -31,6 +35,10 @@ class AuditActorClass(StrEnum):
 
 
 class AuditReadKind(StrEnum):
+    QUEUE_HOLDS = "queue_holds"
+    RESOURCE_SOURCES = "resource_sources"
+    ADMISSION_INSPECT = "admission_inspect"
+    TASK_ADMISSION_INSPECT = "task_admission_inspect"
     TASK_INSPECT = "task_inspect"
     TASK_RESULT = "task_result"
     WORKFLOW_RESULT = "workflow_result"
@@ -99,7 +107,76 @@ class AuditEffect:
     kind: Literal["effect"] = field(default="effect", init=False)
 
 
-AuditResource = AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage | AuditEffect
+@dataclass(frozen=True, slots=True)
+class AuditQueue:
+    queue: str
+    kind: Literal["queue"] = field(default="queue", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditResourcePolicy:
+    name: str
+    kind: Literal["resource"] = field(default="resource", init=False)
+
+@dataclass(frozen=True, slots=True)
+class AuditAdmission:
+    occurrence: AdmissionOccurrence
+    kind: Literal["admission"] = field(default="admission", init=False)
+
+@dataclass(frozen=True, slots=True)
+class AuditResourcePolicyAccepted:
+    name: str
+    request_id: str
+    revision: int
+    policy_digest: str
+    reason: str
+    kind: Literal["resource_policy_accepted"] = field(default="resource_policy_accepted", init=False)
+
+@dataclass(frozen=True, slots=True)
+class AuditAdmissionReleased:
+    occurrence: AdmissionOccurrence
+    source_id: str
+    request_id: str
+    revision: int
+    reason: str
+    kind: Literal["admission_released"] = field(default="admission_released", init=False)
+
+@dataclass(frozen=True, slots=True)
+class AuditTaskAdmission:
+    occurrence: TaskAdmissionOccurrence
+    kind: Literal["task_admission"] = field(default="task_admission", init=False)
+
+@dataclass(frozen=True, slots=True)
+class AuditTaskAdmissionReleased:
+    occurrence: TaskAdmissionOccurrence
+    source_id: str
+    request_id: str
+    revision: int
+    reason: str
+    kind: Literal["task_admission_released"] = field(default="task_admission_released", init=False)
+
+@dataclass(frozen=True, slots=True)
+class AuditQueuePolicyAccepted:
+    queue: str
+    request_id: str
+    revision: int
+    policy_digest: str
+    reason: str
+    kind: Literal["queue_policy_accepted"] = field(default="queue_policy_accepted", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditQueueHoldReleased:
+    queue: str
+    task_id: str
+    attempt_id: str
+    request_id: str
+    revision: int
+    reason: str
+    kind: Literal["queue_hold_released"] = field(default="queue_hold_released", init=False)
+
+
+AuditResource = AuditQueue | AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage | AuditEffect | AuditResourcePolicy | AuditAdmission | AuditTaskAdmission
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +214,7 @@ class AuditEvent:
     recorded_at: int
     audience: AuditAudience
     actor: AuditActor
-    operation: AuditAcceptance | AuditSensitiveResponse | AuditEffectResolved
+    operation: AuditQueuePolicyAccepted | AuditQueueHoldReleased | AuditAcceptance | AuditSensitiveResponse | AuditEffectResolved | AuditResourcePolicyAccepted | AuditAdmissionReleased | AuditTaskAdmissionReleased
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,9 +269,26 @@ class AuditFilter:
         return codec.decode(self._encoded, AUDIT_EVENT_LIMIT)
 
 
+def _admission_occurrence(raw, scope=None):
+    from .admission_models import AdmissionOccurrence
+    codec.fields(raw, {"scope", "workflow_id", "origin_activation_id", "key"})
+    result = AdmissionOccurrence(_scope(raw["scope"]), raw["workflow_id"], raw["origin_activation_id"], raw["key"])
+    if scope is not None and result.scope != scope: raise InputError("foreign admission audit scope")
+    return result
+
+
 def _resource(raw):
     kind = raw.get("kind") if type(raw) is dict else None
+    if kind == "task_admission":
+        from .task_admissions import occurrence
+        codec.fields(raw, {"kind", "occurrence"})
+        return AuditTaskAdmission(occurrence(raw["occurrence"]))
+    if kind == "admission":
+        codec.fields(raw, {"kind", "occurrence"})
+        return AuditAdmission(_admission_occurrence(raw["occurrence"]))
     shapes = {
+        "queue": (AuditQueue, ("queue",)),
+        "resource": (AuditResourcePolicy, ("name",)),
         "task": (AuditTask, ("task_id",)),
         "workflow": (AuditWorkflow, ("workflow_id",)),
         "local_step": (AuditLocalStep, ("workflow_id", "activation_id", "step_key")),
@@ -260,6 +354,43 @@ def _event(raw, scope):
         predecessor = _predecessor(operation["supersedes_resolution_id"], resolution_id)
         operation = AuditEffectResolved(occurrence, resolution_id, accepted, basis, predecessor,
                                         EffectAssessmentKind(operation["assessment_kind"]))
+    elif kind in {"queue_policy_accepted", "queue_hold_released"}:
+        from .admission_models import digest
+        fields = {"kind", "queue", "request_id", "revision", "reason"}
+        fields.update({"policy_digest"} if kind == "queue_policy_accepted" else {"task_id", "attempt_id"})
+        codec.fields(operation, fields)
+        queue = codec.text(operation["queue"], "queue")
+        request_id = codec.text(operation["request_id"], "request_id")
+        revision = codec.integer(operation["revision"], "revision", 1)
+        reason = codec.text(operation["reason"], "reason", 1024)
+        if kind == "queue_policy_accepted":
+            digest(operation["policy_digest"])
+            operation = AuditQueuePolicyAccepted(queue, request_id, revision, operation["policy_digest"], reason)
+        else:
+            operation = AuditQueueHoldReleased(queue, codec.text(operation["task_id"], "task_id"),
+                                               codec.text(operation["attempt_id"], "attempt_id"), request_id, revision, reason)
+    elif kind == "resource_policy_accepted":
+        from .admission_models import digest, integer
+        codec.fields(operation, {"kind", "name", "request_id", "revision", "policy_digest", "reason"})
+        digest(operation["policy_digest"])
+        operation = AuditResourcePolicyAccepted(codec.text(operation["name"], "name"),
+            codec.text(operation["request_id"], "request_id"), integer(operation["revision"], 1),
+            operation["policy_digest"], codec.text(operation["reason"], "reason", 1024))
+    elif kind == "task_admission_released":
+        from .admission_models import integer
+        from .task_admissions import occurrence
+        codec.fields(operation, {"kind", "occurrence", "source_id", "request_id", "revision", "reason"})
+        address = occurrence(operation["occurrence"])
+        if address.scope != scope: raise InputError("foreign task admission audit scope")
+        operation = AuditTaskAdmissionReleased(address,
+            codec.text(operation["source_id"], "source_id"), codec.text(operation["request_id"], "request_id"),
+            integer(operation["revision"], 1), codec.text(operation["reason"], "reason", 1024))
+    elif kind == "admission_released":
+        from .admission_models import integer
+        codec.fields(operation, {"kind", "occurrence", "source_id", "request_id", "revision", "reason"})
+        operation = AuditAdmissionReleased(_admission_occurrence(operation["occurrence"], scope),
+            codec.text(operation["source_id"], "source_id"), codec.text(operation["request_id"], "request_id"),
+            integer(operation["revision"], 1), codec.text(operation["reason"], "reason", 1024))
     elif kind == "sensitive_response":
         codec.fields(operation, {"kind", "read", "resource"})
         operation = AuditSensitiveResponse(AuditReadKind(operation["read"]), _resource(operation["resource"]))
@@ -269,7 +400,13 @@ def _event(raw, scope):
             AuditReadKind.LOCAL_STEP_INSPECT: AuditLocalStep, AuditReadKind.APPROVAL_INSPECT: AuditApproval,
             AuditReadKind.APPROVAL_LIST: AuditApprovalPage, AuditReadKind.APPROVAL_DECISION: AuditApproval,
             AuditReadKind.EFFECT_INSPECT: AuditEffect,
+            AuditReadKind.QUEUE_HOLDS: AuditQueue,
+            AuditReadKind.RESOURCE_SOURCES: AuditResourcePolicy,
+            AuditReadKind.ADMISSION_INSPECT: AuditAdmission,
+            AuditReadKind.TASK_ADMISSION_INSPECT: AuditTaskAdmission,
         }[operation.read]
+        if isinstance(operation.resource, (AuditAdmission, AuditTaskAdmission)) and operation.resource.occurrence.scope != scope:
+            raise InputError("foreign admission audit scope")
         if type(operation.resource) is not expected:
             raise InputError("audit read and resource disagree")
     else:
@@ -285,9 +422,23 @@ def _matches(event, selected):
         return isinstance(operation, AuditAcceptance) and all(
             getattr(operation, name) == selected[name]
             for name in ("workflow_id", "key", "activation_id", "revision", "decision_id"))
-    if isinstance(operation, AuditEffectResolved):
+    if isinstance(operation, (AuditQueuePolicyAccepted, AuditQueueHoldReleased)):
+        return selected["resource_kind"] == "queue" and selected["resource_id"] == operation.queue
+    if isinstance(operation, AuditResourcePolicyAccepted):
+        return selected["resource_kind"] == "resource" and selected["resource_id"] == operation.name
+    if isinstance(operation, AuditTaskAdmissionReleased):
+        return selected["resource_kind"] == "task" and selected["resource_id"] == operation.occurrence.task_id
+    if isinstance(operation, (AuditEffectResolved, AuditAdmissionReleased)):
         return selected["resource_kind"] == "workflow" and selected["resource_id"] == operation.occurrence.workflow_id
     resource = operation if isinstance(operation, AuditAcceptance) else operation.resource
+    if isinstance(resource, AuditTaskAdmission):
+        return selected["resource_kind"] == "task" and selected["resource_id"] == resource.occurrence.task_id
+    if isinstance(resource, AuditAdmission):
+        return selected["resource_kind"] == "workflow" and selected["resource_id"] == resource.occurrence.workflow_id
+    if isinstance(resource, AuditQueue):
+        return selected["resource_kind"] == "queue" and selected["resource_id"] == resource.queue
+    if isinstance(resource, AuditResourcePolicy):
+        return selected["resource_kind"] == "resource" and selected["resource_id"] == resource.name
     actual_kind = "task" if isinstance(resource, AuditTask) else "workflow"
     actual_id = resource.task_id if isinstance(resource, AuditTask) else resource.workflow_id
     return actual_kind == selected["resource_kind"] and actual_id == selected["resource_id"]

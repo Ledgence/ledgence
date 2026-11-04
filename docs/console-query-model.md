@@ -321,3 +321,59 @@ return their stored input and a null version.
 A missing, mismatched or retired identity returns 404. Invalid parameters return
 400. An adapter without the optional read capability returns 503. Requesting the
 detail reads one retained record and has no execution side effects.
+
+## Admission projections (development C14)
+
+`admission_wait` records a native wait episode, and `admission_operation` records
+an accepted result with its original source activation/attempt. Existing
+registers/resumes/invokes relationships retain their durable meaning. Replaying
+the accepted result does not create another physical-operation node.
+`POST /v1/console/admissions/inspect` accepts workflow_id, origin_activation_id
+and key; the server binds scope and records sensitive-read audit before exposing
+the frozen arguments or retained result. See [admission contract](resource-admission.md).
+
+
+### Protected provider admission (development C9)
+
+C9 adds a required `subject` to admission wait metadata: `operation` for an
+ordinary registered call, or `provider` with the immutable original provider
+ticket. The wait preserves the approval's original activation even when capacity
+is granted to a later activation. Historical persisted C8 waits are projected as
+ordinary operations; use matching C14 server and browser assets.
+
+Open an admission wait and choose **Inspect admission record** to load its
+approved arguments and linked dispatch/report evidence through the audited
+inspector. This read is on demand and requires the corresponding sensitive-read
+permission. The capacity state and explicit call completion are shown separately:
+a completed call can leave the provider's business operation pending, and an
+unknown call can retain capacity even when a provider result was reported.
+Inspect the protected operation ledger for business status. A ticket or an offer
+does not authorize another dispatch.
+
+Provider admission does not add a successful local-operation node. The ordinary
+accepted-operation node remains reserved for a committed generic callback
+result; recording a provider Start alone does not prove that its callback ran.
+Published Ledgence 0.8.0 continues to use C7; C14 is the current development contract.
+
+### Standalone task admission (development C14)
+
+When the installation enables task admission, **New execution** offers an optional
+named resource for a task. **Run again** preserves the requirement. In the task's
+**General → Resource admission** section, inspect a single generation: waiting
+and preparation are distinct from an authorized handler invocation. The original
+task ID, source ID, revision and deferral count remain available without inferring
+work from timestamps. Sensitive evidence is loaded on demand. Expired ownership
+alone does not release an uncertain source. A worker's local quiescence does not
+certify completion of external work.
+
+## Cluster-wide queue concurrency (development)
+
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+
+### Resource offers (development C14)
+
+Open **Resources**, then select a named resource. Its policy, occupancy and default queue group appear above the offer history. Each weighted offer records its source execution, policy revision and why that group was selected. Select the execution to see the task or workflow. This view requires authenticated resource admission and `metadata_read`. FIFO resources have no new weighted decisions.
+
+### Shared run allowances (development C14)
+
+On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.

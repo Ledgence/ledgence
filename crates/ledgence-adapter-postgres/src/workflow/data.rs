@@ -3,6 +3,7 @@ use super::*;
 pub(super) struct RunRecord {
     pub snapshot: WorkflowSnapshot,
     pub nesting_depth: u32,
+    pub has_run_budget: bool,
     pub submission: SubmitCommand,
     pub controller: ProgramDescriptor,
     pub continuation: String,
@@ -13,6 +14,8 @@ pub(super) struct RunRecord {
     pub native_wait_activation: Option<String>,
     pub provider_wait_activation: Option<String>,
     pub has_provider_operations: bool,
+    pub admission_wait_activation: Option<String>,
+    pub has_admissions: bool,
     pub outcome: Option<WorkflowOutcome>,
 }
 impl RunRecord {
@@ -134,6 +137,7 @@ pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
     Ok(RunRecord {
         snapshot,
         nesting_depth,
+        has_run_budget: row.try_get("has_run_budget")?,
         submission,
         controller,
         continuation: row.try_get("continuation")?,
@@ -143,6 +147,8 @@ pub(super) fn run_record(row: &PgRow) -> StoreResult<RunRecord> {
         native_wait_activation: row.try_get("native_wait_activation_id")?,
         provider_wait_activation: row.try_get("provider_wait_activation_id")?,
         has_provider_operations: row.try_get("has_provider_operations")?,
+        admission_wait_activation: row.try_get("admission_wait_activation_id")?,
+        has_admissions: row.try_get("has_admissions")?,
         wait_keys: row
             .try_get::<Option<Vec<u8>>, _>("wait_keys_bytes")?
             .map(|b| codec::decode(&b))
@@ -198,13 +204,28 @@ pub(super) async fn save_run(connection: &mut PgConnection, run: &RunRecord) -> 
         .as_ref()
         .map(|_| codec::encode(&run.wait_keys))
         .transpose()?;
-    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10,external_wait_key=$11,native_wait_activation_id=$12,provider_wait_activation_id=$13,has_provider_operations=$14 WHERE workflow_id=$1 RETURNING workflow_id=$1 AND state=$2 AND revision=($3::text)::ldg_u64 AND continuation=$4 AND checkpoint_bytes=$5 AND current_activation_id IS NOT DISTINCT FROM $6 AND wait_activation_id IS NOT DISTINCT FROM $7 AND wait_keys_bytes IS NOT DISTINCT FROM $8 AND outcome_bytes IS NOT DISTINCT FROM $9 AND terminal_at_ms IS NOT DISTINCT FROM $10 AND external_wait_key IS NOT DISTINCT FROM $11 AND native_wait_activation_id IS NOT DISTINCT FROM $12 AND provider_wait_activation_id IS NOT DISTINCT FROM $13 AND has_provider_operations=$14")
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_runs SET state=$2,revision=($3::text)::ldg_u64,continuation=$4,checkpoint_bytes=$5,current_activation_id=$6,wait_activation_id=$7,wait_keys_bytes=$8,outcome_bytes=$9,terminal_at_ms=$10,external_wait_key=$11,native_wait_activation_id=$12,provider_wait_activation_id=$13,has_provider_operations=$14,admission_wait_activation_id=$15,has_admissions=$16 WHERE workflow_id=$1 RETURNING workflow_id=$1 AND state=$2 AND revision=($3::text)::ldg_u64 AND continuation=$4 AND checkpoint_bytes=$5 AND current_activation_id IS NOT DISTINCT FROM $6 AND wait_activation_id IS NOT DISTINCT FROM $7 AND wait_keys_bytes IS NOT DISTINCT FROM $8 AND outcome_bytes IS NOT DISTINCT FROM $9 AND terminal_at_ms IS NOT DISTINCT FROM $10 AND external_wait_key IS NOT DISTINCT FROM $11 AND native_wait_activation_id IS NOT DISTINCT FROM $12 AND provider_wait_activation_id IS NOT DISTINCT FROM $13 AND has_provider_operations=$14 AND admission_wait_activation_id IS NOT DISTINCT FROM $15 AND has_admissions=$16")
         .bind(&run.snapshot.workflow_id).bind(codec::label(&run.snapshot.state)?).bind(run.snapshot.revision.to_string())
         .bind(&run.continuation).bind(codec::encode(&run.checkpoint)?).bind(&run.snapshot.activation_id).bind(&run.wait_activation)
-        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key).bind(&run.native_wait_activation).bind(&run.provider_wait_activation).bind(run.has_provider_operations)
+        .bind(until).bind(run.outcome.as_ref().map(codec::encode).transpose()?).bind(run.snapshot.terminal_at.map(codec::ms).transpose()?).bind(&run.external_wait_key).bind(&run.native_wait_activation).bind(&run.provider_wait_activation).bind(run.has_provider_operations).bind(&run.admission_wait_activation).bind(run.has_admissions)
         .fetch_optional(&mut *connection).await?;
     if valid != Some(true) {
         return Err(corrupt("workflow checkpoint suppressed or changed").into());
+    }
+    if run.has_run_budget
+        && matches!(
+            run.snapshot.state,
+            WorkflowState::Cancelling | WorkflowState::Failing
+        )
+    {
+        let now = db::now(connection).await?;
+        crate::run_budget::stop(
+            connection,
+            &run.snapshot.scope,
+            &crate::run_budget::workflow(&run.snapshot.workflow_id),
+            now,
+        )
+        .await?;
     }
     if run.snapshot.state.is_terminal() {
         if run.snapshot.parent_workflow_id.is_some() {
@@ -253,6 +274,12 @@ pub(super) async fn insert_task(
     transition.task.parent_workflow_id = workflow.parent_workflow_id.clone();
     transition.task.root_workflow_id = workflow.root_workflow_id.clone();
     let task = &transition.task;
+    if task.input.admission.is_some() {
+        return Err(ContractError::InvalidInput(
+            "task admission requires a standalone task".into(),
+        )
+        .into());
+    }
     sqlx::query("INSERT INTO tasks(task_id,run_id,tenant_id,namespace,queue,idempotency_key,correlation_key,input_bytes,descriptor_bytes,origin_trace_bytes,state,submitted_at_ms,available_at_ms,attempt_count,dispatch_destination,workflow_activation_id,workflow_id,parent_workflow_id,root_workflow_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$11,0,$12,$13,$14,$15,$16)")
         .bind(&task.task_id).bind(&task.run_id).bind(&task.input.tenant_id).bind(&task.input.namespace).bind(&task.input.queue)
         .bind(&task.idempotency_key).bind(&task.input.correlation_key).bind(codec::encode(&task.input)?).bind(codec::encode(&task.descriptor)?)
@@ -303,9 +330,12 @@ pub(super) async fn schedule_activation_with_id(
         inputs,
         wake,
         local_steps: Vec::new(),
+        admission_result: None,
+        provider_admission: None,
     };
     context.validate()?;
     let mut command = run.submission.clone();
+    command.input.budget = None; // Policy is submitted once; this activation inherits authority internally.
     command.idempotency_key = format!("workflow:{}:{task_id}", run.snapshot.workflow_id);
     let task = insert_task(
         connection,
@@ -317,6 +347,15 @@ pub(super) async fn schedule_activation_with_id(
         now,
     )
     .await?;
+    if run.has_run_budget {
+        crate::run_budget::inherit(
+            connection,
+            &run.snapshot.scope,
+            &crate::run_budget::workflow(&run.snapshot.workflow_id),
+            &crate::run_budget::task(&task_id),
+        )
+        .await?;
+    }
     sqlx::query("INSERT INTO workflow_activations(activation_id,workflow_id,revision,task_id,context_bytes) VALUES($1,$2,($3::text)::ldg_u64,$1,$4)")
         .bind(&task_id).bind(&run.snapshot.workflow_id).bind(run.snapshot.revision.to_string()).bind(codec::encode(&context)?)
         .execute(&mut *connection).await?;
@@ -340,6 +379,7 @@ pub(super) async fn schedule_activation_with_id(
     run.external_wait_key = None;
     run.native_wait_activation = None;
     run.provider_wait_activation = None;
+    run.admission_wait_activation = None;
     save_run(connection, run).await?;
     Ok(task)
 }

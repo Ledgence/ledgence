@@ -68,6 +68,7 @@ pub(super) async fn post(
                 .blocking(move || SubmitCommand::decode(&bytes).map_err(Into::into))
                 .await?;
             server.require_submission_scope(&command)?;
+            super::run_budget::require_submission(server, &command, false)?;
             record_scope(&Scope {
                 tenant_id: command.input.tenant_id.clone(),
                 namespace: command.input.namespace.clone(),
@@ -153,11 +154,13 @@ pub(super) async fn post(
                 .await
         }
         "/v1/workflows/approved-effects/claim" => {
+            let budget_fence = context.budget_fence;
             let command = server
                 .blocking(move || {
-                    let command: ApprovedEffectClaimCommand =
+                    let mut command: ApprovedEffectClaimCommand =
                         decode_unique_json(&bytes, maximum)
                             .map_err(|_| invalid("malformed approved effect claim"))?;
+                    command.budget_fence = budget_fence;
                     command.validate()?;
                     Ok(command)
                 })

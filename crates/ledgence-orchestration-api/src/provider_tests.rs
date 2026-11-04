@@ -49,6 +49,7 @@ fn worker() -> EffectWorkerIdentity {
 }
 fn report() -> ProviderReport {
     ProviderReport {
+        usage: None,
         reported_target: request().target,
         provider_reference: Some("export-1042".into()),
         provider_request_id: None,
@@ -314,4 +315,280 @@ fn provider_operator_dispute_requires_a_new_fact_after_an_assertive_assessment()
             );
         }
     }
+}
+
+#[test]
+fn governed_binding_is_versioned_without_changing_v1_bytes() {
+    let legacy = request();
+    assert_eq!(serde_json::to_value(&legacy).unwrap(), request_value());
+    let resolved = legacy.resolve(descriptor()).unwrap();
+    let mut old_resolved = request_value();
+    old_resolved["program"] = serde_json::to_value(descriptor()).unwrap();
+    assert_eq!(serde_json::to_value(&resolved).unwrap(), old_resolved);
+    assert_eq!(
+        resolved.digest(&action()).unwrap(),
+        crate::provider_binding::provider_digest(&(old_resolved, action())).unwrap()
+    );
+    let mut governed = legacy.clone();
+    governed.admission = Some(ProviderAdmissionRequirement {
+        resource: "exports.shared".into(),
+    });
+    assert!(governed.validate().is_err());
+    governed.v = 2;
+    governed.validate().unwrap();
+    assert_ne!(
+        resolved.digest(&action()).unwrap(),
+        governed
+            .resolve(descriptor())
+            .unwrap()
+            .digest(&action())
+            .unwrap()
+    );
+    governed.admission = None;
+    assert!(governed.validate().is_err());
+    let mut explicit_null = request_value();
+    explicit_null["admission"] = Value::Null;
+    assert!(serde_json::from_value::<ProviderBindingRequest>(explicit_null).is_err());
+}
+fn governed_admission_binding() -> AdmissionBinding {
+    let mut binding = request();
+    binding.v = 2;
+    binding.admission = Some(ProviderAdmissionRequirement {
+        resource: "exports.shared".into(),
+    });
+    let ticket = ProviderOperationTicket {
+        occurrence: occurrence(),
+        binding_digest: binding
+            .resolve(descriptor())
+            .unwrap()
+            .digest(&action())
+            .unwrap(),
+    };
+    AdmissionBinding::Provider(Box::new(ProviderAdmissionBinding {
+        resource: "exports.shared".into(),
+        program: descriptor(),
+        provider: ProviderAdmissionSubject {
+            ticket,
+            binding,
+            action: action(),
+        },
+    }))
+}
+#[test]
+fn admission_subjects_are_disjoint_and_provider_intent_is_pinned() {
+    let binding = governed_admission_binding();
+    binding.validate().unwrap();
+    let value = serde_json::to_value(&binding).unwrap();
+    let mut mixed = value.clone();
+    mixed["operation"] = json!({"callable":"app:run","kind":"tool","version":"1","arguments":{}});
+    assert!(serde_json::from_value::<AdmissionBinding>(mixed).is_err());
+    for (pointer, replacement) in [
+        ("/resource", json!("other")),
+        ("/provider/action/arguments", json!({"amount":2})),
+        (
+            "/program/digest",
+            json!(format!("sha256:{}", "c".repeat(64))),
+        ),
+    ] {
+        let mut altered = value.clone();
+        *altered.pointer_mut(pointer).unwrap() = replacement;
+        assert!(
+            serde_json::from_value::<AdmissionBinding>(altered)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+    }
+    let mut null = value;
+    null["provider"] = Value::Null;
+    assert!(serde_json::from_value::<AdmissionBinding>(null).is_err());
+}
+#[test]
+fn governed_report_retains_provider_size_and_explicit_call_completion() {
+    let mut report = report();
+    report.knowledge = ProviderKnowledge::Succeeded {
+        result: json!("r".repeat(100 * 1024)),
+    };
+    report.validate().unwrap();
+    let outcome = ProviderDispatchOutcome {
+        call_completion: ProviderCallCompletion::Unknown,
+        report,
+    };
+    outcome.validate().unwrap();
+    assert!(serde_json::to_vec(&outcome).unwrap().len() > ADMISSION_OUTPUT_MAX_BYTES);
+    let mut raw = serde_json::to_value(outcome).unwrap();
+    raw.as_object_mut().unwrap().remove("call_completion");
+    assert!(serde_json::from_value::<ProviderDispatchOutcome>(raw).is_err());
+}
+
+fn governed_source(binding: &AdmissionBinding) -> ProviderAdmissionSource {
+    let origin = occurrence();
+    let worker = worker();
+    let admission = AdmissionSource {
+        occurrence: AdmissionOccurrence {
+            scope: origin.scope.clone(),
+            workflow_id: origin.workflow_id.clone(),
+            origin_activation_id: origin.activation_id.clone(),
+            key: "capacity:0".into(),
+        },
+        source_id: "capacity-source".into(),
+        start_id: "claim".into(),
+        finish_id: "report".into(),
+        generation: 1,
+        binding_digest: binding.digest().unwrap(),
+        owner: LeaseOwner {
+            scope: origin.scope.clone(),
+            task_id: "capacity-resumed".into(),
+            attempt_id: "attempt".into(),
+            lease_id: "lease".into(),
+            generation: 1,
+            worker_session_id: "session".into(),
+            consumer_id: 0,
+        },
+        worker: AdmissionWorkerIdentity {
+            audience: worker.audience.clone(),
+            issuer: worker.issuer.clone(),
+            subject: worker.subject.clone(),
+            credential_id: worker.credential_id.clone(),
+        },
+        accepted_at: 100,
+        start_deadline_at: 1100,
+    };
+    ProviderAdmissionSource {
+        admission,
+        provider: ProviderDispatchSource {
+            budget_grant: None,
+            source_id: "provider-source".into(),
+            claim_id: "claim".into(),
+            report_id: "report".into(),
+            ticket: binding.provider().unwrap().ticket.clone(),
+            worker,
+            accepted_at: 100,
+            first_possible_dispatch_at: 100,
+            reconciliation_deadline: 3_600_100,
+        },
+    }
+}
+#[test]
+fn composed_sources_preserve_original_approval_without_reusing_current_owner() {
+    let binding = governed_admission_binding();
+    let source = governed_source(&binding);
+    source.validate().unwrap();
+    let AdmissionBinding::Provider(provider) = binding else {
+        panic!("provider")
+    };
+    assert!(source.matches_binding(&provider).unwrap());
+    assert_ne!(
+        source.provider.ticket.occurrence.activation_id,
+        source.admission.owner.task_id
+    );
+    for pointer in [
+        "/provider/ticket/occurrence/activation_id",
+        "/provider/worker/subject",
+        "/provider/worker/audience/instance_id",
+        "/provider/claim_id",
+        "/provider/report_id",
+    ] {
+        let mut raw = serde_json::to_value(&source).unwrap();
+        *raw.pointer_mut(pointer).unwrap() = json!("foreign");
+        assert!(
+            serde_json::from_value::<ProviderAdmissionSource>(raw)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+    }
+}
+#[test]
+fn composed_reports_bind_completion_separately_and_replay_cannot_become_permission() {
+    let binding = governed_admission_binding();
+    let source = governed_source(&binding);
+    let command = ProviderAdmissionReportCommand {
+        source: source.clone(),
+        outcome: ProviderDispatchOutcome {
+            call_completion: ProviderCallCompletion::Unknown,
+            report: report(),
+        },
+    };
+    let receipt = ProviderAdmissionReportReceipt {
+        source: source.clone(),
+        call_completion: ProviderCallCompletion::Unknown,
+        receipt: ProviderReportReceipt {
+            ticket: source.provider.ticket.clone(),
+            source_id: source.provider.source_id.clone(),
+            source: ProviderSourceReference::Dispatch {
+                claim_id: source.provider.claim_id.clone(),
+            },
+            report_id: source.provider.report_id.clone(),
+            report_digest: command.outcome.report.digest().unwrap(),
+            worker: source.provider.worker.clone(),
+            accepted_at: 120,
+            recorded_revision: 3,
+            accepted_via: ProviderReportIngress::EvidenceOnly,
+            already_accepted: false,
+        },
+    };
+    assert!(receipt.matches(&command).unwrap());
+    let mut changed = command.clone();
+    changed.outcome.call_completion = ProviderCallCompletion::Completed;
+    assert!(!receipt.matches(&changed).unwrap());
+    let record = ProviderAdmissionRecord {
+        ticket: source.provider.ticket.clone(),
+        source: Some(source.clone()),
+        report: Some(receipt),
+    };
+    let snapshot = AdmissionSnapshot {
+        budget_denial: None,
+        occurrence: source.admission.occurrence.clone(),
+        binding: binding.clone(),
+        state: AdmissionState::UnknownOccupied,
+        revision: 3,
+        created_at: 0,
+        updated_at: 120,
+        deadline_at: 5000,
+        offer: None,
+        source: Some(source.admission.clone()),
+        finish: None,
+        provider: Some(record.clone()),
+    };
+    snapshot.validate().unwrap();
+    let mut wrong = snapshot.clone();
+    wrong.state = AdmissionState::Finished;
+    assert!(wrong.validate().is_err());
+    let replay = ProviderAdmissionStartReceipt::Existing {
+        audience: worker().audience,
+        snapshot: Box::new(snapshot),
+    };
+    replay.validate().unwrap();
+    assert_eq!(serde_json::to_value(replay).unwrap()["kind"], "existing");
+    let wake = AdmissionWake {
+        key: "capacity:0".into(),
+        occurrence: source.admission.occurrence.clone(),
+        waiting_activation_id: occurrence().activation_id,
+        resumed_activation_id: source.admission.owner.task_id.clone(),
+        resumed_revision: 1,
+        binding,
+        selected_at: 90,
+        selection: AdmissionSelection::Offered {
+            offer: AdmissionOffer {
+                occurrence: source.admission.occurrence.clone(),
+                generation: 1,
+                policy_revision: 1,
+                activation_id: source.admission.owner.task_id.clone(),
+                expires_at: 1000,
+                binding_digest: source.admission.binding_digest.clone(),
+            },
+        },
+    };
+    wake.validate_provider_record(&record).unwrap();
+    let mut foreign_wake = wake.clone();
+    foreign_wake.occurrence.origin_activation_id = "foreign-approval".into();
+    if let AdmissionSelection::Offered { offer } = &mut foreign_wake.selection {
+        offer.occurrence = foreign_wake.occurrence.clone();
+    }
+    assert!(foreign_wake.validate().is_err());
+    let mut foreign = record.clone();
+    foreign.source.as_mut().unwrap().admission.generation += 1;
+    foreign.report = None;
+    assert!(wake.validate_provider_record(&foreign).is_err());
 }

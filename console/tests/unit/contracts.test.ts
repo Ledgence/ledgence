@@ -15,9 +15,10 @@ import {
   nodeTiming,
   nodeLabel,
 } from "../../src/features/explorer-model";
+import { inspectFor, holdsFor } from "../../src/api/queue-policies";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v7.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json",
     import.meta.url,
   ),
   "utf8",
@@ -30,10 +31,24 @@ function field(name: string): unknown {
 }
 describe("Rust-produced Console contract", () => {
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(7);
+    expect(decodeConfig(field("config")).contract_version).toBe(14);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );
+  });
+  it("decodes the Rust queue snapshot and deadline provenance without losing revision precision", () => {
+    const scope = { tenant_id: "acme", namespace: "billing" };
+    const record = inspectFor(scope, "billing")(field("queue_policy_snapshot"));
+    const [hold] = holdsFor(
+      scope,
+      "billing",
+      1,
+      true,
+      null,
+    )({ items: [field("queue_hold_snapshot")], next: null }).items;
+    expect(record.record.revision).toBe("9007199254740993");
+    expect(hold?.policy_revision).toBe(record.record.revision);
+    expect(hold?.force_at).toBe(35500);
   });
   it("preserves metadata revisions above Number.MAX_SAFE_INTEGER", () => {
     expect(workflowPage(field("workflows")).items[0]?.workflow.revision).toBe(
@@ -134,7 +149,7 @@ for (const [name, value] of Object.entries(cases))
     expect(() => explorer.workflowExplorer(value)).not.toThrow();
   });
 
-describe("Rust-produced Explorer C7", () => {
+describe("Rust-produced Explorer C9", () => {
   it("rejects preserved C6 configuration and read models explicitly", () => {
     const historical = parseUserJson(
       readFileSync(

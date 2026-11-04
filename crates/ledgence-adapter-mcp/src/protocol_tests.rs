@@ -104,10 +104,26 @@ async fn modern_discover_and_per_request_metadata_use_current_lifecycle() {
         .send(json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":meta()}}))
         .await;
     let response = client.read().await;
-    assert_eq!(
-        response["result"]["tools"].as_array().unwrap().len(),
-        schemas::tool_definitions(false).len() - 1
-    );
+    let tools = response["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 30);
+    let names: std::collections::HashSet<_> = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    let gated_mutations = [
+        "ledgence_effect_resolve",
+        "ledgence_resource_put",
+        "ledgence_admission_release",
+        "ledgence_task_admission_release",
+        "ledgence_queue_policy_put",
+        "ledgence_queue_hold_release",
+    ];
+    let expected: std::collections::HashSet<_> = schemas::tool_definitions(false)
+        .into_iter()
+        .filter(|tool| !gated_mutations.contains(&tool.name))
+        .map(|tool| tool.name)
+        .collect();
+    assert_eq!(names, expected);
     assert_eq!(response["result"]["resultType"], "complete");
     client
         .send(json!({"jsonrpc":"2.0","id":3,"method":"tools/list"}))

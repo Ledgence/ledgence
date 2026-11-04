@@ -70,6 +70,7 @@ pub(crate) fn error_status(error: &ContractError) -> u16 {
         ContractError::InvalidInput(_) => 400,
         ContractError::NotFound | ContractError::UnknownSession => 404,
         ContractError::ExternalDispatchRequired
+        | ContractError::RunBudgetDenied(_)
         | ContractError::Conflict
         | ContractError::OwnershipLost
         | ContractError::ObsoleteOperation
@@ -90,6 +91,7 @@ pub(crate) fn error_code(error: &ContractError) -> &'static str {
         ContractError::InvalidQueueDelivery(_) => "invalid_queue_delivery",
         ContractError::NotFound => "not_found",
         ContractError::UnknownSession => "unknown_session",
+        ContractError::RunBudgetDenied(reason) => reason.code(),
         ContractError::Conflict => "conflict",
         ContractError::OwnershipLost => "ownership_lost",
         ContractError::ObsoleteOperation => "obsolete_operation",

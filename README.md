@@ -284,3 +284,34 @@ SDK, CLI, and worker scope fields must match that binding; they do not introduce
 multi-tenant administration. [Instance binding](docs/self-hosted-instance.md),
 [query contracts](docs/console-query-model.md), and
 [worker observations](docs/worker-observations.md) describe the operational boundaries.
+
+### Durable resource admission in development
+
+The development branch adds [resource admission](docs/resource-admission.md):
+workflows park without a worker slot, then invoke one registered operation under
+a shared capacity/rate policy. Lost permissions remain uncertain; accepted results
+and justified capacity release commit together. [Try the local classifier example](examples/resource-admission/README.md).
+This capability requires matching source-built components and migrations; it is
+not part of the published 0.8.0 packages. Protected provider dispatch can also
+share a resource: approval, capacity and the one-shot grant preserve one original
+operation identity. A completed call releases capacity independently of its
+business result. [Try the approved export example](examples/provider-admission/README.md).
+Standalone tasks can use the same named resource: a queued task waits without a
+worker subprocess, and only a runtime-ready Start authorizes its handler.
+[Submit a governed task](docs/resource-admission.md#standalone-task-admission).
+Operators can assign weights to groups of queues on a shared resource. The orchestrator uses those weights when granting offers across workers. A lone eligible group can use every available slot. Operators can inspect each weighted offer in Console, including the group, queue and reason. [Configure weighted offers](docs/resource-admission.md#weighted-offers).
+
+Console can create or edit a named-resource policy. Changes include the expected policy revision and an operator reason. Open the resource’s outstanding sources to investigate capacity held by a task, workflow or provider call after execution history has expired. Source reads require `sensitive_read` and produce an audit record.
+
+Read-only recovery probes remain outside the limit. Workflows can declare a shared budget for calls and delegations across the whole owned run. [Try two reviews with one call](examples/shared-run-budget/README.md).
+
+### Poll several queues with one worker (development)
+
+A worker can share its existing concurrency across integrated HTTP queues or across SQS Standard queues. Give
+`ledgence worker connect` a [poll plan](examples/worker-poll-plan.json) to choose
+weighted Stride or a weighted lottery. An empty poll uses a turn; a transport
+retry keeps the original queue. For SQS, pair the plan with a [delivery configuration](examples/delivery-sqs-multi-local.json) mapping each logical queue to its own broker queue. [Configuration and live updates](docs/worker-delivery.md#worker-local-poll-plans-development).
+
+### Limit concurrency per queue (development)
+
+Set a cluster-wide maximum for one queue while other queues continue operating. Change or pause it from Console, HTTP, CLI, Python or MCP. PostgreSQL reserves a slot with each assignment and retains uncertain attempts until confirmed cleanup, explicit operator release or an optional timeout with grace. [Configure and recover a queue limit](docs/queue-concurrency.md).

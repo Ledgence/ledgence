@@ -9,8 +9,9 @@ SELECT
     a.event_source AS a_event_source,
     a.event_id AS a_event_id,
     a.event_bytes AS a_event_bytes,
+    a.task_admission_bytes AS a_task_admission_bytes,
     a.expires_at_ms AS a_expires_at_ms,
-    a.deadline_ms AS a_deadline_ms,
+    LEAST(a.deadline_ms,h.deadline_ms,h.stop_requested_at_ms,h.released_at_ms) AS a_deadline_ms,
     a.authority_deadline_ms AS a_authority_deadline_ms,
     a.state AS a_state,
     a.execution_may_have_started AS a_execution_may_have_started,
@@ -18,11 +19,12 @@ SELECT
     a.last_renew_intent AS a_last_renew_intent,
     a.quiescence AS a_quiescence,
     a.finished_at_ms AS a_finished_at_ms,
+    a.budget_denial_bytes AS a_budget_denial_bytes,
     s.accepted_command AS a_accepted_command,
     s.accepted_at AS a_accepted_at,
     s.operation_id AS a_accepted_operation_id
 FROM tasks t
 JOIN attempts a ON a.task_id=t.task_id
-LEFT
-JOIN accepted_settlements s ON s.attempt_id=a.attempt_id
+LEFT JOIN queue_concurrency_holds h ON h.attempt_id=a.attempt_id
+LEFT JOIN accepted_settlements s ON s.attempt_id=a.attempt_id
 WHERE t.tenant_id=$1 AND t.namespace=$2 AND t.task_id=$3 AND a.attempt_id=$4

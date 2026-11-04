@@ -1,8 +1,6 @@
 //! Destructive recovery test restricted to an explicitly named disposable container.
 use super::*;
-use crate::tests::{
-    TestDb, acquire_command, assignment, claimed, command, completed, descriptor, scope,
-};
+use crate::tests::{acquire_command, assignment, claimed, command, completed, descriptor, scope};
 use serde_json::json;
 
 async fn docker(arguments: &[&str]) {
@@ -33,7 +31,7 @@ async fn database_crash_preserves_commits_and_discards_uncommitted_writes() {
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
     );
-    let mut db = TestDb::new().await;
+    let (mut db, held) = crate::queue_concurrency::crash_fixture().await;
     let (accepted_task, session, first) = claimed(&db.store).await;
     let report = completed(
         &first,
@@ -63,6 +61,9 @@ async fn database_crash_preserves_commits_and_discards_uncommitted_writes() {
         .execute(&mut *uncommitted)
         .await
         .unwrap();
+    let released:bool=sqlx::query_scalar("SELECT ldg_queue_transition($1,'released','operator',floor(extract(epoch FROM clock_timestamp())*1000)::bigint)")
+        .bind(&held.lease.owner.attempt_id).fetch_one(&mut *uncommitted).await.unwrap();
+    assert!(released);
     let database: String = sqlx::query_scalar("SELECT current_database()::text")
         .fetch_one(&db.store.pool)
         .await
@@ -89,6 +90,9 @@ async fn database_crash_preserves_commits_and_discards_uncommitted_writes() {
     .await
     .expect("PostgreSQL did not recover");
     db.store.migrate().await.unwrap();
+    let recovered:(String,i64,i64)=sqlx::query_as("SELECT h.state,p.occupied,p.uncertain FROM queue_concurrency_holds h JOIN queue_concurrency_policies p USING(tenant_id,namespace,queue) WHERE h.attempt_id=$1")
+        .bind(&held.lease.owner.attempt_id).fetch_one(&db.store.pool).await.unwrap();
+    assert_eq!(recovered, ("uncertain".into(), 1, 1));
     let replay = db.store.settle(&report).await.unwrap();
     assert!(replay.already_accepted);
     assert_eq!(replay.receipt.accepted_at, receipt.accepted_at);

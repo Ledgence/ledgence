@@ -71,6 +71,13 @@ export function decodeConfig(value: unknown): ConsoleConfig {
     "workflows",
     "programs",
     "workers",
+    "task_admission",
+    "queue_policies",
+    "resource_policies",
+    "resource_sources",
+    "resource_fair_sharing",
+    "run_budgets",
+    "task_run_budgets",
   ]);
   const l = record(v.limits, [
     "default_page_size",
@@ -102,6 +109,13 @@ export function decodeConfig(value: unknown): ConsoleConfig {
       workflows: flag(c.workflows),
       programs: flag(c.programs),
       workers: flag(c.workers),
+      task_admission: flag(c.task_admission),
+      queue_policies: flag(c.queue_policies),
+      resource_policies: flag(c.resource_policies),
+      resource_sources: flag(c.resource_sources),
+      resource_fair_sharing: flag(c.resource_fair_sharing),
+      run_budgets: flag(c.run_budgets),
+      task_run_budgets: flag(c.task_run_budgets),
     },
     suggested_queues: v.suggested_queues.map(text),
     limits: {

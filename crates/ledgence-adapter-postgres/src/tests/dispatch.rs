@@ -94,6 +94,91 @@ fn failed(assignment: &Assignment) -> SettleCommand {
     }
 }
 
+fn named_route(queue: &str, destination: &str) -> DispatchRoute {
+    DispatchRoute {
+        scope: scope(),
+        queue: queue.into(),
+        destination: destination.into(),
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn route_set_rolls_back_all_new_routes_when_a_later_queue_is_populated() {
+    let db = TestDb::new().await;
+    let integrated = submit(&db.store, "retain-integrated").await;
+    let earlier = named_route("a-empty", "a-destination");
+    let routes = [route(), earlier.clone()];
+    assert_eq!(integrated.input.queue, routes[0].queue);
+    assert!(matches!(
+        db.store.configure_routes(&routes).await,
+        Err(ContractError::InvalidInput(_))
+    ));
+    let installed: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM dispatch_routes WHERE destination IS NOT NULL")
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(installed, 0);
+    let new_row: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM dispatch_routes WHERE queue=$1)")
+            .bind(&earlier.queue)
+            .fetch_one(&db.store.pool)
+            .await
+            .unwrap();
+    assert!(!new_row);
+    assert_eq!(intent_count(&db.store).await, 0);
+    db.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 18"]
+async fn route_set_converges_across_replica_order_and_preserves_preexisting_routes_on_conflict() {
+    let db = TestDb::new().await;
+    let a = named_route("a", "dest-a");
+    let b = named_route("b", "dest-b");
+    let forward = [a.clone(), b.clone()];
+    let reverse = [b.clone(), a.clone()];
+    let (first, second) = tokio::join!(
+        db.store.configure_routes(&forward),
+        db.store.configure_routes(&reverse)
+    );
+    first.unwrap();
+    second.unwrap();
+    db.store.configure_route(&a).await.unwrap();
+    let new = named_route("0-new", "dest-new");
+    let collision = named_route("z-foreign", &b.destination);
+    assert!(matches!(
+        db.store.configure_routes(&[new.clone(), collision]).await,
+        Err(ContractError::Conflict)
+    ));
+    let mixed = DispatchRoute {
+        scope: Scope {
+            namespace: "other".into(),
+            ..scope()
+        },
+        ..new.clone()
+    };
+    for invalid in [
+        vec![],
+        vec![a.clone(), a.clone()],
+        vec![b.clone(), named_route("other", &b.destination)],
+        vec![a.clone(), mixed],
+    ] {
+        assert!(matches!(
+            db.store.configure_routes(&invalid).await,
+            Err(ContractError::InvalidInput(_))
+        ));
+    }
+    let rows: Vec<(String,String)> = sqlx::query_as("SELECT queue,destination FROM dispatch_routes WHERE destination IS NOT NULL ORDER BY queue")
+        .fetch_all(&db.store.pool).await.unwrap();
+    assert_eq!(
+        rows,
+        vec![(a.queue, a.destination), (b.queue, b.destination)]
+    );
+    db.finish().await;
+}
+
 #[tokio::test]
 #[ignore = "requires PostgreSQL 18"]
 async fn external_submission_and_idempotent_replay_commit_one_stable_intent() {

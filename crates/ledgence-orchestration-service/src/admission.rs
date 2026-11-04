@@ -1,0 +1,270 @@
+//! The admission capability is complete and independent of approved effects.
+use crate::*;
+use ledgence_worker_api::metrics::{Metric, MetricOutcome};
+
+pub(crate) fn record_budget_error(error: &ContractError) {
+    if let ContractError::RunBudgetDenied(reason) = error {
+        Metric::RunBudgetRefusal.record(1.0, (*reason).into());
+    }
+}
+
+pub(crate) fn record_granted_start() {
+    Metric::AdmissionStartResult.record(1.0, MetricOutcome::Granted);
+}
+
+pub(crate) fn record_existing_start(has_source: bool, denial: Option<RunBudgetDenial>) {
+    let outcome = if let Some(reason) = denial {
+        Metric::RunBudgetRefusal.record(1.0, reason.into());
+        MetricOutcome::BudgetDenied
+    } else if has_source {
+        MetricOutcome::ExistingSource
+    } else {
+        MetricOutcome::NotGranted
+    };
+    Metric::AdmissionStartResult.record(1.0, outcome);
+}
+
+impl ApplicationService {
+    pub async fn coordinate_admissions(
+        &self,
+        q: &AdmissionMaintenanceQuery,
+    ) -> Result<AdmissionMaintenanceProgress> {
+        q.validate()?;
+        self.admissions()?;
+        let r = self
+            .workflows()?
+            .admissions()?
+            .advance_admissions(q)
+            .await?;
+        if r.examined > q.limit
+            || r.offered > r.resumed
+            || r.resumed.saturating_add(r.task_offered) > r.examined
+            || r.expired > r.examined
+            || r.offered
+                .saturating_add(r.task_offered)
+                .saturating_add(r.expired)
+                > r.examined
+        {
+            return Err(ContractError::Unavailable(
+                "invalid admission maintenance reply".into(),
+            ));
+        }
+        Ok(r)
+    }
+}
+impl AdmissionOperations for ApplicationService {
+    fn supports_resource_sources(&self) -> bool {
+        self.workflows().is_ok_and(|w| {
+            w.operator_access().is_ok()
+                && w.admissions().is_ok_and(|s| s.supports_resource_sources())
+        })
+    }
+    fn list_resource_sources<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceSourceQuery,
+    ) -> ContractFuture<'a, ResourceSourcePage> {
+        Box::pin(async move {
+            self.admissions()?;
+            q.validate()?;
+            operator(p, &q.scope, AccessCapability::SensitiveRead)?;
+            let store = self.workflows()?.admissions()?;
+            if !store.supports_resource_sources() {
+                return Err(ContractError::Unavailable(
+                    "resource source discovery unavailable".into(),
+                ));
+            }
+            let page = store.list_resource_sources(p, q).await?;
+            page.validate_for(q).map_err(|_| invalid_reply())?;
+            Ok(page)
+        })
+    }
+
+    fn supports_resource_fair_sharing(&self) -> bool {
+        self.workflows().is_ok_and(|w| {
+            w.operator_access().is_ok()
+                && w.admissions()
+                    .is_ok_and(|store| store.supports_resource_fair_sharing())
+        })
+    }
+    fn list_resource_decisions<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceDecisionQuery,
+    ) -> ContractFuture<'a, ResourceDecisionPage> {
+        Box::pin(async move {
+            self.admissions()?;
+            q.validate()?;
+            operator(p, &q.scope, AccessCapability::MetadataRead)?;
+            let store = self.workflows()?.admissions()?;
+            if !store.supports_resource_fair_sharing() {
+                return Err(ContractError::Unavailable(
+                    "resource fair sharing unavailable".into(),
+                ));
+            }
+            let page = store.list_resource_decisions(p, q).await?;
+            page.validate_for(q).map_err(|_| invalid_reply())?;
+            Ok(page)
+        })
+    }
+    fn put_resource<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        c: &'a ResourcePutCommand,
+    ) -> ContractFuture<'a, ResourcePutReceipt> {
+        Box::pin(async move {
+            self.admissions()?;
+            c.validate()?;
+            operator(p, &c.scope, AccessCapability::ResourceControl)?;
+            let store = self.workflows()?.admissions()?;
+            if c.policy.fair_sharing.is_some() && !store.supports_resource_fair_sharing() {
+                return Err(ContractError::Unavailable(
+                    "resource fair sharing unavailable".into(),
+                ));
+            }
+            let r = store.put_resource(p, c).await?;
+            r.validate().map_err(|_| invalid_reply())?;
+            if !r.matches(c) {
+                return Err(invalid_reply());
+            }
+            Ok(r)
+        })
+    }
+    fn resource<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceQuery,
+    ) -> ContractFuture<'a, ResourceSnapshot> {
+        Box::pin(async move {
+            self.admissions()?;
+            q.validate()?;
+            operator(p, &q.scope, AccessCapability::MetadataRead)?;
+            let r = self.workflows()?.admissions()?.resource(p, q).await?;
+            r.validate().map_err(|_| invalid_reply())?;
+            if r.resource.scope != q.scope || r.resource.name != q.name {
+                return Err(invalid_reply());
+            }
+            Ok(r)
+        })
+    }
+    fn list_resources<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a ResourceListQuery,
+    ) -> ContractFuture<'a, ResourcePage> {
+        Box::pin(async move {
+            self.admissions()?;
+            q.validate()?;
+            operator(p, &q.scope, AccessCapability::MetadataRead)?;
+            let r = self.workflows()?.admissions()?.list_resources(p, q).await?;
+            r.validate_for(q).map_err(|_| invalid_reply())?;
+            Ok(r)
+        })
+    }
+    fn start_admission<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        c: &'a AdmissionStartCommand,
+    ) -> ContractFuture<'a, AdmissionStartReceipt> {
+        Box::pin(async move {
+            self.admissions()?;
+            c.validate()?;
+            worker(p, &c.occurrence.scope)?;
+            let r = self
+                .workflows()?
+                .admissions()?
+                .start_admission(p, c)
+                .await?;
+            r.validate_for(p, c).map_err(|_| invalid_reply())?;
+            match &r {
+                AdmissionStartReceipt::Granted { .. } => record_granted_start(),
+                AdmissionStartReceipt::Existing { snapshot } => {
+                    record_existing_start(snapshot.source.is_some(), snapshot.budget_denial)
+                }
+            }
+            Ok(r)
+        })
+    }
+    fn finish_admission<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        c: &'a AdmissionFinishCommand,
+    ) -> ContractFuture<'a, AdmissionFinishReceipt> {
+        Box::pin(async move {
+            self.admissions()?;
+            c.validate()?;
+            worker(p, &c.source.occurrence.scope)?;
+            let r = self
+                .workflows()?
+                .admissions()?
+                .finish_admission(p, c)
+                .await?;
+            r.validate_for(p, c).map_err(|_| invalid_reply())?;
+            Ok(r)
+        })
+    }
+    fn inspect_admission<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        q: &'a AdmissionQuery,
+    ) -> ContractFuture<'a, AdmissionSnapshot> {
+        Box::pin(async move {
+            self.admissions()?;
+            q.validate()?;
+            operator(p, &q.occurrence.scope, AccessCapability::SensitiveRead)?;
+            let r = self
+                .workflows()?
+                .admissions()?
+                .inspect_admission(p, q)
+                .await?;
+            r.validate().map_err(|_| invalid_reply())?;
+            if !r.matches(q) {
+                return Err(invalid_reply());
+            }
+            Ok(r)
+        })
+    }
+    fn release_admission<'a>(
+        &'a self,
+        p: &'a VerifiedPrincipal,
+        c: &'a AdmissionReleaseCommand,
+    ) -> ContractFuture<'a, AdmissionReleaseReceipt> {
+        Box::pin(async move {
+            self.admissions()?;
+            c.validate()?;
+            operator(p, &c.occurrence.scope, AccessCapability::ResourceControl)?;
+            let r = self
+                .workflows()?
+                .admissions()?
+                .release_admission(p, c)
+                .await?;
+            r.validate().map_err(|_| invalid_reply())?;
+            if !r.matches(c) {
+                return Err(invalid_reply());
+            }
+            Ok(r)
+        })
+    }
+}
+pub(super) fn operator(
+    p: &VerifiedPrincipal,
+    scope: &Scope,
+    capability: AccessCapability,
+) -> Result<()> {
+    p.require(capability)?;
+    if p.class() == PrincipalClass::Worker || &p.audience().scope != scope {
+        return Err(ContractError::Forbidden);
+    }
+    Ok(())
+}
+pub(super) fn worker(p: &VerifiedPrincipal, scope: &Scope) -> Result<()> {
+    AdmissionWorkerIdentity::from_principal(p)?;
+    if &p.audience().scope != scope {
+        return Err(ContractError::Forbidden);
+    }
+    Ok(())
+}
+
+fn invalid_reply() -> ContractError {
+    ContractError::Unavailable("invalid resource admission adapter response".into())
+}

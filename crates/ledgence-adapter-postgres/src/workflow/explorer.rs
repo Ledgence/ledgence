@@ -181,7 +181,9 @@ pub(super) async fn resumed(
                 let Some(wake) = wake.filter(|wake| {
                     !matches!(
                         wake,
-                        WorkflowWake::EffectResolution(_) | WorkflowWake::ProviderOperation(_)
+                        WorkflowWake::EffectResolution(_)
+                            | WorkflowWake::ProviderOperation(_)
+                            | WorkflowWake::ResourceAdmission(_)
                     ) && wake.key() == key
                 }) else {
                     continue;
@@ -198,7 +200,9 @@ pub(super) async fn resumed(
                         ApprovalStatus::Expired => ConsoleWakeReason::Expired,
                         _ => return Err(corrupt("approval wake status").into()),
                     },
-                    WorkflowWake::EffectResolution(_) | WorkflowWake::ProviderOperation(_) => {
+                    WorkflowWake::EffectResolution(_)
+                    | WorkflowWake::ProviderOperation(_)
+                    | WorkflowWake::ResourceAdmission(_) => {
                         unreachable!("native wakes have a distinct namespace")
                     }
                 });
@@ -402,5 +406,117 @@ pub(crate) async fn observe_locals(
     // original attempt observations still retain every replay occurrence.
     sqlx::query("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT p.workflow_id,p.revision,'local',r.key,p.activation_id,p.entrypoint,r.bytes FROM workflow_explorer_records p CROSS JOIN unnest($2::text[],$3::bytea[]) r(key,bytes) WHERE p.activation_id=$1 AND p.kind='entrypoint' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=convert_to((convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb || jsonb_build_object('callable',CASE WHEN convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'accepted_at' IS NULL THEN convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable' ELSE convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable' END,'observation',convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->'observation'))::text,'UTF8') WHERE (convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'accepted_at' IS NULL OR convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->>'callable'=convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->>'callable') AND NOT (convert_from(EXCLUDED.metadata_bytes,'UTF8')::jsonb->'observation'->>'state'='replayed' AND coalesce(convert_from(workflow_explorer_records.metadata_bytes,'UTF8')::jsonb->'observation'->>'state'='returned',false))")
         .bind(task_id).bind(keys).bind(records).execute(connection).await?;
+    Ok(())
+}
+
+pub(super) async fn admission_wait(
+    connection: &mut PgConnection,
+    parking: &str,
+    key: &str,
+    occurrence: &AdmissionOccurrence,
+    binding: &AdmissionBinding,
+    deadline: Timestamp,
+    now: Timestamp,
+) -> StoreResult<()> {
+    insert(
+        connection,
+        parking,
+        &ConsoleExplorerData::AdmissionWait {
+            key: key.into(),
+            occurrence: occurrence.clone(),
+            resource: binding.resource().into(),
+            subject: ConsoleAdmissionSubject::from_binding(binding),
+            deadline,
+            registered_at: now,
+            closed_at: None,
+            selection_kind: None,
+            resumed_activation_id: None,
+        },
+    )
+    .await
+}
+
+pub(super) async fn admission_closed(
+    connection: &mut PgConnection,
+    parking: &str,
+    wake: Option<&AdmissionWake>,
+    now: Timestamp,
+) -> StoreResult<()> {
+    let bytes:Vec<u8>=sqlx::query_scalar("SELECT metadata_bytes FROM workflow_explorer_records WHERE activation_id=$1 AND kind='admission_wait'")
+        .bind(parking).fetch_one(&mut *connection).await?;
+    let mut data: ConsoleExplorerData = codec::decode(&bytes)?;
+    let ConsoleExplorerData::AdmissionWait {
+        key,
+        occurrence,
+        resource,
+        closed_at,
+        selection_kind,
+        resumed_activation_id,
+        ..
+    } = &mut data
+    else {
+        return Err(corrupt("admission explorer wait kind").into());
+    };
+    if let Some(wake) = wake {
+        wake.validate()?;
+        if wake.waiting_activation_id != parking
+            || wake.key != *key
+            || wake.occurrence != *occurrence
+            || wake.binding.resource() != resource
+        {
+            return Err(corrupt("admission explorer wake identity").into());
+        }
+        *selection_kind = Some((&wake.selection).into());
+        *resumed_activation_id = Some(wake.resumed_activation_id.clone());
+    }
+    *closed_at = Some(now);
+    data.validate()?;
+    let valid:Option<bool>=sqlx::query_scalar("UPDATE workflow_explorer_records SET metadata_bytes=$2 WHERE activation_id=$1 AND kind='admission_wait' RETURNING metadata_bytes=$2")
+        .bind(parking).bind(codec::encode(&data)?).fetch_optional(connection).await?;
+    if valid != Some(true) {
+        return Err(corrupt("admission explorer closure suppressed or changed").into());
+    }
+    Ok(())
+}
+
+pub(super) async fn admission_finished(
+    connection: &mut PgConnection,
+    snapshot: &AdmissionSnapshot,
+    receipt: &AdmissionFinishReceipt,
+) -> StoreResult<()> {
+    snapshot.validate()?;
+    receipt.validate()?;
+    if snapshot.occurrence != receipt.source.occurrence
+        || snapshot.binding.digest()? != receipt.source.binding_digest
+        || snapshot.finish.as_ref().is_none_or(|accepted| {
+            accepted.source != receipt.source || accepted.accepted_at != receipt.accepted_at
+        })
+    {
+        return Err(corrupt("admission explorer result provenance").into());
+    }
+    let operation = snapshot
+        .binding
+        .operation()
+        .ok_or_else(|| corrupt("generic admission result binding"))?;
+    let data = ConsoleExplorerData::AdmissionOperation {
+        occurrence: snapshot.occurrence.clone(),
+        resource: snapshot.binding.resource().into(),
+        callable: operation.callable.clone(),
+        operation_kind: operation.kind,
+        operation_version: operation.version.clone(),
+        binding_digest: receipt.source.binding_digest.clone(),
+        source_id: receipt.source.source_id.clone(),
+        accepting_attempt_id: receipt.source.owner.attempt_id.clone(),
+        accepted_at: receipt.accepted_at,
+    };
+    data.validate()?;
+    // Late evidence survives workflow retention in admission storage. It never
+    // reconstructs retired graph ownership, and replay never creates a new node.
+    let bytes = codec::encode(&data)?;
+    let existing:Option<Vec<u8>>=sqlx::query_scalar("INSERT INTO workflow_explorer_records(workflow_id,revision,kind,record_key,activation_id,entrypoint,metadata_bytes) SELECT workflow_id,revision,'admission_operation',$2,activation_id,entrypoint,$3 FROM workflow_explorer_records WHERE activation_id=$1 AND kind='entrypoint' AND record_key='' ON CONFLICT (activation_id,kind,record_key) DO UPDATE SET metadata_bytes=workflow_explorer_records.metadata_bytes RETURNING metadata_bytes")
+        .bind(&receipt.source.owner.task_id).bind(&receipt.source.source_id).bind(&bytes).fetch_optional(connection).await?;
+    if existing.is_some_and(|value| value != bytes) {
+        return Err(corrupt("admission explorer result changed").into());
+    }
     Ok(())
 }
