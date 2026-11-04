@@ -14,10 +14,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/candidate.yml"
-STEP = "Upgrade historical and last stable approvals with the packaged candidate"
+STEP = "Rehearse migrations and restore with published predecessor bundles"
 PUBLISHED = {
     "0.6.1": "7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be",
     "0.7.0": "1795cc0ed9acc42613ab8e8c63d845a9ce5235a5d06cff4a5289e287d06143c3",
+    "0.8.0": "343942fcb3e142abc3636e1458203e697e0c27b2a4a5300bd6603412270bce5e",
 }
 
 
@@ -39,11 +40,12 @@ def archive(path, label):
 
 
 class CandidateWorkflowTests(unittest.TestCase):
-    def test_both_published_linux_baselines_are_pinned(self):
+    def test_all_published_linux_baselines_are_pinned(self):
         script = upgrade_script()
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
         for version, checksum in PUBLISHED.items():
-            self.assertIn(f"{version} {checksum}\n", script)
+            gate = "check-resource-upgrade.py" if version == "0.8.0" else "check-approval-upgrade.py"
+            self.assertIn(f"{version} {checksum} {gate}\n", script)
         self.assertIn('baseline="ledgence-$version-x86_64-unknown-linux-gnu"', script)
         self.assertLess(script.index("sha256sum --check"), script.index('tar -xzf "$rehearsal/$baseline.tar.gz"'))
         workflow = WORKFLOW.read_text()
@@ -90,16 +92,23 @@ sys.exit(0 if hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest else
 """)
             executable("python", """import json, os, sys
 from pathlib import Path
-assert sys.argv[1] == 'tools/check-approval-upgrade.py'
 options = dict(zip(sys.argv[2::2], sys.argv[3::2]))
 previous = Path(options['--previous-bundle'])
 version = previous.name.removeprefix('previous-')
+expected = 'check-resource-upgrade.py' if version == '0.8.0' else 'check-approval-upgrade.py'
+assert sys.argv[1] == f'tools/{expected}'
 assert (previous / 'bin/ledgence').read_text() == f'{version}:bin/ledgence'
 assert (previous / 'runtime/ledgence/worker/bootstrap.py').read_text() == f'{version}:runtime/ledgence/worker/bootstrap.py'
 assert (Path(options['--binaries']) / 'ledgence').read_text() == 'current:bin/ledgence'
 assert (Path(options['--console-dist']) / 'index.html').read_text() == 'current:console/index.html'
 assert Path(options['--candidate-runner']).read_text() == 'current:runtime/ledgence/worker/bootstrap.py'
 assert Path(options['--evidence']).name == version
+psql = Path(options['--psql'])
+assert psql.name == 'psql'
+for tool in ('psql','pg_dump','pg_restore'):
+    wrapper = psql.with_name(tool)
+    assert os.access(wrapper,os.X_OK) and 'docker exec -i "$LEDGENCE_POSTGRES_CONTAINER"' in wrapper.read_text()
+
 with Path(os.environ['CALLS']).open('a') as log:
     log.write(json.dumps(options) + '\\n')
 sys.exit(9 if version == os.environ.get('FAIL_VERSION') else 0)
@@ -113,18 +122,18 @@ sys.exit(9 if version == os.environ.get('FAIL_VERSION') else 0)
             recorded = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
             return result, recorded
 
-    def test_both_upgrades_use_same_candidate_and_distinct_evidence(self):
+    def test_all_upgrades_use_same_candidate_and_distinct_evidence(self):
         result, calls = self.exercise()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([Path(call["--evidence"]).name for call in calls], ["0.6.1", "0.7.0"])
+        self.assertEqual([Path(call["--evidence"]).name for call in calls], list(PUBLISHED))
         for key in ("--binaries", "--console-dist", "--candidate-runner"):
-            self.assertEqual(calls[0][key], calls[1][key])
-        self.assertNotEqual(calls[0]["--previous-bundle"], calls[1]["--previous-bundle"])
+            self.assertEqual(len({call[key] for call in calls}), 1)
+        self.assertEqual(len({call["--previous-bundle"] for call in calls}), len(PUBLISHED))
 
     def test_corrupt_last_stable_archive_never_executes_upgrade(self):
-        result, calls = self.exercise(corrupt="0.7.0")
+        result, calls = self.exercise(corrupt="0.8.0")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual([Path(call["--evidence"]).name for call in calls], ["0.6.1"])
+        self.assertEqual([Path(call["--evidence"]).name for call in calls], ["0.6.1", "0.7.0"])
 
     def test_failed_historical_upgrade_stops_candidate_qualification(self):
         result, calls = self.exercise(failing="0.6.1")

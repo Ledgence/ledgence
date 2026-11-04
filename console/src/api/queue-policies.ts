@@ -172,7 +172,7 @@ export function holdsFor(
   );
 }
 
-const reason = s.refine(
+export const reason = s.refine(
   s.string,
   (v) => v.trim().length > 0 && validText(v, 1024),
   "Enter a reason of up to 1,024 bytes without control characters.",

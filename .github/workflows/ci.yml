@@ -514,7 +514,7 @@ jobs:
       - name: Check shared run budgets with integrated delivery
         if: matrix.suite == 'admission'
         run: |
-          python tools/check-resource-admission.py --run-budget --psql "$RUNNER_TEMP/ledgence-psql" \
+          python tools/check-resource-admission.py --run-budget --metrics-capture "$RUNNER_TEMP/ledgence-acceptance-binaries/otlp-capture" --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
             --evidence "$RUNNER_TEMP/ledgence-budgets-http-evidence"

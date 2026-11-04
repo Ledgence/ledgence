@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v13.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json",
     import.meta.url,
   ),
   "utf8",
@@ -39,7 +39,7 @@ test("a reader can open a child’s budget, follow the ledger cursor and identif
         status,
         contentType: "application/json",
         headers: {
-          "Ledgence-Console-Contract": "13",
+          "Ledgence-Console-Contract": "14",
           "Ledgence-Instance-Id": f.config.instance_id,
         },
         body: stringifyUserJson(v),
@@ -115,7 +115,7 @@ test("workflow-only budget support hides task budgeting and blocks a retained wo
         status,
         contentType: "application/json",
         headers: {
-          "Ledgence-Console-Contract": "13",
+          "Ledgence-Console-Contract": "14",
           "Ledgence-Instance-Id": f.config.instance_id,
         },
         body: stringifyUserJson(v),

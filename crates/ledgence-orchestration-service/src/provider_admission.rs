@@ -16,6 +16,20 @@ impl ProviderAdmissionOperations for ApplicationService {
                 .start_provider_admission(principal, command)
                 .await?;
             receipt.validate_for(principal, command)?;
+            match &receipt {
+                ProviderAdmissionStartReceipt::Granted { .. } => {
+                    crate::admission::record_granted_start()
+                }
+                ProviderAdmissionStartReceipt::Existing { snapshot, .. } => {
+                    crate::admission::record_existing_start(
+                        snapshot
+                            .provider
+                            .as_ref()
+                            .is_some_and(|p| p.source.is_some()),
+                        snapshot.budget_denial,
+                    )
+                }
+            }
             Ok(receipt)
         })
     }

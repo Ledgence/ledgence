@@ -76,12 +76,14 @@ export function AppShell({
   serverVersion,
   queuePoliciesEnabled = false,
   resourceSharingEnabled = false,
+  resourceSourcesEnabled = false,
   children,
 }: {
   instanceName: string;
   serverVersion?: string | undefined;
   queuePoliciesEnabled?: boolean;
   resourceSharingEnabled?: boolean;
+  resourceSourcesEnabled?: boolean;
   children: ReactNode;
 }) {
   const { pathname } = useLocation();
@@ -165,13 +167,15 @@ export function AppShell({
           >
             {sections
               .filter(({ to }) => {
-                if (to !== "/resources" && to !== "/queues") return true;
-                const enabled =
-                  to === "/resources"
-                    ? resourceSharingEnabled
-                    : queuePoliciesEnabled;
+                const metadata =
+                  identity?.capabilities.includes("metadata_read");
+                if (to !== "/resources" && to !== "/queues")
+                  return !identity || metadata;
+                if (to === "/queues") return queuePoliciesEnabled && metadata;
                 return (
-                  enabled && identity?.capabilities.includes("metadata_read")
+                  (resourceSharingEnabled && metadata) ||
+                  (resourceSourcesEnabled &&
+                    identity?.capabilities.includes("sensitive_read"))
                 );
               })
               .map(({ to, title, icon: Icon }) => (

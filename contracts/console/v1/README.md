@@ -4,7 +4,7 @@ Portable DTOs are defined in `ledgence-orchestration-api::console`. Existing
 client/worker HTTP contracts retain their previous serialization.
 
 The canonical cross-language fixture is
-[`console-v13.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v13.json).
+[`console-v14.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json).
 Rust constructs it from the public DTOs and verifies the committed bytes; Console
 runtime-decoder tests consume that same file. It is also included in the Rust
 source archive so its tests remain independent of the monorepo.
@@ -18,7 +18,7 @@ pnpm --dir console contracts:check
 ```
 
 All `/v1/console/*` responses identify the fixed instance with
-`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 13`. The browser rejects
+`Ledgence-Instance-Id` and `Ledgence-Console-Contract: 14`. The browser rejects
 responses that disagree with the configuration used for its query keys.
 Queries and commands reject unknown and duplicate fields. The server binds requests to its configured instance and scope. Responses
 include authoritative identity where their contract requires it.
@@ -131,3 +131,5 @@ C11 adds the `queue_policies` capability and scoped queue policy, occupancy and 
 C12 adds the authenticated `resource_fair_sharing` capability and `POST /v1/console/resources/{list,inspect,decisions}`. The server binds the scope. These are metadata reads. Decisions are ordered by descending per-resource sequence. Use `next` as the exclusive `before` cursor. Sequence, offer generation and decision policy revision are decimal strings. The C11 fixture remains available.
 
 C13 adds the authenticated `run_budgets` capability, root budget submission, and scoped `POST /v1/console/budgets/{inspect,entries}` metadata routes. The server binds instance scope and resolves the root using execution ownership. An immutable C12 fixture remains in the test corpus.
+
+C14 exposes named-resource policy administration and retained source discovery as separate capabilities. The browser can submit a revision-bound resource policy with an operator reason. An operator with `sensitive_read` can list outstanding dispatch sources by resource even after execution history has been collected. Each successful source-page response is audited. C13 remains a historical compatibility fixture.

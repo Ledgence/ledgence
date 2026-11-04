@@ -15,6 +15,7 @@ pub enum Operation {
     Budget(RunBudgetQuery),
     Entries(RunBudgetEntriesQuery),
     Decisions(ResourceDecisionQuery),
+    Sources(ResourceSourceQuery),
     Inspect(AdmissionQuery),
     TaskInspect(TaskAdmissionQuery),
     Put { scope: Scope, file: PathBuf },
@@ -87,6 +88,30 @@ pub fn parse(group: &str, mut args: impl Iterator<Item = String>) -> Result<Comm
             };
             q.validate()?;
             Operation::Resource(q)
+        }
+        ("resource", "sources") => {
+            let name = take("--name")?;
+            let state = options
+                .remove("--state")
+                .map(|s| match s.as_str() {
+                    "possibly_dispatched" => Ok(ResourceSourceState::PossiblyDispatched),
+                    "unknown_occupied" => Ok(ResourceSourceState::UnknownOccupied),
+                    _ => Err(invalid("unrecognized resource source state")),
+                })
+                .transpose()?;
+            let q = ResourceSourceQuery {
+                scope,
+                name,
+                state,
+                cursor: options.remove("--cursor"),
+                limit: options
+                    .remove("--limit")
+                    .map(|v| v.parse().map_err(|_| invalid("invalid page size")))
+                    .transpose()?
+                    .unwrap_or(50),
+            };
+            q.validate()?;
+            Operation::Sources(q)
         }
         ("resource", "decisions") => {
             let name = take("--name")?;
@@ -198,6 +223,7 @@ pub async fn execute(client: &HttpTaskService, operation: Operation) -> Result<V
     match operation {
         Operation::Queue(op) => crate::queue_policy::execute(client, op).await,
         Operation::List(q) => encode(AdmissionClient::list_resources(client, &q).await?),
+        Operation::Sources(q) => encode(AdmissionClient::list_resource_sources(client, &q).await?),
         Operation::Decisions(q) => {
             encode(AdmissionClient::list_resource_decisions(client, &q).await?)
         }

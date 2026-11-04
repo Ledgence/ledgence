@@ -4,7 +4,7 @@ description: Park workflows while a resource is full, then run a registered oper
 ---
 
 **In development.** Use matching components built from this checkout, including
-migrations and Console C13. Published 0.8.0 packages do not contain this capability. On existing databases,
+migrations and Console C14. Published 0.8.0 packages do not contain this capability. On existing databases,
 rehearse the migration on a representative restore: rebuilding the task queue indexes
 can block writes.
 
@@ -247,6 +247,24 @@ A successful result can coexist with uncertain occupancy if the worker could
 report the result but could not confirm cleanup. The task remains visible in
 execution history while its source holds capacity. Inspect that generation before
 using an audited release: freeing capacity cannot stop a remote side effect.
+
+## Find the source of unknown occupancy
+
+From **Resources**, choose a resource and inspect its charged sources with a
+`sensitive_read` credential. You can also use:
+
+```sh
+ledgence resource sources --name support-model --state unknown_occupied \
+  --server http://127.0.0.1:8080 --credentials-file investigator.json \
+  --tenant acme --namespace demo --limit 20
+```
+
+Every successful page records a response audit. Follow `next_cursor` with
+`--cursor` and the same scope, resource and state. The rows identify the
+standalone task generation, original workflow operation or protected provider
+approval that holds capacity. Use the exact occurrence for a separately audited
+inspection before considering a release. A release frees capacity and cannot
+establish that remote work stopped.
 
 ## Queue concurrency in development
 

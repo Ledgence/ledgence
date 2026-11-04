@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 const fixture = JSON.parse(
   readFileSync(
     new URL(
-      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v13.json",
+      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json",
       import.meta.url,
     ),
     "utf8",
@@ -21,6 +21,8 @@ async function wire(
   page: Page,
   capabilities: string[] = ["metadata_read"],
   available = true,
+  sourceSupport = true,
+  taskSupport = true,
 ) {
   const calls: { path: string; body: Record<string, unknown> }[] = [];
   await page.route("**/v1/console/**", async (route) => {
@@ -31,7 +33,7 @@ async function wire(
         status,
         contentType: "application/json",
         headers: {
-          "Ledgence-Console-Contract": "13",
+          "Ledgence-Console-Contract": "14",
           "Ledgence-Instance-Id": fixture.config.instance_id,
         },
         body: JSON.stringify(data),
@@ -41,7 +43,12 @@ async function wire(
         ...fixture.config,
         capabilities: {
           ...fixture.config.capabilities,
-          resource_fair_sharing: available,
+          resource_fair_sharing:
+            available && capabilities.includes("metadata_read"),
+          resource_policies:
+            available && capabilities.includes("metadata_read"),
+          resource_sources: sourceSupport,
+          task_admission: taskSupport,
         },
       });
     if (path === "access")
@@ -66,6 +73,18 @@ async function wire(
     expect(req.method()).toBe("POST");
     expect(req.headers()["x-ledgence-actor"]).toBe("reader");
     expect(body).not.toHaveProperty("scope");
+    if (path === "resources/sources")
+      return reply({
+        items: [
+          {
+            ...fixture.resource_sources.items[0],
+            scope: weighted.resource.scope,
+            resource: body.name,
+            subject: { kind: "task", task_id: "retained-task", generation: 1 },
+          },
+        ],
+        next_cursor: null,
+      });
     if (path === "resources/list")
       return reply(
         body.after === null
@@ -155,7 +174,7 @@ for (const scenario of [
     available: true,
   },
   {
-    label: "unavailable scheduler capability",
+    label: "unavailable resource policy capability",
     capabilities: ["metadata_read"],
     available: false,
   },
@@ -169,7 +188,7 @@ for (const scenario of [
         page.getByText(
           scenario.available
             ? "Your credential does not permit this operation."
-            : "Resource inspection requires authenticated resource admission",
+            : "Resource access requires an authenticated resource adapter",
           { exact: false },
         ),
       ).toBeVisible();
@@ -185,5 +204,43 @@ test("invalid decimal cursor cannot trigger a resource read", async ({
   await expect(
     page.getByRole("heading", { name: "Invalid resource link" }),
   ).toBeVisible();
+  expect(calls).toHaveLength(0);
+});
+
+test("sensitive-only lookup stays explicit with no task-detail port", async ({
+  page,
+}) => {
+  const calls = await wire(page, ["sensitive_read"], true, true, false);
+  await page.goto("/console/resources?name=model.requests");
+  await expect(
+    page.getByRole("button", { name: "Inspect retained sources" }),
+  ).toBeVisible();
+  expect(calls).toHaveLength(0);
+  await page.getByRole("button", { name: "Inspect retained sources" }).click();
+  await expect(
+    page.getByText("Task retained-task · generation 1"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This adapter supports source discovery", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Inspect exact record" }),
+  ).toHaveCount(0);
+  expect(calls.map((r) => r.path)).toEqual(["resources/sources"]);
+});
+test("sensitive-only reader gets no source lookup when adapter lacks it", async ({
+  page,
+}) => {
+  const calls = await wire(page, ["sensitive_read"], true, false, false);
+  await page.goto("/console/resources?name=model.requests");
+  await expect(
+    page.getByText(
+      "Resource access requires an authenticated resource adapter",
+      { exact: false },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Resources", exact: true }),
+  ).toHaveCount(0);
   expect(calls).toHaveLength(0);
 });

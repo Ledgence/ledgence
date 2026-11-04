@@ -376,11 +376,12 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 35);
-        assert_eq!(tool_definitions(true).len(), 24);
+        assert_eq!(all.len(), 36);
+        assert_eq!(tool_definitions(true).len(), 25);
         for name in [
             "ledgence_resource_list",
             "ledgence_resource_decisions",
+            "ledgence_resource_sources",
             "ledgence_budget_inspect",
             "ledgence_budget_entries",
             "ledgence_resource_inspect",

@@ -36,6 +36,7 @@ class AuditActorClass(StrEnum):
 
 class AuditReadKind(StrEnum):
     QUEUE_HOLDS = "queue_holds"
+    RESOURCE_SOURCES = "resource_sources"
     ADMISSION_INSPECT = "admission_inspect"
     TASK_ADMISSION_INSPECT = "task_admission_inspect"
     TASK_INSPECT = "task_inspect"
@@ -400,6 +401,7 @@ def _event(raw, scope):
             AuditReadKind.APPROVAL_LIST: AuditApprovalPage, AuditReadKind.APPROVAL_DECISION: AuditApproval,
             AuditReadKind.EFFECT_INSPECT: AuditEffect,
             AuditReadKind.QUEUE_HOLDS: AuditQueue,
+            AuditReadKind.RESOURCE_SOURCES: AuditResourcePolicy,
             AuditReadKind.ADMISSION_INSPECT: AuditAdmission,
             AuditReadKind.TASK_ADMISSION_INSPECT: AuditTaskAdmission,
         }[operation.read]

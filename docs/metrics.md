@@ -30,14 +30,18 @@ Durations are explicit-bucket histograms in seconds; their `count` is observed o
 | `ledgence.recovery.expired` | Counter | Expirations reported by successful recovery batches. A partly committed failed batch can leave unobserved work; this is not a durable total. No labels. |
 | `ledgence.completion.delivery.duration` | Histogram | Each attempted callback transport call, `ok` (confirmed transport reply), `retry`, or `cancelled`. Does not imply result-settlement commit or unique receiver effects. |
 | `ledgence.completion.delivery.age` | Histogram | Time since subscription activation, sampled when a delivery lease is confirmed. Includes retry/backoff time, not time the execution spent running or time an inactive subscription waited. No labels. |
+| `ledgence.admission.start.result` | Counter | One validated Start reply from the orchestrator for a standalone task, workflow callback or protected provider resource. `granted` issues permission. `existing_source` returns retained dispatch evidence. `budget_denied` carries a recorded budget refusal. `not_granted` returns a snapshot with neither source nor budget refusal, for example after an offer expires. |
+| `ledgence.run_budget.refusal` | Counter | A validated Start reports a budget refusal, a fork or native claim returns a typed refusal, or PostgreSQL commits a staged child refusal. Outcomes are `calls_exhausted`, `delegations_exhausted`, `deadline_exceeded` and `cancelled`. |
 
-`cancelled` is the observation when an operation future ends without reporting an explicit outcome, including unwinding; it does not change the durable task state. A runtime's explicit cancellation/timeout error appears as `runtime_error`. HTTP `ok` means status below 400, not program success. Callback `ok` means the sender reported confirmed delivery; a subsequent storage failure can still cause another delivery.
+The orchestrator observes Start when the store returns its reply, before the worker receives it. A lost response can produce one `granted` observation and zero provider calls. Replaying a command can produce another observation of the retained result or refusal. Use the [resource offer history](resource-admission.md#weighted-offers) and [execution budget ledger](run-budgets.md) for the authoritative per-execution records. A failed transaction that produces no validated reply or committed child refusal does not add either observation.
+
+For duration histograms, `cancelled` is the observation when an operation future ends without reporting an explicit outcome, including unwinding; it does not change the durable task state. A runtime's explicit cancellation/timeout error appears as `runtime_error`. HTTP `ok` means status below 400, not program success. Callback `ok` means the sender reported confirmed delivery; a subsequent storage failure can still cause another delivery.
 
 The histogram buckets are 1, 5, 10, 25, 50, 100, 250 and 500 milliseconds; 1, 2.5, 5, 10, 30, 60, 300, 900 and 3600 seconds; and overflow. Delays above an hour remain represented in count/sum and the overflow bucket.
 
 ## Bounds and interpretation
 
-There are fourteen instruments and at most four fixed outcome values per instrument. Each SDK stream also has an explicit cardinality cap of 32. There are no tenant, namespace, queue, program, destination, task, business, trace or worker IDs in metric labels. Those belong in logs, traces and inspection APIs. Resource attributes retain the existing bounded service name/version/instance/environment configuration. User-supplied fields on metric events are ignored by the adapter.
+There are sixteen instruments and at most four fixed outcome values per instrument. Each SDK stream also has an explicit cardinality cap of 32. There are no tenant, namespace, queue, program, destination, task, business, trace or worker IDs in metric labels. Those belong in logs, traces and inspection APIs. Resource attributes retain the existing bounded service name/version/instance/environment configuration. User-supplied fields on metric events are ignored by the adapter.
 
 Metrics aggregate in memory rather than storing individual events. Export acknowledgements have the existing 64 KiB body limit. Malformed or oversized responses are failures; partial rejections and collector warnings are counted in `Telemetry::metrics_statistics()` and rate-limited diagnostics. A failed export is not retried immediately; the next fixed-interval cumulative export is a new observation. This does not promise exactly-once metric ingestion. Metric events are excluded from executable JSON logs, even under a trace log filter and in builds without OpenTelemetry.
 
@@ -50,5 +54,7 @@ cargo test -p ledgence-adapter-otel -p ledgence-worker-core --locked
 cargo build -p ledgence-adapter-otel --example otlp-capture --locked
 target/debug/examples/otlp-capture 127.0.0.1:4318
 ```
+
+The native admission gate also accepts `--metrics-capture <path-to-otlp-capture>` with `tools/check-resource-admission.py --run-budget`. It checks cumulative series against the retained dispatch and budget records, including a dropped Start response and a failed transaction followed by recovery.
 
 The capture fixture accepts `/v1/traces` and `/v1/metrics`, decodes actual protobuf and writes JSON lines. Metric records have `signal: "metrics"`, cumulative temporality `2`, fixed attributes, histogram buckets or sum values, and resource identity. It is a bounded local verification receiver, not a production collector. Use port `0` for an ephemeral endpoint reported on stderr. [Telemetry adapter details](../crates/ledgence-adapter-otel/README.md) describe lifecycle and trace limits.

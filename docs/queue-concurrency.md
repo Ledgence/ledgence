@@ -1,6 +1,6 @@
 # Limit a queue across workers
 
-**Development feature.** Use matching development builds of the orchestrator, workers and Console (contract C13), run the database migrations and configure instance credentials. The released 0.8.0 stack does not expose queue policies.
+**Development feature.** Use matching development builds of the orchestrator, workers and Console (contract C14), run the database migrations and configure instance credentials. The released 0.8.0 stack does not expose queue policies.
 
 Suppose the payment gateway can serve five requests concurrently. Put gateway tasks on the `payments` queue and set its limit to five. Three workers with four consumers each can then have at most five outstanding attempts on that queue between them. A queue such as `email` keeps its own policy. Workers can continue to poll it while `payments` is full.
 
@@ -14,7 +14,7 @@ Policies are scoped to the instance tenant, namespace and queue name. The limit 
 
 ## Understand a held slot
 
-PostgreSQL records the reservation in the transaction that creates the attempt. Polling an empty queue or retrying the same claim after a lost response consumes no additional slot. Existing workers and new replicas see the same limit. During first enrollment, Ledgence adopts retained attempts that can still be running. Before turning on a limit for a live system, reconcile any older external activity whose execution history has already been pruned. Upgrade the orchestrators and workers before enabling the first policy. An older orchestrator cannot assign new work on an enrolled queue. An older worker may need operator reconciliation if it loses settlement after execution. For retained attempts adopted at enrollment, the hold timeout is measured from enrollment.
+PostgreSQL records the reservation in the transaction that creates the attempt. Polling an empty queue or retrying the same claim after a lost response consumes no additional slot. Existing workers and new replicas see the same limit. During first enrollment, Ledgence adopts retained attempts that can still be running. Before turning on a limit for a live system, reconcile any older external activity whose execution history has already been pruned. Upgrade the orchestrators and workers before enabling the first policy. An older orchestrator cannot assign new work on an enrolled queue. An attempt assigned before enrollment has no queue-hold identifier in its original assignment, even on a current worker. If its settlement is lost and cleanup remains unconfirmed, inspect the adopted hold and reconcile it against the downstream system. Older workers can require the same intervention. A task whose budget already refused Start has no slot to adopt. Its original worker can still confirm cleanup after enrollment. For retained attempts adopted at enrollment, the hold timeout is measured from enrollment.
 
 **Occupied** includes reserved, running and uncertain attempts. **Uncertain** means the attempt may have started and its physical closure is unknown. Losing a lease, finishing a business request or losing a worker connection alone does not establish that external work has stopped. Use **Inspect holds** with `sensitive_read` to see the affected task, attempt and worker session. Exact inspection is audited.
 

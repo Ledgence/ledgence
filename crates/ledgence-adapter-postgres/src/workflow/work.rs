@@ -173,6 +173,7 @@ impl PostgresStore {
         let mut wakes = Vec::new();
         let mut budgeted_decision = false;
         let mut delegation_deadline = None;
+        let mut budget_refusal = None;
         if snapshot.state.is_terminal() {
             finish_work(&mut tx, &work.id, now).await?;
         } else if row.kind == "provider_probe_terminal" {
@@ -398,6 +399,7 @@ impl PostgresStore {
                                 wakes.extend(applied.wakes);
                             }
                             Err(reason) => {
+                                budget_refusal = Some(reason);
                                 now = reject_budget_decision(
                                     &mut tx,
                                     &snapshot,
@@ -478,6 +480,7 @@ impl PostgresStore {
         if let Some(deadline) = delegation_deadline
             && db::now(&mut tx).await? >= deadline
         {
+            budget_refusal = Some(RunBudgetDenial::DeadlineExceeded);
             now = reject_budget_decision(
                 &mut tx,
                 &snapshot,
@@ -499,6 +502,9 @@ impl PostgresStore {
             return Err(ContractError::OwnershipLost.into());
         }
         tx.commit().await?;
+        if let Some(reason) = budget_refusal {
+            Metric::RunBudgetRefusal.record(1.0, reason.into());
+        }
         self.workflow_wakes(&wakes);
         Ok(progress)
     }

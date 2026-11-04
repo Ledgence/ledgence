@@ -17,6 +17,14 @@ pub(super) fn fair_sharing_available(server: &Server) -> bool {
             .and_then(|s| s.admissions().ok())
             .is_some_and(|s| s.supports_resource_fair_sharing())
 }
+pub(super) fn sources_available(server: &Server) -> bool {
+    available(server)
+        && server
+            .workflows
+            .as_ref()
+            .and_then(|s| s.admissions().ok())
+            .is_some_and(|s| s.supports_resource_sources())
+}
 fn invalid_reply() -> ContractError {
     unavailable("invalid admission response; reconcile the identical command")
 }
@@ -79,6 +87,21 @@ pub(super) async fn post(
             server
                 .blocking(move || encode_bounded(&reply, ADMISSION_RESPONSE_MAX_BYTES))
                 .await
+        }
+        "/v1/resources/sources" => {
+            let query = decode!(ResourceSourceQuery, scope);
+            if !service.supports_resource_sources() {
+                return Err(unavailable("resource source discovery unavailable").into());
+            }
+            let reply = service.list_resource_sources(principal, &query).await?;
+            reply
+                .validate_for(&query)
+                .map_err(|_| unavailable("invalid resource source page"))?;
+            let encoded = server
+                .blocking(move || encode_bounded(&reply, ADMISSION_PAGE_MAX_BYTES))
+                .await?;
+            context.sensitive(AuditResource::Resource { name: query.name })?;
+            Ok(encoded)
         }
         "/v1/resources/decisions" => {
             let query = decode!(ResourceDecisionQuery, scope);
@@ -169,6 +192,16 @@ pub(super) async fn console_resources(
         before: Option<ConsoleU64>,
         limit: u32,
     }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Sources {
+        name: String,
+        #[serde(deserialize_with = "Option::deserialize")]
+        state: Option<ResourceSourceState>,
+        #[serde(deserialize_with = "Option::deserialize")]
+        cursor: Option<String>,
+        limit: u32,
+    }
     let scope = scope.clone();
     let (path, scoped) = match operation {
         "list" => {
@@ -190,6 +223,29 @@ pub(super) async fn console_resources(
             (
                 "/v1/resources/query",
                 encode_bounded(&ResourceQuery { scope, name }, ADMISSION_COMMAND_MAX_BYTES)?,
+            )
+        }
+        "sources" => {
+            let Sources {
+                name,
+                state,
+                cursor,
+                limit,
+            } = server
+                .decode(bytes, RESOURCE_SOURCE_CURSOR_MAX_BYTES + 2048)
+                .await?;
+            (
+                "/v1/resources/sources",
+                encode_bounded(
+                    &ResourceSourceQuery {
+                        scope,
+                        name,
+                        state,
+                        cursor,
+                        limit,
+                    },
+                    ADMISSION_COMMAND_MAX_BYTES,
+                )?,
             )
         }
         "decisions" => {

@@ -1,4 +1,4 @@
-import { requiredCapabilities } from "./access-policy";
+import { permitsRequest } from "./access-policy";
 import {
   accessController,
   AccessChanged,
@@ -72,8 +72,8 @@ export async function request<T>(
   if (lease && !lease.owner.current(lease)) throw new AccessChanged();
   if (
     lease &&
-    requiredCapabilities(path, !!command).some(
-      (capability) => !lease.owner.permits(capability),
+    !permitsRequest(path, !!command, (capability) =>
+      lease.owner.permits(capability),
     )
   )
     throw new ApiError(

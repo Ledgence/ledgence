@@ -326,6 +326,13 @@ composed grants; late original evidence remains admissible. See
 
 ## Cluster-wide queue concurrency (development)
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C13 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 Weighted resource admission stores the group cursor on the resource row. Each successful reservation appends a row to `admission_offer_decisions` in the same transaction. The per-resource journal grows with weighted offers. Group mapping edits reclassify the live backlog under that lock. Rehearse migrations and large policy edits on a representative restore. See [weighted offers](resource-admission.md#weighted-offers).
+
+
+## Upgrade from 0.8.0 to 0.9.0
+
+Stop writers and preserve the database and immutable program store. Run the matching 0.9 migrator once before starting the new replicas. Migrations add named resources, protected provider and standalone task admission, queue holds, weighted offer history, inherited budgets and retained-source lookup. Existing executions retain their original scope and accepted receipts. Opt in to a resource or a budget when submitting new work. A restore must preserve an external record of outstanding provider effects and apply restore quarantine before resuming governed writes. [Upgrade rehearsal and operating procedure](../docs-site/src/content/docs/how-to/upgrade-to-0-9.md).
+
+A queue enrolled after a failed budget authorization accepts the original worker's cleanup without reserving a nonexistent slot. The additive migration preserves fail-closed checks on live or possibly started attempts. Resource-scoped lookup indexes let operators locate outstanding dispatch sources after ordinary execution retention. They also add index maintenance to governed transitions; measure the effect using the expected workload.

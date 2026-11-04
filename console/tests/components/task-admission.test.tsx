@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v13.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json?raw";
 import ledger from "../../../crates/ledgence-orchestration-api/tests/fixtures/task-admission-v1.json";
 import { decodeConfig } from "../../src/api/codecs";
 import { InstanceContext } from "../../src/app/instance";

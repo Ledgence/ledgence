@@ -58,7 +58,7 @@ Returned model and tool records use the versioned durable operation binding.
 Existing adapters return `ContractError::Unavailable` for these optional reads
 until they implement them.
 
-In the development checkout, standalone task admission uses the grouped
+Standalone task admission uses the grouped
 `TaskAdmissionStore` and `TaskAdmissionClient` ports. An adapter must bind
 the authenticated worker to its session, grant at most one executable Start,
 retain uncertain occupancy, and accept source-bound cleanup independently
@@ -121,9 +121,9 @@ check the expected workflow and parent/root lineage from their assignment.
 The application service applies complete-capability checks to direct evidence
 and resolution calls as well as discovery and native-wait admission.
 
-### Resource and protected provider admission in development
+### Resource and protected provider admission
 
-The development checkout adds portable resource policies, durable admission waits
+This crate exposes portable resource policies, durable admission waits
 and one-shot Start/Finish contracts. `ProviderAdmissionStore` is a separate
 complete capability: its implementation must commit provider dispatch permission,
 capacity accounting and recovery obligation atomically. Implementing the separate
@@ -134,12 +134,12 @@ Version-2 provider bindings freeze the reviewed resource requirement; ungoverned
 version-1 bindings preserve their encoding. A linked provider report distinguishes
 call completion from business knowledge, so a pending asynchronous operation can
 outlive its original call's occupancy. Read-only probes are outside that resource
-policy. These contracts are not in the published 0.8.0 crate.
+policy. Select the 0.9 API for these contracts.
 [Admission contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
 
 Resource admission adapters opt into weighted offers through `supports_resource_fair_sharing()`, which defaults to false. An adapter advertising support must reserve capacity, advance the scoped resource cursor and retain its decision atomically, and implement scope-bound paginated reads. FIFO-only adapters can continue serving policies without `fair_sharing`. The service rejects a weighted policy or decision query when the active adapter lacks support. [Weighted offer contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).
 
-The development source exposes `QueuePolicyClient` for authenticated management of
+The crate exposes `QueuePolicyClient` for authenticated management of
 queue concurrency. A policy can set a shared maximum, pause new assignments with
 zero or explicitly remove the maximum. Inspecting a hold shows the policy revision
 and timeout schedule that applied to its original attempt. `QueuePolicyOperations`

@@ -126,12 +126,14 @@ pub enum AuditReadKind {
     AdmissionInspect,
     TaskAdmissionInspect,
     QueueHolds,
+    ResourceSources,
 }
 impl AuditReadKind {
     fn matches(self, resource: &AuditResource) -> bool {
         matches!(
             (self, resource),
             (Self::QueueHolds, AuditResource::Queue { .. })
+                | (Self::ResourceSources, AuditResource::Resource { .. })
                 | (
                     Self::TaskInspect | Self::TaskResult,
                     AuditResource::Task { .. }

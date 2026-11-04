@@ -751,9 +751,9 @@ never interpreted as a workflow decision, even when it contains a `kind` field.
 See [`docs/workflows.md`](../../docs/workflows.md) for the workflow contract,
 checkpoint limits, cancellation, and recovery semantics.
 
-## Durable resource admission (development source)
+## Durable resource admission
 
-The development source adds provider-neutral admission for registered workflow
+The 0.9 worker helper supports provider-neutral admission for registered workflow
 callbacks. It requires a credentialed worker/server connection advertising
 `resource_admission.v1`, plus an operator-created resource policy. Admission is
 independent of protected-effect evidence. It is not available merely because a
@@ -837,12 +837,11 @@ dispatch uses the separate atomic composition below. Standalone tasks can reques
 only when explicitly registered and admitted; existing ungoverned execution paths
 do not add admission RPCs.
 
-### Approved provider operations with shared admission (development checkout)
+### Approved provider operations with shared admission
 
-The current development checkout adds atomic provider admission. It requires the
+The 0.9 helper supports atomic provider admission. It requires the
 explicit `provider_admission.v1` capability; separate provider-operation and
-resource-admission capabilities do not imply support. This capability is not part
-of the published 0.8.0 helper.
+resource-admission capabilities do not imply support. Use a matching worker, orchestrator and database schema.
 
 Freeze a resource requirement into the provider intent before requesting human
 approval:
@@ -931,6 +930,6 @@ See the runnable [provider admission example](../../examples/provider-admission/
 for an approval, resource wait, dispatch and business-result workflow using a
 local synthetic provider.
 
-### Run allowance and token observations (development)
+### Run allowance and token observations
 
 A governed callback can return `AdmittedResult(output, usage=RunBudgetUsage.reported(input_tokens=7, output_tokens=3))`. Both types are in `ledgence.worker.admission`. Use `RunBudgetUsage.estimated(...)` for an estimate. An ordinary return value keeps usage unknown. `AdmittedResult` preserves the application output; usage is recorded separately from its one call authorization. A provider adapter can pass `usage=` on its provider report. See [run budgets](https://github.com/Ledgence/ledgence/blob/develop/docs/run-budgets.md).

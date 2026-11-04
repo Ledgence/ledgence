@@ -232,6 +232,40 @@ Resource records and operator policy/release command receipts also remain stored
 The execution-retention interval does not erase these records. Plan storage for
 their continued growth; releasing capacity does not delete the retained evidence.
 
+## Find unresolved charged sources
+
+When a resource reports unknown usage, use a credential with `sensitive_read`
+to discover which occurrences still hold capacity. Each successful page, including
+an empty page, requires a committed response audit for that resource.
+
+```sh
+ledgence resource sources --name support-model --state unknown_occupied \
+  --server http://127.0.0.1:8080 --credentials-file investigator.json \
+  --tenant acme --namespace demo --limit 20
+```
+
+Omit `--state` to include both charged states. `possibly_dispatched` records an
+accepted Start. `unknown_occupied` records unresolved occupancy. The list
+excludes unstarted offers, preparations and released sources. Its count can
+therefore differ from the resource's aggregate `occupied` value.
+
+The HTTP body is `{scope,name,state,cursor,limit}`. Use `null` for an unfiltered
+state and for the initial cursor. Pass `next_cursor` to the next request with
+the same scope, resource and state. Pages return up to 100 items in descending
+order of their immutable request sequence. Each page observes current state.
+A source that closes between pages disappears. Refresh from the first page
+to see newly eligible sources.
+
+Each row includes the occurrence, its state, revision and last change time.
+Workflow rows carry the workflow ID, original activation and logical key.
+Provider rows also carry the approval activation and key. Standalone task
+rows carry the task ID and generation. Source discovery reads these coordinates
+from PostgreSQL even after a restart or workflow execution collection. Task
+retention keeps an execution with an unresolved source until release.
+The exact `admission inspect` command is separately audited and returns the
+source and revision required to review a release. A completed or released
+occurrence leaves this index and remains available through exact inspection.
+
 ## HTTP, CLI, Python and MCP
 
 All HTTP operations are POST with strict bounded JSON:
@@ -242,6 +276,7 @@ All HTTP operations are POST with strict bounded JSON:
 | `/v1/resources/query` | `metadata_read` | `ResourceQuery` → `ResourceSnapshot` |
 | `/v1/resources/list` | `metadata_read` | `ResourceListQuery` → `ResourcePage` |
 | `/v1/resources/decisions` | `metadata_read` | `ResourceDecisionQuery` → `ResourceDecisionPage` |
+| `/v1/resources/sources` | Audited `sensitive_read` | `ResourceSourceQuery` → `ResourceSourcePage` |
 | `/v1/admissions/start` | Worker | `AdmissionStartCommand` → `AdmissionStartReceipt` |
 | `/v1/admissions/finish` | Original worker actor | `AdmissionFinishCommand` → `AdmissionFinishReceipt` |
 | `/v1/provider-admissions/start` | Worker with live lease | `ProviderAdmissionStartCommand` → `ProviderAdmissionStartReceipt` |
@@ -251,17 +286,17 @@ All HTTP operations are POST with strict bounded JSON:
 
 Resource lists are capped at 256 KiB. A response can contain fewer than the requested number of records and still have another page. Follow `next` until it is null.
 
-CLI groups are `resource list|inspect|decisions|put` and `admission inspect|release`.
+CLI groups are `resource list|inspect|decisions|sources|put` and `admission inspect|release`.
 Mutations take a saved file with format `ledgence.admission.command.v1`, exact
 `base_url`, and `body` containing the command as a JSON string. Retain the same
 file after a lost reply; do not regenerate its request ID. Endpoint and scope
 are checked before sending. Use `--help` for required fields.
 
-Python exposes `client.resources.put/get/list` and `client.admissions.inspect/release`,
+Python exposes `client.resources.put/get/list/decisions/sources` and `client.admissions.inspect/release`,
 with typed `ResourcePolicy`, `ResourceRate` and `AdmissionOccurrence` values.
 Resource/list metadata contain no callback arguments or results.
 
-MCP adds `ledgence_resource_list`, `ledgence_resource_inspect`, `ledgence_resource_decisions` and
+MCP adds `ledgence_resource_list`, `ledgence_resource_inspect`, `ledgence_resource_decisions`, `ledgence_resource_sources` and
 `ledgence_admission_inspect`. `--allow-resource-control` explicitly exposes
 `ledgence_resource_put` and `ledgence_admission_release`; it conflicts with
 `--read-only`. Worker Start/Finish and composed provider Start/Report are not MCP tools. API credentials remain the
@@ -276,7 +311,7 @@ ledgence audit list --resource support-model \
 ```
 
 Choose only one of `--resource`, `--task` or `--workflow`. The resource filter
-selects policy events. Workflow release and inspection records use
+selects policy events and audited source discovery responses. Workflow release and inspection records use
 `--workflow WORKFLOW_ID`; standalone task records use `--task TASK_ID`. Queries require
 `metadata_read` in credential mode. Preserve the filter when following a cursor.
 
@@ -292,7 +327,7 @@ page = await client.audit.list(
 )
 ```
 
-Console C13 renders each wait episode and its resumed entrypoint. An accepted
+Console C14 renders each wait episode and its resumed entrypoint. An accepted
 operation result has its own occurrence-bound inspector. Offer or Start alone
 does not fabricate an executed operation. Graph metadata does not expose arguments
 or results. Protected dispatch has a typed provider record and separate admission and business-result waits; it does not fabricate a generic accepted-operation result. The scope-free `/v1/console/admissions/inspect` wrapper binds the
@@ -384,7 +419,7 @@ excludes governed assignments for older sessions.
 
 ## Cluster-wide queue concurrency (development)
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C13 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 ## Weighted offers
 

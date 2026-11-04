@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import * as s from "./schema";
-import { queueName, type QueueScope } from "./queue-policies";
+import { queueName, reason, type QueueScope } from "./queue-policies";
 import { ContractError } from "./codecs";
 
 export const resourceName = s.refine(
@@ -56,15 +56,16 @@ function policy(v: unknown) {
   return { ...s.object(basePolicy)(v), fair_sharing: null };
 }
 const safe = s.integer(0, Number.MAX_SAFE_INTEGER);
+const record = s.object({
+  scope,
+  name: resourceName,
+  revision: s.integer(1, Number.MAX_SAFE_INTEGER),
+  policy,
+  updated_at: s.timestamp,
+});
 const snapshot = s.refine(
   s.object({
-    resource: s.object({
-      scope,
-      name: resourceName,
-      revision: s.integer(1, Number.MAX_SAFE_INTEGER),
-      policy,
-      updated_at: s.timestamp,
-    }),
+    resource: record,
     offered: safe,
     occupied: safe,
     unknown: safe,
@@ -166,3 +167,37 @@ export function decisionsFor(
     return page;
   };
 }
+
+export type ResourceSnapshot = s.Decoded<typeof snapshot>;
+const writePolicy = s.withOptional(basePolicy, { fair_sharing: fair });
+export const resourcePut = s.object({
+  name: resourceName,
+  request_id: queueName,
+  expected_revision: s.nullable(s.integer(1, Number.MAX_SAFE_INTEGER - 1)),
+  policy: writePolicy,
+  reason,
+});
+export type ResourcePut = s.Decoded<typeof resourcePut>;
+export function resourceReceipt(
+  raw: unknown,
+  expected: QueueScope,
+  command: ResourcePut,
+) {
+  const reply = s.object({ resource: record, already_accepted: s.boolean })(
+    raw,
+  );
+  if (
+    !inScope(reply.resource.scope, expected) ||
+    reply.resource.name !== command.name ||
+    reply.resource.revision !== (command.expected_revision ?? 0) + 1 ||
+    JSON.stringify(reply.resource.policy) !==
+      JSON.stringify(policy(command.policy))
+  )
+    throw new ContractError(
+      "The policy receipt does not match the submitted change.",
+    );
+  return reply;
+}
+
+export const resourceKey = (instance: string, name: string) =>
+  JSON.stringify(["resource-policy", instance, name]);

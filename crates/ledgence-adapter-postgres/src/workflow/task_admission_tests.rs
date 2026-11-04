@@ -541,6 +541,14 @@ async fn task_admission_admin_release_then_retention_late_original_cleanup() {
     let db = fixture(policy(1)).await;
     let s = &db.store;
     let (t, a, c) = prepare(s, "retained").await;
+    let query = ResourceSourceQuery {
+        scope: scope(),
+        name: "model".into(),
+        state: Some(ResourceSourceState::UnknownOccupied),
+        cursor: None,
+        limit: 1,
+    };
+
     let o = occurrence(&t, 1);
     s.start_task_admission(&worker(), &c).await.unwrap();
     expire(s, &a).await;
@@ -595,11 +603,27 @@ async fn task_admission_admin_release_then_retention_late_original_cleanup() {
             .unwrap(),
         0
     );
+    let holds = s.list_resource_sources(&operator(), &query).await.unwrap();
+    assert_eq!(
+        holds.items[0].subject,
+        ResourceSourceSubject::Task {
+            task_id: t.task_id.clone(),
+            generation: 1
+        }
+    );
+    assert_eq!(holds.items[0].revision, unknown.revision);
     let released = s
         .release_task_admission(&operator(), &release)
         .await
         .unwrap();
     assert!(!released.already_accepted);
+    assert!(
+        s.list_resource_sources(&operator(), &query)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
     assert!(
         s.release_task_admission(&operator(), &release)
             .await
@@ -1380,6 +1404,25 @@ async fn run_budget_task_refusal_is_terminal_without_fabricating_a_worker_report
         quiet(store.pool.clone(), start.owner.attempt_id.clone()).await,
         "unconfirmed"
     );
+    // First enrollment adopts outstanding work only. This failed attempt never
+    // started, and its original worker can confirm cleanup after enrollment.
+    store
+        .put_queue_policy(
+            &operator(),
+            &QueuePolicyPut {
+                scope: scope(),
+                queue: "python".into(),
+                request_id: "late-enrollment".into(),
+                expected_revision: None,
+                policy: QueueConcurrencyPolicy {
+                    max_concurrency: Some(1),
+                    timeout: None,
+                },
+                reason: "Enroll the queue after the denied Start".into(),
+            },
+        )
+        .await
+        .unwrap();
     let mut wrong = close(&start, TaskAdmissionCloseOutcome::NotInvoked);
     wrong.start_id = "unrelated".into();
     assert!(matches!(
@@ -1416,6 +1459,33 @@ async fn run_budget_task_refusal_is_terminal_without_fabricating_a_worker_report
         .await
         .unwrap();
     assert_eq!(snap.calls, 0);
+    let queue = store
+        .inspect_queue_policy(
+            &operator(),
+            &QueuePolicyQuery {
+                scope: scope(),
+                queue: "python".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!((queue.occupied, queue.uncertain), (0, 0));
+    let counts = sqlx::query_as::<_, (i64,i64)>("SELECT (SELECT count(*) FROM queue_concurrency_holds WHERE attempt_id=$1), (SELECT count(*) FROM task_history WHERE attempt_id=$1 AND reason='cleanup_confirmed')")
+        .bind(&start.owner.attempt_id).fetch_one(&store.pool).await.unwrap();
+    assert_eq!(counts, (0, 1));
+    // A missing hold still fences attempts that could execute, even if the
+    // same terminal row previously received a legitimate cleanup receipt.
+    let illegal =
+        sqlx::query("UPDATE attempts SET execution_may_have_started=true WHERE attempt_id=$1")
+            .bind(&start.owner.attempt_id)
+            .execute(&store.pool)
+            .await
+            .unwrap_err();
+    assert!(
+        illegal
+            .as_database_error()
+            .is_some_and(|e| e.message() == "missing queue occupancy for live attempt")
+    );
     assert_eq!(resource(store).await.occupied, 0);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM accepted_settlements")

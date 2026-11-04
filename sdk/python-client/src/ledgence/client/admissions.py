@@ -28,6 +28,7 @@ from .admission_models import (
 )
 from .errors import InputError
 from .resource_decisions import ResourceDecisionPage, parse_page
+from .resource_sources import ResourceSourcePage, ResourceSourceState, parse_source_page, position
 
 
 async def _exchange(client, path, value, parser, *, limit=LIMIT):
@@ -129,6 +130,25 @@ class Resources:
             "/v1/resources/list",
             {"scope": asdict(scope), "after": after, "limit": limit},
             parse,
+        )
+
+    async def sources(
+        self, name: str, *, state: ResourceSourceState | str | None = None,
+        cursor: str | None = None, limit: int = 50,
+    ) -> ResourceSourcePage:
+        """Discover charged occurrences. Every page requires sensitive_read and is audited."""
+        resource_name(name)
+        codec.integer(limit, "limit", 1, 100)
+        try:
+            selected = None if state is None else ResourceSourceState(state)
+        except (ValueError, TypeError) as exc:
+            raise InputError("invalid resource source state") from exc
+        scope = self._client.scope
+        before = position(cursor, scope, name, selected)
+        return await _exchange(
+            self._client, "/v1/resources/sources",
+            {"scope": asdict(scope), "name": name, "state": selected.value if selected is not None else None, "cursor": cursor, "limit": limit},
+            lambda raw: parse_source_page(raw, scope, name, selected, before, limit),
         )
 
     async def decisions(

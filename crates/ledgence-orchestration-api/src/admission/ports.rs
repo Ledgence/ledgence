@@ -2,6 +2,20 @@ use super::*;
 /// Complete provider-neutral admission capability. Returned grants become durable
 /// before replies. Replaying Start may never reissue executable permission.
 pub trait AdmissionOperations: Send + Sync {
+    fn supports_resource_sources(&self) -> bool {
+        false
+    }
+    fn list_resource_sources<'a>(
+        &'a self,
+        _principal: &'a VerifiedPrincipal,
+        _query: &'a ResourceSourceQuery,
+    ) -> ContractFuture<'a, ResourceSourcePage> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "resource source discovery unavailable".into(),
+            ))
+        })
+    }
     /// Opt in only when the store records weighted selection and its decision atomically.
     fn supports_resource_fair_sharing(&self) -> bool {
         false
@@ -67,6 +81,16 @@ pub trait AdmissionStore: AdmissionOperations {
     ) -> ContractFuture<'a, WorkflowProgress>;
 }
 pub trait AdmissionClient: Send + Sync {
+    fn list_resource_sources<'a>(
+        &'a self,
+        _query: &'a ResourceSourceQuery,
+    ) -> ContractFuture<'a, ResourceSourcePage> {
+        Box::pin(async {
+            Err(ContractError::Unavailable(
+                "resource source discovery unavailable".into(),
+            ))
+        })
+    }
     fn list_resource_decisions<'a>(
         &'a self,
         _query: &'a ResourceDecisionQuery,

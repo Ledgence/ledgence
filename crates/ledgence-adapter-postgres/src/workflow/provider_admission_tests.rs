@@ -602,6 +602,34 @@ async fn protected_admission_probe_completion_never_releases_unknown_call() {
 async fn protected_admission_original_completed_report_survives_release_and_execution_retirement() {
     let db = fixture().await;
     let (c, a, start, source) = start(&db.store, "retire").await;
+    let query = ResourceSourceQuery {
+        scope: scope(),
+        name: "provider".into(),
+        state: None,
+        cursor: None,
+        limit: 1,
+    };
+    let item = db
+        .store
+        .list_resource_sources(&operator(), &query)
+        .await
+        .unwrap()
+        .items
+        .pop()
+        .unwrap();
+    let origin = &start.admission.occurrence;
+    let approval = &source.provider.ticket.occurrence;
+    assert_eq!(
+        item.subject,
+        ResourceSourceSubject::Provider {
+            workflow_id: origin.workflow_id.clone(),
+            origin_activation_id: origin.origin_activation_id.clone(),
+            key: origin.key.clone(),
+            approval_activation_id: approval.activation_id.clone(),
+            approval_key: approval.approval_key.clone()
+        }
+    );
+
     let report = report(
         &c,
         &source,
@@ -660,6 +688,14 @@ async fn protected_admission_original_completed_report_survives_release_and_exec
         )
         .await
         .unwrap();
+    assert!(
+        db.store
+            .list_resource_sources(&operator(), &query)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
     providers::collect_execution(&db).await;
     db.store
         .report_provider_admission(&worker(), &report)
