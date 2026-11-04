@@ -1,6 +1,6 @@
 # Recoverable provider operations
 
-Available in Ledgence 0.8.0. Use matching server, worker, helper and Console
+Available in Ledgence 0.9.0. Use matching server, worker, helper and Console
 components, apply the database migrations and enable the policy explicitly.
 
 A provider operation separates permission to issue a mutation, the provider's
@@ -42,7 +42,7 @@ An incompatible worker fails before entering the registered application callback
 Its allocated check still consumes the finite budget and may require operator review.
 
 With SQS or ElasticMQ, configure an external delivery route for both logical
-queues. With 0.8.0, run one publisher process per queue against the same database and authority. Both processes need the same provider policy and authenticated access configuration. A development orchestrator can serve both queues with one [route list](dispatch-delivery.md#multiple-sqs-routes-in-development).
+queues. With 0.8.0, run one publisher process per queue against the same database and authority. Both processes need the same provider policy and authenticated access configuration. A 0.9.0 orchestrator can serve both queues with one [route list](dispatch-delivery.md#multiple-sqs-routes-in-development).
 Use the matching external delivery configuration on each worker. The
 [provider recovery example](../examples/provider-recovery/README.md#run-the-local-demonstration-from-the-checkout)
 includes a local ElasticMQ check of probe delivery and a lost report reply.
@@ -211,7 +211,7 @@ typed reports, finalization and recovery-stop records alongside operator
 assessments. Detail inspection remains bounded and audited before payload bytes
 are returned. Claims and reports preserve worker provenance separately from
 verified operator audit. Historical lease authority is never exposed by these
-operator projections. Console contract 7 displays provider waits and probe task
+operator projections. Console contract 14 displays provider waits and probe task
 roles without inventing a workflow dependency from timestamps.
 
 The generic worker API exposes five routes.
@@ -242,10 +242,12 @@ indexed due scan even when idle. Only marked provider tasks add
 source/report/finalization work. These costs support the durability contract.
 Production throughput still requires measurement under the intended workload.
 
-## Development: share dispatch capacity
+<span id="development-share-dispatch-capacity"></span>
 
-The development checkout adds optional resource admission to the reviewed
-provider binding. This extension is not in 0.8.0. A version-2 binding names the
+## Share dispatch capacity
+
+Ledgence 0.9.0 adds optional resource admission to the reviewed
+provider binding. A version-2 binding names the
 resource before approval; version-1 bindings retain their published behavior.
 Use the composed workflow methods and explicit call-completion envelope described
 in [resource admission](resource-admission.md#compose-admission-with-protected-provider-dispatch).

@@ -1,13 +1,39 @@
 {
-  "series": "0.8",
-  "sourceRef": "v0.8.0",
-  "nativeVersion": "0.8.0",
-  "clientVersion": "0.8.0",
-  "rustApiVersion": "0.8.0",
+  "series": "0.9",
+  "sourceRef": "v0.9.0",
+  "nativeVersion": "0.9.0",
+  "clientVersion": "0.9.0",
+  "rustApiVersion": "0.9.0",
   "nativeTargets": [
     "x86_64-unknown-linux-gnu",
     "aarch64-apple-darwin"
   ],
-  "verifiedOn": "2026-11-03",
-  "sourceRevision": "e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b"
+  "verifiedOn": "2026-11-04",
+  "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c",
+  "workerVersion": "0.9.0",
+  "sourceTree": "f79aee236f9a040d9d94ab8f70dd2cc58cba2ddf",
+  "artifacts": {
+    "image": "docker.io/ledgence/ledgence@sha256:4c0e7c0d263e38246ae9db3c11c694a9b311257ecb2559f438038627ead30de8",
+    "githubSha256": {
+      "install.sh": "2fc27c355682b1ee80ff1e982dcc4122677e1edcab95ea1b8a5528a1a2c33700",
+      "install.sh.sha256": "5191471014a6e12b30a25d007248be9c1e94547baf515a528514eac55383317b",
+      "ledgence-0.9.0-aarch64-apple-darwin.tar.gz": "479725179965ea3ade4783b8c733f7416c7f34c73d2dabf517599fe4a9b125bc",
+      "ledgence-0.9.0-linux-amd64-corresponding-source.tar.gz": "b78cde66793127b4644996fe3e4211af9ffd12f3a0732667ff09d220dc950057",
+      "ledgence-0.9.0-linux-amd64-source-manifest.json": "0315c389d2338541049f10ab48b4361c6c95970a1c8b641d158e99d914da7965",
+      "ledgence-0.9.0-linux-arm64-corresponding-source.tar.gz": "ac0f5e14a6efea4a368139f7471cc46a27e8b1045e8b440704549ac82e77e19b",
+      "ledgence-0.9.0-linux-arm64-source-manifest.json": "00dac8e0328d9b9c4dd93a5d93b6049a7be8183b64a52a052d540aaa255eb7ea",
+      "ledgence-0.9.0-local.tar.gz": "ce54f6f2d560da244682834423aa4967d50ae06969337aeb7dd08d6ed85296a0",
+      "ledgence-0.9.0-local.tar.gz.sha256": "206a3156336c8d3138e26ead3295ba708739abf9373c1615f56c336558d6021d",
+      "ledgence-0.9.0-x86_64-unknown-linux-gnu.tar.gz": "c6566558ca60a774b3517d21a96b76a1feb3cc4d4493213c4eefc077347b64ef",
+      "SHA256SUMS": "77d236b3baae8534f3b8901f01f9dda4372c33b2e38826628ffa5c1a55f000cf"
+    },
+    "registrySha256": {
+      "ledgence_client-0.9.0-py3-none-any.whl": "be6ec6643ad9db793ebb285095c581c8e974760a21ccf5e3eff05045d411942a",
+      "ledgence_client-0.9.0.tar.gz": "4a38d89c820f65af3060a02df730557891a78a20409a4b0e5bc9a0ac906242eb",
+      "ledgence_worker-0.9.0-py3-none-any.whl": "c8e2c917d8574c17ae8e463a0fa6b865f2bfa87e37b524c2f4fd1f8663a9836f",
+      "ledgence_worker-0.9.0.tar.gz": "e932e9086fb6db8012daf216f3867e180b12c336ef15743a41de33631ad1282c",
+      "ledgence-worker-api-0.9.0.crate": "cc1e90ac208d2ad9c4d2786817986528acf881ba9956bd2777a717796cf6c209",
+      "ledgence-orchestration-api-0.9.0.crate": "cac57e0e02982bedeeb8bb5daa6fdf9ed634d9a7479073ac6ea41998cf7ffbd9"
+    }
+  }
 }

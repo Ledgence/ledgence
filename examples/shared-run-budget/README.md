@@ -1,12 +1,12 @@
 # Two ticket reviews, one model call
 
-This development example submits two tickets to independently owned classifier workflows. The root allows two delegations and one governed model call. Whichever child obtains the first Start can call the classifier. The other child leaves an inspectable refusal. The example reuses the [resource-admission classifier](../resource-admission/README.md).
+This example submits two tickets to independently owned classifier workflows. The root allows two delegations and one governed model call. Whichever child obtains the first Start can call the classifier. The other child leaves an inspectable refusal. The example reuses the [resource-admission classifier](../resource-admission/README.md).
 
 Read [program.py](program.py) for the workflow and [submit.py](submit.py) for its budget. The limit belongs to the root submission. Neither child estimates a balance or passes a budget ID to its sibling.
 
 ## Run the complete example locally
 
-Use the matching development checkout, a disposable PostgreSQL 18 instance, Python 3.11+ and `psql`. From the repository root:
+Use the `v0.9.0` source checkout, a disposable PostgreSQL 18 instance, Python 3.11+ and `psql`. From the repository root:
 
 ```sh
 cargo build --locked --all-features -p ledgence-cli --bin ledgence

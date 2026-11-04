@@ -3,7 +3,7 @@ title: Configure instance access
 description: Provision operator and worker credentials and connect Ledgence clients.
 ---
 
-Available in Ledgence 0.8.0 with matching CLI, server, worker, Python client
+Available in Ledgence 0.9.0 with matching CLI, server, worker, Python client
 and Console components. Credentials remain opt-in. Existing operator-trusted
 installations keep their deployment access boundary.
 
@@ -56,7 +56,7 @@ The directory contains three files.
 - `access.json` holds the installation authority, credential verifiers,
   capabilities and expirations. Mount it on each orchestrator.
 - `operator.json` holds Alice's reusable credential and its intended server.
-  A newly initialized 0.8.0 bundle grants all operator capabilities,
+  A newly initialized 0.9.0 bundle grants all operator capabilities,
   including `effect_resolve`. Existing access files keep their explicit
   capabilities; upgrading does not add this permission to old credentials.
 - `worker.json` holds a separate credential for the trusted worker plane.

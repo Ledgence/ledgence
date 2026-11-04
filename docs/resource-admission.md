@@ -1,7 +1,6 @@
 # Durable resource admission
 
-**Development capability:** this contract belongs to the current source checkout.
-It is not included in the published 0.8.0 packages or images. Use matching server,
+**Available in Ledgence 0.9.0.** Use matching server,
 worker, Python helper/client and Console assets, and apply all migrations explicitly.
 
 A workflow can park while a named resource has no capacity, then resume to invoke
@@ -419,13 +418,15 @@ governed work to a queue served only by matching workers, before allowing
 repeated capacity deferrals to exceed this limit. Integrated HTTP acquisition
 excludes governed assignments for older sessions.
 
-## Cluster-wide queue concurrency (development)
+<span id="cluster-wide-queue-concurrency-development"></span>
+
+## Cluster-wide queue concurrency
 
 A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 ## Weighted offers
 
-**Development capability.** A resource may optionally assign queue groups weighted turns when choosing the next reservation. FIFO remains the default when `fair_sharing` is omitted. Explicit JSON null is invalid. Old FIFO policies preserve their wire representation and request digest.
+**Available in Ledgence 0.9.0.** A resource may optionally assign queue groups weighted turns when choosing the next reservation. FIFO remains the default when `fair_sharing` is omitted. Explicit JSON null is invalid. Old FIFO policies preserve their wire representation and request digest.
 
 ```json
 {"enabled":true,"max_occupancy":5,"rate":null,"offer_timeout_ms":30000,"start_timeout_ms":5000,"fair_sharing":{"groups":[{"name":"support","weight":3,"queues":["support"]},{"name":"batch","weight":1,"queues":[]}],"default_group":"batch"}}
@@ -439,4 +440,4 @@ Capacity and rate edits preserve the rotation. Scaling all weights proportionall
 
 Read decisions with `POST /v1/resources/decisions` using `{scope,name,before,limit}`. Start with `before: null`, then pass the returned `next` to read older offers, newest first. A sequence is scoped to one resource and serializes as a positive decimal string. Each row records the policy revision, source queue, subject, grant generation, selected group and its configured weight, eligible-group count, normalized round, reason and offer time. This journal is retained with its resource and grows with committed weighted offers. Include its storage in capacity planning. Console **Resources**, `ledgence resource decisions`, Python `client.resources.decisions` and MCP `ledgence_resource_decisions` expose this metadata to `metadata_read` operators.
 
-To reproduce the FIFO comparison, run `python tools/check-resource-fairness.py` from the source checkout with a newly built native binary directory, the installed development Python client interpreter, a disposable PostgreSQL configuration and an unused evidence directory. See `--help` for arguments. Its evidence separates admission wait, observed parallelism and completion throughput across a two-coordinator restart.
+To reproduce the FIFO comparison, run `python tools/check-resource-fairness.py` from the source checkout with a newly built native binary directory, the installed 0.9.0 Python client interpreter, a disposable PostgreSQL configuration and an unused evidence directory. See `--help` for arguments. Its evidence separates admission wait, observed parallelism and completion throughput across a two-coordinator restart.

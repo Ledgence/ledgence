@@ -7,11 +7,7 @@ submission, acquisition and leases, durable settlement, observation, completion
 callbacks, retention, resumable workflows with child tasks and subworkflows,
 events, and durable action approvals.
 
-This README describes this package source. Check the
-[release reference](https://docs.ledgence.com/reference/releases) for verified
-registry availability. A source checkout can contain contracts that are not yet
-published. Select the version matching your deployment and pin it in your adapter's
-dependencies. To work against this checkout, use its local package.
+Version 0.9.0 is available from crates.io. Pin it in an adapter targeting Ledgence 0.9.0. For a local source build, use the checkout path shown below. [Release reference](https://docs.ledgence.com/reference/releases).
 
 ```toml
 [dependencies]

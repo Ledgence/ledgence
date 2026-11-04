@@ -3,7 +3,7 @@ title: Share resource offers between queue groups
 description: Give support traffic a weighted turn when batch work is already using the same service.
 ---
 
-**Development feature.** Build the client, orchestrators, workers and Console from the same development checkout. The published 0.8.0 packages do not support weighted resource offers. Apply the migrations and upgrade every orchestrator before enabling the policy.
+**Available in Ledgence 0.9.0.** Build the client, orchestrators, workers and Console from the `v0.9.0` checkout. Apply the migrations and upgrade every orchestrator before enabling the policy.
 
 Suppose a model endpoint allows five simultaneous calls. Batch can use all five when support is quiet. When both queues have work waiting, you want roughly three of each four new offers to go to support. Configure the shared resource once. Existing programs only need to request that resource.
 

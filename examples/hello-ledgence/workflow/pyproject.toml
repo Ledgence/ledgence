@@ -6,8 +6,8 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "ledgence-worker==0.8.0",
-    "ledgence-client==0.8.0",
+    "ledgence-worker==0.9.0",
+    "ledgence-client==0.9.0",
 ]
 
 [tool.uv]

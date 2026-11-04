@@ -8,10 +8,7 @@ self-hosted Ledgence service. The distribution is `ledgence-client`; its public
 import is `ledgence.client`. Python 3.11–3.14 is tested on Linux x86_64 and macOS
 arm64. Public APIs may evolve before version 1.0.
 
-This README describes this package source. Check the
-[release reference](https://docs.ledgence.com/reference/releases) for verified
-registry versions and targets. A source checkout may contain capabilities not yet
-published. The APIs below require matching server support.
+Ledgence 0.9.0 is available on PyPI. Use matching server support. [Release reference](https://docs.ledgence.com/reference/releases).
 
 ## Installation
 
@@ -876,7 +873,7 @@ and [source contract](../../docs/provider-operations.md).
 
 ## Resource policies and admission inspection
 
-Matching development servers expose `client.resources` and `client.admissions`.
+Matching 0.9.0 servers expose `client.resources` and `client.admissions`.
 These provider-neutral APIs require configured credentialed access; installing a
 new client does not enable the server capability. Published availability remains
 in the release reference above.
@@ -969,7 +966,7 @@ contract](../../docs/resource-admission.md#standalone-task-admission).
 
 ### Queue concurrency
 
-Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching development server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](../../docs/queue-concurrency.md).
+Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching 0.9.0 server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](../../docs/queue-concurrency.md).
 
 ## Find outstanding resource sources
 

@@ -3,7 +3,7 @@ title: Connect an MCP client
 description: Discover programs, submit work, and inspect durable executions through the optional Ledgence MCP server.
 ---
 
-Ledgence 0.8.0 includes the optional MCP server in its native bundles and default
+Ledgence 0.9.0 includes the optional MCP server in its native bundles and default
 CLI build. The server connects to your existing Ledgence HTTP API; it does not
 start infrastructure or require an AI framework.
 
@@ -77,16 +77,16 @@ human approval interface or CLI; the MCP server cannot approve its own work.
 Tool outputs are bounded to 2 MiB without truncation; larger results remain
 available through the HTTP API. This version provides stdio tools, not Streamable
 HTTP, model sampling, prompts/resources, package uploads, or MCP Tasks-extension
-state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/mcp.md)
+state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/mcp.md)
 for limits, error semantics, verification and architecture.
 
-Ledgence 0.8.0 exposes `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
+Ledgence 0.9.0 exposes `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
 
 <span id="instance-access-in-development"></span>
 
 ## Instance access
 
-Use scoped credentials with matching 0.8.0 components. The
+Use scoped credentials with matching 0.9.0 components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
 
@@ -102,8 +102,7 @@ Matching builds add `ledgence_audit_query` as a read-only tool. It uses the fixe
 
 ## Retained effect tools
 
-Matching 0.8.0 components add two read-only tools, bringing the native
-catalog with audit configured to 19 tools. Both are available with `--read-only`; the startup scope and credential
+Ledgence 0.9.0 includes both effect-read tools. Both are available with `--read-only`; the startup scope and credential
 remain fixed. Tool arguments cannot override scope, identity or credentials.
 
 | Tool | Arguments and access |
@@ -136,9 +135,7 @@ ledgence mcp serve --server http://127.0.0.1:8080 \
   --allow-effect-resolution
 ```
 
-`--read-only` and `--allow-effect-resolution` cannot be combined. Matching 0.8.0
-builds expose 19 tools by default with audit configured, 14 in read-only mode, or
-20 with resolution enabled.
+`--read-only` and `--allow-effect-resolution` cannot be combined. With audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36.
 The added `ledgence_effect_resolve` also requires the credential's dedicated
 `effect_resolve` capability. Fixed scope and credentials cannot be supplied or
 overridden through tool arguments. Worker credentials cannot resolve effects.
@@ -175,7 +172,7 @@ empty response means absence; denied or unavailable reads remain errors.
 
 ## Inspect provider recovery
 
-Matching 0.8.0 MCP and API builds reuse `ledgence_effect_inbox` and
+Matching 0.9.0 MCP and API builds reuse `ledgence_effect_inbox` and
 `ledgence_effect_inspect`. Set `provider_filter` to `needs_review` to find
 operations needing review; leave ordinary `filter` as `all` or omit it. Other
 provider filters are `all`, `pending`, `succeeded`, `failed`, `cancelled` and
@@ -187,23 +184,27 @@ external success. Platform u64 fields, including probe generations and program
 sizes, are decimal strings; application JSON remains unchanged. The tool count
 and explicit effect-resolution opt-in are unchanged. [Recover provider operations](/how-to/recover-provider-operations).
 
-## Resource tools in development
+<span id="resource-tools-in-development"></span>
 
-Matching source builds add `ledgence_resource_list`, `ledgence_resource_inspect`
+## Resource tools
+
+Matching 0.9.0 builds add `ledgence_resource_list`, `ledgence_resource_inspect`
 and audited `ledgence_admission_inspect`. Explicit `--allow-resource-control`
 adds policy and release tools, subject to `resource_control`. It conflicts with
 `--read-only`. An administrative release acknowledges uncertain usage; it never
 asserts remote success. [Admission guide](/how-to/control-resource-capacity).
 
-Matching development builds add `ledgence_task_admission_inspect` for a task ID
+Matching 0.9.0 builds add `ledgence_task_admission_inspect` for a task ID
 and generation. `ledgence_task_submit` accepts one optional named resource.
 `ledgence_task_admission_release` requires the explicit resource-control opt-in,
 source, inspected revision, request ID and operator reason. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
 
-## Weighted resource offers in development
+<span id="weighted-resource-offers-in-development"></span>
+
+## Weighted resource offers
 
 Call `ledgence_resource_sources` with a resource `name` to inspect charged task, workflow and provider occurrences. Use `state="unknown_occupied"` to focus on unresolved usage and pass `next_cursor` as `cursor` to continue. Each page requires `sensitive_read` and a committed response audit. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
 
 Use `ledgence_resource_decisions` with a resource `name` to inspect each committed weighted offer. Pass `next` back as `before` for older decisions. The tool requires `metadata_read`. Configure queue groups through `ledgence_resource_put` with the resource-control opt-in. [Share capacity across queue groups](/how-to/share-resource-offers).
 
-In development, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.
+In Ledgence 0.9.0, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.

@@ -36,14 +36,12 @@ and [worker helper](sdk/python/README.md) separately; those packages do not star
 a Ledgence instance. Detailed installation options are in
 [the installation guide](docs/installation.md).
 
-**Ledgence 0.8.0** adds recoverable external actions, scoped credentials and
-verified operator assessments. Typed provider operations reconcile uncertain
-outcomes with finite read-only checks while workflows release their worker slots.
-The CLI, Console, Python packages and Rust API crates share version **0.8.0**.
-Native bundles target Linux x86_64/glibc and macOS arm64 and include a matching
+**Ledgence 0.9.0** lets tasks and workflows share named capacity across workers, gives eligible queues weighted turns, and lets a root bound calls and delegations across its owned runs. A worker can poll multiple queues while each queue enforces its own cluster-wide concurrency policy.
+The CLI, Console, Python packages and Rust API crates share version **0.9.0**.
+Native bundles target Linux x86_64 with glibc 2.39 or newer (qualified on Ubuntu 24.04) and macOS arm64 and include a matching
 local Compose kit. The container runtime supports Linux amd64 and arm64.
-See the [release notes](docs/releases/0.8.0.md) and the
-[PostgreSQL upgrade procedure](docs/postgres.md#upgrade-from-070-to-080).
+See the [release notes](docs/releases/0.9.0.md) and the
+[PostgreSQL upgrade procedure](docs/postgres.md#upgrade-from-080-to-090).
 Before 1.0, pin component versions and review the changes before upgrading.
 
 The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
@@ -56,7 +54,7 @@ From a recorded local step in the workflow graph or trace, open the
 [operation inspector](docs/agent-recovery.md#inspect-an-accepted-operation) to see
 the arguments, accepted result and worker attempt that recorded it.
 
-Ledgence 0.8.0 workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write).
+Ledgence 0.9.0 workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write).
 `request_effect_approval` declares its execution contract before approval and
 requires the protected helper for that occurrence.
 After a worker crash, a replacement can look up a refund without issuing it a
@@ -77,7 +75,7 @@ to the inspected revision and exact approved action. Workflows can park with
 slot serves other work. See the [effect-resolution contract](docs/effect-evidence.md)
 for prerequisites, retries and handling of later conflicting evidence.
 
-Matching 0.8.0 components add [provider operations](docs/provider-operations.md).
+Matching 0.9.0 components add [provider operations](docs/provider-operations.md).
 Registered adapters bind the reviewed business identity, target and request to a
 single dispatch grant. Workflows park while bounded read-only probes recover
 pending or uncertain outcomes. The Effects view exposes the policy, reports and
@@ -177,7 +175,7 @@ lives beside the implementation so documentation can evolve with the code.
 
 ## Create a Python program
 
-Start a minimal Python application with the installed Ledgence 0.8.0 CLI,
+Start a minimal Python application with the installed Ledgence 0.9.0 CLI,
 Python 3.11 or newer and uv. Run these commands in your application workspace:
 
 ```sh
@@ -272,7 +270,7 @@ collapsible sidebar and light, dark or system appearance keep the same operator
 views usable across screen sizes. Registered programs and worker process slots
 connect package identity and observed capacity to the work you are inspecting.
 
-Console ships in the 0.8.0 native bundles and the published container runtime.
+Console ships in the 0.9.0 native bundles and the published container runtime.
 The [source Compose deployment](docs/local-deployment.md) remains available.
 Publish and register the local examples, then open `http://127.0.0.1:8080/console/`. The
 [guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through
@@ -285,14 +283,15 @@ multi-tenant administration. [Instance binding](docs/self-hosted-instance.md),
 [query contracts](docs/console-query-model.md), and
 [worker observations](docs/worker-observations.md) describe the operational boundaries.
 
-### Durable resource admission in development
+<span id="durable-resource-admission-in-development"></span>
 
-The development branch adds [resource admission](docs/resource-admission.md):
+### Durable resource admission
+
+Ledgence 0.9.0 supports [resource admission](docs/resource-admission.md):
 workflows park without a worker slot, then invoke one registered operation under
 a shared capacity/rate policy. Lost permissions remain uncertain; accepted results
 and justified capacity release commit together. [Try the local classifier example](examples/resource-admission/README.md).
-This capability requires matching source-built components and migrations; it is
-not part of the published 0.8.0 packages. Protected provider dispatch can also
+Upgrade all components together and apply the database migrations. Protected provider dispatch can also
 share a resource: approval, capacity and the one-shot grant preserve one original
 operation identity. A completed call releases capacity independently of its
 business result. [Try the approved export example](examples/provider-admission/README.md).
@@ -305,13 +304,17 @@ Console can create or edit a named-resource policy. Changes include the expected
 
 Read-only recovery probes remain outside the limit. Workflows can declare a shared budget for calls and delegations across the whole owned run. [Try two reviews with one call](examples/shared-run-budget/README.md).
 
-### Poll several queues with one worker (development)
+<span id="poll-several-queues-with-one-worker-development"></span>
+
+### Poll several queues with one worker
 
 A worker can share its existing concurrency across integrated HTTP queues or across SQS Standard queues. Give
 `ledgence worker connect` a [poll plan](examples/worker-poll-plan.json) to choose
 weighted Stride or a weighted lottery. An empty poll uses a turn; a transport
 retry keeps the original queue. For SQS, pair the plan with a [delivery configuration](examples/delivery-sqs-multi-local.json) mapping each logical queue to its own broker queue. [Configuration and live updates](docs/worker-delivery.md#worker-local-poll-plans-development).
 
-### Limit concurrency per queue (development)
+<span id="limit-concurrency-per-queue-development"></span>
+
+### Limit concurrency per queue
 
 Set a cluster-wide maximum for one queue while other queues continue operating. Change or pause it from Console, HTTP, CLI, Python or MCP. PostgreSQL reserves a slot with each assignment and retains uncertain attempts until confirmed cleanup, explicit operator release or an optional timeout with grace. [Configure and recover a queue limit](docs/queue-concurrency.md).

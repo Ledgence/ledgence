@@ -3,7 +3,7 @@ title: Configure traces, metrics and logs
 description: Export optional OpenTelemetry diagnostics and correlate Python logs with durable Ledgence execution identities.
 ---
 
-Ledgence 0.8.0 exports traces and metrics over **OTLP HTTP/protobuf**. Choose an
+Ledgence 0.9.0 exports traces and metrics over **OTLP HTTP/protobuf**. Choose an
 operator-managed collector or compatible receiver. Self-hosting and Console do
 not require a telemetry provider account.
 
@@ -76,7 +76,7 @@ For custom application spans, supply the optional Python OTel dependencies in
 the program package and use the helper's `ledgence.worker.otel.enable_context()`
 integration with an application-owned provider. The helper does not install an
 exporter or fetch dependencies during execution. See the
-[Python helper contract](https://github.com/Ledgence/ledgence/blob/v0.8.0/sdk/python/README.md#optional-opentelemetry-api-bridge).
+[Python helper contract](https://github.com/Ledgence/ledgence/blob/v0.9.0/sdk/python/README.md#optional-opentelemetry-api-bridge).
 
 ## Interpret execution and capacity
 
@@ -91,7 +91,7 @@ totals after a crash or expose global queue depth, per-queue cost, or a complete
 backlog. Task IDs and business correlation belong in traces/logs and inspection
 APIs, not unbounded metric labels.
 
-Matching 0.9 development builds export `ledgence.admission.start.result` when the orchestrator returns a resource Start outcome and `ledgence.run_budget.refusal` when it observes a budget denial. An exact retry after a lost reply can add an observation. To count authorized calls or investigate the reason for a denial, open the execution’s durable budget entries. [Development metric names and outcomes](https://github.com/Ledgence/ledgence/blob/develop/docs/metrics.md).
+Matching 0.9.0 builds export `ledgence.admission.start.result` when the orchestrator returns a resource Start outcome and `ledgence.run_budget.refusal` when it observes a budget denial. An exact retry after a lost reply can add an observation. To count authorized calls or investigate the reason for a denial, open the execution’s durable budget entries. [Development metric names and outcomes](https://github.com/Ledgence/ledgence/blob/develop/docs/metrics.md).
 
 ## Keep the execution graph authoritative
 
@@ -108,4 +108,4 @@ An unavailable collector after startup does not fail tasks. Telemetry queues,
 export deadlines and shutdown time are bounded, so diagnostics can be dropped.
 Retain the execution records needed for authoritative investigation.
 
-**Source:** [Tracing and log contract](https://github.com/Ledgence/ledgence/blob/develop/docs/observability.md) · [Metric instruments and limits](https://github.com/Ledgence/ledgence/blob/v0.8.0/docs/metrics.md)
+**Source:** [Tracing and log contract](https://github.com/Ledgence/ledgence/blob/develop/docs/observability.md) · [Metric instruments and limits](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/metrics.md)

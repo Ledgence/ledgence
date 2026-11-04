@@ -11,7 +11,7 @@ This version supports bounded HTTP/JSON long polling. Workers request up to 20 s
 
 ## Run a task
 
-Use a matching 0.8.0 source checkout for this walkthrough. Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it. Migration work defaults to a ten-minute budget, configurable with `migrate --timeout-ms`; see [migration execution](postgres.md#migration-execution-budget).
+Use a matching 0.9.0 source checkout for this walkthrough. Build from the repository root with the pinned Rust toolchain and CPython 3.11 or newer. The example uses CPython 3.12 and a local program store shared by the two processes. Supply a PostgreSQL 18 database using `DATABASE_URL`; `migrate` applies the schema explicitly, while `serve` only verifies it. Migration work defaults to a ten-minute budget, configurable with `migrate --timeout-ms`; see [migration execution](postgres.md#migration-execution-budget).
 
 ```sh
 export LEDGENCE_PYTHON="$(command -v python3.12)"
@@ -273,14 +273,14 @@ linked tasks. Ordinary statuses omit those fields.
 
 ## Credential access
 
-Matching 0.8.0 components support optional installation credentials across
+Matching 0.9.0 components support optional installation credentials across
 API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
 Native credential mode requires transactional verified approval attribution and
 audit before sensitive payload responses. [Operator audit](operator-audit.md).
 
-Matching 0.8.0 servers also expose retained approved-effect evidence.
+Matching 0.9.0 servers also expose retained approved-effect evidence.
 `POST /v1/workflows/approved-effects/v2/claim`, `/confirm` and `/observe` require
 verified worker authority. The inbox and inspect routes use their respective
 metadata and sensitive-read permissions. Inspect additionally requires durable
@@ -320,13 +320,15 @@ receipts to 16 KiB. Invalid receipts after a possible commit report uncertainty.
 
 Existing Effects inbox/inspect routes include typed provider evidence and an
 optional `provider_filter`. Inspection remains sensitive and audited. Matching
-Console components in published 0.8.0 use C7; earlier C6 assets must be upgraded
+Console components in 0.9.0 use C14; earlier assets must be upgraded
 together with the server. Worker feature discovery remains opt-in through
 `Ledgence-Worker-Features: 1`; the header-absent response retains the earlier shape.
 
-## Resource admission in development
+<span id="resource-admission-in-development"></span>
 
-The development server exposes bounded, authenticated `/v1/resources/*` and
+## Resource admission
+
+The 0.9.0 server exposes bounded, authenticated `/v1/resources/*` and
 `/v1/admissions/*` routes through an optional portable admission port. Worker
 feature negotiation advertises `resource_admission.v1` independently of effect
 evidence. Start is one-shot; Finish records the result and capacity release
@@ -335,8 +337,7 @@ when protected dispatch and admission are jointly available. Its worker-only
 `/v1/provider-admissions/start` and `/v1/provider-admissions/report` routes commit
 provider permission with capacity, and provider evidence with justified release,
 respectively. Governing a provider binding requires version 2; older version-1
-bindings are unchanged. Development Console assets and server both require C14;
-published 0.8.0 remains C7. [Routes, permissions and recovery contract](resource-admission.md).
+bindings are unchanged. Console assets and server both require C14. [Routes, permissions and recovery contract](resource-admission.md).
 
 Standalone task admission adds authenticated `/v1/task-admissions/sessions`,
 `start`, `close`, `inspect` and `release` operations. Only the first runtime-ready
@@ -344,6 +345,8 @@ Start is executable. `POST /v1/tasks` accepts one optional `input.admission`
 resource requirement; the ordinary worker Dispatch route cannot authorize a
 governed task. See [standalone task admission](resource-admission.md#standalone-task-admission).
 
-## Cluster-wide queue concurrency (development)
+<span id="cluster-wide-queue-concurrency-development"></span>
+
+## Cluster-wide queue concurrency
 
 A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

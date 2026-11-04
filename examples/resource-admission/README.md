@@ -1,7 +1,6 @@
 # Share model-call capacity
 
-**Requires the current development checkout.** Published Ledgence 0.8.0 does not
-include this capability. This example uses a deterministic local HTTP classifier;
+Use the `v0.9.0` source checkout and matching Ledgence components. This example uses a deterministic local HTTP classifier;
 it needs no model subscription, provider key or external service.
 
 Open [`program.py`](program.py) in your editor. Its flow has two entrypoints:
@@ -93,7 +92,7 @@ for approved writes, or use the task example below for whole handler invocations
 
 ## Apply the same resource to a standalone task
 
-With matching development components, publish the [Hello Ledgence task](../hello-ledgence/task)
+With matching 0.9.0 components, publish the [Hello Ledgence task](../hello-ledgence/task)
 for your worker, configure `support-model` as above, and connect an admission-capable
 worker to `demo`. From this directory run:
 

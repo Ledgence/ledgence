@@ -141,7 +141,7 @@ The supplied deployment command is `ledgence orchestrator migrate`, which reads 
 
 Compose `ApplicationService::new(Arc<dyn TaskStore>, Arc<dyn ProgramStore>)` with the PostgreSQL store and the chosen program-store adapter. The service implements `TaskService`. A matching submission replay avoids program resolution; on a new submission, resolution happens before the short acceptance transaction. Concurrent submissions retain the winner's immutable descriptor, digest, input, and origin context. A worker later downloads that bound program if its cache lacks it.
 
-The development standalone-admission migration replaces the integrated queue's
+The 0.9.0 standalone-admission migration replaces the integrated queue's
 ready index with two disjoint partial indexes: ordinary tasks and admitted tasks
 with an offer. Each ready task is indexed once. An older worker probes only the
 ordinary index; a capable worker compares the oldest unlocked candidate in each.
@@ -308,7 +308,9 @@ views are distinct from optional OpenTelemetry exports. Apply the complete
 migration set for the selected executable; the migrations named above explain
 features and are not a subset to install independently.
 
-## Resource authority in development
+<span id="resource-authority-in-development"></span>
+
+## Resource authority
 
 The new admission migration adds scoped policies, durable operation occurrences
 and wait episodes. Apply it explicitly with `ledgence orchestrator migrate` before
@@ -324,7 +326,9 @@ A restored deployment must start with external admission quarantine and provider
 composed grants; late original evidence remains admissible. See
 [resource admission](resource-admission.md#restore-and-operate).
 
-## Cluster-wide queue concurrency (development)
+<span id="cluster-wide-queue-concurrency-development"></span>
+
+## Cluster-wide queue concurrency
 
 A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 

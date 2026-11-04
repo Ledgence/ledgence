@@ -2,7 +2,7 @@
 
 Start with [Choose a local installation](https://docs.ledgence.com/getting-started/installation).
 Choose one route; each gives you an API, Console, PostgreSQL and a Python worker.
-The guides target the published **Ledgence 0.8.0** release.
+The guides target the published **Ledgence 0.9.0** release.
 
 ## Choose what to install
 
@@ -16,7 +16,7 @@ These are complete local setup routes. `ledgence-client` and `ledgence-worker`
 are Python packages for applications, not full platform installers. The
 published Rust crates are APIs for adapters; they are not CLI binaries.
 
-The downloaded CLI is available for Linux x86_64/glibc and macOS arm64. The
+The downloaded CLI is available for Linux x86_64 with **glibc 2.39 or newer** and macOS arm64. The Linux binary is built and natively qualified on Ubuntu 24.04; the glibc minimum alone does not qualify other distributions. The
 container runtime supports Linux amd64 and arm64. See the route's prerequisites
 before choosing it; container support does not imply a native CLI download for
 every host platform.
@@ -44,7 +44,7 @@ This installs the CLI and its matching kit, not Docker or application dependenci
 ## Pin a version or use a custom installation
 
 Use the [installer options](https://docs.ledgence.com/how-to/install-native#shell-setup-and-installer-options)
-for exact versions and custom prefixes. The tutorials use 0.8.0 components.
+for exact versions and custom prefixes. The tutorials use 0.9.0 components.
 For manual checksums and archive extraction, follow
 [manual native installation](https://docs.ledgence.com/how-to/manual-native-installation).
 
@@ -166,7 +166,7 @@ For an existing application that submits work, add the client to that applicatio
 environment with its package manager. For a uv project:
 
 ```sh
-uv add "ledgence-client==0.8.0"
+uv add "ledgence-client==0.9.0"
 ```
 
 The [client README](../sdk/python-client/README.md) and
@@ -178,7 +178,7 @@ optional tracing and the API. Installing a client does not start a server or wor
 For an existing Python program project:
 
 ```sh
-uv add --dev "ledgence-worker==0.8.0"
+uv add --dev "ledgence-worker==0.9.0"
 ```
 
 The helper provides `ledgence.worker` imports and types for your editor and

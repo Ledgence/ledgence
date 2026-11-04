@@ -98,6 +98,7 @@ export function prepareContent() {
     channel: 'release', sourceFeatures, series: release.series, nativeVersion: release.nativeVersion,
     clientVersion: release.clientVersion, rustApiVersion: release.rustApiVersion,
     nativeTargets: release.nativeTargets, verifiedOn: release.verifiedOn,
+    sourceTree: release.sourceTree, artifacts: release.artifacts,
     repository: 'https://github.com/Ledgence/ledgence',
   };
   mkdirSync(join(root, 'src/generated'), { recursive: true });

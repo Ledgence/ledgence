@@ -18,7 +18,7 @@ let driver = DeliveryDriver::new(worker, service, config)?
 let handle = driver.start();
 ```
 
-In development, embedders can pass a `PollPlanner` and a map of queue names to independent `Arc<dyn AcquisitionSource>` instances into `DeliveryDriver::with_planned_sources`. Retain a clone of the planner to install new weights. Every planned queue needs its own source, including disabled routes, and the primary queue must appear in the plan. The driver registers sessions before polling and retains the selected source through uncertain handoffs and shutdown. Integrated delivery continues to support `with_poll_planner`.
+In Ledgence 0.9.0, embedders can pass a `PollPlanner` and a map of queue names to independent `Arc<dyn AcquisitionSource>` instances into `DeliveryDriver::with_planned_sources`. Retain a clone of the planner to install new weights. Every planned queue needs its own source, including disabled routes, and the primary queue must appear in the plan. The driver registers sessions before polling and retains the selected source through uncertain handoffs and shutdown. Integrated delivery continues to support `with_poll_planner`.
 
 `queue` implements the portable `AckQueue` contract. Provider SDKs, credentials,
 and connection configuration remain inside adapters. A separate
@@ -164,7 +164,7 @@ Build optional SQS support explicitly; the default executable builds have no AWS
 cargo build -p ledgence-cli --features sqs --locked
 ```
 
-Both `ledgence orchestrator serve` and `ledgence worker connect` accept `--delivery-config FILE`. They reject this option explicitly when built without `sqs`. Omitting it preserves integrated PostgreSQL acquisition. The original single-route file contains one route and one SQS Standard queue configuration, bounded to 16 KiB including whitespace. Matching development builds also accept the route list described below. Unknown and duplicate fields are rejected. Worker tenant, namespace, and logical queue must match the file exactly before it registers a session.
+Both `ledgence orchestrator serve` and `ledgence worker connect` accept `--delivery-config FILE`. They reject this option explicitly when built without `sqs`. Omitting it preserves integrated PostgreSQL acquisition. The original single-route file contains one route and one SQS Standard queue configuration, bounded to 16 KiB including whitespace. Matching 0.9.0 builds also accept the route list described below. Unknown and duplicate fields are rejected. Worker tenant, namespace, and logical queue must match the file exactly before it registers a session.
 
 The committed [local configuration](../examples/delivery-sqs-local.json) matches the HTTP quickstart's `tenant_example/demo/python-demo` scope and expects an **already created**, dedicated Standard queue named `ledgence` on a local SQS-compatible server at port 9324. Adjust its queue URL to the server's actual returned URL. Ledgence does not create queues or start a broker.
 
@@ -190,15 +190,17 @@ For AWS, supply the real Standard queue URL and region, omit `endpoint_url`, and
 
 The orchestrator validates SQS, prepares the program store, binds its listener, and configures optional notifications before durably activating the route. Failure in these prerequisites leaves routing unchanged. Activation failure shuts down any started notification listener before closing the database pool. A successful activation remains durable even if shutdown arrives during that write. Initial activation requires an empty logical queue, and another logical route cannot reuse its destination alias. Route activation persists across restarts. **At least one orchestrator configured as the publisher for that destination must remain active.** Additional HTTP-only orchestrators may share the database. Removing all publisher configuration does not revert externally routed tasks to PostgreSQL acquisition; their durable intents remain pending until a matching publisher returns.
 
-## Multiple SQS routes in development
+<span id="multiple-sqs-routes-in-development"></span>
+
+## Multiple SQS routes
 
 Provide a `routes` array of 1–64 entries. Each entry has the same `route` and `sqs` fields as the single-route form. The array document is bounded to 1 MiB. Use a single tenant and namespace and distinct logical queue names, destination aliases and physical Standard queues. The worker matches by queue name, so file order is immaterial. A planned SQS worker requires exactly its planned routes, including those with zero weight. A single-queue worker can still use its original one-route file. If a worker subscribes to fewer queues than the orchestrator publishes, give it a route file containing just its subscriptions. For a multi-route file, each broker must return a concrete, distinct queue ARN from `GetQueueAttributes`. Two URL aliases resolving to the same ARN fail startup, even across independent emulators using identical ARNs.
 
 One `ledgence orchestrator serve --delivery-config FILE` can publish all configured routes. It verifies the queues before activation. PostgreSQL activates the route set in one transaction. If a new route is populated or conflicts with an existing binding, the other new routes in that set are rolled back. Existing bindings remain intact. Operators must keep the URL, physical queue and destination alias consistent across publishers and workers. Restart to change route membership or mapping. Updating weights alone needs no restart.
 
-Pair the [local route configuration](../examples/delivery-sqs-multi-local.json) with the [weighted poll plan](../examples/worker-poll-plan.json). The development [walkthrough](../docs-site/src/content/docs/how-to/share-worker-polls.md) uses ElasticMQ.
+Pair the [local route configuration](../examples/delivery-sqs-multi-local.json) with the [weighted poll plan](../examples/worker-poll-plan.json). The [walkthrough](../docs-site/src/content/docs/how-to/share-worker-polls.md) uses ElasticMQ.
 
-To reproduce the local comparison, use the native [multi-queue SQS acceptance tool](../tools/check-multi-queue-sqs.py) with a disposable PostgreSQL server, a loopback ElasticMQ endpoint and a development binary built with `sqs`. The gate records individual submission-to-handler timings, physical receives, genuine empties and observed handler concurrency. It compares a fixed split of five and three consumers to one eight-consumer worker under the same queue limits and receive wait. In the reports-only case, the shared worker receives an explicit weight update.
+To reproduce the local comparison, use the native [multi-queue SQS acceptance tool](../tools/check-multi-queue-sqs.py) with a disposable PostgreSQL server, a loopback ElasticMQ endpoint and a 0.9.0 binary built with `sqs`. The gate records individual submission-to-handler timings, physical receives, genuine empties and observed handler concurrency. It compares a fixed split of five and three consumers to one eight-consumer worker under the same queue limits and receive wait. In the reports-only case, the shared worker receives an explicit weight update.
 
 ## Publication supervision and readiness
 

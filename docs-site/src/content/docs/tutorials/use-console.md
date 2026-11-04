@@ -18,7 +18,7 @@ running. Keep the task ID and workflow ID printed by your `submit.py` files.
 
 Open [http://127.0.0.1:8080/console/](http://127.0.0.1:8080/console/).
 The orchestrator serves Console as part of your local installation. Its main
-sections are **Programs**, **Executions**, **Approvals**, and **Workers**.
+sections include **Programs**, **Executions**, **Approvals**, **Effects**, **Workers**, **Resources** and **Queues**.
 This tutorial starts in **Programs**. If a workflow asks for human approval,
 its request appears in [the approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
 

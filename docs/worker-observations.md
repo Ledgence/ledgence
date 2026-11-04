@@ -69,7 +69,7 @@ records. A session with an active attempt remains protected, including its last
 observation. There is no separate telemetry TTL that bypasses that protection,
 and no growing history of snapshots.
 
-For a development worker using a [poll plan](worker-delivery.md#worker-local-poll-plans-development),
+For a 0.9.0 worker using a [poll plan](worker-delivery.md#worker-local-poll-plans-development),
 the primary session publishes the shared physical worker snapshot. Other
 queue-bound sessions belong to the same runtime. Summing their registered
 concurrency would count the same consumers more than once.

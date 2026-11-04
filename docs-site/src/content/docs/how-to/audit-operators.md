@@ -3,7 +3,7 @@ title: Inspect operator audit
 description: Inspect verified approval and effect-assessment acceptance and durable sensitive-response observations.
 ---
 
-Available in Ledgence 0.8.0 with credentials enabled. Existing operator-trusted
+Available in Ledgence 0.9.0 with credentials enabled. Existing operator-trusted
 installations keep their deployment access boundary.
 
 Native credential mode records verified approval and effect-assessment acceptance
@@ -63,7 +63,7 @@ instance scope, including other operators' identities and resource references.
 The feed is available with configured credential authority. Operator-trusted
 mode has no verified actor to authorize this feed.
 
-Read a bounded page with the 0.8.0 CLI.
+Read a bounded page with the 0.9.0 CLI.
 
 ```sh
 ./target/debug/ledgence audit list \
@@ -122,10 +122,10 @@ Conflicting or mismatched evidence fails the query. Generic revisions are unsign
 64-bit integers. Console uses decimal strings, preserving large revisions.
 
 Each event contains `event_id`, `recorded_at`, `audience`, `actor` and a typed
-`operation`. In published 0.8.0, operations are `approval_accepted`,
+`operation`. Approval, effect and sensitive-read events use `approval_accepted`,
 `effect_resolved` or `sensitive_response`. Those events contain bounded identities
 and operation metadata; action arguments, application results, reviewer labels,
-reasons and bearer credentials are excluded. Development admission events retain
+reasons and bearer credentials are excluded. Admission events retain
 operator reasons as described below.
 Pagination follows an ordering sequence. Sequence allocation is independent of
 transaction commit order, and multiple pages do not form a database snapshot.
@@ -170,10 +170,12 @@ before either generic or Console response bytes are released. Worker claims and
 reported callback results have their own evidence provenance.
 [Retained effect evidence](/how-to/inspect-effects).
 
-## Resource admission audit in development
+<span id="resource-admission-audit-in-development"></span>
 
-Matching development builds add `resource_policy_accepted` and
-`admission_released`; published 0.8.0 does not include them. Policy events identify
+## Resource admission audit
+
+Matching 0.9.0 builds add `resource_policy_accepted` and
+`admission_released`. Policy events identify
 the resource, request, revision and policy digest. Release events identify the
 original admission occurrence, source, request and revision. Both retain and
 return the operator's reason exactly, bounded to 1024 UTF-8 bytes. Frozen callback
