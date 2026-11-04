@@ -15,33 +15,105 @@ pub(super) fn trace_poll(
         sequence = command.sequence, "planned worker poll");
 }
 
-/// Once issued, retain this exact queue/session/consumer/sequence until its
-/// authority is reconciled. Replays, settlement and shutdown don't draw
-/// from the planner or advance service on another route.
+/// The first poll of this handoff chooses the route and enters its source
+/// without another cancellation point. If stop wins before that poll, neither
+/// the planner nor the source observes an issue. Subsequent cancellation or
+/// transport failure reconciles this binding without drawing again.
 pub(super) async fn acquire(
+    routes: &[RegisteredRoute],
+    commands: &[AcquireCommand],
+    planner: Option<&poll_plan::PollPlanner>,
+    config: &DeliveryConfig,
+    shared: &Shared,
+) -> Option<(usize, SourceReply)> {
+    let mut bound = None;
+    let deadline = Instant::now() + config.request_timeout;
+    let first = tokio::select! {
+        biased;
+        _ = shared.stopped() => None,
+        outcome = exchange_until(deadline, || {
+            let selection = match planner {
+                Some(planner) => planner.issue_with_revision().map(|s| (s.route, Some(s.revision))),
+                None => Some((0,None)),
+            };
+            let request = selection.map(|(route,revision)| {
+                let command = &commands[route];
+                let options = AcquireOptions::new(config.acquire_wait, deadline)
+                    .expect("validated acquisition timing");
+                let span = tracing::debug_span!("acquire_bound", queue = %command.queue,
+                    worker_session_id = %command.worker_session_id, consumer_id = command.consumer_id,
+                    sequence = command.sequence, plan_revision = revision);
+                bound = Some((route, revision, span.clone()));
+                let future = span.in_scope(|| {
+                    if let Some(revision) = revision {
+                        trace_poll(command, revision, "worker.poll.issued", None);
+                    }
+                    routes[route].source.acquire(command, options)
+                });
+                future.instrument(span)
+            });
+            // The deadline guard checks again after synchronous construction,
+            // before polling a future that might start remote work.
+            async move {
+                match request {
+                    Some(request) => request.await.map(Some),
+                    None => Ok(None), // paused during consumer reservation
+                }
+            }
+        }) => outcome.transpose(),
+    };
+    let Some((route, revision, span)) = bound else {
+        // Deadline expiry before the source handoff consumed no plan turn.
+        if let Some(Err(error)) = first {
+            shared.error(error);
+            pause(config.retry_delay, shared).await;
+        }
+        return None;
+    };
+    let command = &commands[route];
+    let reply = reconcile(
+        routes[route].source.as_ref(),
+        config,
+        shared,
+        command,
+        first,
+    )
+    .instrument(span)
+    .await?;
+    if let Some(revision) = revision {
+        let outcome = match &reply {
+            SourceReply::Completed(AcquireReply::Empty { .. }) => "empty",
+            SourceReply::Completed(AcquireReply::Assigned { .. }) => "assigned",
+            SourceReply::Completed(AcquireReply::OwnershipLost { .. }) => "ownership_lost",
+            SourceReply::Idle => "idle",
+            SourceReply::Discarded { .. } => "discarded",
+            SourceReply::Stopped { .. } => "stopped",
+        };
+        trace_poll(command, revision, "worker.poll.resolved", Some(outcome));
+    }
+    Some((route, reply))
+}
+
+async fn reconcile(
     source: &dyn AcquisitionSource,
     config: &DeliveryConfig,
     shared: &Shared,
     command: &AcquireCommand,
-    planned: bool,
+    mut first: Option<Result<SourceReply>>,
 ) -> Option<SourceReply> {
-    let mut first_planned = planned;
     loop {
-        let started = Instant::now();
-        // A planned selection was charged at issuance; give that exchange
-        // its first poll before reconciling it. Legacy sources instead
-        // drain immediately when stop has already won, without starting
-        // a fresh broker receive.
-        let draining = !first_planned && shared.stopping();
-        first_planned = false;
-        let max_wait = if draining {
-            Duration::ZERO
+        let result = if let Some(result) = first.take() {
+            result
         } else {
-            config.acquire_wait
-        };
-        let options = AcquireOptions::new(max_wait, started + config.request_timeout)
-            .expect("validated acquisition timing");
-        let result = {
+            let started = Instant::now();
+            let draining = shared.stopping();
+            let wait = if draining {
+                Duration::ZERO
+            } else {
+                config.acquire_wait
+            };
+            let options = AcquireOptions::new(wait, started + config.request_timeout)
+                .expect("validated acquisition timing");
             let request = exchange(config.request_timeout, || {
                 if draining {
                     source.drain(command, options)
@@ -49,18 +121,12 @@ pub(super) async fn acquire(
                     source.acquire(command, options)
                 }
             });
-            tokio::pin!(request);
             tokio::select! {
                 biased;
-                result = &mut request => Some(result),
-                _ = shared.stopped(), if !draining => {
-                    // Reconcile immediately with the same sequence. Dropping
-                    // this future cannot prove that no claim committed.
-                    None
-                }
+                _ = shared.stopped(), if !draining => continue,
+                result = request => result,
             }
         };
-        let Some(result) = result else { continue };
         match result {
             Ok(reply @ (SourceReply::Idle | SourceReply::Stopped { .. })) => {
                 return Some(reply);
@@ -101,66 +167,4 @@ pub(super) async fn acquire(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[derive(Default)]
-    struct PendingSource(Mutex<Vec<&'static str>>);
-
-    impl AcquisitionSource for PendingSource {
-        fn acquire<'a>(
-            &'a self,
-            _: &'a AcquireCommand,
-            _: AcquireOptions,
-        ) -> ContractFuture<'a, SourceReply> {
-            Box::pin(async {
-                self.0.lock().unwrap().push("acquire");
-                std::future::pending().await
-            })
-        }
-        fn drain<'a>(
-            &'a self,
-            _: &'a AcquireCommand,
-            _: AcquireOptions,
-        ) -> ContractFuture<'a, SourceReply> {
-            Box::pin(async {
-                self.0.lock().unwrap().push("drain");
-                Ok(SourceReply::Idle)
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn stop_at_first_exchange_drains_legacy_source_without_a_new_receive() {
-        let config = DeliveryConfig::new(
-            Scope {
-                tenant_id: "t".into(),
-                namespace: "n".into(),
-            },
-            "q",
-        );
-        let command = AcquireCommand {
-            scope: config.scope.clone(),
-            queue: "q".into(),
-            worker_session_id: "worker".into(),
-            consumer_id: 0,
-            sequence: 1,
-        };
-        let shared = Shared {
-            stop: AtomicBool::new(true),
-            stop_changed: tokio::sync::Notify::new(),
-            status: Mutex::default(),
-        };
-        for planned in [false, true] {
-            let source = PendingSource::default();
-            let result = acquire(&source, &config, &shared, &command, planned).await;
-            assert!(matches!(result, Some(SourceReply::Idle)));
-            let expected = if planned {
-                &["acquire", "drain"][..]
-            } else {
-                &["drain"][..]
-            };
-            assert_eq!(*source.0.lock().unwrap(), expected);
-        }
-    }
-}
+mod tests;

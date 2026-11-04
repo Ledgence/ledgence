@@ -14,7 +14,12 @@ use ledgence_orchestration_api::{ContractError, LONG_POLL_WAIT_MS, Scope, valida
 use ledgence_worker_api::{Error, ErrorKind, Result, TraceBridge};
 use ledgence_worker_delivery::{DeliveryConfig, DeliveryDriver, DeliveryHandle};
 use serde_json::json;
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 pub struct ConnectOptions {
     server: String,
@@ -42,9 +47,8 @@ impl ConnectOptions {
                     .parse::<u64>()
                     .map_err(|_| input("invalid acquisition wait"))
             })
-            .transpose()?
-            .unwrap_or(LONG_POLL_WAIT_MS);
-        if acquire_wait_ms > LONG_POLL_WAIT_MS {
+            .transpose()?;
+        if acquire_wait_ms.is_some_and(|wait| wait > LONG_POLL_WAIT_MS) {
             return Err(input("acquisition wait must be between 0 and 20000 ms"));
         }
         let server = required(&mut options, "--server")?;
@@ -60,11 +64,6 @@ impl ConnectOptions {
         let (queue, poll_plan) = match (options.remove("--queue"), options.remove("--poll-plan")) {
             (Some(queue), None) => (queue, None),
             (None, Some(path)) => {
-                if options.contains_key("--delivery-config") {
-                    return Err(input(
-                        "--poll-plan supports integrated HTTP queues; use --queue with --delivery-config",
-                    ));
-                }
                 let file = PlanFile::load(PathBuf::from(path))?;
                 let queue = file
                     .planner()
@@ -82,6 +81,18 @@ impl ConnectOptions {
         let runner = required(&mut options, "--runner")?.into();
         let concurrency = number(options.remove("--concurrency"), 4, "concurrency")?;
         let delivery_config = options.remove("--delivery-config").map(PathBuf::from);
+        let acquire_wait_ms = acquire_wait_ms.unwrap_or_else(|| {
+            if delivery_config.is_some()
+                && poll_plan
+                    .as_ref()
+                    .is_some_and(|file| file.planner().queues().len() > 1)
+            {
+                // An empty long receive holds its consumer on the chosen route.
+                1000
+            } else {
+                LONG_POLL_WAIT_MS
+            }
+        });
         let display_name = options.remove("--display-name");
         check_empty(options)?;
         #[cfg(not(feature = "sqs"))]
@@ -147,7 +158,7 @@ pub async fn run(
             }
         }
     };
-    let broker_source = prepare_broker(&config, client.clone(), signals, interrupted).await?;
+    let mut broker_sources = prepare_broker(&config, client.clone(), signals, interrupted).await?;
     // Reporting has its own bounded JSON executor and connection pool, so a slow
     // observation exchange cannot consume execution-control admission.
     let mut observation_client =
@@ -208,14 +219,18 @@ pub async fn run(
         .with_runtime_features(runtime_access.runtime_features)
         .map_err(contract_error)?;
     let poll_plan = config.poll_plan;
-    if let Some(file) = &poll_plan {
-        driver = driver
+    driver = match &poll_plan {
+        Some(file) if !broker_sources.is_empty() => driver
+            .with_planned_sources(file.planner().clone(), broker_sources)
+            .map_err(contract_error)?,
+        Some(file) => driver
             .with_poll_planner(file.planner().clone())
-            .map_err(contract_error)?;
-    }
-    if let Some(source) = broker_source {
-        driver = driver.with_acquisition_source(source);
-    }
+            .map_err(contract_error)?,
+        None => match broker_sources.pop_first() {
+            Some((_, source)) => driver.with_acquisition_source(source),
+            None => driver,
+        },
+    };
     let mut handle = driver.start();
     let supervise = supervise(
         &mut handle,
@@ -239,9 +254,9 @@ async fn prepare_broker(
     client: Arc<HttpTaskService>,
     signals: &mut ShutdownSignals,
     interrupted: &mut bool,
-) -> Result<Option<Arc<dyn ledgence_worker_delivery::AcquisitionSource>>> {
+) -> Result<BTreeMap<String, Arc<dyn ledgence_worker_delivery::AcquisitionSource>>> {
     let Some(path) = config.delivery_config.clone() else {
-        return Ok(None);
+        return Ok(BTreeMap::new());
     };
     #[cfg(not(feature = "sqs"))]
     {
@@ -253,10 +268,13 @@ async fn prepare_broker(
     #[cfg(feature = "sqs")]
     {
         let scope = config.scope.clone();
-        let queue = config.queue.clone();
+        let queues = config.poll_plan.as_ref().map_or_else(
+            || vec![config.queue.clone()],
+            |p| p.planner().queues().to_vec(),
+        );
         let mut loading = tokio::task::spawn_blocking(move || {
-            let delivery = ledgence_adapter_sqs::deployment::DeliveryConfig::load(&path)?;
-            delivery.validate_worker(&scope, &queue)?;
+            let delivery = ledgence_adapter_sqs::deployment::DeliveryRoutes::load(&path)?;
+            delivery.validate_worker(&scope, &queues)?;
             Ok::<_, ContractError>(delivery)
         });
         let delivery = loop {
@@ -276,9 +294,9 @@ async fn prepare_broker(
                 "delivery configuration interrupted",
             ));
         }
-        let connecting = ledgence_adapter_sqs::SqsQueue::connect(delivery.sqs);
+        let connecting = delivery.connect();
         tokio::pin!(connecting);
-        let sqs = tokio::select! {
+        let routes = tokio::select! {
             biased;
             signal = signals.recv() => {
                 signal?;
@@ -289,9 +307,19 @@ async fn prepare_broker(
             }
             result = &mut connecting => result.map_err(contract_error)?,
         };
-        let source = ledgence_worker_delivery::BrokerAcquisitionSource::new(Arc::new(sqs), client)
+        let mut sources = BTreeMap::new();
+        for (route, queue) in routes {
+            let source = ledgence_worker_delivery::BrokerAcquisitionSource::new(
+                Arc::new(queue),
+                client.clone(),
+            )
             .map_err(contract_error)?;
-        Ok(Some(Arc::new(source)))
+            sources.insert(
+                route.queue,
+                Arc::new(source) as Arc<dyn ledgence_worker_delivery::AcquisitionSource>,
+            );
+        }
+        Ok(sources)
     }
 }
 
@@ -449,12 +477,25 @@ mod tests {
             ["first", "second"]
         );
         supplied.insert("--delivery-config".into(), "external.json".into());
+        #[cfg(feature = "sqs")]
+        {
+            let parse = |args| ConnectOptions::parse(args).unwrap().acquire_wait;
+            assert_eq!(parse(supplied.clone()), Duration::from_secs(1));
+            for wait in [0, 500, 20_000] {
+                let mut args = supplied.clone();
+                args.insert("--acquire-wait-ms".into(), wait.to_string());
+                assert_eq!(parse(args), Duration::from_millis(wait));
+            }
+            std::fs::write(&file,r#"{"schema_version":1,"revision":1,"strategy":"stride","queues":[{"queue":"one","weight":1}]}"#).unwrap();
+            assert_eq!(parse(supplied), Duration::from_secs(20));
+        }
+        #[cfg(not(feature = "sqs"))]
         assert!(
             ConnectOptions::parse(supplied)
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("integrated HTTP")
+                .contains("sqs feature")
         );
         let mut missing = options(None);
         missing.remove("--queue");

@@ -195,7 +195,7 @@ resource before handler invocation. Fair sharing and inherited budgets remain de
 
 ## In development: worker poll shares
 
-[Configure a worker to poll multiple integrated queues](/how-to/share-worker-polls)
+[Configure a worker to poll multiple integrated or SQS Standard queues](/how-to/share-worker-polls)
 with one concurrency budget. Choose deterministic Stride or weighted lottery,
 then adjust the weights without interrupting active tasks.
 

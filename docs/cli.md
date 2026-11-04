@@ -514,9 +514,8 @@ The JSON command passed to `ledgence task submit` accepts optional
 `input.admission: {"resource":"support-model"}` in matching development builds.
 See [standalone task admission](resource-admission.md#standalone-task-admission).
 
-## Connect one worker to multiple HTTP queues (development)
+## Connect one worker to multiple queues (development)
 
-Use `--poll-plan FILE` in place of `--queue NAME` for integrated HTTP delivery.
+Use `--poll-plan FILE` in place of `--queue NAME` for integrated HTTP or SQS delivery.
 The regular JSON file contains a revision, strategy and queue weights. Publish
-updates by replacing the file atomically at the same path. A plan cannot be
-combined with `--delivery-config`. [Plan schema, scope and recovery](worker-delivery.md#worker-local-poll-plans-development).
+updates by replacing the file atomically at the same path. To consume from SQS, add `--delivery-config FILE` with the same queue names and scope. A worker polling multiple SQS routes defaults to a one-second receive wait. The existing single-queue and integrated modes keep their 20-second defaults. [Plan schema, scope and recovery](worker-delivery.md#worker-local-poll-plans-development).

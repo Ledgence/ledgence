@@ -455,9 +455,9 @@ command accepts a source-bound saved task release. [Task resource admission](/ho
 
 ## Worker poll plans (development)
 
-`ledgence worker connect --poll-plan FILE` selects among integrated HTTP queues
+`ledgence worker connect --poll-plan FILE` selects among integrated HTTP or SQS Standard queues
 with weighted Stride or lottery. Supply it instead of `--queue`; use a matching
-development build. [Configuration and live reload](/how-to/share-worker-polls).
+development build. For SQS, add `--delivery-config FILE` with exactly the plan’s queue names. A multi-queue SQS plan defaults to a one-second receive wait. [Configuration and live reload](/how-to/share-worker-polls).
 
 ## Queue concurrency in development
 

@@ -219,7 +219,7 @@ const COMMANDS: &[Leaf] = &[
         group: "worker",
         name: "connect",
         options: "[--credentials-file FILE] --server URL --tenant ID --namespace ID (--queue NAME | --poll-plan FILE) --store DIR_OR_URL --cache DIR --python EXE [--runner BOOTSTRAP] [--concurrency N] [--acquire-wait-ms MS] [--delivery-config FILE] [--display-name NAME]",
-        description: "Acquire tasks, renew leases, and reconcile durable results. The installed runtime helper is used when available; otherwise --runner is required. One concurrency setting controls consumers and the reusable process pool. The first shutdown signal drains; a second forces a nonzero exit with unresolved work. Use --poll-plan for multiple integrated HTTP queues. SQS delivery uses --queue and requires the sqs build feature.",
+        description: "Acquire tasks, renew leases, and reconcile durable results. The installed runtime helper is used when available; otherwise --runner is required. One concurrency setting controls consumers and the reusable process pool. The first shutdown signal drains; a second forces a nonzero exit with unresolved work. Use --poll-plan for multiple integrated HTTP queues or multiple SQS Standard queues with a matching --delivery-config and the sqs build feature. Multi-queue SQS defaults to a 1s receive wait. Use --acquire-wait-ms to tune latency and empty receives.",
     },
     Leaf {
         group: "orchestrator",

@@ -7,7 +7,7 @@ const PUBLICATION_REPAIR_MS: u64 = 60_000;
 
 impl DispatchIntentStore for PostgresStore {
     fn configure_route<'a>(&'a self, route: &'a DispatchRoute) -> ContractFuture<'a, ()> {
-        Box::pin(self.run(move || self.configure_route_once(route)))
+        Box::pin(self.configure_routes(std::slice::from_ref(route)))
     }
 
     fn lease_publications<'a>(
@@ -33,11 +33,49 @@ impl DispatchIntentStore for PostgresStore {
 }
 
 impl PostgresStore {
-    async fn configure_route_once(&self, route: &DispatchRoute) -> StoreResult<()> {
-        route.validate()?;
-        self.require_scope(&route.scope)?;
+    /// Activate a bounded set of external routes atomically. Already active routes
+    /// must retain their destination. Integrated queues must be drained first.
+    pub async fn configure_routes(&self, routes: &[DispatchRoute]) -> Result<()> {
+        if !(1..=MAX_DISPATCH_ROUTES).contains(&routes.len()) {
+            return Err(ContractError::InvalidInput(
+                "invalid dispatch route count".into(),
+            ));
+        }
+        let mut ordered: Vec<_> = routes.iter().collect();
+        let mut destinations = std::collections::HashSet::new();
+        for route in &ordered {
+            route.validate()?;
+            self.require_scope(&route.scope)?;
+            if route.scope != routes[0].scope || !destinations.insert(&route.destination) {
+                return Err(ContractError::InvalidInput(
+                    "dispatch routes must share one scope and use distinct destinations".into(),
+                ));
+            }
+        }
+        // Replicas may load the same configuration in a different file order.
+        ordered.sort_unstable_by(|a, b| a.queue.cmp(&b.queue));
+        if ordered
+            .windows(2)
+            .any(|pair| pair[0].queue == pair[1].queue)
+        {
+            return Err(ContractError::InvalidInput(
+                "duplicate dispatch queue".into(),
+            ));
+        }
+        self.run(|| self.configure_routes_once(&ordered)).await
+    }
+
+    async fn configure_routes_once(&self, ordered: &[&DispatchRoute]) -> StoreResult<()> {
         let mut connection = self.transaction_connection().await?;
         let mut tx = connection.begin_write().await?;
+        for route in ordered {
+            Self::activate_route(&mut tx, route).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn activate_route(tx: &mut sqlx::PgConnection, route: &DispatchRoute) -> StoreResult<()> {
         sqlx::query("INSERT INTO dispatch_routes(tenant_id,namespace,queue) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
             .bind(&route.scope.tenant_id).bind(&route.scope.namespace).bind(&route.queue)
             .execute(&mut *tx).await?;
@@ -59,16 +97,21 @@ impl PostgresStore {
                     )
                     .into());
                 }
-                sqlx::query("UPDATE dispatch_routes SET destination=$4 WHERE tenant_id=$1 AND namespace=$2 AND queue=$3")
+                let activated: Option<String> = sqlx::query_scalar("UPDATE dispatch_routes SET destination=$4 WHERE tenant_id=$1 AND namespace=$2 AND queue=$3 RETURNING destination")
                     .bind(&route.scope.tenant_id).bind(&route.scope.namespace).bind(&route.queue).bind(&route.destination)
-                    .execute(&mut *tx).await.map_err(|error| {
+                    .fetch_optional(&mut *tx).await.map_err(|error| {
                         if error.as_database_error().is_some_and(|error| error.code().as_deref() == Some("23505")) {
                             StoreError::Contract(ContractError::Conflict)
                         } else { StoreError::Database(error) }
                     })?;
+                if activated.as_ref() != Some(&route.destination) {
+                    return Err(ContractError::Unavailable(
+                        "dispatch route activation was not persisted".into(),
+                    )
+                    .into());
+                }
             }
         }
-        tx.commit().await?;
         Ok(())
     }
 

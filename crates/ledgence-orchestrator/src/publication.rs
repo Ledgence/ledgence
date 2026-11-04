@@ -7,7 +7,8 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::watch, time::Instant};
+use tokio::{sync::watch, task::JoinSet, time::Instant};
+use tracing::instrument::WithSubscriber;
 
 const BATCH_BUDGET: Duration = Duration::from_secs(25);
 const IDLE_INTERVAL: Duration = Duration::from_millis(100);
@@ -18,6 +19,58 @@ const PROBE_INTERVAL: Duration = Duration::from_secs(5);
 /// The composition supplies an actual provider configuration check. There is no
 /// default success probe and no implication that an empty DB poll reached SQS.
 pub type ConfigurationProbe = Arc<dyn Fn() -> ContractFuture<'static, ()> + Send + Sync>;
+
+/// A fresh route gets its own backoff, broker health and publication loop.
+pub(super) fn start(
+    store: Arc<dyn DispatchIntentStore>,
+    brokers: Vec<(DispatchRoute, ledgence_adapter_sqs::SqsQueue)>,
+    health: Health,
+) -> Option<super::BackgroundTask> {
+    if brokers.is_empty() {
+        return None;
+    }
+    let (stop, stopped) = watch::channel(false);
+    let mut routes = JoinSet::new();
+    for (route, queue) in brokers {
+        health.require_publication(&route.destination);
+        let queue = Arc::new(queue);
+        let checked_queue = queue.clone();
+        let probe: ConfigurationProbe = Arc::new(move || {
+            let checked = checked_queue.clone();
+            Box::pin(async move { checked.check_configuration().await })
+        });
+        routes.spawn(
+            run(
+                store.clone(),
+                queue,
+                route,
+                probe,
+                health.clone(),
+                stopped.clone(),
+            )
+            .with_current_subscriber(),
+        );
+    }
+    let task = tokio::spawn(drain_routes(routes, stop.clone()).with_current_subscriber());
+    Some(super::BackgroundTask { task, stop })
+}
+
+/// A fatal route stops fresh leases on every sibling. Retain all in-flight
+/// publication batches (and their exact acknowledgements) before returning.
+async fn drain_routes(mut routes: JoinSet<Result<()>>, stop: watch::Sender<bool>) -> Result<()> {
+    let mut failure = None;
+    while let Some(result) = routes.join_next().await {
+        let error = match result {
+            Ok(Ok(())) if *stop.borrow() => continue,
+            Ok(Ok(())) => unavailable("publication route exited unexpectedly"),
+            Ok(Err(error)) => error,
+            Err(_) => unavailable("publication route task failed"),
+        };
+        failure.get_or_insert(error);
+        stop.send_replace(true);
+    }
+    failure.map_or(Ok(()), Err)
+}
 
 pub async fn run(
     store: Arc<dyn DispatchIntentStore>,
@@ -35,7 +88,7 @@ pub async fn run(
             "publisher cannot carry dispatch envelopes".into(),
         ));
     }
-    let _lifetime = PublicationLifetime(health.clone());
+    let _lifetime = PublicationLifetime(health.clone(), route.destination.clone());
     let mut backoff = INITIAL_BACKOFF;
     let mut broker_unavailable = false;
     let mut last_probe = Instant::now();
@@ -65,10 +118,12 @@ pub async fn run(
         match result {
             Ok(progress) if progress.failed => {
                 broker_unavailable = true;
-                health.publication_failure("publication_unavailable");
+                health.publication_failure(&route.destination, "publication_unavailable");
                 delay = backoff;
                 backoff = backoff.saturating_mul(2).min(MAX_BACKOFF);
                 tracing::warn!(
+                    queue = %route.queue,
+                    destination = %route.destination,
                     retry_ms = delay.as_millis() as u64,
                     "publication unavailable; retaining retryable durable intents"
                 );
@@ -90,12 +145,12 @@ pub async fn run(
                     }
                 }
                 if !broker_unavailable {
-                    health.publication_success();
+                    health.publication_success(&route.destination);
                     backoff = INITIAL_BACKOFF;
                 } else {
                     // Empty due batches may hide delayed retries or retained
                     // uncertain leases. They cannot clear a broker outage.
-                    health.publication_failure("publication_unavailable");
+                    health.publication_failure(&route.destination, "publication_unavailable");
                     delay = MAX_BACKOFF;
                 }
                 if progress.leased == limits.max_publish_batch as usize {
@@ -106,19 +161,21 @@ pub async fn run(
                 }
             }
             Err(ContractError::Unavailable(_)) => {
-                health.publication_failure("publication_unavailable");
+                health.publication_failure(&route.destination, "publication_unavailable");
                 // A batch error can follow an uncertain send/commit, so the next
                 // empty poll also needs positive provider evidence to recover.
                 broker_unavailable = true;
                 delay = backoff;
                 backoff = backoff.saturating_mul(2).min(MAX_BACKOFF);
                 tracing::warn!(
+                    queue = %route.queue,
+                    destination = %route.destination,
                     retry_ms = delay.as_millis() as u64,
                     "publication state unavailable; leased intents remain recoverable"
                 );
             }
             Err(error) => {
-                health.publication_failure("publication_failed");
+                health.publication_failure(&route.destination, "publication_failed");
                 return Err(error);
             }
         }
@@ -236,10 +293,10 @@ fn validated_outcomes(
 fn unavailable(message: &str) -> ContractError {
     ContractError::Unavailable(message.into())
 }
-struct PublicationLifetime(Health);
+struct PublicationLifetime(Health, String);
 impl Drop for PublicationLifetime {
     fn drop(&mut self) {
-        self.0.publication_failure("publication_stopped");
+        self.0.publication_failure(&self.1, "publication_stopped");
     }
 }
 

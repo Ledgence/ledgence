@@ -42,9 +42,7 @@ An incompatible worker fails before entering the registered application callback
 Its allocated check still consumes the finite budget and may require operator review.
 
 With SQS or ElasticMQ, configure an external delivery route for both logical
-queues. Each orchestrator delivery configuration routes one queue, so run one
-publisher process per queue against the same database and authority. Both
-processes need the same provider policy and authenticated access configuration.
+queues. With 0.8.0, run one publisher process per queue against the same database and authority. Both processes need the same provider policy and authenticated access configuration. A development orchestrator can serve both queues with one [route list](dispatch-delivery.md#multiple-sqs-routes-in-development).
 Use the matching external delivery configuration on each worker. The
 [provider recovery example](../examples/provider-recovery/README.md#run-the-local-demonstration-from-the-checkout)
 includes a local ElasticMQ check of probe delivery and a lost report reply.

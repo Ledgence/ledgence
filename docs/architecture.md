@@ -204,7 +204,7 @@ source closure can arrive in either order. An adapter offering only part of
 this protocol cannot accept governed submissions. [Task contract and limits](resource-admission.md#standalone-task-admission).
 
 In development, the [worker-local poll planner](worker-delivery.md#worker-local-poll-plans-development)
-selects among registered integrated HTTP queues before a fresh acquisition.
+selects a registered queue before issuing a fresh poll. An integrated worker uses one HTTP service. An SQS worker binds each session to its own acquisition source and retains the selected route through receive, claim and acknowledgment.
 A single physical worker still owns one concurrency budget; its queue sessions
 carry the backend identities needed for retries. Resource admission is evaluated
 separately.

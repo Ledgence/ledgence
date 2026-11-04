@@ -122,10 +122,15 @@ pub struct SqsQueue {
     client: Client,
     options: SqsOptions,
     receipt_prefix: String,
+    queue_arn: Option<String>,
 }
 impl SqsQueue {
     /// Load credentials and verify queue capabilities within one finite budget.
     pub async fn connect(options: SqsOptions) -> Result<Self> {
+        Self::connect_route(options, false).await
+    }
+
+    async fn connect_route(options: SqsOptions, identify: bool) -> Result<Self> {
         let transport = options.validated_transport()?;
         let deadline = Instant::now() + options.operation_timeout;
         let client = run_until(deadline, "configuration", async {
@@ -156,7 +161,7 @@ impl SqsQueue {
             Ok(Client::from_conf(builder.build()))
         })
         .await?;
-        verify_configuration(&client, &options, deadline).await?;
+        let queue_arn = verify_configuration(&client, &options, deadline, identify).await?;
         let source = NEXT_SOURCE_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| unavailable("SQS source identity exhausted"))?;
@@ -164,6 +169,7 @@ impl SqsQueue {
             client,
             options,
             receipt_prefix: format!("sqs:{source}:"),
+            queue_arn,
         })
     }
 
@@ -171,12 +177,17 @@ impl SqsQueue {
     /// Supervisors may use this bounded probe to recover health after an outage;
     /// an empty dispatch-intent scan alone provides no provider-health evidence.
     pub async fn check_configuration(&self) -> Result<()> {
-        verify_configuration(
+        let identity = verify_configuration(
             &self.client,
             &self.options,
             Instant::now() + self.options.operation_timeout,
+            self.queue_arn.is_some(),
         )
-        .await
+        .await?;
+        if identity != self.queue_arn {
+            return Err(invalid("SQS queue identity changed"));
+        }
+        Ok(())
     }
 
     fn deadline(&self, requested: Instant) -> Instant {
@@ -389,14 +400,19 @@ async fn verify_configuration(
     client: &Client,
     options: &SqsOptions,
     deadline: Instant,
-) -> Result<()> {
+    identify: bool,
+) -> Result<Option<String>> {
     let attributes = run_until(deadline, "queue verification", async {
-        client
+        let mut request = client
             .get_queue_attributes()
             .queue_url(&options.queue_url)
             .attribute_names(QueueAttributeName::FifoQueue)
             .attribute_names(QueueAttributeName::MaximumMessageSize)
-            .attribute_names(QueueAttributeName::DelaySeconds)
+            .attribute_names(QueueAttributeName::DelaySeconds);
+        if identify {
+            request = request.attribute_names(QueueAttributeName::QueueArn);
+        }
+        request
             .send()
             .await
             .map_err(|_| unavailable("SQS queue verification failed"))
@@ -436,7 +452,23 @@ async fn verify_configuration(
         None if options.endpoint_url.is_some() => {}
         None => return Err(unavailable("SQS maximum message size missing")),
     }
-    Ok(())
+    if !identify {
+        return Ok(None);
+    }
+    let arn = values
+        .get(&QueueAttributeName::QueueArn)
+        .ok_or_else(|| invalid("multi-route SQS delivery requires a queue ARN"))?;
+    let parts: Vec<_> = arn.split(':').collect();
+    if !matches!(parts.as_slice(), ["arn", partition, "sqs", region, account, name]
+        if !partition.is_empty() && !region.is_empty() && !account.is_empty() && !name.is_empty())
+        || arn.len() > 512
+        || !arn
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b":_-.".contains(&c))
+    {
+        return Err(invalid("invalid SQS queue ARN"));
+    }
+    Ok(Some(arn.clone()))
 }
 
 fn batch_confirmations<'a>(
