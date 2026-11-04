@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Real Console, authenticated backend and queue authority. No route interception.
 import { randomUUID } from "node:crypto";
+import type { QueueSnapshot } from "../../src/api/queue-policies";
 import { login } from "./credential-session";
 import { test, expect, type Page } from "@playwright/test";
 
-async function sendChange(page: Page) {
+async function saveAndInspect(page: Page, queue: string) {
   const wire = page.waitForResponse(
     (r) =>
       new URL(r.url()).pathname === "/v1/console/queue-policies/put" &&
@@ -13,18 +14,28 @@ async function sendChange(page: Page) {
   await page.getByRole("button", { name: "Save policy" }).click();
   const response = await wire;
   expect(response.status()).toBe(200);
-  return response.json() as Promise<{
-    record: {
-      revision: string;
-      policy: {
-        max_concurrency: number | null;
-        timeout: null | {
-          after_ms: number;
-          release: { mode: string; grace_ms?: number };
-        };
-      };
-    };
-  }>;
+  await expect(page.getByRole("button", { name: "Edit policy" })).toBeEnabled();
+  // Navigation after saving can discard the browser response body. Inspect the
+  // committed policy with the same operator session used for the edit.
+  const origin = new URL(page.url()).origin;
+  const actor = response.request().headers()["x-ledgence-actor"];
+  if (!actor)
+    throw new Error("The policy edit did not bind its Console actor.");
+  const snapshot = await page.request.post(
+    origin + "/v1/console/queue-policies/inspect",
+    {
+      headers: {
+        Origin: origin,
+        "X-Ledgence-Console-Origin": origin,
+        "X-Ledgence-Actor": actor,
+      },
+      data: { queue },
+    },
+  );
+  expect(snapshot.status()).toBe(200);
+  const saved = (await snapshot.json()) as QueueSnapshot;
+  expect(saved.record.queue).toBe(queue);
+  return saved;
 }
 
 test("operator manages real queue capacity and a metadata reader cannot change it", async ({
@@ -53,22 +64,19 @@ test("operator manages real queue capacity and a metadata reader cannot change i
   await page
     .getByLabel("Reason for this change")
     .fill("Browser qualification of a downstream concurrency limit");
-  let receipt = await sendChange(page);
-  expect(receipt.record).toMatchObject({
+  let snapshot = await saveAndInspect(page, name);
+  expect(snapshot.record).toMatchObject({
     revision: "1",
     policy: { max_concurrency: 5, timeout: null },
   });
-  await expect(
-    page.getByRole("heading", { name: "Current policy" }),
-  ).toBeVisible();
   await page.getByRole("button", { name: "Edit policy" }).click();
   await expect(
     page.getByText("On first enrollment", { exact: false }),
   ).toHaveCount(0);
   await page.getByLabel("Concurrency policy").selectOption("paused");
   await page.getByLabel("Reason for this change").fill("Pause new work");
-  receipt = await sendChange(page);
-  expect(receipt.record).toMatchObject({
+  snapshot = await saveAndInspect(page, name);
+  expect(snapshot.record).toMatchObject({
     revision: "2",
     policy: { max_concurrency: 0 },
   });
@@ -83,8 +91,8 @@ test("operator manages real queue capacity and a metadata reader cannot change i
   await page
     .getByLabel("Reason for this change")
     .fill("Bound the time to stop with explicit grace");
-  receipt = await sendChange(page);
-  expect(receipt.record).toMatchObject({
+  snapshot = await saveAndInspect(page, name);
+  expect(snapshot.record).toMatchObject({
     revision: "3",
     policy: {
       max_concurrency: 2,
@@ -119,8 +127,8 @@ test("operator manages real queue capacity and a metadata reader cannot change i
   await page
     .getByLabel("Reason for this change")
     .fill("Finish this disposable qualification");
-  receipt = await sendChange(page);
-  expect(receipt.record).toMatchObject({
+  snapshot = await saveAndInspect(page, name);
+  expect(snapshot.record).toMatchObject({
     revision: "4",
     policy: { max_concurrency: null, timeout: null },
   });
