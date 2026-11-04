@@ -1,6 +1,6 @@
 # Operator audit
 
-Available in Ledgence 0.8.0 with credentials enabled. Existing operator-trusted
+Available in Ledgence 0.9.0 with credentials enabled. Existing operator-trusted
 installations keep their deployment access boundary.
 
 Native credential mode records verified approval and effect-assessment acceptance
@@ -60,7 +60,7 @@ instance scope, including other operators' identities and resource references.
 The feed is available with configured credential authority. Operator-trusted
 mode has no verified actor to authorize this feed.
 
-Read a bounded page with the 0.8.0 CLI.
+Read a bounded page with the 0.9.0 CLI.
 
 ```sh
 ./target/debug/ledgence audit list \
@@ -117,10 +117,10 @@ Conflicting or mismatched evidence fails the query. Generic revisions are unsign
 64-bit integers. Console uses decimal strings, preserving large revisions.
 
 Each event contains `event_id`, `recorded_at`, `audience`, `actor` and a typed
-`operation`. In published 0.8.0, operations are `approval_accepted`,
+`operation`. Approval, effect and sensitive-read events use `approval_accepted`,
 `effect_resolved` or `sensitive_response`. Those events contain bounded identities
 and operation metadata; action arguments, application results, reviewer labels,
-reasons and bearer credentials are excluded. Development admission events retain
+reasons and bearer credentials are excluded. Admission events retain
 operator reasons as described below.
 Pagination follows an ordering sequence. Sequence allocation is independent of
 transaction commit order, and multiple pages do not form a database snapshot.
@@ -174,10 +174,12 @@ provider targets, bindings or reports requires the same sensitive permission
 and durable read observation through generic and Console aliases.
 [Provider operations](provider-operations.md).
 
-## Resource admission audit in development
+<span id="resource-admission-audit-in-development"></span>
 
-Matching development builds add `resource_policy_accepted`, `admission_released`
-and `task_admission_released`; these operations are not in published 0.8.0. Policy events
+## Resource admission audit
+
+Matching 0.9.0 builds add `resource_policy_accepted`, `admission_released`
+and `task_admission_released`. Policy events
 record the resource name, request ID, accepted revision, policy digest and
 operator reason. Release events record the original admission occurrence,
 source ID, request ID, accepted revision and operator reason. The reason is

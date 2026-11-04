@@ -113,7 +113,7 @@ its operational dead-letter handling for records retained beyond that boundary.
 
 ## Unresolved approved writes
 
-Ledgence 0.8.0 retains a workflow with an unresolved `approved_effect`
+Ledgence 0.9.0 retains a workflow with an unresolved `approved_effect`
 after it becomes eligible by age. For example, cancelling a refund workflow
 after dispatch leaves its approval, attempts and journal available for
 investigation. The hold starts in the transaction that grants dispatch. A
@@ -139,7 +139,7 @@ operator assessments and acceptance receipts survive. Their retained
 ledger has no automatic expiry, including after `close_unknown` or later
 `disputed` evidence. Closing handling neither removes evidence nor revives work.
 
-Provider operations in 0.8.0 also release their unresolved hold
+Provider operations in 0.9.0 also release their unresolved hold
 when typed provider knowledge becomes terminal. They deliberately have no local
 journal result. An operator assessment releases the hold even when provider
 knowledge remains unknown or disputed. Cancelling a workflow alone does not
@@ -194,7 +194,7 @@ its timing is diagnostic, not a production capacity guarantee.
 
 ## Operator audit
 
-Matching 0.8.0 schemas add a fourth bounded maintenance lane for expired
+Matching 0.9.0 schemas add a fourth bounded maintenance lane for expired
 sensitive-response observations. The selected retention interval has the same
 90-day minimum. Preview reports `audit_observation_candidates`; applying removes
 at most the configured batch size in each observation transaction. Approval
@@ -203,7 +203,9 @@ and currently have no automatic expiry.
 Execution retention and acceptance evidence therefore have separate lifetimes.
 [Operator audit](operator-audit.md#retention-and-operating-limits).
 
-## Retained admission usage in development
+<span id="retained-admission-usage-in-development"></span>
+
+## Retained admission usage
 
 Admission sources with unresolved occupancy remain durable after workflow
 termination. Workflow cleanup must not erase outstanding capacity obligations.

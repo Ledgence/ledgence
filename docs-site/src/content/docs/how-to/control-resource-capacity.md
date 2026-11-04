@@ -3,8 +3,7 @@ title: Share capacity across model and tool calls
 description: Park workflows while a resource is full, then run a registered operation and retain its result.
 ---
 
-**In development.** Use matching components built from this checkout, including
-migrations and Console C14. Published 0.8.0 packages do not contain this capability. On existing databases,
+**Available in Ledgence 0.9.0.** Use matching components, apply the migrations and deploy Console C14. On existing databases,
 rehearse the migration on a representative restore: rebuilding the task queue indexes
 can block writes.
 
@@ -151,7 +150,7 @@ admission = ProviderAdmissionRequirement(resource="export-dispatch")
 
 Pass `admission=admission` alongside the existing business, target and recovery
 fields in your adapter's `binding(...)` call. This creates a version-2 provider binding. Enable both provider recovery and admission
-on every API replica; all components must come from this development checkout.
+on every API replica; all components must come from the same 0.9.0 release.
 The accepted approval freezes the resource, arguments, adapter and program together.
 
 The [approved export example](https://github.com/Ledgence/ledgence/tree/develop/examples/provider-admission)
@@ -232,7 +231,7 @@ task = await client.tasks.submit(
 )
 ```
 
-Use a matching development worker and already configured named resource. While
+Use a matching 0.9.0 worker and already configured named resource. While
 waiting for capacity the task stays queued without occupying a process. The worker
 prepares the program before requesting permission to invoke its handler. Put the
 work you want controlled **inside the handler**, not at module import time.
@@ -268,7 +267,9 @@ approval that holds capacity. Use the exact occurrence for a separately audited
 inspection before considering a release. A release frees capacity and cannot
 establish that remote work stopped.
 
-## Queue concurrency in development
+<span id="queue-concurrency-in-development"></span>
+
+## Queue concurrency
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
 

@@ -2,128 +2,152 @@
   "pythonWorkerPackage": {
     "title": "Local Python worker helper installation for program development",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/develop-python-programs",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "console": {
     "availability": "release",
-    "sourceRef": "v0.8.0",
-    "verifiedOn": "2026-11-03",
-    "guide": "/tutorials/use-console"
+    "sourceRef": "v0.9.0",
+    "verifiedOn": "2026-11-04",
+    "guide": "/tutorials/use-console",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "installer": {
     "title": "One-line CLI installation and shell setup",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/install-native#one-line-installation",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "localDistribution": {
     "title": "Local stack from container images and CLI lifecycle",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/run-local-distribution",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "programPublication": {
     "title": "Explicit program builds, immutable HTTP publication and saved retry receipts",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/build-and-publish-programs",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "programScaffolding": {
     "title": "Offline Python task and workflow project scaffolding",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/develop-python-programs#create-a-project-with-the-cli",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "approvalInbox": {
     "title": "Approval inbox across workflows",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/require-approval#find-pending-requests-across-workflows",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "durableOperationInspector": {
     "title": "Inspect an accepted durable operation",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/reference/console#inspect-an-accepted-operation",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "approvedExternalWrites": {
     "title": "One dispatch grant per approved external write",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/require-approval#protect-an-approved-write-in-development",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "instanceAccess": {
     "title": "Scoped operator and worker credentials",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/configure-instance-access",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "operatorAudit": {
     "title": "Verified approval attribution and durable response audit",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/audit-operators",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "effectEvidence": {
     "title": "Retained approved-effect claims and reported outcomes",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/inspect-effects",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "nativeEffectResolution": {
     "title": "Revision-bound operator assessments and worker-free effect waits",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/inspect-effects",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "providerOperations": {
     "title": "Approval-bound provider identities and bounded worker-free recovery",
     "availability": "release",
-    "sourceRef": "v0.8.0",
+    "sourceRef": "v0.9.0",
     "guide": "/how-to/recover-provider-operations",
-    "verifiedOn": "2026-11-03"
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "resourceAdmission": {
     "title": "Shared capacity, resource policy management and audited source inspection",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/control-resource-capacity"
+    "availability": "release",
+    "sourceRef": "v0.9.0",
+    "guide": "/how-to/control-resource-capacity",
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "runBudgets": {
     "title": "Inherited run budgets for governed calls and delegations",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/share-run-budgets"
+    "availability": "release",
+    "sourceRef": "v0.9.0",
+    "guide": "/how-to/share-run-budgets",
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "resourceFairSharing": {
     "title": "Weighted resource offers between queue groups with scoped decision history",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/share-resource-offers"
+    "availability": "release",
+    "sourceRef": "v0.9.0",
+    "guide": "/how-to/share-resource-offers",
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "workerPollPlan": {
     "title": "Weighted polling of multiple integrated or SQS Standard queues by one worker",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/share-worker-polls"
+    "availability": "release",
+    "sourceRef": "v0.9.0",
+    "guide": "/how-to/share-worker-polls",
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "queueConcurrency": {
     "title": "Cluster-wide queue limits, source-bound cleanup and audited recovery",
-    "availability": "development",
-    "sourceRef": "develop",
-    "guide": "/how-to/limit-queue-concurrency"
+    "availability": "release",
+    "sourceRef": "v0.9.0",
+    "guide": "/how-to/limit-queue-concurrency",
+    "verifiedOn": "2026-11-04",
+    "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   }
 }

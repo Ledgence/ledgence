@@ -3,7 +3,7 @@ title: Inspect and resolve external effects
 description: Inspect approved writes, review retained evidence and resume a parked workflow from an operator assessment.
 ---
 
-Available in Ledgence 0.8.0 with matching components and the required migrations.
+Available in Ledgence 0.9.0 with matching components and the required migrations.
 
 When a worker disappears during an external write, start with its retained
 evidence. The inbox identifies the approved occurrence. Inspection shows the
@@ -22,7 +22,7 @@ before returning sensitive inspection data.
 
 ## Find an unconfirmed write
 
-In matching Console contract 7, open **Effects** from the sidebar, filter the
+In matching Console contract 14, open **Effects** from the sidebar, filter the
 inbox and select an occurrence to review its original action and evidence.
 Journal confirmation and operator handling are separate: a closed assessment
 can still have an unconfirmed journal. Use the CLI when investigating without

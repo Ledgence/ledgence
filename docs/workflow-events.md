@@ -196,7 +196,9 @@ to an existing immutable action and its effective arguments. Generic events
 remain application input; they cannot approve an action. The unified CLI
 provides `ledgence approval list`, `inspect`, and `decide`.
 
-## Native effect waits in development
+<span id="native-effect-waits-in-development"></span>
+
+## Native effect waits
 
 Operator assessment of a retained external effect uses
 `ctx.wait_effect_resolution(...)` and a typed `ctx.effect_resolution` wake.

@@ -3,7 +3,7 @@ title: Give an investigation a shared call allowance
 description: Bound calls and delegations across one workflow and its descendants.
 ---
 
-**Development feature.** Use matching development components with resource admission enabled. The published 0.8.0 packages predate run budgets.
+**Available in Ledgence 0.9.0.** Use matching 0.9.0 components with resource admission enabled.
 
 A support agent has two tickets to analyze, but you only want to pay for one classifier call. Setting a limit on each child would give them two calls in total. Instead, declare the allowance once when you submit the parent. Both child workflows then use the same balance.
 

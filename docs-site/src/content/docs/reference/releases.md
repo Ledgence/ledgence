@@ -1,28 +1,27 @@
 ---
 title: Releases and packages
-description: Ledgence 0.8.0 distribution channels, supported native targets, upgrade requirements, and historical releases.
+description: Ledgence 0.9.0 distribution channels, supported native targets, upgrade requirements, and historical releases.
 ---
 
-Ledgence 0.8.0 adds protected external actions, scoped credentials, verified
-operator assessments and finite provider recovery. Source, native bundles, the
-local kit, Python packages and Rust API crates use version **0.8.0**.
+Ledgence 0.9.0 adds shared resource capacity, weighted offers, run budgets, worker poll plans and cluster-wide queue limits. Source, native bundles, the
+local kit, Python packages and Rust API crates use version **0.9.0**.
 If you have retained workflows, plan a coordinated migration before starting
-the new services. [Upgrade from 0.7.0](/how-to/upgrade-to-0-8).
+the new services. [Upgrade from 0.8.0](/how-to/upgrade-to-0-9).
 
 ## Distributions
 
 | Distribution | Version and scope |
 | --- | --- |
-| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.8.0) | `v0.8.0`: platform, Console, Compose deployment, examples, and contracts. |
-| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.8.0) | `0.8.0`: Linux x86_64/glibc and macOS arm64, with Console. |
-| [Installer and local kit](https://github.com/Ledgence/ledgence/releases/tag/v0.8.0) | `install.sh` and `ledgence-0.8.0-local.tar.gz`; the matching kit also ships in each native bundle. |
-| [Container runtime on Docker Hub](https://hub.docker.com/r/ledgence/ledgence) | `0.8.0`: Linux amd64 and arm64, CPython 3.14, pinned by digest in the local kit. |
-| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.8.0/) | `ledgence-client==0.8.0` |
-| [Python worker helper on PyPI](https://pypi.org/project/ledgence-worker/0.8.0/) | `ledgence-worker==0.8.0`, for application development |
-| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.8.0) | `ledgence-worker-api = "=0.8.0"` |
-| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.8.0) | `ledgence-orchestration-api = "=0.8.0"` |
+| [Source tag](https://github.com/Ledgence/ledgence/tree/v0.9.0) | `v0.9.0`: platform, Console, Compose deployment, examples, and contracts. |
+| [Native bundles](https://github.com/Ledgence/ledgence/releases/tag/v0.9.0) | `0.9.0`: Linux x86_64 with glibc 2.39 or newer and macOS arm64, with Console. |
+| [Installer and local kit](https://github.com/Ledgence/ledgence/releases/tag/v0.9.0) | `install.sh` and `ledgence-0.9.0-local.tar.gz`; the matching kit also ships in each native bundle. |
+| [Container runtime on Docker Hub](https://hub.docker.com/r/ledgence/ledgence) | `0.9.0`: Linux amd64 and arm64, CPython 3.14, pinned by digest in the local kit. |
+| [Python client on PyPI](https://pypi.org/project/ledgence-client/0.9.0/) | `ledgence-client==0.9.0` |
+| [Python worker helper on PyPI](https://pypi.org/project/ledgence-worker/0.9.0/) | `ledgence-worker==0.9.0`, for application development |
+| [Worker contracts on crates.io](https://crates.io/crates/ledgence-worker-api/0.9.0) | `ledgence-worker-api = "=0.9.0"` |
+| [Orchestration contracts on crates.io](https://crates.io/crates/ledgence-orchestration-api/0.9.0) | `ledgence-orchestration-api = "=0.9.0"` |
 
-The Linux native target is `x86_64-unknown-linux-gnu`, built and qualified on Ubuntu 24.04. The macOS target is `aarch64-apple-darwin`. Archive provenance records actual dynamic-library requirements; Linux qualification is not a claim of compatibility with every distribution. The source-based [Compose tutorial](/tutorials/run-locally) builds its own Linux container image and does not require a published Ledgence container image.
+The Linux native target is `x86_64-unknown-linux-gnu`, built and natively qualified on Ubuntu 24.04 and requiring glibc 2.39 or newer. A supplemental public-installer check passed in an emulated Debian 13/trixie x86_64 container with glibc 2.41; it verified installation and CLI startup, not native execution or fleet-wide distribution compatibility. The macOS target is `aarch64-apple-darwin`. Archive provenance records actual dynamic-library requirements; Linux qualification is not a claim of compatibility with every distribution. The source-based [Compose tutorial](/tutorials/run-locally) builds its own Linux container image and does not require a published Ledgence container image.
 
 ## Install and run locally
 
@@ -44,7 +43,7 @@ stack with `ledgence local up`. The CLI uses the bundled kit, waits for readines
 and prints the Console URL. No source checkout, Rust, Node, or host Python is
 needed for this container stack. See [local lifecycle and data preservation](/how-to/run-local-distribution).
 
-The [0.8.0 upgrade guide](/how-to/upgrade-to-0-8) distinguishes CLI installation
+The [0.9.0 upgrade guide](/how-to/upgrade-to-0-9) distinguishes CLI installation
 from service upgrades. Existing saved stacks retain their image and settings.
 
 ## Unified CLI
@@ -54,11 +53,11 @@ for a workflow with a typed default entrypoint. Scaffolding runs offline and
 creates source, tests and build configuration. `uv sync` installs the generated
 worker and client development dependencies. See [Python authoring](/how-to/develop-python-programs).
 
-The native bundle contains one executable, `bin/ledgence`, with `program`, `worker`, `orchestrator`, `task`, `approval`, `access`, `audit`, `effect`, `mcp`, and `local` command groups. Inspect it with `ledgence --help` and `ledgence --version`. Worker and orchestrator still run as separate processes. Build from source with `cargo build --locked -p ledgence-cli`; see the [CLI reference and migration table](/reference/cli).
+The native bundle contains one executable, `bin/ledgence`, with `program`, `worker`, `orchestrator`, `task`, `approval`, `access`, `audit`, `effect`, `resource`, `admission`, `budget`, `queue`, `mcp`, and `local` command groups. Inspect it with `ledgence --help` and `ledgence --version`. Worker and orchestrator still run as separate processes. Build from source with `cargo build --locked -p ledgence-cli`; see the [CLI reference and migration table](/reference/cli).
 
 ## Console
 
-Console assets ship under `console/` in the native bundles and are built by the source Compose deployment. The Rust orchestrator serves them alongside its API; Node is only needed to build frontend source. Use matching Console contract **7** server and assets, and retain the server's immutable instance binding. Follow [Explore Ledgence Console](/tutorials/use-console) or [install native tools](/how-to/install-native).
+Console assets ship under `console/` in the native bundles and are built by the source Compose deployment. The Rust orchestrator serves them alongside its API; Node is only needed to build frontend source. Use matching Console contract **14** server and assets, and retain the server's immutable instance binding. Follow [Explore Ledgence Console](/tutorials/use-console) or [install native tools](/how-to/install-native).
 
 Open **Approvals** to find pending requests across workflows and review the exact
 action before deciding. In the execution Graph or Trace, select an accepted
@@ -78,7 +77,7 @@ Register Python `Workflow` handlers with typed entrypoints and use acknowledged 
 ## Python client
 
 ```sh
-python3 -m pip install "ledgence-client==0.8.0"
+python3 -m pip install "ledgence-client==0.9.0"
 ```
 
 Import `from ledgence.client import AsyncClient`. The client requires Python 3.11 or newer; the supported qualification matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The optional `otel` extra integrates tracing. This client communicates with an existing service; it does not install a server, upload packages, or provide `ledgence.worker`.
@@ -89,10 +88,10 @@ Install the [worker authoring package](/how-to/develop-python-programs) in an
 application environment matching the worker release:
 
 ```sh
-uv add --dev "ledgence-worker==0.8.0"
+uv add --dev "ledgence-worker==0.9.0"
 ```
 
-For pip, use `python -m pip install "ledgence-worker==0.8.0"` in an activated
+For pip, use `python -m pip install "ledgence-worker==0.9.0"` in an activated
 virtual environment. The package provides `ledgence.worker`, requires Python
 3.11+ and has no runtime dependencies. It does not install the CLI or run a
 workflow locally. At execution the Rust worker supplies its matching helper.
@@ -112,13 +111,20 @@ The two API crates expose integration interfaces and require Rust 1.98 or newer:
 
 ```toml
 [dependencies]
-ledgence-worker-api = "=0.8.0"
-ledgence-orchestration-api = "=0.8.0"
+ledgence-worker-api = "=0.9.0"
+ledgence-orchestration-api = "=0.9.0"
 ```
 
-Read the [worker API](https://docs.rs/ledgence-worker-api/0.8.0/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.8.0/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.8 crates. Optional access, audit, effect and provider capabilities use complete grouped ports. Expose a capability only when all its required operations are implemented.
+Read the [worker API](https://docs.rs/ledgence-worker-api/0.9.0/ledgence_worker_api/) and [orchestration API](https://docs.rs/ledgence-orchestration-api/0.9.0/ledgence_orchestration_api/) documentation. These are libraries, not `cargo install` packages. Recompile custom adapters against the 0.9 crates. Optional access, audit, effect and provider capabilities use complete grouped ports. Expose a capability only when all its required operations are implemented.
+
+## Resource admission and workload measurements
+
+Operators can configure named resources, weighted offers, queue policies and shared run budgets. For recorded workloads, measurements and operating limits, see the [resource admission qualification report](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-load-qualification.md) and the [capacity guide](/how-to/control-resource-capacity).
 
 ## Historical releases
+
+**0.8.0** introduced protected external actions, scoped credentials, verified operator assessments and finite provider recovery. [Historical upgrade guide](/how-to/upgrade-to-0-8) · [0.8.0 release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.8.0.md).
+
 
 **0.7.0** introduced the approval inbox, durable operation inspection and workflow
 recovery fixes. Its [historical upgrade guide](/how-to/upgrade-to-0-7) and
@@ -171,10 +177,10 @@ external effects. Preserve tested backups before upgrading a durable deployment.
 
 Optional HTTP completion notifications, integrated or SQS-compatible queue
 delivery, OTLP tracing/metrics, execution retention and task discovery are also
-part of 0.8.0. See [results and callbacks](/how-to/receive-results),
+part of 0.9.0. See [results and callbacks](/how-to/receive-results),
 [queue delivery](/concepts/queue-delivery), [observability](/how-to/configure-observability)
 and the [capability map](/reference/capabilities) for their setup and limits.
 
 Ledgence-owned code is MIT licensed and supports self-hosting without a mandatory vendor account. Applications can remain proprietary; third-party components retain their licenses and notices.
 
-**Source:** [0.8.0 release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.8.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md)
+**Source:** [0.9.0 release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.9.0.md) · [Release history](https://github.com/Ledgence/ledgence/releases) · [Registry contract](https://github.com/Ledgence/ledgence/blob/develop/docs/registry-packages.md)

@@ -5,7 +5,7 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers `ledgence-client` **0.8.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
+This reference covers `ledgence-client` **0.9.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
 ## Installation
 
@@ -13,13 +13,13 @@ A project created with `ledgence program new` already declares the client;
 run `uv sync` in that project. For an existing uv application, add it with:
 
 ```sh
-uv add "ledgence-client==0.8.0"
+uv add "ledgence-client==0.9.0"
 ```
 
-If you use pip instead, run `python -m pip install "ledgence-client==0.8.0"`
+If you use pip instead, run `python -m pip install "ledgence-client==0.9.0"`
 inside your application's activated virtual environment. Choose the command
 for your environment manager; do not run both. The optional `otel` extra is
-`ledgence-client[otel]==0.8.0` when your application needs tracing integration.
+`ledgence-client[otel]==0.9.0` when your application needs tracing integration.
 
 The client does not include a server, worker, or Python worker helper. Start a
 complete stack through [local installation](/getting-started/installation), then
@@ -57,11 +57,11 @@ Open the client with `async with`, reuse it across calls, and keep it on its own
 
 ## Credentials
 
-The 0.8.0 client accepts `credentials_file="access/operator.json"` or
+The 0.9.0 client accepts `credentials_file="access/operator.json"` or
 `token=` in `AsyncClient`. Choose one credential source. Files bind the credential
 to the configured server URL. HTTPS is required for remote access, with loopback
 HTTP supported for development. `Unauthenticated` and `Forbidden` describe
-rejected operations. These options require matching 0.8.0 components.
+rejected operations. These options require matching 0.9.0 components.
 [Configure instance access](/how-to/configure-instance-access).
 
 ## Submit a task or root workflow
@@ -181,7 +181,7 @@ Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="app
 
 A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.8.0/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.9.0/sdk/python-client/src/ledgence/client)
 
 
 <span id="operator-audit-in-development"></span>
@@ -195,7 +195,7 @@ Matching client builds add `client.audit.list()` and `client.audit.approval_acce
 
 ## Retained effect evidence
 
-Matching 0.8.0 client and server builds provide `client.effects`. Start with an
+Matching 0.9.0 client and server builds provide `client.effects`. Start with an
 open `AsyncClient` using the instance's
 scope and credentials:
 
@@ -263,13 +263,13 @@ assessment conflict; `DISCREPANT` preserves historical disagreement. An operator
 assessment never redispatches, confirms the journal or claims provider truth.
 
 See the [complete assessment API and copyable file-based example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#operator-effect-assessments-development).
-These additions require matching 0.8.0 components.
+These additions require matching 0.9.0 components.
 
 <span id="typed-provider-evidence-in-development"></span>
 
 ## Typed provider evidence
 
-Matching 0.8.0 components add `ProviderFilter` to the existing
+Matching 0.9.0 components add `ProviderFilter` to the existing
 `client.effects.inbox(provider_filter=ProviderFilter.NEEDS_REVIEW)` call. Choices
 are `ALL`, `PENDING`, `NEEDS_REVIEW`, `SUCCEEDED`, `FAILED`, `CANCELLED` and
 `DISPUTED`; the ordinary effect `filter` must remain `ALL`. Omit the new argument
@@ -292,9 +292,11 @@ See the
 [provider recovery guide](/how-to/recover-provider-operations) and the
 [complete SDK models and example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#typed-provider-operations-development).
 
-## Resource administration in development
+<span id="resource-administration-in-development"></span>
 
-The development client adds `client.resources.put/get/list`, typed `ResourcePolicy`
+## Resource administration
+
+The 0.9.0 client adds `client.resources.put/get/list`, typed `ResourcePolicy`
 and `ResourceRate`, and `client.admissions.inspect/release`. Resource metadata
 requires metadata access; arguments/results require audited sensitive access;
 mutations require operator `resource_control`. Preserve command identity after
@@ -305,23 +307,29 @@ generic operation result. `snapshot.provider.call_completion` distinguishes a
 completed original call from uncertain completion; it does not describe business
 success. Inspect the linked effect ticket for provider knowledge and recovery.
 Version-2 provider approvals also expose the reviewed resource requirement.
-All of these extensions require the matching development client and server.
+All of these extensions require the matching 0.9.0 client and server.
 
-In matching development builds, `TaskAdmission(resource="support-model")` is an
+In matching 0.9.0 builds, `TaskAdmission(resource="support-model")` is an
 optional `client.tasks.submit` / `prepare` argument. Use
 `client.task_admissions.inspect(task.id, generation=1)` for audited evidence.
 [Control shared resource capacity](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
 
-## Queue concurrency in development
+<span id="queue-concurrency-in-development"></span>
+
+## Queue concurrency
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
 
-### Weighted offers (development)
+<span id="weighted-offers-development"></span>
+
+### Weighted offers
 
 Call `await client.resources.sources("model.requests", state="unknown_occupied", limit=20)` to find standalone task generations, original workflow operations and protected provider approvals on that resource. Each page requires `sensitive_read` and a committed audit record. Pass `cursor=page.next_cursor` with the same resource and state to continue. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
 
 Use `ResourceFairGroup` and `ResourceFairSharing` from `ledgence.client` to configure `ResourcePolicy.fair_sharing`. Use `client.resources.decisions(name, before=page.next)` to read the next page of offer history when a cursor is present. [Configure queue groups and inspect offers](/how-to/share-resource-offers).
 
-### Shared run budgets (development)
+<span id="shared-run-budgets-development"></span>
+
+### Shared run budgets
 
 Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).

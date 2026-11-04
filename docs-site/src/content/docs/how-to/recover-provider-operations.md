@@ -3,7 +3,7 @@ title: Recover an asynchronous provider operation
 description: Approve a frozen provider request, dispatch once and release the worker between bounded status checks.
 ---
 
-Available in Ledgence 0.8.0 with matching components, credentials and an explicit
+Available in Ledgence 0.9.0 with matching components, credentials and an explicit
 provider policy.
 
 An export service might accept a request immediately and produce its file minutes
@@ -187,11 +187,12 @@ has reconciled external operations with restored state. Ledgence requires this
 explicit restore procedure to protect that boundary.
 [Provider operations contract](https://github.com/Ledgence/ledgence/blob/develop/docs/provider-operations.md).
 
-## Development: limit concurrent dispatch calls
+<span id="development-limit-concurrent-dispatch-calls"></span>
 
-The development checkout can include a named resource in the provider binding
+## Limit concurrent dispatch calls
+
+Ledgence 0.9.0 can include a named resource in the provider binding
 before approval. It then parks for shared capacity and consumes both permissions
 atomically. A completed call may free capacity while the asynchronous business
 result remains pending. Recovery probes remain outside that limit.
 [Share capacity for an approved operation](/how-to/control-resource-capacity#share-capacity-for-an-approved-provider-operation).
-This extension is not included in the published 0.8.0 packages.

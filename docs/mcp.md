@@ -46,7 +46,7 @@ integration contract. Add `--read-only` to omit mutation tools and reject direct
 attempts to call them. Scope and API URL are fixed at startup; tool arguments
 cannot select another tenant, namespace or server. Scope is a constraint, not an
 authentication mechanism. Published 0.7.0 uses the operator-trusted deployment
-boundary. Ledgence 0.8.0 clients can use [instance credentials](instance-access.md)
+boundary. Ledgence 0.9.0 clients can use [instance credentials](instance-access.md)
 with a service-specific `--credentials-file`.
 
 Use the binding from the orchestrator's instance file. The local Compose stack
@@ -78,9 +78,9 @@ those hints do not replace application authorization.
 | `ledgence_approval_inbox` | Discover approval summaries within the server's configured scope. Defaults to pending. Optional `due_before` selects deadlines strictly earlier than the supplied UTC epoch millisecond. Use the returned workflow ID and key with approval inspection. |
 | `ledgence_approval_list`, `ledgence_approval_inspect` | Read persisted requests and their exact effective action. |
 
-Ledgence 0.8.0 preserves the optional `protection: "external_effect"`
+Ledgence 0.9.0 preserves the optional `protection: "external_effect"`
 field when listing or inspecting typed approval requests. It identifies the
-required execution helper. Use matching 0.8.0 components for these
+required execution helper. Use matching 0.9.0 components for these
 requests. The operator's application boundary still controls approval access.
 
 Program discovery reads the existing installation catalog. Configure the
@@ -193,7 +193,7 @@ for the selected SDK and license material.
 
 ## Credential access
 
-Matching 0.8.0 components support optional installation credentials across
+Matching 0.9.0 components support optional installation credentials across
 API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
@@ -204,7 +204,7 @@ Verified ingress identity and durable approval attribution have separate scope.
 
 ## Operator audit
 
-Matching 0.8.0 components expose `ledgence_audit_query` in read-only and
+Matching 0.9.0 components expose `ledgence_audit_query` in read-only and
 ordinary MCP mode. It accepts an optional typed `filter` (`all`, `resource` or
 `approval_acceptance`), `cursor` and `limit`, with scope fixed by the server.
 Exact acceptance requires the complete occurrence, `limit=2` and no cursor.
@@ -217,8 +217,7 @@ available when its `AuditReader` port is configured. [Audit contract](operator-a
 
 ## Retained effect tools
 
-Matching 0.8.0 components add two read-only tools, bringing the native
-catalog with audit configured to 19 tools. Both are available with `--read-only`; the startup scope and credential
+Ledgence 0.9.0 includes both effect-read tools. Both are available with `--read-only`; the startup scope and credential
 remain fixed. Tool arguments cannot override scope, identity or credentials.
 
 | Tool | Arguments and access |
@@ -251,9 +250,7 @@ ledgence mcp serve --server http://127.0.0.1:8080 \
   --allow-effect-resolution
 ```
 
-`--read-only` and `--allow-effect-resolution` cannot be combined. Matching 0.8.0
-builds expose 19 tools by default with audit configured, 14 in read-only mode, or
-20 with resolution enabled.
+`--read-only` and `--allow-effect-resolution` cannot be combined. With audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36.
 The added `ledgence_effect_resolve` also requires the credential's dedicated
 `effect_resolve` capability. Fixed scope and credentials cannot be supplied or
 overridden through tool arguments. Worker credentials cannot resolve effects.
@@ -301,8 +298,7 @@ clean assessment; provider `disputed` still exposes that history. Typed provider
 evidence can also dispute a recorded failure, without changing the resolve input.
 `ledgence_effect_inspect` exposes the same original occurrence, full approved
 provider binding, current typed report and whole-entry timeline as HTTP.
-The tool catalog is unchanged: 19 native tools by default, 14 read-only tools,
-and 20 when effect resolution is explicitly enabled. No MCP approval mutation
+With audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36. No MCP approval mutation
 or automatic provider dispatch is introduced.
 
 All platform u64 counters, revisions, sequences, probe generations and pinned
@@ -315,19 +311,21 @@ Provider knowledge, reconciliation schedule, operator handling and the immutable
 selected workflow wake describe different facts. A lost reply, missing lookup
 result or expired provider key never grants another POST. Existing permissions,
 startup-bound scope, sensitive-read audit and explicit `--allow-effect-resolution`
-apply unchanged. These additions require matching 0.8.0 components.
+apply unchanged. These additions require matching 0.9.0 components.
 [Provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/).
 
-## Resource admission in development
+<span id="resource-admission-in-development"></span>
 
-Matching source builds add six resource read tools: `ledgence_resource_list`,
+## Resource admission
+
+Matching 0.9.0 builds add six resource read tools: `ledgence_resource_list`,
 `ledgence_resource_inspect`, `ledgence_resource_decisions`, audited `ledgence_resource_sources`, `ledgence_admission_inspect` and
 `ledgence_task_admission_inspect`. The native
 catalog with audit has 30 default tools and 25 read-only tools. Explicit effect
 resolution adds one. `--allow-resource-control` separately adds
 `ledgence_resource_put`, `ledgence_admission_release`, `ledgence_task_admission_release`,
 `ledgence_queue_policy_put` and `ledgence_queue_hold_release`
-(35 tools, or 36 with both mutation opt-ins). Existing 0.8.0 catalog counts remain unchanged.
+(35 tools, or 36 with both mutation opt-ins).
 Call `ledgence_resource_sources` with `name` and optional `state`, `cursor` and
 `limit`. A credential with `sensitive_read` can discover charged task,
 workflow and provider occurrences. Every page records a resource response
@@ -343,6 +341,6 @@ Only standalone tasks support it. The task inspector addresses `task_id` and
 stable `request_id` and `reason`. The MCP server fixes scope and never requests
 a worker dispatch grant.
 
-The development catalog includes `ledgence_queue_policy_inspect`, `ledgence_queue_policy_list` and `ledgence_queue_holds` in both default and read-only modes. Exact hold reads require `sensitive_read`; edits and releases require the resource-control opt-in and server permission. [Queue policy contract](queue-concurrency.md).
+The 0.9.0 catalog includes `ledgence_queue_policy_inspect`, `ledgence_queue_policy_list` and `ledgence_queue_holds` in both default and read-only modes. Exact hold reads require `sensitive_read`; edits and releases require the resource-control opt-in and server permission. [Queue policy contract](queue-concurrency.md).
 
-In development, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.
+In Ledgence 0.9.0, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.

@@ -70,7 +70,7 @@ original effect activation remains a navigation reference. Assessment outcomes
 include recorded success, recorded failure, closed unknown and disputed. Sensitive
 results and reasons are available through audited effect inspection.
 
-Ledgence 0.8.0 uses Console contract C7. It adds required, nullable `provider_wait`
+Console C7, shipped with 0.8.0, added required, nullable `provider_wait`
 to workflow detail and wait records, and `provider_probe` to task detail/status
 and execution-history rows (null for workflows).
 Provider wait nodes link their parking entrypoint to the one actually scheduled
@@ -85,7 +85,9 @@ keys and timestamps match. Apply the native effect-resolution migration and use
 matching server and Console assets. Historical C5 fixtures remain unchanged.
 Ledgence 0.7.0 uses C5.
 
-## Durable resource admission (development)
+<span id="durable-resource-admission-development"></span>
+
+## Durable resource admission
 
 C8 adds required, nullable `admission_wait` to workflow detail and wait history.
 A native admission wait is keyed by its parking activation and carries its
@@ -118,7 +120,7 @@ inspector. C10 task read projections include `admission`/`admission_deferrals`
 where applicable; ungoverned values are null/zero. Both Console and portable
 task submission commands omit an unused requirement; explicit null is invalid. [`task-admission-v1.json`](../../../crates/ledgence-orchestration-api/tests/fixtures/task-admission-v1.json)
 is the shared Rust ledger fixture used by Python and Console tests. C9 remains a
-historical fixture; released Ledgence 0.8.0 remains C7.
+historical fixture. Ledgence 0.9.0 ships matching C14 assets and server.
 
 The application service recomputes the source binding digest from the immutable
 occurrence, resource and program before returning an inspected ledger. Console
