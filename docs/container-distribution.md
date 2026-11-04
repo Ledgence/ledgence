@@ -74,8 +74,10 @@ live-backend checks to pass on the same source. Independently on each architectu
    digests, then pulls that exact reference.
 4. Runs the kit outside the checkout: Console/API, worker observations, real
    tasks/workflows/callbacks, repeated publication, persistence and relocated CLI.
-5. Collects exact corresponding sources for the base components.
+5. Collects exact corresponding sources for the base components. When the platform and runtime inventory match a checksum-pinned source archive from an earlier stable Ledgence release, CI can reuse its verified payloads. The collector validates the archive and file contents, creates a new manifest for the image under qualification, and verifies the resulting bundle. Changed inventories use the ordinary upstream collection path. A corrupt or mismatched archive checksum fails qualification.
 6. Retains the tested archive, checksums, acceptance report and sources.
+
+When refreshing the reusable source archive, use assets from an already published stable release. The image workflow records the release version and, per architecture, the runtime inventory checksum, archive checksum and byte count. Keep the previous pins until the new release assets have been verified. Builds with a different inventory collect their sources through the original upstream path.
 
 Internal CLI dotfiles stay on the disposable runner; the acceptance report and
 service logs are retained. An independent job downloads both artifacts and runs
