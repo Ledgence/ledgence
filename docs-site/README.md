@@ -112,7 +112,7 @@ account `919333997957`; abort on any mismatch. Never deploy with `ledgence-llc`
 or organization account `816975651859`. Use `--source` to choose a different
 checkout; consult that script's help. No credentials are stored in this project.
 
-The build uses `build.format: directory` and no trailing slash. The deployment script uploads HTML plus extensionless aliases (for example, `tutorials/run-locally/index.html` is also served at `/tutorials/run-locally`) for clean URLs on a private S3 REST origin, without a CloudFront function. The root uses `index.html`; missing pages keep a 404 response.
+The build uses `build.format: directory` and no trailing slash. The deployment script uploads HTML plus extensionless aliases (for example, `tutorials/run-locally/index.html` is also served at `/tutorials/run-locally`) for clean URLs on a private S3 REST origin, without a CloudFront function. The root uses `index.html`; missing pages keep a 404 response. Internal page links must omit the trailing slash (for example, `/how-to/control-resource-capacity#find-the-source-of-unknown-occupancy`); S3 does not resolve directory indexes for those URLs. The build rejects them before deployment.
 
 ## Dependencies
 

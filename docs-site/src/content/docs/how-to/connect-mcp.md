@@ -203,7 +203,7 @@ source, inspected revision, request ID and operator reason. [Task resource admis
 
 ## Weighted resource offers
 
-Call `ledgence_resource_sources` with a resource `name` to inspect charged task, workflow and provider occurrences. Use `state="unknown_occupied"` to focus on unresolved usage and pass `next_cursor` as `cursor` to continue. Each page requires `sensitive_read` and a committed response audit. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
+Call `ledgence_resource_sources` with a resource `name` to inspect charged task, workflow and provider occurrences. Use `state="unknown_occupied"` to focus on unresolved usage and pass `next_cursor` as `cursor` to continue. Each page requires `sensitive_read` and a committed response audit. [Investigate unknown occupancy](/how-to/control-resource-capacity#find-the-source-of-unknown-occupancy).
 
 Use `ledgence_resource_decisions` with a resource `name` to inspect each committed weighted offer. Pass `next` back as `before` for older decisions. The tool requires `metadata_read`. Configure queue groups through `ledgence_resource_put` with the resource-control opt-in. [Share capacity across queue groups](/how-to/share-resource-offers).
 
