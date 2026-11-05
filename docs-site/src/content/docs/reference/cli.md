@@ -469,7 +469,7 @@ with weighted Stride or lottery. Supply it instead of `--queue`; use a matching
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
 
-Use `ledgence resource sources --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--state possibly_dispatched|unknown_occupied] [--cursor CURSOR] [--limit 1..100]` to discover charged occurrences. Each page requires `sensitive_read` and a committed response audit. Pass `next_cursor` back through `--cursor` for the same resource and state. [Investigate unknown occupancy](/how-to/control-resource-capacity/#find-the-source-of-unknown-occupancy).
+Use `ledgence resource sources --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--state possibly_dispatched|unknown_occupied] [--cursor CURSOR] [--limit 1..100]` to discover charged occurrences. Each page requires `sensitive_read` and a committed response audit. Pass `next_cursor` back through `--cursor` for the same resource and state. [Investigate unknown occupancy](/how-to/control-resource-capacity#find-the-source-of-unknown-occupancy).
 
 In Ledgence 0.9.0, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.
 

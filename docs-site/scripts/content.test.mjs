@@ -23,6 +23,13 @@ test('clean documentation URLs and anchored links resolve to real static pages',
     assert.equal(resolveLocalLink(directory, 'index.html', '/tutorials/start#result'), join(directory, 'tutorials/start.html'));
     assert.equal(resolveLocalLink(directory, 'tutorials/start.html', '/'), join(directory, 'index.html'));
     assert.equal(resolveLocalLink(directory, 'index.html', 'https://ledgence.com/'), null);
+    mkdirSync(join(directory, 'tutorials/nested'));
+    writeFileSync(join(directory, 'tutorials/nested/index.html'), '<h2 id="result">Result</h2>');
+    assert.equal(resolveLocalLink(directory, 'index.html', '/tutorials/nested#result'), join(directory, 'tutorials/nested/index.html'));
+    assert.equal(resolveLocalLink(directory, 'index.html', '/tutorials/nested/index.html#result'), join(directory, 'tutorials/nested/index.html'));
+    for (const href of ['/tutorials/nested/', '/tutorials/nested/#result', 'https://docs.ledgence.com/tutorials/nested/?from=guide#result']) {
+      assert.throws(() => resolveLocalLink(directory, 'index.html', href), /trailing slash has no published object/);
+    }
     assert.throws(() => resolveLocalLink(directory, 'index.html', '/missing'), /broken link/);
     assert.throws(() => resolveLocalLink(directory, 'index.html', '/tutorials/start#typo'), /missing anchor/);
   } finally { rmSync(directory, { recursive: true, force: true }); }

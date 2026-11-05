@@ -15,6 +15,10 @@ export function resolveLocalLink(directory, from, href) {
   const url = new URL(href.replaceAll('&amp;', '&'), `https://docs.ledgence.com/${from}`);
   if (url.origin !== 'https://docs.ledgence.com') return null;
   const pathname = decodeURIComponent(url.pathname);
+  // The S3 deployment publishes extensionless aliases, not directory indexes.
+  if (pathname !== '/' && pathname.endsWith('/')) {
+    throw new Error(`${from}: trailing slash has no published object: ${href}`);
+  }
   const raw = resolve(directory, '.' + pathname);
   if (raw !== resolve(directory) && !raw.startsWith(resolve(directory) + '/')) throw new Error(`Escaping link: ${href}`);
   const candidates = pathname === '/' ? [join(directory, 'index.html')] : [raw, raw + '.html', join(raw, 'index.html')];
