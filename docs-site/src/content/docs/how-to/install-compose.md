@@ -30,8 +30,11 @@ assume a fresh installation. If you already have local Ledgence data, read
 ## 1. Install the CLI for your programs
 
 The Compose stack itself does not require a host CLI, but the next tutorials use
-`ledgence` to create, build and publish your Python programs. On a supported
-native host, install it now:
+`ledgence` to create, build and publish your Python programs. The published CLI
+supports macOS Apple silicon and Linux x86_64 with **glibc 2.39 or newer**,
+qualified on Ubuntu 24.04. Check the
+[native installation requirements](/how-to/install-native#before-you-start),
+then install it on a supported host:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.9.0/install.sh | sh -s -- --version 0.9.0
@@ -43,8 +46,7 @@ The `.` command activates the installer in this terminal. This step installs a
 command-line tool; it does not start another stack. **Do not run `ledgence local
 up` for this Compose project.**
 
-The published CLI supports Linux x86_64/glibc and macOS Apple silicon. Container
-support on other hosts does not guarantee a native CLI there. See the
+Container support on other hosts does not guarantee a native CLI there. See the
 [CLI source build](/how-to/build-cli-from-source) if you need that alternative;
 its host platform still needs to support the Rust implementation.
 
