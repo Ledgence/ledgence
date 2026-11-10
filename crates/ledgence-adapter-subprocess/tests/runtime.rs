@@ -555,38 +555,83 @@ async fn protocol_identity_mismatch_and_oversized_frames_are_retired() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn startup_timeout_and_dropped_start_future_release_process_and_pin() {
     for drop_future in [false, true] {
         let (dir, artifact, runtime) = fixture(
-            "import os,time\nopen(__file__ + '.started.pid','w').write(str(os.getpid()))\ntime.sleep(30)\ndef handle(event): return None\n",
+            r#"import json,os,time
+from pathlib import Path
+marker=Path(__file__+'.started.json')
+pending=marker.with_suffix('.tmp')
+pending.write_text(json.dumps({'pid':os.getpid(),'cwd':os.getcwd()}))
+pending.replace(marker)
+time.sleep(30)
+def handle(event): return None
+"#,
+        );
+        let pin = Arc::new(());
+        let weak = Arc::downgrade(&pin);
+        let artifact = PreparedArtifact::new(
+            artifact.root().to_owned(),
+            artifact.manifest().clone(),
+            artifact.digest().clone(),
+            pin,
         );
         let runtime = runtime.with_config(SubprocessConfig {
             startup_timeout: Duration::from_millis(200),
             ..SubprocessConfig::default()
         });
+        let mut start = runtime.start(artifact, RunControl::new(Duration::from_secs(30)));
+        // Poll once to spawn the real child and transfer ownership. On this
+        // current-thread executor the queued supervisor cannot begin its startup
+        // timer until we yield. Wait synchronously for the child's atomic marker
+        // first: a busy host may need more than 100/200 ms merely to import Python.
+        std::future::poll_fn(|context| {
+            assert!(start.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        let marker = dir.path().join("program.py.started.json");
+        let setup_deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let recorded: Value = loop {
+            match std::fs::read(&marker) {
+                Ok(bytes) => break serde_json::from_slice(&bytes).unwrap(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    assert!(
+                        std::time::Instant::now() < setup_deadline,
+                        "Python did not reach the startup barrier"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("cannot read startup barrier: {error}"),
+            }
+        };
+        let pid = u32::try_from(recorded["pid"].as_u64().unwrap()).unwrap();
+        let workspace = PathBuf::from(recorded["cwd"].as_str().unwrap());
+        #[cfg(unix)]
+        assert!(running(pid), "the child must be alive before cancellation");
+        assert!(weak.upgrade().is_some(), "startup owns the artifact pin");
+        assert!(workspace.is_dir(), "startup owns its scratch directory");
+
         if drop_future {
-            assert!(
-                tokio::time::timeout(
-                    Duration::from_millis(100),
-                    runtime.start(artifact, control())
-                )
-                .await
-                .is_err()
-            );
+            drop(start);
         } else {
-            let error = match runtime.start(artifact, control()).await {
+            let error = match start.await {
                 Ok(_) => panic!("startup should time out"),
                 Err(error) => error,
             };
             assert_eq!(error.kind, ErrorKind::TimedOut);
+            assert_eq!(error.message, "subprocess startup deadline expired");
         }
-        let pid: u32 = std::fs::read_to_string(dir.path().join("program.py.started.pid"))
-            .unwrap()
-            .parse()
-            .unwrap();
         #[cfg(unix)]
         eventually_gone(pid).await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while weak.upgrade().is_some() || workspace.exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("confirmed startup cleanup must release the artifact pin and scratch directory");
     }
 }
 
