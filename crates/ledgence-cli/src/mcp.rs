@@ -33,7 +33,9 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
     };
     let dispatcher =
         match ToolDispatcher::new(client.clone(), client.clone(), catalog, scope, read_only) {
-            Ok(dispatcher) => dispatcher.with_audit_reader(client),
+            Ok(dispatcher) => dispatcher
+                .with_artifact_reader(Arc::new(client.artifacts()))
+                .with_audit_reader(client),
             Err(error) => return super::diagnose(error, None),
         };
     let dispatcher = if allow_effect_resolution {

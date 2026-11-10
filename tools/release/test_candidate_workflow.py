@@ -1,15 +1,18 @@
 """Exercise the candidate's checksum-bound upgrade routing without services (MIT)."""
 
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
 import tarfile
 import tempfile
 import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from release.upgrade_test_fixtures import bundle_fixture
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +22,7 @@ PUBLISHED = {
     "0.6.1": "7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be",
     "0.7.0": "1795cc0ed9acc42613ab8e8c63d845a9ce5235a5d06cff4a5289e287d06143c3",
     "0.8.0": "343942fcb3e142abc3636e1458203e697e0c27b2a4a5300bd6603412270bce5e",
+    "0.9.0": "c6566558ca60a774b3517d21a96b76a1feb3cc4d4493213c4eefc077347b64ef",
 }
 
 
@@ -30,12 +34,11 @@ def upgrade_script():
 
 def archive(path, label):
     """Real tar extraction exercises the packaged candidate/helper destinations."""
-    with tarfile.open(path, "w:gz") as package:
-        for name in ("bin/ledgence", "console/index.html", "runtime/ledgence/worker/bootstrap.py"):
-            content = f"{label}:{name}".encode()
-            entry = tarfile.TarInfo(f"bundle/{name}")
-            entry.size = len(content)
-            package.addfile(entry, io.BytesIO(content))
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary) / "bundle"
+        bundle_fixture(directory, label)
+        with tarfile.open(path, "w:gz") as package:
+            package.add(directory, arcname="bundle")
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -44,7 +47,7 @@ class CandidateWorkflowTests(unittest.TestCase):
         script = upgrade_script()
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
         for version, checksum in PUBLISHED.items():
-            gate = "check-resource-upgrade.py" if version == "0.8.0" else "check-approval-upgrade.py"
+            gate = {"0.8.0": "check-resource-upgrade.py", "0.9.0": "check-artifact-upgrade.py"}.get(version, "check-approval-upgrade.py")
             self.assertIn(f"{version} {checksum} {gate}\n", script)
         self.assertIn('baseline="ledgence-$version-x86_64-unknown-linux-gnu"', script)
         self.assertLess(script.index("sha256sum --check"), script.index('tar -xzf "$rehearsal/$baseline.tar.gz"'))
@@ -74,6 +77,13 @@ class CandidateWorkflowTests(unittest.TestCase):
                 path.write_text(f"#!{sys.executable}\n" + source)
                 path.chmod(0o755)
 
+            # The shell fixture has inert, checksum-bound bundles. Model its
+            # clean source independently of the developer's real checkout.
+            executable("git", """import os, sys
+if sys.argv[1:] == ['status', '--porcelain', '--untracked-files=all']:
+    sys.exit(0)
+os.execv(os.environ['REAL_GIT'], [os.environ['REAL_GIT'], *sys.argv[1:]])
+""")
             executable("curl", """import os, shutil, sys
 from pathlib import Path
 args = sys.argv[1:]
@@ -99,7 +109,7 @@ previous = Path(options['--previous-bundle'])
 version = previous.name.removeprefix('previous-')
 # Docker exec -i based clients drain inherited standard input in the real Linux job.
 sys.stdin.read()
-expected = 'check-resource-upgrade.py' if version == '0.8.0' else 'check-approval-upgrade.py'
+expected = {'0.8.0':'check-resource-upgrade.py','0.9.0':'check-artifact-upgrade.py'}.get(version,'check-approval-upgrade.py')
 assert sys.argv[1] == f'tools/{expected}'
 assert (previous / 'bin/ledgence').read_text() == f'{version}:bin/ledgence'
 assert (previous / 'runtime/ledgence/worker/bootstrap.py').read_text() == f'{version}:runtime/ledgence/worker/bootstrap.py'
@@ -125,9 +135,14 @@ if version != os.environ.get('OMIT_VERSION'):
     if version == os.environ.get('WRONG_HASH'):
         new = '0' * 64
     release = 'ledgence ' + tomllib.loads(Path('Cargo.toml').read_text())['workspace']['package']['version']
-    if version == '0.8.0':
+    if version in ('0.8.0','0.9.0'):
+        sys.path.insert(0, str(Path('tools').resolve()))
+        from release.upgrade_bundles import inputs
+        from release.upgrade_test_fixtures import artifact_exercise_fixture
+        proof = inputs(previous, Path(options['--binaries']), Path(options['--console-dist']), Path(options['--candidate-runner']), predecessor=version, execute=False)
+        proof['new_binary_sha256'] = new
         data = dict(passed=True, database_cleanup=True, process_cleanup=True, credential_scan_clean=not os.environ.get('INCOMPLETE'),
-                    provenance=dict(versions=['ledgence 0.8.0', release], new_binary_sha256=new, old_verified_files={'bin/ledgence':old}))
+                    provenance=proof, provenance_after=proof, exercise=artifact_exercise_fixture())
         (evidence / 'summary.json').write_text(json.dumps(data))
     else:
         data = dict(previous_version='ledgence ' + version, candidate_version=release, executable_sha256=dict(previous=old,candidate=new))
@@ -135,7 +150,7 @@ if version != os.environ.get('OMIT_VERSION'):
 """)
             calls = base / "calls.jsonl"
             env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"],
-                       RUNNER_TEMP=str(run), FIXTURES=str(fixtures), CALLS=str(calls),
+                       REAL_GIT=shutil.which("git"), RUNNER_TEMP=str(run), FIXTURES=str(fixtures), CALLS=str(calls),
                        FAIL_VERSION=failing or "", OMIT_VERSION=omitted or "", INCOMPLETE="1" if incomplete else "",
                        WRONG_HASH=wrong_hash or "")
             result = subprocess.run(["bash", "-eu", "-o", "pipefail", "-c", script],
@@ -168,9 +183,9 @@ if version != os.environ.get('OMIT_VERSION'):
                 self.assertEqual(len(calls), len(PUBLISHED))
 
     def test_corrupt_last_stable_archive_never_executes_upgrade(self):
-        result, calls = self.exercise(corrupt="0.8.0")
+        result, calls = self.exercise(corrupt="0.9.0")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual([Path(call["--evidence"]).name for call in calls], ["0.6.1", "0.7.0"])
+        self.assertEqual([Path(call["--evidence"]).name for call in calls], ["0.6.1", "0.7.0", "0.8.0"])
 
     def test_failed_historical_upgrade_stops_candidate_qualification(self):
         result, calls = self.exercise(failing="0.6.1")

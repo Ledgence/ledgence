@@ -235,3 +235,38 @@ it("binds audited hold reads to a queue and preserves queue write revisions beyo
     ).toThrow();
   }
 });
+
+it("decodes artifact download audit bound to a task or workflow root", () => {
+  for (const kind of ["task", "workflow"]) {
+    const operation = {
+      kind: "sensitive_response",
+      read: "artifact_download",
+      resource: {
+        kind: "artifact",
+        root: { kind, id: "root_123" },
+        artifact_id: "art_123",
+      },
+    };
+    expect(auditEvent({ ...acceptanceEvent(), operation }).operation).toEqual(
+      operation,
+    );
+    for (const resource of [
+      { ...operation.resource, root: { kind: "unknown", id: "root_123" } },
+      { ...operation.resource, root: { kind, id: "" } },
+      { ...operation.resource, artifact_id: "" },
+      { kind: "task", task_id: "root_123" },
+    ])
+      expect(() =>
+        auditEvent({
+          ...acceptanceEvent(),
+          operation: { ...operation, resource },
+        }),
+      ).toThrow();
+    expect(() =>
+      auditEvent({
+        ...acceptanceEvent(),
+        operation: { ...operation, read: "task_result" },
+      }),
+    ).toThrow();
+  }
+});

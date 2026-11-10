@@ -77,5 +77,8 @@ def get_logger(name):
     return configured_logger(name)
 
 
-__all__ = ["InvocationContext", "TraceContext", "current_invocation", "get_logger",
+from . import artifacts
+
+
+__all__ = ["artifacts", "InvocationContext", "TraceContext", "current_invocation", "get_logger",
            "register_shutdown"]

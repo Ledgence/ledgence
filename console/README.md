@@ -11,7 +11,7 @@ Node.js process nor a hosted vendor service.
 The next release adds a live lifecycle feed to a task’s **Trace → Lifecycle** and
 a workflow’s **General → Lifecycle** section. It reads committed Ledgence history;
 it is not a model-token stream, application log, or replacement for the execution
-graph. Console contract 15 advertises this through `execution_progress`. Adapters
+graph. Console contract 16 advertises this through `execution_progress`. Adapters
 without the capability keep the existing paginated history.
 
 A view catches up in bounded batches and then waits for new pages. Each page
@@ -179,6 +179,32 @@ layout scaling; it does not claim browser-chrome zoom or physical-device coverag
 Running it without an explicit Console URL or the required native seed handoff
 fails; it never silently falls back to mocks or another run's evidence.
 
+## Execution artifacts (development source)
+
+When the instance advertises `execution_artifacts`, task and workflow details
+include **General → Artifacts**. This view lists verified files shared by the
+canonical root execution and its descendants. It displays filename, type, size,
+availability, producer and root provenance; the logical key, digest and first
+attempt remain available in file details. Navigating into a child does not imply
+that every listed file was produced by that child.
+
+Metadata inspection uses `metadata_read`. The explicit **Download** action
+requires `sensitive_read` and the server's conditional audit checks. Files are
+never previewed or fetched in the background. Downloads use a separate absolute
+120-second budget, stop on navigation or access changes, and validate the
+instance, manifest, exact length and SHA-256 before asking the browser to save.
+The declared 64 MiB maximum bounds the browser's verification buffer. A corrupt,
+truncated or denied response is never offered as a file. The browser manages the
+save destination; the Console does not write a named local path or overwrite it
+without the browser's own download behavior. Private object URLs are promptly
+revoked and never sent to the API or placed in navigation history.
+
+The Console projection omits internal tenancy scopes and storage locations.
+Artifact availability depends on the execution root remaining retained. The
+page provides explicit empty, unavailable, permission and retry states, plus
+bounded cursor navigation. A deployment without artifact storage does not show
+the section. These source changes do not imply publication of release assets.
+
 ## Contracts and behavior
 
 The only browser API is `/v1/console/*`. Instance configuration controls public
@@ -187,7 +213,7 @@ namespace or scope. Every response is checked against the configured instance
 identity and Console contract version before entering query state.
 
 The canonical Rust serialization fixture is
-[`console-v5.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v5.json).
+[`console-v16.json`](../crates/ledgence-orchestration-api/tests/fixtures/console-v16.json).
 Strict runtime decoders consume that fixture in tests. Unknown fields or result
 variants fail explicitly. Metadata u64 values remain decimal strings; JSON input,
 output and CloudEvents use `lossless-json` to preserve integer/floating tokens and
@@ -460,3 +486,7 @@ A credential with only `sensitive_read` opens **Resources** with a generic insta
 ### Shared run allowances
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.
+
+The artifact panel admits one active browser download at a time, without a queue;
+other download buttons remain disabled until completion or cancellation. This
+bounds simultaneous verification buffers independently of the server's IO slots.

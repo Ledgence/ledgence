@@ -11,7 +11,11 @@ struct Client {
 }
 impl Client {
     fn new(read_only: bool) -> Self {
-        Self::with_dispatcher(operations::test_dispatcher(read_only))
+        Self::with_dispatcher(operations::test_dispatcher(read_only).with_artifact_reader(
+            std::sync::Arc::new(
+                ledgence_adapter_http::HttpArtifactClient::new("http://127.0.0.1:1").unwrap(),
+            ),
+        ))
     }
 
     fn with_dispatcher(dispatcher: ToolDispatcher) -> Self {
@@ -105,7 +109,7 @@ async fn modern_discover_and_per_request_metadata_use_current_lifecycle() {
         .await;
     let response = client.read().await;
     let tools = response["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 31);
+    assert_eq!(tools.len(), 33);
     let names: std::collections::HashSet<_> = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())

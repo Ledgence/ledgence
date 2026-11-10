@@ -244,3 +244,18 @@ Native credential mode requires durable approval and effect-assessment attributi
 and sensitive-response audit. Approval `reviewer` remains caller supplied.
 Recorded acceptance identifies the verified actor separately. Read the operating and retention contract before
 enabling access on an existing deployment. [Operator audit](/how-to/audit-operators).
+
+## Execution file permissions in development
+
+Matching development components beyond published 0.9.0 add `artifact_write` for
+external file preparation, upload status, upload, reconciliation and replacement.
+It does not grant metadata or content reads. `metadata_read` covers accepted
+manifest inspection/listing; `sensitive_read` covers explicit downloads with the
+applicable durable response audit. Workers use `worker_execute` and their actual
+current lease, with no storage credentials exposed to the program.
+
+New development `access init` operator credentials include `artifact_write`.
+Existing credential configurations retain their explicit capabilities on upgrade;
+add or rotate a credential deliberately if file publication is required. Console
+accepts the capability even though its file UI only inspects and downloads.
+[Execution file setup and authority](/how-to/share-execution-files).

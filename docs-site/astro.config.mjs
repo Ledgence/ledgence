@@ -49,6 +49,7 @@ export default defineConfig({
         { label: 'Register a prepared program', slug: 'how-to/register-agent' },
         { label: 'Receive execution results', slug: 'how-to/receive-results' },
         { label: 'Follow execution progress (development)', slug: 'how-to/follow-execution-progress' },
+        { label: 'Share execution files (development)', slug: 'how-to/share-execution-files' },
         { label: 'Run tasks in parallel', slug: 'how-to/parallel-tasks' },
         { label: 'Mix local work and branches', slug: 'how-to/fork-workflow-branches' },
         { label: 'Wait for an event', slug: 'how-to/wait-for-event' },

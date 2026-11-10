@@ -37,7 +37,7 @@ def unique(pairs):
     return result
 
 
-def validate(directory, *, source_commit=None, version=None, project=None):
+def validate(directory, *, source_commit=None, version=None, project=None, expected_contract=16):
     directory = directory.resolve()
     path = directory / 'console-manifest.json'
     if path.is_symlink() or path.stat().st_size > 1024 * 1024:
@@ -46,7 +46,7 @@ def validate(directory, *, source_commit=None, version=None, project=None):
     if (set(manifest) != {'schema_version', 'console_version', 'console_contract_version',
                          'source_revision', 'source_dirty', 'toolchain', 'lockfile_sha256', 'assets'}
             or type(manifest['schema_version']) is not int or manifest['schema_version'] != 1
-            or type(manifest['console_contract_version']) is not int or manifest['console_contract_version'] != 15
+            or type(manifest['console_contract_version']) is not int or manifest['console_contract_version'] != expected_contract
             or not re.fullmatch('[a-f0-9]{40}', manifest['source_revision'])
             or manifest['source_dirty'] is not False
             or not re.fullmatch('[a-f0-9]{64}', manifest['lockfile_sha256'])

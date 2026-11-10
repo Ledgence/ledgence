@@ -4,6 +4,8 @@
 //! authoritative for concurrent submission acceptance, generated identities,
 //! database time, and commit. No database implementation is selected here.
 
+mod artifacts;
+pub use artifacts::ArtifactService;
 mod acquisition;
 mod admission;
 pub mod catalog;
@@ -41,6 +43,7 @@ pub struct ApplicationService {
         Scope,
         Arc<dyn ledgence_orchestration_api::console::ProgramCatalogStore>,
     )>,
+    artifacts: Option<Arc<dyn ExecutionArtifactService>>,
     programs: Arc<dyn ProgramStore>,
     acquisition: Arc<acquisition::Coordinator>,
     progress: Arc<progress::Coordinator>,
@@ -54,11 +57,18 @@ impl ApplicationService {
             workflows: None,
             completions: None,
             catalog: None,
+            artifacts: None,
             programs,
             acquisition: acquisition::Coordinator::new(),
             progress: progress::Coordinator::new(),
             claims_stopped: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Attach a separately initialized immutable execution-artifact service.
+    pub fn with_execution_artifacts(mut self, service: Arc<dyn ExecutionArtifactService>) -> Self {
+        self.artifacts = Some(service);
+        self
     }
 
     /// Enforce immutable registered references for one installation. Use the
@@ -152,6 +162,12 @@ impl ApplicationService {
 }
 
 impl TaskService for ApplicationService {
+    fn execution_artifacts(&self) -> Result<&dyn ExecutionArtifactService> {
+        self.artifacts
+            .as_deref()
+            .ok_or_else(|| ContractError::Unavailable("execution artifacts are unavailable".into()))
+    }
+
     fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
         self.store.progress_reader()?;
         Ok(self)

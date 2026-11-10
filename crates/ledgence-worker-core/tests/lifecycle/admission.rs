@@ -225,3 +225,225 @@ async fn cancellation_bounds_a_noncooperative_gate_and_confirms_owned_cleanup() 
         .await
         .unwrap();
 }
+
+struct RequestsRuntime {
+    runtime: Runtime,
+    supported: bool,
+}
+struct RequestsSession {
+    session: AdmittedSession,
+    supported: bool,
+}
+impl ExecutionRuntime for RequestsRuntime {
+    fn start<'a>(
+        &'a self,
+        artifact: PreparedArtifact,
+        control: RunControl,
+    ) -> PortFuture<'a, StartOutcome> {
+        Box::pin(async move {
+            match self.runtime.start(artifact, control).await? {
+                StartOutcome::Ready(session) => {
+                    Ok(StartOutcome::Ready(Box::new(RequestsSession {
+                        session: AdmittedSession(session),
+                        supported: self.supported,
+                    })))
+                }
+                other => Ok(other),
+            }
+        })
+    }
+}
+impl ExecutionSession for RequestsSession {
+    fn pid(&self) -> u32 {
+        self.session.pid()
+    }
+    fn execute<'a>(
+        &'a mut self,
+        _: RuntimeInvocation,
+        _: RunControl,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async { panic!("must never fall back to ordinary execution") })
+    }
+    fn supports_admitted_invocation(&self) -> bool {
+        true
+    }
+    fn supports_admitted_requests(&self) -> bool {
+        self.supported
+    }
+    fn execute_admitted_with_requests<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        permit: InvocationPermit,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async move {
+            permit.check()?;
+            assert!(
+                invocation.extension.is_none(),
+                "plain task must not gain workflow context"
+            );
+            handler
+                .handle(
+                    RuntimeRequest {
+                        id: 1,
+                        operation: "artifacts.put_file".into(),
+                        payload: json!({}),
+                    },
+                    control.clone(),
+                )
+                .await?;
+            self.session
+                .execute_admitted(invocation, control, permit)
+                .await
+        })
+    }
+    fn close(&mut self) -> PortFuture<'_, ()> {
+        self.session.close()
+    }
+}
+struct RequestsHandler(AtomicUsize);
+impl RuntimeRequestHandler for RequestsHandler {
+    fn handle<'a>(
+        &'a self,
+        request: RuntimeRequest,
+        _: RunControl,
+    ) -> PortFuture<'a, RuntimeReply> {
+        Box::pin(async move {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(RuntimeReply {
+                id: request.id,
+                result: json!({}),
+            })
+        })
+    }
+}
+#[tokio::test]
+async fn admitted_requests_require_explicit_support_and_never_bypass_the_grant() {
+    for (supported, decision, expected_grants, expected_invocations) in [
+        (false, Decision::Grant, 0, 0),
+        (true, Decision::Defer, 1, 0),
+        (true, Decision::Expired, 1, 0),
+        (true, Decision::Grant, 1, 1),
+    ] {
+        let counts = Arc::new(Counts::default());
+        let cache = Arc::new(Cache::default());
+        let task = request(1, 1, 0);
+        let mut manifest = manifest(task.descriptor.program.clone());
+        manifest.runtime.protocol = 3;
+        cache.entries.lock().await.insert(
+            task.descriptor.digest.clone(),
+            PreparedArtifact::new(
+                PathBuf::from("/unused-test-artifact"),
+                manifest,
+                task.descriptor.digest.clone(),
+                Arc::new(()),
+            ),
+        );
+        let worker = Worker::new(
+            WorkerConfig {
+                concurrency: 1,
+                ..WorkerConfig::default()
+            },
+            Arc::new(Store(counts.clone())),
+            cache,
+            Arc::new(RequestsRuntime {
+                runtime: Runtime(counts.clone()),
+                supported,
+            }),
+        )
+        .unwrap();
+        let gate = Gate::new(decision);
+        let handler = Arc::new(RequestsHandler(AtomicUsize::new(0)));
+        let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+        let result = reservation
+            .execute_admitted_with_requests(task, control(), gate.clone(), handler.clone())
+            .await;
+        if expected_invocations == 1 {
+            assert!(matches!(result, AdmittedExecutionResult::Executed(Ok(_))));
+        }
+        if !supported {
+            assert!(
+                matches!(result, AdmittedExecutionResult::Executed(Err(ref e)) if e.error.kind == ErrorKind::Incompatible && !e.execution_may_have_started)
+            );
+        }
+        assert_eq!(gate.calls.lock().await.len(), expected_grants);
+        assert_eq!(handler.0.load(Ordering::SeqCst), expected_invocations);
+        assert_eq!(
+            counts.executions.load(Ordering::SeqCst),
+            expected_invocations
+        );
+        assert!(reservation.is_quiescent());
+        reservation.release();
+        worker
+            .shutdown(Duration::ZERO, Duration::from_secs(1))
+            .await
+            .unwrap();
+    }
+}
+
+struct OptionalHandler;
+impl RuntimeRequestHandler for OptionalHandler {
+    fn optional_for_legacy_protocol(&self) -> bool {
+        true
+    }
+    fn features(&self) -> RuntimeFeatures {
+        panic!("legacy protocol must not advertise artifact feature")
+    }
+    fn handle<'a>(&'a self, _: RuntimeRequest, _: RunControl) -> PortFuture<'a, RuntimeReply> {
+        Box::pin(async { panic!("legacy protocol must not issue artifact requests") })
+    }
+}
+#[tokio::test]
+async fn optional_artifacts_preserve_legacy_programs_and_their_admission_fence() {
+    for protocol in [1, 2] {
+        for decision in [Decision::Grant, Decision::Expired] {
+            let counts = Arc::new(Counts::default());
+            let cache = Arc::new(Cache::default());
+            let task = request(1, 1, 0);
+            let mut manifest = manifest(task.descriptor.program.clone());
+            manifest.runtime.protocol = protocol;
+            cache.entries.lock().await.insert(
+                task.descriptor.digest.clone(),
+                PreparedArtifact::new(
+                    PathBuf::from("/unused-test-artifact"),
+                    manifest,
+                    task.descriptor.digest.clone(),
+                    Arc::new(()),
+                ),
+            );
+            let worker = Worker::new(
+                WorkerConfig {
+                    concurrency: 1,
+                    ..WorkerConfig::default()
+                },
+                Arc::new(Store(counts.clone())),
+                cache,
+                Arc::new(AdmittedRuntime(Runtime(counts.clone()))),
+            )
+            .unwrap();
+            let gate = Gate::new(decision);
+            let mut reservation = worker.reserve_consumer(control()).await.unwrap();
+            let result = reservation
+                .execute_admitted_with_requests(
+                    task,
+                    control(),
+                    gate.clone(),
+                    Arc::new(OptionalHandler),
+                )
+                .await;
+            let expected = usize::from(matches!(decision, Decision::Grant));
+            assert_eq!(gate.calls.lock().await.len(), 1);
+            assert_eq!(counts.executions.load(Ordering::SeqCst), expected);
+            assert_eq!(
+                matches!(result, AdmittedExecutionResult::Executed(Ok(_))),
+                expected == 1
+            );
+            reservation.release();
+            worker
+                .shutdown(Duration::ZERO, Duration::from_secs(1))
+                .await
+                .unwrap();
+        }
+    }
+}

@@ -4,6 +4,7 @@ members = [
   "crates/ledgence-worker-api",
   "crates/ledgence-worker-core",
   "crates/ledgence-adapter-artifact",
+  "crates/ledgence-adapter-blob",
   "crates/ledgence-adapter-subprocess",
   "crates/ledgence-worker",
   "crates/ledgence-orchestration-api",
@@ -28,6 +29,7 @@ license = "MIT"
 repository = "https://github.com/Ledgence/ledgence"
 
 [workspace.dependencies]
+ledgence-adapter-blob = { version = "0.9.0", path = "crates/ledgence-adapter-blob", default-features = false }
 ledgence-adapter-access = { version = "0.9.0", path = "crates/ledgence-adapter-access" }
 getrandom = "=0.4.3"
 subtle = "=2.6.1"

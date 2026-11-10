@@ -67,11 +67,21 @@ impl TaskAdmissionAttempt {
         reservation: &mut ledgence_worker_core::ConsumerReservation,
         request: ledgence_worker_api::ExecutionRequest,
         control: RunControl,
+        handler: Option<Arc<dyn ledgence_worker_api::RuntimeRequestHandler>>,
     ) -> Option<AttemptReport> {
-        match reservation
-            .execute_admitted(request, control.clone(), self.clone())
-            .await
-        {
+        let result = match handler {
+            Some(handler) => {
+                reservation
+                    .execute_admitted_with_requests(request, control.clone(), self.clone(), handler)
+                    .await
+            }
+            None => {
+                reservation
+                    .execute_admitted(request, control.clone(), self.clone())
+                    .await
+            }
+        };
+        match result {
             AdmittedExecutionResult::NotInvoked { .. } => None,
             AdmittedExecutionResult::Executed(Ok(report)) => Some(AttemptReport::Completed(report)),
             AdmittedExecutionResult::Executed(Err(failure)) => {

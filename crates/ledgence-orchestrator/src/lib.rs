@@ -3,6 +3,7 @@
 mod access;
 mod admission;
 mod application;
+mod artifacts;
 mod command;
 mod completion;
 mod console;
@@ -240,7 +241,21 @@ async fn dispatch(
                 policy,
                 batches,
                 apply,
-            } => retention::run(&store, &scope, &policy, batches, apply, stopped).await,
+                artifact_config,
+            } => {
+                retention::run(
+                    &store,
+                    retention::RetainRequest {
+                        scope,
+                        policy,
+                        batches,
+                        apply,
+                        artifact_config,
+                    },
+                    stopped,
+                )
+                .await
+            }
             Command::Serve {
                 bind,
                 store: programs,
@@ -250,6 +265,7 @@ async fn dispatch(
                 access_config,
                 provider_config,
                 admission_config,
+                artifact_config,
                 allow_insecure_console_access,
                 console_dir,
                 allow_program_publication,
@@ -268,6 +284,7 @@ async fn dispatch(
                         access_config,
                         provider_config,
                         admission_config,
+                        artifact_config,
                         allow_insecure_console_access,
                         console_dir,
                         allow_program_publication,
@@ -291,6 +308,7 @@ struct ServePaths {
     access_config: Option<std::path::PathBuf>,
     provider_config: Option<std::path::PathBuf>,
     admission_config: Option<std::path::PathBuf>,
+    artifact_config: Option<std::path::PathBuf>,
     allow_insecure_console_access: bool,
     console_dir: Option<std::path::PathBuf>,
     allow_program_publication: bool,
@@ -312,6 +330,7 @@ async fn prepare_and_serve(
         access_config,
         provider_config,
         admission_config,
+        artifact_config,
         allow_insecure_console_access,
         console_dir,
         allow_program_publication,
@@ -548,6 +567,9 @@ async fn prepare_and_serve(
     } else {
         None
     };
+    let mut execution_artifacts: Option<
+        Arc<dyn ledgence_orchestration_api::ExecutionArtifactService>,
+    > = None;
     // Route activation is durable: do not change a live queue until every
     // locally fallible prerequisite, including binding and notification setup,
     // has succeeded. Retain notifications through activation failure or stop.
@@ -555,6 +577,10 @@ async fn prepare_and_serve(
         if *stopped.borrow() {
             return Ok(());
         }
+        // Artifact configuration and local storage must be ready before route
+        // activation can redirect existing integrated consumers. Keep ownership
+        // here so every later failure still drains transfer cleanup below.
+        execution_artifacts = artifacts::load(artifact_config, store.clone(), false).await?;
         for destination in &completion_destinations {
             use ledgence_orchestration_api::CompletionStore;
             store
@@ -575,6 +601,15 @@ async fn prepare_and_serve(
         if *stopped.borrow() {
             return Ok(());
         }
+        let service = match &execution_artifacts {
+            Some(artifacts) => Arc::new(
+                service
+                    .as_ref()
+                    .clone()
+                    .with_execution_artifacts(artifacts.clone()),
+            ),
+            None => service.clone(),
+        };
         let router = match console_services {
             Some(console) => ledgence_adapter_http::server::router_with_console(
                 service.clone(),
@@ -685,6 +720,9 @@ async fn prepare_and_serve(
         .await
     }
     .await;
+    if let Some(artifacts) = execution_artifacts {
+        artifacts::drain(artifacts.as_ref()).await;
+    }
     if let Some(publication) = artifact_publication {
         publication.drain().await;
         tracing::info!("program artifact publication drained");

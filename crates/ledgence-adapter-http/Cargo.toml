@@ -9,11 +9,14 @@ publish = false
 
 [features]
 default = []
-client = ["dep:reqwest", "dep:sha2", "dep:rustix"]
+client = ["dep:reqwest", "dep:sha2", "dep:rustix", "dep:http-body", "dep:bytes", "dep:base64"]
 completion = ["dep:reqwest"]
-server = ["dep:axum", "dep:http-body-util", "dep:sha2", "dep:getrandom"]
+server = ["dep:axum", "dep:http-body-util", "dep:sha2", "dep:getrandom", "dep:http-body", "dep:bytes", "dep:base64"]
 
 [dependencies]
+http-body = { version = "=1.1.0", optional = true }
+bytes = { version = "=1.12.1", optional = true }
+base64 = { version = "=0.22.1", optional = true }
 ledgence-orchestration-api.workspace = true
 ledgence-worker-api.workspace = true
 sha2 = { workspace = true, optional = true }

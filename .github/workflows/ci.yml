@@ -324,7 +324,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [http, sqs, api, provider, provider-sqs, admission, admission-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
+        suite: [http, sqs, api, artifacts, provider, provider-sqs, admission, admission-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
     services:
       elasticmq:
         # An empty image disables this service in suites using integrated delivery.
@@ -447,11 +447,36 @@ jobs:
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --evidence "$RUNNER_TEMP/ledgence-mcp-evidence"
       - name: Build and install the Python client wheel for end-to-end acceptance
-        if: matrix.suite == 'api' || startsWith(matrix.suite, 'provider') || startsWith(matrix.suite, 'admission') || startsWith(matrix.suite, 'workflows-')
+        if: matrix.suite == 'artifacts' || matrix.suite == 'api' || startsWith(matrix.suite, 'provider') || startsWith(matrix.suite, 'admission') || startsWith(matrix.suite, 'workflows-')
         run: |
           python tools/check-python-client.py \
             --venv-dir "$RUNNER_TEMP/ledgence-client-e2e-env" \
             --evidence "$RUNNER_TEMP/ledgence-client-package.json"
+      - name: Install Rust for the artifact feature gate
+        if: matrix.suite == 'artifacts'
+        run: rustup show active-toolchain
+      - name: Cache artifact feature gate Rust dependencies
+        if: matrix.suite == 'artifacts'
+        uses: ./.github/actions/cargo-download-cache
+      - name: Check artifact feature combinations
+        if: matrix.suite == 'artifacts'
+        run: python tools/check-artifact-features.py
+      - name: Check execution artifacts with real workers and installed clients
+        if: matrix.suite == 'artifacts'
+        run: |
+          python tools/check-execution-artifacts.py \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-artifacts-evidence"
+      - name: Check S3 artifact composition and persistent-store restart
+        if: matrix.suite == 'artifacts'
+        run: |
+          python tools/check-execution-artifacts.py --s3-owned \
+            --psql "$RUNNER_TEMP/ledgence-psql" \
+            --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
+            --python-client "$RUNNER_TEMP/ledgence-client-e2e-env/bin/python" \
+            --evidence "$RUNNER_TEMP/ledgence-artifacts-s3-evidence"
       - name: Check complete provider recovery with the pinned prior worker
         if: matrix.suite == 'provider'
         run: |

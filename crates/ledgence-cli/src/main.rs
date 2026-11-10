@@ -4,6 +4,7 @@ mod access;
 mod admission;
 mod approvals;
 mod args;
+mod artifacts;
 mod bundle;
 mod credentials;
 mod effects;
@@ -59,6 +60,7 @@ fn main() -> ExitCode {
         Ok(routing::Route::ProgramPublish(arguments)) => program_publish::run(arguments),
         Ok(routing::Route::Admin(arguments)) => run_admin(arguments),
         Ok(routing::Route::Progress(arguments)) => progress::run(arguments),
+        Ok(routing::Route::Artifacts(arguments)) => artifacts::run(arguments),
         Ok(routing::Route::Mcp(arguments)) => mcp::run(arguments),
         Err(error) => diagnose(error, None),
     }

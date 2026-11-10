@@ -19,7 +19,7 @@ import {
 import { inspectFor, holdsFor } from "../../src/api/queue-policies";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v16.json",
     import.meta.url,
   ),
   "utf8",
@@ -51,7 +51,7 @@ describe("Rust-produced Console contract", () => {
     });
   }
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(15);
+    expect(decodeConfig(field("config")).contract_version).toBe(16);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );

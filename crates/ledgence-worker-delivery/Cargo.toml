@@ -9,6 +9,8 @@ publish = false
 description = "Transport-independent supervised worker delivery"
 
 [dependencies]
+sha2.workspace = true
+tempfile.workspace = true
 ledgence-worker-api.workspace = true
 ledgence-worker-core.workspace = true
 ledgence-orchestration-api.workspace = true

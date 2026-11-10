@@ -35,7 +35,14 @@ pub struct WorkerRuntimeAccess {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 enum AccessReply {
-    OperatorTrusted,
+    OperatorTrusted {
+        #[serde(default, deserialize_with = "present")]
+        worker_features: Option<ledgence_worker_api::RuntimeFeatures>,
+        #[serde(default, deserialize_with = "present")]
+        instance_id: Option<String>,
+        #[serde(default, deserialize_with = "present")]
+        scope: Option<Scope>,
+    },
     Credentials(Box<CredentialReply>),
 }
 #[derive(Debug, Deserialize)]
@@ -88,13 +95,40 @@ impl ResponseValue for AccessReply {
 impl AccessReply {
     fn worker(&self, expected: &Scope, credentials: bool) -> Result<WorkerRuntimeAccess> {
         let Self::Credentials(reply) = self else {
-            return if credentials {
-                Err(unavailable(
+            if credentials {
+                return Err(unavailable(
                     "credentialed worker requires authenticated access discovery",
-                ))
-            } else {
-                Ok(WorkerRuntimeAccess::default())
+                ));
+            }
+            let Self::OperatorTrusted {
+                worker_features,
+                instance_id,
+                scope,
+            } = self
+            else {
+                unreachable!()
             };
+            match (worker_features, instance_id, scope) {
+                (None, None, None) => return Ok(WorkerRuntimeAccess::default()),
+                (Some(features), Some(instance), Some(scope)) => {
+                    features
+                        .validate()
+                        .map_err(|_| unavailable("invalid trusted worker features"))?;
+                    validate_text(instance, 128)?;
+                    scope.validate()?;
+                    if scope != expected
+                        || features.supported.as_slice()
+                            != [ledgence_worker_api::EXECUTION_ARTIFACTS_FEATURE]
+                    {
+                        return Err(unavailable("trusted worker artifact binding is invalid"));
+                    }
+                    return Ok(WorkerRuntimeAccess {
+                        runtime_features: features.clone(),
+                        ..WorkerRuntimeAccess::default()
+                    });
+                }
+                _ => return Err(unavailable("incomplete trusted worker artifact binding")),
+            }
         };
         let CredentialReply {
             actor_key,
@@ -229,11 +263,18 @@ impl HttpTaskService {
                     .map_err(|_| unavailable("invalid worker access discovery"))
             })
             .await;
-        match reply {
+        let result = match reply {
             Ok(reply) => reply.worker(scope, credentials),
             Err(ContractError::NotFound) if !credentials => Ok(WorkerRuntimeAccess::default()),
             Err(error) => Err(error),
-        }
+        };
+        self.artifacts_enabled.store(
+            result
+                .as_ref()
+                .is_ok_and(|access| access.runtime_features.execution_artifacts()),
+            std::sync::atomic::Ordering::Release,
+        );
+        result
     }
 }
 #[cfg(test)]

@@ -112,6 +112,7 @@ pub struct RuntimeFeatures {
     pub v: u8,
     pub supported: Vec<String>,
 }
+pub const EXECUTION_ARTIFACTS_FEATURE: &str = "execution_artifacts.v1";
 pub const NATIVE_EFFECT_RESOLUTION_FEATURE: &str = "native_effect_resolution.v1";
 pub const PROVIDER_OPERATION_FEATURE: &str = "provider_operation.v1";
 pub const PROVIDER_ADMISSION_FEATURE: &str = "provider_admission.v1";
@@ -149,6 +150,11 @@ impl RuntimeFeatures {
             ));
         }
         Ok(())
+    }
+    pub fn execution_artifacts(&self) -> bool {
+        self.supported
+            .iter()
+            .any(|name| name == EXECUTION_ARTIFACTS_FEATURE)
     }
     pub fn native_effect_resolution(&self) -> bool {
         self.supported

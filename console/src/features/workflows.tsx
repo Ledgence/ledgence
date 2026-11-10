@@ -1,3 +1,4 @@
+import { ArtifactsPanel } from "./artifacts";
 import { ExecutionProgress } from "./execution-progress";
 import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
@@ -236,6 +237,24 @@ export function WorkflowDetailPage() {
                                     kind: "workflow",
                                     workflow_id: workflowId,
                                   }}
+                                />
+                              ),
+                            },
+                          ]
+                        : []),
+                      ...(config.capabilities.execution_artifacts
+                        ? [
+                            {
+                              id: "artifacts",
+                              title: "Artifacts",
+                              description:
+                                "Verified files shared by this run, with producer details and downloads.",
+                              content: (
+                                <ArtifactsPanel
+                                  target={{ kind: "workflow", id: workflowId }}
+                                  active={
+                                    !dto.terminal(detail.summary.workflow.state)
+                                  }
                                 />
                               ),
                             },

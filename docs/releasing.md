@@ -60,15 +60,31 @@ Console, using the pinned frontend toolchain and a disposable PostgreSQL 18.6
 service for relocated verification. Set `include_console=false` to run only the
 headless jobs; set `candidate=rc.N` to select the candidate label.
 
-The Linux Console job upgrades both the historical 0.6.1 bundle and the previous
-stable 0.7.0 Linux x86_64 bundle, each pinned to its published archive checksum.
-The 0.6.1 rehearsal preserves a pending approval and accepted tool result. The
-0.7.0 rehearsal verifies legacy decision bytes, authenticated attribution,
-cancelled approvals and recovery without a second dispatch. Both use the same
-extracted candidate executable, Console and Python runner. Each owns a separate
-database and evidence directory, retained under `approval-upgrade/evidence/0.6.1`
-and `approval-upgrade/evidence/0.7.0`. Neither a source-only test nor an upgrade
-from an older baseline substitutes for the last-stable rehearsal.
+The Linux Console job upgrades published Linux x86_64 bundles from 0.6.1, 0.7.0,
+0.8.0 and the latest stable 0.9.0, each pinned to its archive checksum. The older
+approval rehearsals remain required; the resource and artifact rehearsals do not
+replace them. Every rehearsal uses the extracted candidate executable, Console
+and Python runner and owns a separate database/evidence directory under
+`approval-upgrade/evidence/<version>`. Neither source-only tests nor an older
+baseline substitute for the latest-stable rehearsal. The development candidate's
+Console contract is 16; the published 0.9.0 bundle retains contract 14.
+
+`check-artifact-upgrade.py` verifies the actual published 0.9.0 bundle inventory
+and candidate provenance before and after use. It preserves existing task, fork,
+local-step, callback, queue and resource state; interrupts actual transactional
+artifact DDL and proves rollback; migrates twice; rejects the old binary by schema;
+and restores into a fresh database before resuming work. It then uploads to a
+preserved root, checks old credentials cannot acquire the new write capability,
+and verifies bytes after restart. Receipt validation in
+`tools/release/upgrade_evidence.py` rejects missing phases or mismatched executables.
+
+The Linux Console candidate also runs `tools/check-artifact-s3.py` in owned mode,
+with the pinned external RustFS fixture replaced between write/read phases. Its
+receipt must report clean candidate source, the exact harness/image, passed
+phases, restart validation and cleanup. External-endpoint conformance mode cannot
+satisfy this release gate. The fixture is not distributed with Ledgence and does
+not establish AWS qualification. Candidate evidence is retained for 30 days.
+
 
 Each successful job retains its verified archive, `SHA256SUMS` and provenance as
 an Actions artifact for 30 days. Artifact names distinguish the headless targets

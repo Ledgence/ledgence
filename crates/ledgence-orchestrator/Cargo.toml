@@ -10,11 +10,14 @@ autobins = false
 description = "Ledgence HTTP orchestration service and recovery supervisor"
 
 [features]
+s3-artifacts = ["ledgence-adapter-blob/s3"]
 default = ["otel"]
 otel = ["dep:ledgence-adapter-otel"]
 sqs = ["dep:ledgence-adapter-sqs"]
 
 [dependencies]
+ledgence-adapter-blob.workspace = true
+serde.workspace = true
 ledgence-adapter-access.workspace = true
 ledgence-adapter-sqs = { workspace = true, optional = true }
 ledgence-adapter-otel = { workspace = true, optional = true }

@@ -547,3 +547,38 @@ reads in follow mode are immediate. `--poll-interval-ms` sets the minimum reques
 `--timeout-ms` bounds observation. Credentials require
 `metadata_read`. These commands require matching development components.
 [Cursor, recovery and output semantics](execution-progress.md).
+
+## Execution files (development source)
+
+Matching development components add `ledgence artifacts`; these commands are not
+included in published 0.9.0. Configure the server's fixed instance and execution
+store first. Program `publish --store` remains a separate package operation.
+
+```sh
+ledgence artifacts put --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --task TASK_ID \
+  --key report --file report.txt --media-type text/plain
+ledgence artifacts list --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --task TASK_ID --limit 50
+ledgence artifacts inspect --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --artifact ARTIFACT_ID
+ledgence artifacts download --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --artifact ARTIFACT_ID --file downloaded-report.txt
+```
+
+Replace the IDs with real executions/references and provide an existing local
+`report.txt`. For workflows use `--workflow` instead of `--task`; list covers the
+canonical root. Add `--credentials-file FILE` when native access is enabled.
+Upload/recovery requires `artifact_write`, metadata `metadata_read`, and downloads
+`sensitive_read`. Files are at most 64 MiB, and `--timeout-ms` accepts 1–120000.
+Download verifies size/digest and never overwrites a destination.
+
+An uncertain upload reports its identity for explicit recovery. `artifacts status
+--upload ID` reads it; `artifacts reconcile --artifact ID --upload ID --revision N`
+verifies stored bytes without retransmission. `artifacts replace --upload ID
+--expected-revision N` creates a successor only when eligible. Each needs the same
+server/scope flags above. Do not invent a new key to hide an uncertain write.
+See [recovery and storage configuration](execution-artifacts.md).
+
+The development CLI build feature `s3-artifacts` enables the optional execution
+byte-store adapter. It is independent of the `sqs` queue transport feature.

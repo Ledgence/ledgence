@@ -1,5 +1,5 @@
 // Mirrors ConsoleConfig in ledgence-orchestration-api/src/console.rs.
-export const consoleContractVersion = 15;
+export const consoleContractVersion = 16;
 export interface ConsoleConfig {
   contract_version: number;
   server_version: string;
@@ -7,6 +7,7 @@ export interface ConsoleConfig {
   instance_name: string;
   capabilities: {
     execution_progress: boolean;
+    execution_artifacts: boolean;
     executions: boolean;
     workflows: boolean;
     programs: boolean;

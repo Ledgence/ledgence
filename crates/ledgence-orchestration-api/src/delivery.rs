@@ -162,7 +162,7 @@ pub struct LeaseOwner {
     pub consumer_id: u32,
 }
 impl LeaseOwner {
-    pub(crate) fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         self.scope.validate()?;
         if self.generation == 0 || self.generation > MAX_TASK_ATTEMPT_GENERATION {
             return Err(ContractError::InvalidInput(
@@ -429,6 +429,19 @@ pub struct RecordedHistoryEvent {
 /// Service boundary implemented by future transport adapters. A successful
 /// mutation reply is permitted only after durable transactional acceptance.
 pub trait TaskService: Send + Sync {
+    /// Optional server-side artifact service; absence never enables fallback storage.
+    fn execution_artifacts(&self) -> Result<&dyn ExecutionArtifactService> {
+        Err(ContractError::Unavailable(
+            "execution artifacts are unavailable".into(),
+        ))
+    }
+    /// Optional worker transport, separate from server authority.
+    fn artifact_client(&self) -> Result<&dyn ExecutionArtifactClient> {
+        Err(ContractError::Unavailable(
+            "execution artifact client is unavailable".into(),
+        ))
+    }
+
     /// Optional complete read capability for resumable execution lifecycle pages.
     fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
         Err(ContractError::Unavailable(

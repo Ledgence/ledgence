@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { focusManager, onlineManager } from "@tanstack/react-query";
-import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json?raw";
+import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v16.json?raw";
 import { parseUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import { InstanceContext } from "../../src/app/instance";
@@ -17,7 +17,7 @@ function response(value: unknown, status = 200, instance = config.instance_id) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "15",
+      "Ledgence-Console-Contract": "16",
       "Ledgence-Instance-Id": instance,
     },
   });

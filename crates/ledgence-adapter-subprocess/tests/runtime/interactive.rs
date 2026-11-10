@@ -430,3 +430,60 @@ async fn v3_runtime_error_is_retryable_execution_failure_and_plain_requests_are_
     );
     session.close().await.unwrap();
 }
+
+struct RetainedIoHandler {
+    entered: tokio::sync::Semaphore,
+    draining: tokio::sync::Semaphore,
+    finish: tokio::sync::Semaphore,
+}
+impl RuntimeRequestHandler for RetainedIoHandler {
+    fn handle<'a>(&'a self, _: RuntimeRequest, _: RunControl) -> PortFuture<'a, RuntimeReply> {
+        Box::pin(async {
+            self.entered.add_permits(1);
+            std::future::pending().await
+        })
+    }
+    fn drain(&self) -> PortFuture<'_, ()> {
+        Box::pin(async {
+            self.draining.add_permits(1);
+            self.finish.acquire().await.unwrap().forget();
+            Ok(())
+        })
+    }
+}
+#[tokio::test]
+async fn cancelled_request_keeps_cleanup_owned_until_handler_io_really_finishes() {
+    let (_dir, artifact, runtime) = scripted(REQUEST_AND_WAIT);
+    let mut session = ready(runtime.start(artifact, control()).await);
+    let pid = session.pid();
+    let handler = Arc::new(RetainedIoHandler {
+        entered: tokio::sync::Semaphore::new(0),
+        draining: tokio::sync::Semaphore::new(0),
+        finish: tokio::sync::Semaphore::new(0),
+    });
+    {
+        let mut execution =
+            session.execute_with_requests(invocation("retained-io"), control(), handler.clone());
+        tokio::select! {
+            result = &mut execution => panic!("unexpected result: {result:?}"),
+            permit = handler.entered.acquire() => permit.unwrap().forget(),
+        }
+    }
+    tokio::time::timeout(Duration::from_secs(2), handler.draining.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    #[cfg(unix)]
+    assert!(
+        !running(pid),
+        "child is stopped before waiting on retained IO"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), session.close())
+            .await
+            .is_err()
+    );
+    handler.finish.add_permits(1);
+    session.close().await.unwrap();
+}

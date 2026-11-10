@@ -272,3 +272,19 @@ fn report_delivery_failure_retains_the_completed_probe_observations() {
         assert_eq!(classification, Some(expected));
     }
 }
+
+#[test]
+fn provider_probes_do_not_advertise_execution_artifacts() {
+    let handler = ProbeHandler {
+        features: RuntimeFeatures {
+            v: 1,
+            supported: vec![
+                ledgence_worker_api::EXECUTION_ARTIFACTS_FEATURE.into(),
+                ledgence_worker_api::NATIVE_EFFECT_RESOLUTION_FEATURE.into(),
+            ],
+        },
+        timeout: Duration::from_secs(1),
+    };
+    assert!(!handler.features().execution_artifacts());
+    assert!(handler.features().native_effect_resolution());
+}

@@ -360,7 +360,21 @@ For example, pass these tool arguments (the MCP server supplies the scope):
 {"target":{"kind":"task","id":"TASK_ID"},"cursor":null,"limit":100}
 ```
 
-The development catalog adds this one read tool: with audit configured it has
-31 default tools, 26 in read-only mode, 32 with effect resolution alone, 36 with
-resource control alone, and 37 with both mutation opt-ins. The published 0.9.0
-counts above remain unchanged.
+The development catalog adds this progress tool plus the two artifact metadata
+tools below. The published 0.9.0 counts above remain unchanged; use `tools/list`
+to inspect the catalog exposed by your configured development binary.
+
+## Execution file metadata (development source)
+
+`ledgence_artifact_inspect` accepts `{artifact_id}` and returns an accepted,
+retained manifest. `ledgence_artifact_list` accepts `{target, cursor, limit}` with
+a task/workflow target and limit 1–100; it lists the canonical root's artifacts.
+Both inject the configured scope, require `metadata_read`, and remain available
+in read-only mode. They require matching development server/client components
+and a configured artifact store; they are not in the published 0.9.0 catalog.
+
+These tools receive only the narrow metadata-reader port. They cannot upload,
+download, replace or delete files, and return no storage URLs or credentials.
+An accepted-file list does not expose unresolved upload generations. Use the
+CLI or Python client for explicit content transfer and recovery.
+[Execution file contract](execution-artifacts.md).

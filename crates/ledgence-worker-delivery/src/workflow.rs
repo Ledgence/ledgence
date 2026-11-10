@@ -101,6 +101,7 @@ impl Context {
         });
         let payload = serde_json::to_value(context)
             .map_err(|error| Error::new(ErrorKind::Protocol, error.to_string()))?;
+        let artifacts = self.artifact_handler(owner.clone());
         let handler = Arc::new(WorkflowOperations {
             service,
             effect_access: self.effect_access.clone(),
@@ -118,7 +119,7 @@ impl Context {
                 schema: WORKFLOW_RUNTIME_SCHEMA.into(),
                 payload,
             },
-            handler,
+            handler: artifacts::compose(handler, artifacts),
             wake_trace,
         })
     }

@@ -133,13 +133,14 @@ class _Transport:
 
     async def exchange(self, method: str, route: str, *, body: bytes | None = None,
                        query: dict | None = None, deadline: float,
-                       parser: Callable, limit: int = codec.RESPONSE_LIMIT):
+                       parser: Callable, limit: int = codec.RESPONSE_LIMIT, extra_headers: dict | None = None,
+                       response_reader: Callable | None = None):
         self.check_open()
         if self._loop.time() >= deadline:
             raise RequestTimeout(dispatched=False)
         state = _ExchangeState()
         operation = self._loop.create_task(self._run(
-            method, route, body=body, query=query, deadline=deadline, parser=parser, limit=limit, state=state,
+            method, route, body=body, query=query, deadline=deadline, parser=parser, limit=limit, state=state, extra_headers=extra_headers, response_reader=response_reader,
         ))
         self._operations.add(operation)
         try:
@@ -157,7 +158,7 @@ class _Transport:
         finally:
             self._operations.discard(operation)
 
-    async def _run(self, method, route, *, body, query, deadline, parser, limit, state):
+    async def _run(self, method, route, *, body, query, deadline, parser, limit, state, extra_headers=None, response_reader=None):
         dispatched = False
         request_id = None
         try:
@@ -174,6 +175,8 @@ class _Transport:
                             headers["Authorization"] = "Bearer " + self._token
                         if body is not None:
                             headers["Content-Type"] = "application/json"
+                        if extra_headers:
+                            headers.update(extra_headers)
                         if self._loop.time() >= deadline:
                             raise RequestTimeout(dispatched=False)
                         dispatched = True
@@ -194,6 +197,11 @@ class _Transport:
                                     span.record_error(f"http_{response.status}")
                                 if request_id is not None:
                                     span.set_attribute("ledgence.request.id", request_id)
+                            if response.status == 200 and response_reader is not None:
+                                result = await response_reader(response, deadline, request_id)
+                                if self._loop.time() >= deadline:
+                                    raise RequestTimeout(dispatched=True, request_id=request_id)
+                                return result, request_id
                             types = response.headers.getall("Content-Type", [])
                             if len(types) != 1 or not re.fullmatch(
                                 r'application/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?',
@@ -227,6 +235,16 @@ class _Transport:
             raise
         except (aiohttp.ClientError, OSError) as exc:
             raise TransportError("HTTP exchange failed", request_id=request_id) from None
+
+    async def owned(self, operation):
+        """Keep an artifact's local IO and cleanup within client close ownership."""
+        self.check_open()
+        task = self._loop.create_task(operation)
+        self._operations.add(task)
+        try:
+            return await task
+        finally:
+            self._operations.discard(task)
 
     async def close(self):
         if self._close_task is None:

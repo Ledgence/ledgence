@@ -495,3 +495,18 @@ In Ledgence 0.9.0, `ledgence resource decisions --server URL --credentials-file 
 ### Inspect a shared run budget
 
 Read `ledgence budget inspect --server URL --credentials-file FILE --tenant ID --namespace NAME --workflow ID`. Replace `--workflow ID` with `--task ID` for a task. `ledgence budget entries` takes the same scope and subject; pass `--before SEQUENCE` to follow the returned cursor. Both require `metadata_read`.
+
+## Execution files in development
+
+Matching development components add `ledgence artifacts put`, `inspect`, `list`,
+`download`, `status`, `reconcile` and `replace`. These are separate from program
+package publication and require a configured execution store. `put` accepts a
+file and stable key attached to an existing task/workflow; `download` verifies
+bytes and never overwrites a local destination. Uncertain uploads have explicit
+status, reconciliation and revision-bound replacement commands.
+
+Use `ledgence artifacts --help` in the development CLI and see the
+[file-sharing guide](/how-to/share-execution-files) or
+[exact CLI contract](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#execution-files-development-source).
+This surface is not included in published 0.9.0. Source builds can add the optional
+`s3-artifacts` feature independently of SQS transport.

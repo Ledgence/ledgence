@@ -81,6 +81,12 @@ single dispatch grant. Workflows park while bounded read-only probes recover
 pending or uncertain outcomes. The Effects view exposes the policy, reports and
 operator handling. Try the [local asynchronous export example](examples/provider-recovery/README.md).
 
+The development source also adds [execution files](docs/execution-artifacts.md):
+store bounded reports or other outputs separately from JSON, pass immutable
+references between steps, and inspect metadata or explicitly download in Console.
+This capability requires matching development components and configured storage;
+it is not part of the published 0.9.0 packages.
+
 ### Install and start Ledgence
 
 Install the latest stable release on a supported native platform:

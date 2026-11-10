@@ -6,7 +6,7 @@ import { decodeConfig } from "../../src/api/codecs";
 const fixture = JSON.parse(
   readFileSync(
     new URL(
-      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json",
+      "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v16.json",
       import.meta.url,
     ),
     "utf8",
@@ -61,7 +61,7 @@ async function wire(
         status,
         contentType: "application/json",
         headers: {
-          "Ledgence-Console-Contract": "15",
+          "Ledgence-Console-Contract": "16",
           "Ledgence-Instance-Id": config.instance_id,
         },
         body: JSON.stringify(value),

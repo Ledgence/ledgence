@@ -5,6 +5,7 @@
 //! Tokio runtime must remain alive until shutdown finishes. Process crashes rely
 //! on service expiry/retry; this driver has no local durable recovery journal.
 
+mod artifacts;
 mod attempt;
 mod binding;
 mod observations;

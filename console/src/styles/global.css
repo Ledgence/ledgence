@@ -1817,3 +1817,38 @@ summary {
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* Explicit file attachments use the same restrained detail surfaces. */
+.artifact-panel .artifact-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.artifact-name > svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+.artifact-panel td {
+  vertical-align: top;
+}
+.artifact-panel td:first-child {
+  min-width: 16rem;
+  max-width: 32rem;
+}
+.artifact-panel td:nth-child(3) {
+  min-width: 12rem;
+}
+.artifact-detail-row > td {
+  padding: 1.25rem;
+}
+.artifact-panel .artifact-detail-row .fields {
+  gap: 1.25rem;
+}
+.artifact-download {
+  min-width: 10rem;
+  max-width: 20rem;
+}
+.artifact-download p {
+  margin-top: 0.5rem;
+}

@@ -32,7 +32,11 @@ struct ProbeHandler {
 }
 impl RuntimeRequestHandler for ProbeHandler {
     fn features(&self) -> RuntimeFeatures {
-        self.features.clone()
+        let mut features = self.features.clone();
+        features
+            .supported
+            .retain(|name| name != ledgence_worker_api::EXECUTION_ARTIFACTS_FEATURE);
+        features
     }
     fn capabilities(&self) -> RuntimeCapabilities {
         RuntimeCapabilities {

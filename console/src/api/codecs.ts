@@ -68,6 +68,7 @@ export function decodeConfig(value: unknown): ConsoleConfig {
     );
   const c = record(v.capabilities, [
     "execution_progress",
+    "execution_artifacts",
     "executions",
     "workflows",
     "programs",
@@ -107,6 +108,7 @@ export function decodeConfig(value: unknown): ConsoleConfig {
     instance_name: text(v.instance_name),
     capabilities: {
       execution_progress: flag(c.execution_progress),
+      execution_artifacts: flag(c.execution_artifacts),
       executions: flag(c.executions),
       workflows: flag(c.workflows),
       programs: flag(c.programs),

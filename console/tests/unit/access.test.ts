@@ -119,11 +119,27 @@ describe("Console access identity", () => {
     });
     const valid = actor();
     expect(decodeAccess(valid)).toEqual(valid);
+    const operator = {
+      ...valid,
+      capabilities: [
+        "metadata_read",
+        "sensitive_read",
+        "execution_submit",
+        "execution_control",
+        "program_publish",
+        "artifact_write",
+        "approval_decide",
+        "effect_resolve",
+        "resource_control",
+      ],
+    };
+    expect(decodeAccess(operator)).toEqual(operator);
     for (const bad of [
       { mode: "operator_trusted", subject: "admin" },
       { ...actor(), class: "worker" },
       { ...actor(), capabilities: ["sensitive_read", "sensitive_read"] },
       { ...actor(), capabilities: ["worker_execute"] },
+      { ...actor(), capabilities: ["unknown_capability"] },
     ])
       expect(() => decodeAccess(bad)).toThrow();
   });

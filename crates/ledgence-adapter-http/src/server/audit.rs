@@ -174,19 +174,27 @@ pub(super) async fn release(
     prepared: PreparedResponse,
 ) -> std::result::Result<Vec<u8>, Failure> {
     let PreparedResponse { bytes, context } = prepared;
+    release_context(server, &context).await.map(|()| bytes)
+}
+
+/// Commit the same conditional exposure boundary before releasing a streamed body.
+pub(super) async fn release_context(
+    server: &Server,
+    context: &RequestContext,
+) -> std::result::Result<(), Failure> {
     let result = async {
         // Worker leases and ordinary commands retain their existing settlement
         // semantics. This boundary governs payload release, not their response.
         if !matches!(context.policy, Policy::Sensitive | Policy::Approval) {
-            return Ok(bytes);
+            return Ok(());
         }
         context.recheck(server)?;
         if !context.enforced {
-            return Ok(bytes);
+            return Ok(());
         }
         match context.take_exposure()? {
             Exposure::Missing => unreachable!("take_exposure rejects missing annotations"),
-            Exposure::NoPayload => Ok(bytes),
+            Exposure::NoPayload => Ok(()),
             Exposure::Sensitive(resource) => {
                 let observation = SensitiveObservation {
                     request: context.request()?.clone(),
@@ -202,7 +210,7 @@ pub(super) async fn release(
                     .await?;
                 receipt.validate_for(principal, &observation)?;
                 context.recheck(server)?;
-                Ok(bytes)
+                Ok(())
             }
         }
     }

@@ -3,6 +3,7 @@
 //! Migrations are explicit. Successful mutations commit before returning; a
 //! connection failure during commit must be reconciled with the same command.
 
+mod artifacts;
 mod catalog;
 mod codec;
 mod completion;

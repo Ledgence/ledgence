@@ -197,7 +197,7 @@ def _runtime_features(value):
 
 def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_context=None,
             extension=None, rpc=None, observe=False, effect_evidence_v2=False, native_effect_resolution=False,
-            provider_operation=False, resource_admission=False, provider_admission=False):
+            provider_operation=False, resource_admission=False, provider_admission=False, execution_artifacts=False):
     from ledgence.worker import InvocationContext, _invocation
     from ledgence.worker.otel import _activate
 
@@ -234,7 +234,7 @@ def _invoke(handler, event, event_id, attempt_id, limit, version=1, processing_c
             if version >= 3:
                 import asyncio
                 response = asyncio.run(_invoke_async(handler, event, envelope, limit, extension, rpc,
-                                                    effect_evidence_v2, native_effect_resolution, provider_operation, resource_admission, provider_admission))
+                                                    effect_evidence_v2, native_effect_resolution, provider_operation, resource_admission, provider_admission, execution_artifacts))
             else:
                 response = _invoke_output(handler, event, envelope, limit)
         if observation is not None:
@@ -271,10 +271,15 @@ def _invoke_output(handler, event, envelope, limit):
 
 
 async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_evidence_v2=False,
-                        native_effect_resolution=False, provider_operation=False, resource_admission=False, provider_admission=False):
+                        native_effect_resolution=False, provider_operation=False, resource_admission=False, provider_admission=False, execution_artifacts=False):
     import asyncio
     from ledgence.worker.workflow import SCHEMA, WorkflowContext, _workflow
 
+    from ledgence.worker.artifacts import _bind, _unbind
+    artifact_enabled = execution_artifacts and (
+        extension is None or (isinstance(extension, dict) and extension.get("schema") == SCHEMA)
+    )
+    artifact_binding, artifact_token = _bind(rpc, artifact_enabled)
     context = None
     token = None
     failed = True
@@ -327,6 +332,7 @@ async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_
         return _failure(envelope, "workflow_error" if extension is not None else "business_error", exc, limit,
                         status="runtime_error" if extension is not None else "error")
     finally:
+        _unbind(artifact_binding, artifact_token)
         if context is not None:
             await context._finish(cancel=failed)
         if token is not None:
@@ -518,6 +524,7 @@ def main():
         provider_operation = "provider_operation.v1" in features
         resource_admission = "resource_admission.v1" in features
         provider_admission = "provider_admission.v1" in features
+        execution_artifacts = "execution_artifacts.v1" in features
         if provider_admission and not (provider_operation and resource_admission):
             raise ProtocolError("provider admission requires provider operation and resource admission")
         if provider_operation and not native_effect_resolution:
@@ -531,7 +538,7 @@ def main():
         response = contextvars.Context().run(
             _invoke, handler, event, event_id, attempt_id, args.max_output_bytes,
             args.protocol_version, processing, extension, rpc, message.get("observe") is True,
-            effect_evidence_v2, native_effect_resolution, provider_operation, resource_admission, provider_admission
+            effect_evidence_v2, native_effect_resolution, provider_operation, resource_admission, provider_admission, execution_artifacts
         )
         write(response)
 

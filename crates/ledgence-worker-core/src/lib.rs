@@ -64,7 +64,7 @@ pub struct Worker {
     trace: Arc<dyn TraceBridge>,
 }
 struct InteractiveExecution {
-    extension: RuntimeExtension,
+    extension: Option<RuntimeExtension>,
     handler: Arc<dyn RuntimeRequestHandler>,
 }
 struct InvocationInput {
@@ -243,7 +243,10 @@ impl Worker {
             request,
             control,
             None,
-            Some(InteractiveExecution { extension, handler }),
+            Some(InteractiveExecution {
+                extension: Some(extension),
+                handler,
+            }),
         )
         .await
     }
@@ -281,9 +284,11 @@ impl Worker {
         admission: Option<Arc<dyn InvocationAdmission>>,
     ) -> InvocationResult {
         let context = Box::new(ExecutionContext::from(&request));
-        if let Some(interactive) = &interactive {
-            interactive
-                .extension
+        if let Some(extension) = interactive
+            .as_ref()
+            .and_then(|value| value.extension.as_ref())
+        {
+            extension
                 .validate()
                 .map_err(|error| logged_failure(error, Phase::Admission, false, &context))?;
         }
@@ -455,7 +460,7 @@ impl Worker {
     ) -> InvocationResult {
         let InvocationInput {
             request,
-            interactive,
+            mut interactive,
             admission,
         } = input;
         let started = Instant::now();
@@ -509,6 +514,17 @@ impl Worker {
             .manifest()
             .validate_host()
             .map_err(|error| failure(error, Phase::Preparation, false, context))?;
+        if artifact.manifest().runtime.protocol < 3 {
+            let optional = catch_call(|| {
+                interactive.as_ref().is_some_and(|value| {
+                    value.extension.is_none() && value.handler.optional_for_legacy_protocol()
+                })
+            })
+            .map_err(|error| failure(error, Phase::Preparation, false, context))?;
+            if optional {
+                interactive = None;
+            }
+        }
         if interactive.is_some() && artifact.manifest().runtime.protocol != 3 {
             return Err(failure(
                 Error::new(
@@ -602,12 +618,13 @@ impl Worker {
         };
         let permit = if let Some(admission) = admission {
             let supported = catch_call(|| {
-                ownership
+                let session = &ownership
                     .session
                     .as_ref()
                     .expect("session acquired")
-                    .session
-                    .supports_admitted_invocation()
+                    .session;
+                session.supports_admitted_invocation()
+                    && (interactive.is_none() || session.supports_admitted_requests())
             });
             if supported.is_err() {
                 self.fail_closed(&context.identity);
@@ -686,7 +703,9 @@ impl Worker {
         let invocation = RuntimeInvocation {
             event: request.event.clone(),
             processing_context: self.trace.context(&execution_span),
-            extension: interactive.as_ref().map(|value| value.extension.clone()),
+            extension: interactive
+                .as_ref()
+                .and_then(|value| value.extension.clone()),
         };
         let execution_started = Instant::now();
         let execution_metric = MetricTimer::start(Metric::ExecutionDuration);
@@ -698,9 +717,23 @@ impl Worker {
                 .expect("session acquired")
                 .session;
             if let Some(permit) = permit {
-                session
-                    .execute_admitted(invocation, phase_control, permit)
-                    .await
+                match interactive {
+                    Some(interactive) => {
+                        session
+                            .execute_admitted_with_requests(
+                                invocation,
+                                phase_control,
+                                permit,
+                                interactive.handler,
+                            )
+                            .await
+                    }
+                    None => {
+                        session
+                            .execute_admitted(invocation, phase_control, permit)
+                            .await
+                    }
+                }
             } else {
                 match interactive {
                     Some(interactive) => {

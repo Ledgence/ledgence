@@ -13,6 +13,7 @@ name = "ledgence"
 path = "src/main.rs"
 
 [features]
+s3-artifacts = ["ledgence-orchestrator/s3-artifacts"]
 default = ["otel", "mcp"]
 mcp = ["dep:ledgence-adapter-mcp", "dep:tokio-util", "tokio/io-std"]
 otel = ["dep:ledgence-adapter-otel", "ledgence-worker/otel", "ledgence-orchestrator/otel"]

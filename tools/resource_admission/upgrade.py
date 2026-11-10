@@ -11,6 +11,10 @@ from workflow_acceptance.owned_scenarios import quote
 
 
 class UpgradeDeployment(ProviderDeployment):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.environment["PYTHONDONTWRITEBYTECODE"] = "1"
+
     def server_args(self, config):
         args = super().server_args(config) + ["--console-dir", str(self.console_dist)]
         if self.admission_config:
@@ -209,7 +213,7 @@ def exercise(
         applied = migrate_candidate(d, original, receipts)
         d.admit_mode("enabled")
         d.start_server()
-        d.check_console(14)
+        d.check_console(json.loads((console / "console-manifest.json").read_text())["console_contract_version"])
         replay(d, seeded)
         old_worker = d.worker(
             "late-outsider",

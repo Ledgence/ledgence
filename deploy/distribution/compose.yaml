@@ -29,12 +29,15 @@ services:
     restart: "no"
   orchestrator:
     <<: *runtime
-    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console, --allow-program-publication]
+    stop_grace_period: 155s
+    command: [ledgence, orchestrator, serve, --bind, "0.0.0.0:8080", --store, /programs, --instance-config, /opt/ledgence/instance.json, --console-dir, /opt/ledgence/console, --allow-program-publication, --artifact-config, /opt/ledgence/artifacts.json]
     ports: ["127.0.0.1:${LEDGENCE_PORT:-8080}:8080"]
-    volumes: [programs:/programs]
+    volumes: [programs:/programs, execution-artifacts:/execution-artifacts, artifact-spool:/artifact-spool]
     configs:
       - source: instance
         target: /opt/ledgence/instance.json
+      - source: artifacts
+        target: /opt/ledgence/artifacts.json
     depends_on:
       migrate: {condition: service_completed_successfully}
     healthcheck:
@@ -51,10 +54,15 @@ services:
       orchestrator: {condition: service_healthy}
     restart: unless-stopped
 volumes:
+  execution-artifacts:
+  artifact-spool:
   postgres:
   programs:
   cache:
 configs:
+  artifacts:
+    content: |
+      {"schema":"ledgence.artifact-store.v1","store_id":"local-execution-artifacts","backend":{"kind":"filesystem","directory":"/execution-artifacts"},"spool_directory":"/artifact-spool"}
   instance:
     content: |
       {"instance_id":"ledgence-local","name":"Local instance","scope":{"tenant_id":"acme","namespace":"demo"},"suggested_queues":["demo"],"allowed_origins":["http://127.0.0.1:${LEDGENCE_PORT:-8080}","http://localhost:${LEDGENCE_PORT:-8080}"]}

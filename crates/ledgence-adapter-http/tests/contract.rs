@@ -50,6 +50,7 @@ use tokio::{
 
 #[derive(Default)]
 struct Mock {
+    artifacts: std::sync::OnceLock<Arc<dyn ExecutionArtifactService>>,
     evidence_capabilities: AtomicUsize,
     queue_policies_enabled: AtomicBool,
     progress_enabled: AtomicBool,
@@ -104,6 +105,13 @@ impl Mock {
     }
 }
 impl TaskService for Mock {
+    fn execution_artifacts(&self) -> Result<&dyn ExecutionArtifactService> {
+        self.artifacts
+            .get()
+            .map(|value| value.as_ref())
+            .ok_or_else(|| ContractError::Unavailable("artifacts disabled".into()))
+    }
+
     fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
         if self.progress_enabled.load(Ordering::SeqCst) {
             Ok(self)

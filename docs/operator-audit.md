@@ -208,3 +208,13 @@ follow the existing observation-retention lane. See
 [resource admission](resource-admission.md#http-cli-python-and-mcp) for the public
 interfaces and [retention](retention.md#retained-admission-usage-in-development)
 for the independent admission journal's lifetime.
+
+## Execution file downloads in development
+
+Matching development components beyond 0.9.0 record `artifact_download` sensitive
+responses with an artifact resource containing its `artifact_id` and canonical
+`root` (`kind` and `id`). The catalog applies current authorization and retained
+root checks before bytes are released. Metadata browsing does not fetch or audit
+file contents as a download. An audit records the authorized response boundary;
+it does not prove a human opened the downloaded file or retract already sent
+bytes after revocation. [Execution files](execution-artifacts.md).

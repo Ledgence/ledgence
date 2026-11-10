@@ -36,7 +36,7 @@ def handle(event):
 '''
 WRITE_TOOLS = {"ledgence_task_submit", "ledgence_task_cancel", "ledgence_workflow_submit",
                "ledgence_workflow_cancel", "ledgence_workflow_send_event"}
-READ_TOOLS = {"ledgence_execution_progress", "ledgence_program_list", "ledgence_program_versions", "ledgence_program_inspect",
+READ_TOOLS = {"ledgence_artifact_inspect", "ledgence_artifact_list", "ledgence_execution_progress", "ledgence_program_list", "ledgence_program_versions", "ledgence_program_inspect",
               "ledgence_task_list", "ledgence_task_status", "ledgence_task_result",
               "ledgence_workflow_status", "ledgence_workflow_result", "ledgence_approval_list",
               "ledgence_approval_inspect", "ledgence_approval_inbox", "ledgence_audit_query",

@@ -29,6 +29,7 @@ const config: ConsoleConfig = {
   instance_name: "Local workspace",
   capabilities: {
     execution_progress: false,
+    execution_artifacts: false,
     executions: true,
     workflows: true,
     programs: true,

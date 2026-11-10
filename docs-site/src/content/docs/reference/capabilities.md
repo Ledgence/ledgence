@@ -220,3 +220,13 @@ and an MCP read tool. Cursors support reopening retained history; bounded server
 waits reduce repeated idle reads. This does not add model-token streaming and is
 not available in 0.9.0 distributions.
 [Follow an execution](/how-to/follow-execution-progress).
+
+## Execution files in development
+
+The development source beyond published 0.9.0 adds [execution files](/how-to/share-execution-files):
+immutable references for files up to 64 MiB, explicit uncertain-upload recovery,
+filesystem or optional S3 storage, and root-scoped retention. Workers and Python
+clients can upload/download; CLI provides the same operations, Console separates
+metadata from explicit sensitive downloads, and MCP exposes metadata reads only.
+It requires a configured fixed instance and matching development components.
+Agent frameworks remain application-owned; none is preferred by this capability.

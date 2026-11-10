@@ -10,6 +10,10 @@
 
 pub use ledgence_worker_api::TraceContext;
 
+mod artifacts;
+pub use artifacts::*;
+mod execution_target;
+pub use execution_target::*;
 mod progress;
 pub use progress::*;
 mod run_budget;

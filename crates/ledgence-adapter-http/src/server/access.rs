@@ -341,6 +341,14 @@ pub(super) async fn dispatch(
         {
             return Err(invalid("unsupported worker feature negotiation").into());
         }
+        let artifact_headers = request.headers().get_all("ledgence-artifact-features");
+        let artifact_opt_in = artifact_headers.iter().next().is_some();
+        if artifact_opt_in
+            && (artifact_headers.iter().count() != 1
+                || artifact_headers.iter().next().is_none_or(|v| v != "1"))
+        {
+            return Err(invalid("unsupported artifact feature negotiation").into());
+        }
         to_bytes(request.into_body(), 0)
             .await
             .map_err(|_| invalid("access lookup does not accept a body"))?;
@@ -382,10 +390,24 @@ pub(super) async fn dispatch(
                 if super::task_admission::available(server) {
                     supported.push(TASK_ADMISSION_FEATURE);
                 }
+                if artifact_opt_in && artifacts::available(server) {
+                    supported.push(ledgence_worker_api::EXECUTION_ARTIFACTS_FEATURE);
+                }
                 if !supported.is_empty() {
                     value["worker_features"] = serde_json::json!({"v":1,"supported":supported});
                 }
             }
+        }
+        // Older workers decode operator_trusted as a unit variant. Only the
+        // separate artifact opt-in may add these fields; it grants no effects.
+        if generic && principal.is_none() && artifact_opt_in && artifacts::available(server) {
+            let instance = server
+                .instance
+                .as_ref()
+                .expect("artifact availability requires instance");
+            value["worker_features"] = serde_json::json!({"v":1,"supported":[ledgence_worker_api::EXECUTION_ARTIFACTS_FEATURE]});
+            value["instance_id"] = serde_json::json!(instance.instance_id);
+            value["scope"] = serde_json::json!(instance.scope);
         }
         return Ok((server.encode(value).await?, None));
     }

@@ -17,6 +17,23 @@ pub struct ToolDefinition {
 pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     let mut tools = vec![
         tool(
+            "ledgence_artifact_inspect",
+            "Inspect the accepted immutable execution artifact manifest in the session's fixed scope. Requires metadata_read. Returns identity, provenance, digest, size and display filename, never file bytes, storage URLs or credentials. An artifact reference is not authorization to download its content.",
+            object(json!({"artifact_id":identifier()}), &["artifact_id"]),
+            true,
+            false,
+        ),
+        tool(
+            "ledgence_artifact_list",
+            "List accepted execution artifact manifests for a task or workflow in the session's fixed scope. Follow next_cursor without changing the target. This tool cannot upload, replace, download or delete file bytes. Retired roots return not_found; an empty page does not prove unfinished uploads are absent.",
+            object(
+                json!({"target":object(json!({"kind":{"type":"string","enum":["task","workflow"]},"id":identifier()}), &["kind","id"]),"limit":limit(),"cursor":{"type":["string","null"],"maxLength":4096}}),
+                &["target"],
+            ),
+            true,
+            false,
+        ),
+        tool(
             "ledgence_execution_progress",
             "Read one bounded page of committed lifecycle metadata for a task or workflow in this session's fixed scope. Requires metadata_read. Save next_cursor after processing the page and pass it unchanged to resume. has_more means the observed snapshot has remaining events. terminal describes the logical outcome, not a sealed history: late cleanup can append. No recursive child events, application payloads, token stream, waiting, or execution mutation. Retired executions return not_found; sequence and high_watermark are full-width decimal strings.",
             object(
@@ -388,8 +405,8 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 37);
-        assert_eq!(tool_definitions(true).len(), 26);
+        assert_eq!(all.len(), 39);
+        assert_eq!(tool_definitions(true).len(), 28);
         for name in [
             "ledgence_resource_list",
             "ledgence_resource_decisions",
