@@ -100,3 +100,11 @@ for live updates and how to pause polling.
 [Execution progress](execution-progress/README.md) follows an existing task or
 workflow and saves a cursor for another process. It requires matching development
 server/client builds; the new endpoint is not in published 0.9.0 distributions.
+
+## Execution files in development
+
+[Send a report between workers](execution-artifacts/README.md) uses a workflow,
+a producer task and a consumer task to pass an immutable file reference. It has
+no agent-framework or model-provider dependency. It requires matching development
+components beyond 0.9.0 and a configured execution file store; the acceptance gate
+runs the real programs on separate worker processes with recovery faults.

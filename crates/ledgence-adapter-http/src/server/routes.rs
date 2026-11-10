@@ -11,6 +11,7 @@ pub(super) enum Policy {
     Submit,
     Control,
     Publish,
+    ArtifactWrite,
     Approval,
     EffectResolution,
     ResourceControl,
@@ -42,6 +43,7 @@ impl Policy {
             Self::Submit => ExecutionSubmit,
             Self::Control => ExecutionControl,
             Self::Publish => ProgramPublish,
+            Self::ArtifactWrite => ArtifactWrite,
             Self::Approval => {
                 actor.require(SensitiveRead)?;
                 ApprovalDecide
@@ -146,8 +148,9 @@ mod tests {
             .iter()
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
+            .chain(super::super::artifacts::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 131);
+        assert_eq!(routes.len(), 148);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
             routes.len()
@@ -174,8 +177,8 @@ mod tests {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 134);
-        assert_eq!(audited, 24);
+        assert_eq!(methods, 151);
+        assert_eq!(audited, 26);
     }
     #[test]
     fn payload_worker_and_mixed_method_policies_are_explicit() {
@@ -183,6 +186,7 @@ mod tests {
             .iter()
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
+            .chain(super::super::artifacts::ROUTES)
             .collect();
         let policy = |path: &str, method: &str| {
             routes

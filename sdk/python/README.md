@@ -81,6 +81,67 @@ See [Develop Python programs](../../docs-site/src/content/docs/how-to/develop-py
 for a complete authoring example and [program packages](../../docs/program-packages.md)
 for the runtime artifact contract.
 
+## Execution files in development
+
+**Development source for the next release; not included in published 0.9.0.**
+Use matching server, Rust worker and helper sources. The orchestrator needs a
+fixed instance, migrated database and execution artifact store; ordinary program
+package storage alone does not enable this capability.
+
+Inside an active protocol-3 task or workflow entrypoint, use the worker helper:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from ledgence.worker import artifacts
+
+async def handle(event):
+    with TemporaryDirectory() as directory:
+        report = Path(directory) / "report.txt"
+        report.write_text("hello", encoding="utf-8")
+        reference = await artifacts.put_file(
+            report, key="report", media_type="text/plain", filename="report.txt",
+        )
+    return {"report": reference}
+```
+
+The returned value is a plain JSON reference, not the bytes or a storage URL.
+Pass it through application-owned `data` to another task in the same canonical
+root. `await artifacts.download(reference, destination)` verifies the saved file
+and never overwrites an existing destination. Files must be regular, at most
+64 MiB; empty files are supported. The host owns identity, producer binding,
+current lease and the transfer deadline (at most 120 seconds). The program supplies
+no storage credentials and cannot assert another task's authority. File IO does
+not turn a task into an orchestrator.
+
+The same logical producer and `key` with identical contents and metadata reuse
+an accepted reference. Different contents conflict. An attempt retry preserves
+the producer; a different workflow activation does not. Persist nondeterministic
+model/tool results with the durable-operation helpers before uploading them under
+a stable key. Application frameworks remain optional; these helpers favor none.
+
+| Helper | Recovery behavior |
+| --- | --- |
+| `await artifacts.upload_status(upload_id)` | Read-only generation state under the current invocation authority. |
+| `await artifacts.reconcile(selection)` | Verify stored bytes and adopt a still-selected authorized generation; never resend the file. |
+| `await artifacts.replace(upload_id, expected_selection_revision=revision)` | Explicit CAS replacement when eligible; does not prove the old write stopped. |
+
+`ArtifactUploadUncertain` exposes `selection`, `operation` and optional `status`;
+`ArtifactRecoveryRequired` extends it for a known generation needing recovery.
+Preserve these identities and recover explicitly with the current authorized
+logical producer. Do not generate a new key, assume absence means no write, or
+silently retransmit after an uncertain acknowledgement. A repeated replacement
+returns its original successor rather than generating another upload. All worker
+helpers require an active invocation with negotiated `execution_artifacts.v1`;
+installing this package alone cannot execute them in an ordinary local test.
+
+For an external script, use `AsyncClient.artifacts` from `ledgence.client` instead.
+That client names an existing task/workflow target and uses operator/service
+capabilities; it does not impersonate a worker lease. Its typed references offer
+`to_dict()` for JSON. See the [file-sharing contract](../../docs/execution-artifacts.md),
+[client README](../python-client/README.md), and complete
+[producer/workflow/consumer example](../../examples/execution-artifacts/README.md).
+
 ## Durable model and tool calls
 
 Protocol 3 workflows can give an application-owned model or tool call an explicit

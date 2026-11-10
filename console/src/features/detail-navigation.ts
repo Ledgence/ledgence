@@ -52,10 +52,19 @@ export function resolveDetailNavigation(
   const available =
     tab === "General"
       ? kind === "task"
-        ? ["identity", "input", "output", "resources", "admission", "budget"]
+        ? [
+            "identity",
+            "input",
+            "output",
+            "resources",
+            "admission",
+            "budget",
+            "artifacts",
+          ]
         : [
             "identity",
             "budget",
+            "artifacts",
             "input",
             "output",
             "resources",

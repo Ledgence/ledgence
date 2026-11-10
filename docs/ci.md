@@ -23,6 +23,7 @@ is split into independent jobs:
 | `http` | Separate-process delivery using the default-feature CLI, including worker crashes and connectivity failures |
 | `sqs` | PostgreSQL, HTTP and Python delivery through ElasticMQ with the default acquisition wait and production lease durations |
 | `api` | OTel, MCP, installed Python client, instance credentials, operator audit, retained-effect recovery, native effect resolution and worker-free waits, durable completion callbacks, and the fulfillment workflow example |
+| `artifacts` | Framework-neutral file exchange with real workers, installed clients, CLI/MCP, filesystem and owned S3 fixture, recovery faults and retained-byte verification |
 | `provider` | Typed provider recovery, finite read-only checks, actual predecessor-worker compatibility, retained evidence and an owned database dump/restore |
 | `provider-sqs` | Provider pending/probe/wake delivery and frozen probe-report retries with both logical queues routed through ElasticMQ |
 | `workflows-integrated` | Complete workflow checkpoint, ownership, fork/join, approval and agent recovery suite with integrated delivery |
@@ -167,3 +168,30 @@ The separate PostgreSQL gate discovers every ignored database regression,
 including ordinary-path provider-table lock checks and indexed reconciliation
 query tests. Those structural bounds and synthetic scenarios do not establish
 production provider throughput or universal idempotency guarantees.
+
+## Execution files in development
+
+Beyond stable 0.9.0, the independent `artifacts` acceptance suite checks isolated
+feature combinations, then runs `tools/check-execution-artifacts.py` with the
+same-run all-feature executable and installed Python client. Its framework-neutral
+example uses separate producer/consumer workers and a workflow. Checks include
+empty/multichunk files, producer interruption, server restart, cross-root denial,
+lost upload acknowledgement, explicit reconciliation, CLI file operations and
+MCP metadata-only discovery. A second run with `--s3-owned` uses the shared pinned
+external fixture and verifies the composed path across a persistent-store restart.
+No real model provider, AWS account or user workload is involved.
+
+Blob tests separately cover conditional-write conflicts, full checksum/length
+validation, denied/corrupt/truncated responses, lost or late PUT replies, delete
+faults, spool deadlines, cancellation, retained blocking IO and failed removal.
+Console contract 16 covers metadata-only access, explicit verified downloads,
+actor/navigation cancellation and one active browser download without a queue.
+
+The manual Linux Console candidate gate additionally rehearses the actual
+published 0.9.0 bundle upgrade alongside the required 0.6.1, 0.7.0 and 0.8.0
+baselines. It verifies immutable inventories before/after, interrupted migration
+rollback, repeated migration, old-binary rejection, fresh database restore and
+resumed historical work before exercising new artifacts. Its separate production
+S3 adapter gate requires owned-fixture restart proof tied to the clean candidate
+SHA. See [candidate qualification](releasing.md). These are required checks, not
+claims that an uncommitted development tree already passed GitHub qualification.

@@ -31,7 +31,7 @@ SPEC.loader.exec_module(client)
 deps = client.deps
 run, install, interpreter = client.run, client.install, client.interpreter
 MODULES = {"__init__.py", "_logging.py", "_observations.py", "_protocol.py",
-           "bootstrap.py", "otel.py", "workflow.py", "providers.py", "admission.py", "provider_admission.py", "py.typed"}
+           "artifacts.py", "bootstrap.py", "otel.py", "workflow.py", "providers.py", "admission.py", "provider_admission.py", "py.typed"}
 SUITE = "tests/test_installed_package.py"
 
 

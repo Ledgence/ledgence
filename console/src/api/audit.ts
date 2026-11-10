@@ -26,6 +26,11 @@ const actor = s.object({
   credential_id: id,
 });
 const resource = s.variant({
+  artifact: s.object({
+    kind: s.enumeration("artifact"),
+    root: s.object({ kind: s.enumeration("task", "workflow"), id }),
+    artifact_id: id,
+  }),
   queue: s.object({ kind: s.enumeration("queue"), queue: id }),
   resource: s.object({ kind: s.enumeration("resource"), name: id }),
   task_admission: s.object({
@@ -78,6 +83,7 @@ const responseRead = s.refine(
   s.object({
     kind: s.enumeration("sensitive_response"),
     read: s.enumeration(
+      "artifact_download",
       "task_inspect",
       "task_result",
       "workflow_result",
@@ -96,6 +102,7 @@ const responseRead = s.refine(
   }),
   (value) =>
     ({
+      artifact_download: "artifact",
       task_inspect: "task",
       task_result: "task",
       workflow_result: "workflow",

@@ -6,6 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[path = "progress.rs"]
 mod progress;
 
+#[path = "artifacts.rs"]
+mod artifacts;
+
 const CANARY: &str = "private-payload-must-not-leak";
 #[path = "admission.rs"]
 mod admission;
@@ -33,6 +36,7 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::SensitiveRead,
                 AccessCapability::ApprovalDecide,
             ],
+            "artifact-writer" => vec![AccessCapability::ArtifactWrite],
             "reader" | "expiring-reader" => vec![AccessCapability::MetadataRead],
             "source-investigator" => vec![AccessCapability::SensitiveRead],
             "submitter" => vec![AccessCapability::ExecutionSubmit],

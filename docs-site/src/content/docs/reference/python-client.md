@@ -346,3 +346,15 @@ request deadlines. `poll_interval` sets the minimum request cycle, so a long rea
 does not add another sleep. `ProgressTimeout` ends only
 observation. These methods are not included in the 0.9.0 package.
 [Guide and limits](/how-to/follow-execution-progress).
+
+## Execution files in development
+
+`client.artifacts` adds typed `put_file`, `inspect`, `list`, `download`, `handle`,
+`upload_status`, `reconcile` and `replace` methods. Uploads target exactly one
+existing `task_id` or `workflow_id`; downloads verify the immutable reference and
+never overwrite a destination. `reference.to_dict()` supplies user-owned JSON.
+Inside a running program use `from ledgence.worker import artifacts` instead,
+letting the Rust host bind the invocation's real identity and lease.
+
+These APIs need matching development components and configured storage, beyond
+published 0.9.0. [Create and download a report](/how-to/share-execution-files).

@@ -177,8 +177,21 @@ jobs:
           0.6.1 7fc70c2e520d4bfb5836136e8811d3cec61399545d3c26eebeca2a29e3ad38be check-approval-upgrade.py
           0.7.0 1795cc0ed9acc42613ab8e8c63d845a9ce5235a5d06cff4a5289e287d06143c3 check-approval-upgrade.py
           0.8.0 343942fcb3e142abc3636e1458203e697e0c27b2a4a5300bd6603412270bce5e check-resource-upgrade.py
+          0.9.0 c6566558ca60a774b3517d21a96b76a1feb3cc4d4493213c4eefc077347b64ef check-artifact-upgrade.py
           BASELINES
           python3 tools/release/upgrade_evidence.py "$rehearsal"
+      - name: Qualify artifact S3 adapter and persisted objects after restart
+        run: |
+          python tools/check-artifact-s3.py --evidence "$RUNNER_TEMP/artifact-s3"
+          python tools/release/upgrade_evidence.py "$RUNNER_TEMP/approval-upgrade" --s3 "$RUNNER_TEMP/artifact-s3"
+      - name: Retain artifact S3 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-artifact-s3-linux-x86_64
+          path: ${{ runner.temp }}/artifact-s3/
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Retain upgrade evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

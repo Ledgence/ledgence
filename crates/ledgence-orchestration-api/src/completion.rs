@@ -14,28 +14,8 @@ pub const COMPLETION_LEASE_MS: u64 = 30_000;
 pub const COMPLETION_MAX_RETRY_DELAY_MS: u64 = 300_000;
 const MAX_TIME: u64 = 253_402_300_799_999;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum CompletionTarget {
-    Task { id: String },
-    Workflow { id: String },
-}
-impl CompletionTarget {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Task { id } | Self::Workflow { id } => id,
-        }
-    }
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Task { .. } => "task",
-            Self::Workflow { .. } => "workflow",
-        }
-    }
-    pub fn validate(&self) -> Result<()> {
-        validate_text(self.id(), 128)
-    }
-}
+/// Compatibility name for an execution completion target.
+pub type CompletionTarget = ExecutionTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

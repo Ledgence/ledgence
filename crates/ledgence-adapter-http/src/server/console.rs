@@ -69,6 +69,7 @@ impl ConsoleServices {
                 task_run_budgets: false,
                 queue_policies: false,
                 execution_progress: false,
+                execution_artifacts: false,
             },
             suggested_queues: instance.suggested_queues.clone(),
             limits: ConsoleLimits::default(),
@@ -300,6 +301,7 @@ pub(super) async fn dispatch(
             }
             let mut config = console.config.clone();
             config.capabilities.execution_progress = server.service.progress_reader().is_ok();
+            config.capabilities.execution_artifacts = super::artifacts::available(server);
             config.capabilities.queue_policies = super::queue_policies::available(server);
             config.capabilities.run_budgets = super::run_budget::available(server);
             config.capabilities.task_run_budgets =

@@ -2,8 +2,12 @@
 
 import json
 import subprocess
+import uuid
 
-from .harness import Deployment, exchange, unused_port
+from instance_access.harness import AccessDeployment
+from postgres_fixture import create_owned_database, owned_database_url
+
+from .harness import Deployment, exchange, unused_port, eventually
 
 
 def failed_startup_preserves_integrated_delivery(external):
@@ -109,6 +113,91 @@ def failed_startup_preserves_integrated_delivery(external):
             f"SELECT count(*) FROM tasks WHERE {scope_sql} AND state <> 'succeeded'"
         ) == "0", "startup regressions left unfinished integrated tasks"
         integrated.server.stop()
-        return "four local startup failures preserve integrated execution; rejected activation drains notifications"
+        artifact_startup_preserves_integrated_delivery(external)
+        return "local startup failures, including artifact configuration, preserve integrated execution; rejected activation drains notifications"
     finally:
         integrated.close()
+
+
+def artifact_startup_preserves_integrated_delivery(external):
+    """A bad artifact prerequisite must not activate routes or callback bindings.
+
+    The artifact profile requires a fixed instance, so use an owned child DB.
+    Binding the existing broad SQS test database would affect unrelated suites.
+    The external deployment supplies only its preflighted local queue config.
+    """
+    directory = external.directory / "artifact-startup"
+    directory.mkdir()
+    parent = owned_database_url(external.database_url, "postgres")
+    database = "ldg_artifact_startup_" + uuid.uuid4().hex
+    url = owned_database_url(parent, database)
+    created, passed, clean = False, False, True
+    deployment = None
+
+    def admin(sql):
+        result = subprocess.run([external.psql, "--dbname", parent, "-X", "--set", "ON_ERROR_STOP=1", "--command", sql],
+                                capture_output=True, timeout=40)
+        assert result.returncode == 0, "owned startup database setup/cleanup failed"
+
+    try:
+        create_owned_database(admin, database); created = True
+        deployment = AccessDeployment(external.root, directory, external.binaries, external.python, url, external.psql)
+        deployment.command("ledgence", ["orchestrator", "migrate"])
+        deployment.provision()
+        deployment.start_server()
+        route = json.loads(external.delivery_config.read_text())
+        route["route"] = {"scope": deployment.scope, "queue": deployment.queue, "destination": "artifact-startup"}
+        route_path = directory / "delivery.json"
+        route_path.write_text(json.dumps(route))
+        invalid = directory / "invalid-artifacts.json"
+        invalid.write_text('{"schema":"ledgence.artifact-store.v1","unexpected":true}')
+        completion = directory / "completion.json"
+        completion.write_text(json.dumps({"destinations": [{"scope": deployment.scope,
+            "destination": "artifact-startup", "url": deployment.server_url + "/unused-callback"}]}))
+        # Before the failed start, a real worker session can consume this empty
+        # integrated queue. The same session must remain usable afterwards.
+        session = deployment.checked("POST", "/v1/worker-sessions", {
+            "scope": deployment.scope, "queue": deployment.queue, "concurrency": 1,
+        }, credentials=deployment.worker_credentials)
+        acquisition = {"scope": deployment.scope, "queue": deployment.queue,
+                       "worker_session_id": session["id"], "consumer_id": 0, "sequence": 1}
+        assert deployment.checked("POST", "/v1/acquisitions", acquisition,
+                                  credentials=deployment.worker_credentials)["disposition"] == "empty"
+        args = deployment.server_args(deployment.config)
+        args[args.index("--bind") + 1] = f"127.0.0.1:{unused_port()}"
+        args += ["--delivery-config", str(route_path), "--completion-config", str(completion),
+                 "--artifact-config", str(invalid)]
+        failed = subprocess.run(args, env=deployment.environment, capture_output=True, timeout=40)
+        (directory / "failed-server.stdout").write_bytes(failed.stdout)
+        (directory / "failed-server.stderr").write_bytes(failed.stderr)
+        assert failed.returncode == 1
+        assert b"invalid artifact configuration JSON" in failed.stderr
+        assert deployment.sql("SELECT count(*) FROM dispatch_routes WHERE destination IS NOT NULL") == "0", "invalid artifact config activated a durable external route"
+        assert deployment.sql("SELECT count(*) FROM completion_destinations") == "0", "invalid artifact config persisted a callback binding"
+        acquisition["sequence"] = 2
+        assert deployment.checked("POST", "/v1/acquisitions", acquisition,
+                                  credentials=deployment.worker_credentials)["disposition"] == "empty"
+        accepted = deployment.submit(deployment.submission("after-artifact-startup-failure"))["task_id"]
+        assert deployment.sql("SELECT count(*) FROM dispatch_intents") == "0"
+        worker = deployment.start_worker()
+        task = eventually(lambda: (value if (value := deployment.task(accepted))["state"] in
+                                   ("succeeded", "failed", "cancelled") else None), timeout=40,
+                          description="integrated task after artifact startup refusal")
+        assert task["state"] == "succeeded" and task["attempt_count"] == 1
+        assert len(deployment.invocations(accepted)) == 1
+        worker.stop(); deployment.server.stop()
+        passed = True
+    finally:
+        try:
+            if deployment:
+                try:
+                    deployment.close()
+                finally:
+                    clean = deployment.remove_credentials_and_scan()
+        finally:
+            if created:
+                admin(f'DROP DATABASE "{database}" WITH (FORCE)')
+            (directory / "summary.json").write_text(json.dumps({"passed": passed and clean,
+                "credential_scan_clean": clean, "database": database}, indent=2) + "\n")
+        assert clean, "startup fixture exposed a credential"
+    return "artifact configuration failure preserved integrated delivery and left no external intents"

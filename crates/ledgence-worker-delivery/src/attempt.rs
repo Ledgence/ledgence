@@ -103,6 +103,11 @@ impl Context {
         });
         let workflow_activation_id = assignment.workflow_activation_id.clone();
         let provider_probe = assignment.provider_probe.clone();
+        let task_artifacts = if workflow_activation_id.is_none() && provider_probe.is_none() {
+            self.artifact_handler(assignment.lease.owner.clone())
+        } else {
+            None
+        };
         let mut provider_probe_failure = None;
         let monitor = Arc::new(Monitor::new(&assignment));
         let _monitor_guard = MonitorGuard(monitor.clone());
@@ -123,7 +128,14 @@ impl Context {
         } else if let Some(admission) = &task_admission {
             if let Some(control) = monitor.dispatch(&self.shared).await {
                 admission
-                    .execute(&mut reservation, request.clone(), control)
+                    .execute(
+                        &mut reservation,
+                        request.clone(),
+                        control,
+                        task_artifacts.clone().map(|handler| {
+                            handler as Arc<dyn ledgence_worker_api::RuntimeRequestHandler>
+                        }),
+                    )
                     .await
             } else {
                 None
@@ -194,7 +206,15 @@ impl Context {
                             }
                         }
                     } else {
-                        match reservation.execute(request.clone(), control).await {
+                        let result = match task_artifacts {
+                            Some(handler) => {
+                                reservation
+                                    .execute_with_requests(request.clone(), control, handler)
+                                    .await
+                            }
+                            None => reservation.execute(request.clone(), control).await,
+                        };
+                        match result {
                             Ok(report) => AttemptReport::Completed(report),
                             Err(failure) => AttemptReport::Failed(failure),
                         }

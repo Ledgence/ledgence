@@ -19,7 +19,8 @@ a relative time scale for comparing when the recorded steps ran. For a local ste
 the badge shows its durable result when one exists. The bar describes the observed
 attempt. A later failed or cancelled call can appear alongside an earlier accepted result.
 
-**Development source:** Console contract **15** adds bounded live execution history.
+**Development source:** Console contract **16** adds bounded live execution history
+and execution file metadata/downloads.
 It requires matching server and assets from the development checkout; published
 0.9.0 continues to use contract 14. See [follow execution progress](/how-to/follow-execution-progress).
 
@@ -398,3 +399,13 @@ Open **Resources**, then select a named resource. Its policy, occupancy and defa
 ### Shared run allowances
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.
+
+## Execution files in development
+
+Console contract 16 adds General → Artifacts for a configured execution store.
+The table covers the canonical root and labels each file's producer. Inspect
+metadata without fetching contents; **Download** is a separate sensitive action
+with size/SHA-256 verification and no inline preview. Metadata-only operators
+can inspect without content access. Navigation or an access change aborts an
+in-progress download. This requires matching development assets/server beyond
+published 0.9.0. [Share execution files](/how-to/share-execution-files).

@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -51,7 +52,12 @@ class ProviderWorkflowTests(unittest.TestCase):
     def test_full_gate_is_separate_and_has_all_required_families(self):
         workflow = WORKFLOW.read_text()
         self.assertIn(f"PROVIDER_PREDECESSOR_SHA: '{PREDECESSOR}'", workflow)
-        self.assertIn("suite: [http, sqs, api, provider, provider-sqs,", workflow)
+        matrix = re.search(r"suite:\s*\[([^]]+)\]", workflow)
+        self.assertIsNotNone(matrix, "required acceptance matrix is missing")
+        suites = {name.strip().strip("\"'") for name in matrix.group(1).split(",")}
+        self.assertTrue({"http", "sqs", "api", "artifacts", "provider", "provider-sqs",
+                         "admission", "admission-sqs", "workflows-integrated", "workflows-sqs",
+                         "workflows-tracing"} <= suites)
         gate = step("Check complete provider recovery with the pinned prior worker")
         self.assertIn("if: matrix.suite == 'provider'", gate)
         self.assertIn("--scenario all", gate)

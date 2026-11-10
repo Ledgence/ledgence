@@ -114,6 +114,7 @@ impl AuditActor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditReadKind {
+    ArtifactDownload,
     TaskInspect,
     TaskResult,
     WorkflowResult,
@@ -132,7 +133,8 @@ impl AuditReadKind {
     fn matches(self, resource: &AuditResource) -> bool {
         matches!(
             (self, resource),
-            (Self::QueueHolds, AuditResource::Queue { .. })
+            (Self::ArtifactDownload, AuditResource::Artifact { .. })
+                | (Self::QueueHolds, AuditResource::Queue { .. })
                 | (Self::ResourceSources, AuditResource::Resource { .. })
                 | (
                     Self::TaskInspect | Self::TaskResult,
@@ -168,6 +170,10 @@ pub enum AuditResourceKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuditResource {
+    Artifact {
+        root: ExecutionTarget,
+        artifact_id: String,
+    },
     Queue {
         queue: String,
     },
@@ -208,6 +214,13 @@ pub enum AuditResource {
 impl AuditResource {
     pub fn target(&self) -> (AuditResourceKind, &str) {
         match self {
+            Self::Artifact { root, .. } => (
+                match root {
+                    ExecutionTarget::Task { .. } => AuditResourceKind::Task,
+                    ExecutionTarget::Workflow { .. } => AuditResourceKind::Workflow,
+                },
+                root.id(),
+            ),
             Self::Queue { queue } => (AuditResourceKind::Queue, queue),
             Self::Task { task_id } => (AuditResourceKind::Task, task_id),
             Self::TaskAdmission { occurrence } => (AuditResourceKind::Task, &occurrence.task_id),
@@ -225,6 +238,10 @@ impl AuditResource {
     pub fn validate(&self) -> Result<()> {
         validate_text(self.target().1, 128)?;
         match self {
+            Self::Artifact { root, artifact_id } => {
+                root.validate()?;
+                validate_text(artifact_id, 128)?;
+            }
             Self::Admission { occurrence } => occurrence.validate()?,
             Self::TaskAdmission { occurrence } => occurrence.validate()?,
             Self::Resource { name } => crate::admission::name(name)?,

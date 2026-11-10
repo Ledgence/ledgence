@@ -216,3 +216,12 @@ read-only discovery. Use it to read one bounded task or workflow lifecycle page
 and resume with its returned cursor. It does not hold a tool call open or mutate
 the execution. This tool is not included in the published 0.9.0 catalog above.
 [Follow execution progress](/how-to/follow-execution-progress).
+
+## Execution file metadata in development
+
+`ledgence_artifact_inspect` and `ledgence_artifact_list` expose accepted retained
+file metadata with the configured scope and `metadata_read`, including read-only
+mode. They cannot upload, download, replace or delete files. These tools require
+matching development components and an execution store, beyond published 0.9.0.
+Use the CLI or Python client for byte transfer and recovery.
+[Share execution files](/how-to/share-execution-files).

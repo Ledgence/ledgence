@@ -425,3 +425,27 @@ complete approval-derived journal key in `ledgence-orchestration-api`.
 strict runtime command decoding. Both retain their MIT OR Apache-2.0 licensing.
 These dependency edges add no package version, provider SDK or hosted-service
 requirement. The existing Cargo license and notice gates apply.
+
+## Optional execution byte store (development source)
+
+The internal MIT `ledgence-adapter-blob` crate adds local filesystem bytes and
+bounded transfer spools. It has no default AWS dependency. Its optional `s3`
+feature, composed through the CLI/orchestrator `s3-artifacts` feature, selects
+exact AWS SDK for Rust S3 `1.153.0` and AWS config `1.13.0`, with defaults disabled,
+Tokio and the default HTTPS client. The SDK/Smithy Apache-2.0 notices remain
+applicable. Public orchestration ports expose no concrete AWS, Tokio or HTTP
+SDK types. No AWS account or hosted service is required for filesystem mode.
+
+The feature reuses the reviewed Smithy cohort and HTTPS stack. Credentials are
+resolved server-side; application programs do not require an S3 SDK. Single-PUT
+conditional creation, full SHA-256 and SDK retry suppression are deliberate
+adapter behaviors, not properties inferred from the SDK name. Cargo lock,
+activated-tree license/advisory checks and generated distribution notices remain
+mandatory; this section is not a substitute for those release gates.
+
+`tools/check-artifact-s3.py` uses the unchanged external RustFS 1.0.4 fixture pinned
+to `sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2`.
+It creates isolated disposable local resources and does not call AWS. RustFS and
+its image components retain their own licenses; the fixture is neither a Ledgence
+dependency nor a redistributed Ledgence image. Its results establish a local
+compatibility profile, not universal S3 or AWS qualification.

@@ -357,3 +357,43 @@ A queue policy sets a shared maximum across worker sessions. New attempts reserv
 optional `ExecutionProgressReader` capability. It supports task and workflow
 cursors, requires `metadata_read` and performs no execution mutation.
 [Wire contract and retention](execution-progress.md).
+
+## Execution artifact routes (development source)
+
+Matching development components add bounded file exchange, separate from JSON
+execution data and program ZIP publication. It requires a configured fixed
+instance and `--artifact-config`. Published 0.9.0 does not expose this surface.
+The [artifact contract](execution-artifacts.md) describes identities, authority,
+uncertain outcomes, retention and resource bounds.
+
+| Method and route | Body / purpose |
+| --- | --- |
+| `POST /v1/artifacts/prepare` | `{requester, command}`; command has `scope`, execution `target`, stable `key`, and declared `metadata`. |
+| `POST /v1/artifacts/uploads/{upload_id}/status` | `{requester}`; read-only generation status. |
+| `PUT /v1/artifacts/uploads/{upload_id}/content` | Raw `application/octet-stream`; selection and requester headers described below. |
+| `POST /v1/artifacts/uploads/{upload_id}/reconcile` | `{requester, command: selection}`; verify and conditionally accept stored bytes, without retransmission. |
+| `POST /v1/artifacts/uploads/{upload_id}/replace` | `{requester, command: {upload_id, expected_selection_revision}}`; explicit CAS replacement. |
+| `POST /v1/artifacts/inspect` | `{scope, artifact_id}`; accepted retained manifest. |
+| `POST /v1/artifacts/list` | `{scope, target, cursor, limit}`; accepted retained manifests for the canonical root. |
+| `POST /v1/artifacts/download` | `{requester, command: reference}`; verified binary response. |
+
+An external requester is `{"kind":"external","scope":{"tenant_id":"acme","namespace":"demo"}}`.
+It routes the request; authenticated transport and fixed instance configuration
+supply authority. It does not let the caller assert a trusted producer or root.
+Worker routes use `/v1/worker/artifacts/` for prepare/status/replace/content/reconcile/download
+and the host's actual lease owner, never an application-constructed verified principal.
+
+PUT requires base64-encoded JSON `Ledgence-Artifact-Requester` and
+`Ledgence-Artifact-Selection` headers. Content encoding is rejected; bytes are
+bounded and checked even if no content length was supplied. Downloads use
+`application/octet-stream`, an exact `Content-Length`, attachment disposition and
+a base64 JSON `Ledgence-Artifact-Manifest` header. The client verifies the returned
+identity, full byte count and SHA-256 before exposing a saved file.
+
+Artifact JSON requests are limited to 16 KiB. Files are at most 64 MiB; binary
+transfer uses an absolute budget at most 120 seconds, separate from ordinary JSON
+budgets. External write/recovery requires `artifact_write`; metadata requires
+`metadata_read`; downloads require `sensitive_read` and the applicable response
+audit. Reauthorization occurs after verified spooling and audit, before release.
+The Console's three artifact routes inject instance scope and return the scope-free
+Console manifest projection; they do not return storage locations.

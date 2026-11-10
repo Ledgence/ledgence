@@ -28,7 +28,8 @@ release tag, native targets and independently published package versions.
 checkout revision. When no product SHA is configured, the build resolves the
 local release tag or omits the unknown SHA instead of substituting HEAD.
 
-`source-features.json` lists 19 released features, including installation,
+`source-features.json` distinguishes released features from development-only
+execution progress and execution files. Released capabilities include installation,
 program authoring, approval and operation inspection, protected writes, instance
 access, operator audit, retained evidence, native assessments, provider recovery, resource admission, weighted offers, run budgets, worker poll plans and queue concurrency.
 Generated provenance uses the `release` channel. Native targets remain Linux

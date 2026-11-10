@@ -9,9 +9,11 @@ The historical `v0.1.1` source tag and `0.1.0` native bundle predate it. The [gu
 walks through startup and real executions. The [public reference](https://docs.ledgence.com/reference/console)
 covers the interface and operational behavior.
 
-**Development source:** Console contract **15** adds bounded live execution history.
-It requires matching server and assets from the development checkout; published
-0.9.0 continues to use contract 14. See [execution progress](execution-progress.md).
+**Development source:** Console contract **16** includes bounded live execution
+history and execution file metadata/downloads. It requires matching server and
+assets from the development checkout; published 0.9.0 continues to use contract
+14. See [execution progress](execution-progress.md) and
+[execution files](execution-artifacts.md).
 
 ## Open the local deployment
 
@@ -473,3 +475,32 @@ A credential with only `sensitive_read` opens **Resources** with a generic insta
 ### Shared run allowances
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.
+
+## Execution files (development source, contract 16)
+
+`capabilities.execution_artifacts` is true only for a configured fixed instance
+with an artifact service. General → Artifacts appears on both task and workflow
+details when supported. The list explicitly covers the canonical root, including
+files from other descendants. Each row shows filename/key, media type, size,
+accepted time and producer; expanded metadata includes root, attempt and SHA-256.
+It preserves empty, failed-page, refresh and pagination states.
+
+Metadata requests require `metadata_read`. Download is a separate explicit click
+requiring `sensitive_read`; there is no inline preview or background content fetch.
+The browser binds it to the current actor/origin/access epoch, aborts on identity
+change or navigation, and applies a 120-second deadline instead of the JSON
+10-second budget. It verifies reference, manifest, size and digest before offering
+a saved file. Temporary object URLs are revoked; storage URLs are never exposed.
+Up to one 64 MiB file is buffered for browser verification. Choosing the local
+save destination remains the browser's download behavior.
+
+The scope-free `ConsoleArtifactManifest` projection and `ConsoleArtifactPage` are
+covered by fixture `console-v16.json`. `POST /v1/console/artifacts/inspect` accepts
+`{artifact_id}`; list accepts `{target, limit, cursor}`; download accepts
+`{reference}` and returns an attachment with the matching base64 JSON manifest
+header. Download uses the existing audited sensitive-read boundary.
+[Storage, recovery and limitations](execution-artifacts.md).
+
+The artifact panel admits one active browser download at a time, without a queue;
+other download buttons remain disabled until completion or cancellation. This
+bounds simultaneous verification buffers independently of the server's IO slots.

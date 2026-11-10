@@ -28,7 +28,9 @@ import uuid
 from postgres_fixture import create_owned_database, owned_database_url
 from http_acceptance.harness import eventually
 from http_acceptance.sqs import SqsDeployment
-from http_acceptance.sqs_startup import failed_startup_preserves_integrated_delivery
+from http_acceptance.sqs_startup import (
+    artifact_startup_preserves_integrated_delivery, failed_startup_preserves_integrated_delivery,
+)
 from http_acceptance.scenarios import (
     cancellation_and_failures, warm_cache_and_cli, worker_crash_recovery,
 )
@@ -176,7 +178,7 @@ def main():
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--binaries", type=Path)
     parser.add_argument("--evidence", type=Path)
-    parser.add_argument("--scenario", action="append", choices=["duplicates", "warm", "retry", "crash", "obligations", "startup"])
+    parser.add_argument("--scenario", action="append", choices=["duplicates", "warm", "retry", "crash", "obligations", "startup", "artifact-startup"])
     args = parser.parse_args()
     if args.endpoint:
         parsed = urllib.parse.urlsplit(args.endpoint)
@@ -253,6 +255,10 @@ def main():
             # run it after the external-only task binding assertions above.
             ("startup", lambda: failed_startup_preserves_integrated_delivery(deployment)),
         ]
+        # The full startup case already covers this regression. This explicit
+        # selector makes a focused rerun possible without duplicating defaults.
+        if args.scenario and "artifact-startup" in args.scenario and "startup" not in args.scenario:
+            cases.append(("artifact-startup", lambda: artifact_startup_preserves_integrated_delivery(deployment)))
         results = []
         for name, scenario in cases:
             if args.scenario and name not in args.scenario:

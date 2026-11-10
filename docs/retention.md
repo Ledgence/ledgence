@@ -244,3 +244,24 @@ The [progress endpoint](execution-progress.md) reuses existing task/workflow
 history and its execution-wide retention. Cursors do not extend retention.
 There is no independent cursor TTL or partially pruned retained history. A
 retired target returns `NotFound`, not an empty page or a replacement execution.
+
+## Execution files (development source)
+
+Execution artifacts follow canonical-root retention. A removed child can leave
+readable artifacts while its root remains retained. Root retirement hides them
+from new reads; an already authorized response may finish. Metadata and durable
+bytes are distinct: execution-row deletion never substitutes for physical cleanup.
+
+With matching development components, pass `--artifact-config FILE` to
+`ledgence orchestrator retain --apply` to process bounded artifact maintenance.
+Preview does not mutate artifact storage. The command reports pending/uncertain
+cleanup; it is not an automatic background deletion service. Its stable, separately
+locked `retain` spool namespace permits coexistence with `serve`, crash cleanup
+and one active maintainer per configured spool directory.
+
+The durable cleanup ledger outlives execution rows. It permits deletion only
+with permanent deselection/retirement and recorded physical quiescence. Timeout,
+lease expiry, generation replacement or an absent GET alone cannot establish that
+a delayed write stopped. An unresolved obligation remains retained and visible.
+Back up the durable byte store and PostgreSQL together, preserving the store
+identity. [Full retention and shutdown contract](execution-artifacts.md).

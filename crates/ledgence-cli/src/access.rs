@@ -74,6 +74,7 @@ fn create(arguments: Vec<String>) -> Result<serde_json::Value> {
                     AccessCapability::ExecutionSubmit,
                     AccessCapability::ExecutionControl,
                     AccessCapability::ProgramPublish,
+                    AccessCapability::ArtifactWrite,
                     AccessCapability::ApprovalDecide,
                     AccessCapability::EffectResolve,
                     AccessCapability::ResourceControl,

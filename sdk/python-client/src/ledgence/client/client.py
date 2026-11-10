@@ -47,6 +47,7 @@ class AsyncClient:
     def __init__(self, base_url: str, *, tenant: str, namespace: str,
                  request_timeout: float = 30.0, token: str | None = None,
                  credentials_file: PathLike[str] | str | None = None):
+        from .artifacts import Artifacts
         from .tasks import Tasks
         from .workflows import Workflows
         from .completions import Completions
@@ -66,6 +67,7 @@ class AsyncClient:
             require_secure_endpoint(self._base_url)
         self._scope = Scope(tenant, namespace)
         self._request_timeout = codec.duration(request_timeout, "request_timeout", 30.0)
+        self.artifacts = Artifacts(self)
         self.tasks = Tasks(self)
         self.workflows = Workflows(self)
         self.completions = Completions(self)

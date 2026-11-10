@@ -155,5 +155,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/follow-execution-progress"
+  },
+  "executionArtifacts": {
+    "title": "Immutable execution files with explicit recovery and scoped downloads",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/share-execution-files"
   }
 }

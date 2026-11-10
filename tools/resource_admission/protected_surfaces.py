@@ -50,7 +50,7 @@ def public_surfaces(d, occurrence):
     assert result.returncode == 0, "installed client failed to inspect typed protected admission"
     query = urlencode({"workflow_id": occurrence["workflow_id"], "limit": 50})
     status, headers, graph = d.request("GET", "/v1/console/workflows/explorer?" + query, credentials=d.operator)
-    assert status == 200 and {k.lower(): v for k, v in headers.items()}["ledgence-console-contract"] == "15"
+    assert status == 200 and {k.lower(): v for k, v in headers.items()}["ledgence-console-contract"] == "16"
     nodes = graph["page"]["items"]
     assert graph["page"]["next_cursor"] is None
     assert any(node["kind"] == "admission_wait" for node in nodes)

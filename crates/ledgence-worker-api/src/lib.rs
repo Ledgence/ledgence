@@ -29,10 +29,11 @@ pub use admission::{
 };
 mod execution;
 pub use execution::{
-    ExecutionContext, ExecutionFailure, ExecutionReport, ExecutionRequest, ExecutionResult,
-    NATIVE_EFFECT_RESOLUTION_FEATURE, PROVIDER_ADMISSION_FEATURE, PROVIDER_OPERATION_FEATURE,
-    Phase, RESOURCE_ADMISSION_FEATURE, RuntimeCapabilities, RuntimeExtension, RuntimeFeatures,
-    RuntimeInvocation, RuntimeReply, RuntimeRequest, TASK_ADMISSION_FEATURE,
+    EXECUTION_ARTIFACTS_FEATURE, ExecutionContext, ExecutionFailure, ExecutionReport,
+    ExecutionRequest, ExecutionResult, NATIVE_EFFECT_RESOLUTION_FEATURE,
+    PROVIDER_ADMISSION_FEATURE, PROVIDER_OPERATION_FEATURE, Phase, RESOURCE_ADMISSION_FEATURE,
+    RuntimeCapabilities, RuntimeExtension, RuntimeFeatures, RuntimeInvocation, RuntimeReply,
+    RuntimeRequest, TASK_ADMISSION_FEATURE,
 };
 mod invocation;
 mod observation;
@@ -818,6 +819,19 @@ pub trait RuntimeRequestHandler: Send + Sync {
         Duration::ZERO
     }
 
+    /// Optional augmentation that may be omitted for protocol-1/2 programs.
+    /// This never permits omitting workflow context or an admission fence.
+    fn optional_for_legacy_protocol(&self) -> bool {
+        false
+    }
+
+    /// Wait for invocation-owned IO to finish after the request future is dropped.
+    /// Implementations must retain pending operations across cancelled drain calls.
+    /// Runtime owners keep their process slot until this confirms quiescence.
+    fn drain(&self) -> PortFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
     /// Advertise only capabilities established by this handler's connection.
     fn capabilities(&self) -> RuntimeCapabilities {
         RuntimeCapabilities::default()
@@ -885,6 +899,27 @@ pub trait ExecutionSession: Send {
             Err(Error::new(
                 ErrorKind::Incompatible,
                 "runtime does not support interactive execution",
+            ))
+        })
+    }
+    /// Support the combination without weakening the ready-to-invoke fence.
+    /// A session must explicitly opt in before the host requests a grant.
+    fn supports_admitted_requests(&self) -> bool {
+        false
+    }
+    /// Interactive invocation that checks the permit immediately before sending
+    /// the invocation. Never fall back to ungated interactive execution.
+    fn execute_admitted_with_requests<'a>(
+        &'a mut self,
+        _invocation: RuntimeInvocation,
+        _control: RunControl,
+        _permit: InvocationPermit,
+        _handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        Box::pin(async {
+            Err(Error::new(
+                ErrorKind::Incompatible,
+                "runtime does not support admitted interactive execution",
             ))
         })
     }

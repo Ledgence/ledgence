@@ -21,6 +21,7 @@ Tracing supplements these records and never supplies missing relationships.
 | `ledgence-adapter-otel` | Optional trace and metrics exporters, context bridge, correlated JSON logging | Worker API |
 | `ledgence-worker-core` | Admission, preparation coordination, process capacity and reuse, shutdown | API |
 | `ledgence-worker-delivery` | Service sessions, consumer cursors, lease monitoring, execution and settlement reconciliation | Worker API/core, orchestration API/core |
+| `ledgence-adapter-blob` | Optional execution-file byte stores and bounded local transfer spools | Orchestration API, worker API; optional AWS SDK hidden behind the adapter |
 | `ledgence-adapter-artifact` | Filesystem/HTTPS stores, ZIP publication and local cache | API |
 | `ledgence-adapter-subprocess` | Supervised CPython processes and invocation protocol | API |
 | `ledgence-worker` | Internal library for program packaging, local fixture execution and connected worker composition | Worker API/core/delivery, orchestration API, artifact/subprocess/HTTP adapters, optional OTel and SQS adapters |
@@ -224,3 +225,13 @@ writes. Transport/SDK consumers own their cursors. A request-owned application-s
 coordinator coalesces bounded positive waits while storage reads remain immediate;
 no worker or idle database transaction is reserved for observation. Console uses
 the same reader through its fixed-scope, metadata-authorized route. [Contract](execution-progress.md).
+
+## Execution files in development
+
+The [execution artifact capability](execution-artifacts.md) separates catalog
+transactions (PostgreSQL), authority and transfer orchestration (service), byte
+storage and spooling (blob adapter), and HTTP/client/runtime surfaces. It reuses
+existing task/workflow root and attempt identities. Core contracts remain
+framework- and vendor-independent. The program ZIP store/cache is unchanged.
+Catalog transactions never span byte IO. Shutdown drains retained local writes,
+blocking IO and spool cleanup before releasing ownership.

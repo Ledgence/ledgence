@@ -216,7 +216,7 @@ async fn console_progress_checks_origin_and_response_identity_headers() {
         .await
         .unwrap();
     assert_eq!(accepted.status(), 200);
-    assert_eq!(accepted.headers()["ledgence-console-contract"], "15");
+    assert_eq!(accepted.headers()["ledgence-console-contract"], "16");
     assert_eq!(accepted.headers()["ledgence-instance-id"], "audit");
     assert!(accepted.headers().contains_key("request-id"));
     assert_eq!(accepted.headers()["cache-control"], "no-store");

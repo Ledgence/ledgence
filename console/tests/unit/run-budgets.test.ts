@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { describe, it, expect } from "vitest";
-import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json?raw";
+import raw from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v16.json?raw";
 import {
   snapshotFor,
   entriesFor,

@@ -9,6 +9,7 @@ publish = false
 description = "Application service for durable Ledgence task orchestration"
 
 [dependencies]
+sha2.workspace = true
 ledgence-orchestration-api.workspace = true
 ledgence-orchestration-core.workspace = true
 ledgence-worker-api.workspace = true

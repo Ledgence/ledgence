@@ -11,9 +11,9 @@ pub mod completion;
 mod response;
 #[cfg(feature = "client")]
 pub use client::{
-    ExchangeMetadata, HttpCredentials, HttpProgramCatalogService, HttpProgramPublisher,
-    HttpTaskService, WorkerEffectAccess, WorkerEffectBinding, WorkerRuntimeAccess,
-    WorkerRuntimeBinding,
+    ExchangeMetadata, HttpArtifactClient, HttpCredentials, HttpProgramCatalogService,
+    HttpProgramPublisher, HttpTaskService, WorkerEffectAccess, WorkerEffectBinding,
+    WorkerRuntimeAccess, WorkerRuntimeBinding,
 };
 #[cfg(feature = "server")]
 pub mod server;
@@ -30,3 +30,6 @@ pub const STATUS_MAX_BYTES: usize = ledgence_orchestration_api::TASK_STATUS_MAX_
 pub const WORKFLOW_FORK_RECEIPT_MAX_BYTES: usize = 32 * 1024;
 /// A malformed or larger error response cannot establish a domain rejection.
 pub const ERROR_MAX_BYTES: usize = 64 * 1024;
+
+#[cfg(any(feature = "client", feature = "server"))]
+mod artifact_transfer;

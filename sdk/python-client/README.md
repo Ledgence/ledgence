@@ -1024,3 +1024,90 @@ late cleanup event can arrive. `subscribe()` remains terminal webhook registrati
 These methods require a matching development server and are not in published
 0.9.0 packages. [Contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-progress.md)
 and [runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/execution-progress).
+
+## Execution artifacts (development source)
+
+The development client adds `client.artifacts` for files of up to 64 MiB,
+including empty files. It streams bounded chunks; file bytes do not become task
+inputs or workflow journal JSON. A small `ArtifactRef` identifies immutable,
+verified bytes and can be serialized with `reference.to_dict()`.
+
+```python
+from pathlib import Path
+from ledgence.client import AsyncClient
+
+async def attach_report(task_id: str):
+    async with AsyncClient(
+        "http://127.0.0.1:8080", tenant="acme", namespace="billing"
+    ) as client:
+        reference = await client.artifacts.put_file(
+            Path("report.csv"), task_id=task_id, key="monthly-report",
+            media_type="text/csv", timeout=120,
+        )
+        manifest = await client.artifacts.inspect(reference.id)
+        print(manifest.root, manifest.producer, reference.digest)
+        # The destination must not exist. Hash and size are verified before the
+        # temporary file is published atomically, even against another writer.
+        await client.artifacts.download(reference, Path("received-report.csv"))
+```
+
+Choose exactly one of `task_id` or `workflow_id` when uploading or listing.
+`await client.artifacts.list(workflow_id=run.id, limit=100)` returns an immutable
+page with `items` and `next_cursor`; preserve the execution target while paging.
+`client.artifacts.handle(artifact_id)` exposes `inspect()` and `download()`.
+Metadata requires `metadata_read`, byte downloads require `sensitive_read`, and
+uploads/recovery require `artifact_write` in credential mode. The server derives
+the retained execution root and producer from authenticated authority. An
+external upload belongs to that verified actor, not to the worker that later
+reads it; operators cannot reconcile a worker's upload as themselves.
+
+`put_file` does one upload at most. Repeating the same producer/key/content can
+return an accepted reference without sending the bytes again. A different
+content hash for that key conflicts. `ArtifactRecoveryRequired.status` is a
+known pending generation; `ArtifactUploadUncertain.selection` is the known
+selection after a lost acknowledgement, or `None` if preparation did not return
+an identity. Neither exception triggers an automatic resend or replacement.
+
+```python
+from ledgence.client import ArtifactRecoveryRequired, ArtifactUploadUncertain
+
+try:
+    reference = await client.artifacts.put_file(
+        "report.csv", task_id=task.id, key="monthly-report", media_type="text/csv"
+    )
+except ArtifactRecoveryRequired as error:
+    status = await client.artifacts.upload_status(error.selection.upload_id)
+    # Reconciliation verifies stored bytes and may return a still-pending status.
+    status = await client.artifacts.reconcile(status.selection)
+    if status.reference is not None:
+        reference = status.reference
+except ArtifactUploadUncertain as error:
+    # Persist these identities for an explicit recovery decision. If selection
+    # is None, repeat the original preparation/key, not a new logical upload.
+    saved_selection = error.selection.to_dict() if error.selection else None
+    saved_operation = error.operation
+    raise
+```
+
+If a generation cannot be accepted, explicitly request
+`await client.artifacts.replace(upload_id, expected_revision=revision)` only when
+the returned policy permits replacement. Its receipt retains the original CAS
+operation. Repeating the identical replacement never reselects a historical
+generation; `receipt.current` describes that replacement's current status and
+may have `selected=False` with a successor. On replacement transport uncertainty,
+`ArtifactUploadUncertain.operation` retains the original upload and revision.
+Malformed responses and authorization failures remain errors, not recoverable
+storage acknowledgements.
+
+File preparation, transfer, verification and local publication share one total
+budget, at most 120 seconds. Small JSON exchanges still respect the ordinary
+`request_timeout` (30 seconds by default); binary transfer and explicit
+reconciliation use the transfer budget. Cancellation waits for already-started
+local file IO before releasing ownership and removes partial downloads. It
+cannot prove a remote upload did not commit: reconcile the same upload identity
+instead of creating a new logical key. Files must be regular files; directory
+uploads, symlink sources, range downloads and automatic garbage-collection
+policies are not provided by this client.
+
+These APIs require a matching development server configured with execution
+artifact storage. They are not present in the published 0.9.0 packages.

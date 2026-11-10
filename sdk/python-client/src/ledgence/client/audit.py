@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from .artifact_models import ArtifactTarget
     from .admission_models import AdmissionOccurrence
     from .task_admissions import TaskAdmissionOccurrence
     from .effect_models import EffectOccurrence
@@ -35,6 +36,7 @@ class AuditActorClass(StrEnum):
 
 
 class AuditReadKind(StrEnum):
+    ARTIFACT_DOWNLOAD = "artifact_download"
     QUEUE_HOLDS = "queue_holds"
     RESOURCE_SOURCES = "resource_sources"
     ADMISSION_INSPECT = "admission_inspect"
@@ -75,6 +77,13 @@ class AuditTask:
 class AuditWorkflow:
     workflow_id: str
     kind: Literal["workflow"] = field(default="workflow", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditArtifact:
+    root: ArtifactTarget
+    artifact_id: str
+    kind: Literal["artifact"] = field(default="artifact", init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +185,7 @@ class AuditQueueHoldReleased:
     kind: Literal["queue_hold_released"] = field(default="queue_hold_released", init=False)
 
 
-AuditResource = AuditQueue | AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage | AuditEffect | AuditResourcePolicy | AuditAdmission | AuditTaskAdmission
+AuditResource = AuditArtifact | AuditQueue | AuditTask | AuditWorkflow | AuditLocalStep | AuditApproval | AuditApprovalPage | AuditEffect | AuditResourcePolicy | AuditAdmission | AuditTaskAdmission
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +288,12 @@ def _admission_occurrence(raw, scope=None):
 
 def _resource(raw):
     kind = raw.get("kind") if type(raw) is dict else None
+    if kind == "artifact":
+        from .artifact_models import ArtifactTarget
+        codec.fields(raw, {"kind", "root", "artifact_id"})
+        codec.fields(raw["root"], {"kind", "id"})
+        return AuditArtifact(ArtifactTarget(raw["root"]["kind"], raw["root"]["id"]),
+                             codec.text(raw["artifact_id"], "artifact_id"))
     if kind == "task_admission":
         from .task_admissions import occurrence
         codec.fields(raw, {"kind", "occurrence"})
@@ -395,6 +410,7 @@ def _event(raw, scope):
         codec.fields(operation, {"kind", "read", "resource"})
         operation = AuditSensitiveResponse(AuditReadKind(operation["read"]), _resource(operation["resource"]))
         expected = {
+            AuditReadKind.ARTIFACT_DOWNLOAD: AuditArtifact,
             AuditReadKind.TASK_INSPECT: AuditTask, AuditReadKind.TASK_RESULT: AuditTask,
             AuditReadKind.WORKFLOW_RESULT: AuditWorkflow, AuditReadKind.WORKFLOW_INPUT: AuditWorkflow,
             AuditReadKind.LOCAL_STEP_INSPECT: AuditLocalStep, AuditReadKind.APPROVAL_INSPECT: AuditApproval,
@@ -431,6 +447,8 @@ def _matches(event, selected):
     if isinstance(operation, (AuditEffectResolved, AuditAdmissionReleased)):
         return selected["resource_kind"] == "workflow" and selected["resource_id"] == operation.occurrence.workflow_id
     resource = operation if isinstance(operation, AuditAcceptance) else operation.resource
+    if isinstance(resource, AuditArtifact):
+        return selected["resource_kind"] == resource.root.kind and selected["resource_id"] == resource.root.id
     if isinstance(resource, AuditTaskAdmission):
         return selected["resource_kind"] == "task" and selected["resource_id"] == resource.occurrence.task_id
     if isinstance(resource, AuditAdmission):

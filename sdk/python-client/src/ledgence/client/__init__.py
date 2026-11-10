@@ -61,14 +61,14 @@ __all__ += [
 from .audit import (
     AuditAcceptance, AuditEffectResolved, AuditActor, AuditActorClass, AuditApproval, AuditApprovalPage,
     AuditAudience, AuditEffect, AuditEvent, AuditFilter, AuditLocalStep, AuditPage, AuditReadKind,
-    AuditResourceKind, AuditSensitiveResponse, AuditTask, AuditWorkflow,
+    AuditResourceKind, AuditSensitiveResponse, AuditTask, AuditWorkflow, AuditArtifact,
     AuditResourcePolicy, AuditAdmission, AuditResourcePolicyAccepted, AuditAdmissionReleased,
 )
 
 __all__ += [
     "AuditAcceptance", "AuditEffectResolved", "AuditActor", "AuditActorClass", "AuditApproval", "AuditApprovalPage",
     "AuditAudience", "AuditEffect", "AuditEvent", "AuditFilter", "AuditLocalStep", "AuditPage", "AuditReadKind",
-    "AuditResourceKind", "AuditSensitiveResponse", "AuditTask", "AuditWorkflow",
+    "AuditResourceKind", "AuditSensitiveResponse", "AuditTask", "AuditWorkflow", "AuditArtifact",
     "AuditResourcePolicy", "AuditAdmission", "AuditResourcePolicyAccepted", "AuditAdmissionReleased",
 ]
 
@@ -195,3 +195,14 @@ from .progress import (
 
 __all__ += ["ExecutionProgressEvent", "ExecutionProgressKind", "ExecutionProgressPage",
             "ExecutionProgressTarget", "ProgressTimeout"]
+
+from .artifact_models import (
+    ArtifactManifest, ArtifactPage, ArtifactProducer, ArtifactRef, ArtifactReplacementReceipt,
+    ArtifactRecoveryRequired, ArtifactRetryGuidance, ArtifactSelection, ArtifactTarget,
+    ArtifactUploadStage, ArtifactUploadStatus, ArtifactUploadUncertain,
+)
+from .artifacts import ArtifactHandle
+
+__all__ += ["ArtifactHandle", "ArtifactManifest", "ArtifactPage", "ArtifactProducer", "ArtifactRef",
+            "ArtifactReplacementReceipt", "ArtifactRecoveryRequired", "ArtifactRetryGuidance", "ArtifactSelection",
+            "ArtifactTarget", "ArtifactUploadStage", "ArtifactUploadStatus", "ArtifactUploadUncertain"]

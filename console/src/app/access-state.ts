@@ -7,6 +7,7 @@ export type AccessCapability =
   | "execution_submit"
   | "execution_control"
   | "program_publish"
+  | "artifact_write"
   | "approval_decide"
   | "worker_execute"
   | "resource_control"

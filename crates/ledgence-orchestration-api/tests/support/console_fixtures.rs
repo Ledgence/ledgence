@@ -92,6 +92,7 @@ pub fn fixtures() -> Value {
         instance_name: "Ledgence".into(),
         capabilities: ConsoleCapabilities {
             execution_progress: true,
+            execution_artifacts: true,
             queue_policies: true,
             resource_policies: true,
             resource_sources: true,
@@ -400,7 +401,37 @@ pub fn fixtures() -> Value {
         root_workflow_id: probe_status.workflow_id.clone(),
         provider_probe: Some(probe_marker),
     };
-    let mut result = json!({"contract_version":CONSOLE_CONTRACT_VERSION,"config":config,"tasks":tasks,"task_status":ConsoleObservedTaskStatus{task:status,observed_at:at},"task_detail":task_detail,"attempts":attempts,"attempt_detail":attempt_detail,
+    let artifact_manifest = ConsoleArtifactManifest::from(ArtifactManifest {
+        reference: ArtifactRef {
+            schema: "ledgence.artifact.v1".into(),
+            id: "art_demo_report".into(),
+            digest: Digest(
+                "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into(),
+            ),
+            size: 5,
+            media_type: "text/plain".into(),
+        },
+        scope: Scope {
+            tenant_id: "acme".into(),
+            namespace: "billing".into(),
+        },
+        root: ExecutionTarget::Workflow {
+            id: "wf_invoice_1042".into(),
+        },
+        producer: ArtifactProducer::Task {
+            task_id: "task_invoice_1042".into(),
+        },
+        key: "invoice-report".into(),
+        filename: Some("invoice-report.txt".into()),
+        created_at: at,
+        accepted_at: at + 10,
+        first_attempt_id: Some("attempt_1".into()),
+    });
+    let artifact_page = ConsoleArtifactPage {
+        items: vec![artifact_manifest.clone()],
+        next_cursor: None,
+    };
+    let mut result = json!({"artifact_manifest":artifact_manifest,"artifact_page":artifact_page,"contract_version":CONSOLE_CONTRACT_VERSION,"config":config,"tasks":tasks,"task_status":ConsoleObservedTaskStatus{task:status,observed_at:at},"task_detail":task_detail,"attempts":attempts,"attempt_detail":attempt_detail,
         "workflows":workflows,"workflow_status":ConsoleObservedWorkflowStatus{workflow,observed_at:at},"workflow_detail":workflow_detail,"activations":activations,"children":children,"waits":waits,"local_steps":local_steps,"local_step_detail":local_step_detail,"workflow_history":workflow_history,
         "pending_result":pending,"null_result":success,"numeric_payload":numeric_payload,
         "programs":programs,"program_versions":versions,"program_detail":program_detail,"program_receipt":program_receipt,"workers":workers,"worker_detail":worker_detail});

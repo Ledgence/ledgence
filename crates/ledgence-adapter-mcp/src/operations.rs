@@ -1,5 +1,6 @@
 //! Scope-bound tool dispatch over portable service ports, without a framework SDK.
 mod admission;
+mod artifacts;
 mod progress;
 mod queue_policies;
 use crate::schemas::tool_definitions;
@@ -67,6 +68,7 @@ pub struct ToolDispatcher {
     workflows: Arc<dyn WorkflowService>,
     catalog: Arc<dyn ProgramCatalogService>,
     audit: Option<Arc<dyn AuditReader>>,
+    artifacts: Option<Arc<dyn ArtifactMetadataReader>>,
     scope: Scope,
     read_only: bool,
     allow_effect_resolution: bool,
@@ -121,12 +123,18 @@ impl ToolDispatcher {
             workflows,
             catalog,
             audit: None,
+            artifacts: None,
             scope,
             read_only,
             allow_effect_resolution: false,
             allow_resource_control: false,
             tools: Arc::new(tool_definitions(false)),
         })
+    }
+    /// Supply metadata only. MCP never receives transfer or mutation authority.
+    pub fn with_artifact_reader(mut self, reader: Arc<dyn ArtifactMetadataReader>) -> Self {
+        self.artifacts = Some(reader);
+        self
     }
     /// Add the scope-bound remote audit reader. Without it the audit tool is absent.
     pub fn with_audit_reader(mut self, audit: Arc<dyn AuditReader>) -> Self {
@@ -157,6 +165,7 @@ impl ToolDispatcher {
         self.tools.iter().filter(|tool| {
             (!self.read_only || tool.read_only)
                 && (tool.name != "ledgence_audit_query" || self.audit.is_some())
+                && (!artifacts::is_tool(tool.name) || self.artifacts.is_some())
                 && (tool.name != "ledgence_execution_progress"
                     || self.tasks.progress_reader().is_ok())
                 && (tool.name != "ledgence_effect_resolve" || self.allow_effect_resolution)
@@ -207,6 +216,9 @@ impl ToolDispatcher {
                 message: "This MCP server only exposes read operations".into(),
                 outcome_unknown: false,
             });
+        }
+        if artifacts::is_tool(name) {
+            return self.call_artifacts(name, arguments).await;
         }
         if queue_policies::is_tool(name) {
             return self.call_queue_policy(name, arguments).await;

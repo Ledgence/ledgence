@@ -204,7 +204,7 @@ fn candidate_sql(table: &str, id: &str, time: &str, filter: &str) -> String {
         "false"
     };
     format!(
-        "SELECT {id} AS id,{time} AS at,{marker} AS governed FROM {table} WHERE tenant_id=$4 AND namespace=$5 AND ({time},{id})>($1,$2){filter} AND {time}<=$3 ORDER BY {time},{id} LIMIT 1 FOR UPDATE SKIP LOCKED"
+        "SELECT {id} AS id,{time} AS at,{marker} AS governed FROM {table} WHERE tenant_id=$4 AND namespace=$5 AND ({time},{id})>($1,$2){filter} AND {time}<=$3 ORDER BY {time},{id} LIMIT 1 FOR NO KEY UPDATE SKIP LOCKED"
     )
 }
 
@@ -268,6 +268,7 @@ async fn retire_task(
     let Some(removed) = expire_subscriptions(connection, "task", id, cutoff).await? else {
         return Ok(());
     };
+    crate::artifacts::mark_retired_root(connection, "task", id, now).await?;
     sqlx::query("UPDATE tasks SET retiring_at_ms=$2,workflow_activation_id=NULL WHERE task_id=$1")
         .bind(id)
         .bind(codec::ms(now)?)
@@ -297,6 +298,7 @@ async fn retire_workflow(
     let Some(removed) = expire_subscriptions(connection, "workflow", id, cutoff).await? else {
         return Ok(());
     };
+    crate::artifacts::mark_retired_root(connection, "workflow", id, now).await?;
     sqlx::query("UPDATE workflow_runs SET retiring_at_ms=$2,current_activation_id=NULL,wait_activation_id=NULL,wait_keys_bytes=NULL,external_wait_key=NULL,native_wait_activation_id=NULL,provider_wait_activation_id=NULL,admission_wait_activation_id=NULL WHERE workflow_id=$1")
         .bind(id).bind(codec::ms(now)?).execute(connection).await?;
     progress.retired = 1;
@@ -312,6 +314,13 @@ async fn collect_task(
     limit: u32,
     progress: &mut RetentionProgress,
 ) -> StoreResult<()> {
+    progress.deleted_rows += crate::artifacts::collect_retired_root(
+        connection,
+        "task",
+        id,
+        limit.saturating_sub(progress.deleted_rows),
+    )
+    .await?;
     for sql in [
         "DELETE FROM dispatch_claim_receipts WHERE ctid IN (SELECT ctid FROM dispatch_claim_receipts WHERE task_id=$1 LIMIT $2)",
         "DELETE FROM task_history WHERE ctid IN (SELECT ctid FROM task_history WHERE task_id=$1 LIMIT $2)",
@@ -365,6 +374,11 @@ async fn collect_workflow(
     limit: u32,
     progress: &mut RetentionProgress,
 ) -> StoreResult<()> {
+    let removed = crate::artifacts::collect_retired_root(connection, "workflow", id, limit).await?;
+    if removed > 0 {
+        progress.deleted_rows += removed;
+        return Ok(());
+    }
     for sql in [
         "DELETE FROM workflow_explorer_records WHERE ctid IN (SELECT ctid FROM workflow_explorer_records WHERE workflow_id=$1 LIMIT $2)",
         "DELETE FROM workflow_history WHERE ctid IN (SELECT ctid FROM workflow_history WHERE workflow_id=$1 LIMIT $2)",

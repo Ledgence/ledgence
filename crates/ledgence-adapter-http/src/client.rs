@@ -1,5 +1,7 @@
 use crate::{ERROR_MAX_BYTES, response::ResponseValue, wire::*};
 mod access;
+mod artifacts;
+pub use artifacts::HttpArtifactClient;
 mod admission;
 mod audit;
 mod evidence;
@@ -54,6 +56,7 @@ pub struct HttpTaskService {
     base: Url,
     authorization: Option<header::HeaderValue>,
     budget_fence: bool,
+    artifacts_enabled: Arc<std::sync::atomic::AtomicBool>,
     timeout: Duration,
     blocking: Arc<Semaphore>,
     observer: Option<Arc<Observer>>,
@@ -116,6 +119,7 @@ impl HttpTaskService {
             base,
             authorization: None,
             budget_fence: false,
+            artifacts_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             timeout,
             blocking: Arc::new(Semaphore::new(4)),
             observer: None,
@@ -126,6 +130,7 @@ impl HttpTaskService {
     /// Bind a credential to this destination. Redirects remain disabled.
     pub fn with_credentials(mut self, credentials: HttpCredentials) -> Result<Self> {
         self.authorization = Some(credentials.for_server(&self.base)?);
+        self.artifacts_enabled = Arc::new(std::sync::atomic::AtomicBool::new(false));
         Ok(self)
     }
 
@@ -336,7 +341,9 @@ impl HttpTaskService {
                     request = request.header("Ledgence-Run-Budget", "1");
                 }
                 if discover_features {
-                    request = request.header("Ledgence-Worker-Features", "1");
+                    request = request
+                        .header("Ledgence-Worker-Features", "1")
+                        .header("Ledgence-Artifact-Features", "1");
                 }
                 if let Some(authorization) = &self.authorization {
                     request = request.header(header::AUTHORIZATION, authorization.clone());
@@ -505,6 +512,17 @@ fn query(scope: &Scope, task_id: &str) -> Vec<(&'static str, String)> {
 }
 
 impl TaskService for HttpTaskService {
+    fn artifact_client(&self) -> Result<&dyn ExecutionArtifactClient> {
+        if self
+            .artifacts_enabled
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            Ok(self)
+        } else {
+            Err(unavailable("remote execution artifacts are unavailable"))
+        }
+    }
+
     fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
         Ok(self)
     }

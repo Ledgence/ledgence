@@ -65,4 +65,8 @@ restarts, and [Upgrade to 0.9.0](/how-to/upgrade-to-0-9) for an existing
 installation. Detailed contracts live in [Reference](/reference/capabilities);
 [Concepts](/concepts/execution-model) explains how the pieces work together.
 
+Development previews include [execution progress](/how-to/follow-execution-progress)
+and [file sharing between steps](/how-to/share-execution-files); both need matching
+development components and are not available in the published 0.9.0 packages.
+
 <p class="ld-home-status">These guides target the published Ledgence 0.9.0 release. Ledgence is open source and self-hosted. Run programs you trust; worker processes are not a sandbox for hostile code.</p>

@@ -44,7 +44,28 @@ impl ConsumerReservation {
         self.execute_inner(
             request,
             control,
-            Some(InteractiveExecution { extension, handler }),
+            Some(InteractiveExecution {
+                extension: Some(extension),
+                handler,
+            }),
+        )
+        .await
+    }
+
+    /// Execute with invocation-scoped callbacks and no workflow extension.
+    pub async fn execute_with_requests(
+        &mut self,
+        request: ExecutionRequest,
+        control: RunControl,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> ExecutionResult {
+        self.execute_inner(
+            request,
+            control,
+            Some(InteractiveExecution {
+                extension: None,
+                handler,
+            }),
         )
         .await
     }
@@ -56,6 +77,37 @@ impl ConsumerReservation {
         request: ExecutionRequest,
         control: RunControl,
         admission: Arc<dyn InvocationAdmission>,
+    ) -> AdmittedExecutionResult {
+        self.execute_admitted_inner(request, control, admission, None)
+            .await
+    }
+
+    /// Keep the same ready grant while enabling invocation-scoped callbacks.
+    pub async fn execute_admitted_with_requests(
+        &mut self,
+        request: ExecutionRequest,
+        control: RunControl,
+        admission: Arc<dyn InvocationAdmission>,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> AdmittedExecutionResult {
+        self.execute_admitted_inner(
+            request,
+            control,
+            admission,
+            Some(InteractiveExecution {
+                extension: None,
+                handler,
+            }),
+        )
+        .await
+    }
+
+    async fn execute_admitted_inner(
+        &mut self,
+        request: ExecutionRequest,
+        control: RunControl,
+        admission: Arc<dyn InvocationAdmission>,
+        interactive: Option<InteractiveExecution>,
     ) -> AdmittedExecutionResult {
         if self.used {
             return AdmittedExecutionResult::Executed(Err(logged_failure(
@@ -72,7 +124,7 @@ impl ConsumerReservation {
                 request,
                 control,
                 Some(self.ownership.clone()),
-                None,
+                interactive,
                 Some(admission),
             )
             .await

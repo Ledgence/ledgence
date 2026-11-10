@@ -4,6 +4,7 @@
 mod access;
 mod admission;
 mod approvals;
+mod artifacts;
 mod audit;
 mod effect_resolution;
 mod evidence;
@@ -204,6 +205,7 @@ fn build_router(
         .iter()
         .chain(console::ROUTES)
         .chain(publication::ROUTES)
+        .chain(artifacts::ROUTES)
     {
         router = router.route(route.path, any(handle));
     }
@@ -327,7 +329,17 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         ledgence_worker_api::metrics::Metric::HttpDuration,
     );
     let start = Instant::now();
-    let deadline = start + Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS);
+    let artifact_transfer = artifacts::is_route(request.uri().path())
+        && matches!(
+            request.uri().path().rsplit('/').next(),
+            Some("content" | "download" | "reconcile")
+        );
+    let deadline = start
+        + Duration::from_millis(if artifact_transfer {
+            ARTIFACT_TRANSFER_TIMEOUT_MS
+        } else {
+            CONTROL_REQUEST_TIMEOUT_MS
+        });
     let request_id = format!(
         "{}_{:x}",
         server.request_prefix,
@@ -338,8 +350,10 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         .iter()
         .chain(console::ROUTES)
         .chain(publication::ROUTES)
+        .chain(artifacts::ROUTES)
         .find(|route| route.path == request.uri().path())
-        .or_else(|| publication::match_route(request.uri().path()));
+        .or_else(|| publication::match_route(request.uri().path()))
+        .or_else(|| artifacts::match_route(request.uri().path()));
     let route_label = route.map_or("unmatched", |route| route.path);
     let span = tracing::info_span!(
         parent: None,
@@ -382,6 +396,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
             None => Ok(None),
         };
         let mut set_cookie = None;
+        let mut artifact_response = None;
         let (status, body, code) = match route {
             None => (
                 404,
@@ -410,6 +425,21 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                     }
                     Ok(Err(error)) => failure_reply(error),
                     Err(_) => failure_reply(unavailable("access request deadline exceeded").into()),
+                }
+            }
+            Some(route) if artifacts::is_route(route_label) => {
+                let result = if server.stopping.load(Ordering::Acquire) {
+                    Err(unavailable("orchestrator is shutting down").into())
+                } else {
+                    tokio::time::timeout_at(deadline, async {
+                        let context = audit::RequestContext::new(&server, admission.ok().flatten(), route, &method, &request_id)?;
+                        artifacts::dispatch(&server, request, &context, deadline.into_std()).await
+                    }).await.unwrap_or_else(|_| Err(unavailable("artifact request deadline exceeded; reconcile upload status before retrying").into()))
+                };
+                match result {
+                    Ok(body) if Instant::now() < deadline => { artifact_response = Some(body); (200, Vec::new(), None) },
+                    Ok(_) => failure_reply(unavailable("artifact request deadline exceeded").into()),
+                    Err(error) => failure_reply(error),
                 }
             }
             Some(_) if publication::is_route(route_label) => {
@@ -484,7 +514,8 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
             error_code = code,
             "orchestration HTTP request"
         );
-        let mut response = Response::new(Body::from(body));
+        let (body, artifact_headers) = artifact_response.unwrap_or_else(|| (Body::from(body), axum::http::HeaderMap::new()));
+        let mut response = Response::new(body);
         *response.status_mut() = StatusCode::from_u16(status).expect("known HTTP status");
         response.headers_mut().insert(
             header::CONTENT_TYPE,
@@ -514,6 +545,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 HeaderValue::from(ledgence_orchestration_api::console::CONSOLE_CONTRACT_VERSION),
             );
         }
+        response.headers_mut().extend(artifact_headers);
         if status == 405 {
             response.headers_mut().insert(
                 header::ALLOW,

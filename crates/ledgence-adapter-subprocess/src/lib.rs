@@ -76,6 +76,7 @@ struct Resources {
     workspace: Option<PathBuf>,
     /// Keep non-abortable disk cleanup owned if a close waiter is cancelled.
     workspace_cleanup: Option<JoinHandle<std::io::Result<()>>>,
+    request_handler: Option<Arc<dyn RuntimeRequestHandler>>,
     logs: Option<JoinHandle<()>>,
     reaped: bool,
     /// The signal outcome is committed before wait() can suspend. Reaping may
@@ -190,6 +191,7 @@ impl ExecutionRuntime for SubprocessRuntime {
                 artifact: Some(artifact),
                 workspace: Some(workspace.keep()),
                 workspace_cleanup: None,
+                request_handler: None,
                 logs: None,
                 reaped: false,
                 group_signal_attempted: false,
@@ -315,6 +317,18 @@ impl ExecutionSession for Session {
         permit: InvocationPermit,
     ) -> PortFuture<'a, ProgramOutcome> {
         self.dispatch(invocation, control, None, Some(permit))
+    }
+    fn supports_admitted_requests(&self) -> bool {
+        true
+    }
+    fn execute_admitted_with_requests<'a>(
+        &'a mut self,
+        invocation: RuntimeInvocation,
+        control: RunControl,
+        permit: InvocationPermit,
+        handler: Arc<dyn RuntimeRequestHandler>,
+    ) -> PortFuture<'a, ProgramOutcome> {
+        self.dispatch(invocation, control, Some(handler), Some(permit))
     }
     fn close(&mut self) -> PortFuture<'_, ()> {
         Box::pin(async move {
@@ -491,7 +505,8 @@ async fn supervise(
                 mut reply,
             }) => {
                 budget.store(config.max_log_bytes, Ordering::Release);
-                let result = guarded(
+                resources.request_handler = handler.clone();
+                let mut result = guarded(
                     invoke(
                         &mut stdin,
                         &mut frames,
@@ -511,6 +526,24 @@ async fn supervise(
                     None,
                 )
                 .await;
+                if result.is_ok()
+                    && let Some(handler) = resources.request_handler.as_ref()
+                {
+                    let success = result.expect("successful invocation");
+                    result = guarded(
+                        async {
+                            handler.drain().await?;
+                            Ok(success)
+                        },
+                        &control,
+                        &mut reply,
+                        None,
+                    )
+                    .await;
+                    if result.is_ok() {
+                        resources.request_handler = None;
+                    }
+                }
                 if result.is_err() {
                     let cleanup = terminate(&mut resources).await;
                     release_confirmed(&owner, &owners, &resources, &cleanup);
@@ -1059,6 +1092,10 @@ async fn terminate(resources: &mut Resources) -> Result<()> {
     if let Some(failure) = &resources.group_error {
         return Err(failure.error.clone());
     }
+    if let Some(handler) = resources.request_handler.as_ref() {
+        handler.drain().await?;
+        resources.request_handler = None;
+    }
     if let Some(path) = resources.workspace.as_ref() {
         // Programs can leave arbitrarily large working trees. Removing them on
         // a runtime thread would stall unrelated invocations and lease timers.
@@ -1151,6 +1188,7 @@ mod tests {
             artifact: Some(artifact),
             workspace: Some(tempfile::tempdir().unwrap().keep()),
             workspace_cleanup: None,
+            request_handler: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,
@@ -1373,6 +1411,7 @@ mod tests {
             artifact: Some(artifact),
             workspace: Some(workspace.clone()),
             workspace_cleanup: None,
+            request_handler: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,
@@ -1455,6 +1494,7 @@ mod tests {
             artifact: Some(artifact),
             workspace: Some(workspace.clone()),
             workspace_cleanup: None,
+            request_handler: None,
             logs: None,
             reaped: false,
             group_signal_attempted: false,

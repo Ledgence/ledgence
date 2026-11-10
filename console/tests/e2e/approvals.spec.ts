@@ -7,7 +7,7 @@ import { workflowDetail } from "../../src/api/resources";
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v16.json",
     import.meta.url,
   ),
   "utf8",
@@ -29,7 +29,7 @@ test("approvals remain readable and keyboard-accessible inside workflow General"
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "15",
+          "Ledgence-Console-Contract": "16",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
@@ -68,7 +68,7 @@ test("approvals remain readable and keyboard-accessible inside workflow General"
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "15",
+        "Ledgence-Console-Contract": "16",
         "Ledgence-Instance-Id": "instance_demo",
       },
       body: stringifyUserJson(body),
@@ -140,7 +140,7 @@ test("the inbox filters across workflows, pages by cursor and reconciles another
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "15",
+          "Ledgence-Console-Contract": "16",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
@@ -200,7 +200,7 @@ test("the inbox filters across workflows, pages by cursor and reconciles another
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Ledgence-Console-Contract": "15",
+        "Ledgence-Console-Contract": "16",
         "Ledgence-Instance-Id": "instance_demo",
       },
       body: stringifyUserJson(value),

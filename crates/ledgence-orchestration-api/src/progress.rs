@@ -31,43 +31,24 @@ impl<'de> Deserialize<'de> for ProgressSequence {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ExecutionProgressTarget {
-    Task { id: String },
-    Workflow { id: String },
-}
-impl ExecutionProgressTarget {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Task { id } | Self::Workflow { id } => id,
+/// Compatibility name for an execution progress target.
+pub type ExecutionProgressTarget = ExecutionTarget;
+
+fn terminal(target: &ExecutionTarget, state: &str) -> Result<bool> {
+    let value = serde_json::Value::String(state.to_owned());
+    match target {
+        ExecutionTarget::Task { .. } => {
+            let state: TaskState = serde_json::from_value(value)
+                .map_err(|_| invalid("invalid task progress state"))?;
+            Ok(matches!(
+                state,
+                TaskState::Succeeded | TaskState::Failed | TaskState::Cancelled
+            ))
         }
-    }
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Task { .. } => "task",
-            Self::Workflow { .. } => "workflow",
-        }
-    }
-    pub fn validate(&self) -> Result<()> {
-        validate_text(self.id(), 128)
-    }
-    fn terminal(&self, state: &str) -> Result<bool> {
-        let value = serde_json::Value::String(state.to_owned());
-        match self {
-            Self::Task { .. } => {
-                let state: TaskState = serde_json::from_value(value)
-                    .map_err(|_| invalid("invalid task progress state"))?;
-                Ok(matches!(
-                    state,
-                    TaskState::Succeeded | TaskState::Failed | TaskState::Cancelled
-                ))
-            }
-            Self::Workflow { .. } => {
-                let state: WorkflowState = serde_json::from_value(value)
-                    .map_err(|_| invalid("invalid workflow progress state"))?;
-                Ok(state.is_terminal())
-            }
+        ExecutionTarget::Workflow { .. } => {
+            let state: WorkflowState = serde_json::from_value(value)
+                .map_err(|_| invalid("invalid workflow progress state"))?;
+            Ok(state.is_terminal())
         }
     }
 }
@@ -185,7 +166,7 @@ impl ExecutionProgressPage {
         let mut position = query.validate()?;
         if self.scope != query.scope
             || self.target != query.target
-            || self.terminal != self.target.terminal(&self.state)?
+            || self.terminal != terminal(&self.target, &self.state)?
             || self.events.len() > query.limit as usize
             || position > self.high_watermark.0
         {

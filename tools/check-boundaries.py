@@ -27,11 +27,12 @@ def violations(graph):
             "ledgence-orchestration-api", "ledgence-orchestration-core",
         },
         "ledgence-adapter-artifact": {"ledgence-worker-api"},
+        "ledgence-adapter-blob": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-adapter-subprocess": {"ledgence-worker-api"},
         "ledgence-adapter-sqs": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-adapter-http": {"ledgence-orchestration-api", "ledgence-worker-api"},
         "ledgence-orchestrator": {
-            "ledgence-adapter-access",
+            "ledgence-adapter-access", "ledgence-adapter-blob",
             "ledgence-adapter-otel", "ledgence-adapter-sqs",
             "ledgence-adapter-http", "ledgence-adapter-artifact", "ledgence-adapter-postgres",
             "ledgence-orchestration-api", "ledgence-orchestration-service", "ledgence-worker-api",
@@ -78,8 +79,13 @@ def violations(graph):
                         errors.append(f"{name}: SQLx must use only the reviewed PostgreSQL features")
             if (target.startswith("opentelemetry") or target == "tracing-opentelemetry") and name != "ledgence-adapter-otel" and dependency["kind"] != "dev":
                 errors.append(f"{name}: OpenTelemetry SDK dependencies belong only in ledgence-adapter-otel")
-            if target.startswith("aws-") and name != "ledgence-adapter-sqs":
-                errors.append(f"{name}: AWS SDK dependencies belong only in ledgence-adapter-sqs")
+            if target.startswith("aws-"):
+                sdk_allowed = {
+                    "ledgence-adapter-sqs": {"aws-config", "aws-sdk-sqs", "aws-smithy-http-client", "aws-smithy-runtime-api", "aws-smithy-types"},
+                    "ledgence-adapter-blob": {"aws-config", "aws-sdk-s3", "aws-smithy-http-client", "aws-smithy-runtime-api", "aws-smithy-types"},
+                }
+                if target not in sdk_allowed.get(name, set()):
+                    errors.append(f"{name}: AWS SDK dependency {target} is outside its reviewed adapter boundary")
             if target == "rmcp" and name != "ledgence-adapter-mcp":
                 errors.append(f"{name}: MCP SDK dependencies belong only in ledgence-adapter-mcp")
             if dependency["kind"] == "dev":
