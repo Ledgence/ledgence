@@ -1,0 +1,311 @@
+{
+  "scope": "18 package versions updated for the November 2026 dependency gate repair; not a complete release SBOM. Legal files are included in these published crate archives and collected into native/container distributions by tools/release/notices.py. A null source_revision means the archive omits .cargo_vcs_info.json; the archive checksum still fixes its exact source. Historical notice inventories remain unchanged.",
+  "packages": [
+    {
+      "name": "aws-config",
+      "version": "1.13.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-config/1.13.0/download",
+      "crate_sha256": "939e256cfe0ed68e96d32f194339d88210d5c10685cff0787400158f852c6819",
+      "source_revision": "b964fc77de60b0a492ff788c40bb66524fd26a44",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-credential-types",
+      "version": "1.3.1",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-credential-types/1.3.1/download",
+      "crate_sha256": "576e8da35751dc85409ec1cd15999f692c277a1fbe9336780fe6f15e49dd637d",
+      "source_revision": "b964fc77de60b0a492ff788c40bb66524fd26a44",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-runtime",
+      "version": "1.10.2",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-runtime/1.10.2/download",
+      "crate_sha256": "9a0cc2144962cc5e358467b16e3d82981b1d424a7c3d34602be0036103814a1a",
+      "source_revision": "b964fc77de60b0a492ff788c40bb66524fd26a44",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-sdk-sqs",
+      "version": "1.115.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/awslabs/aws-sdk-rust",
+      "source_archive": "https://crates.io/api/v1/crates/aws-sdk-sqs/1.115.0/download",
+      "crate_sha256": "4be80a9523940f5808024643b7e3afa4385a46c15f3517ea2b655348fea3ba08",
+      "source_revision": "b964fc77de60b0a492ff788c40bb66524fd26a44",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "929e8ca5ef8ec9905c00a89d004d1f6933bae951996992c8579734875bbf46a8"
+        }
+      ]
+    },
+    {
+      "name": "aws-sdk-sts",
+      "version": "1.120.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/awslabs/aws-sdk-rust",
+      "source_archive": "https://crates.io/api/v1/crates/aws-sdk-sts/1.120.0/download",
+      "crate_sha256": "61e925e0ab1617457f7d6e69be27b83143a5493a6f99bcd0107ae7a498a4052c",
+      "source_revision": "b964fc77de60b0a492ff788c40bb66524fd26a44",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "929e8ca5ef8ec9905c00a89d004d1f6933bae951996992c8579734875bbf46a8"
+        }
+      ]
+    },
+    {
+      "name": "aws-sigv4",
+      "version": "1.6.2",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-sigv4/1.6.2/download",
+      "crate_sha256": "0a3ccec0607ae3839cd76830df5ed62468ac1330acdb3dc4ec0502404113d2b6",
+      "source_revision": "b964fc77de60b0a492ff788c40bb66524fd26a44",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-async",
+      "version": "1.3.1",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-async/1.3.1/download",
+      "crate_sha256": "de681a9df7ff79823b759ee17061076ec049cd61a8fa28ece4293d89c9f6964e",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-http",
+      "version": "0.64.2",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-http/0.64.2/download",
+      "crate_sha256": "ba8960956e0ee0ca3f3161e62913a61bc65a7ef638ca3ef1d4c7159f8443e398",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-http-client",
+      "version": "1.5.1",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-http-client/1.5.1/download",
+      "crate_sha256": "aeca69f65362f7375891008ea525fd440ad6db1836458ac188c87b126804114e",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-json",
+      "version": "0.65.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-json/0.65.0/download",
+      "crate_sha256": "9f6835fb38bc6fc8c91e584b0366eb4ff595e5c485134dbf4f0bdeaa18856666",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-query",
+      "version": "0.64.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-query/0.64.0/download",
+      "crate_sha256": "165f6265342a313ad6f7a1ac17a0cdba30c522039d3f41d8d6871ce8a2b34ecd",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-runtime",
+      "version": "1.16.1",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-runtime/1.16.1/download",
+      "crate_sha256": "79cef0c41e8ca40f74f68ed8ee4d1ddbde12bb847b95ef9b3c025681ddfae58a",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-runtime-api",
+      "version": "1.19.1",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-runtime-api/1.19.1/download",
+      "crate_sha256": "06788004dea79018413f381891da6dcca23196acd79c4d51b767fbdacc76eae4",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-schema",
+      "version": "1.0.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-schema/1.0.0/download",
+      "crate_sha256": "1d7a3b01a2a1b453176457b260b0ed55d33de61d35d21b74022c51ec62a42895",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-types",
+      "version": "1.9.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-types/1.9.0/download",
+      "crate_sha256": "55752025c39c0e094962fd73f1c57014b191f678612e517f219468e575af9822",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-smithy-xml",
+      "version": "0.64.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-smithy-xml/0.64.0/download",
+      "crate_sha256": "a6581618a2fd006159016d1c36881d94d61b4a017f4a8d631310875e18252413",
+      "source_revision": null,
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "aws-types",
+      "version": "1.7.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.94.1",
+      "repository": "https://github.com/smithy-lang/smithy-rs",
+      "source_archive": "https://crates.io/api/v1/crates/aws-types/1.7.0/download",
+      "crate_sha256": "6ba0d970d3947bb064d2ae1d823efa186c1dbde88f88afa8f6549946e5d8deee",
+      "source_revision": "b964fc77de60b0a492ff788c40bb66524fd26a44",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        }
+      ]
+    },
+    {
+      "name": "rmcp",
+      "version": "3.9.0",
+      "declared_license": "Apache-2.0",
+      "selected_license": "Apache-2.0",
+      "rust_version": "1.88",
+      "repository": "https://github.com/modelcontextprotocol/rust-sdk/",
+      "source_archive": "https://crates.io/api/v1/crates/rmcp/3.9.0/download",
+      "crate_sha256": "d24a7e92f4bcaa36b97fa93c4fa7ca8f3e669eced949345b3462dba333c7f909",
+      "source_revision": "5596a8a0bba2a1ec5519cc855cdadf23e4dcecdc",
+      "legal_files": [
+        {
+          "archive_path": "LICENSE",
+          "sha256": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a"
+        }
+      ]
+    }
+  ]
+}

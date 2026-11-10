@@ -142,7 +142,7 @@ A retired execution cannot be recovered by silently resetting the cursor.
 
 This increment uses immediate page reads and client-side polling. An idle
 subscriber incurs one bounded request per interval; no database connection stays
-open between reads. The existing worker concurrency remains unchanged. This is
+checked out for the observer between reads. Idle pooled connections may remain open. The existing worker concurrency remains unchanged. This is
 not a claim of unlimited subscriber scale. Server-coalesced long polling, live
 Console accumulation, arbitrary application milestones and provisional token
 streams are separate follow-up work. Terminal webhooks remain the alternative

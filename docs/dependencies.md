@@ -260,7 +260,7 @@ Python package approval is separate from Cargo's license allowlist. PSF-2.0 is a
 
 [The client legal inventory](../sdk/python-client/third_party/inventory.json) records 47 actual wheel artifacts and 12 source archives, their published URLs and SHA256 hashes, wheel requirements and interpreter markers, native-extension filenames, and exact legal-file hashes. [Third-party notices](../sdk/python-client/third_party/NOTICE.md) identify the separate graphs and retained material, including llhttp, the full PSF histories, and the propcache/yarl NOTICE files. Client wheels and source distributions include the retained license/NOTICE texts; source distributions also include the inventory and graph locks. This is the client dependency inventory, not an interpreter, operating-system, or complete release-image SBOM.
 
-The configured matrix is CPython 3.11–3.14 on Linux x86_64/glibc (`ubuntu-24.04`) and macOS arm64 (`macos-14`). Each target has an explicitly inspected wheel selection. Other architectures, musl, Windows, PyPy, free-threaded interpreters, dependency extras and building third-party source archives are outside this review. Source archives are inspected for provenance and embedded legal material, never built by these gates. Artifact inspection for another target is not evidence of execution on that target; local and hosted CI results must be recorded separately.
+The configured matrix is CPython 3.11–3.14 on Linux x86_64/glibc (`ubuntu-24.04`) and macOS arm64 (`macos-15`). The macOS runner is explicitly pinned to 15 following [GitHub’s retirement of macOS 14](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/); it remains ARM64. Each target has an explicitly inspected wheel selection. Other architectures, musl, Windows, PyPy, free-threaded interpreters, dependency extras and building third-party source archives are outside this review. Source archives are inspected for provenance and embedded legal material, never built by these gates. Artifact inspection for another target is not evidence of execution on that target; local and hosted CI results must be recorded separately.
 
 Run the deterministic policy and installed-wheel gates with a supported host interpreter:
 
@@ -279,17 +279,29 @@ Dependency upgrades require renewed artifact, source, license, coupling, marker 
 
 `ledgence-adapter-sqs` confines the official AWS SDK and Smithy transport to the individual-receipt delivery adapter. Portable orchestration contracts contain no AWS types. Selecting another delivery backend does not require an AWS account or hosted AWS service; the SQS-compatible path also supports separately qualified self-hosted ElasticMQ. The adapter does not create production queues.
 
-The reviewed pins are `aws-sdk-sqs =1.109.0` and `aws-config =1.12.0`, both with defaults disabled and `rt-tokio,default-https-client`. The declared Rust minimum is 1.94.1. The explicit behavior version is `v2026_01_12`; SDK retries are disabled so the durable delivery layer owns retry and uncertain-outcome handling. `aws-config` supports environment/shared-profile, web-identity/STS, ECS and EC2 role credentials with this selection; SSO, external credential-process and interactive-login features are not enabled. Explicit nonsecret local credentials are restricted to a configured loopback endpoint.
+The reviewed pins are `aws-sdk-sqs =1.115.0` and `aws-config =1.13.0`, both with defaults disabled and `rt-tokio,default-https-client`. The declared Rust minimum is 1.94.1. The explicit behavior version is `v2026_01_12`; SDK retries are disabled so the durable delivery layer owns retry and uncertain-outcome handling. `aws-config` supports environment/shared-profile, web-identity/STS, ECS and EC2 role credentials with this selection; SSO, external credential-process and interactive-login features are not enabled. Explicit nonsecret local credentials are restricted to a configured loopback endpoint.
 
-The adapter directly uses `aws-smithy-http-client =1.4.0` with only `rustls-aws-lc`, `aws-smithy-runtime-api =1.16.0`, `aws-smithy-types =1.6.3`, and existing `http-body-util =0.1.5` to bound responses before the SDK deserializer. It reuses `url =2.5.8` for configuration validation. The modern Hyper 1/Rustls/AWS-LC stack reuses existing crypto packages; the SDK's separate legacy `rustls` feature is disabled. Old `http 0.2.12` and `http-body 0.4.6` remain SDK DTO compatibility dependencies, not a second selected legacy HTTP client.
+The adapter directly uses `aws-smithy-http-client =1.5.1` with only `rustls-aws-lc`, `aws-smithy-runtime-api =1.19.1`, `aws-smithy-types =1.9.0`, and existing `http-body-util =0.1.5` to bound responses before the SDK deserializer. It reuses `url =2.5.8` for configuration validation. The modern Hyper 1/Rustls/AWS-LC stack reuses existing crypto packages; the SDK's separate legacy `rustls` feature is disabled. The selected graph no longer includes the legacy `http 0.2.12` or `http-body 0.4.6` compatibility packages.
 
-The resolved full workspace adds 37 package versions. All have selected MIT or Apache-2.0 terms; no license allowlist or exception is broadened. The [SQS notice inventory](../legal/third-party/sqs-notice-inventory.json) identifies every version, declared/selected license, source URL and SHA256 for 48 retained license files. AWS/Smithy packages use Apache-2.0; `ryu 1.0.23` selects its Apache-2.0 alternative. `base64-simd 0.8.0` and `vsimd 0.8.0` omit a root license from their published archives; their `.cargo_vcs_info.json` identifies upstream commit `d74c030d9dc4f3cae02146d1f497ff62726ef09a`, whose MIT license is retained. This incremental inventory does not replace release-specific toolchain, native-code and container inventory.
+The initial September 2026 SQS introduction added 37 package versions. All have selected MIT or Apache-2.0 terms; no license allowlist or exception is broadened. The [SQS notice inventory](../legal/third-party/sqs-notice-inventory.json) identifies every version, declared/selected license, source URL and SHA256 for 48 retained license files. AWS/Smithy packages use Apache-2.0; `ryu 1.0.23` selects its Apache-2.0 alternative. `base64-simd 0.8.0` and `vsimd 0.8.0` omit a root license from their published archives; their `.cargo_vcs_info.json` identifies upstream commit `d74c030d9dc4f3cae02146d1f497ff62726ef09a`, whose MIT license is retained. This incremental inventory does not replace release-specific toolchain, native-code and container inventory.
+
+The November 2026 update uses one aligned AWS/Smithy cohort with schema 1.0 and
+removes the unmaintained `pin-utils` dependency. It preserves the configured
+behavior version, disabled SDK retries, response bounds and optional feature
+boundary. All 17 updated AWS/Smithy packages retain Apache-2.0 and declare Rust
+1.94.1. Their original license bytes are unchanged and included in the published
+archives. The [incremental notice inventory](../legal/third-party/2026-11-ci-repair-notice-inventory.json)
+records exact archive checksums, supplied source revisions and license hashes,
+including the separate RMCP update. Release notice collection uses the actual
+selected Cargo graph; the historical September inventory remains a record of
+that review. [Upstream removal](https://github.com/smithy-lang/smithy-rs/pull/4882) ·
+[Unmaintained dependency advisory](https://rustsec.org/advisories/RUSTSEC-2026-0441.html).
 
 The reviewed local-service fixture is `softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c`. It runs externally for tests and is not linked into Ledgence or relicensed to MIT. ElasticMQ 1.7.1 omits `MaximumMessageSize` from queue attributes: explicitly configured compatible endpoints may omit it, while Ledgence still enforces its 16 KiB dispatch limit. Reported smaller limits, FIFO queues and nonzero queue default delay are rejected. Missing native-AWS size metadata fails verification. Compatibility is qualified through real-service tests; it is not a claim of ElasticMQ/SQS capacity equivalence.
 
 Run protocol/bounds tests with `cargo test --locked -p ledgence-adapter-sqs`. The ignored `elasticmq_acceptance` test requires an explicit `LEDGENCE_TEST_SQS_ENDPOINT` for an owned loopback service and creates/deletes its own temporary queue. It validates real batch publication, receive, receipt deletion, strict dispatch decoding and long polling. Passing local ElasticMQ tests is not evidence of real AWS SQS acceptance. The full unchanged `cargo deny --locked check` remains required after integration.
 
-Sources: [pinned SQS crate](https://docs.rs/crate/aws-sdk-sqs/1.109.0), [pinned configuration crate](https://docs.rs/crate/aws-config/1.12.0), [Smithy response collection](https://docs.rs/crate/aws-smithy-runtime/1.14.0/source/src/client/orchestrator/http.rs), [ElasticMQ release](https://github.com/softwaremill/elasticmq/releases/tag/v1.7.1), [SIMD source license](https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE).
+Sources: [pinned SQS crate](https://docs.rs/crate/aws-sdk-sqs/1.115.0), [pinned configuration crate](https://docs.rs/crate/aws-config/1.13.0), [Smithy response collection](https://docs.rs/crate/aws-smithy-runtime/1.16.1/source/src/client/orchestrator/http.rs), [ElasticMQ release](https://github.com/softwaremill/elasticmq/releases/tag/v1.7.1), [SIMD source license](https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE).
 
 
 ## Workflow milestone dependency update
@@ -351,7 +363,7 @@ The Dockerfile pins the official Rust 1.98.1/bookworm and CPython 3.14/bookworm 
 
 ## Optional MCP server
 
-Current source builds add `rmcp 3.5.0`, the official Rust MCP SDK, with defaults
+Current source builds add `rmcp 3.9.0`, the official Rust MCP SDK, with defaults
 disabled and only its `server` feature. This feature includes the SDK's schema
 support; Ledgence does not enable its HTTP/authentication/client/macro features.
 The optional `ledgence-cli/mcp` feature composes the MCP adapter with the existing
@@ -359,8 +371,9 @@ HTTP client. Worker/orchestrator libraries and portable core/API crates do not
 select rmcp. No AI framework, hosted account, model SDK or copyleft requirement is
 introduced.
 
-The resolved incremental graph contains 18 registry versions:
-`rmcp 3.5.0`, `chrono 0.4.45`, `dyn-clone 1.0.20`, `futures 0.3.34`,
+The original MCP addition introduced these 18 registry versions, with rmcp now
+updated to 3.9.0:
+`rmcp 3.9.0`, `chrono 0.4.45`, `dyn-clone 1.0.20`, `futures 0.3.34`,
 `iana-time-zone 0.1.65`, `iana-time-zone-haiku 0.1.2`,
 `android_system_properties 0.1.6`, `pastey 0.2.3`, `ref-cast 1.0.27`,
 `ref-cast-impl 1.0.27`, `schemars 1.2.2`, `schemars_derive 1.2.2`,
@@ -369,17 +382,26 @@ The resolved incremental graph contains 18 registry versions:
 `windows-result 0.4.1`, and `windows-strings 0.5.1`.
 They declare MIT, Apache-2.0, or an MIT/Apache alternative. Some are target-specific
 or build dependencies; this is an incremental lock inventory, not a statement
-that every component is linked on every platform. Existing versions are retained.
+that every component is linked on every platform. The 3.9.0 update also selects
+the already-locked `libc 0.2.189` and `sha2 0.11.0` graphs, whose MIT/Apache
+license alternatives remain within the existing policy. No other registry
+version changes are needed for this update.
 
-The rmcp package declares Apache-2.0 but omits its root license file. The exact
-[upstream license and transition notice](../legal/third-party/rmcp-3.5.0-LICENSE)
-is retained from source commit `0cde3c5cf3e6aff0cc852ce6045f107e95991f48`, identified
-by the published package's `.cargo_vcs_info.json`. It preserves Apache terms and
-remaining MIT-licensed contributions. Upstream documentation has separate terms;
-Ledgence does not vendor that documentation. The release notice collector includes
-this reviewed copy and each other selected dependency's published legal files.
-No license allowlist expansion is needed. `cargo deny --locked check` and
-`tools/check-mcp-features.py` enforce policy and feature isolation.
+The rmcp 3.9.0 package declares Apache-2.0 and includes its root `LICENSE`,
+verified against [source commit `5596a8a`](https://github.com/modelcontextprotocol/rust-sdk/blob/5596a8a0bba2a1ec5519cc855cdadf23e4dcecdc/LICENSE)
+identified by the published package's `.cargo_vcs_info.json`. It preserves Apache
+terms and remaining MIT-licensed contributions. Upstream documentation has
+separate terms; Ledgence does not vendor that documentation. The release notice
+collector includes the package's license and each other selected dependency's
+published legal files. The retained 3.5.0 license remains historical material;
+3.9.0 needs no fallback copy or license allowlist expansion.
+
+The 3.9.0 pin addresses [RUSTSEC-2026-0457](https://rustsec.org/advisories/RUSTSEC-2026-0457.html),
+[RUSTSEC-2026-0461](https://rustsec.org/advisories/RUSTSEC-2026-0461.html), and
+[RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html). Their
+OAuth and Streamable HTTP paths are not selected by Ledgence's stdio adapter.
+`cargo deny --locked check` and `tools/check-mcp-features.py` continue to enforce
+policy and feature isolation without advisory exceptions.
 
 ## Local credential adapter
 
