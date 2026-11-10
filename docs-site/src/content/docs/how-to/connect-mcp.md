@@ -135,7 +135,7 @@ ledgence mcp serve --server http://127.0.0.1:8080 \
   --allow-effect-resolution
 ```
 
-`--read-only` and `--allow-effect-resolution` cannot be combined. With audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36.
+`--read-only` and `--allow-effect-resolution` cannot be combined. In 0.9.0, with audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36.
 The added `ledgence_effect_resolve` also requires the credential's dedicated
 `effect_resolve` capability. Fixed scope and credentials cannot be supplied or
 overridden through tool arguments. Worker credentials cannot resolve effects.
@@ -208,3 +208,11 @@ Call `ledgence_resource_sources` with a resource `name` to inspect charged task,
 Use `ledgence_resource_decisions` with a resource `name` to inspect each committed weighted offer. Pass `next` back as `before` for older decisions. The tool requires `metadata_read`. Configure queue groups through `ledgence_resource_put` with the resource-control opt-in. [Share capacity across queue groups](/how-to/share-resource-offers).
 
 In Ledgence 0.9.0, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.
+
+## Execution progress in development
+
+The next source version adds `ledgence_execution_progress` to both normal and
+read-only discovery. Use it to read one bounded task or workflow lifecycle page
+and resume with its returned cursor. It does not hold a tool call open or mutate
+the execution. This tool is not included in the published 0.9.0 catalog above.
+[Follow execution progress](/how-to/follow-execution-progress).

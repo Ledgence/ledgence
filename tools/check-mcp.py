@@ -36,7 +36,7 @@ def handle(event):
 '''
 WRITE_TOOLS = {"ledgence_task_submit", "ledgence_task_cancel", "ledgence_workflow_submit",
                "ledgence_workflow_cancel", "ledgence_workflow_send_event"}
-READ_TOOLS = {"ledgence_program_list", "ledgence_program_versions", "ledgence_program_inspect",
+READ_TOOLS = {"ledgence_execution_progress", "ledgence_program_list", "ledgence_program_versions", "ledgence_program_inspect",
               "ledgence_task_list", "ledgence_task_status", "ledgence_task_result",
               "ledgence_workflow_status", "ledgence_workflow_result", "ledgence_approval_list",
               "ledgence_approval_inspect", "ledgence_approval_inbox", "ledgence_audit_query",
@@ -68,6 +68,63 @@ def wait_workflow(session, identity):
     return eventually(lambda: (value if (value := session.tool("ledgence_workflow_status",
         {"workflow_id": identity}))["state"] == "waiting" else None),
         timeout=60, description="MCP workflow checkpointed event/approval wait")
+
+
+def progress_page(session, scope, kind, identity, *, cursor=None, after=0, limit=1):
+    """Observe one real page without decoding or manufacturing an opaque cursor."""
+    target = {"kind": kind, "id": identity}
+    page = session.tool("ledgence_execution_progress", {"target": target, "cursor": cursor, "limit": limit})
+    assert set(page) == {"scope", "target", "state", "terminal", "high_watermark", "events",
+                         "next_cursor", "has_more"}, page
+    assert page["scope"] == scope and page["target"] == target, page
+    assert type(page["terminal"]) is bool and type(page["has_more"]) is bool, page
+    assert page["terminal"] is (page["state"] in {"succeeded", "failed", "cancelled"}), page
+    assert type(page["high_watermark"]) is str, page
+    tail = int(page["high_watermark"])
+    assert str(tail) == page["high_watermark"] and after <= tail < 1 << 64, page
+    assert type(page["events"]) is list and len(page["events"]) <= limit, page
+    for event in page["events"]:
+        assert set(event) == {"sequence", "at", "reason", "activation_id", "attempt_id"}, event
+        assert event["sequence"] == str(after + 1), event
+        assert type(event["at"]) is int and event["at"] >= 0, event
+        assert type(event["reason"]) is str and event["reason"], event
+        assert event["activation_id" if kind == "task" else "attempt_id"] is None, event
+        after += 1
+    assert after <= tail and page["has_more"] is (after < tail), page
+    assert page["events"] or not page["has_more"], page
+    assert type(page["next_cursor"]) is str and page["next_cursor"], page
+    assert len(json.dumps(page, separators=(",", ":")).encode()) <= 256 * 1024, page
+    return page
+
+
+def drain_progress(session, scope, kind, identity, *, cursor=None, after=0):
+    events, tail = [], after
+    for _ in range(100):
+        page = progress_page(session, scope, kind, identity, cursor=cursor, after=after)
+        assert int(page["high_watermark"]) >= tail, page
+        tail = int(page["high_watermark"])
+        events.extend(page["events"])
+        after += len(page["events"])
+        cursor = page["next_cursor"]
+        if not page["has_more"]:
+            empty = progress_page(session, scope, kind, identity, cursor=cursor, after=after)
+            assert empty == {**page, "events": []}, (page, empty)
+            return page, events
+    raise AssertionError("fixture progress exceeded bounded drain")
+
+
+def assert_stored_progress(d, kind, identity, events):
+    """Compare the real MCP wire records with their committed PostgreSQL rows."""
+    assert kind in {"task", "workflow"} and events
+    identity = identity.replace("'", "''")
+    first, last = int(events[0]["sequence"]), int(events[-1]["sequence"])
+    attempt = "attempt_id" if kind == "task" else "NULL"
+    activation = "activation_id" if kind == "workflow" else "NULL"
+    stored = d.sql(f"SELECT json_agg(json_build_object('sequence', trunc(sequence)::text, "
+        f"'at', at_ms, 'reason', reason, 'attempt_id', {attempt}, 'activation_id', {activation}) "
+        f"ORDER BY sequence) FROM {kind}_history WHERE {kind}_id='{identity}' "
+        f"AND sequence BETWEEN {first} AND {last}")
+    assert json.loads(stored) == events, (stored, events)
 
 
 def scenarios(d, record, sessions):
@@ -118,6 +175,10 @@ def scenarios(d, record, sessions):
     cancelled = main.tool("ledgence_task_cancel", {"task_id": queued["task_id"]})
     assert cancelled["state"] == "cancelled", cancelled
     assert main.tool("ledgence_task_result", {"task_id": queued["task_id"]})["outcome"] == {"kind": "cancelled"}
+    task_prefix = progress_page(main, d.scope, "task", task["task_id"])
+    assert task_prefix["state"] == "queued" and task_prefix["terminal"] is False, task_prefix
+    assert [event["reason"] for event in task_prefix["events"]] == ["submitted"], task_prefix
+    assert progress_page(main, d.scope, "task", task["task_id"]) == task_prefix
     worker = d.start_worker(concurrency=1)
     result = finished(main, "task", task["task_id"])
     assert result["event"]["data"] == args["data"] and result["dependency"] == "packaged", result
@@ -129,6 +190,7 @@ def scenarios(d, record, sessions):
 
     wrong = session("mcp-wrong-scope", scope={**d.scope, "namespace": "other"})
     for name, arguments in (("ledgence_task_status", {"task_id": task["task_id"]}),
+                           ("ledgence_execution_progress", {"target": {"kind": "task", "id": task["task_id"]}}),
                            ("ledgence_program_list", {}),
                            ("ledgence_program_versions", {"program": "invoice"}),
                            ("ledgence_program_inspect", {"program": "invoice", "version": "1.0.0"})):
@@ -144,10 +206,25 @@ def scenarios(d, record, sessions):
     assert {item["name"] for item in exposed} == READ_TOOLS, exposed
     for name in WRITE_TOOLS:
         readonly.invalid(name, {})
+    progress_args = {"target": {"kind": "task", "id": task["task_id"]}}
+    for overrides in ({"tenant_id": "other"}, {"namespace": "other"}, {"scope": d.scope}):
+        readonly.invalid("ledgence_execution_progress", {**progress_args, **overrides})
+    for invalid in ({"limit": 0}, {"limit": 101}, {"cursor": "00"}, {"follow": True},
+                    {"target": {"kind": "task", "id": queued["task_id"]}, "cursor": task_prefix["next_cursor"]}):
+        readonly.invalid("ledgence_execution_progress", {**progress_args, **invalid})
     assert proxy.records == [], "read-only denial contacted the backend"
     assert readonly.tool("ledgence_task_status", {"task_id": task["task_id"]})["state"] == "succeeded"
+    task_tail, task_events = drain_progress(readonly, d.scope, "task", task["task_id"],
+        cursor=task_prefix["next_cursor"], after=1)
+    assert task_tail["terminal"] is True and task_tail["state"] == "succeeded", task_tail
+    assert any(event["reason"] == "succeeded" for event in task_events), task_events
+    assert_stored_progress(d, "task", task["task_id"], task_prefix["events"] + task_events)
+    assert len(d.invocations(task["task_id"])) == 1, "progress replay executed work"
+    record("task-progress-resume", {"task_id": task["task_id"], "fresh_read_only_session": True,
+        "first_sequence": "1", "resumed_events": len(task_events),
+        "high_watermark": task_tail["high_watermark"], "verified_committed_history": True})
     readonly.close()
-    record("fixed-scope-and-read-only", {"rejected_scope_reads": 4, "read_only_tools": len(exposed),
+    record("fixed-scope-and-read-only", {"rejected_scope_reads": 5, "read_only_tools": len(exposed),
                                         "mutation_attempts_blocked": len(WRITE_TOOLS)})
 
     args = workflow_arguments(d, "mcp-workflow", original={"workflow_id": "application-value"})
@@ -157,12 +234,15 @@ def scenarios(d, record, sessions):
     main.tool("ledgence_workflow_submit", dict(args, data={"changed": True}), error="conflict")
     wait_workflow(main, workflow_id)
     assert main.tool("ledgence_workflow_result", {"workflow_id": workflow_id})["outcome"] is None
+    workflow_wait, workflow_prefix = drain_progress(main, d.scope, "workflow", workflow_id)
+    assert workflow_wait["state"] == "waiting" and workflow_wait["terminal"] is False, workflow_wait
     for mode in ("cancel", "disconnect"):
-        held = HeldReplyProxy(d.server_url, "/v1/workflows/status")
+        held = HeldReplyProxy(d.server_url, "/v1/executions/progress", method="POST")
         d.proxies.append(held)
         observer = session("mcp-observer-" + mode, server=held.url)
-        request_id = observer.begin("tools/call", {"name": "ledgence_workflow_status",
-                                                  "arguments": {"workflow_id": workflow_id}})
+        request_id = observer.begin("tools/call", {"name": "ledgence_execution_progress",
+            "arguments": {"target": {"kind": "workflow", "id": workflow_id},
+                          "cursor": workflow_wait["next_cursor"], "limit": 1}})
         assert held.reached.wait(timeout=10), "observer read did not reach its deterministic hold"
         if mode == "cancel":
             observer.notify("notifications/cancelled", {"requestId": request_id, "reason": "stop observing"})
@@ -173,7 +253,7 @@ def scenarios(d, record, sessions):
             observer.close()
             held.release.set()
         assert main.tool("ledgence_workflow_status", {"workflow_id": workflow_id})["state"] == "waiting"
-        assert all(path.split("?", 1)[0] == "/v1/workflows/status" for path in held.paths), held.paths
+        assert held.paths == ["/v1/executions/progress"], held.paths
     event = {"specversion": "1.0", "id": "mcp-resume-1", "source": "urn:ledgence:mcp:acceptance",
              "type": "fixture.resume", "datacontenttype": "application/json", "custom": "preserved",
              "data": {"tenant_id": "application-owned", "value": 42}}
@@ -186,6 +266,17 @@ def scenarios(d, record, sessions):
     output = finished(main, "workflow", workflow_id)
     assert output["input"] == args["data"] and output["checkpoint"] == {"saved": True}, output
     assert output["wake"]["event"] == event, output
+    resumed = session("mcp-workflow-progress-resumed", read_only=True)
+    workflow_tail, workflow_events = drain_progress(resumed, d.scope, "workflow", workflow_id,
+        cursor=workflow_wait["next_cursor"], after=int(workflow_wait["high_watermark"]))
+    assert workflow_tail["terminal"] is True and workflow_tail["state"] == "succeeded", workflow_tail
+    assert workflow_events, "resume after the workflow wait lost committed transitions"
+    assert_stored_progress(d, "workflow", workflow_id, workflow_prefix + workflow_events)
+    resumed.close()
+    record("workflow-progress-resume", {"workflow_id": workflow_id,
+        "waiting_events": len(workflow_prefix), "resumed_events": len(workflow_events),
+        "high_watermark": workflow_tail["high_watermark"], "verified_committed_history": True,
+        "fresh_read_only_session": True})
     record("workflow-resume-and-client-lifecycle", {"workflow_id": workflow_id,
         "event_reconciled": True, "cancelled_request_preserved_workflow": True,
         "disconnected_client_preserved_workflow": True, "output": output})

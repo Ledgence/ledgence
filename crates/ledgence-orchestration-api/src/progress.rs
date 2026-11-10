@@ -226,8 +226,9 @@ impl ExecutionProgressPage {
     }
 }
 
-/// Complete optional capability: bounded metadata read without recovery, side
-/// effects, retained connections, worker slots, or implicit descendant traversal.
+/// Complete optional capability: bounded metadata reads without recovery, side
+/// effects, or implicit descendant traversal. An observer keeps a cursor rather
+/// than a reserved worker slot or database transaction.
 pub trait ExecutionProgressReader: Send + Sync {
     fn execution_progress<'a>(
         &'a self,
