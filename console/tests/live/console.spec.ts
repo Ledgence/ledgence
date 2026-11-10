@@ -21,6 +21,7 @@ import { decodeConfig } from "../../src/api/codecs";
 import { consoleContractVersion } from "../../src/api/contracts";
 import { approval as decodeApproval } from "../../src/api/approvals";
 import { executionPage } from "../../src/api/explorer";
+import { nativeExecutionSeeds } from "./seeded-executions";
 import {
   keyboardDialog,
   reducedMotionDialog,
@@ -35,6 +36,21 @@ async function get<T>(
   const response = await request.get(`/v1/console/${path}`);
   expect(response.ok()).toBe(true);
   return decode(parseUserJson(await response.text(), 10 * 1024 * 1024));
+}
+async function seededInvoice(request: APIRequestContext) {
+  const { taskId } = await nativeExecutionSeeds();
+  const task = await get(
+    request,
+    `tasks/inspect?task_id=${encodeURIComponent(taskId)}`,
+    dto.taskDetail,
+  );
+  expect(task).toMatchObject({
+    task_id: taskId,
+    idempotency_key: "lossless-and-warm",
+    state: "succeeded",
+    descriptor: { program: { id: "invoice", version: "1.0.0" } },
+  });
+  return task;
 }
 async function ready(page: Page, title: string) {
   await expect(
@@ -117,15 +133,21 @@ test("real attempts, workflow records, and catalog dialogs load under production
     page.getByRole("heading", { name: "Attempt details" }),
   ).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  const workflows = await get(
+  const { workflowId } = await nativeExecutionSeeds();
+  const { summary: wf } = await get(
     request,
-    "workflows?state=succeeded&limit=25",
-    dto.workflowPage,
+    `workflows/inspect?workflow_id=${encodeURIComponent(workflowId)}`,
+    dto.workflowDetail,
   );
-  const wf = workflows.items.find(
-    (w) => w.controller.program.id === "owned-controller",
-  );
-  if (!wf) throw new Error("Seeded owned workflow required.");
+  expect(wf).toMatchObject({
+    workflow: {
+      workflow_id: workflowId,
+      parent_workflow_id: null,
+      state: "succeeded",
+      correlation_key: "same-business-correlation",
+    },
+    controller: { program: { id: "owned-controller", version: "1.0.0" } },
+  });
   await page.goto(
     `/console/workflows/${encodeURIComponent(wf.workflow.workflow_id)}?tab=Recorded+work`,
   );
@@ -183,20 +205,11 @@ test("Run again submits a distinct real task and preserves lossless numeric inpu
   page,
   request,
 }) => {
-  const tasks = await get(
-    request,
-    "tasks?state=succeeded&limit=100",
-    dto.taskPage,
-  );
-  const original = tasks.items.find(
-    (t) => t.descriptor.program.id === "invoice",
-  );
-  if (!original)
-    throw new Error("Seeded successful invoice execution required.");
+  const original = await seededInvoice(request);
   await page.goto(
-    `/console/executions/${encodeURIComponent(original.task.task_id)}`,
+    `/console/executions/${encodeURIComponent(original.task_id)}`,
   );
-  await ready(page, original.task.correlation_key || "Task execution");
+  await ready(page, original.input.correlation_key || "Task execution");
   await page.getByRole("link", { name: "Run again", exact: true }).click();
   await ready(page, "Run again");
   const input = page.getByRole("textbox", { name: "JSON input", exact: true });
@@ -219,7 +232,7 @@ test("Run again submits a distinct real task and preserves lossless numeric inpu
   const taskId = decodeURIComponent(
     new URL(page.url()).pathname.split("/").at(-1) ?? "",
   );
-  expect(taskId).not.toBe(original.task.task_id);
+  expect(taskId).not.toBe(original.task_id);
   await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByRole("button", { name: "Input", exact: true }).click();
   await expect(page.locator('pre[aria-label="Input"]')).toContainText(
@@ -570,16 +583,7 @@ test("real active task wakes a pending lifecycle wait and stops at terminal with
 }, info) => {
   const config = await get(request, "config", decodeConfig);
   expect(config.capabilities.execution_progress).toBe(true);
-  const tasks = await get(
-    request,
-    "tasks?state=succeeded&limit=100",
-    dto.taskPage,
-  );
-  const original = tasks.items.find(
-    (item) => item.descriptor.program.id === "invoice",
-  );
-  if (!original)
-    throw new Error("Seeded successful invoice execution required.");
+  const original = await seededInvoice(request);
   const directory = await mkdtemp(join(tmpdir(), "ledgence-progress-"));
   const marker = join(directory, "invocations.jsonl");
   const gate = join(directory, "gate");
@@ -618,7 +622,7 @@ test("real active task wakes a pending lifecycle wait and stops at terminal with
         idempotency_key: `live-progress-${basename(directory)}`,
         input: {
           program: original.descriptor.program,
-          queue: original.task.queue,
+          queue: original.input.queue,
           data: { mode: "gate", marker, gate },
           retry_policy: { max_attempts: 1, retry_delay_ms: 0 },
           attempt_timeout_ms: 60000,

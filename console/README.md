@@ -157,7 +157,12 @@ A release must be built from its recorded clean source state; development builds
 may record a dirty source tree.
 
 For the real acceptance stack, the repository gate supplies `LEDGENCE_CONSOLE_URL`
-and runs `pnpm --dir console test:live`. This separate Chromium/WebKit suite uses
+and `LEDGENCE_CONSOLE_STACK`, then runs `pnpm --dir console test:live`. The stack
+file and its adjacent `results.json` identify the exact native task and workflow
+seeds; the browser suite checks their identities through the real API instead of
+assuming they remain on the first execution-history page. When attaching manually
+to a held acceptance stack, provide both variables from that same run. This separate
+Chromium/WebKit suite uses
 unmodified HTTP responses from the prepared native server and submits additional
 work only to its owned acceptance instance. It verifies served assets, real
 execution/workflow observations, dialogs under the production CSP, numeric
@@ -171,8 +176,8 @@ shortcut for full-item navigation, with plain Tab also checked between fields.
 Scaling coverage applies CSS `zoom: 2` to the root, verifies doubled rendered text,
 and checks controls/reflow at 1280px and a constrained 640px viewport. This tests
 layout scaling; it does not claim browser-chrome zoom or physical-device coverage.
-Running it without an explicit Console URL fails; it never silently falls back to
-mocks.
+Running it without an explicit Console URL or the required native seed handoff
+fails; it never silently falls back to mocks or another run's evidence.
 
 ## Contracts and behavior
 
