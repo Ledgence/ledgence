@@ -39,7 +39,7 @@ fn parse(arguments: Vec<String>) -> Result<Options> {
             "--keep-following" if !keep_following => keep_following = true,
             "--follow" | "--keep-following" => return Err(invalid(format!("duplicate {key}"))),
             "--server" | "--tenant" | "--namespace" | "--task" | "--workflow" | "--cursor"
-            | "--limit" | "--poll-interval-ms" | "--timeout-ms" => {
+            | "--limit" | "--poll-interval-ms" | "--timeout-ms" | "--wait-ms" => {
                 let value = args
                     .next()
                     .filter(|value| !value.starts_with("--"))
@@ -85,11 +85,17 @@ fn parse(arguments: Vec<String>) -> Result<Options> {
     if timeout == Some(0) {
         return Err(invalid("--timeout-ms must be positive"));
     }
+    let wait_ms = integer(values.remove("--wait-ms"), "--wait-ms")?.unwrap_or(if follow {
+        EXECUTION_PROGRESS_MAX_WAIT_MS
+    } else {
+        0
+    });
     let query = ExecutionProgressQuery {
         scope,
         target,
         cursor: values.remove("--cursor"),
         limit: u32::try_from(limit).map_err(|_| invalid("invalid progress limit"))?,
+        wait_ms,
     };
     query.validate()?;
     if !values.is_empty() {
@@ -219,8 +225,27 @@ where
         .transpose()?;
     let operation = async {
         let mut query = options.query;
+        let maximum_wait_ms = query.wait_ms;
+        let mut caught_up = false;
         let mut previous: Option<(String, bool, u64)> = None;
         loop {
+            let started = Instant::now();
+            let request_budget = Duration::from_millis(CONTROL_REQUEST_TIMEOUT_MS);
+            let remaining = deadline
+                .map(|deadline| {
+                    deadline
+                        .saturating_duration_since(started)
+                        .min(request_budget)
+                })
+                .unwrap_or(request_budget);
+            // Initial/backlog follow reads stay immediate. The wait is a ceiling
+            // inside the exchange budget; reserve a second for reply delivery.
+            query.wait_ms = if !options.follow || caught_up {
+                maximum_wait_ms
+                    .min(remaining.saturating_sub(Duration::from_secs(1)).as_millis() as u64)
+            } else {
+                0
+            };
             let page = reader.execution_progress(&query).await?;
             page.validate_for(&query)
                 .map_err(|_| unavailable("invalid progress service response"))?;
@@ -246,8 +271,14 @@ where
             if !options.follow || (page.terminal && !page.has_more && !options.keep_following) {
                 return Ok(());
             }
-            if !page.has_more {
-                tokio::time::sleep(options.poll_interval).await;
+            caught_up = !page.has_more;
+            if caught_up {
+                // Fast replies still obey pacing, including terminal late-event
+                // observation. A full long poll already spent this interval.
+                let remaining = options.poll_interval.saturating_sub(started.elapsed());
+                if !remaining.is_zero() {
+                    tokio::time::sleep(remaining).await;
+                }
             }
         }
     };

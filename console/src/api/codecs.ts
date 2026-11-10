@@ -67,6 +67,7 @@ export function decodeConfig(value: unknown): ConsoleConfig {
       "This Console build is incompatible with the server contract.",
     );
   const c = record(v.capabilities, [
+    "execution_progress",
     "executions",
     "workflows",
     "programs",
@@ -105,6 +106,7 @@ export function decodeConfig(value: unknown): ConsoleConfig {
     instance_id: text(v.instance_id),
     instance_name: text(v.instance_name),
     capabilities: {
+      execution_progress: flag(c.execution_progress),
       executions: flag(c.executions),
       workflows: flag(c.workflows),
       programs: flag(c.programs),

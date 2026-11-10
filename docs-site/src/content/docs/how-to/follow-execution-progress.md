@@ -60,8 +60,10 @@ sequence. Printing once is not an exactly-once delivery guarantee.
 
 ## Choose how long to observe
 
-The follower reads up to 100 events per page and polls once per second when
-caught up. It stops after draining a terminal snapshot by default. Late worker
+The follower reads up to 100 events per page. After catching up it allows the
+server to wait up to 20 seconds, returning sooner when an event arrives. Observers
+at the same position share server reads. Set `wait_ms=0` for immediate polling;
+`poll_interval` sets a minimum request cycle interval and defaults to one second. It stops after draining a terminal snapshot by default. Late worker
 cleanup can still add history; reopening the saved cursor reads it.
 
 Use `stop_on_terminal=False` to keep observing, with `timeout` to bound the wait.
@@ -89,7 +91,16 @@ do not imply dependencies between parallel branches.
 
 Retained executions keep their complete history. After execution retirement,
 reads return `NotFound`; resetting a cursor cannot restore deleted evidence.
-The Console's existing trace view is unchanged in this increment.
+## Follow in Console
+
+In matching development Console, open a task and choose **Trace → Lifecycle**,
+or open a workflow and choose **General → Lifecycle**.
+The live timeline shows committed lifecycle events. It keeps a bounded window,
+resumes its cursor after transient connection failures and offers earlier history
+explicitly. Reloading the page rebuilds from retained history; it does not save
+progress or credentials in browser storage. Leaving the view stops observation.
+The graph and trace views continue to show their existing execution relationships.
+A server without the progress capability keeps the original paginated history.
 
 [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/execution-progress)
 · [API, cursor and retention contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-progress.md)

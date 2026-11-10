@@ -10,12 +10,16 @@ fn query() -> ExecutionProgressQuery {
         target: ExecutionProgressTarget::Task { id: "task".into() },
         cursor: None,
         limit: 1,
+        wait_ms: 0,
     }
 }
 fn options() -> Options {
     Options {
         server: "http://localhost".into(),
-        query: query(),
+        query: ExecutionProgressQuery {
+            wait_ms: EXECUTION_PROGRESS_MAX_WAIT_MS,
+            ..query()
+        },
         follow: true,
         keep_following: false,
         poll_interval: Duration::from_millis(250),
@@ -47,13 +51,19 @@ fn page(after: u64, sequence: Option<u64>, tail: u64, state: &str) -> ExecutionP
 struct Reader {
     pages: Mutex<VecDeque<Result<ExecutionProgressPage>>>,
     queries: Mutex<Vec<ExecutionProgressQuery>>,
+    delays: Mutex<VecDeque<Duration>>,
 }
 impl Reader {
     fn new(pages: Vec<Result<ExecutionProgressPage>>) -> Self {
         Self {
             pages: Mutex::new(pages.into()),
             queries: Mutex::new(Vec::new()),
+            delays: Mutex::new(VecDeque::new()),
         }
+    }
+    fn with_delays(self, delays: Vec<Duration>) -> Self {
+        *self.delays.lock().unwrap() = delays.into();
+        self
     }
 }
 impl ExecutionProgressReader for Reader {
@@ -63,6 +73,10 @@ impl ExecutionProgressReader for Reader {
     ) -> ContractFuture<'a, ExecutionProgressPage> {
         Box::pin(async move {
             self.queries.lock().unwrap().push(query.clone());
+            let delay = self.delays.lock().unwrap().pop_front().unwrap_or_default();
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
             self.pages
                 .lock()
                 .unwrap()
@@ -92,6 +106,16 @@ fn parser_preserves_cursor_and_rejects_ambiguous_or_unbounded_options() {
         assert_eq!(parsed.query.target.kind(), kind);
         assert!(!parsed.follow);
         assert_eq!(parsed.query.limit, 100);
+        assert_eq!(parsed.query.wait_ms, 0);
+        let mut args = arguments(kind);
+        args.push("--follow".into());
+        assert_eq!(
+            parse(args).unwrap().query.wait_ms,
+            EXECUTION_PROGRESS_MAX_WAIT_MS
+        );
+        let mut args = arguments(kind);
+        args.extend(["--follow".into(), "--wait-ms".into(), "0".into()]);
+        assert_eq!(parse(args).unwrap().query.wait_ms, 0);
     }
     let mut args = arguments("task");
     let cursor = query().cursor_for(u64::MAX).unwrap();
@@ -123,6 +147,10 @@ fn parser_preserves_cursor_and_rejects_ambiguous_or_unbounded_options() {
         vec!["--limit", "1", "--limit", "2"],
         vec!["--follow", "--timeout-ms"],
         vec!["--limit", "+1"],
+        vec!["--wait-ms", "20001"],
+        vec!["--wait-ms", "-1"],
+        vec!["--wait-ms", "1.5"],
+        vec!["--wait-ms", "1", "--wait-ms", "2"],
     ] {
         let mut args = arguments("task");
         args.extend(suffix.iter().map(|s| s.to_string()));
@@ -158,6 +186,7 @@ async fn terminal_backlog_is_drained_before_follow_ends_without_poll_delay() {
             .collect::<Vec<_>>(),
         [0, 1, 2]
     );
+    assert!(queries.iter().all(|q| q.wait_ms == 0));
     assert_eq!(output[2]["high_watermark"], "3");
     assert_eq!(output[2]["has_more"], false);
 }
@@ -274,4 +303,111 @@ async fn follow_rejects_watermark_and_terminal_regressions_before_output() {
         assert_eq!(output.len(), 1);
         assert_eq!(reader.queries.lock().unwrap().len(), 2);
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn caught_up_waits_share_budget_without_adding_poll_delay_after_a_long_read() {
+    let reader = Reader::new(vec![
+        Ok(page(0, None, 0, "active")),
+        Ok(page(0, None, 0, "active")),
+        Ok(page(0, Some(1), 1, "succeeded")),
+    ])
+    .with_delays(vec![Duration::ZERO, Duration::from_secs(20)]);
+    let started = Instant::now();
+    let mut output = Vec::new();
+    observe(&reader, options(), |bytes| {
+        output.push(bytes);
+        std::future::ready(Ok(()))
+    })
+    .await
+    .unwrap();
+    assert_eq!(output.len(), 2);
+    assert_eq!(started.elapsed(), Duration::from_millis(20_250));
+    assert_eq!(
+        reader
+            .queries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|q| q.wait_ms)
+            .collect::<Vec<_>>(),
+        [0, 20_000, 20_000]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn remaining_observation_budget_bounds_wait_and_preserves_reply_allowance() {
+    let reader = Reader::new(vec![
+        Ok(page(0, None, 0, "active")),
+        Ok(page(0, Some(1), 1, "succeeded")),
+    ]);
+    let mut settings = options();
+    settings.timeout = Some(Duration::from_secs(2));
+    observe(&reader, settings, |_| std::future::ready(Ok(())))
+        .await
+        .unwrap();
+    {
+        let queries = reader.queries.lock().unwrap();
+        assert_eq!(queries[0].wait_ms, 0);
+        assert_eq!(queries[1].wait_ms, 750);
+        assert_eq!(queries[1].cursor, Some(queries[0].cursor_for(0).unwrap()));
+    }
+
+    let reader = Reader::new(vec![Ok(page(0, Some(1), 1, "succeeded"))]);
+    let mut settings = options();
+    settings.follow = false;
+    settings.timeout = Some(Duration::from_millis(500));
+    observe(&reader, settings, |_| std::future::ready(Ok(())))
+        .await
+        .unwrap();
+    assert_eq!(reader.queries.lock().unwrap()[0].wait_ms, 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn immediate_terminal_wait_replies_remain_paced_while_following_late_events() {
+    let reader = Reader::new(vec![
+        Ok(page(0, Some(1), 1, "failed")),
+        Ok(page(1, None, 1, "failed")),
+        Ok(page(1, Some(2), 2, "failed")),
+        Err(ContractError::NotFound),
+    ]);
+    let mut settings = options();
+    settings.keep_following = true;
+    let started = Instant::now();
+    let mut output = Vec::new();
+    assert_eq!(
+        observe(&reader, settings, |bytes| {
+            output.push(bytes);
+            std::future::ready(Ok(()))
+        })
+        .await,
+        Err(ContractError::NotFound)
+    );
+    assert_eq!(output.len(), 2);
+    assert_eq!(started.elapsed(), Duration::from_millis(750));
+    assert_eq!(reader.queries.lock().unwrap().len(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancellation_during_server_wait_stops_observation_without_starting_another_read() {
+    let reader = Arc::new(
+        Reader::new(vec![
+            Ok(page(0, None, 0, "active")),
+            Ok(page(0, Some(1), 1, "succeeded")),
+        ])
+        .with_delays(vec![Duration::ZERO, Duration::from_secs(20)]),
+    );
+    let observed = reader.clone();
+    let task = tokio::spawn(async move {
+        observe(observed.as_ref(), options(), |_| std::future::ready(Ok(()))).await
+    });
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(250)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(reader.queries.lock().unwrap().len(), 2);
+    assert_eq!(reader.queries.lock().unwrap()[1].wait_ms, 20_000);
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    tokio::time::advance(Duration::from_secs(30)).await;
+    assert_eq!(reader.queries.lock().unwrap().len(), 2);
 }

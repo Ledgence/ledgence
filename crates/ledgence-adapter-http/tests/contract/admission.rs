@@ -539,7 +539,7 @@ async fn fair_resource_history_requires_capability_metadata_access_and_bound_sco
         true
     );
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v14.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v15.json"
     ))
     .unwrap();
     let mut page: ResourceDecisionPage =
@@ -652,7 +652,7 @@ impl RunBudgetOperations for Mock {
 async fn budget_inspection_requires_capability_and_preserves_authoritative_root_and_scope() {
     let f = setup().await;
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../ledgence-orchestration-api/tests/fixtures/console-v14.json"
+        "../../../ledgence-orchestration-api/tests/fixtures/console-v15.json"
     ))
     .unwrap();
     let mut snap: RunBudgetSnapshot =

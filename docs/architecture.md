@@ -220,5 +220,7 @@ the task service/store. The application validates its replies; the HTTP adapter
 enforces scope and metadata-read access. PostgreSQL reads compact owner state
 and an indexed history page in one read-only repeatable-read snapshot. Existing
 per-owner transactional counters provide order, with no new execution-path
-writes. Transport/SDK consumers own their cursors and polling; no worker is
-reserved for observation. [Contract](execution-progress.md).
+writes. Transport/SDK consumers own their cursors. A request-owned application-service
+coordinator coalesces bounded positive waits while storage reads remain immediate;
+no worker or idle database transaction is reserved for observation. Console uses
+the same reader through its fixed-scope, metadata-authorized route. [Contract](execution-progress.md).

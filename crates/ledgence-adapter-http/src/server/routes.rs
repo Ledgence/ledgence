@@ -147,7 +147,7 @@ mod tests {
             .chain(super::super::console::ROUTES)
             .chain(super::super::publication::ROUTES)
             .collect();
-        assert_eq!(routes.len(), 130);
+        assert_eq!(routes.len(), 131);
         assert_eq!(
             routes.iter().map(|r| r.path).collect::<HashSet<_>>().len(),
             routes.len()
@@ -174,7 +174,7 @@ mod tests {
                 assert_eq!(route.policy(method), None, "{} {method}", route.path);
             }
         }
-        assert_eq!(methods, 133);
+        assert_eq!(methods, 134);
         assert_eq!(audited, 24);
     }
     #[test]
@@ -195,6 +195,11 @@ mod tests {
             Some(Policy::Metadata)
         );
         assert_eq!(policy("/v1/executions/progress", "GET"), None);
+        assert_eq!(
+            policy("/v1/console/executions/progress", "POST"),
+            Some(Policy::Metadata)
+        );
+        assert_eq!(policy("/v1/console/executions/progress", "GET"), None);
         for path in ["/v1/tasks", "/v1/console/tasks", "/v1/console/workflows"] {
             assert_eq!(policy(path, "GET"), Some(Policy::Metadata));
             assert_eq!(policy(path, "POST"), Some(Policy::Submit));

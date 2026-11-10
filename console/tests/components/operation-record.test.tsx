@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json?raw";
+import source from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json?raw";
 import { decodeConfig } from "../../src/api/codecs";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import type { ExplorerNode } from "../../src/api/explorer";
@@ -62,7 +62,7 @@ async function inspect(
         status,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "14",
+          "Ledgence-Console-Contract": "15",
           "Ledgence-Instance-Id": config.instance_id,
         },
       });

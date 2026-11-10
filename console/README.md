@@ -6,6 +6,29 @@ a registered program catalog, and worker process observations. The orchestrator
 serves the production assets at `/console/`; a deployed Console needs neither a
 Node.js process nor a hosted vendor service.
 
+## Live lifecycle history (development source)
+
+The next release adds a live lifecycle feed to a task’s **Trace → Lifecycle** and
+a workflow’s **General → Lifecycle** section. It reads committed Ledgence history;
+it is not a model-token stream, application log, or replacement for the execution
+graph. Console contract 15 advertises this through `execution_progress`. Adapters
+without the capability keep the existing paginated history.
+
+A view catches up in bounded batches and then waits for new pages. Each page
+advances its cursor only after validation; transient reconnects reuse that cursor
+and duplicate event identities are not rendered twice. Hidden/offline tabs,
+navigation, paused updates, and access changes stop observation without changing
+the execution. Failed reads retain the last accepted events and expose a retry;
+missing or retired history is reported explicitly. A changed instance or verified
+identity discards the previous feed.
+
+The view retains at most 500 events and reads at most five backlog pages before
+asking to load the next batch. **Browse all history** opens the paginated view for
+earlier events. A completed execution stops automatic updates; **Check for
+updates** reads any later cleanup records. A full page reload deliberately
+rebuilds retained history; no cursor, event, or credential is stored by this feed
+in browser storage.
+
 ## Development
 
 Use Node.js **24.21.0** and pnpm **11.27.1**. This directory is an independent pnpm

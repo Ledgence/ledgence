@@ -23,6 +23,7 @@ impl ToolDispatcher {
             target: args.target,
             cursor: args.cursor,
             limit: args.limit,
+            wait_ms: 0,
         };
         query.validate().map_err(ToolError::arguments)?;
         let reader = remote(self.tasks.progress_reader(), false)?;

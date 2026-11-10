@@ -28,6 +28,7 @@ const config: ConsoleConfig = {
   instance_id: "history-ui-test",
   instance_name: "Local workspace",
   capabilities: {
+    execution_progress: false,
     executions: true,
     workflows: true,
     programs: true,

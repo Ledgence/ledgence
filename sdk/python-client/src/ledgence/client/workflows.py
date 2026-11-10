@@ -168,24 +168,28 @@ class WorkflowHandle:
         return await self._outcome(asyncio.get_running_loop().time() + self._client.request_timeout)
 
     async def progress(self, *, cursor: str | None = None,
-                       limit: int = 100) -> ExecutionProgressPage:
+                       limit: int = 100, wait_ms: int = 0) -> ExecutionProgressPage:
         """Read one durable lifecycle page without loading application payloads."""
         from .progress import progress
-        return await progress(self, "workflow", cursor=cursor, limit=limit)
+        return await progress(self, "workflow", cursor=cursor, limit=limit, wait_ms=wait_ms)
 
     def follow_progress(self, *, cursor: str | None = None,
                         poll_interval: float = 1.0, timeout: float | None = None,
                         stop_on_terminal: bool = True,
-                        limit: int = 100) -> AsyncIterator[ExecutionProgressPage]:
+                        limit: int = 100, wait_ms: int = 20_000,
+                        ) -> AsyncIterator[ExecutionProgressPage]:
         """Yield bounded pages; persist next_cursor after processing each page.
 
         By default stop at a caught-up terminal snapshot. Late cleanup may add
         events afterward; resume the cursor or set stop_on_terminal=False.
+        Caught-up reads request up to wait_ms in shared server waiting; zero
+        disables waiting. Request/observation budgets may shorten this maximum.
         Timeout or cancellation stops this observer only, never the execution.
         """
         from .progress import follow_progress
         return follow_progress(self, "workflow", cursor=cursor, poll_interval=poll_interval,
-                               timeout=timeout, stop_on_terminal=stop_on_terminal, limit=limit)
+                               timeout=timeout, stop_on_terminal=stop_on_terminal, limit=limit,
+                               wait_ms=wait_ms)
 
     async def wait(self, timeout: float = 60.0) -> WorkflowResult:
         """Observe a terminal outcome; expiration never cancels or resubmits the workflow."""

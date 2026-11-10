@@ -336,9 +336,13 @@ Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a 
 
 ## Execution progress (development source)
 
-The development client adds `progress(cursor=None, limit=100)` and
-`follow_progress(cursor=None, poll_interval=1.0, timeout=None, stop_on_terminal=True, limit=100)`
+The development client adds `progress(cursor=None, limit=100, wait_ms=0)` and
+`follow_progress(cursor=None, poll_interval=1.0, timeout=None, stop_on_terminal=True, limit=100, wait_ms=20000)`
 to task and workflow handles. The follower yields bounded pages, with
-`next_cursor` for application-owned checkpointing. `ProgressTimeout` ends only
+`next_cursor` for application-owned checkpointing. Its first read and backlog
+reads are immediate; subsequent reads can wait up to 20 seconds for a transition.
+`wait_ms` accepts 0–20,000 and is shortened to fit the remaining observer and
+request deadlines. `poll_interval` sets the minimum request cycle, so a long read
+does not add another sleep. `ProgressTimeout` ends only
 observation. These methods are not included in the 0.9.0 package.
 [Guide and limits](/how-to/follow-execution-progress).

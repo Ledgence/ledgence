@@ -14,6 +14,7 @@ export function requiredCapabilities(
   write: boolean,
 ): AccessCapability[] {
   const route = path.split("?")[0]!.replace("/v1/console/", "");
+  if (route === "executions/progress") return ["metadata_read"];
   if (route === "budgets/inspect" || route === "budgets/entries")
     return ["metadata_read"];
   if (

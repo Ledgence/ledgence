@@ -53,6 +53,7 @@ struct Mock {
     evidence_capabilities: AtomicUsize,
     queue_policies_enabled: AtomicBool,
     progress_enabled: AtomicBool,
+    progress_delay_ms: AtomicUsize,
     admission_enabled: AtomicBool,
     fair_sharing_enabled: AtomicBool,
     resource_sources_enabled: AtomicBool,

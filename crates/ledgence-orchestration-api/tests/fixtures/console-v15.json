@@ -1537,6 +1537,7 @@
   },
   "config": {
     "capabilities": {
+      "execution_progress": true,
       "executions": true,
       "programs": true,
       "queue_policies": true,
@@ -1549,7 +1550,7 @@
       "workers": true,
       "workflows": true
     },
-    "contract_version": 14,
+    "contract_version": 15,
     "instance_id": "instance_demo",
     "instance_name": "Ledgence",
     "limits": {
@@ -1575,7 +1576,7 @@
       "billing"
     ]
   },
-  "contract_version": 14,
+  "contract_version": 15,
   "entrypoint_attempts": {
     "items": [
       {
@@ -9058,6 +9059,80 @@
     ],
     "next_cursor": null,
     "observed_at": 1790409600000
+  },
+  "progress_task_page": {
+    "events": [
+      {
+        "activation_id": null,
+        "at": 1790409600000,
+        "attempt_id": null,
+        "reason": "submitted",
+        "sequence": "1"
+      }
+    ],
+    "has_more": false,
+    "high_watermark": "1",
+    "next_cursor": "7b2276657273696f6e223a312c2273636f7065223a7b2274656e616e745f6964223a2261636d65222c226e616d657370616365223a2262696c6c696e67227d2c22746172676574223a7b226b696e64223a227461736b222c226964223a227461736b5f696e766f6963655f31303432227d2c226166746572223a2231227d",
+    "scope": {
+      "namespace": "billing",
+      "tenant_id": "acme"
+    },
+    "state": "queued",
+    "target": {
+      "id": "task_invoice_1042",
+      "kind": "task"
+    },
+    "terminal": false
+  },
+  "progress_task_query": {
+    "cursor": null,
+    "limit": 100,
+    "scope": {
+      "namespace": "billing",
+      "tenant_id": "acme"
+    },
+    "target": {
+      "id": "task_invoice_1042",
+      "kind": "task"
+    },
+    "wait_ms": 5000
+  },
+  "progress_workflow_page": {
+    "events": [
+      {
+        "activation_id": "activation_1",
+        "at": 1790409600000,
+        "attempt_id": null,
+        "reason": "wait_registered",
+        "sequence": "9007199254740993"
+      }
+    ],
+    "has_more": false,
+    "high_watermark": "9007199254740993",
+    "next_cursor": "7b2276657273696f6e223a312c2273636f7065223a7b2274656e616e745f6964223a2261636d65222c226e616d657370616365223a2262696c6c696e67227d2c22746172676574223a7b226b696e64223a22776f726b666c6f77222c226964223a2277665f696e766f6963655f31303432227d2c226166746572223a2239303037313939323534373430393933227d",
+    "scope": {
+      "namespace": "billing",
+      "tenant_id": "acme"
+    },
+    "state": "waiting",
+    "target": {
+      "id": "wf_invoice_1042",
+      "kind": "workflow"
+    },
+    "terminal": false
+  },
+  "progress_workflow_query": {
+    "cursor": "7b2276657273696f6e223a312c2273636f7065223a7b2274656e616e745f6964223a2261636d65222c226e616d657370616365223a2262696c6c696e67227d2c22746172676574223a7b226b696e64223a22776f726b666c6f77222c226964223a2277665f696e766f6963655f31303432227d2c226166746572223a2239303037313939323534373430393932227d",
+    "limit": 100,
+    "scope": {
+      "namespace": "billing",
+      "tenant_id": "acme"
+    },
+    "target": {
+      "id": "wf_invoice_1042",
+      "kind": "workflow"
+    },
+    "wait_ms": 5000
   },
   "provider_probe_detail": {
     "admission_deferrals": 0,

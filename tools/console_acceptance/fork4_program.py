@@ -122,6 +122,10 @@ def finish(event, ctx):
 
 def check(ctx, data, name):
     if name == "Security review":
+        if data.get("progress_gate") and ctx.wake is None:
+            # The progress recovery gate restarts the observer and both owned
+            # services while this branch is durably suspended, then sends an event.
+            return ctx.wait_event("progress-gate:0", continuation=Entry.SECURITY, state={})
         if data["mode"] == "branch_failed":
             return ctx.fail("security_check_failed", "Synthetic release check failure")
         if data["mode"] == "branch_cancelled":

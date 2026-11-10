@@ -20,7 +20,7 @@ def distribution(directory, source='a' * 40):
         file.write_bytes(data)
         assets.append({'path': name, 'sha256': hashlib.sha256(data).hexdigest(),
                        'size_bytes': len(data), 'content_type': mime})
-    manifest = {'schema_version': 1, 'console_contract_version': 14, 'console_version': '0.1.0',
+    manifest = {'schema_version': 1, 'console_contract_version': 15, 'console_version': '0.1.0',
                 'source_revision': source, 'source_dirty': False,
                 'toolchain': {'node': '24.21.0', 'pnpm': '11.27.1'}, 'lockfile_sha256': 'b' * 64, 'assets': assets}
     (directory / 'console-manifest.json').write_text(json.dumps(manifest))

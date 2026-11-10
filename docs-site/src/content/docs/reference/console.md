@@ -19,6 +19,10 @@ a relative time scale for comparing when the recorded steps ran. For a local ste
 the badge shows its durable result when one exists. The bar describes the observed
 attempt. A later failed or cancelled call can appear alongside an earlier accepted result.
 
+**Development source:** Console contract **15** adds bounded live execution history.
+It requires matching server and assets from the development checkout; published
+0.9.0 continues to use contract 14. See [follow execution progress](/how-to/follow-execution-progress).
+
 ## Views and actions
 
 | View | Recorded information | Available actions |

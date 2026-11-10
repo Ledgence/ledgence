@@ -33,14 +33,14 @@ const COMMANDS: &[Leaf] = &[
     Leaf {
         group: "task",
         name: "progress",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME --task ID [--cursor CURSOR] [--limit 1..100] [--follow [--poll-interval-ms MS] [--keep-following]] [--timeout-ms MS]",
-        description: "Read one bounded page of committed lifecycle metadata. --follow writes JSONL pages, polls only when caught up (default 1000 ms; minimum 250 ms), and drains a terminal snapshot before ending. Terminal does not seal history: --keep-following also observes late cleanup. Save next_cursor after processing a page to reconnect. Observation timeout or interruption never cancels execution; output failure exits nonzero.",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME --task ID [--cursor CURSOR] [--limit 1..100] [--wait-ms 0..20000] [--follow [--poll-interval-ms MS] [--keep-following]] [--timeout-ms MS]",
+        description: "Read one bounded page of committed lifecycle metadata. --follow writes JSONL pages and uses bounded server waits when caught up (default 20000 ms; --wait-ms 0 disables waiting). --poll-interval-ms sets the minimum cycle interval (default 1000 ms; minimum 250 ms). A drained terminal snapshot ends observation. Terminal does not seal history: --keep-following also observes late cleanup. Save next_cursor after processing a page to reconnect. Observation timeout or interruption never cancels execution; output failure exits nonzero.",
     },
     Leaf {
         group: "workflow",
         name: "progress",
-        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME --workflow ID [--cursor CURSOR] [--limit 1..100] [--follow [--poll-interval-ms MS] [--keep-following]] [--timeout-ms MS]",
-        description: "Read one bounded page of committed lifecycle metadata. --follow writes JSONL pages, polls only when caught up (default 1000 ms; minimum 250 ms), and drains a terminal snapshot before ending. Terminal does not seal history: --keep-following also observes late cleanup. Save next_cursor after processing a page to reconnect. Observation timeout or interruption never cancels execution; output failure exits nonzero.",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME --workflow ID [--cursor CURSOR] [--limit 1..100] [--wait-ms 0..20000] [--follow [--poll-interval-ms MS] [--keep-following]] [--timeout-ms MS]",
+        description: "Read one bounded page of committed lifecycle metadata. --follow writes JSONL pages and uses bounded server waits when caught up (default 20000 ms; --wait-ms 0 disables waiting). --poll-interval-ms sets the minimum cycle interval (default 1000 ms; minimum 250 ms). A drained terminal snapshot ends observation. Terminal does not seal history: --keep-following also observes late cleanup. Save next_cursor after processing a page to reconnect. Observation timeout or interruption never cancels execution; output failure exits nonzero.",
     },
     Leaf {
         group: "queue",

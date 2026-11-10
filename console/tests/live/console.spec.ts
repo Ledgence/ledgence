@@ -1,10 +1,20 @@
+import {
+  decodeProgress,
+  progressPageMaximumBytes,
+  type ProgressRequest,
+} from "../../src/api/progress";
 // Real server/DB/worker tests. No request routing or fixture responses are allowed here.
 import {
   expect,
   test,
   type APIRequestContext,
   type Page,
+  type Request,
+  type Response,
 } from "@playwright/test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import * as dto from "../../src/api/resources";
 import { decodeConfig } from "../../src/api/codecs";
@@ -469,4 +479,331 @@ test("real interface supports keyboard, reduced motion, touch and 200 percent la
     await touch.close();
   }
   expect(errors).toEqual([]);
+});
+
+for (const kind of ["task", "workflow"] as const) {
+  test(`real ${kind} lifecycle feed matches committed pages and rebuilds after reload`, async ({
+    page,
+    request,
+  }, info) => {
+    const config = await get(request, "config", decodeConfig);
+    expect(config.capabilities.execution_progress).toBe(true);
+    const tasks =
+      kind === "task"
+        ? await get(request, "tasks?state=failed&limit=25", dto.taskPage)
+        : null;
+    const workflows =
+      kind === "workflow"
+        ? await get(
+            request,
+            "workflows?state=succeeded&limit=25",
+            dto.workflowPage,
+          )
+        : null;
+    const id =
+      tasks?.items[0]?.task.task_id ??
+      workflows?.items[0]?.workflow.workflow_id;
+    if (!id) throw new Error("A seeded terminal execution is required.");
+    const query = {
+      target: { kind, id },
+      cursor: null,
+      limit: 100,
+      wait_ms: 0,
+    };
+    const response = await request.post("/v1/console/executions/progress", {
+      data: query,
+    });
+    expect(response.ok()).toBe(true);
+    const expected = decodeProgress(
+      parseUserJson(await response.text(), progressPageMaximumBytes),
+      query,
+    );
+    expect(expected.events.length).toBeGreaterThan(0);
+    const route =
+      kind === "task"
+        ? `/console/executions/${encodeURIComponent(id)}?tab=Trace&section=history`
+        : `/console/workflows/${encodeURIComponent(id)}?tab=General&section=history`;
+    const observed: (string | null)[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/v1/console/executions/progress")
+        observed.push(request.postDataJSON().cursor);
+    });
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto(route);
+    const feed = page.getByRole("region", { name: "Live lifecycle history" });
+    await expect(feed.locator(".progress-events li")).toHaveCount(
+      expected.events.length,
+    );
+    for (const event of expected.events)
+      await expect(
+        feed.getByText(`#${event.sequence}`, { exact: true }),
+      ).toBeVisible();
+    await expect(feed.getByRole("status")).toHaveText(
+      "Caught up · execution finished",
+    );
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: info.outputPath(`${kind}-live-history-mobile.png`),
+      fullPage: true,
+    });
+    await page.reload();
+    await expect(feed.locator(".progress-events li")).toHaveCount(
+      expected.events.length,
+    );
+    expect(observed.filter((cursor) => cursor === null)).toHaveLength(2);
+    await feed.getByRole("button", { name: "Check for updates" }).click();
+    await expect.poll(() => observed.at(-1)).toBe(expected.next_cursor);
+    await expect(feed.locator(".progress-events li")).toHaveCount(
+      expected.events.length,
+    );
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+}
+
+test("real active task wakes a pending lifecycle wait and stops at terminal with its cursor retained", async ({
+  page,
+  request,
+}, info) => {
+  const config = await get(request, "config", decodeConfig);
+  expect(config.capabilities.execution_progress).toBe(true);
+  const tasks = await get(
+    request,
+    "tasks?state=succeeded&limit=100",
+    dto.taskPage,
+  );
+  const original = tasks.items.find(
+    (item) => item.descriptor.program.id === "invoice",
+  );
+  if (!original)
+    throw new Error("Seeded successful invoice execution required.");
+  const directory = await mkdtemp(join(tmpdir(), "ledgence-progress-"));
+  const marker = join(directory, "invocations.jsonl");
+  const gate = join(directory, "gate");
+  let taskId: string | undefined;
+  const errors = noRuntimeErrors(page);
+  const exchanges: {
+    request: Request;
+    query: ProgressRequest;
+    started: number;
+    response?: Response;
+    failed?: boolean;
+  }[] = [];
+  page.on("request", (outgoing) => {
+    if (new URL(outgoing.url()).pathname === "/v1/console/executions/progress")
+      exchanges.push({
+        request: outgoing,
+        query: outgoing.postDataJSON(),
+        started: Date.now(),
+      });
+  });
+  page.on("response", (response) => {
+    const exchange = exchanges.find(
+      (item) => item.request === response.request(),
+    );
+    if (exchange) exchange.response = response;
+  });
+  page.on("requestfailed", (failed) => {
+    const exchange = exchanges.find((item) => item.request === failed);
+    if (exchange) exchange.failed = true;
+  });
+  try {
+    // This fixture program runs on the actual local worker and waits for a file.
+    // A unique directory makes the task independent of both browser projects.
+    const submitted = await request.post("/v1/console/tasks", {
+      data: {
+        idempotency_key: `live-progress-${basename(directory)}`,
+        input: {
+          program: original.descriptor.program,
+          queue: original.task.queue,
+          data: { mode: "gate", marker, gate },
+          retry_policy: { max_attempts: 1, retry_delay_ms: 0 },
+          attempt_timeout_ms: 60000,
+        },
+      },
+    });
+    expect(submitted.ok()).toBe(true);
+    const task = dto.taskDetail(
+      parseUserJson(await submitted.text(), 1024 * 1024),
+    );
+    taskId = task.task_id;
+    await expect
+      .poll(
+        async () => {
+          try {
+            return (await readFile(marker, "utf8")).includes(task.task_id);
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 20000 },
+      )
+      .toBe(true);
+    const active = await get(
+      request,
+      `tasks/status?task_id=${encodeURIComponent(taskId)}`,
+      dto.observedTask,
+    );
+    expect(active.task.state).toBe("active");
+    const initialQuery: ProgressRequest = {
+      target: { kind: "task", id: taskId },
+      cursor: null,
+      limit: 100,
+      wait_ms: 0,
+    };
+    const initialResponse = await request.post(
+      "/v1/console/executions/progress",
+      { data: initialQuery },
+    );
+    expect(initialResponse.ok()).toBe(true);
+    const initial = decodeProgress(
+      parseUserJson(await initialResponse.text(), progressPageMaximumBytes),
+      initialQuery,
+    );
+    expect(initial.terminal).toBe(false);
+    expect(
+      initial.events.some((event) => event.reason === "dispatch_authorized"),
+    ).toBe(true);
+    await page.goto(
+      `/console/executions/${encodeURIComponent(taskId)}?tab=Trace&section=history`,
+    );
+    const feed = page.getByRole("region", { name: "Live lifecycle history" });
+    await expect(feed.locator(".progress-events li")).toHaveCount(
+      initial.events.length,
+    );
+    const pendingWait = () =>
+      exchanges.find(
+        (item) =>
+          item.query.wait_ms === 5000 &&
+          item.query.cursor === initial.next_cursor &&
+          !item.response &&
+          !item.failed,
+      );
+    await expect.poll(pendingWait).toBeDefined();
+    const waiting = pendingWait()!;
+    // Prove the real request remains pending before the mutation. Observing a
+    // request alone would also pass for an incorrectly immediate empty reply.
+    await page.waitForTimeout(250);
+    expect(waiting.response).toBeUndefined();
+    expect(waiting.failed).toBeUndefined();
+    const waitedBeforeCancellation = Date.now() - waiting.started;
+    const cancelled = await request.post("/v1/console/tasks/cancel", {
+      data: { task_id: taskId },
+    });
+    expect(cancelled.ok()).toBe(true);
+    dto.cancelTaskReceipt(parseUserJson(await cancelled.text(), 1024 * 1024));
+    await expect.poll(() => waiting.response).toBeDefined();
+    const resumedResponse = waiting.response!;
+    expect(resumedResponse.ok()).toBe(true);
+    const resumed = decodeProgress(
+      parseUserJson(await resumedResponse.text(), progressPageMaximumBytes),
+      waiting.query,
+    );
+    expect(resumed.events.length).toBeGreaterThan(0);
+    expect(BigInt(resumed.events[0]!.sequence)).toBeGreaterThan(
+      BigInt(initial.high_watermark),
+    );
+    expect(
+      resumed.events.some((event) =>
+        ["cancel_requested", "cancelled"].includes(event.reason),
+      ),
+    ).toBe(true);
+    await expect(feed.getByRole("status")).toHaveText(
+      "Caught up · execution finished",
+      { timeout: 20000 },
+    );
+    const terminalExchange = exchanges.at(-1)!;
+    expect(terminalExchange.response?.ok()).toBe(true);
+    const terminal = decodeProgress(
+      parseUserJson(
+        await terminalExchange.response!.text(),
+        progressPageMaximumBytes,
+      ),
+      terminalExchange.query,
+    );
+    expect(terminal.state).toBe("cancelled");
+    expect(terminal.terminal).toBe(true);
+    const finishedCount = exchanges.length;
+    await page.waitForTimeout(600);
+    expect(exchanges).toHaveLength(finishedCount);
+    expect(exchanges.every((item) => !!item.response && !item.failed)).toBe(
+      true,
+    );
+    const beforeRefresh = await feed.locator(".progress-events li").count();
+    await feed.getByRole("button", { name: "Check for updates" }).click();
+    await expect.poll(() => exchanges.length).toBe(finishedCount + 1);
+    const refresh = exchanges.at(-1)!;
+    expect(refresh.query.cursor).toBe(terminal.next_cursor);
+    await expect(feed.getByRole("status")).toHaveText(
+      "Caught up · execution finished",
+    );
+    const pages = await Promise.all(
+      exchanges.map(async (item) => {
+        expect(item.response?.ok()).toBe(true);
+        return decodeProgress(
+          parseUserJson(await item.response!.text(), progressPageMaximumBytes),
+          item.query,
+        );
+      }),
+    );
+    const sequences = pages.flatMap((item) =>
+      item.events.map((event) => event.sequence),
+    );
+    expect(new Set(sequences).size).toBe(sequences.length);
+    await expect(feed.locator(".progress-events li")).toHaveCount(
+      sequences.length,
+    );
+    expect(sequences.length).toBeGreaterThan(initial.events.length);
+    expect(sequences.length).toBeGreaterThanOrEqual(beforeRefresh);
+    for (const sequence of sequences)
+      await expect(
+        feed.getByText(`#${sequence}`, { exact: true }),
+      ).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(errors).toEqual([]);
+    await info.attach("active-progress-evidence", {
+      body: JSON.stringify({
+        task_id: taskId,
+        initial_events: initial.events,
+        wait_ms: waiting.query.wait_ms,
+        pending_before_cancel_ms: waitedBeforeCancellation,
+        wake_events: resumed.events,
+        terminal_cursor: terminal.next_cursor,
+        refresh_cursor: refresh.query.cursor,
+        sequences,
+        stopped_request_count: finishedCount,
+      }),
+      contentType: "application/json",
+    });
+  } finally {
+    try {
+      // Also release the gate if an assertion fails before cancellation succeeds.
+      await writeFile(gate, "released\n");
+      const cleanupTaskId = taskId;
+      if (cleanupTaskId) {
+        const cleanup = await request.post("/v1/console/tasks/cancel", {
+          data: { task_id: cleanupTaskId },
+        });
+        expect(cleanup.ok()).toBe(true);
+        await expect
+          .poll(
+            async () => {
+              const status = await get(
+                request,
+                `tasks/status?task_id=${encodeURIComponent(cleanupTaskId)}`,
+                dto.observedTask,
+              );
+              return dto.terminal(status.task.state);
+            },
+            { timeout: 15000 },
+          )
+          .toBe(true);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 });

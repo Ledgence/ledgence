@@ -45,6 +45,7 @@ nix = { version = "=0.31.3", default-features = false, features = ["fs"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["signal", "process"] }

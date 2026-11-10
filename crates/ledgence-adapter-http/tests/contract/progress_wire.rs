@@ -9,6 +9,7 @@ fn query() -> ExecutionProgressQuery {
         },
         cursor: None,
         limit: 1,
+        wait_ms: 0,
     }
 }
 

@@ -1,3 +1,4 @@
+import { ExecutionProgress } from "./execution-progress";
 import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { useEffect, useState } from "react";
@@ -832,7 +833,17 @@ function LocalSteps({
     </>
   );
 }
-function WorkflowHistory({
+function WorkflowHistory(props: { workflowId: string; active: boolean }) {
+  const config = useInstance();
+  if (!config.capabilities.execution_progress)
+    return <WorkflowHistoryPages {...props} />;
+  return (
+    <ExecutionProgress target={{ kind: "workflow", id: props.workflowId }}>
+      <WorkflowHistoryPages {...props} />
+    </ExecutionProgress>
+  );
+}
+function WorkflowHistoryPages({
   workflowId,
   active,
 }: {

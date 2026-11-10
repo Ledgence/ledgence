@@ -20,6 +20,7 @@ mod task_admission;
 pub mod worker_observations;
 mod workflow;
 pub use acquisition::AcquisitionStatistics;
+pub use progress::ProgressStatistics;
 
 use ledgence_orchestration_api::*;
 use ledgence_orchestration_core::{replay_submission, validate_submission};
@@ -42,6 +43,7 @@ pub struct ApplicationService {
     )>,
     programs: Arc<dyn ProgramStore>,
     acquisition: Arc<acquisition::Coordinator>,
+    progress: Arc<progress::Coordinator>,
     claims_stopped: Arc<AtomicBool>,
 }
 
@@ -54,6 +56,7 @@ impl ApplicationService {
             catalog: None,
             programs,
             acquisition: acquisition::Coordinator::new(),
+            progress: progress::Coordinator::new(),
             claims_stopped: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -120,6 +123,12 @@ impl ApplicationService {
     pub fn stop_acquisitions(&self) {
         self.claims_stopped.store(true, Ordering::Release);
         self.acquisition.stop();
+        self.progress.stop();
+    }
+
+    /// Bounded lifecycle-observer resources and cumulative authoritative probes.
+    pub fn progress_statistics(&self) -> ProgressStatistics {
+        self.progress.statistics()
     }
 
     pub fn acquisition_statistics(&self) -> AcquisitionStatistics {

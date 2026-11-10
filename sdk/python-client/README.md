@@ -1004,12 +1004,18 @@ Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a 
 
 ## Execution progress (development source)
 
-This checkout adds `await handle.progress(cursor=None, limit=100)` and
-`async for page in handle.follow_progress(cursor=None, poll_interval=1.0, timeout=None, stop_on_terminal=True, limit=100)`
+This checkout adds `await handle.progress(cursor=None, limit=100, wait_ms=0)` and
+`async for page in handle.follow_progress(cursor=None, poll_interval=1.0, timeout=None, stop_on_terminal=True, limit=100, wait_ms=20000)`
 for task and workflow handles. A page contains typed state, immutable lifecycle
 events, an observed high-watermark and `next_cursor`. Process a complete page,
 then persist that cursor; deduplicate repeated deliveries by scope/target/sequence.
-The iterator has no background buffer and polls only when caught up.
+The iterator has no background buffer. It reads the first page and backlog
+immediately, then requests shared server waits of up to 20 seconds when caught up.
+`wait_ms=0` disables server waiting. Each wait is shortened to fit the remaining
+request and observation budgets with one second reserved for response delivery.
+`poll_interval` (minimum 0.25 seconds) paces fast responses, including terminal
+`stop_on_terminal=False`; time spent waiting and processing already counts toward
+that interval. A completed long poll does not add another fixed polling delay.
 
 `ProgressTimeout` includes the execution, `last_page` and `next_cursor`; it never
 cancels or resubmits execution. Other transport, permission and protocol errors

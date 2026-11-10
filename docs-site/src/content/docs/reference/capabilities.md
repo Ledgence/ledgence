@@ -215,7 +215,8 @@ Limit outstanding attempts across worker replicas, independently of each workerâ
 ## In development: resumable execution progress
 
 Matching development server/client builds expose bounded lifecycle pages for a
-task or workflow, Python and CLI followers, and an MCP read tool. Cursors support
-reopening retained history. This does not add model-token streaming or a live
-Console timeline, and it is not available in 0.9.0 distributions.
+task or workflow, Python and CLI followers, a live Console lifecycle timeline,
+and an MCP read tool. Cursors support reopening retained history; bounded server
+waits reduce repeated idle reads. This does not add model-token streaming and is
+not available in 0.9.0 distributions.
 [Follow an execution](/how-to/follow-execution-progress).

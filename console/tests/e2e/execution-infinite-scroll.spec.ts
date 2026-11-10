@@ -8,7 +8,7 @@ import { observedTask } from "../../src/api/resources";
 
 const raw = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json",
     import.meta.url,
   ),
   "utf8",
@@ -24,7 +24,7 @@ const canonicalPage = executionPage(fixture("execution_history"));
 const observedAt = canonicalPage.observed_at;
 const headers = {
   "Content-Type": "application/json",
-  "Ledgence-Console-Contract": "14",
+  "Ledgence-Console-Contract": "15",
   "Ledgence-Instance-Id": canonicalConfig.instance_id,
 };
 
@@ -84,7 +84,7 @@ async function mount(
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Ledgence-Console-Contract": "14",
+          "Ledgence-Console-Contract": "15",
           "Ledgence-Instance-Id": "instance_demo",
         },
         body: JSON.stringify({ mode: "operator_trusted" }),
