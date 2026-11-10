@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { consoleContractVersion } from "../src/api/contracts.ts";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const output = join(root, "dist");
 const digest = (data) => createHash("sha256").update(data).digest("hex");
@@ -131,7 +132,7 @@ if (
 const manifest = {
   schema_version: 1,
   console_version: project.version,
-  console_contract_version: 15,
+  console_contract_version: consoleContractVersion,
   source_revision,
   source_dirty,
   toolchain: { node: process.versions.node, pnpm: project.engines.pnpm },
