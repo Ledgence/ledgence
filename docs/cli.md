@@ -533,3 +533,14 @@ In Ledgence 0.9.0, `ledgence resource decisions --server URL --credentials-file 
 ### Inspect a shared run budget
 
 Read `ledgence budget inspect --server URL --credentials-file FILE --tenant ID --namespace NAME --workflow ID`. Replace `--workflow ID` with `--task ID` for a task. `ledgence budget entries` takes the same scope and subject; pass `--before SEQUENCE` to follow the returned cursor. Both require `metadata_read`.
+
+## Execution progress (development source)
+
+`ledgence task progress --server URL --tenant ID --namespace NAME --task TASK_ID`
+and `ledgence workflow progress --server URL --tenant ID --namespace NAME --workflow WORKFLOW_ID`
+read one bounded lifecycle page. Both accept `--cursor` and `--limit 1..100`.
+`--follow` prints JSONL pages until a terminal snapshot is drained;
+`--keep-following` continues beyond it. `--poll-interval-ms` defaults to 1000
+(minimum 250), and `--timeout-ms` bounds observation. Credentials require
+`metadata_read`. These commands require matching development components.
+[Cursor, recovery and output semantics](execution-progress.md).

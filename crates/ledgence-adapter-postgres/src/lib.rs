@@ -22,6 +22,7 @@ mod migration_effects;
 mod notifications;
 mod operator_audit;
 mod persistence;
+mod progress;
 mod queue_concurrency;
 mod retention;
 mod run_budget;

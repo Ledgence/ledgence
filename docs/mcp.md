@@ -250,7 +250,7 @@ ledgence mcp serve --server http://127.0.0.1:8080 \
   --allow-effect-resolution
 ```
 
-`--read-only` and `--allow-effect-resolution` cannot be combined. With audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36.
+`--read-only` and `--allow-effect-resolution` cannot be combined. In 0.9.0, with audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36.
 The added `ledgence_effect_resolve` also requires the credential's dedicated
 `effect_resolve` capability. Fixed scope and credentials cannot be supplied or
 overridden through tool arguments. Worker credentials cannot resolve effects.
@@ -298,7 +298,7 @@ clean assessment; provider `disputed` still exposes that history. Typed provider
 evidence can also dispute a recorded failure, without changing the resolve input.
 `ledgence_effect_inspect` exposes the same original occurrence, full approved
 provider binding, current typed report and whole-entry timeline as HTTP.
-With audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36. No MCP approval mutation
+In 0.9.0, with audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36. No MCP approval mutation
 or automatic provider dispatch is introduced.
 
 All platform u64 counters, revisions, sequences, probe generations and pinned
@@ -321,7 +321,7 @@ apply unchanged. These additions require matching 0.9.0 components.
 Matching 0.9.0 builds add six resource read tools: `ledgence_resource_list`,
 `ledgence_resource_inspect`, `ledgence_resource_decisions`, audited `ledgence_resource_sources`, `ledgence_admission_inspect` and
 `ledgence_task_admission_inspect`. The native
-catalog with audit has 30 default tools and 25 read-only tools. Explicit effect
+0.9.0 catalog with audit has 30 default tools and 25 read-only tools. Explicit effect
 resolution adds one. `--allow-resource-control` separately adds
 `ledgence_resource_put`, `ledgence_admission_release`, `ledgence_task_admission_release`,
 `ledgence_queue_policy_put` and `ledgence_queue_hold_release`
@@ -344,3 +344,23 @@ a worker dispatch grant.
 The 0.9.0 catalog includes `ledgence_queue_policy_inspect`, `ledgence_queue_policy_list` and `ledgence_queue_holds` in both default and read-only modes. Exact hold reads require `sensitive_read`; edits and releases require the resource-control opt-in and server permission. [Queue policy contract](queue-concurrency.md).
 
 In Ledgence 0.9.0, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.
+
+## Execution progress (development source)
+
+`ledgence_execution_progress` reads one bounded lifecycle page for a task or
+workflow in the configured scope. It accepts an execution kind/ID, cursor and
+limit, requires metadata-read access and remains available in read-only mode.
+The tool returns a checkpoint; it does not keep an MCP call open waiting for the
+execution. It requires matching development components, beyond the published
+0.9.0 tool catalog. [Progress contract](execution-progress.md).
+
+For example, pass these tool arguments (the MCP server supplies the scope):
+
+```json
+{"target":{"kind":"task","id":"TASK_ID"},"cursor":null,"limit":100}
+```
+
+The development catalog adds this one read tool: with audit configured it has
+31 default tools, 26 in read-only mode, 32 with effect resolution alone, 36 with
+resource control alone, and 37 with both mutation opt-ins. The published 0.9.0
+counts above remain unchanged.

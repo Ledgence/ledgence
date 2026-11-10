@@ -1001,3 +1001,20 @@ Pass `ResourceFairSharing` and its `ResourceFairGroup` values to `ResourcePolicy
 ### Shared run budgets
 
 Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).
+
+## Execution progress (development source)
+
+This checkout adds `await handle.progress(cursor=None, limit=100)` and
+`async for page in handle.follow_progress(cursor=None, poll_interval=1.0, timeout=None, stop_on_terminal=True, limit=100)`
+for task and workflow handles. A page contains typed state, immutable lifecycle
+events, an observed high-watermark and `next_cursor`. Process a complete page,
+then persist that cursor; deduplicate repeated deliveries by scope/target/sequence.
+The iterator has no background buffer and polls only when caught up.
+
+`ProgressTimeout` includes the execution, `last_page` and `next_cursor`; it never
+cancels or resubmits execution. Other transport, permission and protocol errors
+propagate. Default completion means a terminal snapshot was drained, not that no
+late cleanup event can arrive. `subscribe()` remains terminal webhook registration.
+These methods require a matching development server and are not in published
+0.9.0 packages. [Contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-progress.md)
+and [runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/execution-progress).

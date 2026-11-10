@@ -3,6 +3,9 @@ use ledgence_orchestration_core as core;
 use ledgence_worker_api::ProgramDescriptor;
 
 impl TaskStore for PostgresStore {
+    fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
+        Ok(self)
+    }
     fn supports_run_budgets(&self) -> bool {
         self.admission_configured().is_ok()
     }

@@ -3,6 +3,9 @@ use super::*;
 use ledgence_orchestration_api::console::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "progress.rs"]
+mod progress;
+
 const CANARY: &str = "private-payload-must-not-leak";
 #[path = "admission.rs"]
 mod admission;

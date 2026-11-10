@@ -7,6 +7,7 @@ mod approvals;
 mod audit;
 mod effect_resolution;
 mod evidence;
+mod progress;
 mod provider;
 mod provider_admission;
 mod provider_console;
@@ -282,6 +283,7 @@ const ROUTES: &[Route] = &[
     Route::sensitive_get("/v1/tasks/result", AuditReadKind::TaskResult),
     Route::get("/v1/attempts/inspect", Policy::Worker),
     Route::get("/v1/tasks/history", Policy::Metadata),
+    Route::post("/v1/executions/progress", Policy::Metadata),
     Route::post("/v1/tasks/cancel", Policy::Control),
     Route::post("/v1/worker-sessions", Policy::Worker),
     Route::post("/v1/worker-sessions/extend", Policy::Worker),
@@ -879,6 +881,7 @@ async fn dispatch(
         });
     }
     let maximum = match path {
+        "/v1/executions/progress" => EXECUTION_PROGRESS_QUERY_MAX_BYTES,
         path if path.starts_with("/v1/budgets/") => 4096,
         path if path.starts_with("/v1/resources/")
             || path.starts_with("/v1/admissions/")
@@ -930,6 +933,9 @@ async fn dispatch(
             }
         })?
         .to_vec();
+    if path == "/v1/executions/progress" {
+        return progress::post(server, bytes, context).await;
+    }
     if let Some(operation) = path.strip_prefix("/v1/queue-policies/") {
         return queue_policies::post(server, operation, bytes, None, context).await;
     }

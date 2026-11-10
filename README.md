@@ -318,3 +318,11 @@ retry keeps the original queue. For SQS, pair the plan with a [delivery configur
 ### Limit concurrency per queue
 
 Set a cluster-wide maximum for one queue while other queues continue operating. Change or pause it from Console, HTTP, CLI, Python or MCP. PostgreSQL reserves a slot with each assignment and retains uncertain attempts until confirmed cleanup, explicit operator release or an optional timeout with grace. [Configure and recover a queue limit](docs/queue-concurrency.md).
+
+## Execution progress (development source)
+
+The next release adds [resumable lifecycle pages](docs/execution-progress.md) for
+one task or workflow. Matching development server/client builds can follow pages
+with Python or the CLI, save a cursor and reconnect without resubmitting work. MCP
+provides a bounded read. These methods are not included in published 0.9.0 assets.
+[Try the example](examples/execution-progress/README.md).

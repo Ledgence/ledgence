@@ -429,6 +429,13 @@ pub struct RecordedHistoryEvent {
 /// Service boundary implemented by future transport adapters. A successful
 /// mutation reply is permitted only after durable transactional acceptance.
 pub trait TaskService: Send + Sync {
+    /// Optional complete read capability for resumable execution lifecycle pages.
+    fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
+        Err(ContractError::Unavailable(
+            "execution progress is unavailable".into(),
+        ))
+    }
+
     /// The implementation persists root task budgets and checks them before invoking the handler.
     fn supports_task_run_budgets(&self) -> bool {
         false

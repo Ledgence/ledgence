@@ -350,3 +350,10 @@ governed task. See [standalone task admission](resource-admission.md#standalone-
 ## Cluster-wide queue concurrency
 
 A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+
+## Execution progress (development source)
+
+`POST /v1/executions/progress` reads bounded lifecycle metadata through the
+optional `ExecutionProgressReader` capability. It supports task and workflow
+cursors, requires `metadata_read` and performs no execution mutation.
+[Wire contract and retention](execution-progress.md).

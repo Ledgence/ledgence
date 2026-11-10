@@ -6,6 +6,9 @@ mod access;
 #[path = "contract/operator_audit.rs"]
 mod operator_audit;
 
+#[path = "contract/progress_wire.rs"]
+mod progress_wire;
+
 #[path = "contract/publication.rs"]
 mod publication;
 
@@ -49,6 +52,7 @@ use tokio::{
 struct Mock {
     evidence_capabilities: AtomicUsize,
     queue_policies_enabled: AtomicBool,
+    progress_enabled: AtomicBool,
     admission_enabled: AtomicBool,
     fair_sharing_enabled: AtomicBool,
     resource_sources_enabled: AtomicBool,
@@ -99,6 +103,13 @@ impl Mock {
     }
 }
 impl TaskService for Mock {
+    fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
+        if self.progress_enabled.load(Ordering::SeqCst) {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable("progress disabled".into()))
+        }
+    }
     fn queue_policies(&self) -> Result<&dyn QueuePolicyOperations> {
         if self.queue_policies_enabled.load(Ordering::SeqCst) {
             Ok(self)

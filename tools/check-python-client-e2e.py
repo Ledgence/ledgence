@@ -248,6 +248,16 @@ async def scenarios(d, record):
             assert not (await wrong.tasks.list(correlation_key=business_key)).items
         record("task_discovery_live_pagination_and_business_filters", len(all_page.items))
 
+        # Save an intentionally partial lifecycle page before restarting the
+        # actual server. The installed SDK must resume from this durable cursor.
+        progress_first = await held.progress(limit=1)
+        assert progress_first.terminal and progress_first.has_more
+        assert len(progress_first.events) == 1 and progress_first.events[0].sequence == 1
+        progress_tail = progress_first.high_watermark
+        cli_progress = await asyncio.to_thread(d.command, "ledgence", ["task", "progress", *cli_scope, "--limit", "1"])
+        assert cli_progress["next_cursor"] == progress_first.next_cursor
+        assert cli_progress["high_watermark"] == str(progress_tail)
+
         # Restart the actual Rust server. Saving task ID/scope is sufficient to
         # resume reads without serializing a local Python handle.
         await asyncio.to_thread(d.server.stop)
@@ -255,6 +265,17 @@ async def scenarios(d, record):
         saved_id = held.id
     async with AsyncClient(d.server_url, **options) as resumed:
         assert await resumed.tasks.handle(saved_id).result(timeout=5) is None
+        handle = resumed.tasks.handle(saved_id)
+        sequences = [progress_first.events[0].sequence]
+        async for observed in handle.follow_progress(cursor=progress_first.next_cursor, limit=1, timeout=5):
+            assert observed.terminal and observed.high_watermark == progress_tail
+            sequences.extend(event.sequence for event in observed.events)
+            assert all(event.activation_id is None for event in observed.events)
+        assert sequences == list(range(1, progress_tail + 1))
+        empty = await handle.progress(cursor=observed.next_cursor)
+        assert empty.terminal and not empty.events and not empty.has_more
+        assert empty.next_cursor == observed.next_cursor
+        record("durable_progress_resume_after_server_restart", len(sequences))
         async with AsyncClient(d.server_url, tenant=options["tenant"], namespace="wrong") as wrong:
             try:
                 await wrong.tasks.handle(saved_id).status()

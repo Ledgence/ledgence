@@ -231,14 +231,14 @@ fn deliver(file: &mut File, record: &Record, state: &State) -> io::Result<()> {
     Ok(())
 }
 
-struct RestoreFlags {
+pub(crate) struct RestoreFlags {
     file: File,
     #[cfg(unix)]
     flags: nix::fcntl::OFlag,
 }
 
 #[cfg(unix)]
-fn destination(fd: std::os::fd::BorrowedFd<'_>) -> io::Result<(File, RestoreFlags)> {
+pub(crate) fn destination(fd: std::os::fd::BorrowedFd<'_>) -> io::Result<(File, RestoreFlags)> {
     use nix::fcntl::{FcntlArg, OFlag, fcntl};
     let file = File::from(fd.try_clone_to_owned()?);
     let flags = OFlag::from_bits_retain(fcntl(&file, FcntlArg::F_GETFL)?);

@@ -212,3 +212,13 @@ selects a registered queue before issuing a fresh poll. An integrated worker use
 A single physical worker still owns one concurrency budget; its queue sessions
 carry the backend identities needed for retries. Resource admission is evaluated
 separately.
+
+## Execution progress (development source)
+
+`ExecutionProgressReader` is an optional, complete metadata read capability on
+the task service/store. The application validates its replies; the HTTP adapter
+enforces scope and metadata-read access. PostgreSQL reads compact owner state
+and an indexed history page in one read-only repeatable-read snapshot. Existing
+per-owner transactional counters provide order, with no new execution-path
+writes. Transport/SDK consumers own their cursors and polling; no worker is
+reserved for observation. [Contract](execution-progress.md).

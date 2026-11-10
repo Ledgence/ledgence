@@ -333,3 +333,12 @@ Use `ResourceFairGroup` and `ResourceFairSharing` from `ledgence.client` to conf
 ### Shared run budgets
 
 Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).
+
+## Execution progress (development source)
+
+The development client adds `progress(cursor=None, limit=100)` and
+`follow_progress(cursor=None, poll_interval=1.0, timeout=None, stop_on_terminal=True, limit=100)`
+to task and workflow handles. The follower yields bounded pages, with
+`next_cursor` for application-owned checkpointing. `ProgressTimeout` ends only
+observation. These methods are not included in the 0.9.0 package.
+[Guide and limits](/how-to/follow-execution-progress).

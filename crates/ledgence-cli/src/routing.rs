@@ -4,7 +4,7 @@
 use crate::args::invalid;
 use ledgence_orchestration_api::Result;
 
-pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  budget        Inspect a shared run budget and its ledger\n  resource      Configure shared resource capacity\n  queue         Manage queue concurrency and retained slots\n  admission     Inspect and release retained resource usage\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
+pub const HELP: &str = "Ledgence\n\nUsage: ledgence <group> <command> [options]\n\nGroups:\n  access        Provision installation credentials\n  local         Start and manage a local Docker Compose installation\n  program       Create, package, publish, and register programs\n  task          Submit and inspect task executions\n  workflow      Follow workflow execution progress\n  approval      Review and decide durable workflow actions\n  audit         Inspect verified decisions and response observations\n  budget        Inspect a shared run budget and its ledger\n  resource      Configure shared resource capacity\n  queue         Manage queue concurrency and retained slots\n  admission     Inspect and release retained resource usage\n  effect        Inspect and assess retained external-effect evidence\n  mcp           Connect MCP clients to a Ledgence API\n  worker        Run local fixtures or connect a worker\n  orchestrator  Serve the API and administer its database\n\nUse ledgence <group> --help or ledgence <group> <command> --help.\nUse ledgence --version to print the executable version.\nExit status: 0 success, 2 invalid usage, 1 operational failure.\n";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
@@ -13,6 +13,7 @@ pub enum Route {
     Access(Vec<String>),
     Local(Vec<String>),
     Admin(Vec<String>),
+    Progress(Vec<String>),
     ProgramNew(Vec<String>),
     ProgramBuild(Vec<String>),
     ProgramPublish(Vec<String>),
@@ -29,6 +30,18 @@ struct Leaf {
 }
 
 const COMMANDS: &[Leaf] = &[
+    Leaf {
+        group: "task",
+        name: "progress",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME --task ID [--cursor CURSOR] [--limit 1..100] [--follow [--poll-interval-ms MS] [--keep-following]] [--timeout-ms MS]",
+        description: "Read one bounded page of committed lifecycle metadata. --follow writes JSONL pages, polls only when caught up (default 1000 ms; minimum 250 ms), and drains a terminal snapshot before ending. Terminal does not seal history: --keep-following also observes late cleanup. Save next_cursor after processing a page to reconnect. Observation timeout or interruption never cancels execution; output failure exits nonzero.",
+    },
+    Leaf {
+        group: "workflow",
+        name: "progress",
+        options: "[--credentials-file FILE] --server URL --tenant ID --namespace NAME --workflow ID [--cursor CURSOR] [--limit 1..100] [--follow [--poll-interval-ms MS] [--keep-following]] [--timeout-ms MS]",
+        description: "Read one bounded page of committed lifecycle metadata. --follow writes JSONL pages, polls only when caught up (default 1000 ms; minimum 250 ms), and drains a terminal snapshot before ending. Terminal does not seal history: --keep-following also observes late cleanup. Save next_cursor after processing a page to reconnect. Observation timeout or interruption never cancels execution; output failure exits nonzero.",
+    },
     Leaf {
         group: "queue",
         name: "list",
@@ -338,6 +351,7 @@ pub fn parse(arguments: Vec<String>) -> Result<Route> {
     }
     leaf(group, command)?;
     match (group, command.as_str()) {
+        ("task" | "workflow", "progress") => Ok(Route::Progress(arguments)),
         ("access", _) => Ok(Route::Access(arguments.into_iter().skip(1).collect())),
         ("local", _) => Ok(Route::Local(arguments.into_iter().skip(1).collect())),
         ("program", "new") => Ok(Route::ProgramNew(arguments.into_iter().skip(2).collect())),

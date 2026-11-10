@@ -5,7 +5,7 @@ import asyncio
 from dataclasses import dataclass, field
 import math
 import re
-from typing import Any, TYPE_CHECKING
+from typing import Any, AsyncIterator, TYPE_CHECKING
 
 from .admission_models import TaskAdmission
 from .budgets import RunBudgetPolicy, _policy
@@ -22,6 +22,7 @@ from .models import (
 
 if TYPE_CHECKING:
     from .client import AsyncClient
+    from .progress import ExecutionProgressPage
     from .completion_models import CompletionSubscribeCommand
     from .completions import CompletionSubscriptionHandle
 
@@ -269,6 +270,26 @@ class TaskHandle:
 
     async def outcome(self) -> TaskResult:
         return await self._outcome(asyncio.get_running_loop().time() + self._client.request_timeout)
+
+    async def progress(self, *, cursor: str | None = None,
+                       limit: int = 100) -> ExecutionProgressPage:
+        """Read one durable lifecycle page without loading application payloads."""
+        from .progress import progress
+        return await progress(self, "task", cursor=cursor, limit=limit)
+
+    def follow_progress(self, *, cursor: str | None = None,
+                        poll_interval: float = 1.0, timeout: float | None = None,
+                        stop_on_terminal: bool = True,
+                        limit: int = 100) -> AsyncIterator[ExecutionProgressPage]:
+        """Yield bounded pages; persist next_cursor after processing each page.
+
+        By default stop at a caught-up terminal snapshot. Late cleanup may add
+        events afterward; resume the cursor or set stop_on_terminal=False.
+        Timeout or cancellation stops this observer only, never the execution.
+        """
+        from .progress import follow_progress
+        return follow_progress(self, "task", cursor=cursor, poll_interval=poll_interval,
+                               timeout=timeout, stop_on_terminal=stop_on_terminal, limit=limit)
 
     async def wait(self, timeout: float = 60.0) -> TaskResult:
         """Observe to completion without cancelling the remote task on expiration."""

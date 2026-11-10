@@ -1,6 +1,7 @@
 mod catalog;
 mod completion;
 mod effect_boundaries;
+mod progress;
 mod workflow;
 
 use super::*;
@@ -41,6 +42,8 @@ impl ProgramStore for ControlledPrograms {
 /// by the adapter suite. This fixture isolates application/resolver ordering.
 #[derive(Default)]
 struct MemoryStore {
+    progress_calls: AtomicUsize,
+    progress_reply: Mutex<Option<Result<ExecutionProgressPage>>>,
     tasks: Mutex<Vec<TaskSnapshot>>,
     lookups: AtomicUsize,
     accepts: AtomicUsize,
@@ -54,6 +57,13 @@ struct MemoryStore {
 }
 
 impl TaskStore for MemoryStore {
+    fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
+        if self.progress_reply.lock().unwrap().is_some() {
+            Ok(self)
+        } else {
+            Err(ContractError::Unavailable("progress unavailable".into()))
+        }
+    }
     fn claim_dispatch<'a>(&'a self, command: &'a ClaimCommand) -> ContractFuture<'a, ClaimReply> {
         Box::pin(async move {
             self.claim_calls.lock().unwrap().push(command.clone());
